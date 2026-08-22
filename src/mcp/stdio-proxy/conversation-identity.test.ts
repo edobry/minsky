@@ -58,6 +58,10 @@ describe("resolveLiveConversationAgentId (mt#3900)", () => {
     // they did before mt#3900.
     const agentId = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
       readMapping: () => null,
+      // Injected so the miss does not reach the real ancestor walk (mt#4378):
+      // this case is about the fallback, not about re-resolution, and a test
+      // that shells out to `ps` is neither hermetic nor fast.
+      reresolvePid: () => null,
     });
     expect(agentId).toBe(EXPECTED_AGENT_ID);
   });
@@ -74,6 +78,7 @@ describe("resolveLiveConversationAgentId (mt#3900)", () => {
   test("returns null when neither source yields an id — never fabricates one", () => {
     const agentId = resolveLiveConversationAgentId(HARNESS_PID, null, {
       readMapping: () => null,
+      reresolvePid: () => null,
     });
     expect(agentId).toBeNull();
   });
@@ -287,5 +292,98 @@ describe("injectAgentIdMeta", () => {
     expect(injected).not.toBe(msg);
     expect(msg.params).toBe(params);
     expect("_meta" in (msg.params as Record<string, unknown>)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Re-resolving the harness pid on a miss (SC3, mt#4378)
+// ---------------------------------------------------------------------------
+
+describe("harness-pid re-resolution (SC3, mt#4378)", () => {
+  beforeEach(() => {
+    resetConversationMappingCache();
+  });
+
+  /** The pid walked at construction; the MCP server outlives its harness. */
+  const STALE_PID = 27382;
+  /** The harness actually driving this server now. */
+  const LIVE_PID = 38831;
+
+  test("a miss on the constructor-walked pid re-walks and finds the LIVE entry", () => {
+    // The third recorded recurrence (2026-08-21): the mapping for the live
+    // harness was present, correct, and 5 seconds old, and the reader never
+    // consulted it because it was looking up a pid nobody had written. The
+    // fallback is the spawn-time env value — the PRE-`/clear` conversation —
+    // so the failure is silent and reads as a normal miss.
+    const agentId = resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, {
+      readMapping: (pid) => (pid === LIVE_PID ? SWITCHED_UUID : null),
+      reresolvePid: () => LIVE_PID,
+    });
+    expect(agentId).toBe(SWITCHED_AGENT_ID);
+  });
+
+  test("negative control — WITHOUT re-resolution the same setup returns the stale env value", () => {
+    // Without this, the test above passes for any reason at all. The two differ
+    // only in whether the re-walk is available, so the correction is
+    // attributable to it.
+    const agentId = resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, {
+      readMapping: (pid) => (pid === LIVE_PID ? SWITCHED_UUID : null),
+      reresolvePid: () => null,
+    });
+    expect(agentId).toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("a HIT never re-walks — the `ps` cost that motivated resolve-once is respected", () => {
+    // The docblock's cost concern is real: this runs on every `tools/call`
+    // frame. Re-walking on a hit would turn an ancestor walk into a per-frame
+    // subprocess, which is why the miss is the only trigger.
+    let walks = 0;
+    const agentId = resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => SWITCHED_UUID,
+      reresolvePid: () => {
+        walks++;
+        return LIVE_PID;
+      },
+    });
+    expect(agentId).toBe(SWITCHED_AGENT_ID);
+    expect(walks).toBe(0);
+  });
+
+  test("a re-walk landing on the SAME pid is not read twice", () => {
+    let reads = 0;
+    resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => {
+        reads++;
+        return null;
+      },
+      reresolvePid: () => STALE_PID,
+    });
+    expect(reads).toBe(1);
+  });
+
+  test("a re-walk that also misses still falls back rather than fabricating", () => {
+    const agentId = resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => null,
+      reresolvePid: () => LIVE_PID,
+    });
+    expect(agentId).toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("the re-walk result is cached, so a second call inside the TTL does not walk again", () => {
+    let walks = 0;
+    const deps = {
+      readMapping: (pid: number) => (pid === LIVE_PID ? SWITCHED_UUID : null),
+      reresolvePid: () => {
+        walks++;
+        return LIVE_PID;
+      },
+    };
+    expect(resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, deps)).toBe(
+      SWITCHED_AGENT_ID
+    );
+    expect(resolveLiveConversationAgentId(STALE_PID, EXPECTED_AGENT_ID, deps)).toBe(
+      SWITCHED_AGENT_ID
+    );
+    expect(walks).toBe(1);
   });
 });

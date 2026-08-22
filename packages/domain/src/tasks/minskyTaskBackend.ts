@@ -19,6 +19,7 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
+import type { TaskSpecContentResult } from "./taskService";
 import { isAllProjects } from "../project/scope";
 import { log } from "@minsky/shared/logger";
 import {
@@ -513,29 +514,38 @@ export class MinskyTaskBackend implements TaskBackend {
     }
   }
 
-  async getTaskSpecContent(
-    taskId: string,
-    section?: string
-  ): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+  async getTaskSpecContent(taskId: string, section?: string): Promise<TaskSpecContentResult> {
     // Get the task first
     const task = await this.getTask(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
 
-    // Get spec content from database
+    // Get spec content from database.
+    //
+    // The `select()` already fetches every column, and `task_specs.updated_at`
+    // is set explicitly by all three write paths (`tryInsertTask`,
+    // `tryInsertTaskWithId`, `updateTaskMetadata`). Until mt#4415 the row was
+    // cast to `{ content }` and the timestamp was dropped right here — so the
+    // one caller that needed a spec-CONTENT baseline had to fall back to the
+    // tasks-table row timestamp, which any status transition bumps. Widening
+    // the cast is the whole fix: no extra query, no migration.
     const specRows = (await this.db
       .select()
       .from(taskSpecsTable)
       .where(eq(taskSpecsTable.taskId, taskId))
-      .limit(1)) as Array<{ content: string }>;
+      .limit(1)) as Array<{ content: string; updatedAt: Date | null }>;
 
-    const content = specRows.length > 0 ? first(specRows, "task spec content query").content : "";
+    const specRow = specRows.length > 0 ? first(specRows, "task spec content query") : undefined;
 
     return {
       task,
       specPath: "", // Minsky backend doesn't use file paths
-      content,
+      content: specRow?.content ?? "",
+      // Spec-CONTENT timestamp. `null` (column default never re-set) and "no
+      // row at all" both mean "no baseline available" and normalize to
+      // undefined, which consumers must not read as a clean pass.
+      specUpdatedAt: specRow?.updatedAt ?? undefined,
       section,
     };
   }

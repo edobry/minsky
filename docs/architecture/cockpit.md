@@ -612,6 +612,39 @@ rather than being deferred to a per-sweep tracker that may not exist. Settle the
 count with
 `curl -s localhost:3737/api/sweeps | jq '.sweeps | length'`.
 
+**`/api/health` carries the AGGREGATE, and only since mt#4384.** Its `sweepLiveness`
+block reports `abandonedTicksOutstanding`, the sweeps holding those ticks,
+`registrants`, and the declaring/reporting counts — enough that a reader cannot reach
+"healthy, just hasn't finished" from a wedged sweep. Before mt#4384 this endpoint never
+read the liveness registry at all, so abandonment could not appear there **by
+construction**: the three blocks it did carry are DOMAIN trackers, and an abandoned tick
+never completes, so it produces no domain outcome for them to report. On 2026-08-21
+`prodStateSweep` read `lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0`
+while `/api/sweeps` showed nine sweeps wedged with guards held. **Per-sweep detail still
+lives on `/api/sweeps`**, which the payload names in `authoritativeSurface`.
+
+### A restarted daemon takes up to 15 minutes to look healthy
+
+**At 12 minutes it looks identically wedged, and that is the single most misleading
+reading this subsystem produces.** mt#4335's abandoned-tick hard release fires at
+`DEFAULT_TICK_TIMEOUT_MS × ABANDONED_TICK_HARD_RELEASE_MULTIPLIER` = 5 min × 3 = **15
+minutes**. Until it does, a boot tick that wedged is still outstanding, so the sweep
+shows a tick open with `lastSuccessAt: null` — indistinguishable from a restart that
+accomplished nothing.
+
+Measured 2026-08-21: the boot tick was abandoned at 17:52:09, the hard release fired at
+18:07:09 **exactly**, and the next tick succeeded at 18:07:09.248Z. Someone checking at
+12 minutes concluded the restart had failed, and that reached the principal as an
+incident before being corrected.
+
+**So: wait past `tickTimeoutMs × 3` before judging a restart**, and read `/api/sweeps`
+(or `/api/health`'s `sweepLiveness`) rather than a domain tracker while you wait —
+`abandonedTicksOutstanding` falling to zero is the signal that recovery actually
+happened. Two further cautions from the same family: a restart is not reliably the
+remedy at all (mem#1178 records an occurrence that self-cleared with none), and
+`minsky cockpit restart` DOES work under the tray despite an older note to the contrary
+(re-measured 2026-08-21).
+
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the
 tick's own fail-open try/catch already absorbed), the sweep logs loudly and

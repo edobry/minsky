@@ -101,7 +101,7 @@ export type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from
 
 // Service
 export { createConfiguredTaskService } from "./tasks/taskService";
-export type { TaskServiceInterface } from "./tasks/taskService";
+export type { TaskServiceInterface, TaskSpecContentResult } from "./tasks/taskService";
 
 // Constants
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
