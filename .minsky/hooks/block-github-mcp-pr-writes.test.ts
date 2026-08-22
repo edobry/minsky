@@ -1,61 +1,59 @@
+/**
+ * BINDING-level tests for the block-github-mcp-pr-writes hook.
+ *
+ * The DECISION tests moved to
+ * `packages/domain/src/detectors/github-mcp-pr-write-denial.test.ts` with the
+ * decision itself (mt#4374 SC4). What is left here is the only thing this file
+ * still owns: that the binding parses a real payload, calls the decision, and
+ * relays the verdict in the shape Claude Code expects.
+ *
+ * These run the hook as a SUBPROCESS, the way the harness runs it — so they are
+ * also mt#4374 AT3's replay: a payload the pre-extraction guard denied is
+ * replayed against the post-extraction guard and still denies, and one it
+ * allowed still allows.
+ */
 import { describe, expect, it } from "bun:test";
-import { checkToolDenial, toolDenials } from "./block-github-mcp-pr-writes";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-describe("checkToolDenial", () => {
-  it("denies mcp__github__create_pull_request", () => {
-    expect(checkToolDenial("mcp__github__create_pull_request")).not.toBeNull();
+// `fileURLToPath`, not `new URL(...).pathname` — the latter percent-encodes, so
+// it breaks for any checkout path containing a space (mt#4396).
+const HOOK_PATH = join(dirname(fileURLToPath(import.meta.url)), "block-github-mcp-pr-writes.ts");
+
+async function runHook(payload: unknown): Promise<{ stdout: string; exitCode: number }> {
+  const proc = Bun.spawn(["bun", HOOK_PATH], {
+    stdin: new TextEncoder().encode(JSON.stringify(payload)),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+  return { stdout, exitCode };
+}
+
+describe("block-github-mcp-pr-writes binding", () => {
+  it("relays a deny verdict for a GitHub PR-write tool", async () => {
+    const { stdout, exitCode } = await runHook({
+      tool_name: "mcp__github__merge_pull_request",
+      tool_input: {},
+    });
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
+      "mcp__minsky__session_pr_merge"
+    );
   });
 
-  it("denies mcp__github__update_pull_request", () => {
-    expect(checkToolDenial("mcp__github__update_pull_request")).not.toBeNull();
-  });
+  it("stays silent for a tool the decision permits", async () => {
+    const { stdout, exitCode } = await runHook({
+      tool_name: "mcp__minsky__session_pr_create",
+      tool_input: {},
+    });
 
-  it("denies mcp__github__merge_pull_request", () => {
-    expect(checkToolDenial("mcp__github__merge_pull_request")).not.toBeNull();
-  });
-
-  it("denies mcp__github__pull_request_review_write", () => {
-    expect(checkToolDenial("mcp__github__pull_request_review_write")).not.toBeNull();
-  });
-
-  it("allows read-only GitHub tools", () => {
-    expect(checkToolDenial("mcp__github__pull_request_read")).toBeNull();
-    expect(checkToolDenial("mcp__github__list_pull_requests")).toBeNull();
-    expect(checkToolDenial("mcp__github__get_commit")).toBeNull();
-    expect(checkToolDenial("mcp__github__search_code")).toBeNull();
-  });
-
-  it("allows Minsky tools", () => {
-    expect(checkToolDenial("mcp__minsky__session_pr_create")).toBeNull();
-    expect(checkToolDenial("mcp__minsky__session_pr_merge")).toBeNull();
-    expect(checkToolDenial("mcp__minsky__session_pr_review_submit")).toBeNull();
-  });
-
-  it("allows unrelated tools", () => {
-    expect(checkToolDenial("Bash")).toBeNull();
-    expect(checkToolDenial("Read")).toBeNull();
-    expect(checkToolDenial("mcp__plugin_Notion__notion-search")).toBeNull();
-  });
-
-  it("denial reason for create references session_pr_create", () => {
-    const reason = checkToolDenial("mcp__github__create_pull_request");
-    expect(reason).toContain("mcp__minsky__session_pr_create");
-  });
-
-  it("denial reason for merge references session_pr_merge and mt#1030", () => {
-    const reason = checkToolDenial("mcp__github__merge_pull_request");
-    expect(reason).toContain("mcp__minsky__session_pr_merge");
-    expect(reason).toContain("mt#1030");
-  });
-
-  it("denial reason for review write references session_pr_review_submit", () => {
-    const reason = checkToolDenial("mcp__github__pull_request_review_write");
-    expect(reason).toContain("mcp__minsky__session_pr_review_submit");
-  });
-
-  it("all toolDenials entries have non-empty reason strings", () => {
-    for (const rule of toolDenials) {
-      expect(rule.reason.length).toBeGreaterThan(0);
-    }
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
   });
 });
