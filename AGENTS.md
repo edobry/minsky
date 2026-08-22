@@ -1483,7 +1483,11 @@ PreToolUse/merge/pre-commit gate index + guard-dispatcher. **Observers (non-bloc
 detectors/injectors/trackers) are NOT in this file and are no longer always-loaded (mt#4332):
 `hook-observers` auto-attaches when you edit a hook, or read it with `rules_get hook-observers`.**
 Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
-permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
+permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` — **the canonical form.
+The per-guard `MINSKY_*` names listed below are LEGACY and being retired into it** (ADR-028 D3 +
+Phase 7, re-confirmed by ask#9323 on 2026-08-20; mt#4428 owns the migration). They still work today.
+**Do not mint a new one for a new guard** — that population went 34 → 99 since ADR-028 was accepted,
+which is the growth the consolidation exists to stop.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
 - **Parallel-work** — PR/dup overlap. `MINSKY_FORCE_PARALLEL`/`_DUPLICATE_OK`.
