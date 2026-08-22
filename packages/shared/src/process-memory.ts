@@ -73,8 +73,9 @@
  * 0.08s quiet and 21.20s under that load (~265x), with 48-51 `footprint` processes
  * resident whose individual lifetimes were 51-83s against a 30s interval. Killing
  * the MCP processes dropped load to 8.7; the ceiling had never fired on a real
- * breach. So read the 88ms as "cheap at the concurrency this reader is actually
- * armed at", and check that concurrency before relying on it.
+ * breach. So read the 88ms as cheap at the concurrency it was MEASURED at — N=1 —
+ * and never as a bound at the concurrency this reader is armed at. Establish that
+ * concurrency before relying on the figure.
  *
  * **This parsing exists twice.** `cockpit-tray/src-tauri/src/supervisor/daemon_core.rs`
  * carries an independent Rust implementation — `parse_footprint_bytes` (L864) plus
