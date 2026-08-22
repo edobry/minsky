@@ -69,8 +69,10 @@ describe("/api/health sweepLiveness (mt#4384)", () => {
     expect(out.abandonedSweepsTruncated).toBe(false);
     // The pointer is part of the payload rather than folklore.
     expect(out.authoritativeSurface).toBe("/api/sweeps");
-    // Dating, per health-liveness-invariant.ts (canonical name for a new field).
-    expect(out.lastAttemptAt).toBe(NOW);
+    // Dating, per health-liveness-invariant.ts. `checkedAt` rather than
+    // `lastAttemptAt` (PR #3240 R1): this dates the READ, and nothing here attempts
+    // anything — the same meaning `dbCheck.checkedAt` already carries.
+    expect(out.checkedAt).toBe(NOW);
   });
 
   test("AT2 negative control: every DOMAIN field the pre-fix payload carried reads CLEAN through the same wedge", () => {

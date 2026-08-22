@@ -124,7 +124,7 @@
       "checkedAt": "2026-07-29T06:22:40.780Z"
     },
     "sweepLiveness": {
-      "lastAttemptAt": "2026-08-22T02:40:00.000Z",
+      "checkedAt": "2026-08-22T02:40:00.000Z",
       "registrants": 17,
       "abandonedTicksOutstanding": 0,
       "abandonedSweeps": [],
@@ -250,5 +250,15 @@
       "reason": "actuator construction threw: ECONNREFUSED"
     }
   },
-  "$sweepLivenessFieldNote": "mt#4384: the AGGREGATE sweep-liveness projection. The sibling prodStateSweep / transcriptSweep / dispatchWatchdogSweep blocks are DOMAIN trackers, and a domain tracker records the outcome of WORK — an ABANDONED tick never completes, so it produces no outcome ever and those three blocks read clean straight through a wedge. Until mt#4384 this endpoint never read the liveness registry at all, so abandonment could not appear here BY CONSTRUCTION. abandonedTicksOutstanding > 0 means at least one sweep is wedged RIGHT NOW; do NOT read a zero domain-failure count beside it as reassurance. reportingDomainOutcome legitimately trails declaringDomainOutcome shortly after a restart (the runtime flag flips on the first tick that completes), so a low value is not by itself a fault — read it beside abandonedTicksOutstanding. Per-sweep detail stays on /api/sweeps, which authoritativeSurface names. The top-level status deliberately does NOT flip on abandonment: the tray restarts on an unhealthy status, and a restart is not a reliable remedy for this class (mem#1178 records an occurrence that self-cleared, and mt#4335 recovery can take 15 minutes)."
+  "$sweepLivenessFieldNote": "mt#4384: the AGGREGATE sweep-liveness projection. The sibling prodStateSweep / transcriptSweep / dispatchWatchdogSweep blocks are DOMAIN trackers, and a domain tracker records the outcome of WORK — an ABANDONED tick never completes, so it produces no outcome ever and those three blocks read clean straight through a wedge. Until mt#4384 this endpoint never read the liveness registry at all, so abandonment could not appear here BY CONSTRUCTION. abandonedTicksOutstanding > 0 means at least one sweep is wedged RIGHT NOW; do NOT read a zero domain-failure count beside it as reassurance. reportingDomainOutcome legitimately trails declaringDomainOutcome shortly after a restart (the runtime flag flips on the first tick that completes), so a low value is not by itself a fault — read it beside abandonedTicksOutstanding. Per-sweep detail stays on /api/sweeps, which authoritativeSurface names. The top-level status deliberately does NOT flip on abandonment: the tray restarts on an unhealthy status, and a restart is not a reliable remedy for this class (mem#1178 records an occurrence that self-cleared, and mt#4335 recovery can take 15 minutes). Nested per-field types are pinned in sweepLivenessFields and asserted by health-contract.test.ts (PR #3240 R1) — a top-level \"object\" entry in .fields cannot catch drift INSIDE the block, which is the same cannot-see-it failure class this field exists to close.",
+  "sweepLivenessFields": {
+    "checkedAt": "string",
+    "registrants": "number",
+    "abandonedTicksOutstanding": "number",
+    "abandonedSweeps": "array",
+    "abandonedSweepsTruncated": "boolean",
+    "declaringDomainOutcome": "number",
+    "reportingDomainOutcome": "number",
+    "authoritativeSurface": "string"
+  }
 }

@@ -55,12 +55,17 @@ export interface HealthSweepLiveness {
   /**
    * When this summary was computed.
    *
-   * Per `health-liveness-invariant.ts`, a sub-object that can assert an operational
-   * state must date that assertion, and `lastAttemptAt` is the canonical name for a
-   * NEW field. The registry is read synchronously per request, so this is the read
-   * time rather than a cached stamp.
+   * `health-liveness-invariant.ts` names `lastAttemptAt` as the canonical spelling for
+   * a NEW dating field, and explicitly carves out the case where a field "means
+   * something genuinely different". This is that case, and PR #3240 R1 caught it:
+   * nothing here ATTEMPTS anything. The registry is read synchronously per request, so
+   * this dates the READ — which is precisely what the sibling `dbCheck.checkedAt`
+   * already means on this same payload. Reusing that spelling keeps one idea to one
+   * word instead of adding a third.
+   *
+   * The invariant accepts any `*At` field by design, so this satisfies it.
    */
-  lastAttemptAt: string;
+  checkedAt: string;
   /** Total sweeps registered in the liveness registry. */
   registrants: number;
   /**
@@ -114,7 +119,7 @@ export function deriveHealthSweepLiveness(
   const abandonedNames = abandoned.map((s) => s.name).sort();
 
   return {
-    lastAttemptAt: nowIso,
+    checkedAt: nowIso,
     registrants: snapshot.length,
     abandonedTicksOutstanding: snapshot.reduce((n, s) => n + s.abandonedTicksOutstanding, 0),
     abandonedSweeps: abandonedNames.slice(0, MAX_LISTED_ABANDONED_SWEEPS),
