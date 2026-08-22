@@ -261,4 +261,53 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       return (bare.report?.bare.length ?? 0) > 0 && (grounded.report?.bare.length ?? 0) === 0;
     },
   },
+  {
+    // mt#4390. This guard is wired STRAIGHT from `.claude/settings.json` (two
+    // entries, on `session.pr.merge` and on the gh-api bypass surface) rather
+    // than through the dispatcher, so it is absent from `GUARD_REGISTRY` — and
+    // it had no canary either. That left it declared on NEITHER of the two
+    // surfaces `buildCalibrationLogToGuards` reads, which is the only reason
+    // its log was invisible: it writes 2,666 fire-log rows under this exact
+    // name, so the invocation evidence was there the whole time with no join
+    // key to reach it. The coverage receipt reported `[FLAGGED] … no live fires
+    // and no invocation evidence` while the log was being appended to in real
+    // time, and named it on the `Unmapped` line in the same run.
+    guardName: "gate-walk-provenance",
+    // Record-only by design: it never denies and never warns. `fireLogDecisionFor`
+    // returns "allow" unconditionally, so `calibration` is the outcome-shaped
+    // expectation — the record IS the effect.
+    effects: [recorderEffect()],
+    expects: "calibration",
+    calibrationLog: "gate-walk-provenance",
+    check: async () => {
+      const { classifyGateWalk } = await import("../../.minsky/hooks/gate-walk-provenance");
+
+      // A DISCRIMINATING pair, not a single sample: the guard's whole job is to
+      // tell "was this task ever gated?" apart from "we cannot tell", so a
+      // canary that only exercised one branch would pass against a classifier
+      // stuck on that answer.
+      const gated = classifyGateWalk({
+        readyEventAt: "2026-08-01T00:00:00.000Z",
+        horizonAt: "2026-07-01T00:00:00.000Z",
+        taskCreatedAt: "2026-07-15T00:00:00.000Z",
+      });
+      const ungated = classifyGateWalk({
+        readyEventAt: null,
+        horizonAt: "2026-07-01T00:00:00.000Z",
+        taskCreatedAt: "2026-07-15T00:00:00.000Z",
+      });
+      // The third outcome, kept in the canary because conflating it with
+      // `ungated` is the specific error this guard's own docblock warns about:
+      // a task predating the horizon is unanswerable, not un-gated.
+      const skipped = classifyGateWalk({
+        readyEventAt: null,
+        horizonAt: "2026-07-01T00:00:00.000Z",
+        taskCreatedAt: "2026-06-01T00:00:00.000Z",
+      });
+
+      return (
+        gated.outcome === "gated" && ungated.outcome === "ungated" && skipped.outcome === "skipped"
+      );
+    },
+  },
 ];

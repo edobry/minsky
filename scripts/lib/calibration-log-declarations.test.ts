@@ -11,6 +11,10 @@ import { AT_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/require-executi
 import { TEST_FIRST_CALIBRATION_LOG } from "../../.minsky/hooks/test-first-evidence";
 import { RENDER_PATH_CALIBRATION_LOG } from "../../.minsky/hooks/render-path-evidence";
 import { SC_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/success-criteria-coverage";
+import {
+  CALIBRATION_LOG as GATE_WALK_CALIBRATION_LOG,
+  GUARD_NAME as GATE_WALK_GUARD_NAME,
+} from "../../.minsky/hooks/gate-walk-provenance";
 
 describe("getDeclaredCalibrationLogNames", () => {
   test("includes every GUARD_REGISTRY.calibrationLog name", () => {
@@ -120,6 +124,41 @@ describe("buildCalibrationLogToGuards", () => {
         expect(map.get(log)).toContain(canary.guardName);
       }
     }
+  });
+});
+
+describe("gate-walk-provenance's declaration (mt#4390)", () => {
+  // Bound to the WRITER CONSTANT, following mt#4064's precedent above: a
+  // hand-copied string would keep passing through a rename, which is the whole
+  // failure mode this guard just demonstrated at a different layer.
+  const stem = GATE_WALK_CALIBRATION_LOG.replace(/^\.minsky\//, "").replace(
+    /-calibration\.jsonl$/,
+    ""
+  );
+
+  test("its log resolves to the guard that writes it", () => {
+    // Before this task the guard was wired ONLY in `.claude/settings.json` — a
+    // third wiring shape, present in neither declaration surface — so this
+    // lookup returned undefined and the coverage receipt could only ever FLAG.
+    expect(buildCalibrationLogToGuards().get(stem)).toContain(GATE_WALK_GUARD_NAME);
+  });
+
+  test("the declared name matches the guard's own GUARD_NAME", () => {
+    // The join is by NAME, and the fire log is written under GUARD_NAME. A
+    // declaration naming anything else would resolve here and still find zero
+    // invocations — the shape mt#4068 tracks on a different surface.
+    const canary = STANDALONE_GUARD_CANARIES.find((c) => c.guardName === GATE_WALK_GUARD_NAME);
+    expect(canary).toBeDefined();
+    expect(canary?.calibrationLog).toBe(stem);
+  });
+
+  test("it is declared on exactly one surface, not both", () => {
+    // `buildCalibrationLogToGuards` unions GUARD_REGISTRY and the canaries, so a
+    // double declaration is silently tolerated and then shows up as a duplicate
+    // guard name in the joined list.
+    const inRegistry = GUARD_REGISTRY.filter((r) => r.name === GATE_WALK_GUARD_NAME);
+    expect(inRegistry).toEqual([]);
+    expect(buildCalibrationLogToGuards().get(stem)).toEqual([GATE_WALK_GUARD_NAME]);
   });
 });
 
