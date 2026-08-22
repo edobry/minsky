@@ -1,0 +1,47 @@
+{
+  "$comment": "Golden contract fixture for the MCP daemon's GET /health (mt#4322). Sibling of cockpit-health-shape.json (mt#2629), which pins the COCKPIT's health route — these are two different services with two different bodies and must not be conflated. Asserted by src/mcp/health-payload.test.ts against `buildMcpHealthResponse`, the same function `src/commands/mcp/start-command.ts`'s route calls. See contract/README.md.",
+  "endpoint": "GET /health",
+  "emittedBy": "src/mcp/health-payload.ts (buildMcpHealthResponse), served by src/commands/mcp/start-command.ts",
+  "consumedBy": [
+    "src/mcp/setup/local-http-apply.ts (classifyDaemonProbe — reads `ready`, falling back to `persistence.mode` for daemons built before mt#4297)",
+    "src/mcp/daemon/local-daemon.ts (adopt-or-fail — asserts `service: \"minsky-mcp\"` before adopting a port holder)",
+    "src/cockpit/widgets/mcp-server-status.ts (HOSTED_MCP_SERVICE — the hosted server's identity assertion)",
+    "docs/local-mcp-daemon.md (the operator-facing description of this surface)",
+    ".github/workflows/bundle-boot-smoke.yml (asserts a 200 within 30s; does NOT read this body)"
+  ],
+  "fields": {
+    "status": "string",
+    "service": "string",
+    "server": "string",
+    "transport": "string",
+    "timestamp": "string",
+    "persistence": "object",
+    "ready": "boolean"
+  },
+  "requiredFields": [
+    "status",
+    "service",
+    "server",
+    "transport",
+    "timestamp",
+    "persistence",
+    "ready"
+  ],
+  "persistenceFields": {
+    "mode": "string"
+  },
+  "sample": {
+    "status": "ok",
+    "service": "minsky-mcp",
+    "server": "Minsky MCP Server",
+    "transport": "http",
+    "timestamp": "2026-08-22T00:58:00.000Z",
+    "persistence": { "mode": "connected" },
+    "ready": true
+  },
+  "$readyFieldNote": "mt#4297 added `ready`; mt#4322 pinned it. `ready` answers READINESS ('can this daemon serve DB-backed work?'), which is a different question from the LIVENESS the status code answers ('did the process boot?'). They diverge in exactly one case and that divergence is deliberate: `persistence.mode === \"unconfigured\"` is reported HEALTHY (200, `status: \"ok\"`) because it is the expected local/dev/offline boot path AND the exact state `bundle-boot-smoke` asserts a 200 against — while `ready` is false, because every DB-backed call would fail. A consumer that infers readiness from the status code reintroduces the incident this field exists to make visible: a shared daemon served 200 with no persistence provider for 31 hours, and `minsky setup local-http` would have pointed every conversation at it, because 'a Minsky daemon answered' was the whole test. Do NOT derive the status code from `ready`, and do NOT derive readiness from the status code.",
+  "$readyFallbackNote": "mt#4297's consumer-side tolerance is load-bearing and must survive any change here. `classifyDaemonProbe` in src/mcp/setup/local-http-apply.ts reads `ready` WHEN PRESENT and falls back to `persistence.mode` otherwise, because keying on `ready` alone would classify EVERY daemon built before mt#4297 as not-ready — including during the rollout window, which turns a safety check into an outage. So `ready` is required in THIS fixture (the current emitter always sends it) while the consumer stays tolerant of its absence. Those are not in conflict: the fixture pins what this build EMITS, the fallback covers what an OLDER build emits, and a consumer talking to a daemon it did not build cannot assume they match.",
+  "$serviceFieldNote": "mt#3148: `service` is the uniform identity key every Minsky service emits, and it is what makes a health probe able to FAIL. Every Minsky service is built from the same monorepo, so a misconfigured build can put a DIFFERENT application on the host and it answers 200 exactly like the right one (mt#3142: the MCP server served the reviewer's host for ~1h while every reviewer route 404'd, and the status-code check stayed green throughout). Assert this field, not merely the status code. `server` (\"Minsky MCP Server\") is retained UNCHANGED alongside it rather than replaced: mt#3142's own diagnosis read `server`, and mem#704's probe recipe still cites it.",
+  "$transportFieldNote": "Hardcoded \"http\" and correct by construction: this route only exists on the HTTP transport, since the stdio transport serves no HTTP surface at all. It is NOT derived from the transport resolution mt#4322 single-sourced — a stdio process never reaches this code. Recorded because the constant looks like a candidate for that refactor and is deliberately not one.",
+  "$persistenceFieldNote": "`persistence.mode` is one of connected / unconfigured / unavailable (packages/domain/src/persistence/health.ts). `reason` is present ONLY when the assessment supplies one, so a consumer must treat it as optional — which is why it is absent from `persistenceFields` above rather than typed as a required string. `unavailable` is the only mode that flips the status code to 503: it means a Postgres connection WAS configured and initialization failed (a genuine outage), as distinct from `unconfigured`, which means none was configured at all."
+}

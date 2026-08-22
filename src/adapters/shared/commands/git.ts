@@ -327,6 +327,161 @@ export function buildGitLogArgs(params: {
 }
 
 /**
+ * What a `git.log` path filter's history probe concluded (mt#4422).
+ *
+ * `checked: false` is deliberately NOT collapsed into `matched: false` — "I
+ * could not find out" and "nothing ever touched this path" are different
+ * findings, and conflating them would rebuild the very ambiguity this exists to
+ * remove, one level up.
+ */
+export type GitLogPathVerdict =
+  | { checked: false; reason: "no-path" | "probe-unavailable" }
+  | { checked: true; matched: boolean; commitCount: number };
+
+/**
+ * Build the `git rev-list` probe that answers "did any commit in this
+ * repository's history ever touch this pathspec?" (mt#4422).
+ *
+ * Pure and exported so the argv can be asserted without running git, in the
+ * same spirit as {@link buildGitLogArgs}.
+ */
+export function buildGitPathHistoryProbeArgs(params: { repo?: string; path: string }): string[] {
+  const repoPath = params.repo || process.cwd();
+  return [
+    "git",
+    "-C",
+    safeShellQuote(repoPath),
+    "rev-list",
+    "--all",
+    "--count",
+    "--",
+    safeShellQuote(params.path),
+  ];
+}
+
+/**
+ * Precondition for `git.log`'s `path` filter: the pathspec must match something
+ * in history (mt#4422).
+ *
+ * ## Why this exists
+ *
+ * `git log -- <pathspec>` exits 0 with EMPTY output when the pathspec matches
+ * nothing — git does not signal it, and `git log` has no `--error-unmatch`
+ * (that belongs to `git ls-files`). So a typo, a stale path, or a caller
+ * passing several space-separated paths (which `safeShellQuote` turns into one
+ * literal pathspec containing spaces) all produce output byte-identical to
+ * "this file genuinely has no commits in the requested window".
+ *
+ * That ambiguity is load-bearing rather than cosmetic: `/plan-task` gate (g)
+ * check 1 instructs the agent to run exactly this call to check for recent
+ * merges touching a file, and reads an empty result as "no collision".
+ *
+ * ## Why `rev-list --all --count`, and not `ls-files --error-unmatch`
+ *
+ * `ls-files` answers "is this pathspec TRACKED RIGHT NOW", which is the wrong
+ * question and would break a working call: a file deleted months ago is
+ * untracked and still has legitimate history, so `git log` should return its
+ * commits. Measured in this repo — for a file deleted by mt#4197,
+ * `ls-files --error-unmatch` exits 1 while `rev-list --all --count` returns 2.
+ *
+ * `rev-list --all --count` is the exact discriminator, in one subprocess:
+ *
+ * | pathspec                        | count | should `git log` be informative? |
+ * | ------------------------------- | ----- | -------------------------------- |
+ * | tracked, with history           | > 0   | yes                              |
+ * | deleted, with history           | > 0   | yes                              |
+ * | present on disk but untracked   | 0     | no — nothing to show, ever       |
+ * | never existed / typo / path list| 0     | no                               |
+ *
+ * ## Fail-open, deliberately
+ *
+ * If the probe ITSELF cannot run — not a git repository, git missing, a
+ * permission error — this returns without throwing, and logs. An unusable probe
+ * is not evidence about the path (mem#704), and converting a broken probe into
+ * "your path is wrong" would be a worse error than the silence being fixed.
+ * The probe is a precondition on the CALLER's argument, not a health check.
+ *
+ * ## Why this REPORTS rather than throws (deviation from the spec's ADR-004 shape)
+ *
+ * The spec proposed ADR-004's `validate()` phase, whose invariant is "throw on
+ * any precondition failure — never return partial results". Implementing it that
+ * way and then checking the CALLERS showed the classification was wrong: a
+ * count of 0 is not a precondition failure, it is a legitimate query with an
+ * uninformative answer, and the two cannot be told apart from the count alone.
+ *
+ * `/plan-task` gate (g) check 1 runs this over every file in a spec's
+ * `## Scope` → `In scope` list, and for a new feature those files routinely DO
+ * NOT EXIST YET. "No commit ever touched it" is then TRUE, USEFUL, and exactly
+ * the answer the gate wants — no collision is possible. Throwing would break the
+ * single most common legitimate use of the path filter to fix the rarer typo.
+ *
+ * So the result carries the discriminator instead: `pathMatched: false` tells a
+ * caller that the empty output means "nothing has ever touched this path", which
+ * is a different fact from "nothing touched it in your window". The caller
+ * decides which one matters — the gate reads it as "no collision"; a human
+ * chasing a file they believe exists reads it as a typo.
+ */
+export async function probeGitLogPathHistory(
+  params: {
+    repo?: string;
+    path?: string;
+  },
+  /**
+   * IO seam. The probe's DECISION (count 0 → reject; probe broken → allow) is
+   * what the unit tests exercise, so the subprocess is injected rather than
+   * reached for — `custom/no-real-fs-in-tests` is the rule that makes this the
+   * right shape, and the testable-design checkpoint the reason.
+   *
+   * Git's OWN behaviour — that `git log --` exits 0 on an unmatched pathspec,
+   * and that a deleted file still has history — is not asserted here at all: a
+   * double reproducing that would be asserting a model of git rather than git
+   * (ADR-036). `scripts/verify-git-log-path-precondition.ts` checks it against a
+   * real repository instead.
+   */
+  deps: { exec?: (cmd: string) => Promise<{ stdout: string }> } = {}
+): Promise<GitLogPathVerdict> {
+  if (!params.path) return { checked: false, reason: "no-path" };
+
+  const run = deps.exec ?? execAsync;
+  const probe = buildGitPathHistoryProbeArgs({ repo: params.repo, path: params.path }).join(" ");
+
+  let raw: string;
+  try {
+    const { stdout } = await run(probe);
+    raw = stdout.trim();
+  } catch (error) {
+    log.debug("git.log path-history probe failed; result carries no path verdict", {
+      path: params.path,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { checked: false, reason: "probe-unavailable" };
+  }
+
+  const count = Number(raw);
+  if (!Number.isFinite(count)) {
+    // An unparseable count is the probe failing in a second way — same reasoning
+    // as the catch above: do not turn it into a claim about the path.
+    log.debug("git.log path-history probe returned a non-numeric count", {
+      path: params.path,
+      raw,
+    });
+    return { checked: false, reason: "probe-unavailable" };
+  }
+
+  return { checked: true, matched: count > 0, commitCount: count };
+}
+
+/**
+ * Hint appended to a `git.log` result whose pathspec matched nothing in history
+ * (mt#4422) — the one thing a caller cannot work out from `pathMatched` alone.
+ */
+export const GIT_LOG_PATH_UNMATCHED_NOTE =
+  "No commit in this repository has ever touched this path, so the empty result says nothing " +
+  "about the time window requested. If the file is new or not yet created, that IS the answer " +
+  "(nothing can have collided with it). Otherwise check for a typo — and note that 'path' takes " +
+  "ONE pathspec: a space-separated list is quoted as a single filename and can never match.";
+
+/**
  * Parameters for the git search command
  */
 const searchCommandParams = composeParams(
@@ -1018,9 +1173,24 @@ export function registerGitCommands(container?: AppContainerInterface): void {
 
       try {
         const { stdout } = await execAsync(args.join(" "));
+
+        // mt#4422: an empty `output` used to be ambiguous — "no commits in your
+        // window" and "this pathspec matches nothing, ever" are byte-identical,
+        // and `/plan-task` gate (g) reads the second as the first ("no
+        // collision"). The verdict disambiguates them. Only runs when a `path`
+        // was supplied, so the common call spawns no extra process.
+        const verdict = await probeGitLogPathHistory(params);
+
         return {
           success: true,
           output: stdout.trim(),
+          ...(verdict.checked
+            ? {
+                pathMatched: verdict.matched,
+                pathCommitCount: verdict.commitCount,
+                ...(verdict.matched ? {} : { pathNote: GIT_LOG_PATH_UNMATCHED_NOTE }),
+              }
+            : {}),
         };
       } catch (error) {
         return {
