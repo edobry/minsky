@@ -388,6 +388,16 @@ task (mt#3137); that risk didn't apply here — PLANNING is legal in both state 
 taxonomy, full before/after pair, and the escalation budget (2 principal flags/14 days →
 log-only detector): `docs/rules-rationale/communication-contract.md §Register of delivery`.
 
+## The terminal actionables block — interim (mt#4443)
+
+One marked terminal section (rule + heading) may close a report, restating — not replacing — the
+body's own actionable content: never a Tier-0 decision (always `asks_create`). Absent, not empty,
+when nothing is actionable; marked position is not burial (§Anti-patterns).
+
+Interim — `mt#4439` builds the real primitive; 2+ buried-actionables reports in 14 days → record
+on `mt#4439`. `mem#664`'s six prior fixes are engaged, not dismissed:
+`docs/rules-rationale/communication-contract.md §The terminal actionables block`.
+
 ## Altitude register (RFC Phase 2)
 
 The Tier-1 contract above defines what a turn-end report *contains*; the **register** selects
@@ -982,7 +992,7 @@ Three tiers decide whether a term gets a gloss:
    nothing; an unglossed gap stalls the reader mid-sentence and charges an attention tax
    without consent.
 
-**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18).
+**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18); `CSCW` (2026-08-22).
 
 **When a term's status matters and you cannot settle it, ask him — the model is not only
 something to consult, it is something to update.** He is a party with state you can query, not
