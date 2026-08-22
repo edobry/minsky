@@ -1005,21 +1005,14 @@ zero either way; the feature existed, and the principal was watching it render w
 ran. **The falsifier for a rendered behaviour is a rendering** — a screenshot, an image search,
 a user describing what they see. And when the primary artifact sits on the principal's side of a
 boundary you cannot cross, HE is a first-tier channel rather than the audience for the answer:
-`principal-context.mdc §What Eugene can see`.
-
-**One step past the kind: is the subject an IDENTIFIER? (mt#4268).** Naming the kind tells you
-whether a channel can PERCEIVE the thing; it does not tell you whether the channel RANKS by the
-right axis. An embedding index ranks by MEANING, and an identifier's meaning is not its spelling —
-so a semantic search for a code token, config key, error string or column name can return a full,
-plausible set of neighbours while missing the exact match. **Its non-silence is the trap.** Every
-view above returns LESS than its source, which trains the tell to be "something is missing"; eight
-ranked near-misses feel like a finished survey instead. **So the tell here is a full result set of
-near-misses with no direct hit** — that shape is evidence the INSTRUMENT was wrong, not that
-nothing owns the subject. The falsifier is an EXACT search — substring or grep over the corpus.
-Incident (2026-08-18): filing mt#4267 I got eight plausible reviewer-subsystem tasks and none of
-the three that own the mechanism, then wrote criteria asking for a TTL mt#1907 had shipped three
-months earlier; `duplicate-signature-scan` caught it at `tasks_create` on exact-substring match and
-returned all three at once.
+`principal-context.mdc §What Eugene can see`. And the same question runs one step further, past
+perception to the RANKING axis (mt#4268): an embedding index orders by MEANING, and an identifier's
+meaning is not its spelling, so a semantic search for a code token, config key, error string or
+column name returns a full, plausible set of neighbours while missing the exact match. Here the
+trap is non-silence. Every view above returns LESS than its source, which trains the tell to be
+"something is missing" — so **a full result set of near-misses with no direct hit** is the shape to
+learn, and it is evidence the INSTRUMENT was wrong rather than that nothing owns the subject. When
+the subject is an identifier the falsifier is an EXACT search: substring or grep over the corpus.
 
 **The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
 Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
