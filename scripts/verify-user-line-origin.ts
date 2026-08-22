@@ -44,6 +44,7 @@ import { homedir } from "os";
 
 import {
   classifyUserLineOrigin,
+  DISPATCH_BRIEF_ORIGIN,
   OPERATOR_ORIGIN,
 } from "@minsky/domain/transcripts/user-line-origin";
 
@@ -112,18 +113,34 @@ const PREFIX_EXPECTATIONS: ReadonlyArray<{ prefix: string; expected: string | nu
  * operator speech. Recursing further would silently mix the two and make the
  * operator-authored share meaningless.
  */
-function collectTranscripts(dir: string): string[] {
+function collectTranscripts(dir: string, wantSubagents = false): string[] {
   const found: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      found.push(path);
-    } else if (entry.isDirectory() && entry.name !== "subagents") {
-      for (const nested of readdirSync(path, { withFileTypes: true })) {
-        if (nested.isFile() && nested.name.endsWith(".jsonl")) found.push(join(path, nested.name));
+  // Depth 3 covers both layouts this runs against: `<root>/<slug>/<uuid>/subagents/*.jsonl`
+  // when pointed at `~/.claude/projects`, and `<slug>/<uuid>/subagents/*.jsonl` when
+  // pointed at one project. Bounded rather than unbounded so a stray deep tree
+  // cannot turn a verification run into a filesystem crawl.
+  const walk = (current: string, depth: number): void => {
+    if (depth > 3) return;
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return; // unreadable directory: skip rather than abort the whole scan
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      if (entry.isFile()) {
+        if (!entry.name.endsWith(".jsonl")) continue;
+        // A subagent transcript's user lines are dispatch briefs and tool
+        // results, not operator speech. Averaging the two populations together
+        // makes the operator share meaningless, so each scan takes exactly one.
+        if (path.includes("/subagents/") === wantSubagents) found.push(path);
+      } else if (entry.isDirectory()) {
+        walk(path, depth + 1);
       }
     }
-  }
+  };
+  walk(dir, 0);
   return found;
 }
 
@@ -244,6 +261,56 @@ function main(): number {
       console.log(`  "${prefix}": ${rendered}  FAIL — expected all ${expected}`);
     } else {
       console.log(`  "${prefix}": ${rendered}  OK`);
+    }
+  }
+
+  // ── Subagent population, reported SEPARATELY (mt#4401) ───────────────────
+  //
+  // Deliberately not folded into the numbers above: a subagent transcript's
+  // user-role lines are dispatch briefs and tool results, not operator speech,
+  // so averaging them in would make the operator share meaningless — which is
+  // why the root scan excludes them. But excluding them ENTIRELY made this
+  // script blind to `dispatch_brief`, the one kind that only occurs here. Two
+  // populations, two reports.
+  const subagentFiles = collectTranscripts(dir, true);
+  if (subagentFiles.length > 0) {
+    const subKinds = new Map<string, number>();
+    let subLines = 0;
+    for (const path of subagentFiles) {
+      let raw: string;
+      try {
+        raw = readFileSync(path, "utf-8");
+      } catch {
+        continue;
+      }
+      for (const rawLine of raw.split("\n")) {
+        if (!rawLine.trim()) continue;
+        let line: Record<string, unknown>;
+        try {
+          line = JSON.parse(rawLine) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (line["type"] !== "user") continue;
+        if (userTextOf(line) === null) continue;
+        subLines++;
+        const kind = classifyUserLineOrigin(line);
+        subKinds.set(kind, (subKinds.get(kind) ?? 0) + 1);
+      }
+    }
+    console.log(`\nsubagent transcripts:       ${subagentFiles.length}`);
+    console.log(`user lines carrying text:   ${subLines}`);
+    for (const [kind, count] of [...subKinds.entries()].sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${kind}: ${count} (${((count / subLines) * 100).toFixed(1)}%)`);
+    }
+    const briefs = subKinds.get(DISPATCH_BRIEF_ORIGIN) ?? 0;
+    if (briefs === 0) {
+      console.error(
+        "\nverify-user-line-origin: FAIL — zero dispatch_brief across " +
+          `${subagentFiles.length} subagent transcripts. Minsky-dispatched subagents open with a ` +
+          "watermarked prompt, so zero means the marker check is not reached, not that none exist."
+      );
+      return 1;
     }
   }
 

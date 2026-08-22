@@ -13,6 +13,7 @@ import {
   classifyUserLineOrigin,
   isOperatorAuthored,
   COMPACT_SUMMARY_ORIGIN,
+  DISPATCH_BRIEF_ORIGIN,
   HARNESS_META_ORIGIN,
   OPERATOR_ORIGIN,
 } from "./user-line-origin";
@@ -193,5 +194,143 @@ describe("the text prefixes used to SIZE this problem are not the predicate", ()
         message: { role: "user", content: "<task-notification> — what emits these?" },
       })
     ).toBe(OPERATOR_ORIGIN);
+  });
+});
+
+// ── dispatch_brief: the prompt a parent agent wrote (mt#4401) ─────────────────
+
+describe("classifyUserLineOrigin — dispatch_brief (mt#4401)", () => {
+  /**
+   * A Minsky-dispatched subagent transcript's FIRST user line, key-for-key as
+   * observed 2026-08-21. Note what is ABSENT: all four harness fields the
+   * precedence above reads. Before mt#4401 this fell through to `human`, so a
+   * prompt the parent agent composed was filed as the operator's own words.
+   */
+  const dispatchBriefLine = {
+    agentId: "a335fb8b0e7586511",
+    cwd: "/Users/edobry/Projects/minsky",
+    entrypoint: "cli",
+    gitBranch: "main",
+    isSidechain: true,
+    parentUuid: null,
+    promptId: "b1c2d3e4",
+    sessionId: "397c46b7-23d4-466d-acc9-328b287f51f5",
+    timestamp: "2026-08-21T10:00:00.000Z",
+    type: "user",
+    userType: "external",
+    uuid: "f00dcafe",
+    version: "2.1.219",
+    message: {
+      role: "user",
+      content:
+        "You are in session at /some/path. Do the work.\n\n<!-- minsky:prompt:v1 -->\n" +
+        "<!-- minsky:dispatch:v1 parent=397c46b7 tool_use=toolu_abc -->",
+    },
+  };
+
+  test("a generated dispatch prompt is dispatch_brief, not human", () => {
+    expect(classifyUserLineOrigin(dispatchBriefLine)).toBe(DISPATCH_BRIEF_ORIGIN);
+  });
+
+  test("either marker alone is sufficient", () => {
+    const promptOnly = {
+      type: "user",
+      message: { role: "user", content: "do the work\n<!-- minsky:prompt:v1 -->" },
+    };
+    const stampOnly = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "do the work\n<!-- minsky:dispatch:v1 parent=x tool_use=y -->",
+      },
+    };
+    expect(classifyUserLineOrigin(promptOnly)).toBe(DISPATCH_BRIEF_ORIGIN);
+    expect(classifyUserLineOrigin(stampOnly)).toBe(DISPATCH_BRIEF_ORIGIN);
+  });
+
+  test("array-shaped content is searched too, not just a string", () => {
+    const arrayContent = {
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "brief\n<!-- minsky:prompt:v1 -->" }],
+      },
+    };
+    expect(classifyUserLineOrigin(arrayContent)).toBe(DISPATCH_BRIEF_ORIGIN);
+  });
+
+  test("isSidechain is NOT the discriminator", () => {
+    // The tempting structural field, and wrong in both directions: it labels by
+    // LOCATION rather than authorship. An operator message inside a sidechain is
+    // still the operator, and marker-bearing turns occur outside sidechains too.
+    const sidechainOperatorMessage = {
+      type: "user",
+      isSidechain: true,
+      origin: { kind: "human" },
+      promptSource: "typed",
+      message: { role: "user", content: "actually, stop and do Y instead" },
+    };
+    expect(classifyUserLineOrigin(sidechainOperatorMessage)).toBe(OPERATOR_ORIGIN);
+  });
+});
+
+describe("classifyUserLineOrigin — the marker is not a prefix heuristic (mt#4401)", () => {
+  test("an operator QUOTING a watermark in prose stays human", () => {
+    // mt#3405's live hazard: `check-prompt-watermark` already false-positives on
+    // analytical prose quoting one. An explicit `origin.kind: "human"` outranks
+    // the marker, which is why the dispatch check sits LAST in the precedence.
+    const operatorQuoting = {
+      type: "user",
+      origin: { kind: "human" },
+      promptSource: "typed",
+      message: {
+        role: "user",
+        content: "why does <!-- minsky:prompt:v1 --> show up in the rendered turn?",
+      },
+    };
+    expect(classifyUserLineOrigin(operatorQuoting)).toBe(OPERATOR_ORIGIN);
+  });
+
+  test("TASK_PROMPT_WATERMARK is NOT a dispatch marker", () => {
+    // `<!-- minsky:task-prompt:v1 -->` marks prompts `tasks decompose|estimate|
+    // analyze` generate FOR A HUMAN TO PASTE. A turn carrying it is the operator
+    // speaking, so keying on it would misattribute in the opposite direction.
+    // This is the test that stops "it's a Minsky marker" becoming the rule.
+    const pastedTaskPrompt = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "Decompose mt#123 into subtasks.\n\n<!-- minsky:task-prompt:v1 -->",
+      },
+    };
+    expect(classifyUserLineOrigin(pastedTaskPrompt)).toBe(OPERATOR_ORIGIN);
+  });
+
+  test("a harness verdict outranks the marker", () => {
+    const metaWithWatermark = {
+      type: "user",
+      isMeta: true,
+      message: { role: "user", content: "skill body\n<!-- minsky:prompt:v1 -->" },
+    };
+    expect(classifyUserLineOrigin(metaWithWatermark)).toBe(HARNESS_META_ORIGIN);
+  });
+});
+
+describe("the duplicated dispatch-stamp token stays in sync (mt#4401)", () => {
+  test("domain's copy matches the hook's DISPATCH_STAMP_VERSION", async () => {
+    // The constant is duplicated because `packages/domain` cannot import from
+    // the hook-script bundling context. This makes drift a failing test rather
+    // than a silent stop-classifying-every-dispatch.
+    const { DISPATCH_STAMP_VERSION } = await import(
+      "../../../../.minsky/hooks/agent-dispatch-stamp"
+    );
+    const stampOnly = {
+      type: "user",
+      message: {
+        role: "user",
+        content: `brief\n<!-- ${DISPATCH_STAMP_VERSION} parent=x tool_use=y -->`,
+      },
+    };
+    expect(classifyUserLineOrigin(stampOnly)).toBe(DISPATCH_BRIEF_ORIGIN);
   });
 });
