@@ -58,7 +58,7 @@
  *
  * @see src/mcp/shim/main.ts — the caller, in `handleLine`
  * @see src/mcp/shim/client.ts — `postOnce`, the buffering that makes it a deadlock
- * @see docs/architecture/adr-038-local-shared-mcp-daemon.md §Question 1
+ * @see docs/architecture/adr-038-local-shared-mcp-daemon-architecture.md §Question 1
  * @see https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation
  */
 
