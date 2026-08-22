@@ -861,6 +861,10 @@ describe("running-status projection over the liveness registry (mt#4183)", () =>
         lastDomainFailureAt: null,
         consecutiveDomainFailures: 0,
         reportsDomainOutcome: false,
+        // mt#4412: the self-scheduling path DECLARES an outcome (its handle's
+        // noteSuccess/noteFailure record one), even in a fixture that has not
+        // reported one yet.
+        declaresDomainOutcome: true,
         abandonedTicks: 0,
         abandonedTicksOutstanding: 0,
         abandonedTickHardReleases: 0,

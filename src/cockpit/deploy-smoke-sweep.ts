@@ -170,6 +170,16 @@ async function buildRealDeps(): Promise<DeploySmokeSweepDeps | null> {
  * Never throws — every failure path (no commit SHA, no GitHub backend, API
  * error, emit failure) logs and returns.
  *
+ * @returns the sweep's DOMAIN outcome (mt#4412): `true` when the tick did what
+ *   it should have, INCLUDING the several paths where the right thing is
+ *   nothing at all — no GitHub-triggered deploy, already emitted for this
+ *   commit, smoke check not finished yet. `false` only when the work was
+ *   attempted and did not happen: a no-oped emit, or an unexpected throw.
+ *   This distinction is the whole point — returning a blanket `true` would
+ *   report a permanently-failing emit as a run of healthy ticks, which is the
+ *   defect mt#4412 exists to close rather than re-create in a shape that reads
+ *   as covered.
+ *
  * @param persistenceProvider - held directly (not resolved from a DI
  *   container — sweepers have no `CommandExecutionContext`), per the mt#2537
  *   template's `emitSystemEventFromProvider` variant.
@@ -178,25 +188,25 @@ async function buildRealDeps(): Promise<DeploySmokeSweepDeps | null> {
 export async function triggerDeploySmokeSweep(
   persistenceProvider: PersistenceProvider | undefined,
   deps?: DeploySmokeSweepDeps
-): Promise<void> {
+): Promise<boolean> {
   try {
     const resolvedDeps = deps ?? (await buildRealDeps());
-    if (!resolvedDeps) return;
+    if (!resolvedDeps) return true;
 
     const sha = resolvedDeps.getCommitSha();
     if (!sha) {
       log.debug(
         "deploy-smoke-sweep: no RAILWAY_GIT_COMMIT_SHA (not a GitHub-triggered Railway deploy), skipping"
       );
-      return;
+      return true;
     }
-    if (sha === lastEmittedSha) return; // already emitted for this deploy's commit
+    if (sha === lastEmittedSha) return true; // already emitted for this deploy's commit
 
     const checks = await resolvedDeps.fetchChecksForSha(sha);
     const status = deriveSmokeStatus(checks);
     if (status === null) {
       log.debug("deploy-smoke-sweep: bundle-boot-smoke not completed yet, will retry", { sha });
-      return; // not completed (or not present) yet — retry next tick
+      return true; // not completed (or not present) yet — retry next tick
     }
 
     const emitted = await emitSystemEventFromProvider(persistenceProvider, {
@@ -211,13 +221,15 @@ export async function triggerDeploySmokeSweep(
         sha,
         status,
       });
-      return;
+      return false;
     }
     lastEmittedSha = sha;
     log.debug("deploy-smoke-sweep: emitted deploy.smoke", { sha, status });
+    return true;
   } catch (err) {
     log.warn("deploy-smoke-sweep: sweep failed (best-effort, swallowed)", {
       error: err instanceof Error ? err.message : String(err),
     });
+    return false;
   }
 }

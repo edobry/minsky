@@ -55,6 +55,7 @@ describe("GET /api/sweeps", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {

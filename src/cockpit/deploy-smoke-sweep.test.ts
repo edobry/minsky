@@ -100,8 +100,15 @@ describe("triggerDeploySmokeSweep", () => {
     // emitSystemEventBestEffort's contract), so this test exercises the
     // sweep's own control flow (fetch -> derive -> attempt emit) without a
     // live DB.
+    //
+    // mt#4412: this asserted `.toBeUndefined()`, which was a statement about
+    // the old `void` signature rather than about behavior. With an undefined
+    // provider the emit no-ops, and the sweep now REPORTS that as a domain
+    // failure — the retry-next-tick path — so `false` is the correct answer
+    // and is what the sibling "does NOT advance dedup when the emit no-ops"
+    // test already covers from the other side.
     const deps = fakeDeps();
-    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBeUndefined();
+    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBe(false);
   });
 
   test("does not re-fetch checks for the same commit twice (in-memory dedup)", async () => {
@@ -177,6 +184,10 @@ describe("triggerDeploySmokeSweep", () => {
         throw new Error("GitHub API unavailable");
       },
     });
-    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBeUndefined();
+    // mt#4412: the point of this test is that it RESOLVES rather than throws —
+    // `.toBeUndefined()` only ever encoded the old `void` return. It now also
+    // reports the swallowed throw as a domain failure, which is the stronger
+    // assertion: best-effort no longer means invisible.
+    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBe(false);
   });
 });
