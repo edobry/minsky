@@ -14,6 +14,8 @@
  * for the sibling targets. Editing a hook source no longer requires a manual
  * `compile --target claude-hooks` + re-commit.
  */
+import { existsSync } from "fs";
+import { join } from "path";
 import type { HookResult } from "./pre-commit";
 
 /**
@@ -108,11 +110,27 @@ export async function regenerateStagedClaudeHooks(deps: ClaudeHooksRegenDeps): P
     };
   }
 
+  // mt#3854: `.codex/hooks/**` is a compile output of the SAME sources, so it
+  // must be regenerated and re-staged in the same step — otherwise a hooks
+  // commit lands with `.claude/hooks` fresh and `.codex/hooks` one commit
+  // behind, which is the drift this whole task exists to end, reintroduced at
+  // one-commit granularity instead of nine months'.
+  //
+  // Gated on `.codex/` existing, matching `minskyCompileTargetsFromPresence`:
+  // a clone that never adopted Codex neither pays the compile cost nor gets a
+  // harness config it did not ask for.
+  const hookTargets = ["claude-hooks"];
+  if (existsSync(join(projectRoot, ".codex"))) {
+    hookTargets.push("codex-hooks");
+  }
+
   try {
-    await deps.exec("bun run src/cli.ts compile --target claude-hooks", {
-      cwd: projectRoot,
-      timeout: 30000,
-    });
+    for (const target of hookTargets) {
+      await deps.exec(`bun run src/cli.ts compile --target ${target}`, {
+        cwd: projectRoot,
+        timeout: 30000,
+      });
+    }
   } catch (error) {
     const result = classifyCompileHooksRegenError(error);
     for (const line of result.logLines) logLine(line);
@@ -132,7 +150,11 @@ export async function regenerateStagedClaudeHooks(deps: ClaudeHooksRegenDeps): P
       "--porcelain",
       "--untracked-files=all",
       "--",
-      ".claude/hooks/",
+      // Both output trees (mt#3854). A pathspec listing only `.claude/hooks/`
+      // would regenerate `.codex/hooks/` above and then leave it unstaged —
+      // worse than not regenerating it, because the commit would then carry a
+      // dirty worktree the operator did not make.
+      ...hookTargets.map((t) => (t === "codex-hooks" ? ".codex/hooks/" : ".claude/hooks/")),
     ]);
     changedFiles = porcelain
       .split("\n")

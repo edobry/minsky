@@ -21,7 +21,9 @@ import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 
 describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
   test("includes claude-agents when .minsky/agents/ is present", () => {
-    expect(compileCheckTargets({ skills: true, rules: true, agents: true, hooks: false })).toEqual([
+    expect(
+      compileCheckTargets({ skills: true, rules: true, agents: true, hooks: false, codex: false })
+    ).toEqual([
       "claude-skills",
       "cursor-rules-ts",
       "claude.md",
@@ -37,6 +39,7 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       rules: true,
       agents: false,
       hooks: false,
+      codex: false,
     });
     expect(targets).not.toContain("claude-agents");
     expect(targets).toEqual([
@@ -49,7 +52,9 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
   });
 
   test("includes claude-hooks when .minsky/hooks/ is present", () => {
-    expect(compileCheckTargets({ skills: true, rules: true, agents: true, hooks: true })).toEqual([
+    expect(
+      compileCheckTargets({ skills: true, rules: true, agents: true, hooks: true, codex: false })
+    ).toEqual([
       "claude-skills",
       "cursor-rules-ts",
       "claude.md",
@@ -66,6 +71,7 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       rules: true,
       agents: true,
       hooks: false,
+      codex: false,
     });
     expect(targets).not.toContain("claude-hooks");
   });
@@ -74,7 +80,7 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
     // cursor-rules-ts + the three former-legacy monolithic/claude-rules targets
     // all gate on `rules`. Cutover requirement: none may be silently dropped.
     expect(
-      compileCheckTargets({ skills: false, rules: true, agents: false, hooks: false })
+      compileCheckTargets({ skills: false, rules: true, agents: false, hooks: false, codex: false })
     ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
   });
 
@@ -84,6 +90,7 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       rules: false,
       agents: false,
       hooks: false,
+      codex: false,
     });
     expect(targets).toEqual(["claude-skills"]);
     for (const t of ["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]) {
@@ -93,19 +100,25 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
 
   test("each non-rules target is independently opted in by its source dir", () => {
     expect(
-      compileCheckTargets({ skills: false, rules: false, agents: true, hooks: false })
+      compileCheckTargets({ skills: false, rules: false, agents: true, hooks: false, codex: false })
     ).toEqual(["claude-agents"]);
     expect(
-      compileCheckTargets({ skills: true, rules: false, agents: false, hooks: false })
+      compileCheckTargets({ skills: true, rules: false, agents: false, hooks: false, codex: false })
     ).toEqual(["claude-skills"]);
     expect(
-      compileCheckTargets({ skills: false, rules: false, agents: false, hooks: true })
+      compileCheckTargets({ skills: false, rules: false, agents: false, hooks: true, codex: false })
     ).toEqual(["claude-hooks"]);
   });
 
   test("no source dirs → empty target list (check skipped)", () => {
     expect(
-      compileCheckTargets({ skills: false, rules: false, agents: false, hooks: false })
+      compileCheckTargets({
+        skills: false,
+        rules: false,
+        agents: false,
+        hooks: false,
+        codex: false,
+      })
     ).toEqual([]);
   });
 });
