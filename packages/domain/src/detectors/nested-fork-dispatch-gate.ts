@@ -30,10 +30,24 @@
  */
 import { hasLiveDeclaration, type DispatchIntentDeclaration } from "./dispatch-intent-gate";
 
-/** The gated `subagent_type` value — only nested `fork` dispatches are denied. */
+/**
+ * The gated `subagent_type` value — only nested `fork` dispatches are denied.
+ *
+ * Consumed EXTERNALLY, not here: this module's decision takes the already-computed
+ * `isForkDispatch` boolean, so the comparison against this value happens in the binding
+ * (`.minsky/hooks/block-nested-fork-dispatch.ts`'s `isForkDispatch`). It lives here rather than
+ * in the binding because WHICH subagent type is gated is part of the rule, not part of reading a
+ * payload — the same split `PR_CREATE_TOOL_NAME` sits on in `pr-convergence-reminder.ts`. Do not
+ * remove it as an unused export.
+ */
 export const GATED_SUBAGENT_TYPE = "fork";
 
-/** Launch-time-env-only override the binding reads on this guard's behalf. */
+/**
+ * Launch-time-env-only override the binding reads on this guard's behalf.
+ *
+ * Also consumed externally (the binding reads the variable; this module only names it and quotes
+ * it back in the allow-reason so the fire-log records WHY a call went through).
+ */
 export const OVERRIDE_ENV_VAR = "MINSKY_ALLOW_NESTED_FORK";
 
 export const DENY_REASON_PREFIX =

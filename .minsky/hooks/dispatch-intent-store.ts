@@ -1,5 +1,8 @@
-// Shared, dependency-free store for subagent dispatch-intent declarations
-// (mt#2865).
+// Shared store for subagent dispatch-intent declarations (mt#2865).
+//
+// No longer "dependency-free": since mt#4374 it imports the declaration record
+// and its validity predicates from `packages/domain` — see the Imports note
+// below for why that is now allowed and what the old claim got wrong.
 //
 // This is the FOURTH instance of the ADR-028 D5/D8 file-based grant/
 // declaration-store pattern in this hooks tree — after
@@ -49,13 +52,36 @@
 //     with `intent: "read-only"`, writes a declaration for the resolved
 //     session BEFORE the subagent is dispatched.
 //
-// Self-containment (per `.claude/hooks/SPEC.md` + ADR-028 "Context —
-// Adjacent-but-distinct prior art"): this module imports ONLY `node:fs`,
-// `node:os`, `node:path` — no `packages/domain` import, so the guard keeps
-// working even when the main codebase has type errors. State-dir
-// resolution mirrors `guard-grant-store.ts`'s `getStateDir()` precedent
-// exactly: `MINSKY_STATE_DIR` override, else `XDG_STATE_HOME`/minsky, else
-// `~/.local/state/minsky`.
+// Imports (mt#4374): `node:fs`, `node:os`, `node:path`, AND the declaration
+// record plus its validity predicates from
+// `@minsky/domain/detectors/dispatch-intent-gate`, which this module
+// re-exports so its consumers keep one import path and there is exactly one
+// definition.
+//
+// This paragraph previously claimed self-containment — "imports ONLY node
+// stdlib, no `packages/domain` import, so the guard keeps working even when
+// the main codebase has type errors" — citing `.claude/hooks/SPEC.md` and
+// ADR-028. BOTH halves are now wrong, for independent reasons worth keeping
+// apart:
+//
+//   - The INVARIANT is retired. mt#4368's direction decision (2026-08-20,
+//     principal: "Import freely; retire the invariant.") removed it, and
+//     mt#4373 amended ADR-028 and retired SPEC.md's tier-1 convention.
+//   - The stated REASON was never a real failure mode. Hooks run under Bun,
+//     which strips types at import and never type-checks, so a hook importing
+//     a module carrying a type error loads and runs normally. What actually
+//     breaks an importing hook is narrower: a `reflect-metadata`-less tsyringe
+//     throw at module load, an uninitialised config, or module resolution
+//     against a tree that is not present (see `domain-bootstrap.ts`).
+//
+// The observability-baseline closure — `record-conversation-run-state.ts`,
+// `transcript-ingest-on-session-end.ts`, `types.ts` — DOES still need a
+// node-stdlib-plus-same-directory closure, because it runs from an arbitrary
+// install path. That is a module-resolution fact, and this module is not in it.
+//
+// State-dir resolution mirrors `guard-grant-store.ts`'s `getStateDir()`
+// precedent exactly: `MINSKY_STATE_DIR` override, else `XDG_STATE_HOME`/minsky,
+// else `~/.local/state/minsky`.
 //
 // @see mt#2865 — this module's tracking task
 // @see .minsky/hooks/guard-grant-store.ts — the pattern this module mirrors

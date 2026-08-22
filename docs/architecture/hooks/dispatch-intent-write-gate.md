@@ -111,7 +111,8 @@ Both `session.generate_prompt` (`src/adapters/shared/commands/session/prompt-com
 domain function, `generateSubagentPrompt` (`packages/domain/src/session/prompt-generation.ts`),
 for prompt text — the `intent` param threads through there. The store WRITE is duplicated on the
 `src/` side (`packages/domain/src/session/dispatch-intent-writer.ts`) rather than cross-imported
-from `.minsky/hooks/dispatch-intent-store.ts` — see "Self-containment" below.
+from `.minsky/hooks/dispatch-intent-store.ts` — see "The `src/` <-> `.minsky/hooks/` boundary"
+below, which records that the reason for that duplication no longer holds (mt#4414).
 
 ## The `src/` <-> `.minsky/hooks/` boundary
 
