@@ -28,10 +28,16 @@
  *
  * ## Isolation
  *
- * Everything runs against a scratch project root and a scratch HOME, so the two
+ * Every daemon runs against a scratch project root and on a non-default port, so
+ * an operator's real daemon is neither probed nor stopped and no daemon is ever
+ * handed the operator's working tree.
+ *
+ * HOME differs by half, deliberately. Half A passes a scratch home, so the two
  * files `revertCandidates` targets are `<scratch>/.mcp.json` and
- * `<scratchHome>/.claude.json` — never the operator's own. The daemon runs on a
- * non-default port so an operator's real daemon is neither probed nor stopped. The
+ * `<scratchHome>/.claude.json` — never the operator's own. Half B INHERITS the
+ * real HOME, because the `claude` client's credentials live there and it cannot
+ * authenticate without them; that is why the end-of-run check is scoped as it is,
+ * and `mcpServersFingerprint` carries the measurement behind that choice. The
  * script fingerprints the operator's MCP configuration before and after and fails
  * if it moved — whole-file for the repo's `.mcp.json`, and the `mcpServers` subtree
  * for `~/.claude.json`, which is also the `claude` client's own state file and is
@@ -319,12 +325,18 @@ async function driveClient(configFile: string, server: string): Promise<string |
       child.kill("SIGTERM");
       resolve(-1);
     }, 180_000);
-    child.once("close", (code) => {
+    const settle = (code: number) => {
       clearTimeout(timer);
-      resolve(code ?? -1);
-    });
+      resolve(code);
+    };
+    // `error` fires when the binary cannot be spawned at all, and it fires
+    // INSTEAD of `close` — listening only for `close` turns "not installed" into
+    // a 180s wait ending in a timeout message that names the wrong cause.
+    child.once("error", () => settle(-2));
+    child.once("close", (code) => settle(code ?? -1));
   });
 
+  if (exitCode === -2) return `${server}: could not spawn \`claude\`.`;
   if (exitCode === -1) return `${server}: the client did not finish within 180s.`;
 
   let invoked = false;
@@ -365,6 +377,16 @@ async function runLiveClientHalf(): Promise<HalfOutcome> {
         "clients, which costs tokens and minutes, so it is opt-in rather than default.",
     };
   }
+  // Both binaries are preconditions, not just `claude`: every entry in the
+  // config below invokes `minsky`, so a missing one turns a genuine SKIP into
+  // two tool-call failures that read as a real AT5 regression.
+  const missing = ["claude", "minsky"].filter((bin) => Bun.which(bin) === null);
+  if (missing.length > 0) {
+    return {
+      state: "skip",
+      detail: `not on PATH: ${missing.join(", ")}. This half needs both to drive a real client.`,
+    };
+  }
   if (await hasListener(PORT)) {
     return { state: "skip", detail: `${HOST}:${PORT} is occupied; cannot run an isolated daemon.` };
   }
@@ -402,9 +424,15 @@ async function runLiveClientHalf(): Promise<HalfOutcome> {
       HOST,
       "--port",
       String(PORT),
+      // The SCRATCH root, matching Half A — whose daemon gets it from
+      // `runSetupLocalHttp`'s projectRoot. Pointing this at the real repo would
+      // hand a daemon the operator's working tree for the duration of the run,
+      // which contradicts this script's isolation claim (PR #3247 R1).
       "--repo",
-      REPO,
+      root,
     ],
+    // `cwd` stays the repo: that is where `src/cli.ts` is resolved from, and it
+    // decides nothing about which tree the daemon serves.
     { cwd: REPO, stdio: ["ignore", "pipe", "pipe"] }
   );
   let daemonLog = "";
