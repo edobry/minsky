@@ -7,7 +7,7 @@
     ".minsky/hooks/registry.ts"
   ],
   "divergence": {
-    "declaredButNotDescribed": ["inject-ask-responses", "stamp-ask-conversation"],
+    "declaredButNotDescribed": [],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -1844,26 +1844,31 @@
     },
     {
       "guardName": "inject-ask-responses",
-      "description": null,
-      "failureClasses": [],
-      "provenance": [],
-      "stratum": null,
+      "description": "Tells the agent that an ask THIS conversation filed has been answered or otherwise settled, so it stops reporting the ask as open from memory of having filed it. Fires once per response.",
+      "failureClasses": ["stale-context", "lost-signal"],
+      "provenance": [".minsky/hooks/inject-ask-responses.ts"],
+      "stratum": "registry",
       "subject": "trajectory",
-      "provenanceStatus": "none",
+      "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": true,
+      "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
       "trajectory": null,
-      "interventions": [],
-      "mechanism": null,
-      "role": null,
-      "coordinateGaps": ["interventions", "mechanism", "role"],
-      "families": [],
-      "familyState": "unclassified",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
       "deliberatelyUnauthored": false,
-      "sourceFile": null
+      "sourceFile": "inject-ask-responses"
     },
     {
       "guardName": "inject-current-time",
@@ -3443,26 +3448,31 @@
     },
     {
       "guardName": "stamp-ask-conversation",
-      "description": null,
-      "failureClasses": [],
-      "provenance": [],
-      "stratum": null,
+      "description": "Records which CONVERSATION filed an ask — the one place that sees the harness conversation id and the newly-minted ask id together. Without it `inject-ask-responses` can never fire: `Ask.parentSessionId` holds a WORKSPACE session id, and a main-workspace conversation has no workspace session to record.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/stamp-ask-conversation.ts"],
+      "stratum": "standalone",
       "subject": "trajectory",
-      "provenanceStatus": "none",
+      "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": true,
+      "undescribed": false,
       "point": "PostToolUse",
       "pointSource": "settings",
       "trajectory": null,
-      "interventions": [],
-      "mechanism": null,
-      "role": null,
-      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
       "families": [],
-      "familyState": "unclassified",
+      "familyState": "out-of-model",
       "deliberatelyUnauthored": false,
-      "sourceFile": null
+      "sourceFile": "stamp-ask-conversation"
     },
     {
       "guardName": "stamp-pr-author-link",

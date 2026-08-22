@@ -532,6 +532,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "inject-ask-responses",
+    {
+      description:
+        "Tells the agent that an ask THIS conversation filed has been answered or otherwise settled, so it stops reporting the ask as open from memory of having filed it. Fires once per response.",
+      failureClasses: ["stale-context", "lost-signal"],
+      provenance: [hook("inject-ask-responses")],
+      stratum: "registry",
+    },
+  ],
+  [
     "memory-search",
     {
       description:
