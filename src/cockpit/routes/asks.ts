@@ -193,8 +193,15 @@ function toAskListRow(a: Ask) {
  * Two corrections to this docblock's original wording (mt#4313). It said the
  * reaper "performs `routed -> suspended`"; the direction is the opposite —
  * the reaper's only `transition()` call targets `"routed"`, moving a windowed
- * cohort `suspended -> routed` when its window opens. And the reaper now DOES
- * run, in the cockpit daemon's service-window sweep.
+ * cohort `suspended -> routed` when its window opens.
+ *
+ * **The reaper no longer runs (mt#4410, 2026-08-21).** This docblock claimed it
+ * did, which was true for one day: mt#4313 wired it, and mt#4410 unwired it
+ * when the principal retired the attention-window concept —
+ * `startServiceWindowSweeper` is now deliberately uncalled by the daemon. What
+ * that retirement did NOT reach is the create-time defaults, so a
+ * `direction.decide` ask is still born into an `ask-hours` window nothing will
+ * open; that residue is mt#4421's.
  *
  * That does not revive these two buttons. What made them harmful was never
  * `routed` itself but that they were an entrance to it with no window context
@@ -203,9 +210,24 @@ function toAskListRow(a: Ask) {
  * (a `snoozedUntil` column plus something that fires when it elapses) is still
  * the delivery-layer work described at the end of this docblock.
  *
- * The visibility half of the original problem IS fixed: the unfiltered
- * `GET /api/asks` below now lists operator asks in `routed` as well as
- * `suspended`, so an ask in `routed` is no longer invisible to the operator.
+ * ## The visibility half is fixed only for OPERATOR-routed asks (mt#4361)
+ *
+ * The unfiltered `GET /api/asks` below lists asks in `routed` as well as
+ * `suspended` — but BOTH of its paths then filter on
+ * `routingTarget === OPERATOR_ROUTING_TARGET`. This docblock used to conclude
+ * from that widening that "an ask in `routed` is no longer invisible to the
+ * operator", which is true as written and empty in practice, because the two
+ * populations are disjoint: `routeResultToOutcomeWrite` sends every
+ * operator-bound ask straight to `suspended`, and since mt#3491 made the
+ * buttons below inert, no operator-routed ask enters `routed` at all.
+ *
+ * So the real `routed` population — subagent/mesh/retriever, the transports
+ * that do not exist — is NOT visible here and this endpoint is not where it
+ * becomes visible. mt#4361's answer is the age dimension on
+ * `getAskStateCounts` (`packages/domain/src/ask/state-counts-provider.ts`),
+ * surfaced on `debug_systemInfo`: deliberately a signal rather than a sweep,
+ * because an ask in `routed` is one no human and no agent has ever seen, and
+ * retiring it on age would discard an undelivered question.
  *
  * `routeResultToOutcomeWrite` maps the inbox/elicitation transports straight
  * to `suspended` ("'Dispatch' for the inbox transport IS landing on the

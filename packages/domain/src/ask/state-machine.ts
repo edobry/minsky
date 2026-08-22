@@ -184,6 +184,33 @@ export function isTerminal(state: AskState): boolean {
 export const TERMINAL_ASK_STATES: readonly AskState[] = ALL_ASK_STATES.filter(isTerminal);
 
 /**
+ * An AskState an Ask can still be RESTING in — the complement of the terminal
+ * set (mt#4361).
+ *
+ * The literal union here is written out because a type cannot call `isTerminal`,
+ * so this is an assertion the compiler does not check. What DOES check it is
+ * `state-machine.test.ts`'s partition test: it asserts `OPEN_ASK_STATES` and
+ * `TERMINAL_ASK_STATES` are disjoint and together cover `ALL_ASK_STATES`, so a
+ * new state added to the `isTerminal` switch without being reflected here fails
+ * a test rather than silently dropping out of every open-state consumer.
+ */
+export type OpenAskState = Exclude<AskState, "closed" | "cancelled" | "expired">;
+
+/**
+ * Canonical list of non-terminal Ask states, derived at module load from the
+ * same `isTerminal` switch `TERMINAL_ASK_STATES` uses — one source of truth for
+ * the VALUES, with the test above guarding the type.
+ *
+ * Consumers that report per-state statistics for OPEN asks (mt#4361's age
+ * signal) key on this rather than on `ALL_ASK_STATES`: an "age" for a closed
+ * ask is not a smaller number, it is a meaningless one, and a `Record` over all
+ * eight states would manufacture a zero for it.
+ */
+export const OPEN_ASK_STATES: readonly OpenAskState[] = ALL_ASK_STATES.filter(
+  (s): s is OpenAskState => !isTerminal(s)
+);
+
+/**
  * Thrown when an Ask transition is attempted that is not in the valid
  * transition table.
  */

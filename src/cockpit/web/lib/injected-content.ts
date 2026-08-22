@@ -126,6 +126,47 @@ const NEXT_BOUNDARY_RE = new RegExp(
   "i"
 );
 
+/**
+ * A `<task-notification>` block's envelope, taken apart (mt#4419).
+ *
+ * A backgrounded MCP call's notification IS that call's deferred tool result:
+ * the harness wraps the tool's entire JSON payload in `<result>` and hands it
+ * back as a turn. Carrying the pieces on the span lets the renderer put that
+ * payload through the same JSON tree an INLINE tool result already gets,
+ * instead of printing several thousand characters of raw XML and JSON.
+ *
+ * **Every field is parsed from the RAW body, before entity decoding, and only
+ * the extracted leaves are decoded** — see {@link parseTaskNotification} for
+ * why the order is load-bearing rather than incidental.
+ */
+export interface TaskNotificationParts {
+  /** The harness's background-task id, e.g. `kef11dmwa`. */
+  taskId: string | null;
+  /** `completed`, `failed`, … */
+  status: string | null;
+  /** The harness's own one-line sentence. */
+  summary: string | null;
+  /**
+   * Bare tool name recovered from the summary (`session_commit`), or null when
+   * the summary names none. Bare is the form `ToolPayload`'s per-tool registry
+   * is keyed on, so this is what the renderer passes as `toolName`.
+   */
+  toolName: string | null;
+  /** Inner text of `<result>` — the tool's payload, entity-decoded. */
+  result: string | null;
+  /**
+   * Everything in the body the four tags above did NOT account for, decoded;
+   * null when they accounted for all of it.
+   *
+   * This is what keeps mt#2791's demote-never-drop contract true once the
+   * renderer stops printing the body verbatim: a notification shape this parse
+   * does not model — the `<output-file>` variant, a `<tool-use-id>`, anything
+   * the harness adds later — still reaches the reader rather than vanishing
+   * because a structured view had no slot for it.
+   */
+  remainder: string | null;
+}
+
 /** One detected injected span: a muted collapsed header + its full content. */
 export interface InjectedSpan {
   kind: InjectedContentKind;
@@ -133,6 +174,13 @@ export interface InjectedSpan {
   label: string;
   /** Full content of the span, rendered on expand (harness wrapper tags stripped). */
   content: string;
+  /**
+   * Structured parts, for the kinds that have them (today: `task-notification`).
+   * Absent for every other kind, and absent when the parse found nothing usable —
+   * the renderer falls back to rendering `content` as prose, which is what every
+   * kind did before mt#4419.
+   */
+  notification?: TaskNotificationParts;
 }
 
 /** One segment of a turn's text after injected-content classification. */
@@ -190,7 +238,24 @@ interface TurnStartTagPresentation {
    * command in its header the way `command: /model` already does — collapsing
    * a turn is only acceptable when the header says what was collapsed.
    */
-  label: string | ((body: string) => string);
+  label: string | ((body: string, parts?: TaskNotificationParts) => string);
+  /**
+   * Decode HTML entities in the block's body before it is rendered (mt#4417).
+   *
+   * Opt-in per tag rather than applied to every block, because it is only
+   * correct where the harness is known to escape: a body that legitimately
+   * contains the literal text `&lt;` would otherwise be silently rewritten.
+   */
+  decodeEntities?: boolean;
+  /**
+   * Take the block's RAW body apart into structured parts, carried on the span
+   * for the renderer (mt#4419). Optional: a tag whose body is unstructured text
+   * declares none, and its span carries none.
+   *
+   * The parts are computed ONCE, here, and handed to `label` as its second
+   * argument — so a label derived from the same structure does not re-parse.
+   */
+  parts?: (body: string) => TaskNotificationParts;
 }
 
 /**
@@ -214,6 +279,171 @@ function bashCommandLabel(body: string): string {
 /** Keeps a long one-liner from pushing the rest of the header off the row. */
 const BASH_LABEL_MAX_CHARS = 72;
 
+/** Same job as {@link BASH_LABEL_MAX_CHARS}, for the notification summary row. */
+const TASK_NOTIFICATION_LABEL_MAX_CHARS = 72;
+
+/** First `<tag>…</tag>` body in `body`, trimmed; `null` when absent or empty. */
+function firstTagText(body: string, tag: string): string | null {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i").exec(body);
+  const text = match?.[1]?.trim();
+  return text !== undefined && text.length > 0 ? text : null;
+}
+
+/** The envelope elements {@link parseTaskNotification} models. */
+const TASK_NOTIFICATION_PART_TAGS = ["task-id", "status", "summary", "result"] as const;
+
+/**
+ * The tool name a summary names, bare: `MCP task kef11dmw
+ * (minsky/session_commit) completed.` → `session_commit`.
+ *
+ * BARE is the form that matters, and it is not an aesthetic choice —
+ * `ToolPayload` looks its per-tool registry up as
+ * `TOOL_RESULT_RENDERERS[parseToolName(toolName).name]`, and `parseToolName`
+ * only knows the harness's `mcp__server__tool` form. It does not know this
+ * `server/tool` slash form, so a name handed over unsplit would never match a
+ * registered renderer and would fail silently — the generic tree renders either
+ * way, which is exactly the kind of miss nothing downstream reports.
+ *
+ * **The `server/tool` slash form is REQUIRED, not merely accepted (PR #3245 R1).**
+ * An earlier version took any parenthetical that looked like an identifier,
+ * which a summary containing an ordinary aside — a version, a note — could
+ * satisfy. The failure mode of a wrong match is worse than the failure mode of
+ * no match: a wrong name silently invokes some OTHER tool's renderer on this
+ * payload, while no name falls through to the generic tree, which is a perfectly
+ * good rendering. Requiring the slash is what makes the match evidence that this
+ * really is the harness's `MCP task … (server/tool) …` shape rather than prose
+ * that happens to have brackets in it.
+ */
+function toolNameFromSummary(summary: string): string | null {
+  const parenthesized = /\(([^)]*)\)/.exec(summary)?.[1]?.trim();
+  if (parenthesized === undefined) return null;
+  const [server, ...rest] = parenthesized.split("/");
+  const bare = rest.join("/").trim();
+  if (server === undefined || server.trim().length === 0 || rest.length !== 1) return null;
+  return /^[A-Za-z0-9_.-]+$/.test(bare) ? bare : null;
+}
+
+/**
+ * Take a `<task-notification>` body apart into {@link TaskNotificationParts} (mt#4419).
+ *
+ * **`body` must be the RAW block, before entity decoding — this is the same
+ * ordering constraint PR #3239 R1 established for the label, and for the same
+ * reason.** Decoding manufactures tags: a `<result>` payload carrying the
+ * literal text `&lt;summary&gt;…&lt;/summary&gt;` — how a commit message
+ * quoting an XML tag arrives — decodes into a REAL `<summary>` element that
+ * `firstTagText` cannot tell from the envelope's own. Structure is read here,
+ * where the envelope's tags are the only real ones; each extracted leaf is
+ * decoded afterward, individually.
+ *
+ * `remainder` is what makes this parse safe to render structurally: whatever
+ * the four modelled tags did not consume is carried out rather than dropped, so
+ * an unmodelled shape (the `<output-file>` variant, a `<tool-use-id>`, a tag the
+ * harness adds next month) still reaches the reader.
+ */
+function parseTaskNotification(body: string): TaskNotificationParts {
+  const summaryRaw = firstTagText(body, "summary");
+  const summary = summaryRaw === null ? null : decodeHarnessEntities(summaryRaw);
+  const resultRaw = firstTagText(body, "result");
+  const statusRaw = firstTagText(body, "status");
+  const taskIdRaw = firstTagText(body, "task-id");
+
+  // NOT global, deliberately (PR #3245 R1 non-blocking). The reviewer read the
+  // missing `g` as an oversight that lets a REPEATED modelled tag leak into the
+  // remainder. It does — and that leak is the correct behaviour, because
+  // `firstTagText` surfaces only the FIRST occurrence of each. Strip exactly the
+  // one occurrence that was surfaced, and a duplicate `<status>` still reaches
+  // the reader through the remainder; strip globally, and it is surfaced nowhere
+  // and removed everywhere, which is a silent drop of the kind mt#2791 exists to
+  // prevent. The two halves have to agree on the count, and `firstTagText` is
+  // the one that sets it.
+  const remainderRaw = TASK_NOTIFICATION_PART_TAGS.reduce(
+    (rest, tag) => rest.replace(new RegExp(tagBlockSource(tag), "i"), ""),
+    body
+  ).trim();
+
+  return {
+    taskId: taskIdRaw === null ? null : decodeHarnessEntities(taskIdRaw),
+    status: statusRaw === null ? null : decodeHarnessEntities(statusRaw),
+    summary,
+    toolName: summary === null ? null : toolNameFromSummary(summary),
+    result: resultRaw === null ? null : decodeHarnessEntities(resultRaw),
+    remainder: remainderRaw.length > 0 ? decodeHarnessEntities(remainderRaw) : null,
+  };
+}
+
+/**
+ * Header label for a background-task completion notice (mt#4417).
+ *
+ * The harness writes a one-line `<summary>` into every notification — "MCP task
+ * kef11dmw (minsky/session_commit) completed." — and then, for an MCP task, a
+ * `<result>` element carrying the tool's ENTIRE JSON payload. Labelling the row
+ * with the fixed noun put the useless half in the header and the several-thousand
+ * character half behind the disclosure, so the only way to learn WHICH task
+ * finished was to open a wall of JSON. The summary is what the reader wants and
+ * the harness has already written it.
+ *
+ * **`body` is the UNDECODED block (PR #3239 R1).** Entity decoding must not run
+ * before this function, because it manufactures tags: a `<result>` payload
+ * carrying the literal text `&lt;summary&gt;…&lt;/summary&gt;` — which is how a
+ * commit message quoting an XML tag arrives — decodes into a REAL `<summary>`
+ * element that `firstTagText` cannot tell from the envelope's own. Structure is
+ * read from the raw body, where the envelope's tags are the only real ones; only
+ * the extracted leaf text is decoded, below.
+ */
+function taskNotificationLabel(body: string, parts?: TaskNotificationParts): string {
+  // `parts` is what the presentation table supplies; the fallback parse keeps
+  // this function correct on its own, for a caller that has only the body.
+  const { summary, status } = parts ?? parseTaskNotification(body);
+  if (summary === null) return INJECTED_KIND_NOUN["task-notification"];
+
+  // The harness's summary usually ends in the status word ("… completed."), so
+  // naming it again would only lengthen the row. Append it when the summary does
+  // NOT already carry it — which is precisely the case a reader most needs to
+  // see, a task that ended some other way.
+  //
+  // Both are already decoded: `parseTaskNotification` reads structure from the
+  // raw body and decodes only the leaves it extracts.
+  const headline =
+    status !== null && !summary.toLowerCase().includes(status.toLowerCase())
+      ? `${summary} (${status})`
+      : summary;
+
+  // Truncate from the HEAD for the same reason `bashCommandLabel` does: the
+  // words that identify the task come first.
+  const shown = safeTruncate(headline, TASK_NOTIFICATION_LABEL_MAX_CHARS, "head");
+  const noun = INJECTED_KIND_NOUN["task-notification"];
+  return `${noun}: ${shown}${shown.length < headline.length ? "…" : ""}`;
+}
+
+/**
+ * The HTML entities the harness escapes into a notification body: five
+ * characters, six mappings — the apostrophe arrives as either `&apos;` or
+ * the numeric `&#39;` (PR #3239 R2).
+ *
+ * The notification envelope is XML-shaped, so the harness escapes `<` and its
+ * siblings before embedding a tool result inside it. Nothing on our side
+ * reverses that: verified for the mt#4417 report's own commit, whose message in
+ * git reads `` `<repoPath>/.git` `` while the stored turn carries
+ * `&lt;repoPath&gt;` — and a grep across `packages/domain/src/transcripts` and
+ * this directory finds no HTML-escaping of our own, so the entity is introduced
+ * upstream of storage and arrives here already encoded.
+ *
+ * ORDER MATTERS, and `&amp;` must stay last: decoding it first would turn a
+ * literal `&amp;lt;` into `<` rather than the `&lt;` the source actually encoded.
+ */
+const HARNESS_ENTITY_DECODINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/&lt;/g, "<"],
+  [/&gt;/g, ">"],
+  [/&quot;/g, '"'],
+  [/&apos;/g, "'"],
+  [/&#0*39;/g, "'"],
+  [/&amp;/g, "&"],
+];
+
+function decodeHarnessEntities(text: string): string {
+  return HARNESS_ENTITY_DECODINGS.reduce((acc, [re, char]) => acc.replace(re, char), text);
+}
+
 const TURN_START_TAG_PRESENTATION: Record<string, TurnStartTagPresentation> = {
   "local-command-stdout": {
     kind: "local-command-output",
@@ -231,7 +461,9 @@ const TURN_START_TAG_PRESENTATION: Record<string, TurnStartTagPresentation> = {
   "bash-stderr": { kind: "bash-error", label: INJECTED_KIND_NOUN["bash-error"] },
   "task-notification": {
     kind: "task-notification",
-    label: INJECTED_KIND_NOUN["task-notification"],
+    label: taskNotificationLabel,
+    decodeEntities: true,
+    parts: parseTaskNotification,
   },
 };
 
@@ -324,21 +556,38 @@ function matchTurnStartTagBlock(text: string): PrefixMatch | null {
     if (!presentation) continue;
     // Terminal control bytes are captured verbatim by the harness; strip
     // them so they don't reach the DOM as replacement glyphs.
-    const content = stripAnsi((match[1] ?? "").trim());
+    const stripped = stripAnsi((match[1] ?? "").trim());
+    // Decoding happens AFTER the label is derived, never before (PR #3239 R1).
+    // Decoding first would let an escaped `&lt;summary&gt;` inside a tool
+    // result's JSON become a real `<summary>` tag, which the label's own
+    // extraction would then read as the envelope's — so a payload could name
+    // the row. The label reads `stripped`; only the RENDERED body is decoded.
+    const content = presentation.decodeEntities ? decodeHarnessEntities(stripped) : stripped;
     // An empty block is consumed and dropped, never rendered (mt#4058). The
     // bash pair routinely carries one empty half — a `<bash-stdout></bash-stdout>`
     // beside real stderr, or the reverse — and a collapsed header over nothing
     // is noise the reader has to open to discover is empty.
     if (content.length === 0) return { consumedLength: match[0].length };
+    // Parsed from `stripped` for the same reason the label is — see below, and
+    // `parseTaskNotification`'s docblock. Computed once and shared with the
+    // label so the body is taken apart a single time per span.
+    const parts = presentation.parts?.(stripped);
     return {
       consumedLength: match[0].length,
       span: {
         kind: presentation.kind,
+        // Derived from `stripped`, NOT `content` (PR #3239 R1). Decoding runs
+        // before this point and can manufacture tags out of escaped text inside
+        // the block's own payload, which a tag-reading label function would then
+        // mistake for the envelope's. Every label function reads structure, so
+        // all of them get the raw body; the ones on undecoded tags see no
+        // difference, since `content === stripped` there.
         label:
           typeof presentation.label === "function"
-            ? presentation.label(content)
+            ? presentation.label(stripped, parts)
             : presentation.label,
         content,
+        ...(parts !== undefined ? { notification: parts } : {}),
       },
     };
   }

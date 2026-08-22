@@ -17,7 +17,7 @@ export {
 export type { TaskServiceDeps } from "../tasks";
 
 // Re-export service interfaces/factory
-export type { TaskServiceInterface } from "./taskService";
+export type { TaskServiceInterface, TaskSpecContentResult } from "./taskService";
 export { createConfiguredTaskService } from "./taskService";
 
 // Optionally expose pure helpers (kept minimal to avoid surface changes)

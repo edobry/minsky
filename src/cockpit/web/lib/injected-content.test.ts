@@ -331,15 +331,22 @@ describe("splitInjectedContent — conservative matching preserved (mt#3322)", (
  * correctly (given its inputs) called it operator prose.
  */
 describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
+  // Envelope pieces every fixture in this block shares. Named rather than
+  // repeated so a harness tag rename is one edit, not a hunt through fixtures
+  // (`custom/no-magic-string-duplication`).
+  const OPEN = "<task-notification>";
+  const CLOSE = "</task-notification>";
+  const STATUS_COMPLETED = "<status>completed</status>";
+
   // The real on-disk shape, from the local transcript corpus: 48 turns carry
   // this tag and all 48 are role `user`.
   const TASK_NOTIFICATION_TURN = [
-    "<task-notification>",
+    OPEN,
     "<task-id>bhlkh6oiq</task-id>",
     "<tool-use-id>toolu_01Qbhg9FEjEW6VENjy6hGRmH</tool-use-id>",
-    "<status>completed</status>",
+    STATUS_COMPLETED,
     "<summary>Background shell command finished.</summary>",
-    "</task-notification>",
+    CLOSE,
   ].join("\n");
 
   test("a turn-start <task-notification> block is ONE injected segment of the new kind", () => {
@@ -348,7 +355,13 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
     expect(segments).toHaveLength(1);
     expect(segments[0]).toMatchObject({
       type: "injected",
-      span: { kind: "task-notification", label: "task notification" },
+      span: {
+        kind: "task-notification",
+        // mt#4417: the row names WHICH task finished. Before, every notification
+        // in the transcript carried the identical fixed noun, so telling them
+        // apart meant opening each one.
+        label: "task notification: Background shell command finished. (completed)",
+      },
     });
   });
 
@@ -357,6 +370,282 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
     const span = (segments[0] as { span: { content: string } }).span;
     expect(span.content).toContain("bhlkh6oiq");
     expect(span.content).toContain("Background shell command finished.");
+  });
+
+  // ── mt#4417 ────────────────────────────────────────────────────────────────
+  //
+  // The shape that prompted the report: an MCP task's notification carries a
+  // `<result>` element holding the tool's entire JSON payload. Taken verbatim
+  // from the stored turn behind it (session 322e94eb, turnIndex 177), including
+  // the `&lt;` the harness escaped into the commit body.
+  //
+  // The summary is named so the several tests that swap it out cannot drift
+  // from the fixture that defines it (`custom/no-magic-string-duplication`).
+  const MCP_SUMMARY = "MCP task kef11dmw (minsky/session_commit) completed.";
+  const MCP_SUMMARY_TAG = `<summary>${MCP_SUMMARY}</summary>`;
+
+  // The result line the decode and decoy tests both reach for, named so the
+  // three sites cannot drift (`custom/no-magic-string-duplication`).
+  const MCP_RESULT_MESSAGE_LINE =
+    '  "message": "the probe tested `&lt;repoPath&gt;/.git`, so a server started",';
+
+  const MCP_TASK_NOTIFICATION_TURN = [
+    OPEN,
+    "<task-id>kef11dmwa</task-id>",
+    STATUS_COMPLETED,
+    MCP_SUMMARY_TAG,
+    "<result>",
+    '{ "success": true, "subject": "fix(mt#4342): ascend to the work tree",',
+    MCP_RESULT_MESSAGE_LINE,
+    '  "branch": "task/mt-4342" }',
+    "</result>",
+    CLOSE,
+  ].join("\n");
+
+  test("an MCP task's row names the tool, drawn from the harness's own summary", () => {
+    const span = (
+      splitInjectedContent(MCP_TASK_NOTIFICATION_TURN)[0] as { span: { label: string } }
+    ).span;
+
+    expect(span.label).toBe(`task notification: ${MCP_SUMMARY}`);
+  });
+
+  test("the status is not repeated when the summary already carries it", () => {
+    const span = (
+      splitInjectedContent(MCP_TASK_NOTIFICATION_TURN)[0] as { span: { label: string } }
+    ).span;
+
+    // "completed" appears once, in the harness's sentence — not again in parens.
+    expect(span.label.match(/completed/g)).toHaveLength(1);
+  });
+
+  test("a status the summary does NOT carry is appended — the case worth seeing", () => {
+    const failed = MCP_TASK_NOTIFICATION_TURN.replace(
+      STATUS_COMPLETED,
+      "<status>failed</status>"
+    ).replace(
+      MCP_SUMMARY_TAG,
+      "<summary>MCP task kef11dmw (minsky/session_commit) finished.</summary>"
+    );
+
+    const span = (splitInjectedContent(failed)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toContain("(failed)");
+  });
+
+  test("a notification with no summary falls back to the fixed noun", () => {
+    const noSummary = [OPEN, "<task-id>abc123</task-id>", STATUS_COMPLETED, CLOSE].join("\n");
+
+    const span = (splitInjectedContent(noSummary)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toBe("task notification");
+  });
+
+  test("a long summary is bounded and marked, so it cannot push the row off screen", () => {
+    const long = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY,
+      `MCP task ${"x".repeat(200)} completed.`
+    );
+
+    const span = (splitInjectedContent(long)[0] as { span: { label: string } }).span;
+
+    expect(span.label.length).toBeLessThan(100);
+    expect(span.label.endsWith("…")).toBe(true);
+    // Truncated from the HEAD: the words identifying the task lead.
+    expect(span.label).toContain("task notification: MCP task xxx");
+  });
+
+  test("entity-escaped text renders as the characters it encodes", () => {
+    const span = (
+      splitInjectedContent(MCP_TASK_NOTIFICATION_TURN)[0] as { span: { content: string } }
+    ).span;
+
+    expect(span.content).toContain("`<repoPath>/.git`");
+    expect(span.content).not.toContain("&lt;");
+    expect(span.content).not.toContain("&gt;");
+  });
+
+  test("`&amp;` decodes last, so an escaped entity survives as an entity", () => {
+    // `&amp;lt;` encodes the literal text `&lt;`. Decoding `&amp;` first would
+    // collapse it to `<` and lose what the source actually said.
+    const escaped = MCP_TASK_NOTIFICATION_TURN.replace(
+      "&lt;repoPath&gt;",
+      "&amp;lt;literal&amp;gt;"
+    );
+
+    const span = (splitInjectedContent(escaped)[0] as { span: { content: string } }).span;
+
+    expect(span.content).toContain("&lt;literal&gt;");
+    expect(span.content).not.toContain("<literal>");
+  });
+
+  test("a body with no entities is returned unchanged", () => {
+    const span = (splitInjectedContent(TASK_NOTIFICATION_TURN)[0] as { span: { content: string } })
+      .span;
+
+    expect(span.content).toContain("<task-id>bhlkh6oiq</task-id>");
+  });
+
+  // ── PR #3239 R1 ────────────────────────────────────────────────────────────
+  //
+  // The label is derived from the UNDECODED body, because decoding manufactures
+  // tags. A commit message quoting an XML tag arrives inside `<result>` as
+  // `&lt;summary&gt;…&lt;/summary&gt;`; decode first and it becomes a REAL
+  // `<summary>` element that the label's tag scan cannot distinguish from the
+  // envelope's own.
+  const ESCAPED_SUMMARY_IN_RESULT =
+    '  "message": "the spec says &lt;summary&gt;not this one&lt;/summary&gt; and ' +
+    '&lt;status&gt;failed&lt;/status&gt;",';
+
+  test("an escaped <summary> inside the result does not displace the envelope's own", () => {
+    const withDecoy = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_RESULT_MESSAGE_LINE,
+      ESCAPED_SUMMARY_IN_RESULT
+    );
+
+    const span = (splitInjectedContent(withDecoy)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toBe(`task notification: ${MCP_SUMMARY}`);
+    expect(span.label).not.toContain("not this one");
+  });
+
+  test("an escaped <summary> is not promoted when the envelope carries NO summary", () => {
+    // The case that would actually have broken: with no real `<summary>` to win
+    // the first-match race, a decoded decoy is the ONLY candidate — so the row
+    // would have been labeled with a fragment of a commit message.
+    const noSummaryWithDecoy = [
+      OPEN,
+      "<task-id>kef11dmwa</task-id>",
+      STATUS_COMPLETED,
+      "<result>",
+      ESCAPED_SUMMARY_IN_RESULT,
+      "</result>",
+      CLOSE,
+    ].join("\n");
+
+    const span = (splitInjectedContent(noSummaryWithDecoy)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toBe("task notification");
+  });
+
+  test("the summary's own entities still decode — structure is raw, leaves are not", () => {
+    // Reading structure from the raw body must not cost the row its decoding:
+    // the summary is prose the harness escaped on the way into its envelope.
+    const escapedSummary = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY_TAG,
+      "<summary>MCP task read &lt;repoPath&gt;/.git completed.</summary>"
+    );
+
+    const span = (splitInjectedContent(escapedSummary)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toContain("<repoPath>/.git");
+    expect(span.label).not.toContain("&lt;");
+  });
+
+  // ── mt#4419 — the envelope, taken apart ────────────────────────────────────
+  //
+  // The span now carries structured parts so the renderer can put the tool's
+  // payload through the same JSON tree an inline tool result gets. These assert
+  // the PARSE; the render half lives in
+  // `../components/ConversationElementRenderers.task-notification.test.tsx`.
+
+  function partsOf(turn: string) {
+    const span = (splitInjectedContent(turn)[0] as { span: { notification?: unknown } }).span;
+    return span.notification as {
+      taskId: string | null;
+      status: string | null;
+      summary: string | null;
+      toolName: string | null;
+      result: string | null;
+      remainder: string | null;
+    };
+  }
+
+  test("the envelope's four modelled elements are carried on the span", () => {
+    const parts = partsOf(MCP_TASK_NOTIFICATION_TURN);
+
+    expect(parts.taskId).toBe("kef11dmwa");
+    expect(parts.status).toBe("completed");
+    expect(parts.summary).toBe(MCP_SUMMARY);
+    expect(parts.result).toContain('"success": true');
+  });
+
+  test("the tool name is recovered from the summary, BARE — the form the registry keys on", () => {
+    // `minsky/session_commit` → `session_commit`. Unsplit, it would never match
+    // a registered per-tool renderer, and would do so silently.
+    expect(partsOf(MCP_TASK_NOTIFICATION_TURN).toolName).toBe("session_commit");
+  });
+
+  test("a summary naming no tool yields no tool name, rather than a guess", () => {
+    // The mt#3396 shape: a background shell command, no parenthesised tool.
+    expect(partsOf(TASK_NOTIFICATION_TURN).toolName).toBeNull();
+  });
+
+  test("an ordinary parenthetical is NOT read as a tool name (PR #3245 R1)", () => {
+    // The `server/tool` slash form is required. A wrong match would silently
+    // invoke some other tool's renderer on this payload; no match falls through
+    // to the generic tree, which is a perfectly good rendering. So an aside in
+    // the summary must not be mistaken for a tool.
+    const aside = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY_TAG,
+      "<summary>Background task finished (retried once) and wrote its output.</summary>"
+    );
+
+    expect(partsOf(aside).toolName).toBeNull();
+  });
+
+  test("a parenthetical with more than one slash is not a tool name either", () => {
+    const pathLike = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY_TAG,
+      "<summary>MCP task abc (a/b/c) completed.</summary>"
+    );
+
+    expect(partsOf(pathLike).toolName).toBeNull();
+  });
+
+  test("an unmodelled element survives as the remainder — nothing is dropped", () => {
+    // mt#2791's demote-never-drop contract, at the seam where a structured view
+    // could silently lose a tag it has no slot for. `<tool-use-id>` is the one
+    // in today's corpus; the point is the mechanism, not that tag.
+    const parts = partsOf(TASK_NOTIFICATION_TURN);
+
+    expect(parts.remainder).toContain("toolu_01Qbhg9FEjEW6VENjy6hGRmH");
+  });
+
+  test("a body the four elements fully account for leaves no remainder", () => {
+    expect(partsOf(MCP_TASK_NOTIFICATION_TURN).remainder).toBeNull();
+  });
+
+  test("the result's escaped entities are decoded", () => {
+    const parts = partsOf(MCP_TASK_NOTIFICATION_TURN);
+
+    expect(parts.result).toContain("`<repoPath>/.git`");
+    expect(parts.result).not.toContain("&lt;");
+  });
+
+  test("the parts are read from the RAW body — an escaped tag in the result cannot displace one", () => {
+    // The same hazard PR #3239 R1 fixed for the label, now for the parts: decode
+    // first and `&lt;summary&gt;…&lt;/summary&gt;` inside the payload becomes a
+    // real element the tag scan cannot distinguish from the envelope's own.
+    const withDecoy = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_RESULT_MESSAGE_LINE,
+      ESCAPED_SUMMARY_IN_RESULT
+    );
+
+    const parts = partsOf(withDecoy);
+
+    expect(parts.summary).toBe(MCP_SUMMARY);
+    expect(parts.status).toBe("completed");
+    expect(parts.toolName).toBe("session_commit");
+  });
+
+  test("no parts are attached to a span of a different kind", () => {
+    // The field is opt-in per tag: a bash block declares no extractor, so its
+    // span carries nothing and the renderer takes the unchanged prose path.
+    const bash = "<bash-input>ls -la</bash-input>";
+    const span = (splitInjectedContent(bash)[0] as { span: { notification?: unknown } }).span;
+
+    expect(span.notification).toBeUndefined();
   });
 
   test("AT3 anchoring: prose mentioning the tag mid-sentence is NOT split", () => {

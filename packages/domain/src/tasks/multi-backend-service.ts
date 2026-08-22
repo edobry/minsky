@@ -7,7 +7,7 @@ import type {
   DeleteTaskOptions,
 } from "./types";
 export type { TaskBackend } from "./types";
-import type { TaskServiceInterface } from "../tasks";
+import type { TaskServiceInterface, TaskSpecContentResult } from "../tasks";
 import { log } from "@minsky/shared/logger";
 import { MultiBackendError, TaskBackendUnavailableError } from "./multi-backend-errors";
 
@@ -588,10 +588,7 @@ export class TaskServiceImpl implements TaskService {
 
   // ---- TaskServiceInterface Required Methods (continued) ----
 
-  async getTaskSpecContent(
-    taskId: string,
-    section?: string
-  ): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+  async getTaskSpecContent(taskId: string, section?: string): Promise<TaskSpecContentResult> {
     const backend = this.routeToBackend(taskId);
 
     // Get the task first
@@ -602,16 +599,18 @@ export class TaskServiceImpl implements TaskService {
 
     // Check if backend has a getTaskSpecContent method
     type BackendWithSpecContent = typeof backend & {
-      getTaskSpecContent: (
-        id: string,
-        section?: string
-      ) => Promise<{ task: Task; specPath: string; content: string; section?: string }>;
+      getTaskSpecContent: (id: string, section?: string) => Promise<TaskSpecContentResult>;
     };
     if ((backend as BackendWithSpecContent).getTaskSpecContent) {
       return await (backend as BackendWithSpecContent).getTaskSpecContent(taskId, section);
     }
 
-    // Fallback: return empty content — spec is stored in the backend, not on disk
+    // Fallback: return empty content — spec is stored in the backend, not on disk.
+    //
+    // No `specUpdatedAt`: a backend that does not implement getTaskSpecContent
+    // tracks no spec-content timestamp, and `task.updatedAt` is NOT a stand-in
+    // (mt#4415 — any status change bumps it). Absent is the honest answer, and
+    // callers must surface it as "not checked" rather than as a clean result.
     return {
       task,
       specPath: "",

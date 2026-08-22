@@ -26,7 +26,11 @@
  * pattern parseable for as long as un-ingested child transcripts may still carry
  * it — a Stop event can arrive for a subagent dispatched by a prior build.
  */
-export const DISPATCH_STAMP_VERSION = "minsky:dispatch:v1";
+// Re-exported, not re-declared (PR #3242 R2): the token is shared vocabulary
+// with `user-line-origin.ts`, which reads back what this module writes. One
+// definition, so the two cannot drift apart.
+export { DISPATCH_STAMP_VERSION } from "@minsky/domain/transcripts/user-line-origin";
+import { DISPATCH_STAMP_VERSION } from "@minsky/domain/transcripts/user-line-origin";
 
 /**
  * Matches a stamp anywhere in a body of text.
