@@ -11,7 +11,36 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { evaluateCycleOutcome } from "./pr-watch-scheduler";
+import { evaluateCycleOutcome, startPrWatchScheduler } from "./pr-watch-scheduler";
+import type { ReviewerConfig } from "./config";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+
+/**
+ * A container stub. The credential guard runs before anything touches the
+ * container, so these tests never reach it — but `startPrWatchScheduler`
+ * returns early on a missing container, so one must be present for the
+ * credential branch to be the thing under test.
+ */
+const STUB_CONTAINER = {
+  get: () => {
+    throw new Error("container should not be reached when credentials are missing");
+  },
+} as unknown as AppContainerInterface;
+
+const VALID_KEY = "-----BEGIN RSA PRIVATE KEY-----\ntest-fixture\n-----END RSA PRIVATE KEY-----";
+
+function reviewerConfig(overrides: Partial<ReviewerConfig> = {}): ReviewerConfig {
+  return {
+    appId: 1,
+    privateKey: VALID_KEY,
+    installationId: 1,
+    webhookSecret: "test-secret",
+    provider: "openai",
+    providerApiKey: "sk-fake",
+    providerModel: "gpt-5",
+    ...overrides,
+  } as ReviewerConfig;
+}
 
 /** A cycle where every inspected watch failed. */
 const TOTAL_FAILURE = { success: true, inspected: 2, errors: 2 };
@@ -101,5 +130,42 @@ describe("evaluateCycleOutcome", () => {
       escalations.push(outcome.escalate);
     }
     expect(escalations).toEqual([false, false, true]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AT1 — the scheduler refuses to start without usable credentials
+// ---------------------------------------------------------------------------
+
+describe("startPrWatchScheduler credential guard (AT1)", () => {
+  const enabled = { intervalMs: 60_000, enabled: true };
+
+  test("refuses to start when the private key is empty", () => {
+    // The pre-mt#4435 behavior: start anyway, poll unauthenticated, exhaust
+    // GitHub's per-IP budget within the hour, and report poll_complete
+    // throughout. A null return is the scheduler declining to do that.
+    const handle = startPrWatchScheduler(
+      reviewerConfig({ privateKey: "" }),
+      enabled,
+      STUB_CONTAINER
+    );
+    expect(handle).toBeNull();
+  });
+
+  test("refuses to start when the app id is NaN", () => {
+    const handle = startPrWatchScheduler(
+      reviewerConfig({ appId: Number.NaN }),
+      enabled,
+      STUB_CONTAINER
+    );
+    expect(handle).toBeNull();
+  });
+
+  test("STARTS with valid credentials — the control for the two refusals above", () => {
+    // Without this, both assertions above would pass for a scheduler that never
+    // starts under any circumstances.
+    const handle = startPrWatchScheduler(reviewerConfig(), enabled, STUB_CONTAINER);
+    expect(handle).not.toBeNull();
+    if (handle) clearInterval(handle);
   });
 });
