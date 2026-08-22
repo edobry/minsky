@@ -490,6 +490,18 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__asks_create",
+        "hooks": [
+          {
+            "_comment": "mt#3564 ask->conversation attribution. Records which conversation filed an ask, so `inject-ask-responses` can tell that conversation when the ask is answered. Registered here rather than in GUARD_REGISTRY for the same reason the two sibling stamp hooks above are: `asks_create` is not among the tool names that already spawn the dispatcher, so a registry entry would need a new settings.json dispatcher slot anyway. Timeout=5 (not the siblings' 20): unlike them this hook touches no database — it reads the payload and writes one small local JSON file — so it has no connect cost to budget for. Fail-open and silent on every path.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-ask-conversation.ts",
+            "timeout": 5,
+            "statusMessage": "Recording the conversation that filed this ask..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_pr_merge|mcp__minsky__tasks_status_set",
         "hooks": [
           {
@@ -547,7 +559,7 @@
             "_comment": "ADR-028 D1 guard-dispatcher UserPromptSubmit entrypoint: the SOLE settings.json entry for EVERY UserPromptSubmit guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered UserPromptSubmit guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block, which fails naming this entry if a guard's budget changes without this value following. This replaces the hand-recomputed-comment convention (prior history: mem#746 found the comment's own prose disagreeing with its own arithmetic) with a checked derivation.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 215,
+            "timeout": 220,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]

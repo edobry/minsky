@@ -39,7 +39,7 @@ import {
 import { createPresenceSweepState } from "./conversation-presence-sweep";
 // mt#3744: the ask-state sweeper's two cheap, pure-fs halves are imported
 // statically (the DB half stays a dynamic import, like every sibling sweeper's).
-import { readWatermarkAskIds } from "./ask-state-cache";
+import { collectAllTrackedAskIds } from "./ask-state-cache";
 import { findRepoRoot } from "./web-dist";
 
 // ---------------------------------------------------------------------------
@@ -2018,7 +2018,11 @@ export function startAskStateRefreshSweeper(intervalMs?: number): () => void {
     tick: () =>
       runAskStateRefreshTick({
         resolveRepoRoot: () => findRepoRoot([process.cwd()]) ?? process.cwd(),
-        readAskIds: (repoRoot) => readWatermarkAskIds(repoRoot),
+        // mt#3564: two id sources, not one — the calibration watermarks PLUS the asks
+        // attributed to a conversation by `stamp-ask-conversation.ts`. Unioned inside
+        // `collectAllTrackedAskIds` so both consumers read a single snapshot and an ask
+        // present in both sources is still looked up once.
+        readAskIds: (repoRoot) => collectAllTrackedAskIds(repoRoot),
         resolveRawSql: async () => {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const svc = await getSharedPersistenceService();

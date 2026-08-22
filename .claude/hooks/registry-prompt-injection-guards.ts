@@ -230,6 +230,84 @@ export const PROMPT_INJECTION_GUARDS: readonly GuardRegistration[] = [
     },
   },
   {
+    name: "inject-ask-responses",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-ask-responses").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3564: a state injector, not a reminder — the same class as inject-prod-state
+    // and for the same reason. Dropping it does not cost a nudge, it costs a FACT (an
+    // ask this conversation filed has been answered), and the fallback is precisely the
+    // failure the hook exists to end: the agent reporting the ask as open from memory
+    // of having filed it.
+    contextPriority: 10,
+    // STRUCTURAL BOUND, not a canary sample — the distinction mt#4234 was written to
+    // enforce after a sampled annotation moved the shared budget. Every field in the
+    // render is individually capped BY THE HOOK ITSELF (MAX_ENUMERATED_ASKS 2,
+    // MAX_TITLE_CHARS 60, MAX_CHOSEN_RENDER_CHARS 100, both closers under 73), so
+    // saturating all of them at once gives a true maximum rather than a sample.
+    // MEASURED at 586, and asserted by `inject-ask-responses.test.ts`'s saturated case
+    // against the 590 declared here — so this annotation cannot silently drift.
+    //
+    // The caps live in the hook and not only in the producer deliberately: the cache is
+    // a file written by a separate module graph, and the first version of this guard
+    // trusted the producer's truncation and rendered 664 against a declared 590.
+    //
+    // 590 is deliberately just UNDER the 600 held by code-mechanism-assertion, the
+    // fifth slot of the bucket `MERGED_CONTEXT_BUDGET_CHARS` sums. Entering that bucket
+    // would push the shared per-turn budget up for every guard; staying out of it is
+    // why the render caps are set where they are. If a future change raises this past
+    // 600, MERGED_CONTEXT_BUDGET_CHARS must be re-derived in dispatcher.ts.
+    attentionCost: { denialMessageSizeChars: 590, optionCount: 0 },
+    canary: {
+      input: { session_id: "mt3564-canary-conversation" },
+      expects: "warn",
+      // Seed BOTH files the hook joins — an attribution naming the canary conversation,
+      // and a cache in which that ask has been answered. A canary that could only
+      // observe silence cannot distinguish a broken guard from a dormant one, which is
+      // the whole point of exercising the FIRING path.
+      setup: async () => {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) return;
+        mkdirSync(stateDir, { recursive: true });
+        const askId = "00000000-0000-4000-8000-000000003564";
+        writeFileSync(
+          join(stateDir, "ask-conversation-map.json"),
+          JSON.stringify({
+            entries: {
+              [askId]: {
+                conversationId: "mt3564-canary-conversation",
+                shortId: "ask#0000",
+                recordedAt: new Date().toISOString(),
+              },
+            },
+          })
+        );
+        writeFileSync(
+          join(stateDir, "ask-state-cache.json"),
+          JSON.stringify({
+            checkedAt: new Date().toISOString(),
+            asks: {
+              [askId]: {
+                found: true,
+                state: "responded",
+                open: false,
+                shortId: "ask#0000",
+                title: "mt3564 canary ask",
+                respondedAt: new Date().toISOString(),
+                chosen: "canary-option",
+              },
+            },
+          })
+        );
+      },
+    },
+  },
+  {
     name: "memory-search",
     effects: [advisoryEffect()],
     tuningOwnership: "advisory",

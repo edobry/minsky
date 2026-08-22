@@ -7,7 +7,7 @@
     ".minsky/hooks/registry.ts"
   ],
   "divergence": {
-    "declaredButNotDescribed": [],
+    "declaredButNotDescribed": ["inject-ask-responses", "stamp-ask-conversation"],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -1843,6 +1843,29 @@
       "sourceFile": null
     },
     {
+      "guardName": "inject-ask-responses",
+      "description": null,
+      "failureClasses": [],
+      "provenance": [],
+      "stratum": null,
+      "subject": "trajectory",
+      "provenanceStatus": "none",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": true,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
       "guardName": "inject-current-time",
       "description": "Injects the current wall-clock time into every turn, unconditionally, so a date is never asserted from memory.",
       "failureClasses": ["stale-context"],
@@ -3417,6 +3440,29 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "stale-signal-sweep"
+    },
+    {
+      "guardName": "stamp-ask-conversation",
+      "description": null,
+      "failureClasses": [],
+      "provenance": [],
+      "stratum": null,
+      "subject": "trajectory",
+      "provenanceStatus": "none",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": true,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "stamp-pr-author-link",

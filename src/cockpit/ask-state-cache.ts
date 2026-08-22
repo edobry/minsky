@@ -40,6 +40,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#4014: type-only, erased at build — see OPEN_ASK_STATES below.
 import type { AskState } from "@minsky/domain/ask/types";
 
@@ -80,10 +81,145 @@ export const WATERMARK_STORE_RELPATH = ".minsky/calibration-review-watermarks.js
 // `ReadonlySet<string>` so callers can look up a raw DB value without a cast.
 export const OPEN_ASK_STATES: ReadonlySet<string> = new Set<AskState>(["routed", "suspended"]);
 
-/** One resolved ask, or the record that it was looked up and not found. */
+/**
+ * One resolved ask, or the record that it was looked up and not found.
+ *
+ * mt#3564 added `title`, `respondedAt` and `chosen` to the found variant. They are
+ * OPTIONAL and additive: the original consumer
+ * (`calibration-review-cadence-detector.ts`) reads only `state`/`open`/`shortId` and is
+ * unaffected, while `inject-ask-responses.ts` needs enough to render a notice without a
+ * second lookup — the whole point of the cache is that the hook does no IO of its own.
+ */
 export type AskStateEntry =
-  | { found: true; state: string; open: boolean; shortId?: string }
+  | {
+      found: true;
+      state: string;
+      open: boolean;
+      shortId?: string;
+      /** Ask title, for rendering the notice (mt#3564). */
+      title?: string;
+      /** ISO-8601 `responded_at`, absent while the ask is still open (mt#3564). */
+      respondedAt?: string;
+      /**
+       * The operator's chosen option, rendered to a short string (mt#3564).
+       *
+       * Read off `response.payload`, which is `unknown` in the schema and in practice
+       * holds either the option `value` string or a small object. Anything that is not
+       * already a string is JSON-stringified and truncated — this field is display
+       * text, never something a consumer should parse back.
+       */
+      chosen?: string;
+    }
   | { found: false };
+
+/**
+ * Cap on the rendered `chosen` string. The consumer injects into a per-turn context
+ * budget (`MERGED_CONTEXT_BUDGET_CHARS`), so an unbounded operator response would let
+ * one answer crowd out every other injection — including, at the limit, this notice
+ * itself. Truncation happens HERE rather than in the hook so the cache file is bounded
+ * on disk too.
+ */
+export const MAX_CHOSEN_CHARS = 100;
+
+/**
+ * Render `response.payload` into short display text. Exported for direct unit testing:
+ * the payload column is `unknown`, so this is the one place that decides what an
+ * arbitrary operator response looks like in a notice.
+ */
+export function renderChosen(payload: unknown): string | undefined {
+  if (payload === null || payload === undefined) return undefined;
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload);
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  // safeTruncate, not slice: an operator's answer is free-form prose and routinely
+  // carries emoji and non-BMP punctuation, so a raw slice can split a surrogate pair
+  // and emit a lone half — which lands in an agent's context as a replacement char.
+  // "head" is explicit and load-bearing: safeTruncate DEFAULTS to "tail", which keeps
+  // the END of the string — the opposite of what a preview needs.
+  return text.length > MAX_CHOSEN_CHARS ? `${safeTruncate(text, MAX_CHOSEN_CHARS, "head")}…` : text;
+}
+
+/**
+ * Normalize a timestamp column to ISO-8601, or undefined when it is null/unparseable.
+ * `postgres-js` returns a `Date` for `timestamptz`; the stub in the unit tests returns
+ * a string. Both are accepted so the tests exercise the same code path production does.
+ */
+export function toIsoOrUndefined(value: unknown): string | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Second id source: conversation-attributed asks (mt#3564)
+// ---------------------------------------------------------------------------
+
+/**
+ * Filename of the ask -> conversation attribution map written by
+ * `.minsky/hooks/stamp-ask-conversation.ts`.
+ *
+ * DUPLICATED, deliberately, exactly as `ASK_STATE_CACHE_FILENAME` above is duplicated
+ * into its consumer hook: the hooks tree is a separate module graph from `src/`, so the
+ * constant cannot be imported in either direction. Keep the two in sync.
+ */
+export const ASK_CONVERSATION_MAP_FILENAME = "ask-conversation-map.json";
+
+/** Absolute path to the attribution map. */
+export function getAskConversationMapPath(): string {
+  return path.join(getStateDir(), ASK_CONVERSATION_MAP_FILENAME);
+}
+
+/**
+ * Collect the ask ids the attribution map knows about — the SECOND id source this
+ * producer resolves, alongside the calibration watermarks.
+ *
+ * Why the producer needs them: the injection consumer's whole job is to notice an ask
+ * that has become ANSWERED, so a settled ask must appear in the snapshot WITH its state
+ * rather than be absent. That is the same requirement the watermark ids already impose,
+ * which is why this extends the existing pipeline instead of adding a second one.
+ *
+ * The set stays bounded at the SOURCE: the map prunes to 7 days / 200 entries when it
+ * is written, so this cannot reintroduce the "cache all 7.8k asks" cost this module's
+ * header rejects.
+ */
+export function collectAttributedAskIds(parsed: unknown): string[] {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  const entries = (parsed as { entries?: unknown }).entries;
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) return [];
+  const ids = new Set<string>();
+  for (const askId of Object.keys(entries as Record<string, unknown>)) {
+    const trimmed = askId.trim();
+    if (UUID_PATTERN.test(trimmed)) ids.add(trimmed);
+  }
+  return [...ids];
+}
+
+/**
+ * Read the attribution map and collect its ask ids. Empty on an absent or unparseable
+ * file — both mean "nothing attributed yet", which is the steady state before the first
+ * ask is filed on a machine.
+ */
+export function readAttributedAskIds(mapPath: string = getAskConversationMapPath()): string[] {
+  try {
+    if (!fs.existsSync(mapPath)) return [];
+    return collectAttributedAskIds(JSON.parse(String(fs.readFileSync(mapPath, "utf-8"))));
+  } catch (err) {
+    log.warn("ask-state-cache: ask-conversation map unreadable", {
+      path: mapPath,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+/**
+ * The producer's full id set: calibration watermarks UNION conversation attributions,
+ * de-duplicated. Both consumers read the one snapshot, so a single ask appearing in
+ * both sources is looked up once.
+ */
+export function collectAllTrackedAskIds(repoRoot: string, mapPath?: string): string[] {
+  return [...new Set([...readWatermarkAskIds(repoRoot), ...readAttributedAskIds(mapPath)])];
+}
 
 /** The on-disk cache record: the resolved entries plus when they were read. */
 export interface AskStateCacheRecord {
@@ -164,9 +300,16 @@ export async function buildAskStateSnapshot(
   if (askIds.length === 0) return {};
   try {
     const rows = (await sql.unsafe(
-      "SELECT id, state, short_id FROM public.asks WHERE id = ANY($1::uuid[])",
+      "SELECT id, state, short_id, title, responded_at, response FROM public.asks WHERE id = ANY($1::uuid[])",
       [askIds]
-    )) as Array<{ id?: unknown; state?: unknown; short_id?: unknown }>;
+    )) as Array<{
+      id?: unknown;
+      state?: unknown;
+      short_id?: unknown;
+      title?: unknown;
+      responded_at?: unknown;
+      response?: unknown;
+    }>;
 
     // Seed every requested id as not-found, then overwrite the ones the query
     // returned. This is what makes "looked up and absent from the database"
@@ -179,11 +322,24 @@ export async function buildAskStateSnapshot(
       const state = row.state;
       if (typeof id !== "string" || typeof state !== "string") continue;
       const shortId = typeof row.short_id === "string" ? row.short_id : undefined;
+      const title = typeof row.title === "string" ? row.title : undefined;
+      // `responded_at` arrives as a Date from postgres-js and as a string from the
+      // stub tests use; normalize both to ISO-8601 rather than letting the shape of
+      // the driver leak into the cache file.
+      const respondedAt = toIsoOrUndefined(row.responded_at);
+      const chosen = renderChosen(
+        row.response && typeof row.response === "object"
+          ? (row.response as { payload?: unknown }).payload
+          : undefined
+      );
       asks[id] = {
         found: true,
         state,
         open: OPEN_ASK_STATES.has(state),
         ...(shortId ? { shortId } : {}),
+        ...(title ? { title } : {}),
+        ...(respondedAt ? { respondedAt } : {}),
+        ...(chosen ? { chosen } : {}),
       };
     }
     return asks;
