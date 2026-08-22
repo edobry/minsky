@@ -24,11 +24,8 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  extractActualModel,
-  readTranscriptMetrics,
-  SYNTHETIC_MODEL_SENTINEL,
-} from "./transcript-metrics";
+import { extractActualModel, readTranscriptMetrics } from "./transcript-metrics";
+import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
 
 // ---------------------------------------------------------------------------
 // Fixture builders

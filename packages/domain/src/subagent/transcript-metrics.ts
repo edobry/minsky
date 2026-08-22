@@ -20,6 +20,7 @@
  */
 
 import { readFileSync, existsSync } from "fs";
+import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -303,13 +304,10 @@ export async function readTranscriptMetrics(
 // Actual-model extraction (mt#2796)
 // ---------------------------------------------------------------------------
 
-/**
- * Harness-injected placeholder recorded as `message.model` on synthetic
- * assistant turns — rate-limit / API-error retries the harness manufactures
- * locally rather than a real model response. Never a genuine model id.
- * Verified 2026-07-15 against a real on-disk transcript.
- */
-export const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
+// The harness-injected `message.model` placeholder for a synthetic retry turn
+// is declared ONCE, in `../ai/dispatch-models` (mt#4237). It was hand-copied
+// here until then. Imported at the top of this file rather than re-exported,
+// so there is one name for it and one place to change it.
 
 /**
  * Minimal shape of a real Claude Code transcript line, for the fields this

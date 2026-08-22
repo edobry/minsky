@@ -71,7 +71,7 @@ import { recordCredentialScrub, realCredentialScrubLogDeps } from "./credential-
 import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
-import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
+import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
 
 /**
  * Consecutive failed ingest attempts before a session is quarantined (mt#3278).

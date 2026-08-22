@@ -25,9 +25,9 @@ import { cn } from "../lib/utils";
 import {
   groupActionBursts,
   summarizeBurst,
-  SYNTHETIC_MODEL,
   type BurstNode,
 } from "../lib/conversation-action-bursts";
+import { SYNTHETIC_MODEL_SENTINEL } from "@minsky/domain/ai/dispatch-models";
 import type { ConversationTurn } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import {
@@ -118,11 +118,11 @@ function turnOutcome(turn: PreparedTurn): ConversationOutcome | null {
   });
 }
 
-// `SYNTHETIC_MODEL` moved to `lib/conversation-action-bursts.ts` (mt#4250) and
-// is imported above. It was declared here first, but the burst predicate needs
-// it too, and re-declaring it there would have made a FOURTH hand-copy of a
-// string mt#4237 already tracks as copied three times without a check. Its
-// reasoning for not importing domain's `SYNTHETIC_MODEL_SENTINEL` moved with it.
+// The synthetic-retry sentinel was declared here, then moved to
+// `lib/conversation-action-bursts.ts` (mt#4250) when the burst predicate needed
+// it too. mt#4237 finished the job: it now has ONE declaration repo-wide, in
+// `@minsky/domain/ai/dispatch-models`, imported directly above. Three copies
+// with nothing checking they agreed is what that task removed.
 
 /**
  * A context-compaction boundary (mt#3260).
@@ -310,7 +310,7 @@ function TurnSegment({
   // likewise routed by `buildTurnNodes`, which emits them standalone rather
   // than inside a run.
   const outcome = turnOutcome(turn);
-  const isRetry = turn.model === SYNTHETIC_MODEL;
+  const isRetry = turn.model === SYNTHETIC_MODEL_SENTINEL;
 
   const rendered = turn.elements
     .map((element, i) => {
