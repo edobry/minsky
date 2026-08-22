@@ -122,8 +122,18 @@ export const PROHIBITION_PATTERNS: readonly RegExp[] = [
  *
  *  1. **Causal connectives** — including consequence markers ("so do not ..."), which signal
  *     that the reason was just stated.
- *  2. **Explanatory colon** — "X is not possible: <clause>". A semicolon deliberately does NOT
- *     count; it joins two assertions without claiming one explains the other.
+ *  2. **Explanatory colon** — "X is not possible: <clause>", over a FIXED lead-in set
+ *     (`blocked` / `possible` / `feasible` / `available` / `supported` / `work(s)`), not any
+ *     word before a colon. A semicolon deliberately does NOT count; it joins two assertions
+ *     without claiming one explains the other.
+ *
+ *     The narrowness is deliberate and stated here because it is load-bearing (mt#4385):
+ *     generalizing to "any lead-in + colon" would credit every `Note:` / `Context:` heading in
+ *     ordinary dispatch prose, which on a SUPPRESSING predicate is the nullification mt#3861
+ *     rejected two candidates for. A separate explanatory-verb form (`… explains why: <clause>`)
+ *     was measured against the same corpus and flipped no window the citation marker below did
+ *     not already flip, so it was not shipped — a widening with no measured gain is pure cost
+ *     here.
  *  3. **Citation markers** — a backticked symbol, a file path, or a task/memory id. mem#702's
  *     account of what made the mt#3120 prompt recoverable is precisely that it "named the MCP
  *     identity chain specifically, not just 'it's blocked'". Naming the thing you checked is
@@ -147,7 +157,20 @@ export const BASIS_PATTERNS: readonly RegExp[] = [
   /(?:blocked|possible|feasible|available|supported|works?)\s*:\s*\S/i,
   // (3) citation markers — naming the specific thing checked
   /`[^`]+`/,
-  /\b\w+\/[\w./-]+\.(?:ts|tsx|js|json|md|mdc|sql|ya?ml)\b/i,
+  // A DIRECTORY is not required (mt#4385). This read `\b\w+\/[\w./-]+\.(?:…)\b` until
+  // 2026-08-21, whose leading `\w+\/` made a directory mandatory — so `src/foo.ts` was a
+  // citation and a bare `foo.ts` was not, though the docblock above credits "a file path"
+  // either way. The 2026-08-19T20:22 calibration fire is exactly that gap: a prompt naming
+  // `postgres-vector-storage.ts` and pointing at the spec section that explains why, recorded
+  // `hasBasis: false`. This pattern SUBSUMES the old one — given `src/postgres-vector-storage.ts`
+  // it matches the final segment — so nothing that was a citation stopped being one.
+  //
+  // Measured before shipping, because this predicate SUPPRESSES and every widening buys
+  // silence (mt#3861 rejected two candidates on exactly this bar): over 671 local dispatch
+  // prompts / 97 prohibition windows it moves the marked fraction 87.6% -> 88.7% (+1.03pp)
+  // and flips 1 of 12 bare windows — the target. `scripts/measure-basis-marker-widening.ts`
+  // reproduces it and exits non-zero if a future edit pushes the delta past 1.5pp.
+  /\b[\w-]+\.(?:ts|tsx|js|json|md|mdc|sql|ya?ml)\b/i,
   /\b(?:mt|md|gh)#\d+/i,
   /\bmem#\d+/i,
 ];
