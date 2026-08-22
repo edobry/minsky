@@ -191,6 +191,14 @@ interface TurnStartTagPresentation {
    * a turn is only acceptable when the header says what was collapsed.
    */
   label: string | ((body: string) => string);
+  /**
+   * Decode HTML entities in the block's body before it is rendered (mt#4417).
+   *
+   * Opt-in per tag rather than applied to every block, because it is only
+   * correct where the harness is known to escape: a body that legitimately
+   * contains the literal text `&lt;` would otherwise be silently rewritten.
+   */
+  decodeEntities?: boolean;
 }
 
 /**
@@ -214,6 +222,92 @@ function bashCommandLabel(body: string): string {
 /** Keeps a long one-liner from pushing the rest of the header off the row. */
 const BASH_LABEL_MAX_CHARS = 72;
 
+/** Same job as {@link BASH_LABEL_MAX_CHARS}, for the notification summary row. */
+const TASK_NOTIFICATION_LABEL_MAX_CHARS = 72;
+
+/** First `<tag>…</tag>` body in `body`, trimmed; `null` when absent or empty. */
+function firstTagText(body: string, tag: string): string | null {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i").exec(body);
+  const text = match?.[1]?.trim();
+  return text !== undefined && text.length > 0 ? text : null;
+}
+
+/**
+ * Header label for a background-task completion notice (mt#4417).
+ *
+ * The harness writes a one-line `<summary>` into every notification — "MCP task
+ * kef11dmw (minsky/session_commit) completed." — and then, for an MCP task, a
+ * `<result>` element carrying the tool's ENTIRE JSON payload. Labelling the row
+ * with the fixed noun put the useless half in the header and the several-thousand
+ * character half behind the disclosure, so the only way to learn WHICH task
+ * finished was to open a wall of JSON. The summary is what the reader wants and
+ * the harness has already written it.
+ *
+ * **`body` is the UNDECODED block (PR #3239 R1).** Entity decoding must not run
+ * before this function, because it manufactures tags: a `<result>` payload
+ * carrying the literal text `&lt;summary&gt;…&lt;/summary&gt;` — which is how a
+ * commit message quoting an XML tag arrives — decodes into a REAL `<summary>`
+ * element that `firstTagText` cannot tell from the envelope's own. Structure is
+ * read from the raw body, where the envelope's tags are the only real ones; only
+ * the extracted leaf text is decoded, below.
+ */
+function taskNotificationLabel(body: string): string {
+  const summary = firstTagText(body, "summary");
+  if (summary === null) return INJECTED_KIND_NOUN["task-notification"];
+
+  // The harness's summary usually ends in the status word ("… completed."), so
+  // naming it again would only lengthen the row. Append it when the summary does
+  // NOT already carry it — which is precisely the case a reader most needs to
+  // see, a task that ended some other way.
+  const status = firstTagText(body, "status");
+
+  // Decode the LEAVES, after the structure has been read from the raw body.
+  // A summary is prose the harness escaped on its way into an XML-shaped
+  // envelope; the row should show the characters it encodes.
+  const summaryText = decodeHarnessEntities(summary);
+  const statusText = status === null ? null : decodeHarnessEntities(status);
+
+  const headline =
+    statusText !== null && !summaryText.toLowerCase().includes(statusText.toLowerCase())
+      ? `${summaryText} (${statusText})`
+      : summaryText;
+
+  // Truncate from the HEAD for the same reason `bashCommandLabel` does: the
+  // words that identify the task come first.
+  const shown = safeTruncate(headline, TASK_NOTIFICATION_LABEL_MAX_CHARS, "head");
+  const noun = INJECTED_KIND_NOUN["task-notification"];
+  return `${noun}: ${shown}${shown.length < headline.length ? "…" : ""}`;
+}
+
+/**
+ * The HTML entities the harness escapes into a notification body: five
+ * characters, six mappings — the apostrophe arrives as either `&apos;` or
+ * the numeric `&#39;` (PR #3239 R2).
+ *
+ * The notification envelope is XML-shaped, so the harness escapes `<` and its
+ * siblings before embedding a tool result inside it. Nothing on our side
+ * reverses that: verified for the mt#4417 report's own commit, whose message in
+ * git reads `` `<repoPath>/.git` `` while the stored turn carries
+ * `&lt;repoPath&gt;` — and a grep across `packages/domain/src/transcripts` and
+ * this directory finds no HTML-escaping of our own, so the entity is introduced
+ * upstream of storage and arrives here already encoded.
+ *
+ * ORDER MATTERS, and `&amp;` must stay last: decoding it first would turn a
+ * literal `&amp;lt;` into `<` rather than the `&lt;` the source actually encoded.
+ */
+const HARNESS_ENTITY_DECODINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/&lt;/g, "<"],
+  [/&gt;/g, ">"],
+  [/&quot;/g, '"'],
+  [/&apos;/g, "'"],
+  [/&#0*39;/g, "'"],
+  [/&amp;/g, "&"],
+];
+
+function decodeHarnessEntities(text: string): string {
+  return HARNESS_ENTITY_DECODINGS.reduce((acc, [re, char]) => acc.replace(re, char), text);
+}
+
 const TURN_START_TAG_PRESENTATION: Record<string, TurnStartTagPresentation> = {
   "local-command-stdout": {
     kind: "local-command-output",
@@ -231,7 +325,8 @@ const TURN_START_TAG_PRESENTATION: Record<string, TurnStartTagPresentation> = {
   "bash-stderr": { kind: "bash-error", label: INJECTED_KIND_NOUN["bash-error"] },
   "task-notification": {
     kind: "task-notification",
-    label: INJECTED_KIND_NOUN["task-notification"],
+    label: taskNotificationLabel,
+    decodeEntities: true,
   },
 };
 
@@ -324,7 +419,13 @@ function matchTurnStartTagBlock(text: string): PrefixMatch | null {
     if (!presentation) continue;
     // Terminal control bytes are captured verbatim by the harness; strip
     // them so they don't reach the DOM as replacement glyphs.
-    const content = stripAnsi((match[1] ?? "").trim());
+    const stripped = stripAnsi((match[1] ?? "").trim());
+    // Decoding happens AFTER the label is derived, never before (PR #3239 R1).
+    // Decoding first would let an escaped `&lt;summary&gt;` inside a tool
+    // result's JSON become a real `<summary>` tag, which the label's own
+    // extraction would then read as the envelope's — so a payload could name
+    // the row. The label reads `stripped`; only the RENDERED body is decoded.
+    const content = presentation.decodeEntities ? decodeHarnessEntities(stripped) : stripped;
     // An empty block is consumed and dropped, never rendered (mt#4058). The
     // bash pair routinely carries one empty half — a `<bash-stdout></bash-stdout>`
     // beside real stderr, or the reverse — and a collapsed header over nothing
@@ -334,9 +435,15 @@ function matchTurnStartTagBlock(text: string): PrefixMatch | null {
       consumedLength: match[0].length,
       span: {
         kind: presentation.kind,
+        // Derived from `stripped`, NOT `content` (PR #3239 R1). Decoding runs
+        // before this point and can manufacture tags out of escaped text inside
+        // the block's own payload, which a tag-reading label function would then
+        // mistake for the envelope's. Every label function reads structure, so
+        // all of them get the raw body; the ones on undecoded tags see no
+        // difference, since `content === stripped` there.
         label:
           typeof presentation.label === "function"
-            ? presentation.label(content)
+            ? presentation.label(stripped)
             : presentation.label,
         content,
       },
