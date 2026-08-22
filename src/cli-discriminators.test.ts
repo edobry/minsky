@@ -15,7 +15,7 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { detectLocalGitWorkspace, isHostedMcpServer } from "./cli-discriminators";
+import { isHostedMcpServer } from "./cli-discriminators";
 
 describe("isHostedMcpServer — mt#4338 hosted-vs-local derivation", () => {
   // The two argv forms that actually exist in production. Both reach this
@@ -101,51 +101,6 @@ describe("isHostedMcpServer — mt#4342 capability, not just the launcher flag",
   });
 });
 
-describe("detectLocalGitWorkspace — mt#4342 both signals required", () => {
-  test("git on PATH AND a repo present is a local workspace", () => {
-    expect(
-      detectLocalGitWorkspace("/w/minsky", {
-        whichGit: () => "/usr/bin/git",
-        pathExists: () => true,
-      })
-    ).toBe(true);
-  });
-
-  test("it looks for `.git` INSIDE the repo path it was given", () => {
-    const probed: string[] = [];
-    detectLocalGitWorkspace("/w/minsky", {
-      whichGit: () => "/usr/bin/git",
-      pathExists: (p) => {
-        probed.push(p);
-        return true;
-      },
-    });
-    expect(probed).toEqual(["/w/minsky/.git"]);
-  });
-
-  test("no git binary is not a local workspace, even with a repo present", () => {
-    // The hosted image's state: the bundling deliberately removed runtime git.
-    expect(detectLocalGitWorkspace("/app", { whichGit: () => null, pathExists: () => true })).toBe(
-      false
-    );
-  });
-
-  test("no repo is not a local workspace, even with git present", () => {
-    // The second independent reason the container classifies hosted — and what
-    // keeps an image that later gained `git` from being reclassified.
-    expect(
-      detectLocalGitWorkspace("/app", { whichGit: () => "/usr/bin/git", pathExists: () => false })
-    ).toBe(false);
-  });
-
-  test("a probe that throws fails CLOSED rather than widening the guard", () => {
-    expect(
-      detectLocalGitWorkspace("/w/minsky", {
-        whichGit: () => "/usr/bin/git",
-        pathExists: () => {
-          throw new Error("EACCES");
-        },
-      })
-    ).toBe(false);
-  });
-});
+// The capability probe itself moved to `@minsky/domain/utils/git-exec` in
+// PR #3233 R1 so it could reuse `isInsideGitWorkTree`'s upward walk; its tests
+// live in `packages/domain/src/utils/git-exec.test.ts`.

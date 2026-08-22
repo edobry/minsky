@@ -7,8 +7,6 @@
  * unit-tested in isolation.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type { Command } from "commander";
 
 /**
@@ -105,7 +103,10 @@ export function isMcpStartStdio(cmd: Command): boolean {
  * re-deriving from the Command's own option values would see a different
  * (pre-mutation) state. `hasLocalWorkspace` is passed IN rather than probed
  * here, so this stays pure and assertable directly rather than by patching the
- * `setHostedMode` collaborator — see {@link detectLocalGitWorkspace}.
+ * `setHostedMode` collaborator. The probe is `hasLocalGitCapability` in
+ * `@minsky/domain/utils/git-exec`, which lives there so this module does not
+ * inherit that one's imports — `cli.ts` loads this at preAction specifically to
+ * SKIP eager DI init, and cold start is measured.
  *
  * Second instance of the shape {@link isMcpStartStdio} documents above: a
  * transport fact re-derived at a site far from the flags that decide it.
@@ -119,52 +120,6 @@ export function isHostedMcpServer(opts: {
 }): boolean {
   if (!opts.http) return false;
   return !opts.localDaemon && !opts.hasLocalWorkspace;
-}
-
-/**
- * mt#4342: does this process hold the capability that DEFINES a local MCP
- * server — a usable `git` AND a repo to use it on?
- *
- * ## Why BOTH signals, and not just `git` on PATH
- *
- * Requiring both is what keeps {@link isHostedMcpServer} fail-closed. The
- * hosted image fails each independently, so neither check is load-bearing
- * alone: `.dockerignore` excludes `.git` from the build context and the root
- * `Dockerfile` COPYs only named source paths, so no repo is present; and
- * nothing in it installs a git binary, the runtime-git removal being the
- * deliberate bundling decision `docs/architecture/bundling.md` records. An
- * image that later gained `git` would still classify hosted, because it would
- * still have no repo to point it at.
- *
- * ## Why probe instead of reading another flag
- *
- * A flag identifies a launcher; this identifies the property. Adding a
- * `--deployment` flag would have meant updating the Dockerfile CMD, the tray's
- * spawn argv, `setup local-http`, and the smoke scripts — and any launcher
- * nobody updated would silently take the default and be reclassified. This
- * probe reclassifies nothing: every existing launcher keeps working unchanged.
- *
- * Impure by design, and kept out of the predicate for that reason.
- */
-export function detectLocalGitWorkspace(
-  repoPath: string,
-  deps: {
-    whichGit?: (cmd: string) => string | null;
-    pathExists?: (p: string) => boolean;
-  } = {}
-): boolean {
-  const whichGit = deps.whichGit ?? ((cmd: string) => Bun.which(cmd));
-  const pathExists = deps.pathExists ?? ((p: string) => existsSync(p));
-  try {
-    if (whichGit("git") === null) return false;
-    return pathExists(join(repoPath, ".git"));
-  } catch {
-    // intentional-swallow: a probe that cannot complete must not WIDEN the
-    // guard. Failing closed classifies the server hosted, which per mt#1601
-    // costs a clean "use the local server" message; the opposite error reaches
-    // the raw `git: not found` this guard exists to remove.
-    return false;
-  }
 }
 
 /**

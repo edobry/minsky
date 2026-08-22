@@ -22,14 +22,19 @@
  * surface is amputated. A probe that cannot fail is not verification (mem#704).
  * `git.status` is on the refused list, so it discriminates.
  *
- * ## The three cases (mt#4342)
+ * ## The four cases (mt#4342)
  *
  * mt#4338 covered one argv. mt#4342 made the discriminator a CAPABILITY — git
- * on PATH plus a resolvable repo — so the cases are no longer one-per-flag:
+ * on PATH plus a work tree — so the cases are no longer one-per-flag:
  *
  *   1. `--local-daemon`             local     expects git_status SERVED
  *   2. `--http --port N` + repo     local     expects git_status SERVED  <- the mt#4342 fix
  *   3. `--http --port N` + NO repo  hosted    expects git_status REFUSED
+ *   4. `--http --port N` + subdir   local     expects git_status SERVED  <- PR #3233 R1
+ *
+ * Case 4 is the reviewer's finding end-to-end: the capability probe ascends to
+ * find the work tree, so a server started anywhere inside the repo is local. A
+ * `<repoPath>/.git` check — the first draft — refuses git.* there.
  *
  * **Case 3 is not the hosted ARGV, and that is the point.** Running the
  * Dockerfile's own argv on a developer machine now classifies LOCAL — correctly,
@@ -245,25 +250,40 @@ const NO_REPO = mkdtempSync(join(tmpdir(), "mt4342-norepo-"));
 
 const CASES: Case[] = [
   {
-    label: "1/3 --local-daemon (tray + setup local-http)",
+    label: "1/4 --local-daemon (tray + setup local-http)",
     args: ["--local-daemon", "--port", String(BASE_PORT), "--repo", REPO],
     repo: REPO,
     expect: "served",
     why: "mt#4338's discriminator; must not regress",
   },
   {
-    label: "2/3 plain --http --port N with a repo (mt#4342)",
+    label: "2/4 plain --http --port N with a repo (mt#4342)",
     args: ["--http", "--host", "127.0.0.1", "--port", String(BASE_PORT + 1), "--repo", REPO],
     repo: REPO,
     expect: "served",
     why: "the deployment mt#4338 could not reach; refused git.* before this fix",
   },
   {
-    label: "3/3 plain --http --port N with NO repo (hosted condition)",
+    label: "3/4 plain --http --port N with NO repo (hosted condition)",
     args: ["--http", "--host", "127.0.0.1", "--port", String(BASE_PORT + 2), "--repo", NO_REPO],
     repo: NO_REPO,
     expect: "refused",
     why: "no capability => hosted; the fail-closed direction mt#1601 requires",
+  },
+  {
+    label: "4/4 plain --http --port N from a SUBDIRECTORY of the repo",
+    args: [
+      "--http",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(BASE_PORT + 3),
+      "--repo",
+      join(REPO, "src"),
+    ],
+    repo: join(REPO, "src"),
+    expect: "served",
+    why: "PR #3233 R1: the probe ascends, so a subdir of a repo is still local",
   },
 ];
 
