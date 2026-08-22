@@ -10,12 +10,17 @@
  * file — the `skipDaemon` default above is precisely why nothing here could
  * observe that ordering.
  *
- * mt#4337: this header used to claim AT4's "no listener" half and AT5's live
- * client run were "exercised against real processes in
- * scripts/verify-setup-local-http.ts". That script does not exist and never
- * has — `git log` on the path is empty — so those two halves have NO automated
- * coverage. Tracked as mt#4413; building it is out of mt#4337's scope. Remove
- * this paragraph and point at the script when mt#4413 lands.
+ * AT4's "no listener" clause and AT5's live client run are NOT covered here and
+ * cannot be: every case above passes `skipDaemon: true`, so no test in this file
+ * observes a real listener, and mt#3816's AT5 says outright that it "needs the
+ * live client, not a config-shape assertion." Both are exercised against real
+ * processes by `scripts/verify-setup-local-http.ts` (mt#4413), which is opt-in
+ * for its client half rather than part of the default suite.
+ *
+ * That script is named here because it EXISTS — mt#4337 found this header
+ * asserting the same pointer while `git log` on the path was empty, which is why
+ * the sentence above says what these tests cannot do before it says where the
+ * coverage lives.
  */
 
 import { describe, test, expect } from "bun:test";
