@@ -33,7 +33,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import { runWatcher } from "./watcher";
+import { runWatcher, isGitHubRateLimitError } from "./watcher";
 import type { GithubPrClient, GithubPr, GithubPrReview, GithubCheckRun } from "./watcher";
 import { FakePrWatchRepository } from "./repository";
 import type { PrWatch, PrWatchEvent } from "./types";
@@ -813,5 +813,66 @@ describe("empty pass", () => {
     expect(result.unchanged).toBe(0);
     expect(result.errors).toBe(0);
     expect(result.outcomes).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rate-limit classification (mt#4435)
+// ---------------------------------------------------------------------------
+
+describe("isGitHubRateLimitError", () => {
+  it("recognizes the UNAUTHENTICATED per-IP form", () => {
+    // The exact text observed in production on 2026-08-22, when the scheduler
+    // was issuing unauthenticated requests. This is the string the classifier
+    // exists to catch.
+    expect(
+      isGitHubRateLimitError(
+        "API rate limit exceeded for 52.9.6.176. (But here's the good news: " +
+          "Authenticated requests get a higher rate limit.)"
+      )
+    ).toBe(true);
+  });
+
+  it("recognizes the AUTHENTICATED per-user form", () => {
+    // Fixing the credential does not make rate limits impossible — an App can
+    // still exhaust its own budget, and that must classify the same way.
+    expect(isGitHubRateLimitError("API rate limit exceeded for user ID 12345.")).toBe(true);
+  });
+
+  it("recognizes the secondary rate limit, which has different wording", () => {
+    expect(
+      isGitHubRateLimitError("You have exceeded a secondary rate limit. Please wait a few minutes")
+    ).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isGitHubRateLimitError("API RATE LIMIT EXCEEDED")).toBe(true);
+  });
+
+  it("does NOT classify an ordinary permission denial as a rate limit", () => {
+    // The discriminating case. GitHub returns 403 for BOTH a rate-limit
+    // rejection and a permission denial, so a status-code check cannot tell
+    // them apart — and they need opposite responses (wait for reset vs. fix the
+    // credential). Misclassifying this one would make the scheduler back off
+    // for 30 minutes against a fault that waiting never fixes.
+    expect(isGitHubRateLimitError("Resource not accessible by integration")).toBe(false);
+  });
+
+  it("does NOT classify unrelated failures", () => {
+    expect(isGitHubRateLimitError("Not Found")).toBe(false);
+    expect(isGitHubRateLimitError("Bad credentials")).toBe(false);
+    expect(isGitHubRateLimitError("")).toBe(false);
+  });
+
+  it("does NOT match a message that merely mentions the phrase (PR #3254 R1)", () => {
+    // The classifier is anchored on GitHub's own "API rate limit exceeded"
+    // wording. A bare `rate limit exceeded` substring appears in text the
+    // scheduler can legitimately encounter — a PR title, a quoted upstream
+    // error — and matching it would trigger a 30-minute backoff against a
+    // fault that waiting does not fix.
+    expect(isGitHubRateLimitError("Upstream provider rate limit exceeded")).toBe(false);
+    expect(isGitHubRateLimitError('PR title: "fix: handle rate limit exceeded responses"')).toBe(
+      false
+    );
   });
 });
