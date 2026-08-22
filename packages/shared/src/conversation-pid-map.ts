@@ -259,6 +259,15 @@ function readProcessInfo(pid: number): { ppid: number; comm: string } | null {
  * `EPERM` is deliberately `alive`: the question is whether the pid is running,
  * not whether we may signal it. Reading it as dead would discard a live
  * mapping, which is the false-negative direction.
+ *
+ * IF `kill` IS ABSENT this returns `unknown` for every pid, which makes the
+ * whole dead-pid check silently inert — a can't-fail probe of exactly the shape
+ * this task exists to remove (PR #3241 R2). What prevents that from shipping is
+ * the `processLiveness` test asserting our OWN pid reads `alive`: it can only
+ * pass when `kill` is present and working, so a runtime that lacks it fails the
+ * suite loudly instead of degrading in production. The guard is a test rather
+ * than a runtime warning because this runs on the hot path and a warning nobody
+ * reads is not a guard.
  */
 export type ProcessLiveness = "alive" | "dead" | "unknown";
 

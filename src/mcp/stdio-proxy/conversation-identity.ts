@@ -132,9 +132,14 @@ export function resetConversationMappingCache(): void {
  * closes. Returns null when neither source yields a valid id; the caller then
  * stamps nothing rather than fabricating an identity.
  *
- * `harnessPid` is resolved ONCE by the caller and passed in: it cannot change
- * for the life of the process, and the ancestor walk shells out to `ps`, which
- * has no business running per frame.
+ * `harnessPid` is resolved ONCE by the caller and passed in as a SEED, because
+ * the ancestor walk shells out to `ps` and has no business running per frame.
+ *
+ * It used to say the value "cannot change for the life of the process", and
+ * mt#4378 retired that claim: it is true of the VARIABLE and false of the FACT
+ * it stands for, since this server outlives the harness that spawned it. The
+ * seed is now re-walked ON A MISS — see the re-resolution block in the body for
+ * the two observed shapes and why a hit must never pay for it.
  */
 export function resolveLiveConversationAgentId(
   harnessPid: number | null,
