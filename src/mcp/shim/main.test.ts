@@ -157,3 +157,102 @@ describe("handleLine — served-tool-count record (mt#4128)", () => {
     });
   });
 });
+
+/**
+ * Capability narrowing at the handshake (mt#4450).
+ *
+ * `capabilities.test.ts` covers the transform itself; these cover the two
+ * things only `handleLine` can answer — that the narrowed message is what gets
+ * SENT, and that it is also what gets OBSERVED.
+ *
+ * The observe assertion is the load-bearing one and is not a redundant restatement
+ * of the send assertion. `observeInbound` stores the `initialize` request for
+ * REPLAY on session recovery (`client.ts`'s `reinitialize`), so observing the
+ * original would re-advertise `elicitation` on the first reconnect and the fix
+ * would survive only until then — a regression that reproduces exactly when
+ * nobody is looking.
+ */
+describe("handleLine — capability narrowing (mt#4450)", () => {
+  /** A client fake that records what it was sent and what it was asked to observe. */
+  function makeRecordingClient(): {
+    client: DaemonClient;
+    sent: JsonRpcMessage[];
+    observed: JsonRpcMessage[];
+  } {
+    const sent: JsonRpcMessage[] = [];
+    const observed: JsonRpcMessage[] = [];
+    return {
+      sent,
+      observed,
+      client: {
+        observeInbound: (msg: JsonRpcMessage) => {
+          observed.push(msg);
+        },
+        send: async (msg: JsonRpcMessage) => {
+          sent.push(msg);
+          return [{ jsonrpc: "2.0", id: 0, result: {} }];
+        },
+      } as unknown as DaemonClient,
+    };
+  }
+
+  const INITIALIZE = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 0,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-11-25",
+      capabilities: { roots: { listChanged: true }, elicitation: {} },
+      clientInfo: { name: "claude-code", version: "2.1.222" },
+    },
+  });
+
+  function capsOf(msg: JsonRpcMessage): Record<string, unknown> {
+    return (msg.params as Record<string, unknown>)["capabilities"] as Record<string, unknown>;
+  }
+
+  test("the daemon is sent an initialize with no elicitation capability", async () => {
+    const { client, sent } = makeRecordingClient();
+
+    await handleLine(INITIALIZE, {
+      client,
+      conversationAgentId: null,
+      stdout: makeSink(),
+      stderr: makeSink(),
+    });
+
+    expect(sent).toHaveLength(1);
+    expect("elicitation" in capsOf(sent[0] as JsonRpcMessage)).toBe(false);
+    // Untouched fields still arrive, so the daemon can still negotiate.
+    expect((sent[0]?.params as Record<string, unknown>)["protocolVersion"]).toBe("2025-11-25");
+  });
+
+  test("the message stored for replay is the narrowed one, not the original", async () => {
+    const { client, observed } = makeRecordingClient();
+
+    await handleLine(INITIALIZE, {
+      client,
+      conversationAgentId: null,
+      stdout: makeSink(),
+      stderr: makeSink(),
+    });
+
+    expect(observed).toHaveLength(1);
+    expect("elicitation" in capsOf(observed[0] as JsonRpcMessage)).toBe(false);
+  });
+
+  test("a non-initialize message is observed and sent unchanged", async () => {
+    // Negative control: the narrowing must not touch anything else on the wire.
+    const { client, sent, observed } = makeRecordingClient();
+
+    await handleLine(TOOLS_LIST_REQUEST, {
+      client,
+      conversationAgentId: null,
+      stdout: makeSink(),
+      stderr: makeSink(),
+    });
+
+    expect(sent[0]).toEqual(JSON.parse(TOOLS_LIST_REQUEST));
+    expect(observed[0]).toEqual(JSON.parse(TOOLS_LIST_REQUEST));
+  });
+});
