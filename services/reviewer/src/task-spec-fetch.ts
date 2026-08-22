@@ -388,7 +388,13 @@ export interface ReferencedTaskSpecResult {
    * `truncated` is `true`, which is how the two are told apart.
    */
   content: string | null;
-  /** ISO-8601 `updatedAt` of the referenced task's spec, or null when unavailable. */
+  /**
+   * ISO-8601 timestamp of the referenced task's SPEC CONTENT
+   * (`task_specs.updated_at`), or null when the backend tracks none.
+   *
+   * Deliberately not the task row's `updatedAt`, which a status transition
+   * bumps — see mt#4415 and the note at the assignment site.
+   */
   updatedAt: string | null;
   fetchResult: TaskSpecFetchResult;
   /**
@@ -481,7 +487,13 @@ export async function resolveReferencedTaskSpecs(input: {
 
       const hinted = extractHintedSections(fullContent, sectionHints);
       const rawContent = hinted ?? fullContent;
-      const updatedAt = result.task?.updatedAt;
+      // The spec-CONTENT timestamp, not the task row's (mt#4415). The prompt
+      // renders this as "(spec last updated X)" and the field below documents
+      // it as the spec's — but it was `result.task?.updatedAt`, which any
+      // status transition bumps, so a spec untouched for weeks could be
+      // presented to the reviewer as edited moments ago. Null when the backend
+      // tracks none, which drops the suffix rather than printing a wrong one.
+      const updatedAt = result.specUpdatedAt;
       const updatedAtIso = updatedAt instanceof Date ? updatedAt.toISOString() : null;
 
       // Total-budget check FIRST: if there is no room left at all, omit this
