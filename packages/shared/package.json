@@ -12,6 +12,7 @@
     "./safe-truncate": "./src/safe-truncate.ts",
     "./strip-ansi": "./src/strip-ansi.ts",
     "./harness-markup": "./src/harness-markup.ts",
+    "./dispatch-stamp": "./src/dispatch-stamp.ts",
     "./minsky-notices": "./src/minsky-notices.ts",
     "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts",
     "./deployment-config": "./src/deployment/config.ts",

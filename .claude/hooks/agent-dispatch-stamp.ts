@@ -30,26 +30,25 @@
  * pattern parseable for as long as un-ingested child transcripts may still carry
  * it — a Stop event can arrive for a subagent dispatched by a prior build.
  */
-export const DISPATCH_STAMP_VERSION = "minsky:dispatch:v1";
-
-/**
- * Matches a stamp anywhere in a body of text.
- *
- * Deliberately tolerant of surrounding whitespace and of trailing content on the
- * line, because the text this runs against is a JSONL record's decoded `content`
- * field, not a line the writer controls end to end.
- */
-const STAMP_PATTERN = new RegExp(
-  `<!--\\s*${DISPATCH_STAMP_VERSION}\\s+parent=(\\S+)\\s+tool_use=(\\S+)\\s*-->`
-);
-
-/** The dispatch-side identity a stamp carries. */
-export interface DispatchStamp {
-  /** Harness conversation id of the dispatching (parent) agent. */
-  parentAgentSessionId: string;
-  /** Harness `tool_use` id of the `Agent` call. */
-  parentToolUseId: string;
-}
+// The format marker, its pattern, the `DispatchStamp` shape and the READ half
+// moved to `@minsky/shared/dispatch-stamp` (mt#4354): the cockpit's BROWSER
+// bundle needs to parse a stamp to build the ascent link out of a subagent
+// conversation, and `custom/no-node-import-in-cockpit-web` (mt#3239) bars it
+// from importing `@minsky/domain`. Same reason `harness-markup.ts` lives there.
+//
+// Re-exported so every existing importer of this module keeps working
+// unchanged. The WRITE half below stays here deliberately — only this guard
+// mints stamps, and nothing in the browser should be able to.
+export {
+  DISPATCH_STAMP_VERSION,
+  parseDispatchStamp,
+  type DispatchStamp,
+} from "@minsky/shared/dispatch-stamp";
+import {
+  DISPATCH_STAMP_VERSION,
+  parseDispatchStamp,
+  type DispatchStamp,
+} from "@minsky/shared/dispatch-stamp";
 
 /**
  * Render a stamp for one `Agent` dispatch.
@@ -60,18 +59,6 @@ export interface DispatchStamp {
  */
 export function buildDispatchStamp(stamp: DispatchStamp): string {
   return `<!-- ${DISPATCH_STAMP_VERSION} parent=${stamp.parentAgentSessionId} tool_use=${stamp.parentToolUseId} -->`;
-}
-
-/**
- * Recover a stamp from arbitrary text (a prompt, or a child transcript record).
- * Returns null when no stamp is present — the normal case for a subagent
- * dispatched before this shipped, and for any prompt the guard did not rewrite.
- */
-export function parseDispatchStamp(text: string | undefined | null): DispatchStamp | null {
-  if (!text) return null;
-  const match = STAMP_PATTERN.exec(text);
-  if (!match?.[1] || !match[2]) return null;
-  return { parentAgentSessionId: match[1], parentToolUseId: match[2] };
 }
 
 /**
