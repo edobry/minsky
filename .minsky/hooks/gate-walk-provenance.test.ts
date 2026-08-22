@@ -17,7 +17,7 @@ import type { GateWalkFacts, GateWalkOutcome } from "./gate-walk-provenance";
 // The SHARED reader whose verdict decides this detector's coverage receipt.
 // Imported here on purpose: asserting the record against the guard's own
 // accessors is what let an unreadable record ship (mt#4390).
-import { checkCoverageReceipt } from "./coverage-receipt";
+import { checkCoverageReceipt, readCalibrationEntries } from "./coverage-receipt";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -31,6 +31,9 @@ import { checkCoverageReceipt } from "./coverage-receipt";
 const HORIZON = "2026-06-12T00:00:00.000Z";
 const AFTER_HORIZON = "2026-08-01T12:00:00.000Z";
 const BEFORE_HORIZON = "2026-05-17T23:31:27.571Z";
+
+/** The MCP tool name the guard's primary merge surface reports. */
+const MERGE_TOOL_NAME = "mcp__minsky__session_pr_merge";
 
 function facts(overrides: Partial<GateWalkFacts> = {}): GateWalkFacts {
   return { readyEventAt: null, horizonAt: HORIZON, taskCreatedAt: AFTER_HORIZON, ...overrides };
@@ -266,7 +269,7 @@ describe("buildCalibrationRecord", () => {
     const record = buildCalibrationRecord({
       ts: "2026-08-19T18:00:00.000Z",
       sessionId: "sess-1",
-      toolName: "mcp__minsky__session_pr_merge",
+      toolName: MERGE_TOOL_NAME,
       taskId: "mt#1880",
       taskResolutionSource: "branch-fallback",
       classification: { outcome: "ungated", reason: "no → READY event" },
@@ -309,7 +312,7 @@ describe("buildCalibrationRecord", () => {
     const record = buildCalibrationRecord({
       ts: "2026-08-19T18:00:00.000Z",
       sessionId: "sess-1",
-      toolName: "mcp__minsky__session_pr_merge",
+      toolName: MERGE_TOOL_NAME,
       taskId: "mt#1880",
       taskResolutionSource: "tool_input",
       classification: { outcome: "gated", reason: "a → READY event exists" },
@@ -342,6 +345,53 @@ describe("buildCalibrationRecord", () => {
     });
     expect(blind.liveFireCount).toBe(0);
     expect(blind.state).toBe("no-liveness-evidence");
+  });
+
+  test("PR #3244 R1 — the FULL production path: writer → JSONL → reader → evaluator", () => {
+    // The test above feeds `checkCoverageReceipt` an in-memory object, which
+    // skips `readCalibrationEntries` — the shared parser production actually
+    // goes through. That parser has its OWN `timestamp` requirement
+    // (`isEntryShape`: `typeof r.timestamp === "string"`), so a legacy record is
+    // dropped at PARSE, before `Date.parse` is ever reached. Two independent
+    // gates, and the earlier one was untested.
+    //
+    // `readCalibrationEntries` takes injectable fs deps, so this exercises the
+    // real parser with no disk I/O — the designed seam rather than a patched
+    // collaborator (testing-standards.mdc §Testable Design).
+    const jsonlFs = (records: unknown[]) => ({
+      existsSync: () => true,
+      readFileSync: () => `${records.map((r) => JSON.stringify(r)).join("\n")}\n`,
+    });
+    const now = new Date("2026-08-19T19:00:00.000Z");
+    const evaluate = (records: unknown[]) => {
+      const entries = readCalibrationEntries(CALIBRATION_LOG, jsonlFs(records));
+      return { entries, result: checkCoverageReceipt(entries, { windowDays: 7, now: () => now }) };
+    };
+
+    const record = buildCalibrationRecord({
+      ts: "2026-08-19T18:00:00.000Z",
+      sessionId: "sess-1",
+      toolName: MERGE_TOOL_NAME,
+      taskId: "mt#1880",
+      taskResolutionSource: "tool_input",
+      classification: { outcome: "gated", reason: "a → READY event exists" },
+      facts: { readyEventAt: AFTER_HORIZON, horizonAt: HORIZON, taskCreatedAt: AFTER_HORIZON },
+    });
+
+    // What the guard writes today survives the round trip and counts.
+    const current = evaluate([record]);
+    expect(current.entries.length).toBe(1);
+    expect(current.result.liveFireCount).toBe(1);
+    expect(current.result.state).toBe("covered");
+
+    // Negative control — the pre-mt#4390 shape, reconstructed by renaming the
+    // field back. It is dropped by the PARSER, so it never reaches the
+    // evaluator at all: `entries` is empty, not merely uncounted.
+    const { timestamp, ...rest } = record as Record<string, unknown>;
+    const legacy = evaluate([{ ...rest, ts: timestamp }]);
+    expect(legacy.entries).toEqual([]);
+    expect(legacy.result.liveFireCount).toBe(0);
+    expect(legacy.result.state).toBe("no-liveness-evidence");
   });
 
   test("the calibration log is namespaced to this guard", () => {

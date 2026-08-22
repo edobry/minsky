@@ -22,11 +22,13 @@ Records, at the merge seam, whether the bound task was **ever gated at all**.
   declaration the log has no join key, so `/calibration-review` never sweeps it and
   `check-coverage-receipts` can only ever report `[FLAGGED] … Unmapped` — which reads as a dead
   detector and is not one (mt#4390).
-- **Record timestamp field:** `timestamp` — NOT `ts`. Every shared reader keys on `timestamp`
-  (`checkCoverageReceipt` drops an entry whose `Date.parse` is NaN; the sweep renders
-  `rec.timestamp`). Records written before mt#4390 carry `ts` and are invisible to both; they age
-  out of the rolling window rather than being backfilled, since the log is gitignored local
-  telemetry that differs per machine.
+- **Record timestamp field:** `timestamp` — NOT `ts`. Every shared reader keys on it, at **two
+  independent gates**: `readCalibrationEntries` drops a line whose `timestamp` is not a string
+  (`isEntryShape`), so a legacy record never becomes an entry at all; and `checkCoverageReceipt`
+  separately drops an entry whose `Date.parse(entry.timestamp)` is `NaN`. The sweep renders
+  `rec.timestamp` in every branch. Records written before mt#4390 carry `ts` and are invisible to
+  all of these; they age out of the rolling window rather than being backfilled, since the log is
+  gitignored local telemetry that differs per machine.
 - **Replay:** `bun scripts/replay-gate-walk-provenance.ts [--limit N] [--since ISO] [--json]`
   — replays against the LIVE substrate, not the JSONL, so it is unaffected by the record schema.
 
