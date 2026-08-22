@@ -496,10 +496,12 @@ registrant like every other sweep in this file, so its liveness
 (lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
 covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
 (next section) under the name `"scheduled follow-ups"`. Those fields cover the
-SCHEDULING layer only; this sweep does not yet report a domain outcome, so its
-`reportsDomainOutcome` is `false` and whether its work is succeeding is not
-currently visible anywhere (mt#3684 added the channel; migrating each sweep onto
-it is separate work).
+SCHEDULING layer only. **As of mt#4412 this sweep also reports a DOMAIN
+outcome** — `ok` is false when a due follow-up failed to fire — so whether its
+work is succeeding is visible on `/api/sweeps` beside its scheduling fields.
+(mt#3684 added the channel and left adoption optional; mt#4412 made it
+mandatory, so "migrating each sweep onto it is separate work" no longer
+applies — every registrant now declares one.)
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -537,6 +539,13 @@ GET /api/sweeps
       "reinits": 0,
       "metaRestarts": 0,
       // Domain layer (mt#3684): did the sweep's WORK succeed?
+      // DECLARATION (mt#4412) — static, set at registration. True for every
+      // registrant: both registration paths oblige their sweeps to state an
+      // outcome, so this is assertable the moment the registry is populated.
+      "declaresDomainOutcome": true,
+      // OBSERVATION — has this sweep actually reported one YET? Flips on the
+      // first tick that completes and returns. Distinct from the field above
+      // on purpose; see below.
       "reportsDomainOutcome": true,
       "lastDomainSuccessAt": "2026-07-17T13:00:00.050Z",
       "lastDomainFailureAt": null,
@@ -555,10 +564,36 @@ a tick that failed still RETURNS — so on 2026-08-06 this endpoint showed
 prod-state sweep had been failing every tick for 13 hours. That reading was
 correct about scheduling and silent about the outage.
 
-A tick may therefore also report its own outcome (return `{ ok: boolean }`),
-recorded in the `*Domain*` fields. `reportsDomainOutcome` is `false` for a
-sweep that reports nothing — read the other three as meaningless in that case,
-NOT as healthy. `reinits` counts a sweep's own bounded self re-init (below);
+A tick therefore ALSO reports its own outcome (returns `{ ok: boolean }`),
+recorded in the `*Domain*` fields. **mt#3684 made that optional and mt#4412
+made it mandatory** — `IntervalSweeperOptions.tick` returns
+`Promise<SweepTickResult>` and `void` is no longer assignable, because 15 of 17
+registrants had taken the optional default, so for 88% of them this endpoint
+could not tell a working sweep from one whose tick caught its own error and
+returned. The self-scheduling path (`registerSelfSchedulingSweep`, below) is the
+other way into this registry and has no tick at all; its handle's
+`noteSuccess`/`noteFailure` record a domain outcome, while `noteProgress`
+remains scheduling-only and deliberately does not.
+
+**`declaresDomainOutcome` and `reportsDomainOutcome` are not the same field, and
+the difference is load-bearing.** The first is a static DECLARATION fixed at
+registration — every registrant is obliged to state an outcome, so the invariant
+is assertable the moment the registry is populated. The second is a runtime
+OBSERVATION: it starts `false` and flips the first time a tick actually
+completes and returns. So a registrant reads `reportsDomainOutcome: false`
+while it is merely waiting for its first tick (up to 60 minutes for `topology`),
+and also when its tick never settles at all — an abandoned tick never returns,
+so it can never flip the flag. **Neither is a defect**, which is why "has it
+reported yet" cannot be used as the health check; use `declaresDomainOutcome`
+for the invariant and the `*Domain*` timestamps for the actual outcome. When
+`reportsDomainOutcome` is `false`, read the three `*Domain*` fields as
+meaningless rather than healthy.
+
+What a sweep reports is its OWN result, never a blanket `ok: true` — a uniform
+success reproduces the original defect in a shape that reads as covered. The
+line each sweep draws is **"cannot do the work" (a domain failure) versus
+"nothing to do" (healthy)**: a missing dependency is the first, an empty pass is
+the second. `reinits` counts a sweep's own bounded self re-init (below);
 `metaRestarts` counts a meta-watchdog-triggered force-restart. A domain failure
 deliberately drives neither: re-init recovers a wedged tick, and mt#3682
 established that restarting the interval does nothing for a failure below the
@@ -566,11 +601,16 @@ sweep.
 
 This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
 (`prodStateSweep`, `transcriptSweep`, `dispatchWatchdogSweep`). Those cover 3
-of the 11 registered sweeps; the other 8 — ask advancement, stale-ask close,
-topology, deploy.smoke, scheduled follow-ups, conversation presence,
-conversation title, conversation summary — have no domain-specific tracker of
+of the **17** registered sweeps (measured live 2026-08-22; this said 11 before
+mt#4412 and had drifted). The other 14 — ask advancement, stale-ask close,
+short-id map refresh, ask-state refresh, topology, deploy.smoke, scheduled
+follow-ups, conversation presence, conversation title, conversation summary,
+guard-events sweep backstop, interceptor-aggregates, stdio-log rotation, and
+the self-scheduled principal-channel poll — have no domain-specific tracker of
 their own, which is why the domain fields above exist on the shared registry
-rather than being deferred to a per-sweep tracker that may not exist.
+rather than being deferred to a per-sweep tracker that may not exist. Settle the
+count with
+`curl -s localhost:3737/api/sweeps | jq '.sweeps | length'`.
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the

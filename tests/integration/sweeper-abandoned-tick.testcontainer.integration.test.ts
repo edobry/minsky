@@ -192,6 +192,11 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
           } finally {
             signal.removeEventListener("abort", onAbort);
           }
+          // mt#4412: this probe's tick is ABOUT abandonment, so the value here
+          // is never actually read on the path under test — an abandoned tick
+          // is scored before it settles. Stated explicitly rather than left to
+          // a bare fallthrough.
+          return { ok: true };
         },
       });
 

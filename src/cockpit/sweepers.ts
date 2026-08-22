@@ -188,6 +188,28 @@ export interface SweepLivenessSnapshot {
   /** False when this sweep has never reported a domain outcome — the three fields above are then meaningless rather than healthy. */
   reportsDomainOutcome: boolean;
   /**
+   * Whether this registrant's contract REQUIRES it to state a domain outcome
+   * (mt#4412) — static, fixed at registration, and the sibling
+   * {@link reportsDomainOutcome} is deliberately NOT.
+   *
+   * The two answer different questions and conflating them is what made the
+   * invariant uncheckable. `reportsDomainOutcome` is a runtime OBSERVATION: it
+   * starts false and flips the first time a tick actually returns a result, so
+   * a registrant that has not completed a tick yet reads false however it is
+   * typed — as does one whose tick never settles at all (mt#4384's wedge).
+   * Neither is a defect, and no type change can pre-satisfy either.
+   *
+   * This field is the DECLARATION, so "every registrant is obliged to speak"
+   * is assertable the moment the registry is populated, without waiting out
+   * the slowest cadence (60m) to find out.
+   *
+   * Both registration paths set it true, which is the point rather than a
+   * tautology: it is a required field, so a THIRD registration path cannot be
+   * added without deciding, and the registry-level test fails if one decides
+   * wrong. mem#1060 — the class lives in the enumeration, not the member.
+   */
+  declaresDomainOutcome: boolean;
+  /**
    * True when this participant drives its own cadence (mt#4185) rather than
    * having its tick fired by {@link createIntervalSweeper}'s `setInterval`.
    *
@@ -229,6 +251,8 @@ interface SweepLivenessEntry {
   lastDomainFailureAtMs: number | null;
   consecutiveDomainFailures: number;
   reportsDomainOutcome: boolean;
+  /** See {@link SweepLivenessSnapshot.declaresDomainOutcome} (mt#4412). */
+  declaresDomainOutcome: boolean;
   /** See {@link SweepLivenessSnapshot.abandonedTicks} (mt#4335). */
   abandonedTicks: number;
   /** See {@link SweepLivenessSnapshot.abandonedTicksOutstanding} (mt#4335). */
@@ -305,6 +329,7 @@ export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
       abandonedTicksOutstanding: e.abandonedTicksOutstanding,
       abandonedTickHardReleases: e.abandonedTickHardReleases,
       reportsDomainOutcome: e.reportsDomainOutcome,
+      declaresDomainOutcome: e.declaresDomainOutcome,
       selfScheduled: e.selfScheduled,
       registeredAt: new Date(e.registeredAtMs).toISOString(),
     }));
@@ -354,10 +379,23 @@ export interface IntervalSweeperOptions {
    *
    * Because of that contract a tick that handled its own failure still
    * RETURNS NORMALLY, which the scheduling bookkeeping below correctly reads
-   * as "the timer fired and the callback returned". To also report whether the
-   * WORK succeeded, return a {@link SweepTickResult} (mt#3684). Returning
-   * nothing is unchanged behavior and reports no domain outcome at all —
-   * which is why adding this did not require touching the other sweeps.
+   * as "the timer fired and the callback returned". Reporting whether the
+   * WORK succeeded is what {@link SweepTickResult} is for (mt#3684), and as of
+   * mt#4412 it is MANDATORY: `void` is no longer assignable.
+   *
+   * It was optional from mt#3684 until mt#4412, and the docblock here used to
+   * say why — "returning nothing is unchanged behavior ... which is why adding
+   * this did not require touching the other sweeps." That convenience is
+   * exactly what this type change retires: 15 of 17 registrants took the
+   * default, so for 88% of them `/api/sweeps` could not distinguish a working
+   * sweep from one whose tick caught its own error and returned. The compiler,
+   * not a convention, is now what asks each sweep to state an outcome.
+   *
+   * **Report the sweep's OWN result, never a blanket `{ ok: true }`.** A
+   * uniform `ok: true` reproduces the defect in a shape that reads as covered,
+   * which is worse than the honest `void` this replaced. Where "did the work
+   * succeed?" is genuinely not decidable at the tick boundary, say so in the
+   * sweep's own docblock with the reason.
    *
    * Receives an {@link AbortSignal} that fires when the tick exceeds
    * `tickTimeoutMs` (mt#4335). Using it is OPTIONAL and existing ticks that
@@ -369,7 +407,7 @@ export interface IntervalSweeperOptions {
    * `Connection.cancel`, protocol code 80877102 — the wire equivalent of
    * `pg_cancel_backend`).
    */
-  tick: (signal: AbortSignal) => Promise<SweepTickResult | void>;
+  tick: (signal: AbortSignal) => Promise<SweepTickResult>;
   /**
    * Per-tick abandonment timeout in milliseconds (mt#2625, amended mt#4335).
    * A tick that hasn't settled within this window is abandoned: it is marked
@@ -502,6 +540,9 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     abandonedTicksOutstanding: 0,
     abandonedTickHardReleases: 0,
     reportsDomainOutcome: false,
+    // Compiler-guaranteed (mt#4412): `IntervalSweeperOptions.tick` returns
+    // `Promise<SweepTickResult>`, so every interval sweep states an outcome.
+    declaresDomainOutcome: true,
     selfScheduled: false,
     registeredAtMs: Date.now(),
     stopped: false,
@@ -878,9 +919,19 @@ export interface SelfSchedulingSweepHandle {
    * the exact failure it exists to detect.
    */
   noteProgress(): void;
-  /** Report that a unit of work completed successfully (also counts as progress). */
+  /**
+   * Report that a unit of work completed successfully — a DOMAIN outcome
+   * (mt#4412), and also progress.
+   *
+   * This and {@link noteFailure} are the self-scheduling path's equivalent of
+   * an interval tick returning a {@link SweepTickResult}, and they are how a
+   * participant discharges the obligation
+   * {@link SweepLivenessSnapshot.declaresDomainOutcome} records.
+   * {@link noteProgress} does NOT: it says the loop advanced, which is exactly
+   * the scheduling-only signal that cannot distinguish working from wedged.
+   */
   noteSuccess(): void;
-  /** Report that a unit of work failed (also counts as progress — the loop is still cycling). */
+  /** Report that a unit of work failed — a DOMAIN outcome (mt#4412), and also progress (the loop is still cycling). */
   noteFailure(error?: unknown): void;
   /** Deregister. Idempotent; the meta-watchdog refuses to act on a stopped entry. */
   stop(): void;
@@ -940,6 +991,11 @@ export function registerSelfSchedulingSweep(
     abandonedTicksOutstanding: 0,
     abandonedTickHardReleases: 0,
     reportsDomainOutcome: false,
+    // mt#4412: the handle's outcome methods (`noteSuccess`/`noteFailure`)
+    // record a DOMAIN outcome, so a self-scheduling participant is obliged to
+    // state one exactly as an interval sweep is. `noteProgress` remains
+    // scheduling-only and deliberately does not satisfy the obligation.
+    declaresDomainOutcome: true,
     selfScheduled: true,
     registeredAtMs: Date.now(),
     stopped: false,
@@ -978,6 +1034,13 @@ export function registerSelfSchedulingSweep(
       entry.lastAttemptAtMs = now;
       entry.lastSuccessAtMs = now;
       entry.consecutiveFailures = 0;
+      // mt#4412: ALSO a domain outcome. Until now this stamped only the
+      // SCHEDULING fields, which is the same scheduling-vs-domain conflation
+      // the interval path had — "a unit of work completed successfully" is a
+      // statement about the WORK, so it belongs in both columns.
+      entry.reportsDomainOutcome = true;
+      entry.lastDomainSuccessAtMs = now;
+      entry.consecutiveDomainFailures = 0;
     },
     noteFailure(error?: unknown): void {
       if (stopped) return;
@@ -989,6 +1052,10 @@ export function registerSelfSchedulingSweep(
       entry.lastAttemptAtMs = now;
       entry.lastErrorAtMs = now;
       entry.consecutiveFailures++;
+      // mt#4412: ALSO a domain outcome — see `noteSuccess` above for why.
+      entry.reportsDomainOutcome = true;
+      entry.lastDomainFailureAtMs = now;
+      entry.consecutiveDomainFailures++;
       log.warn(`cockpit: self-scheduling sweep "${name}" reported a failed cycle`, {
         name,
         consecutiveFailures: entry.consecutiveFailures,
@@ -1120,15 +1187,24 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "ask advancement",
     intervalMs: intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const repo = await getServerAskRepository();
-        if (!repo) return;
+        if (!repo) {
+          // Not a quiet no-op (mt#4412): with no ask repository the
+          // advancement pass cannot run, so the WORK did not happen. Same
+          // treatment `runProdStateRefreshTick` already gives a provider that
+          // exposes no raw SQL.
+          log.warn("cockpit: ask advancement sweep skipped — no ask repository available");
+          return { ok: false };
+        }
         const { runAskAdvancementSweep } = await import("@minsky/domain/ask/advancement");
         await runAskAdvancementSweep(repo);
+        return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: ask advancement sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1167,13 +1243,21 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "stale-ask close",
     intervalMs: intervalMs ?? STALE_ASK_CLOSE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const repo = await getServerAskRepository();
-        if (!repo) return;
+        if (!repo) {
+          // Not a quiet no-op (mt#4412) — see `startAskAdvancementSweeper`.
+          log.warn("cockpit: stale-ask close sweep skipped — no ask repository available");
+          return { ok: false };
+        }
         const { runStaleSuspendedAskCloseSweep } = await import(
           "@minsky/domain/ask/stale-suspended-close"
         );
+        // NOTE: a failed task-status map is deliberately NOT a domain failure
+        // below — the sweep degrades to skipping only its parent-terminal
+        // pass, and its supersession and TTL passes still run. That partial
+        // degradation is logged where it happens.
         let taskStatusById: ReadonlyMap<string, string> = new Map();
         try {
           const taskService = await getServerTaskService();
@@ -1189,9 +1273,11 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
           );
         }
         await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
+        return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: stale-ask close sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1802,22 +1888,33 @@ export function startShortIdMapSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "short-id map refresh",
     intervalMs: intervalMs ?? SHORT_ID_MAP_REFRESH_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
       const hasRawSql =
         "getRawSqlConnection" in provider &&
         typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
-      if (!hasRawSql) return;
+      if (!hasRawSql) {
+        // Not a quiet no-op (mt#4412) — a provider without raw SQL cannot
+        // refresh the map, which is the same condition
+        // `runProdStateRefreshTick` already reports as a failure.
+        log.warn("cockpit: short-id map refresh skipped — provider exposes no raw SQL connection");
+        return { ok: false };
+      }
       const sql = await (
         provider as { getRawSqlConnection: () => Promise<unknown> }
       ).getRawSqlConnection();
       const { refreshShortIdMapCache } = await import("./short-id-map-cache");
-      await refreshShortIdMapCache(
-        sql as import("./short-id-map-cache").UnsafeSql | null | undefined,
-        Date.now()
-      );
+      // `refreshShortIdMapCache` has ALWAYS returned its own boolean outcome;
+      // the tick simply discarded it (mt#4412). No new signal is invented
+      // here — an existing one is stopped from being thrown away.
+      return {
+        ok: await refreshShortIdMapCache(
+          sql as import("./short-id-map-cache").UnsafeSql | null | undefined,
+          Date.now()
+        ),
+      };
     },
   });
 }
@@ -1981,13 +2078,16 @@ export function startDispatchWatchdogSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "dispatch watchdog",
     intervalMs: intervalMs ?? DISPATCH_WATCHDOG_REFRESH_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { refreshDispatchWatchdogCache } = await import("./dispatch-watchdog");
-        await refreshDispatchWatchdogCache();
+        // Already returns its own boolean outcome (false on no SQL-capable
+        // DB); the tick discarded it until mt#4412.
+        return { ok: await refreshDispatchWatchdogCache() };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: dispatch watchdog sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2023,13 +2123,16 @@ export function startTopologySweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "topology",
     intervalMs: intervalMs ?? TOPOLOGY_REFRESH_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { refreshTopologyCache } = await import("./topology-cache");
-        await refreshTopologyCache(new Date().toISOString());
+        // Already returns its own boolean outcome; the tick discarded it until
+        // mt#4412.
+        return { ok: await refreshTopologyCache(new Date().toISOString()) };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: topology sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2212,7 +2315,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
     name: "transcript sweep backstop",
     intervalMs: resolvedInterval,
     tickTimeoutMs: TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         // Resolve deps: injected (for tests) or real (for production).
         let sweepDeps: TranscriptSweepDeps | null;
@@ -2223,9 +2326,9 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         }
 
         if (!sweepDeps) {
-          // Non-SQL provider: nothing to sweep.
+          // mt#4412 — cannot sweep, so not a healthy no-op.
           log.debug("cockpit: transcript sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
 
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
@@ -2251,7 +2354,14 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             log.debug("cockpit: transcript sweep skipped — schema behind", {
               pending: getSchemaReadiness().pending,
             });
-            return;
+            // mt#4412: a domain failure, even though the pause is DELIBERATE
+            // and correct. The sweep is not doing its work, and a daemon left
+            // schema-behind indefinitely is exactly the standing inertness
+            // this field exists to expose. Self-clearing — the next tick after
+            // the migration lands reports ok again — and harmless, because
+            // domain failures are reported, never acted on (no re-init, no
+            // restart; see the domain-outcome block in createIntervalSweeper).
+            return { ok: false };
           }
         }
 
@@ -2267,7 +2377,8 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
           const message = err instanceof Error ? err.message : String(err);
           log.warn("cockpit: transcript sweep: ingest failed", { message });
           sweepDeps.tracker.recordSweepError();
-          return; // Can't meaningfully record a completed sweep if ingest threw.
+          // Can't meaningfully record a completed sweep if ingest threw.
+          return { ok: false };
         }
 
         // Record ingest counters (includes error count — surfaced, not dropped).
@@ -2295,6 +2406,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         // SC2: default semantic-embedding backfill, run off the critical path.
         // A missing embedding provider, API error, or DB timeout must NOT crash
         // the sweep or prevent the ingest counters from being recorded.
+        let embeddingsOk = true;
         try {
           await runEmbeddings();
           tracker.recordEmbedRunCompleted();
@@ -2304,8 +2416,18 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             message,
           });
           tracker.recordSweepError();
+          embeddingsOk = false;
           // No return: the ingest phase already completed successfully.
         }
+
+        // mt#4412: this sweep has TWO phases, so one boolean has to say
+        // something honest about both. Non-fatal to the tick is not the same
+        // as fine — a permanently failing embedding backfill already called
+        // `recordSweepError()` on every pass, and reporting `ok: true` beside
+        // that would be the contradiction this task exists to remove.
+        // `sessionsErrored` is included for the same reason: a sweep that
+        // processes every session and errors on all of them did not succeed.
+        return { ok: embeddingsOk && ingestResult.sessionsErrored === 0 };
       } catch (err) {
         // Outermost safety net — unexpected throw escaping either phase.
         const message = err instanceof Error ? err.message : String(err);
@@ -2316,6 +2438,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         } else {
           TranscriptSweepTracker.getInstance().recordSweepError();
         }
+        return { ok: false };
       }
     },
   });
@@ -2353,15 +2476,22 @@ export function startDeploySmokeSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "deploy.smoke",
     intervalMs: intervalMs ?? DEPLOY_SMOKE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { getSharedProvider } = await import("./shared-persistence");
         const { triggerDeploySmokeSweep } = await import("./deploy-smoke-sweep");
         const provider = await getSharedProvider();
-        await triggerDeploySmokeSweep(provider);
+        // mt#4412 widened `triggerDeploySmokeSweep` from `void` to a boolean
+        // rather than letting this sweep take the documented "not decidable at
+        // the tick boundary" exception. It IS decidable — the function's
+        // several do-nothing paths are healthy and its two attempted-but-
+        // failed paths are not — and a blanket `ok: true` here would have
+        // reported a permanently no-oping emit as healthy.
+        return { ok: await triggerDeploySmokeSweep(provider) };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: deploy.smoke sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2435,13 +2565,17 @@ export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void 
   return createIntervalSweeper({
     name: "scheduled follow-ups",
     intervalMs: opts?.intervalMs ?? FOLLOW_UP_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const service: FollowUpSweepDeps | null = opts?.deps ?? (await getServerFollowUpService());
         if (!service) {
-          // Non-SQL provider: nothing to sweep.
+          // mt#4412: a provider that cannot serve follow-ups means the work
+          // did not happen. Reported as a domain failure for the same reason
+          // `runProdStateRefreshTick` reports a missing raw-SQL provider —
+          // "cannot do the work" is not the same as "nothing to do", and only
+          // the second is healthy.
           log.debug("cockpit: follow-up sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
         const { fired, errored } = await service.fireDue();
         if (fired.length > 0) {
@@ -2454,9 +2588,15 @@ export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void 
             errored,
           });
         }
+        // The sweep's OWN result: a tick that fired nothing because nothing
+        // was due is healthy; a tick where a due follow-up failed to fire is
+        // not. `errored` is the discriminator and it was already computed —
+        // it just never left the tick (mt#4412).
+        return { ok: errored.length === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: follow-up sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2504,7 +2644,7 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
   return createIntervalSweeper({
     name: "conversation presence",
     intervalMs: intervalMs ?? CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { getSharedPersistenceService } = await import("./shared-persistence");
         const svc = await getSharedPersistenceService();
@@ -2521,11 +2661,15 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
               ).getDatabaseConnection.bind(provider)
             : null;
         if (!getDb) {
+          // mt#4412: cannot do the work, so not a healthy no-op.
           log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
         const db = await getDb();
-        if (!db) return;
+        if (!db) {
+          log.debug("cockpit: presence sweep: database connection unavailable, skipping tick");
+          return { ok: false };
+        }
 
         const getRawSql =
           "getRawSqlConnection" in provider &&
@@ -2558,9 +2702,15 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
             transitions: transitions.map((t) => `${t.conversationId}: ${t.from ?? "-"}->${t.to}`),
           });
         }
+        // A tick that found no transitions is genuinely healthy here — unlike
+        // the sweeps above, "nothing changed" is this sweep's normal result
+        // rather than a sign it could not run, and the cannot-run cases are
+        // already reported as failures above.
+        return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation presence sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2662,15 +2812,20 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
   return createIntervalSweeper({
     name: "conversation title",
     intervalMs: options?.intervalMs ?? CONVERSATION_TITLE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const deps = options?.deps ?? (await buildRealTitleSweepDeps());
         if (!deps) {
-          // Not an error — a non-SQL provider simply has nothing to title. Logged
-          // so a permanently-idle sweeper is distinguishable from a working one
-          // with no backlog (PR #2408 R1).
+          // This comment previously read "Not an error — a non-SQL provider
+          // simply has nothing to title", logged so a permanently-idle
+          // sweeper stayed distinguishable from a working one with no backlog
+          // (PR #2408 R1). mt#4412 changes the ANSWER without disputing the
+          // reasoning: that distinction now has a field of its own, and it is
+          // exactly what the field is for. A provider that cannot title
+          // anything is inert, not idle — "nothing to title" would be
+          // `candidates: 0` from a real run.
           log.debug("cockpit: conversation title sweep skipped (no SQL persistence)");
-          return;
+          return { ok: false };
         }
         const result = await deps.runTitling();
         // Per-run counters at the sweeper level, not only inside the pipeline:
@@ -2690,9 +2845,14 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
             errored: result.errored,
           });
         }
+        // `errored > 0` was already named above as "the signal that titling is
+        // failing while the sweeper itself looks healthy" — mt#4412 is what
+        // finally routes that signal somewhere a reader sees it.
+        return { ok: result.errored === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation title sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2804,12 +2964,13 @@ export function startConversationSummarySweeper(
   return createIntervalSweeper({
     name: "conversation summary",
     intervalMs: options?.intervalMs ?? CONVERSATION_SUMMARY_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const deps = options?.deps ?? (await buildRealSummarySweepDeps());
         if (!deps) {
+          // mt#4412 — inert, not idle. See the title sweep above.
           log.debug("cockpit: conversation summary sweep skipped (no SQL persistence)");
-          return;
+          return { ok: false };
         }
         const result = await deps.runSummarizing();
         // `transcriptsErrored > 0` is the signal that summarizing is failing
@@ -2824,9 +2985,15 @@ export function startConversationSummarySweeper(
             embeddingCalls: result.embeddingCallsMade,
           });
         }
+        // `transcriptsErrored > 0` is named above as the signal that
+        // summarizing is failing while the sweeper looks healthy — "the shape
+        // that let the original no-caller gap sit unnoticed". mt#4412 gives it
+        // a reader.
+        return { ok: result.transcriptsErrored === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation summary sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2944,12 +3111,13 @@ export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions)
     name: "guard-events sweep backstop",
     intervalMs: resolvedInterval,
     tickTimeoutMs: GUARD_EVENTS_SWEEP_TICK_TIMEOUT_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const deps = options?.deps ?? (await buildRealGuardEventsSweepDeps());
         if (!deps) {
+          // mt#4412 — cannot sweep, so not a healthy no-op.
           log.debug("cockpit: guard-events sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
         const result = await deps.runSweep();
         // SC2: a per-stream error is already logged inside runSweep above;
@@ -2965,9 +3133,15 @@ export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions)
           totalInserted: result.totalInserted,
           totalErrors: result.totalErrors,
         });
+        // Per-stream errors are logged inside `runSweep`; `totalErrors` is the
+        // aggregate that decides whether this tick's WORK succeeded. Reading
+        // it here is what stops a sweep erroring on every stream from
+        // presenting as a healthy run (mt#4412).
+        return { ok: result.totalErrors === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: guard-events sweep: unexpected error in tick", { message });
+        return { ok: false };
       }
     },
   });
