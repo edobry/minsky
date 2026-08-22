@@ -84,6 +84,37 @@ claim was released. Read `claimedByOthers` in the sweep result, and if
 `claimsUnavailable` is true the runtime could not name your pass, so you are
 running with the pre-mt#4164 collision risk and the prose probe is all you have.
 
+**That flag used to be true on EVERY MCP-invoked pass, which is to say almost
+all of them (mt#4408).** `resolveActorId` read harness environment variables the
+long-lived MCP server process does not have, so the claim was inert on the
+default invocation path while the CLI path worked — measured 2026-08-21, the
+same sweep returning `claimsUnavailable` `true` over MCP and `false` over the
+CLI minutes apart. The server now injects the caller's resolved agentId
+(ADR-006), so a true value here is once again the rare case the flag was written
+for. Two consequences for reading a sweep: `claimedByOthers` is now populated
+even when identity resolution fails (an unidentifiable pass no longer skips the
+READ, so its `[]` means "checked, nobody" rather than "never looked"), and a
+`claimsUnavailable: true` now also prints a WARNING line in text output rather
+than sitting only in the JSON.
+
+**Verify it yourself in one call, and know what a stale server looks like.** The
+injection happens in the MCP SERVER process, so it only takes effect once the
+server is running a build that contains it — a fix merged but not yet picked up
+looks exactly like the defect:
+
+```
+mcp__minsky__observability_calibration-review   # no arguments
+```
+
+`claimsUnavailable: false` — working. `claimsUnavailable: true` — either your
+server predates the fix (reconnect with `/mcp`, or restart the daemon) or
+identity genuinely could not be resolved; the WARNING line says which is being
+reported. To confirm the distinction rather than guess, run the CLI form
+(`minsky observability calibration-review --json`) in the same repo: it resolves
+identity from the harness environment on a completely different path, so
+**CLI false + MCP true is the stale-server signature**, and both true means
+identity is unavailable on both paths.
+
 **Run the probe per LOG, not per PASS.** A log that becomes review-due partway
 through a pass — a cadence detector firing mid-turn is the common way — has not
 been probed by the search you ran at the start for different detectors. R3's
@@ -600,6 +631,19 @@ reviewing — loses the most.
   but were held by another pass's claim, so Step 1 told you to stand down on
   them. Also NOT advanced. Same disposition as `newlyDuePaths`, different reason:
   these did not cross a threshold, they were simply someone else's to review.
+- **`ackedByAnotherPass`** (mt#4408) — logs your token DID present as due that
+  another pass advanced while you were classifying them. **This is the
+  lost-ack case, and it means your review of those logs was duplicated.** Do NOT
+  re-ack to force it through: the other pass's watermark reflects a review that
+  actually happened. Read what they filed and fold your findings into it, exactly
+  as Step 5a prescribes for `driftedPaths`.
+
+  Read this field before concluding an ack did nothing. `driftedPaths` cannot
+  cover this case — drift is detected per attempted WRITE, and a fully-lost ack
+  attempts none, so every other diagnostic array comes back empty beside a bare
+  `watermarkAdvanced: false`. Originating incident: mt#4408 R4 (2026-08-21), two
+  passes over the same four logs ~15 minutes apart, found only by reading
+  id-adjacent task numbers.
 
 **Why the ack can decline to advance a log that is review-due at ack time.** The
 token now records BOTH what each log counted at sweep time and WHICH logs the
