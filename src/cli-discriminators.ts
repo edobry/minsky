@@ -71,26 +71,55 @@ export function isMcpStartStdio(cmd: Command): boolean {
  * ADR-038 §Question 2 keeps this daemon "local and per-developer", so
  * classifying it as hosted contradicts the architecture it implements.
  *
- * ## Why `--local-daemon` is the discriminator
+ * ## What separates the two is a CAPABILITY, and `--local-daemon` only proxied it
  *
- * The genuinely hosted server is started by `Dockerfile`'s CMD as
- * `mcp start --http --host 0.0.0.0 --port $PORT --require-auth` — no
- * `--local-daemon`. So the flag already separates the two deployments in
- * argv, with no new configuration surface.
+ * `docs/architecture/hosted-vs-local-mcp-capabilities.md` (mt#1601) defines the
+ * split semantically: local has the "`git` binary … present (developer
+ * machine)" and session workspaces on local disk; hosted has git "**absent** —
+ * the runtime image ships no `git`" and "**none** — ephemeral container, no
+ * clones". `--local-daemon` was a good enough stand-in for mt#4338 because it
+ * was already in argv and needed no new surface — but it identifies ONE local
+ * launcher, not the property.
+ *
+ * mt#4342: a plain `mcp start --http --port N` carries no `--local-daemon`, so
+ * it was indistinguishable from the Dockerfile CMD and classified hosted —
+ * refusing `git.*` on a developer laptop with git sitting right there. Not a
+ * hypothetical invocation: it is the bundle-boot-smoke repro documented in
+ * `CLAUDE.md`, and `scripts/smoke-mcp-http-orphan-exit.ts` and
+ * `scripts/smoke-no-postgres-boot.ts` both spawn it.
+ *
+ * ## Hosted stays the DEFAULT; what widened is the proof of LOCAL
+ *
+ * The same record fixes the fail DIRECTION: "The allowlist is **fail-closed**
+ * … a false _allow_ reaches the raw `git: not found`, the exact bad UX this
+ * guard removes; a false _block_ only returns a clean 'use the local server'
+ * message." So this deliberately does NOT invert to "local unless proven
+ * hosted" — that would flip the fail direction the record calls deliberate.
+ * Hosted remains what an undetermined answer resolves to; all that changed is
+ * that there are now TWO ways to prove local instead of one.
  *
  * Takes the RESOLVED options object rather than a `Command`, because the
  * caller reads it after the mode branch has mutated `options.http` —
  * re-deriving from the Command's own option values would see a different
- * (pre-mutation) state. Pure and side-effect-free so the derivation can be
- * asserted directly, rather than by patching the `setHostedMode` collaborator.
+ * (pre-mutation) state. `hasLocalWorkspace` is passed IN rather than probed
+ * here, so this stays pure and assertable directly rather than by patching the
+ * `setHostedMode` collaborator. The probe is `hasLocalGitCapability` in
+ * `@minsky/domain/utils/git-exec`, which lives there so this module does not
+ * inherit that one's imports — `cli.ts` loads this at preAction specifically to
+ * SKIP eager DI init, and cold start is measured.
  *
  * Second instance of the shape {@link isMcpStartStdio} documents above: a
  * transport fact re-derived at a site far from the flags that decide it.
  * mt#4322 owns single-sourcing the decision so a third consumer cannot drift
  * the same way.
  */
-export function isHostedMcpServer(opts: { http?: boolean; localDaemon?: boolean }): boolean {
-  return Boolean(opts.http) && !opts.localDaemon;
+export function isHostedMcpServer(opts: {
+  http?: boolean;
+  localDaemon?: boolean;
+  hasLocalWorkspace?: boolean;
+}): boolean {
+  if (!opts.http) return false;
+  return !opts.localDaemon && !opts.hasLocalWorkspace;
 }
 
 /**
