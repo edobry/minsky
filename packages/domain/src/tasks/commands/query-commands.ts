@@ -25,6 +25,7 @@ import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
   TaskServiceOptions,
   TaskServiceInterface,
+  TaskSpecContentResult,
 } from "../taskService";
 import type { Task } from "../types";
 import { first } from "@minsky/shared/array-safety";
@@ -342,7 +343,7 @@ export async function getTaskSpecContentFromParams(
   } = {
     resolveRepoPath,
   }
-): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+): Promise<TaskSpecContentResult> {
   try {
     // Validate params with Zod schema
     const validParams = taskSpecContentParamsSchema.parse(params);
@@ -413,6 +414,11 @@ export async function getTaskSpecContentFromParams(
       task: result.task,
       specPath: result.specPath,
       content: sectionContent,
+      // Spec-CONTENT timestamp, threaded through unchanged (mt#4415). Note it
+      // describes the WHOLE spec even when `section` narrowed the content —
+      // per-section timestamps do not exist, and a section read is still a read
+      // of a document last written at this instant.
+      specUpdatedAt: result.specUpdatedAt,
       section: validParams.section,
     };
   } catch (error) {

@@ -154,4 +154,50 @@ describe("checkSpecFreshness", () => {
     expect(result.hasDrift).toBe(false);
     expect(result.drift).toHaveLength(0);
   });
+
+  test("no baseline reports checked: false, so it is distinguishable from a clean pass (mt#4415)", async () => {
+    // The ref HAS drifted; the point is that with no baseline the check cannot
+    // know that, and must not answer as though it had looked.
+    const deps = makeDeps({
+      getTaskInfo: async () => ({ status: "DONE", updatedAt: new Date("2026-08-19T20:26:00Z") }),
+    });
+
+    const notChecked = await checkSpecFreshness("mt#2826", "Cites mt#2812.", undefined, deps);
+    const cleanPass = await checkSpecFreshness(
+      "mt#2826",
+      "Cites mt#2812.",
+      new Date("2026-08-20T00:00:00Z"), // later than the ref's change — genuinely clean
+      deps
+    );
+
+    // Both report hasDrift: false. Only `checked` separates them, which is the
+    // whole reason the field exists.
+    expect(notChecked.hasDrift).toBe(false);
+    expect(cleanPass.hasDrift).toBe(false);
+    expect(notChecked.checked).toBe(false);
+    expect(cleanPass.checked).toBe(true);
+
+    expect(notChecked.skipped).toEqual([
+      {
+        ref: "*",
+        reason:
+          "no spec-content timestamp for this task's backend — no baseline to compare against, so no refs were checked",
+      },
+    ]);
+    expect(cleanPass.skipped).toHaveLength(0);
+  });
+
+  test("a completed comparison reports checked: true whether or not drift was found", async () => {
+    const deps = makeDeps({
+      getTaskInfo: async () => ({ status: "DONE", updatedAt: new Date("2026-07-16T03:09:38Z") }),
+    });
+
+    const drifted = await checkSpecFreshness("mt#2806", "Cites mt#2812.", SPEC_UPDATED_AT, deps);
+    const noRefs = await checkSpecFreshness("mt#2806", "Cites nothing.", SPEC_UPDATED_AT, deps);
+
+    expect(drifted.checked).toBe(true);
+    expect(drifted.hasDrift).toBe(true);
+    expect(noRefs.checked).toBe(true);
+    expect(noRefs.hasDrift).toBe(false);
+  });
 });

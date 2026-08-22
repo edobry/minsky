@@ -20,17 +20,38 @@
  * "the spec's specific claim about this ref is now false" (that would need
  * semantic diffing, out of scope for v1). It requires no LLM call.
  *
- * Known imprecision (documented, not a defect): the task-domain `updatedAt`
- * used here is a general last-modification timestamp on the task's DB row —
- * bumped by ANY mutation (status, title, tags, kind), not exclusively spec
- * content edits (the `task_specs` table tracks spec-content-only edits
- * separately, but `getTaskSpecContentFromParams` surfaces the tasks-table
- * `updatedAt`, matching what `tasks_spec_get` already returns to callers
- * throughout the codebase). Likewise a changeset's `updatedAt` is GitHub's
- * PR `updated_at`, bumped by any PR activity (comments, labels), not
- * exclusively the merge/close event. Both are proxies for "did something
- * change," not surgical status-transition timestamps — acceptable for a v1
- * mechanical check; see the task spec's Scope for the explicit boundary.
+ * Known imprecision, on BOTH sides of the comparison. The two sides are not
+ * symmetric, and the asymmetry is the point: REF-side noise produces spurious
+ * drift rows — a false positive, costing one `tasks_get` to dismiss — while
+ * BASELINE-side noise suppresses every row at once, costing the whole check
+ * and reporting a clean pass while doing it.
+ *
+ * Ref side (false positives): a changeset's `updatedAt` is GitHub's PR
+ * `updated_at`, bumped by any PR activity (comments, labels), not exclusively
+ * the merge/close event; a cited task's `updatedAt` is likewise its entire DB
+ * row's timestamp. Both are proxies for "did something change," not surgical
+ * status-transition timestamps — acceptable for a mechanical check.
+ *
+ * Baseline side (false negatives): the baseline is the spec-CONTENT timestamp
+ * (`task_specs.updated_at`) as of mt#4415. Before that it was the citing task's
+ * tasks-table `updatedAt`, which ANY mutation bumps — so a status transition
+ * shortly before the check moved the baseline to ~now, no ref could be newer
+ * than it, and `hasDrift: false` came back regardless of the state of the
+ * world. That ordering is not exotic: `/plan-task`'s Step 1 IS a status
+ * transition, so the check was vacuous in the workflow most likely to call it.
+ * Observed 2026-08-22, hiding a real three-day-old drift.
+ *
+ * What the corrected baseline still cannot see: it advances on ANY spec-content
+ * write, so editing one section resets the baseline for the whole document and
+ * hides drift that predates your own edit. The tell is a drift array containing
+ * only refs you touched yourself (mem#1091). Narrowing that needs a per-claim
+ * or authored-at timestamp this schema does not carry — tracked separately
+ * rather than papered over here.
+ *
+ * When NO baseline exists at all, the check does not run. That case is reported
+ * as `checked: false` (see {@link SpecFreshnessResult}) precisely so it stays
+ * distinguishable from a clean pass instead of collapsing into `hasDrift:
+ * false` — a check that could not run must never read as a check that passed.
  *
  * @see mt#2826 — this file
  * @see packages/domain/src/transcripts/metadata-extractor.ts — the ref
@@ -77,8 +98,18 @@ export interface SpecFreshnessDriftEntry {
 
 export interface SpecFreshnessResult {
   taskId: string;
-  /** ISO-8601, or `null` when the citing spec itself has no tracked `updatedAt`. */
+  /** ISO-8601 spec-CONTENT timestamp, or `null` when no baseline was available. */
   specUpdatedAt: string | null;
+  /**
+   * Whether a comparison actually ran (mt#4415).
+   *
+   * `false` means NO baseline existed, so nothing was compared and nothing
+   * could have been found. Read this BEFORE `hasDrift`: `hasDrift: false` with
+   * `checked: false` is "not checked", not "clean". They are reported as two
+   * fields rather than one tri-state so that no existing consumer of
+   * `hasDrift` silently changes meaning.
+   */
+  checked: boolean;
   /** Refs whose current state changed after the citing spec was last edited. Empty when clean. */
   drift: SpecFreshnessDriftEntry[];
   hasDrift: boolean;
@@ -99,9 +130,12 @@ function daysBetween(earlier: Date, later: Date): number {
  * @param taskId - the citing task's own ID (excluded from its own ref list —
  *   a spec that quotes its own task ID, e.g. in a title echo, is not self-drift).
  * @param specContent - the spec's markdown body, scanned for `mt#N` / `#N` refs.
- * @param specUpdatedAt - the citing spec's last-modified timestamp. When
- *   `undefined` (backend doesn't track it), no baseline exists to compare
- *   against — the check is skipped entirely (returns zero drift, not an error).
+ * @param specUpdatedAt - the citing spec's SPEC-CONTENT last-modified
+ *   timestamp (`task_specs.updated_at`), NOT the task row's `updatedAt` — see
+ *   the baseline-side note above for why the distinction is the whole point of
+ *   mt#4415. When `undefined` (the backend tracks no spec-content timestamp),
+ *   no baseline exists to compare against and the check does not run: the
+ *   result carries `checked: false`, not an error and not a clean pass.
  * @param deps - injected ref-resolution callbacks (see {@link SpecFreshnessDeps}).
  */
 export async function checkSpecFreshness(
@@ -114,9 +148,16 @@ export async function checkSpecFreshness(
     return {
       taskId,
       specUpdatedAt: null,
+      checked: false,
       drift: [],
       hasDrift: false,
-      skipped: [{ ref: "*", reason: "spec has no tracked updatedAt (backend does not track it)" }],
+      skipped: [
+        {
+          ref: "*",
+          reason:
+            "no spec-content timestamp for this task's backend — no baseline to compare against, so no refs were checked",
+        },
+      ],
     };
   }
 
@@ -180,6 +221,7 @@ export async function checkSpecFreshness(
   return {
     taskId,
     specUpdatedAt: specUpdatedAt.toISOString(),
+    checked: true,
     drift,
     hasDrift: drift.length > 0,
     skipped,
