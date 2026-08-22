@@ -187,6 +187,41 @@ describe("formatAskResponses", () => {
     expect(text).not.toContain(`ask#${MAX_ENUMERATED_ASKS}`);
   });
 
+  test("REGRESSION (PR #3257 R1): an ANSWERED ask in the elided tail still gets the read-the-response closer", () => {
+    // The header counts every settled ask, so deriving the closer from the ENUMERATED
+    // subset could tell the agent only "do not describe these as still awaiting the
+    // principal" while an answered ask sat past the cap — dropping the one instruction
+    // that matters, for a response that exists.
+    const unansweredShown = Array.from({ length: MAX_ENUMERATED_ASKS }, (_, i) =>
+      settled({ askId: `ask-${i}`, shortId: `ask#${i}`, answered: false, state: "cancelled" })
+    );
+    const answeredElided = settled({ askId: "ask-hidden", shortId: "ask#hidden" });
+
+    const text = formatAskResponses([...unansweredShown, answeredElided])!;
+    expect(text).toContain("Read the response before continuing");
+    // And the elided one really is out of the enumerated list, so this is the tail case.
+    expect(text).not.toContain("ask#hidden");
+  });
+
+  test("selection uses the producer's precomputed `open`, not a re-derived state list", () => {
+    // PR #3257 R1: the producer computes `open` so the two cannot drift. A state the
+    // hook has never heard of must still be treated as settled when open === false.
+    const settledNovelState = selectSettledAsks(
+      [ASK_A],
+      cache({ [ASK_A]: { found: true, state: "some-future-terminal-state", open: false } }),
+      {}
+    );
+    expect(settledNovelState).toHaveLength(1);
+
+    // ...and as OPEN when open === true, even though "responded" reads as settled.
+    const skippedDespiteState = selectSettledAsks(
+      [ASK_A],
+      cache({ [ASK_A]: { found: true, state: "responded", open: true } }),
+      {}
+    );
+    expect(skippedDespiteState).toEqual([]);
+  });
+
   test("truncates a long title", () => {
     const text = formatAskResponses([settled({ title: "T".repeat(500) })])!;
     expect(text).not.toContain("T".repeat(MAX_TITLE_CHARS + 1));

@@ -19,13 +19,23 @@
  *
  * ## Which asks are cached
  *
- * Exactly the ids the consumer will ask about: the `openAskId` values in
- * `.minsky/calibration-review-watermarks.json`, the same repo-local file the
- * detector reads to decide which logs are review-due. Caching "all open asks"
- * would not work — the detector's whole job is to notice an ask that has become
- * SETTLED, so a settled ask must be present WITH its state, not absent. And
- * caching all 7.8k asks to guarantee that would trade a bounded ~14-entry file
- * for a ~600KB one, re-parsed on every render.
+ * Exactly the ids the consumers will ask about, from TWO bounded sources
+ * (mt#3564 added the second; see `collectAllTrackedAskIds`):
+ *
+ *   1. The `openAskId` values in `.minsky/calibration-review-watermarks.json` —
+ *      the same repo-local file the calibration detector reads to decide which
+ *      logs are review-due.
+ *   2. The ask ids in the conversation-attribution map written by
+ *      `.minsky/hooks/stamp-ask-conversation.ts`, which the answered-ask
+ *      injection hook joins against.
+ *
+ * Caching "all open asks" would not work for EITHER consumer — both exist to
+ * notice an ask that has become SETTLED, so a settled ask must be present WITH
+ * its state, not absent. And caching all 7.8k asks to guarantee that would trade
+ * a bounded file for a ~600KB one, re-parsed on every render. Both sources stay
+ * bounded at their own origin: the watermark file carries an `openAskId` only
+ * between a review and its disposition (~14 entries), and the attribution map
+ * prunes itself to 7 days / 200 entries on every write.
  *
  * An id the producer looked up and did not find is written as `{ found: false }`
  * rather than omitted: omission is reserved for "the producer never asked about

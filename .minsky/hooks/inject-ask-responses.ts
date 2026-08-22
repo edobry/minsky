@@ -64,12 +64,12 @@ const ASK_STATE_CACHE_FILENAME = "ask-state-cache.json";
 /** Where this hook records which responses it has already announced. */
 const INJECTION_WATERMARK_FILENAME = "ask-response-injections.json";
 
-/**
- * Ask states in which the operator still owes a response. MUST match the producer's
- * `OPEN_ASK_STATES`; anything outside it has settled. Duplicated for the same
- * separate-module-graph reason as the filename above.
- */
-const OPEN_ASK_STATES = new Set<string>(["routed", "suspended"]);
+// NOTE (PR #3257 R1): this file deliberately carries NO copy of the open-ask state list.
+// The producer precomputes `open` onto every entry, and its docblock says why in as many
+// words — "so the hook needs no policy knowledge of its own and the two cannot drift."
+// An earlier revision duplicated the set here and re-derived openness from `state`,
+// which is exactly the drift that design prevents: widening `OPEN_ASK_STATES` on the
+// producer would have silently left this consumer on the old membership.
 
 /**
  * How many asks are enumerated before eliding.
@@ -213,7 +213,9 @@ export function selectSettledAsks(
     // Absent means the producer never looked this ask up — a DIFFERENT fact from
     // `{found:false}` (looked up, not in the database), and neither is a settlement.
     if (!entry || entry.found !== true) continue;
-    if (OPEN_ASK_STATES.has(entry.state)) continue;
+    // `entry.open` is the producer's precomputed verdict — the single source of the
+    // open/settled policy. See the NOTE at the top of this file.
+    if (entry.open) continue;
 
     const answered = Boolean(entry.respondedAt) || entry.state === "responded";
     const marker = `${entry.state}:${entry.respondedAt ?? ""}:${entry.chosen ?? ""}`;
@@ -273,7 +275,13 @@ export function formatAskResponses(settled: SettledAsk[]): string | null {
 
   // Both closers are kept under the 73-char budget the worst-case derivation above
   // assumes; lengthening either one invalidates the registry's declared size.
-  const anyAnswered = shown.some((a) => a.answered);
+  //
+  // Derived from `settled`, NOT `shown` (PR #3257 R1): the header counts every settled
+  // ask, so basing the closer on the enumerated subset lets an ANSWERED ask sit in the
+  // elided tail while the closer says only "do not describe these as still awaiting the
+  // principal" — dropping the instruction to go read the response, for a response that
+  // exists. The closer must describe the same set the header counts.
+  const anyAnswered = settled.some((a) => a.answered);
   const closer = anyAnswered
     ? "Read the response before continuing; do not describe these as still open."
     : "Do not describe these as still awaiting the principal.";
