@@ -26,8 +26,17 @@
  *   2 — the check did not complete (never conflated with a clean pass)
  */
 
-import { execAsync } from "@minsky/shared/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { probeGitLogPathHistory } from "../src/adapters/shared/commands/git";
+
+/**
+ * Every dynamic segment below goes through `safeShellQuote` (PR #3248 R1).
+ * Hand-written `'${x}'` looks quoted and is not: a single quote anywhere in the
+ * value closes the literal and the rest is interpreted as shell. `repo` comes
+ * from argv and the pathspecs are derived from git output, so neither is under
+ * this script's control — and `git.ts` already quotes for exactly this reason
+ * (its own tests cover an author containing a quote).
+ */
 
 interface CaseResult {
   name: string;
@@ -41,7 +50,9 @@ interface CaseResult {
 
 async function revListCount(repo: string, path: string): Promise<number | null> {
   try {
-    const { stdout } = await execAsync(`git -C '${repo}' rev-list --all --count -- '${path}'`);
+    const { stdout } = await execAsync(
+      `git -C ${safeShellQuote(repo)} rev-list --all --count -- ${safeShellQuote(path)}`
+    );
     const n = Number(stdout.trim());
     return Number.isFinite(n) ? n : null;
   } catch {
@@ -51,7 +62,9 @@ async function revListCount(repo: string, path: string): Promise<number | null> 
 
 async function isTrackedNow(repo: string, path: string): Promise<boolean> {
   try {
-    await execAsync(`git -C '${repo}' ls-files --error-unmatch -- '${path}'`);
+    await execAsync(
+      `git -C ${safeShellQuote(repo)} ls-files --error-unmatch -- ${safeShellQuote(path)}`
+    );
     return true;
   } catch {
     return false;
@@ -93,7 +106,7 @@ async function main(): Promise<number> {
   // ---- The premise, checked first. This is git's behaviour, not Minsky's. ----
   const NEVER_EXISTED = "src/mt4422-path-that-never-existed.ts";
   const { stdout: emptyLog } = await execAsync(
-    `git -C '${repo}' log --oneline -n 5 -- '${NEVER_EXISTED}'`
+    `git -C ${safeShellQuote(repo)} log --oneline -n 5 -- ${safeShellQuote(NEVER_EXISTED)}`
   );
   const premiseHolds = emptyLog.trim() === "";
 
@@ -101,7 +114,7 @@ async function main(): Promise<number> {
   // --error-unmatch` the WRONG check. Derived from this repo's own history
   // rather than hard-coded, so the fixture cannot silently stop being one.
   const { stdout: deletedRaw } = await execAsync(
-    `git -C '${repo}' log --diff-filter=D --name-only --pretty=format: -n 400 | grep -v '^$' | head -1`
+    `git -C ${safeShellQuote(repo)} log --diff-filter=D --name-only --pretty=format: -n 400 | grep -v '^$' | head -1`
   );
   const deletedWithHistory = deletedRaw.trim();
 
