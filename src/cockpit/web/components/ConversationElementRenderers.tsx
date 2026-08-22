@@ -710,14 +710,15 @@ export function InjectedContentBlock({
  *
  * Three things keep this from losing information the prose path preserved:
  *
- *   - The tree is entered ONLY when the payload actually parses as JSON.
- *     `classifyToolPayload` is the same deterministic yes/no `ToolPayload`
- *     itself dispatches on, so asking it here cannot disagree with what
- *     `ToolPayload` would then do.
+ *   - The payload goes to `ToolPayload` unconditionally, which dispatches JSON
+ *     to the tree and everything else to a `<pre>`. So a non-JSON result is
+ *     still shown as its own text, rather than as the envelope markup around it.
  *   - Anything the envelope carried that the parse did not model comes through
  *     as `remainder` and renders beneath — mt#2791's demote-never-drop contract
  *     survives a structured view that has no slot for a future tag.
- *   - Every other case falls back to the exact prose rendering shipped before.
+ *   - A body the parse can make nothing of at all falls back to the exact prose
+ *     rendering shipped before, so an unanticipated shape degrades to "shown
+ *     verbatim" rather than to blank.
  */
 function TaskNotificationBody({
   span,
