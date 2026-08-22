@@ -1,36 +1,56 @@
 #!/usr/bin/env bun
 /**
- * mt#4338 — verify the LOCAL daemon serves the full command surface.
+ * mt#4338 / mt#4342 — verify each deployment serves (or refuses) the command
+ * surface it should.
  *
  * ## Why this script exists rather than a unit test
  *
  * `src/cli-discriminators.test.ts` asserts the predicate. That is necessary and
- * it is not sufficient: the defect this task fixes was invisible to every unit
+ * it is not sufficient: the defect mt#4338 fixed was invisible to every unit
  * test in the repo, because the guard's own tests set `setHostedMode(true)`
  * directly and asserted what the guard DOES — never how the flag gets its
  * value. A predicate test could drift out of alignment with the call site the
  * same way, so this exercises the real binding: a real daemon process, started
- * with the real `--local-daemon` argv, answering a real `git.*` MCP call.
+ * with real argv, answering a real `git.*` MCP call.
  *
  * ## Why a `git.*` call specifically
  *
- * The flip that surfaced this bug was pre-flighted three separate times, and
- * all three probes passed while the daemon was broken. Every one of them used
+ * The flip that surfaced mt#4338 was pre-flighted three separate times, and all
+ * three probes passed while the daemon was broken. Every one of them used
  * METADATA calls (`tasks_status_get`, `refs_status`) — which are hosted-safe by
  * construction, so they return identical results whether or not the command
  * surface is amputated. A probe that cannot fail is not verification (mem#704).
  * `git.status` is on the refused list, so it discriminates.
  *
+ * ## The three cases (mt#4342)
+ *
+ * mt#4338 covered one argv. mt#4342 made the discriminator a CAPABILITY — git
+ * on PATH plus a resolvable repo — so the cases are no longer one-per-flag:
+ *
+ *   1. `--local-daemon`             local     expects git_status SERVED
+ *   2. `--http --port N` + repo     local     expects git_status SERVED  <- the mt#4342 fix
+ *   3. `--http --port N` + NO repo  hosted    expects git_status REFUSED
+ *
+ * **Case 3 is not the hosted ARGV, and that is the point.** Running the
+ * Dockerfile's own argv on a developer machine now classifies LOCAL — correctly,
+ * because git and a repo are both right there. Hosted-ness is a property of the
+ * environment, so the only way to exercise the hosted branch live is to remove
+ * the capability, which is what pointing `--repo` at a directory with no `.git`
+ * does. It is also the fail-closed direction under test: mt#1601 requires an
+ * undetermined answer to land on refuse.
+ *
  * Run: bun scripts/verify-local-daemon-command-surface.ts
- * Exit 0 = the local daemon served git.status. Exit 1 = it refused (regression).
+ * Exit 0 = every case matched its expectation. Exit 1 = one did not.
  */
 
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
+import { mkdtempSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { ensureLocalDaemonToken } from "../src/mcp/daemon/local-daemon";
 
-const PORT = Number(process.env.MT4338_VERIFY_PORT ?? 48799);
-const URL = `http://127.0.0.1:${PORT}/mcp`;
+const BASE_PORT = Number(process.env.MT4338_VERIFY_PORT ?? 48799);
 const REPO = process.cwd();
 
 // ADR-038 §Question 5: the local daemon is auth-required and mints its own
@@ -43,23 +63,37 @@ const AUTH_TOKEN = ensureLocalDaemonToken().token;
 
 type Json = Record<string, unknown>;
 
-let sessionId: string | undefined;
+interface Case {
+  label: string;
+  /** argv after `mcp start`. */
+  args: string[];
+  /** Working directory / `--repo` target. */
+  repo: string;
+  expect: "served" | "refused";
+  why: string;
+}
 
-/** One JSON-RPC round trip over MCP streamable HTTP. */
-async function rpc(method: string, params: Json = {}, id?: number): Promise<Json> {
+/** One JSON-RPC round trip over MCP streamable HTTP, scoped to one daemon. */
+async function rpc(
+  url: string,
+  state: { sessionId?: string },
+  method: string,
+  params: Json = {},
+  id?: number
+): Promise<Json> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
     Authorization: `Bearer ${AUTH_TOKEN}`,
   };
-  if (sessionId) headers["Mcp-Session-Id"] = sessionId;
+  if (state.sessionId) headers["Mcp-Session-Id"] = state.sessionId;
 
   const body: Json = { jsonrpc: "2.0", method, params };
   if (id !== undefined) body.id = id;
 
-  const res = await fetch(URL, { method: "POST", headers, body: JSON.stringify(body) });
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   const sid = res.headers.get("mcp-session-id");
-  if (sid) sessionId = sid;
+  if (sid) state.sessionId = sid;
 
   const text = await res.text();
   if (!text.trim()) return {};
@@ -77,11 +111,11 @@ async function rpc(method: string, params: Json = {}, id?: number): Promise<Json
   }
 }
 
-async function waitForHealth(timeoutMs: number): Promise<boolean> {
+async function waitForHealth(port: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/health`, {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, {
         signal: AbortSignal.timeout(2000),
       });
       if (res.ok) {
@@ -96,17 +130,7 @@ async function waitForHealth(timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-const child = spawn(
-  "bun",
-  ["run", "src/cli.ts", "mcp", "start", "--local-daemon", "--port", String(PORT), "--repo", REPO],
-  { cwd: REPO, stdio: ["ignore", "pipe", "pipe"], detached: false }
-);
-
-let daemonLog = "";
-child.stdout?.on("data", (d) => (daemonLog += d.toString()));
-child.stderr?.on("data", (d) => (daemonLog += d.toString()));
-
-function cleanup(): void {
+function kill(child: ChildProcess): void {
   try {
     child.kill("SIGTERM");
   } catch {
@@ -114,76 +138,146 @@ function cleanup(): void {
   }
 }
 
-try {
-  console.log(`[mt#4338] starting local daemon on :${PORT} (--local-daemon, --repo ${REPO})`);
-  if (!(await waitForHealth(60_000))) {
-    console.error("[mt#4338] FAIL: daemon never reported ready:true within 60s");
-    console.error(daemonLog.slice(-2000));
-    cleanup();
-    process.exit(1);
-  }
-  console.log("[mt#4338] daemon ready");
+/** Returns null on pass, or a failure message. */
+async function runCase(c: Case, port: number): Promise<string | null> {
+  const url = `http://127.0.0.1:${port}/mcp`;
+  const state: { sessionId?: string } = {};
 
-  await rpc(
-    "initialize",
-    {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "mt4338-verify", version: "1.0.0" },
-    },
-    1
-  );
-  await rpc("notifications/initialized");
+  console.log(`\n[mt#4342] CASE ${c.label}`);
+  console.log(`[mt#4342]   argv: mcp start ${c.args.join(" ")}`);
+  console.log(`[mt#4342]   repo: ${c.repo} (.git present: ${existsSync(join(c.repo, ".git"))})`);
+  console.log(`[mt#4342]   expect: git_status ${c.expect} — ${c.why}`);
 
-  // The discriminating call: git.* is refused by guardHostedCapability when the
-  // server believes it is hosted.
-  const result = (await rpc("tools/call", { name: "git_status", arguments: {} }, 2)) as {
-    result?: { content?: Array<{ text?: string }>; isError?: boolean };
-    error?: { message?: string };
-  };
+  const child = spawn("bun", ["run", "src/cli.ts", "mcp", "start", ...c.args], {
+    cwd: REPO,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false,
+  });
 
-  const rendered = JSON.stringify(result);
+  let daemonLog = "";
+  child.stdout?.on("data", (d) => (daemonLog += d.toString()));
+  child.stderr?.on("data", (d) => (daemonLog += d.toString()));
 
-  // Fail on the specific regression FIRST, so its message is the one reported.
-  if (rendered.includes("not supported on the hosted")) {
-    console.error("[mt#4338] FAIL: local daemon refused git_status as if it were hosted.");
-    console.error(rendered.slice(0, 800));
-    cleanup();
-    process.exit(1);
-  }
+  try {
+    if (!(await waitForHealth(port, 60_000))) {
+      kill(child);
+      return `${c.label}: daemon never reported ready:true within 60s\n${daemonLog.slice(-1500)}`;
+    }
 
-  // Then assert POSITIVELY that the call actually reached git and came back
-  // with a real working-tree payload. Checking only for the absence of the
-  // refusal string would also "pass" on a 401, a transport error, or an empty
-  // body — none of which exercise the guard at all.
-  // Substring checks, not a quoted-key regex: git_status's payload arrives as
-  // JSON *inside* an MCP text block, so its own quotes are escaped (`\"workdir\"`)
-  // and a `/"workdir"/` pattern does not match. Field NAMES are distinctive
-  // enough on their own here.
-  const served =
-    !rendered.includes("unauthorized") &&
-    result.error === undefined &&
-    result.result?.isError !== true &&
-    rendered.includes("workdir") &&
-    rendered.includes("branch");
-
-  if (!served) {
-    console.error(
-      "[mt#4338] FAIL: git_status did not return a working-tree payload — the probe " +
-        "never reached the command surface, so it proves nothing either way."
+    await rpc(
+      url,
+      state,
+      "initialize",
+      {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "mt4342-verify", version: "1.0.0" },
+      },
+      1
     );
-    console.error(rendered.slice(0, 800));
-    cleanup();
-    process.exit(1);
-  }
+    await rpc(url, state, "notifications/initialized");
 
-  console.log("[mt#4338] PASS: local daemon served git_status with a real working-tree payload.");
-  console.log(`[mt#4338] response head: ${rendered.slice(0, 300)}`);
-  cleanup();
-  process.exit(0);
-} catch (err) {
-  console.error(`[mt#4338] FAIL: verification threw: ${String(err)}`);
-  console.error(daemonLog.slice(-2000));
-  cleanup();
+    const result = (await rpc(
+      url,
+      state,
+      "tools/call",
+      {
+        name: "git_status",
+        arguments: {},
+      },
+      2
+    )) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+      error?: { message?: string };
+    };
+
+    const rendered = JSON.stringify(result);
+    const refused = rendered.includes("not supported on the hosted");
+
+    // Assert POSITIVELY that a "served" call actually reached git and came back
+    // with a real working-tree payload. Checking only for the absence of the
+    // refusal string would also "pass" on a 401, a transport error, or an empty
+    // body — none of which exercise the guard at all.
+    // Substring checks, not a quoted-key regex: git_status's payload arrives as
+    // JSON *inside* an MCP text block, so its own quotes are escaped
+    // (`\"workdir\"`) and a `/"workdir"/` pattern does not match.
+    const served =
+      !refused &&
+      !rendered.includes("unauthorized") &&
+      result.error === undefined &&
+      result.result?.isError !== true &&
+      rendered.includes("workdir") &&
+      rendered.includes("branch");
+
+    kill(child);
+
+    if (c.expect === "served") {
+      if (served) {
+        console.log(`[mt#4342]   PASS: served a real working-tree payload.`);
+        return null;
+      }
+      return `${c.label}: expected git_status to be SERVED.\n${
+        refused
+          ? "  It was refused as if hosted — the regression this case exists to catch.\n"
+          : "  It did not return a working-tree payload, so the probe never reached the " +
+            "command surface and proves nothing either way.\n"
+      }  ${rendered.slice(0, 600)}`;
+    }
+
+    // expect === "refused"
+    if (refused) {
+      console.log(`[mt#4342]   PASS: refused with the mt#1601 hosted message.`);
+      return null;
+    }
+    return (
+      `${c.label}: expected git_status to be REFUSED with the hosted message, but it was ` +
+      `not. A capability-less server that serves git.* means the guard failed OPEN — the ` +
+      `direction mt#1601 explicitly forbids.\n  ${rendered.slice(0, 600)}`
+    );
+  } catch (err) {
+    kill(child);
+    return `${c.label}: threw: ${String(err)}\n${daemonLog.slice(-1500)}`;
+  }
+}
+
+// A directory that exists but is not a repo: the capability-less condition.
+const NO_REPO = mkdtempSync(join(tmpdir(), "mt4342-norepo-"));
+
+const CASES: Case[] = [
+  {
+    label: "1/3 --local-daemon (tray + setup local-http)",
+    args: ["--local-daemon", "--port", String(BASE_PORT), "--repo", REPO],
+    repo: REPO,
+    expect: "served",
+    why: "mt#4338's discriminator; must not regress",
+  },
+  {
+    label: "2/3 plain --http --port N with a repo (mt#4342)",
+    args: ["--http", "--host", "127.0.0.1", "--port", String(BASE_PORT + 1), "--repo", REPO],
+    repo: REPO,
+    expect: "served",
+    why: "the deployment mt#4338 could not reach; refused git.* before this fix",
+  },
+  {
+    label: "3/3 plain --http --port N with NO repo (hosted condition)",
+    args: ["--http", "--host", "127.0.0.1", "--port", String(BASE_PORT + 2), "--repo", NO_REPO],
+    repo: NO_REPO,
+    expect: "refused",
+    why: "no capability => hosted; the fail-closed direction mt#1601 requires",
+  },
+];
+
+const failures: string[] = [];
+for (const [i, c] of CASES.entries()) {
+  const failure = await runCase(c, BASE_PORT + i);
+  if (failure) failures.push(failure);
+}
+
+console.log("");
+if (failures.length > 0) {
+  console.error(`[mt#4342] FAIL: ${failures.length} of ${CASES.length} cases did not match.`);
+  for (const f of failures) console.error(`\n  - ${f}`);
   process.exit(1);
 }
+console.log(`[mt#4342] PASS: all ${CASES.length} cases matched their expected command surface.`);
+process.exit(0);
