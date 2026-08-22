@@ -41,6 +41,7 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 // graph analysis.
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "@minsky/domain/configuration/guard";
+import { hasLocalGitCapability } from "@minsky/domain/utils/git-exec";
 import { isHostedMcpServer } from "../../cli-discriminators";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
@@ -1407,10 +1408,26 @@ export function createStartCommand(
           //
           // mt#4338: NOT `setHostedMode(true)` — hosted is a narrower question
           // than HTTP, and `--local-daemon` (which implies --http, see the mode
-          // branch above) is the local daemon, not the hosted server. The full
-          // incident and the reason this flag is the discriminator live on
-          // `isHostedMcpServer`.
-          setHostedMode(isHostedMcpServer(options));
+          // branch above) is the local daemon, not the hosted server.
+          //
+          // mt#4342: that flag identified one local LAUNCHER, not the property.
+          // A plain `--http --port N` on a developer machine carries neither
+          // flag, so it was indistinguishable from the Dockerfile CMD and had
+          // `git.*` refused with git on PATH. The capability probe answers the
+          // question the flags only proxied, and runs HERE rather than inside
+          // the predicate so the predicate stays pure and directly assertable.
+          // Both are documented on `isHostedMcpServer` / `hasLocalGitCapability`.
+          //
+          // PR #3233 R1: the probe ASCENDS from this directory rather than
+          // testing it for `.git`, so starting the server from a subdirectory of
+          // a repo is still local. That is the same misclassification mt#4342
+          // fixes, one level in.
+          setHostedMode(
+            isHostedMcpServer({
+              ...options,
+              hasLocalWorkspace: hasLocalGitCapability(options.repo ?? process.cwd()),
+            })
+          );
         }
 
         const projectContext = resolveProjectContext(options.repo);
