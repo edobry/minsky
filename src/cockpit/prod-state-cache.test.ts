@@ -184,7 +184,12 @@ describe("recurring sweep loop survives per-tick refresh errors (mt#3039 SC1, ac
         // never throws (fail-open), so the interval-scheduling layer sees every
         // one of these as a "successful" tick even though the domain write
         // always fails — this is exactly the gap ProdStateSweepTracker closes.
-        await refreshProdStateCache(throwSql, new Date().toISOString(), tmpPath);
+        //
+        // mt#4412: the tick now also REPORTS that domain failure, so the
+        // scheduling layer's "successful tick" no longer stands alone. The
+        // fixture keeps its point — scheduling success beside domain failure —
+        // and states both instead of only the first.
+        return { ok: await refreshProdStateCache(throwSql, new Date().toISOString(), tmpPath) };
       },
     });
 
@@ -217,7 +222,7 @@ describe("recurring sweep loop survives per-tick refresh errors (mt#3039 SC1, ac
       tick: async () => {
         tickCount++;
         if (tickCount === 3) sql = okSql; // simulate the read recovering
-        await refreshProdStateCache(sql, new Date().toISOString(), tmpPath);
+        return { ok: await refreshProdStateCache(sql, new Date().toISOString(), tmpPath) };
       },
     });
 
