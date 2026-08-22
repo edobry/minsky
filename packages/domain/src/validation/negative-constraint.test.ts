@@ -309,7 +309,7 @@ describe("mt#4385 — a bare filename is a citation, no directory required", () 
     expect(uncited.findings.every((f) => !f.hasBasis)).toBe(true);
   });
 
-  test("a directory-qualified path is still a citation — the widening subsumes, never replaces", () => {
+  test("a directory-qualified path is still a citation — the widening ADDS, never replaces", () => {
     const report = analyzeNegativeConstraints(
       // "do not attempt" rather than "do not route": the latter reaches no PROHIBITION_PATTERN,
       // so the fixture was inert and this test proved nothing (mem#1020). The liveness
@@ -319,6 +319,24 @@ describe("mt#4385 — a bare filename is a citation, no directory required", () 
 
     expect(report.findings.length).toBeGreaterThan(0);
     expect(report.findings.every((f) => f.hasBasis)).toBe(true);
+  });
+
+  test("PR #3235 R1 — a bare technology name is not a citation, but a path to one is", () => {
+    // `.js` is the one extension in the set that also ends a family of PRODUCT names. Naming a
+    // runtime is not "naming the specific thing you checked", so the bare form omits `js` —
+    // otherwise this prompt would be credited with a basis it never stated, and SUPPRESSED.
+    const bareTechName = analyzeNegativeConstraints(
+      "Do not attempt the migration on node.js in this task."
+    );
+    expect(bareTechName.findings.length).toBeGreaterThan(0);
+    expect(bareTechName.bare.length).toBeGreaterThan(0);
+
+    // The directory-qualified form still credits `js` — a path names an artifact, not a product.
+    const qualified = analyzeNegativeConstraints(
+      "Do not attempt the migration in scripts/legacy/bootstrap.js here."
+    );
+    expect(qualified.findings.length).toBeGreaterThan(0);
+    expect(qualified.findings.every((f) => f.hasBasis)).toBe(true);
   });
 
   test("AT3 — negative control: mt#3861's basis-less prohibition still fires", () => {

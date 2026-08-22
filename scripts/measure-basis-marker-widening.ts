@@ -48,11 +48,24 @@ import {
  * This must stay byte-identical to the entry in `BASIS_PATTERNS`; the lookup below fails loudly
  * if it drifts, rather than silently measuring nothing.
  */
-const SHIPPED_BARE_FILENAME = /\b[\w-]+\.(?:ts|tsx|js|json|md|mdc|sql|ya?ml)\b/i;
+const SHIPPED_BARE_FILENAME = /\b[\w-]+\.(?:ts|tsx|json|md|mdc|sql|ya?ml)\b/i;
 
 /**
- * The PRE-mt#4385 form, whose leading `\w+\/` made a directory mandatory — so `src/foo.ts` was
- * a citation and a bare `foo.ts` was not, though the docblock credits "a file path" either way.
+ * Regex identity, compared on BOTH `source` and `flags` (PR #3235 R1).
+ *
+ * `source` alone is not identity: dropping the `i` flag leaves the source byte-identical while
+ * changing which text matches, so the drift guard below would keep reporting a clean baseline
+ * for a pattern that no longer behaves like the one this script was calibrated against. The
+ * failure would be silent in the worst way — the numbers would still print.
+ */
+function sameRegex(a: RegExp, b: RegExp): boolean {
+  return a.source === b.source && a.flags === b.flags;
+}
+
+/**
+ * The PRE-mt#4385 baseline is simply "the shipped set without the bare-filename pattern" — the
+ * directory-qualified citation it used to be the only form of is still present, unchanged, and
+ * so appears in both sides of the comparison.
  *
  * **This is what makes the script a regression floor rather than a tautology.** The obvious
  * shape — measure "current patterns" against "current + candidate" — reports a +0.00pp delta
@@ -62,7 +75,9 @@ const SHIPPED_BARE_FILENAME = /\b[\w-]+\.(?:ts|tsx|js|json|md|mdc|sql|ya?ml)\b/i
  * keeps both directions live: the delta still catches an over-wide future edit, and
  * {@link TARGET_FIRE} still catches a revert.
  */
-const BASELINE_CITATION = /\b\w+\/[\w./-]+\.(?:ts|tsx|js|json|md|mdc|sql|ya?ml)\b/i;
+function baselinePatterns(): RegExp[] {
+  return BASIS_PATTERNS.filter((p) => !sameRegex(p, SHIPPED_BARE_FILENAME));
+}
 
 /**
  * The 2026-08-19T20:22 calibration fire this widening exists to fix, verbatim from the record's
@@ -190,16 +205,15 @@ function main(): number {
 
   // Fail loudly if the shipped pattern drifted from this script's copy of it — otherwise the
   // baseline below would be identical to the shipped set and every run would report +0.00pp.
-  if (!BASIS_PATTERNS.some((p) => p.source === SHIPPED_BARE_FILENAME.source)) {
+  if (!BASIS_PATTERNS.some((p) => sameRegex(p, SHIPPED_BARE_FILENAME))) {
     console.log(
       "FAIL: BASIS_PATTERNS no longer contains this script's copy of the mt#4385 citation " +
-        "pattern. Re-sync SHIPPED_BARE_FILENAME before trusting any number below."
+        "pattern (compared on source AND flags). Re-sync SHIPPED_BARE_FILENAME before trusting " +
+        "any number below."
     );
     return 1;
   }
-  const baseline = BASIS_PATTERNS.map((p) =>
-    p.source === SHIPPED_BARE_FILENAME.source ? BASELINE_CITATION : p
-  );
+  const baseline = baselinePatterns();
 
   const windows = collectWindows(prompts);
   const bare = windows.filter((w) => !baseline.some((p) => p.test(w.text)));
