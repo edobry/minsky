@@ -525,10 +525,12 @@ export const RENDERER_DIRECTORIES: readonly string[] = [
  *
  * EXCLUDING THE SESSION'S OWN EDITS is what keeps this from firing at an author
  * who did the work: if the session already corrected a renderer, that renderer
- * is not a miss. The comparison is by suffix because an edit path is workspace
- * relative while `git grep` prints repo-relative — the same string in this repo's
- * layout, but matched loosely so a divergence under-reports rather than
- * fabricates a miss.
+ * is not a miss. The comparison is `wasEditedThisSession`, which matches on a
+ * PATH BOUNDARY — see its docblock for why a bare suffix was wrong.
+ *
+ * A search that could not RUN returns `{ ok: false }` rather than an empty list,
+ * because those are different facts and the caller renders them differently
+ * (`skipped` vs `clean`).
  *
  * `.minsky/` is NOT in `RENDERER_DIRECTORIES` on purpose: rules, memories and
  * calibration logs quote old message wording as HISTORY, and a task record
