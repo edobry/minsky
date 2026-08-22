@@ -62,6 +62,23 @@ export function minskyCompileTargetsFromPresence(present: {
   rules: boolean;
   agents: boolean;
   hooks: boolean;
+  /**
+   * Whether a `.codex/` directory exists in the workspace (mt#3854).
+   *
+   * Gated on the OUTPUT tree, not on a `.minsky/` source dir, and that
+   * asymmetry is deliberate. Every other flag here asks "is there something to
+   * compile FROM"; this one asks "has this workspace opted IN to the Codex
+   * harness". Probing the source would regenerate `.codex/` on every clone in
+   * the fleet, because `.minsky/hooks` and `.minsky/agents` are always present
+   * — creating a harness config nobody asked for. mt#3854 SC3 states it
+   * directly: a bare `compile` refreshes these "when `.codex/` is present — and
+   * does NOT create `.codex/` on a machine that has never had it."
+   *
+   * To adopt Codex in a workspace, run the targets explicitly once
+   * (`minsky compile --target codex-hooks --target codex-agents`); the
+   * directory then exists and bare invocations keep it fresh from there.
+   */
+  codex: boolean;
 }): string[] {
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
@@ -73,6 +90,14 @@ export function minskyCompileTargetsFromPresence(present: {
   }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
+  // Codex targets need BOTH the opt-in directory and their own source tree —
+  // `.codex/` present with no `.minsky/hooks` would otherwise emit an empty
+  // hooks directory and, with orphan detection on, report every existing file
+  // there as stale.
+  if (present.codex) {
+    if (present.hooks) targets.push("codex-hooks");
+    if (present.agents) targets.push("codex-agents");
+  }
   return targets;
 }
 
@@ -101,6 +126,8 @@ export async function probeMinskyCompileTargets(
     rules: await dirExists(path.join(workspacePath, ".minsky", "rules")),
     agents: await dirExists(path.join(workspacePath, ".minsky", "agents")),
     hooks: await dirExists(path.join(workspacePath, ".minsky", "hooks")),
+    // The OUTPUT tree, not a source dir — see the `codex` field's doc comment.
+    codex: await dirExists(path.join(workspacePath, ".codex")),
   });
 }
 

@@ -104,13 +104,20 @@ describe("minskyCompileTargetsFromPresence (mt#2803)", () => {
         rules: false,
         agents: false,
         hooks: false,
+        codex: false,
       })
     ).toEqual([]);
   });
 
   it("maps every presence flag to its target id, in canonical order (mt#2803, mt#3058)", () => {
     expect(
-      minskyCompileTargetsFromPresence({ skills: true, rules: true, agents: true, hooks: true })
+      minskyCompileTargetsFromPresence({
+        skills: true,
+        rules: true,
+        agents: true,
+        hooks: true,
+        codex: false,
+      })
     ).toEqual([
       "claude-skills",
       "cursor-rules-ts",
@@ -124,13 +131,25 @@ describe("minskyCompileTargetsFromPresence (mt#2803)", () => {
 
   it("mt#3058: .minsky/rules/ presence maps to all four rules-sourced targets", () => {
     expect(
-      minskyCompileTargetsFromPresence({ skills: false, rules: true, agents: false, hooks: false })
+      minskyCompileTargetsFromPresence({
+        skills: false,
+        rules: true,
+        agents: false,
+        hooks: false,
+        codex: false,
+      })
     ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
   });
 
   it("includes only the present targets, preserving the canonical order", () => {
     expect(
-      minskyCompileTargetsFromPresence({ skills: true, rules: false, agents: true, hooks: false })
+      minskyCompileTargetsFromPresence({
+        skills: true,
+        rules: false,
+        agents: true,
+        hooks: false,
+        codex: false,
+      })
     ).toEqual(["claude-skills", "claude-agents"]);
   });
 });
