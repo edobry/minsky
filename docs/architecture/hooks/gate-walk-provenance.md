@@ -16,7 +16,21 @@ Records, at the merge seam, whether the bound task was **ever gated at all**.
 - **Posture:** RECORD-ONLY (calibration-first per ADR-024; `tuningOwnership: advisory`)
 - **Override:** `MINSKY_SKIP_GATE_WALK_PROVENANCE=1`
 - **Calibration log:** `.minsky/gate-walk-provenance-calibration.jsonl`
+- **Declared at:** `scripts/lib/standalone-guard-canaries.ts` (`calibrationLog: "gate-walk-provenance"`).
+  Required, and easy to forget for a guard wired straight from `.claude/settings.json`: that is a
+  third wiring shape, present in neither surface `buildCalibrationLogToGuards` reads. Without the
+  declaration the log has no join key, so `/calibration-review` never sweeps it and
+  `check-coverage-receipts` can only ever report `[FLAGGED] … Unmapped` — which reads as a dead
+  detector and is not one (mt#4390).
+- **Record timestamp field:** `timestamp` — NOT `ts`. Every shared reader keys on it, at **two
+  independent gates**: `readCalibrationEntries` drops a line whose `timestamp` is not a string
+  (`isEntryShape`), so a legacy record never becomes an entry at all; and `checkCoverageReceipt`
+  separately drops an entry whose `Date.parse(entry.timestamp)` is `NaN`. The sweep renders
+  `rec.timestamp` in every branch. Records written before mt#4390 carry `ts` and are invisible to
+  all of these; they age out of the rolling window rather than being backfilled, since the log is
+  gitignored local telemetry that differs per machine.
 - **Replay:** `bun scripts/replay-gate-walk-provenance.ts [--limit N] [--since ISO] [--json]`
+  — replays against the LIVE substrate, not the JSONL, so it is unaffected by the record schema.
 
 ## The question it asks, and why it is not the one the task was filed with
 

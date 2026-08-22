@@ -41,7 +41,14 @@ import { asksTable } from "../storage/schemas/ask-schema";
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
-import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
+import {
+  guardTransition,
+  isTerminal,
+  ALL_ASK_STATES,
+  TERMINAL_ASK_STATES,
+  OPEN_ASK_STATES,
+  type OpenAskState,
+} from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 
@@ -616,6 +623,89 @@ export interface AskRepository {
    * metrics) never need existence checks.
    */
   countByState(): Promise<Record<AskState, number>>;
+
+  /**
+   * Dwell-time statistics for OPEN asks, grouped by state (mt#4361).
+   *
+   * `countByState` above answers "how many are in each state" and is silent on
+   * the only question that distinguishes a healthy `routed` from a stranded
+   * one: how long they have been there. A snapshot count is byte-identical five
+   * minutes and five weeks after an ask routes, which is why 3,195 `detected`
+   * rows (mt#2257) and later five undelivered `routed` asks (mt#3353) were both
+   * found by a manual probe rather than by the signal built to surface them.
+   *
+   * Age is measured from the moment the ask ENTERED its current state, not from
+   * `createdAt` — the question is "how long undelivered", and an ask created
+   * long before it routed would otherwise read as stranded on arrival. Where a
+   * state has no dedicated timestamp column (`detected`, `classified`) the row's
+   * `createdAt` is the entry time.
+   *
+   * Terminal states are excluded rather than zero-filled: a closed ask has no
+   * meaningful dwell time, and a `Record` over all eight states would
+   * manufacture a `0` indistinguishable from a real zero-age ask.
+   *
+   * @param opts.nowMs             Clock, injected so tests need not depend on wall time.
+   * @param opts.stallThresholdMs  Dwell time past which an ask counts as stalled.
+   * @returns Every `OpenAskState` key, present and zeroed when the state is empty.
+   */
+  openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>>;
+}
+
+/**
+ * Dwell-time statistics for one open Ask state (mt#4361).
+ */
+export interface AskAgeStats {
+  /**
+   * Age in ms of the oldest ask in this state, measured from state entry.
+   *
+   * `null` — not `0` — when no ask is in the state. The two are different
+   * findings and only one of them is data: `0` means an ask entered this state
+   * just now.
+   */
+  oldestAgeMs: number | null;
+  /** Asks in this state whose dwell time exceeds the stall threshold. */
+  stalledCount: number;
+}
+
+/**
+ * A complete, empty `openStateAgeStats` result — every `OpenAskState` key
+ * present, `oldestAgeMs: null` (no ask, as distinct from a zero-age one).
+ *
+ * Shared by both repository implementations and by the state-counts provider's
+ * unavailable path, so all three agree on what "nothing to report" looks like.
+ */
+export function emptyOpenStateAgeStats(): Record<OpenAskState, AskAgeStats> {
+  return Object.fromEntries(
+    OPEN_ASK_STATES.map((s) => [s, { oldestAgeMs: null, stalledCount: 0 }])
+  ) as Record<OpenAskState, AskAgeStats>;
+}
+
+/**
+ * When an Ask entered its CURRENT state (mt#4361).
+ *
+ * **This MUST stay equivalent to the `stateSince` COALESCE in
+ * `DrizzleAskRepository.openStateAgeStats`** — the same semantics exist twice,
+ * once in SQL for Postgres and once here for the fake, and a divergence would
+ * make the hermetic tests agree with a production query that behaves
+ * differently. `openStateAgeStats` is covered against both implementations for
+ * that reason.
+ *
+ * `createdAt` is `notNull` in the schema, so the fallback always yields a value.
+ */
+function stateEntryIso(ask: Ask): string {
+  switch (ask.state) {
+    case "routed":
+      return ask.routedAt ?? ask.createdAt;
+    case "suspended":
+      return ask.suspendedAt ?? ask.createdAt;
+    case "responded":
+      return ask.respondedAt ?? ask.createdAt;
+    default:
+      return ask.createdAt;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1355,6 +1445,52 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return counts;
   }
+
+  async openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>> {
+    const nowIso = new Date(opts.nowMs).toISOString();
+
+    // When the row entered its CURRENT state. `routed`/`suspended`/`responded`
+    // each carry their own stamp; `detected` and `classified` have no column, so
+    // creation IS state entry for them. The COALESCE also covers a row whose
+    // stamp is NULL because it predates that column.
+    const stateSince = sql`coalesce(
+      case ${asksTable.state}
+        when 'routed' then ${asksTable.routedAt}
+        when 'suspended' then ${asksTable.suspendedAt}
+        when 'responded' then ${asksTable.respondedAt}
+      end,
+      ${asksTable.createdAt}
+    )`;
+    const ageMs = sql`(extract(epoch from (${nowIso}::timestamptz - ${stateSince})) * 1000)`;
+
+    // `max()` and `count()` come back as strings from postgres-js for the
+    // numeric/bigint result types, hence the Number() coercions below.
+    const rows = await this.db
+      .select({
+        state: asksTable.state,
+        oldestAgeMs: sql<string | null>`max(${ageMs})`,
+        stalledCount: sql<string>`count(*) filter (where ${ageMs} > ${opts.stallThresholdMs})`,
+      })
+      .from(asksTable)
+      .where(inArray(asksTable.state, [...OPEN_ASK_STATES]))
+      .groupBy(asksTable.state);
+
+    const stats = emptyOpenStateAgeStats();
+    for (const row of rows) {
+      if (!(OPEN_ASK_STATES as readonly string[]).includes(row.state)) continue;
+      stats[row.state as OpenAskState] = {
+        // Deliberately NOT clamped at zero: a negative age means this process's
+        // clock is behind the stamp Postgres wrote, and clamping would render
+        // clock skew as a healthy zero.
+        oldestAgeMs: row.oldestAgeMs === null ? null : Math.round(Number(row.oldestAgeMs)),
+        stalledCount: Number(row.stalledCount),
+      };
+    }
+    return stats;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1389,6 +1525,23 @@ export class FakeAskRepository implements AskRepository {
   clear(): void {
     this.store.clear();
     this.idCounter = 0;
+  }
+
+  /**
+   * Insert a fully-formed Ask directly, bypassing `create` (test seam, mt#4361).
+   *
+   * `create` stamps `createdAt` from the wall clock and `transition` stamps the
+   * per-state columns the same way, so a fixture of asks with DIFFERENT ages —
+   * the entire subject of `openStateAgeStats` — cannot be built through the
+   * normal path. Injecting a clock into the QUERY does not help: one `nowMs`
+   * ages every row written in the same millisecond identically.
+   *
+   * A seam rather than a mutation through the `all` getter, which happens to
+   * return live references today and would silently stop working the day it
+   * returns copies.
+   */
+  seed(ask: Ask): void {
+    this.store.set(ask.id, ask);
   }
 
   async create(input: CreateAskInput): Promise<Ask> {
@@ -1787,6 +1940,23 @@ export class FakeAskRepository implements AskRepository {
       counts[ask.state] += 1;
     }
     return counts;
+  }
+
+  async openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>> {
+    const stats = emptyOpenStateAgeStats();
+    for (const ask of this.store.values()) {
+      if (!(OPEN_ASK_STATES as readonly string[]).includes(ask.state)) continue;
+      const ageMs = opts.nowMs - Date.parse(stateEntryIso(ask));
+      // An unparseable stamp is malformed fixture data, not a zero-age ask.
+      if (Number.isNaN(ageMs)) continue;
+      const entry = stats[ask.state as OpenAskState];
+      if (entry.oldestAgeMs === null || ageMs > entry.oldestAgeMs) entry.oldestAgeMs = ageMs;
+      if (ageMs > opts.stallThresholdMs) entry.stalledCount += 1;
+    }
+    return stats;
   }
 
   /**
