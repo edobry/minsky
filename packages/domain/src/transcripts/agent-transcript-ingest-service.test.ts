@@ -25,7 +25,7 @@ import type {
   ToolCallProjector,
 } from "./agent-transcript-ingest-service";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
-import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
+import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
 import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────

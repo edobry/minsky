@@ -41,6 +41,7 @@
  * falsified by those specimens, which fold MCP calls wholesale. Read that
  * section before changing {@link STANDALONE_TOOLS}.
  */
+import { SYNTHETIC_MODEL_SENTINEL } from "@minsky/domain/ai/dispatch-models";
 import { classifyTool } from "@minsky/shared/tool-effect";
 
 import { classifyOutcome } from "./conversation-outcome";
@@ -87,18 +88,14 @@ export const STANDALONE_TOOLS: ReadonlySet<string> = new Set([
  * The model value Claude Code records on a harness-generated retry turn rather
  * than a real model response (mt#3260).
  *
- * Lives here, and `ConversationTurnView` imports it, because BOTH need it and a
- * second literal would have made this the FOURTH hand-copy of the same string —
- * `mt#4237` exists precisely because it is already hand-copied into three
- * modules with nothing checking they agree, and the honest response to landing
- * on that task's surface is not to add to it. Unifying the web-side constant
- * with domain's `SYNTHETIC_MODEL_SENTINEL`
- * (`packages/domain/src/subagent/transcript-metrics.ts`) is mt#4237's job, not
- * this task's: that module is subagent-metrics code rather than a render
- * dependency, so importing it here would be a structural decision made in
- * passing.
+ * mt#4237 unified this: the literal is declared ONCE, in
+ * `@minsky/domain/ai/dispatch-models`, and imported at the top of this file.
+ * That module is a legal import from the web bundle — it is on
+ * `eslint.config.js`'s cockpit allowlist and has zero imports of its own — so
+ * the "importing it here would be a structural decision made in passing"
+ * concern this comment used to carry no longer applies: the decision was made
+ * deliberately, on that task, and the reasoning lives at the declaration site.
  */
-export const SYNTHETIC_MODEL = "<synthetic>";
 
 /** A rendered thread node: either one turn, or a burst standing for several. */
 export type BurstNode =
@@ -158,7 +155,7 @@ export function turnIsFoldable(turn: PreparedTurn): boolean {
   if (turn.role !== "assistant") return false;
   if (turn.isSpawnBoundary) return false;
   if (turn.isCompactSummary === true) return false;
-  if (turn.model === SYNTHETIC_MODEL) return false;
+  if (turn.model === SYNTHETIC_MODEL_SENTINEL) return false;
 
   const rendered = turn.elements.filter(elementRenders);
   // A turn that renders nothing is not a burst member — it contributes no row,
