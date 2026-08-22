@@ -308,15 +308,34 @@ export const V1_ASSERTED_DIRECTORIES: readonly string[] = ["docs"];
  * WHOLE-LINE only, deliberately. Stripping from a mid-line `//` would corrupt
  * any string containing a URL, and the case that matters is a comment on its own
  * line — which is how an agent explains a retirement.
+ *
+ * BLOCK STATE IS TRACKED rather than guessed (PR #3231 R3). An earlier version
+ * dropped any line whose first non-space character was `*`, on the theory that
+ * such a line is a JSDoc continuation. It is not always: a markdown bullet
+ * inside a template literal, a wrapped multiplication, and a `**bold**` line in
+ * an embedded prose string all begin that way, and dropping them corrupts the
+ * very text this function feeds to the literal extractor. Reading block-comment delimiters
+ * state costs a boolean and removes the guess entirely — a `*` line is a
+ * continuation when it is inside a block comment and ordinary code otherwise.
  */
 export function stripCommentLines(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => {
-      const t = line.trimStart();
-      return !(t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"));
-    })
-    .join("\n");
+  const out: string[] = [];
+  let inBlock = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    if (inBlock) {
+      if (trimmed.includes("*/")) inBlock = false;
+      continue;
+    }
+    if (trimmed.startsWith("/*")) {
+      // A single-line `/* … */` closes on the same line and opens no block.
+      if (!trimmed.includes("*/")) inBlock = true;
+      continue;
+    }
+    if (trimmed.startsWith("//")) continue;
+    out.push(line);
+  }
+  return out.join("\n");
 }
 
 export function quotedLiterals(text: string): string[] {
@@ -521,7 +540,7 @@ export function staleOccurrences(
   cwd: string,
   sessionEdited: readonly string[],
   spawn: typeof Bun.spawnSync = Bun.spawnSync
-): string[] {
+): StaleSearchResult {
   // `-n` rather than `-l`: the LINE is needed to drop retirement assertions
   // below. Filtering at file grain would discard a file that carries both a
   // negative assertion and a real stale render.
@@ -531,9 +550,17 @@ export function staleOccurrences(
     stderr: "pipe",
   });
   // exit 1 is `git grep`'s "no match", which is a real answer. Anything else is
-  // the search not having run, and the caller must not read that as "no stale
-  // occurrences" — the difference between a clean result and a broken probe.
-  if (result.exitCode !== 0 && result.exitCode !== 1) return [];
+  // the search NOT HAVING RUN, and this must be a distinguishable value rather
+  // than an empty list (PR #3231 R1). Returning `[]` for both was the exact
+  // can't-fail-probe shape this module cites mem#704 about, three lines under a
+  // comment saying the caller must not read it that way — and the caller did,
+  // rendering a broken search as `clean`.
+  if (result.exitCode !== 0 && result.exitCode !== 1) {
+    return {
+      ok: false,
+      reason: `git grep exited ${result.exitCode}`,
+    };
+  }
 
   const files = new Set<string>();
   for (const line of new TextDecoder().decode(result.stdout).split("\n")) {
@@ -550,7 +577,40 @@ export function staleOccurrences(
     files.add(path);
   }
 
-  return [...files].filter((hit) => !sessionEdited.some((p) => p.endsWith(hit) || hit.endsWith(p)));
+  return { ok: true, files: [...files].filter((hit) => !wasEditedThisSession(hit, sessionEdited)) };
+}
+
+/** A search that RAN, or one that did not — never collapsed into an empty list. */
+export type StaleSearchResult = { ok: true; files: string[] } | { ok: false; reason: string };
+
+/**
+ * Did this session edit the file `git grep` reported?
+ *
+ * ON A PATH BOUNDARY, not a bare suffix (PR #3231 R2). The first version asked
+ * `edited.endsWith(hit) || hit.endsWith(edited)`, which relates any two paths
+ * whose tails happen to agree: a session that edited
+ * `packages/domain/src/tasks/x.ts` would have silently excluded a genuine stale
+ * hit at `src/tasks/x.ts`, because the first string ends with the second. That
+ * is a FALSE NEGATIVE — the guard going quiet about a renderer nobody swept —
+ * which is the direction that costs this row its purpose.
+ *
+ * A `git grep` hit is repo-relative; an edit path may be repo-relative or an
+ * absolute session path. So the only sound relation is equality after
+ * normalization, or an absolute path ending at a `/`-delimited segment
+ * boundary. `a/x.ts` no longer matches `bba/x.ts`.
+ */
+export function wasEditedThisSession(hit: string, sessionEdited: readonly string[]): boolean {
+  const normalize = (p: string): string => p.replace(/^\.\//, "");
+  const target = normalize(hit);
+  return sessionEdited.some((raw) => {
+    const edited = normalize(raw);
+    if (edited === target) return true;
+    // The `/`-boundary suffix is sound ONLY for an ABSOLUTE edit path, where the
+    // leading segments are a workspace prefix the grep hit never carries. Allowing
+    // it for a RELATIVE edit is the defect itself: `packages/domain/src/tasks/x.ts`
+    // ends with `/src/tasks/x.ts`, and those are two different files.
+    return edited.startsWith("/") && edited.endsWith(`/${target}`);
+  });
 }
 
 /**
@@ -581,7 +641,11 @@ const RETIREMENT_ASSERTION_RE = /\.not\s*\.\s*(?:toContain|toMatch|toBe|toEqual)
  * function of the transcript alone.
  */
 export interface SearchDeps {
-  staleOccurrences?: (literal: string, cwd: string, sessionEdited: readonly string[]) => string[];
+  staleOccurrences?: (
+    literal: string,
+    cwd: string,
+    sessionEdited: readonly string[]
+  ) => StaleSearchResult;
   searchableRepo?: (cwd: string | undefined) => cwd is string;
 }
 
@@ -652,7 +716,22 @@ function runMessageConstantRow(
 
   const stale = new Set<string>();
   for (const phrase of searched) {
-    for (const hit of findStale(phrase, cwd, edited)) stale.add(hit);
+    const result = findStale(phrase, cwd, edited);
+    // A search that did not RUN is not a search that found nothing (PR #3231 R1).
+    // Bailing on the first failure rather than continuing: a partial sweep of the
+    // phrase set cannot support `clean` either, and reporting `matched` off the
+    // phrases that happened to succeed would understate the miss.
+    if (!result.ok) {
+      return {
+        calibration: {
+          ...base,
+          outcome: "skipped",
+          reason: `stale-occurrence search failed (${result.reason}); a failed probe is not a clean result`,
+          replacedLiteralCount: replaced.length,
+        },
+      };
+    }
+    for (const hit of result.files) stale.add(hit);
   }
 
   if (stale.size === 0) {
@@ -698,6 +777,11 @@ function runMessageConstantRow(
       swept: [...swept],
       replacedLiteralCount: replaced.length,
       phrasesSearched: searched.length,
+      // NB1 (PR #3231): the `${` and length filters can silently empty the
+      // candidate set, which would look identical to a message nobody
+      // duplicated. Recording the drop makes over-filtering measurable from the
+      // calibration log rather than inferable only by reading this file.
+      phraseCandidatesDropped: Math.max(0, replaced.length - phrases.length),
       // A bounded enumeration is logged, never silent: reporting on 8 of N
       // phrases while printing a bare finding would read as full coverage.
       ...(phrases.length > searched.length

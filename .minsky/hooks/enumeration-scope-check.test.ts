@@ -8,6 +8,7 @@ import {
   replacedLiterals,
   staleOccurrences,
   stripCommentLines,
+  wasEditedThisSession,
   OVERRIDE_ENV_VAR,
 } from "./enumeration-scope-check";
 import { sweptDirectories, sessionSweptDirectories } from "./evidence-provenance-table";
@@ -560,7 +561,7 @@ function outcomeWith(
   isRepo = true
 ): Record<string, unknown> {
   const result = run(hookInput(), dispatchContext(calls), {
-    staleOccurrences: (literal: string) => stale(literal),
+    staleOccurrences: (literal: string) => ({ ok: true, files: stale(literal) }) as never,
     searchableRepo: (() => isRepo) as never,
   });
   return (result?.calibration ?? {}) as Record<string, unknown>;
@@ -614,9 +615,7 @@ describe("replacedLiterals (mt#4399)", () => {
 
 describe("stripCommentLines (mt#4399)", () => {
   test("drops whole-line comments and keeps code", () => {
-    const stripped = stripCommentLines(
-      ['// wording asserted "gone"', 'const a = "kept";'].join("\n")
-    );
+    const stripped = stripCommentLines(['// wording asserted "gone"', KEPT_CODE_LINE].join("\n"));
     expect(stripped).not.toContain("gone");
     expect(stripped).toContain("kept");
   });
@@ -705,7 +704,7 @@ describe("staleOccurrences (mt#4399)", () => {
           '      "The database is unreachable — this is a degraded provider, not a missing "\n'
       )
     );
-    expect(out).toEqual([SIBLING_PROVIDER]);
+    expect(out).toEqual({ ok: true, files: [SIBLING_PROVIDER] });
   });
 
   test("excludes files the session itself edited", () => {
@@ -715,13 +714,19 @@ describe("staleOccurrences (mt#4399)", () => {
       [EDITED_RENDERER],
       fakeGrep(`${EDITED_RENDERER}:88:  "${RETIRED_PHRASE}"\n`)
     );
-    expect(out).toEqual([]);
+    expect(out).toEqual({ ok: true, files: [] });
   });
 
-  test("a search that did not RUN yields no hits rather than a false clean", () => {
-    // exit 1 is git grep's honest "no match"; anything else is the probe failing.
-    expect(staleOccurrences("x".repeat(30), "/repo", [], fakeGrep("", 1))).toEqual([]);
-    expect(staleOccurrences("x".repeat(30), "/repo", [], fakeGrep("", 128))).toEqual([]);
+  test("a search that did not RUN is DISTINGUISHABLE from one that found nothing", () => {
+    // PR #3231 R1. exit 1 is git grep's honest "no match" — the search ran.
+    expect(staleOccurrences("x".repeat(30), "/repo", [], fakeGrep("", 1))).toEqual({
+      ok: true,
+      files: [],
+    });
+    // Anything else is the probe failing, and returning `[]` for BOTH is what let
+    // a broken search render as `clean`. The two must not be the same value.
+    const broken = staleOccurrences("x".repeat(30), "/repo", [], fakeGrep("", 128));
+    expect(broken.ok).toBe(false);
   });
 
   test("content containing colons is not truncated when the line is parsed", () => {
@@ -731,7 +736,66 @@ describe("staleOccurrences (mt#4399)", () => {
       [],
       fakeGrep('src/a.ts:12:  const m = "Note: the database is unreachable";\n')
     );
-    expect(out).toEqual(["src/a.ts"]);
+    expect(out).toEqual({ ok: true, files: ["src/a.ts"] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #3231 — the three blocking review findings
+// ---------------------------------------------------------------------------
+
+/** A line of ordinary code the comment stripper must never drop. */
+const KEPT_CODE_LINE = 'const a = "kept";';
+
+describe("PR #3231 review fixes", () => {
+  test("R1 — a failed search is SKIPPED, never clean", () => {
+    // `staleOccurrences` returned [] for a search that did not run, and the caller
+    // read that as "no stale renderers". A guard whose broken-probe path renders
+    // as a pass reports an outage as a run of correct behaviour (mem#704) — and
+    // this module's own comment said so three lines above the code that did it.
+    const result = run(hookInput(), dispatchContext([MESSAGE_EDIT, DOCS_ONLY_SWEEP]), {
+      staleOccurrences: () => ({ ok: false, reason: "git grep exited 128" }) as never,
+      searchableRepo: (() => true) as never,
+    });
+    const cal = (result?.calibration ?? {}) as Record<string, unknown>;
+    expect(cal["outcome"]).toBe("skipped");
+    expect(cal["outcome"]).not.toBe("clean");
+  });
+
+  test("R2 — a bare suffix no longer excludes an unrelated file", () => {
+    // `edited.endsWith(hit)` related any two paths whose tails agree, so a session
+    // that edited `packages/domain/src/tasks/x.ts` silently excluded a genuine
+    // stale hit at `src/tasks/x.ts` — the guard going quiet about an unswept
+    // renderer, which is the direction that costs this row its purpose.
+    expect(wasEditedThisSession("src/tasks/x.ts", ["packages/domain/src/tasks/x.ts"])).toBe(false);
+    // Real matches still hold, including the absolute session-path form.
+    expect(wasEditedThisSession("src/tasks/x.ts", ["src/tasks/x.ts"])).toBe(true);
+    expect(wasEditedThisSession("src/tasks/x.ts", ["/ws/session/src/tasks/x.ts"])).toBe(true);
+    // The boundary must be a path separator: `a/x.ts` must not match `bba/x.ts`.
+    expect(wasEditedThisSession("a/x.ts", ["/ws/bba/x.ts"])).toBe(false);
+  });
+
+  test("R3 — a lone asterisk line outside a block comment is CODE", () => {
+    // The old rule dropped any line whose first non-space char was `*`, on the
+    // theory that it is a JSDoc continuation. A markdown bullet inside a template
+    // literal is not, and dropping it corrupts the text fed to the extractor.
+    const src = ["const s = `", "* a bullet inside a template literal", "`;"].join("\n");
+    expect(stripCommentLines(src)).toContain("* a bullet inside a template literal");
+  });
+
+  test("R3 — a JSDoc continuation IS still dropped, because block state is tracked", () => {
+    const src = ["/**", ' * wording asserted "gone"', " */", KEPT_CODE_LINE].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("gone");
+    expect(stripped).toContain("kept");
+  });
+
+  test("R3 — a single-line block comment opens no block", () => {
+    const src = ["/* dropped */", KEPT_CODE_LINE, "* still code"].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("dropped");
+    expect(stripped).toContain("kept");
+    expect(stripped).toContain("* still code");
   });
 });
 
