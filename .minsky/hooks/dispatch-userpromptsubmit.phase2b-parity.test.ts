@@ -47,6 +47,12 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // mt#3997 — registered immediately before inject-dispatch-watchdog
       "inject-memory-capture",
       "inject-dispatch-watchdog",
+      // mt#3564 — registered immediately before memory-search. Not part of the
+      // Phase 2a/2b legacy-settings.json migration this test otherwise pins
+      // byte-for-byte; it is a new state injector, and its position among the
+      // other injectors carries no meaning beyond keeping the family contiguous
+      // (the merged block is ordered by contextPriority, not array position).
+      "inject-ask-responses",
       "memory-search",
       "skill-staleness-detector",
       "mcp-daemon-staleness-detector",

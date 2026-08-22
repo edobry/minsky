@@ -287,6 +287,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
+        "inject-ask-responses",
         "inject-current-time",
         "inject-dispatch-watchdog",
         "inject-git-state",
@@ -432,6 +433,7 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // fallback against the declared 400), not a sample of an unbounded axis.
   "context-fill-gauge": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
+  "inject-ask-responses": "capped", // MAX_ENUMERATED_ASKS x (MAX_TITLE_CHARS + MAX_CHOSEN_RENDER_CHARS) (mt#3564)
   "inject-current-time": "fixed",
   "inject-dispatch-watchdog": "capped", // MAX_ENUMERATED_FLAGS (mt#3485)
   "inject-git-state": "fixed",
