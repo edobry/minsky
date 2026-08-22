@@ -153,7 +153,7 @@ export const SERVICE_WINDOW_DEFAULTS: Record<AskKind, ServiceWindowDefault> = {
  *
  * @example
  *   const { serviceStrategy, windowKey } = getServiceWindowDefault("direction.decide");
- *   // => { serviceStrategy: "scheduled", windowKey: "ask-hours" }
+ *   // => { serviceStrategy: "asap" }   (was scheduled/ask-hours until mt#4421)
  */
 export function getServiceWindowDefault(kind: AskKind): ServiceWindowDefault {
   return SERVICE_WINDOW_DEFAULTS[kind];
