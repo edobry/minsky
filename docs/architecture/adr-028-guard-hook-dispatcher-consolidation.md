@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-07-07)
+Accepted (2026-07-07). D3's override-var consolidation re-confirmed 2026-08-20 (ask#9323); Phase 7's
+execution is owned by mt#4428. The measured population and the rest of the decision live in D3's
+status note — deliberately not restated here, because that number moves and two copies drift.
 
 ## Context
 
@@ -405,6 +407,44 @@ function — also fixes the redundant-truthy-parser problem inside the already-c
 that additionally consults a mid-session-reachable grant file — see D8 below (Phase-7 adjunct,
 mt#2658).
 
+#### D3 status — re-confirmed 2026-08-20, execution owned by mt#4428
+
+Half of D3 shipped: `MINSKY_HOOK_OVERRIDE` exists, is registered, is honored by
+`.minsky/hooks/dispatcher.ts`, and is documented in `hook-files.mdc`. The other half — retiring the
+bespoke per-guard vars (Phase 7 below) — had no owning task, and practice ran the other way: every
+guard shipped since acceptance minted a new bespoke var.
+
+**Measured population of `operator-override` entries in `HOOK_ONLY_ENV_VAR_CATEGORIES`:**
+
+| date                               | count  |
+| ---------------------------------- | ------ |
+| 2026-07-07 (this ADR's acceptance) | 34     |
+| 2026-08-17                         | 91     |
+| 2026-08-19                         | 93     |
+| 2026-08-22                         | **99** |
+
+The surface D3 exists to collapse to 1 has roughly tripled, +6 of that in three days.
+
+**The decision was put to the operator as ask#9323 (mt#4292) and answered 2026-08-20:
+"Consolidate to one variable."** D3 stands as written and Phase 7's override-var retirement is to be
+executed; **mt#4428 owns it**, including a ratchet that fails the build when a new
+`operator-override` entry appears, so the count cannot resume growing after the migration.
+
+Two things that decided it, neither of which was in D3 or D8 when they were written:
+
+- The accepted RFC **"Thin hooks — guard logic moves into the local daemon"** (2026-08-11) keeps the
+  per-invocation hook as a thin relay whose jobs include forwarding _"the override environment and
+  grant context the daemon cannot see"_. Once that lands, the override surface must be marshalled
+  across a process boundary on every gated call — one well-known variable, versus enumerating 99
+  names or shipping the whole environment. D3's own stated payoff (shrinking the mt#1788
+  registration surface) is housekeeping; this is a structural cost that scales with the population.
+- Consolidating shrinks mt#3065's blast radius — the `.env.local` path that silently grants any
+  `MINSKY_SKIP_*`/`MINSKY_FORCE_*` — from 99 names to one. That does not settle mt#3065's own
+  question about whether the path should have that breadth at all.
+
+This changes nothing about D8: the grant file remains the separate agent-reachable mid-session
+channel, and Phase 7 retires the bespoke names, not the env-var channel.
+
 ### D4 — Calibration logging as a framework service
 
 One function, `logCalibrationRecord(guardName: string, record: CalibrationRecord)`, replaces
@@ -673,7 +713,8 @@ that refactor first on the current architecture, then migrate the simplified res
   (`check-branch-fresh`), and the `github__*`-PR-write ban.
 - **Phase 6 — Migrate `PostToolUse`, `Stop`/`SubagentStop`, `SessionStart`, `SessionEnd`**
   (fewer entries each; lower urgency; opportunistic alongside sibling work).
-- **Phase 7 — Retirement.** Remove the legacy override vars after the deprecation window;
+- **Phase 7 — Retirement.** Remove the legacy override vars after the deprecation window
+  (**the override-var half is owned by mt#4428 as of 2026-08-20 — see D3's status note**);
   regenerate `.claude/settings.json`'s `hooks` block as a compile output derived from the
   registry; remove standalone `if (import.meta.main)` entrypoints from fully-migrated guard
   modules (keep a thin dev CLI wrapper if Phase-6 debugging friction proves real); audit every
