@@ -128,6 +128,26 @@ export interface WatcherResult {
  *                           registering agent on its next allowlisted MCP call.
  * @returns                  Aggregate watcher result.
  */
+/**
+ * Recognize GitHub's rate-limit rejection from an error message (mt#4435).
+ *
+ * Pure predicate over the message text, exported so the classification rule is
+ * testable directly rather than through a stubbed Octokit.
+ *
+ * Matching on text rather than an HTTP status is deliberate: GitHub returns
+ * **403** for both a rate-limit rejection and an ordinary permission denial, so
+ * the status alone cannot discriminate the two — and they call for opposite
+ * responses (wait for the reset vs. fix the credential's scopes). The message
+ * is what carries the distinction.
+ *
+ * Covers both forms GitHub emits:
+ * - primary: `"API rate limit exceeded for <ip-or-user>"`
+ * - secondary: `"You have exceeded a secondary rate limit"`
+ */
+export function isGitHubRateLimitError(message: string): boolean {
+  return /rate limit exceeded/i.test(message) || /secondary rate limit/i.test(message);
+}
+
 export async function runWatcher(
   prWatchRepository: PrWatchRepository,
   githubClient: GithubPrClient,
@@ -153,10 +173,23 @@ export async function runWatcher(
       outcomes.push(outcome);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      log.error("pr-watch: unexpected error processing watch", {
-        watchId: watch.id,
-        error: errMsg,
-      });
+      // mt#4435: classify rate-limit rejections distinctly. Folding them into
+      // the generic "unexpected error" line is how an exhausted budget stayed
+      // indistinguishable from a bad watch for 18 consecutive failures. The
+      // error text goes in the log MESSAGE, not only the attributes — Railway's
+      // log surface displays and searches message text only (mt#2463).
+      if (isGitHubRateLimitError(errMsg)) {
+        log.error(`pr-watch: GitHub rate limit exceeded — ${errMsg}`, {
+          watchId: watch.id,
+          error: errMsg,
+          classification: "github-rate-limit",
+        });
+      } else {
+        log.error(`pr-watch: unexpected error processing watch — ${errMsg}`, {
+          watchId: watch.id,
+          error: errMsg,
+        });
+      }
       outcomes.push({ kind: "error", watchId: watch.id, error: errMsg });
     }
   }
