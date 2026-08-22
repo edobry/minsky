@@ -12,6 +12,7 @@ import type { AskState } from "./types";
 import {
   ALL_ASK_STATES,
   TERMINAL_ASK_STATES,
+  OPEN_ASK_STATES,
   VALID_TRANSITIONS,
   isTerminal,
   guardTransition,
@@ -60,6 +61,41 @@ describe("TERMINAL_ASK_STATES", () => {
     expect(TERMINAL_ASK_STATES).not.toContain("routed");
     expect(TERMINAL_ASK_STATES).not.toContain("suspended");
     expect(TERMINAL_ASK_STATES).not.toContain("responded");
+  });
+});
+
+describe("OPEN_ASK_STATES (mt#4361)", () => {
+  // The `OpenAskState` TYPE is a hand-written `Exclude<AskState, ...>` literal —
+  // a type cannot call `isTerminal`, so the compiler does not check that the two
+  // agree. This partition test is what does: add a state to the `isTerminal`
+  // switch without reflecting it in the type, and one of these fires.
+  it("partitions ALL_ASK_STATES with TERMINAL_ASK_STATES — disjoint and complete", () => {
+    const open = new Set<string>(OPEN_ASK_STATES);
+    const terminal = new Set<string>(TERMINAL_ASK_STATES);
+
+    for (const state of ALL_ASK_STATES) {
+      // Exactly one side, never both and never neither.
+      expect(open.has(state) !== terminal.has(state)).toBe(true);
+    }
+    expect(open.size + terminal.size).toBe(ALL_ASK_STATES.length);
+  });
+
+  it("is exactly the states for which isTerminal(state) === false", () => {
+    const fromPredicate = ALL_ASK_STATES.filter((s) => !isTerminal(s));
+    // Compared as strings: OPEN_ASK_STATES is the narrower OpenAskState[], and
+    // the point of the assertion is the SET, not the static type.
+    const open: string[] = [...OPEN_ASK_STATES];
+    expect(open.sort()).toEqual([...fromPredicate].sort());
+  });
+
+  it("contains detected, classified, routed, suspended, responded", () => {
+    // Spot-check against a broken predicate, mirroring the TERMINAL_ASK_STATES
+    // block above.
+    expect(OPEN_ASK_STATES).toContain("detected");
+    expect(OPEN_ASK_STATES).toContain("classified");
+    expect(OPEN_ASK_STATES).toContain("routed");
+    expect(OPEN_ASK_STATES).toContain("suspended");
+    expect(OPEN_ASK_STATES).toContain("responded");
   });
 });
 

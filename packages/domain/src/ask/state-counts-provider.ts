@@ -29,14 +29,46 @@
 
 import { log } from "@minsky/shared/logger";
 import { ALL_ASK_STATES } from "./state-machine";
+import type { OpenAskState } from "./state-machine";
 import type { AskState } from "./types";
-import type { AskRepository } from "./repository";
+import { emptyOpenStateAgeStats } from "./repository";
+import type { AskRepository, AskAgeStats } from "./repository";
+
+/**
+ * Dwell time past which an open ask is reported as stalled (mt#4361).
+ *
+ * 5 days, from `decision-defaults.mdc §Thresholds` ("Stall threshold (status
+ * hasn't changed): 5 days for active work") — the same observed-cadence figure
+ * the task graph uses, not a round number picked here. Deliberately SHORTER
+ * than the 7-day TTLs in `advancement.ts` and `stale-suspended-close.ts`: those
+ * decide when to RETIRE an ask and want to be conservative, this only decides
+ * when to SHOW one, so it should fire first.
+ */
+export const DEFAULT_ASK_STALL_THRESHOLD_MS = 5 * 24 * 60 * 60 * 1000;
 
 export interface AskStateCountsSnapshot {
   /** False when no repository is wired or the count query failed. */
   available: boolean;
   total: number;
   byState: Record<AskState, number>;
+  /**
+   * The threshold `ageByState[*].stalledCount` was computed against (mt#4361).
+   *
+   * Reported alongside the counts because a bare "3 stalled" is not a finding
+   * until the reader knows "older than what" — and the threshold is a tunable,
+   * so a consumer must not assume it.
+   */
+  stallThresholdMs: number;
+  /**
+   * Per OPEN state: how long the oldest ask has been sitting there, and how
+   * many are past `stallThresholdMs` (mt#4361).
+   *
+   * `byState` above counts; this is the dimension that separates a `routed`
+   * ask waiting 30 seconds for its transport from one no transport will ever
+   * come for. Terminal states are absent by construction — see
+   * `OPEN_ASK_STATES`.
+   */
+  ageByState: Record<OpenAskState, AskAgeStats>;
 }
 
 /** Per-call fallback builder registered by the MCP start-command (mt#2568). */
@@ -71,6 +103,26 @@ function zeroFilled(): Record<AskState, number> {
 }
 
 /**
+ * The snapshot returned whenever no repository could be reached or the query
+ * failed — one builder, so every unavailable path returns the same shape.
+ *
+ * Note what `available: false` is doing here: this module's counter lives
+ * INSIDE the query it reports on, so it is structurally blind to anything that
+ * prevents that query from running (mem#862 — a health instrument inside the
+ * call that never happens). The flag is the honest reading of that blindness;
+ * a consumer must branch on it rather than read the zeros as data.
+ */
+function unavailableSnapshot(): AskStateCountsSnapshot {
+  return {
+    available: false,
+    total: 0,
+    byState: zeroFilled(),
+    stallThresholdMs: DEFAULT_ASK_STALL_THRESHOLD_MS,
+    ageByState: emptyOpenStateAgeStats(),
+  };
+}
+
+/**
  * Resolve the repository to use for this call: the pre-set fast-path repo
  * if wiring already completed, otherwise a fresh per-call build via the
  * registered fallback builder (mt#2568). Never throws.
@@ -92,16 +144,31 @@ async function resolveRepo(): Promise<AskRepository | null> {
 export async function getAskStateCounts(): Promise<AskStateCountsSnapshot> {
   const repo = await resolveRepo();
   if (!repo) {
-    return { available: false, total: 0, byState: zeroFilled() };
+    return unavailableSnapshot();
   }
   try {
-    const byState = await repo.countByState();
+    // One clock for both reads, so the ages cannot be measured against a
+    // different instant than the counts they sit beside.
+    const nowMs = Date.now();
+    const [byState, ageByState] = await Promise.all([
+      repo.countByState(),
+      repo.openStateAgeStats({
+        nowMs,
+        stallThresholdMs: DEFAULT_ASK_STALL_THRESHOLD_MS,
+      }),
+    ]);
     const total = Object.values(byState).reduce((sum, n) => sum + n, 0);
-    return { available: true, total, byState };
+    return {
+      available: true,
+      total,
+      byState,
+      stallThresholdMs: DEFAULT_ASK_STALL_THRESHOLD_MS,
+      ageByState,
+    };
   } catch (err) {
     log.warn("ask.state-counts: count query failed", {
       message: err instanceof Error ? err.message : String(err),
     });
-    return { available: false, total: 0, byState: zeroFilled() };
+    return unavailableSnapshot();
   }
 }

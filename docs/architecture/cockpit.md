@@ -345,7 +345,22 @@ subagent/mesh/retriever asks persist as `routed` awaiting a delivery loop
 (mt#1570 family). `createAsk` itself persists its route outcome at create
 (the sweep is the recovery backstop, not the primary path). Observability:
 asks count-by-state on `debug_systemInfo` (`asks` field) — a growing
-`detected` count means the advancement path is not running. One-time backlog
+`detected` count means the advancement path is not running.
+
+**The counts also carry an age dimension (mt#4361).** Alongside `byState`, the
+`asks` field reports `stallThresholdMs` (5 days, per `decision-defaults.mdc
+§Thresholds`) and `ageByState`: for each NON-TERMINAL state, the dwell time of
+the oldest ask in it (`oldestAgeMs`, measured from state ENTRY, `null` when the
+state is empty — not `0`, which means an ask that just arrived) and how many are
+past the threshold (`stalledCount`). The count alone cannot answer the question
+that matters for `routed`, which ADR-008 defines as transient: `routed: 5` reads
+identically five minutes and five weeks after those asks routed. Five undelivered
+`routed` asks sat 9–16 days and were found by a manual probe (mt#3353) with the
+count available the whole time. Deliberately a signal and NOT a sweep — an ask in
+`routed` is one no transport ever delivered, so nobody has seen it, and retiring
+it on age would discard an unread question rather than tidy a stale one.
+
+One-time backlog
 triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
 `--execute` to expire the stale set; `direction.decide` asks are never
 bulk-expired).
