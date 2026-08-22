@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted (2026-07-07). D3's override-var consolidation re-confirmed 2026-08-20 (ask#9323) with the
-`operator-override` population measured at 99 against the 34 recorded here; Phase 7's execution is
-owned by mt#4428 — see D3's status note.
+Accepted (2026-07-07). D3's override-var consolidation re-confirmed 2026-08-20 (ask#9323); Phase 7's
+execution is owned by mt#4428. The measured population and the rest of the decision live in D3's
+status note — deliberately not restated here, because that number moves and two copies drift.
 
 ## Context
 
