@@ -1,10 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
-  normalizeSessionId,
   parseDispatchIntentStoreContent,
   readDispatchIntentStore,
-  isDeclarationValid,
-  findLiveReadOnlyDeclaration,
   appendDispatchIntentDeclaration,
   getStateDir,
   getDispatchIntentStorePath,
@@ -72,16 +69,11 @@ function makeFakeFs(initialFiles: Record<string, string> = {}): DispatchIntentSt
   };
 }
 
-// ---------------------------------------------------------------------------
-// normalizeSessionId
-// ---------------------------------------------------------------------------
-
-describe("normalizeSessionId", () => {
-  it("lowercases and trims", () => {
-    expect(normalizeSessionId(SESSION_ID.toUpperCase())).toBe(SESSION_ID.toLowerCase());
-    expect(normalizeSessionId(`  ${SESSION_ID}  `)).toBe(SESSION_ID);
-  });
-});
+// `normalizeSessionId`, `isDeclarationValid` and `findLiveReadOnlyDeclaration`
+// moved to `packages/domain/src/detectors/dispatch-intent-gate.test.ts` with the
+// functions themselves (mt#4374 SC4). They are still re-exported from this
+// module, so nothing here broke — but their coverage belongs beside the
+// decision, not beside the storage.
 
 // ---------------------------------------------------------------------------
 // getStateDir / getDispatchIntentStorePath
@@ -213,84 +205,6 @@ describe("readDispatchIntentStore", () => {
     if (result.status === "error") {
       expect(result.message).toContain("permission denied");
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isDeclarationValid / findLiveReadOnlyDeclaration
-// ---------------------------------------------------------------------------
-
-describe("isDeclarationValid", () => {
-  it("matches on exact sessionId, within TTL", () => {
-    const declaration = makeDeclaration();
-    expect(isDeclarationValid(declaration, { sessionId: SESSION_ID }, NOW + 1000)).toBe(true);
-  });
-
-  it("matches case-insensitively and ignoring whitespace in sessionId", () => {
-    const declaration = makeDeclaration({ sessionId: SESSION_ID.toUpperCase() });
-    expect(isDeclarationValid(declaration, { sessionId: `  ${SESSION_ID}  ` }, NOW + 1000)).toBe(
-      true
-    );
-  });
-
-  it("does not match a different sessionId", () => {
-    const declaration = makeDeclaration();
-    expect(isDeclarationValid(declaration, { sessionId: "some-other-session" }, NOW + 1000)).toBe(
-      false
-    );
-  });
-
-  it("does not match a null (unresolvable) sessionId", () => {
-    const declaration = makeDeclaration();
-    expect(isDeclarationValid(declaration, { sessionId: null }, NOW + 1000)).toBe(false);
-  });
-
-  it("expires exactly at issuedAt + ttlMs (boundary is expired, not valid)", () => {
-    const declaration = makeDeclaration();
-    const expiryMs = NOW + declaration.ttlMs;
-    expect(isDeclarationValid(declaration, { sessionId: SESSION_ID }, expiryMs)).toBe(false);
-    expect(isDeclarationValid(declaration, { sessionId: SESSION_ID }, expiryMs - 1)).toBe(true);
-  });
-
-  it("treats an unparseable issuedAt as invalid", () => {
-    const declaration = makeDeclaration({ issuedAt: "not-a-date" });
-    expect(isDeclarationValid(declaration, { sessionId: SESSION_ID }, NOW)).toBe(false);
-  });
-});
-
-describe("findLiveReadOnlyDeclaration", () => {
-  it("returns the first live read-only declaration matching the session", () => {
-    const declarations = [
-      makeDeclaration({ sessionId: "other-session" }),
-      makeDeclaration({ reason: "the real match" }),
-    ];
-    const match = findLiveReadOnlyDeclaration(declarations, { sessionId: SESSION_ID }, NOW + 1000);
-    expect(match?.reason).toBe("the real match");
-  });
-
-  it("does NOT match an 'implementation' declaration for the same session", () => {
-    const declarations = [makeDeclaration({ intent: "implementation" })];
-    const match = findLiveReadOnlyDeclaration(declarations, { sessionId: SESSION_ID }, NOW + 1000);
-    expect(match).toBeNull();
-  });
-
-  it("returns null when no declaration matches the session", () => {
-    const match = findLiveReadOnlyDeclaration(
-      [makeDeclaration()],
-      { sessionId: "some-other-session" },
-      NOW + 1000
-    );
-    expect(match).toBeNull();
-  });
-
-  it("returns null when the only match is expired", () => {
-    const declaration = makeDeclaration();
-    const match = findLiveReadOnlyDeclaration(
-      [declaration],
-      { sessionId: SESSION_ID },
-      NOW + declaration.ttlMs + 1
-    );
-    expect(match).toBeNull();
   });
 });
 

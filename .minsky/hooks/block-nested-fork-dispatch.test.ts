@@ -1,14 +1,26 @@
+/**
+ * BINDING-level tests for the nested-fork dispatch guard.
+ *
+ * The DECISION tests — the allow/deny acceptance matrix, the declaration
+ * lookup, and the denial text — moved to
+ * `packages/domain/src/detectors/nested-fork-dispatch-gate.test.ts` with the
+ * decision itself (mt#4374 SC4).
+ *
+ * What is left is what the binding owns: reading `subagent_type` out of the
+ * payload, and reading the override out of the environment. The last block
+ * walks payload → decision end-to-end, which is mt#4374 AT3's replay for this
+ * guard: the mem#665 fixture that DENIED before the extraction still denies,
+ * and the sanctioned-path fixture that allowed still allows.
+ */
 import { describe, expect, it } from "bun:test";
 import {
   GATED_SUBAGENT_TYPE,
   OVERRIDE_ENV_VAR,
   isForkDispatch,
   isOverrideActive,
-  hasLiveDeclaration,
-  buildDenialMessage,
-  decideNestedForkDispatchGate,
-  DENY_REASON_PREFIX,
+  decideFromPayload,
 } from "./block-nested-fork-dispatch";
+import { DENY_REASON_PREFIX } from "@minsky/domain/detectors/nested-fork-dispatch-gate";
 import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
 import type { ToolHookInput } from "./types";
 
@@ -42,7 +54,7 @@ function makeDeclaration(
 }
 
 // ---------------------------------------------------------------------------
-// isForkDispatch
+// isForkDispatch — payload parsing
 // ---------------------------------------------------------------------------
 
 describe("isForkDispatch", () => {
@@ -62,7 +74,7 @@ describe("isForkDispatch", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isOverrideActive
+// isOverrideActive — environment read
 // ---------------------------------------------------------------------------
 
 describe("isOverrideActive", () => {
@@ -80,125 +92,67 @@ describe("isOverrideActive", () => {
 });
 
 // ---------------------------------------------------------------------------
-// hasLiveDeclaration — intent-agnostic (unlike the sibling write gate)
+// decideFromPayload — the parse → decide walk
 // ---------------------------------------------------------------------------
 
-describe("hasLiveDeclaration", () => {
-  it("true for a live read-only declaration", () => {
-    expect(hasLiveDeclaration([makeDeclaration()], SESSION_ID, NOW + 1000)).toBe(true);
-  });
-
-  it("true for a live implementation declaration (intent-agnostic)", () => {
-    expect(
-      hasLiveDeclaration([makeDeclaration({ intent: "implementation" })], SESSION_ID, NOW + 1000)
-    ).toBe(true);
-  });
-
-  it("false when the declaration is expired", () => {
-    const declarations = [makeDeclaration({ ttlMs: 60_000 })];
-    expect(hasLiveDeclaration(declarations, SESSION_ID, NOW + 61_000)).toBe(false);
-  });
-
-  it("false when the declaration is for a different session", () => {
-    const declarations = [makeDeclaration({ sessionId: "some-other-session" })];
-    expect(hasLiveDeclaration(declarations, SESSION_ID, NOW)).toBe(false);
-  });
-
-  it("false when there are no declarations at all", () => {
-    expect(hasLiveDeclaration([], SESSION_ID, NOW)).toBe(false);
-  });
-
-  it("false when sessionId is unresolvable (null)", () => {
-    expect(hasLiveDeclaration([makeDeclaration()], null, NOW)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// decideNestedForkDispatchGate — the full acceptance matrix
-// ---------------------------------------------------------------------------
-
-describe("decideNestedForkDispatchGate — acceptance matrix", () => {
-  it("ALLOW: not a fork dispatch (e.g. general-purpose) — unaffected regardless of nesting", () => {
-    const input = makeInput({
-      agent_id: "agent-implementer-abc",
-      tool_input: { subagent_type: "general-purpose" },
-    });
-    const decision = decideNestedForkDispatchGate(input, [], NOW, {});
-    expect(decision.decision).toBe("allow");
-  });
-
-  it("ALLOW: top-level fork dispatch (agent_id absent — not nested)", () => {
-    const input = makeInput({ agent_id: undefined });
-    const decision = decideNestedForkDispatchGate(input, [], NOW, {});
-    expect(decision.decision).toBe("allow");
-  });
-
+describe("decideFromPayload — payload and environment reach the decision", () => {
   it("DENY: nested fork dispatch, no live declaration — the mem#665 reproduction", () => {
     // Reconstructed from memory bed551ef / mem#665: mt#3014's implementer
     // subagent (agent_id set) dispatched a fork via the raw Agent tool for a
     // bounded read-only lookup, WITHOUT calling session.generate_prompt with
     // intent: "read-only" first. No declaration exists in the store.
-    const input = makeInput({ agent_id: IMPLEMENTER_AGENT_ID });
-    const decision = decideNestedForkDispatchGate(input, [], NOW, {});
+    const decision = decideFromPayload(makeInput({ agent_id: IMPLEMENTER_AGENT_ID }), [], NOW, {});
     expect(decision.decision).toBe("deny");
     expect(decision.reason).toContain(DENY_REASON_PREFIX);
   });
 
   it("ALLOW: nested fork dispatch WITH a live read-only declaration (the sanctioned path)", () => {
-    const input = makeInput({ agent_id: IMPLEMENTER_AGENT_ID });
     const declarations = [makeDeclaration({ issuedBy: "session.generate_prompt:mt#3014" })];
-    const decision = decideNestedForkDispatchGate(input, declarations, NOW + 1000, {});
+    const decision = decideFromPayload(
+      makeInput({ agent_id: IMPLEMENTER_AGENT_ID }),
+      declarations,
+      NOW + 1000,
+      {}
+    );
     expect(decision.decision).toBe("allow");
   });
 
-  it("ALLOW: nested fork dispatch with an explicit implementation-intent declaration (non-read-only override)", () => {
-    const input = makeInput({ agent_id: IMPLEMENTER_AGENT_ID });
-    const declarations = [makeDeclaration({ intent: "implementation" })];
-    const decision = decideNestedForkDispatchGate(input, declarations, NOW + 1000, {});
+  it("ALLOW: a non-fork subagent_type in the payload reaches the decision as isForkDispatch=false", () => {
+    const decision = decideFromPayload(
+      makeInput({
+        agent_id: IMPLEMENTER_AGENT_ID,
+        tool_input: { subagent_type: "general-purpose" },
+      }),
+      [],
+      NOW,
+      {}
+    );
     expect(decision.decision).toBe("allow");
   });
 
-  it("ALLOW: nested fork dispatch with the MINSKY_ALLOW_NESTED_FORK override active", () => {
-    const input = makeInput({ agent_id: IMPLEMENTER_AGENT_ID });
-    const decision = decideNestedForkDispatchGate(input, [], NOW, {
+  it("ALLOW: an absent agent_id reaches the decision as isSubagentContext=false (top-level)", () => {
+    const decision = decideFromPayload(makeInput({ agent_id: undefined }), [], NOW, {});
+    expect(decision.decision).toBe("allow");
+  });
+
+  it("ALLOW: the override env var reaches the decision", () => {
+    const decision = decideFromPayload(makeInput({ agent_id: IMPLEMENTER_AGENT_ID }), [], NOW, {
       [OVERRIDE_ENV_VAR]: "1",
     });
     expect(decision.decision).toBe("allow");
     expect(decision.reason).toContain(OVERRIDE_ENV_VAR);
   });
 
-  it("DENY: an expired declaration does not unblock a nested fork dispatch", () => {
-    const input = makeInput({ agent_id: IMPLEMENTER_AGENT_ID });
-    const declarations = [makeDeclaration({ ttlMs: 60_000 })];
-    const decision = decideNestedForkDispatchGate(input, declarations, NOW + 61_000, {});
-    expect(decision.decision).toBe("deny");
-  });
-
-  it("DENY: a declaration for a DIFFERENT session does not unblock this session's nested fork dispatch", () => {
-    const input = makeInput({ agent_id: IMPLEMENTER_AGENT_ID });
-    const declarations = [makeDeclaration({ sessionId: "unrelated-session-id" })];
-    const decision = decideNestedForkDispatchGate(input, declarations, NOW, {});
-    expect(decision.decision).toBe("deny");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildDenialMessage
-// ---------------------------------------------------------------------------
-
-describe("buildDenialMessage", () => {
-  it("includes the resolved session id", () => {
-    expect(buildDenialMessage(SESSION_ID)).toContain(SESSION_ID);
-  });
-
-  it("names the sanctioned alternatives (Explore/general-purpose, or declare read-only intent first)", () => {
-    const message = buildDenialMessage(SESSION_ID);
-    expect(message).toMatch(/Explore/);
-    expect(message).toMatch(/general-purpose/);
-    expect(message).toMatch(/read-only/);
-  });
-
-  it("handles a null (unresolvable) session id gracefully", () => {
-    expect(buildDenialMessage(null)).toContain("this session");
+  it("resolves the session id from cwd, so a declaration for that session matches", () => {
+    // The binding's only non-trivial parse: a subagent's cwd IS the session
+    // directory. If that resolution broke, the declaration below would not
+    // match and this would deny.
+    const decision = decideFromPayload(
+      makeInput({ agent_id: IMPLEMENTER_AGENT_ID, tool_input: { subagent_type: "fork" } }),
+      [makeDeclaration()],
+      NOW + 1000,
+      {}
+    );
+    expect(decision.decision).toBe("allow");
   });
 });
