@@ -153,6 +153,12 @@ function carriesDispatchMarker(text: string): boolean {
  * longer classified `dispatch_brief`. Measured at 1 such turn against the
  * misclassification risk this removes, and the fail-open-to-operator policy
  * says to err this way.
+ *
+ * mt#4401's SC2 originally read "NOT on `isSidechain`" and was AMENDED to
+ * require marker-plus-corroboration once shipping it literally produced a false
+ * positive (PR #3242 R1/R3). The amendment lives in the criterion's own text,
+ * not only here — a rationale recorded beside the code while the criterion
+ * still says the opposite is the deviation, not the reconciliation.
  */
 function isSubagentRecord(line: unknown): boolean {
   if (readField(line, "isSidechain") === true) return true;
