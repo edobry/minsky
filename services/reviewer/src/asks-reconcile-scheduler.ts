@@ -32,9 +32,14 @@
  * The scheduler calls `reconcile()` from `@minsky/domain/ask/reconciler`
  * directly via domain imports, bypassing the MCP-over-HTTP path entirely.
  * A `DrizzleAskRepository` is built from the domain container's persistence
- * provider; a `makeProductionGithubReviewClient` is constructed from the
- * Minsky implementer GitHub App token; `SystemOperatorNotify` is used for
- * notifications.
+ * provider; the GitHub review client is constructed from THIS SERVICE'S OWN
+ * GitHub App token (mt#4435 — see `github-token-provider.ts`);
+ * `SystemOperatorNotify` is used for notifications.
+ *
+ * Until mt#4435 this said "the Minsky implementer GitHub App token." That was
+ * the intent and never the behavior — the code read a domain-config namespace
+ * this service does not provision, fell through to an empty token, and issued
+ * every request unauthenticated.
  *
  * @see mt#1636 — Invocation path wiring for asks.reconcile (sibling to mt#1618).
  * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
@@ -86,8 +91,8 @@ interface AsksReconcileResult {
  * Run one asks-reconcile pass via domain imports.
  *
  * Builds a `DrizzleAskRepository` from the persistence provider, creates a
- * `makeProductionGithubReviewClient` backed by the Minsky implementer GitHub
- * App token, and calls `reconcile()` directly.
+ * GitHub review client backed by the reviewer service's own GitHub App token
+ * (mt#4435), and calls `reconcile()` directly.
  *
  * Errors are caught and returned as `{ success: false }` — the scheduler is
  * a best-effort background task; a single failed call must not crash the
