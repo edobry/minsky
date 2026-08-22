@@ -4,6 +4,12 @@ import {
   editedPaths,
   callsSinceLastPr,
   isSerializedSurfacePath,
+  messagePhrases,
+  quotedLiterals,
+  replacedLiterals,
+  staleOccurrences,
+  stripCommentLines,
+  wasEditedThisSession,
   OVERRIDE_ENV_VAR,
 } from "./enumeration-scope-check";
 import { sweptDirectories, sessionSweptDirectories } from "./evidence-provenance-table";
@@ -17,6 +23,18 @@ import { deriveBudgets } from "./types";
 const PR_CREATE_TOOL = "mcp__minsky__session_pr_create";
 const WRITE_TOOL = "mcp__minsky__session_write_file";
 const HEALTH_CONTRACT = "contract/cockpit-health-shape.json";
+/** Named so the fixtures below cannot drift from each other (custom/no-magic-string-duplication). */
+const RETIRED_PHRASE = "The database is unreachable";
+const SEARCH_REPLACE_TOOL = "mcp__minsky__session_search_replace";
+const EXEC_TOOL = "mcp__minsky__session_exec";
+const MISSING_DIRS = "missingDirectories";
+/** The two renderers mt#4379 missed and PR #3220 had to close. */
+const SIBLING_PROVIDER = "packages/domain/src/persistence/unconfigured-provider.ts";
+const SIBLING_COCKPIT = "src/cockpit/db-providers.ts";
+/** The file mt#4379 DID edit — excluded from stale hits because the session reached it. */
+const EDITED_RENDERER = "packages/domain/src/tasks/multi-backend-service.ts";
+/** An ordinary source file, used where the fixture just needs a non-contract edit. */
+const ORDINARY_SOURCE = "src/cockpit/principal-channel-poller.ts";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -79,9 +97,10 @@ const PR_CREATE = call(PR_CREATE_TOOL, { task: "mt#4232", title: "x" });
 function hookInput(): ToolHookInput {
   return {
     session_id: "test",
-    // A fixed path, not `process.cwd()`: this guard never reads the filesystem,
-    // so the field is inert here and a real cwd would make the test
-    // environment-dependent for nothing.
+    // A fixed path, not `process.cwd()`. Row 1 never reads the filesystem; row 2
+    // (mt#4399) does, and every test that reaches it injects both filesystem
+    // steps via `outcomeWith`, so this stays inert and no test is
+    // environment-dependent.
     cwd: "/repo",
     hook_event_name: "PreToolUse",
     tool_name: PR_CREATE_TOOL,
@@ -464,7 +483,7 @@ describe("run", () => {
   test("AT3 — a declined change type produces NO finding, and says so distinctly", () => {
     const ordinaryEdit = call(WRITE_TOOL, {
       sessionId: "s",
-      path: "src/cockpit/principal-channel-poller.ts",
+      path: ORDINARY_SOURCE,
       content: "x",
     });
     const out = outcomeOf([ordinaryEdit]);
@@ -504,5 +523,352 @@ describe("sessionSweptDirectories", () => {
     const s = sessionSweptDirectories([MULTI_SEGMENT_GREP_AND_SED, REAL_DOCS_SWEEP]);
     expect(s.has("src")).toBe(true);
     expect(s.has("docs")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Row 2 — message constant (mt#4399)
+// ---------------------------------------------------------------------------
+//
+// AT4 again: both fixtures below are the VERBATIM structured tool-call state
+// from the mt#4379 session (`72513016-…`) — the session whose docs-only sweep
+// this row exists to catch. Extracted from the transcript rather than retyped,
+// because the finding here turned on a detail a paraphrase would have smoothed
+// away: see the comment-line test immediately below.
+
+const MESSAGE_EDIT = call("mcp__minsky__session_search_replace", {
+  sessionId: "s",
+  path: "packages/domain/src/tasks/multi-backend-service.ts",
+  search:
+    '    if (unavailability.configured) {\n      return (\n        `the \'${unavailability.backend ?? "postgres"}\' persistence backend is configured but ` +\n        `failed to initialize at boot (${unavailability.reason}), so no task backend is ` +\n        "registered. The database is unreachable — this is NOT an empty database, and an empty " +\n        "result here would be indistinguishable from a real one. Check the boot logs and " +\n        "restart once the database is reachable; `minsky persistence check` reports the same " +\n        "failure."\n      );\n    }',
+  replace:
+    '    if (unavailability.configured) {\n      // The retry clause is what keeps this HONEST (mt#4379). The previous\n      // wording asserted "The database is unreachable" and "`minsky persistence\n      // check` reports the same failure" in the PRESENT tense — both describe\n      // the moment of boot, and both were false by the time anyone read them.\n      // In the originating incident persistence had long since recovered and\n      // `persistence check` returned "All checks passed" seconds before this\n      // error rendered, so two separate agents spent their first diagnostic\n      // minutes on a healthy database. A boot-time observation must carry its\n      // timestamp, not masquerade as current state.\n      const retryClause = this.lastRetryAt\n        ? `Last re-registration attempt ${this.lastRetryAt.toISOString()} also failed` +\n          `${this.lastRetryError ? ` (${this.lastRetryError})` : ""}.`\n        : "This registration has NOT been re-attempted since boot, so the underlying " +\n          "dependency may well have recovered in the meantime.";\n      return (\n        `the \'${unavailability.backend ?? "postgres"}\' persistence backend was configured but ` +\n        `failed to initialize AT BOOT (${unavailability.reason}), so no task backend was ` +\n        `registered. ${retryClause} This is a backend-REGISTRATION failure, which is not the ` +\n        "same as an empty database and not necessarily a current outage — an empty result here " +\n        "would be indistinguishable from a real one, which is why this fails instead. Note " +\n        "`minsky persistence check` may well PASS while this fails: it probes the live " +\n        "connection, whereas this reports what happened when the backend was registered."\n      );\n    }',
+});
+
+/**
+ * The sweep PR #3219 actually ran. Docs-only by construction: it names `docs/`,
+ * `.minsky/` and one README file, and reaches no code directory at all.
+ */
+const DOCS_ONLY_SWEEP = call("mcp__minsky__session_exec", {
+  sessionId: "s",
+  command:
+    'echo "=== every doc/prose reference to the old message wording ==="\ngrep -rn \'database is unreachable\\|reports the same failure\\|failed to initialize at boot\\|NOT an empty database\' docs/ .minsky/ README.md 2>/dev/null\necho "=== end ==="',
+});
+
+/** `run` with the filesystem steps stubbed, so an outcome is a function of the transcript. */
+function outcomeWith(
+  calls: ToolCallWithResult[],
+  stale: (literal: string) => string[],
+  isRepo = true
+): Record<string, unknown> {
+  const result = run(hookInput(), dispatchContext(calls), {
+    staleOccurrences: (literal: string) => ({ ok: true, files: stale(literal) }) as never,
+    searchableRepo: (() => isRepo) as never,
+  });
+  return (result?.calibration ?? {}) as Record<string, unknown>;
+}
+
+describe("replacedLiterals (mt#4399)", () => {
+  test("flags the removed message chunks even though the replacement quotes the old wording in a COMMENT", () => {
+    // mt#4379 replaced the message and explained itself in a comment that quotes
+    // the retired wording, so the raw replacement text still contains it:
+    expect(MESSAGE_EDIT.input["replace"]).toContain(RETIRED_PHRASE);
+
+    // The chunks themselves are still correctly seen as removed. Recorded
+    // precisely because an earlier version of THIS test claimed to be the
+    // negative control for `stripCommentLines` and was not: it asserted
+    // `.some(l => l.includes(...))`, which the long chunk satisfies whether or
+    // not comments are stripped, so it passed with the rule disabled. The rule
+    // earns its place on the SEARCH side (a phrase quoted in a comment is prose
+    // about the code, not a rendered message); the honest control for the
+    // row's real behaviour is the against-the-tree probe recorded in the PR.
+    const literals = replacedLiterals([MESSAGE_EDIT]).map((r) => r.literal);
+    expect(literals.some((l) => l.includes(RETIRED_PHRASE))).toBe(true);
+    expect(literals.some((l) => l.includes("reports the same"))).toBe(true);
+  });
+
+  test("every flagged literal carries the file it was removed from", () => {
+    for (const r of replacedLiterals([MESSAGE_EDIT])) {
+      expect(r.path).toBe(EDITED_RENDERER);
+    }
+  });
+
+  test("an edit that only reflows a message flags nothing", () => {
+    const reflow = call(SEARCH_REPLACE_TOOL, {
+      sessionId: "s",
+      path: "packages/domain/src/x.ts",
+      search: 'const m = "the database was configured but failed at boot";',
+      replace: 'const m =\n  "the database was configured but failed at boot";',
+    });
+    expect(replacedLiterals([reflow])).toEqual([]);
+  });
+
+  test("short strings are not messages — identifiers and keys are ignored", () => {
+    const tweak = call(SEARCH_REPLACE_TOOL, {
+      sessionId: "s",
+      path: "packages/domain/src/x.ts",
+      search: 'backend: "postgres",',
+      replace: 'backend: "sqlite",',
+    });
+    expect(replacedLiterals([tweak])).toEqual([]);
+  });
+});
+
+describe("stripCommentLines (mt#4399)", () => {
+  test("drops whole-line comments and keeps code", () => {
+    const stripped = stripCommentLines(['// wording asserted "gone"', KEPT_CODE_LINE].join("\n"));
+    expect(stripped).not.toContain("gone");
+    expect(stripped).toContain("kept");
+  });
+
+  test("keeps a mid-line // so a URL inside a string survives", () => {
+    // Stripping from a mid-line `//` would corrupt any string carrying a URL,
+    // and the case this rule is for is a comment on its own line.
+    expect(stripCommentLines('const u = "https://example.com/x";')).toContain(
+      "https://example.com/x"
+    );
+  });
+});
+
+describe("run — the message-constant row (mt#4399)", () => {
+  test("SC2 — the PR #3219 shape FIRES: docs-only sweep, message still rendered under packages/", () => {
+    const out = outcomeWith([MESSAGE_EDIT, DOCS_ONLY_SWEEP], () => [
+      SIBLING_PROVIDER,
+      SIBLING_COCKPIT,
+    ]);
+    expect(out["outcome"]).toBe("matched");
+    expect(out["row"]).toBe("message-constant");
+    expect(out[MISSING_DIRS]).toEqual(expect.arrayContaining(["packages", "src"]));
+  });
+
+  test("the same edit with a sweep that DID reach the renderers is clean", () => {
+    const codeSweep = call(EXEC_TOOL, {
+      sessionId: "s",
+      command: 'grep -rn "database is unreachable" packages/ src/',
+    });
+    const out = outcomeWith([MESSAGE_EDIT, codeSweep], () => [SIBLING_PROVIDER, SIBLING_COCKPIT]);
+    expect(out["outcome"]).toBe("clean");
+  });
+
+  test("no surviving occurrence anywhere is clean, not matched", () => {
+    const out = outcomeWith([MESSAGE_EDIT, DOCS_ONLY_SWEEP], () => []);
+    expect(out["outcome"]).toBe("clean");
+  });
+
+  test("a cwd that is not a work tree is SKIPPED, never clean", () => {
+    // A broken probe must not render as a pass — the same rule the
+    // no-transcript path follows. This is the shape mem#704 names.
+    const out = outcomeWith([MESSAGE_EDIT, DOCS_ONLY_SWEEP], () => [], false);
+    expect(out["outcome"]).toBe("skipped");
+    expect(out["outcome"]).not.toBe("clean");
+  });
+
+  test("a session that replaced no message literal still DECLINES", () => {
+    const ordinaryEdit = call(WRITE_TOOL, {
+      sessionId: "s",
+      path: ORDINARY_SOURCE,
+      content: "x",
+    });
+    const out = outcomeWith([ordinaryEdit], () => ["src/anything.ts"]);
+    expect(out["outcome"]).toBe("declined");
+  });
+
+  test("row 1 still wins when a serialized contract was edited", () => {
+    // Ordering is not arbitrary: a contract edit is decided by the row built for
+    // it, whose prescribed set comes from gate (h)'s table rather than a search.
+    const out = outcomeWith([MESSAGE_EDIT, CONTRACT_EDIT, MULTI_SEGMENT_GREP_AND_SED], () => [
+      SIBLING_PROVIDER,
+    ]);
+    expect(out["outcome"]).toBe("matched");
+    expect(out["row"]).toBeUndefined();
+    expect(out[MISSING_DIRS]).toEqual(["docs"]);
+  });
+});
+
+describe("staleOccurrences (mt#4399)", () => {
+  function fakeGrep(stdout: string, exitCode = 0) {
+    return (() => ({ exitCode, stdout: new TextEncoder().encode(stdout) })) as never;
+  }
+
+  test("drops a line that ASSERTS the literal is gone", () => {
+    // Observed on the real tree: after mt#4379/mt#4383 retired the wording,
+    // every surviving test-file occurrence was the regression test forbidding
+    // it. Firing there fires at the author who retired it most carefully.
+    const out = staleOccurrences(
+      RETIRED_PHRASE,
+      "/repo",
+      [],
+      fakeGrep(
+        "packages/domain/src/persistence/describe-unavailability.test.ts:31:" +
+          `    expect(described).not.toContain("${RETIRED_PHRASE}");\n` +
+          "packages/domain/src/persistence/unconfigured-provider.ts:203:" +
+          '      "The database is unreachable — this is a degraded provider, not a missing "\n'
+      )
+    );
+    expect(out).toEqual({ ok: true, files: [SIBLING_PROVIDER] });
+  });
+
+  test("excludes files the session itself edited", () => {
+    const out = staleOccurrences(
+      RETIRED_PHRASE,
+      "/repo",
+      [EDITED_RENDERER],
+      fakeGrep(`${EDITED_RENDERER}:88:  "${RETIRED_PHRASE}"\n`)
+    );
+    expect(out).toEqual({ ok: true, files: [] });
+  });
+
+  test("a search that did not RUN is DISTINGUISHABLE from one that found nothing", () => {
+    // PR #3231 R1. exit 1 is git grep's honest "no match" — the search ran.
+    expect(staleOccurrences("x".repeat(30), "/repo", [], fakeGrep("", 1))).toEqual({
+      ok: true,
+      files: [],
+    });
+    // Anything else is the probe failing, and returning `[]` for BOTH is what let
+    // a broken search render as `clean`. The two must not be the same value.
+    const broken = staleOccurrences("x".repeat(30), "/repo", [], fakeGrep("", 128));
+    expect(broken.ok).toBe(false);
+  });
+
+  test("content containing colons is not truncated when the line is parsed", () => {
+    const out = staleOccurrences(
+      "Note: the database is unreachable",
+      "/repo",
+      [],
+      fakeGrep('src/a.ts:12:  const m = "Note: the database is unreachable";\n')
+    );
+    expect(out).toEqual({ ok: true, files: ["src/a.ts"] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #3231 — the three blocking review findings
+// ---------------------------------------------------------------------------
+
+/** A line of ordinary code the comment stripper must never drop. */
+const KEPT_CODE_LINE = 'const a = "kept";';
+/** A message literal that must survive stripping AND remain extractable afterwards. */
+const SURVIVING_LITERAL = "a retired message string";
+
+describe("PR #3231 review fixes", () => {
+  test("R1 — a failed search is SKIPPED, never clean", () => {
+    // `staleOccurrences` returned [] for a search that did not run, and the caller
+    // read that as "no stale renderers". A guard whose broken-probe path renders
+    // as a pass reports an outage as a run of correct behaviour (mem#704) — and
+    // this module's own comment said so three lines above the code that did it.
+    const result = run(hookInput(), dispatchContext([MESSAGE_EDIT, DOCS_ONLY_SWEEP]), {
+      staleOccurrences: () => ({ ok: false, reason: "git grep exited 128" }) as never,
+      searchableRepo: (() => true) as never,
+    });
+    const cal = (result?.calibration ?? {}) as Record<string, unknown>;
+    expect(cal["outcome"]).toBe("skipped");
+    expect(cal["outcome"]).not.toBe("clean");
+  });
+
+  test("R2 — a bare suffix no longer excludes an unrelated file", () => {
+    // `edited.endsWith(hit)` related any two paths whose tails agree, so a session
+    // that edited `packages/domain/src/tasks/x.ts` silently excluded a genuine
+    // stale hit at `src/tasks/x.ts` — the guard going quiet about an unswept
+    // renderer, which is the direction that costs this row its purpose.
+    expect(wasEditedThisSession("src/tasks/x.ts", ["packages/domain/src/tasks/x.ts"])).toBe(false);
+    // Real matches still hold, including the absolute session-path form.
+    expect(wasEditedThisSession("src/tasks/x.ts", ["src/tasks/x.ts"])).toBe(true);
+    expect(wasEditedThisSession("src/tasks/x.ts", ["/ws/session/src/tasks/x.ts"])).toBe(true);
+    // The boundary must be a path separator: `a/x.ts` must not match `bba/x.ts`.
+    expect(wasEditedThisSession("a/x.ts", ["/ws/bba/x.ts"])).toBe(false);
+  });
+
+  test("R3 — a lone asterisk line outside a block comment is CODE", () => {
+    // The old rule dropped any line whose first non-space char was `*`, on the
+    // theory that it is a JSDoc continuation. A markdown bullet inside a template
+    // literal is not, and dropping it corrupts the text fed to the extractor.
+    const src = ["const s = `", "* a bullet inside a template literal", "`;"].join("\n");
+    expect(stripCommentLines(src)).toContain("* a bullet inside a template literal");
+  });
+
+  test("R3 — a JSDoc continuation IS still dropped, because block state is tracked", () => {
+    const src = ["/**", ' * wording asserted "gone"', " */", KEPT_CODE_LINE].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("gone");
+    expect(stripped).toContain("kept");
+  });
+
+  test("R3 — a single-line block comment opens no block", () => {
+    const src = ["/* dropped */", KEPT_CODE_LINE, "* still code"].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("dropped");
+    expect(stripped).toContain("kept");
+    expect(stripped).toContain("* still code");
+  });
+
+  test("R7 — a MULTI-LINE block closing mid-line keeps the code after it too", () => {
+    // The symmetric half of R6, and the one fixing only the opener left behind:
+    // here the block was opened on an earlier line, so the close is handled by
+    // the in-block branch. Both branches must keep the tail or neither does.
+    const src = ["/* start", ` more comment */ const m = "${SURVIVING_LITERAL}";`].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("more comment");
+    expect(quotedLiterals(stripped)).toContain(SURVIVING_LITERAL);
+  });
+
+  test("R7 — a multi-line block with NOTHING after the close still drops the line", () => {
+    const src = ["/* start", " more comment */", KEPT_CODE_LINE].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("more comment");
+    expect(stripped).toContain("kept");
+  });
+
+  test("R6 — a block that closes MID-LINE keeps the code after it", () => {
+    // Dropping the whole line would delete real code: the comment is a PREFIX,
+    // not the line. That matters here because the surviving text is exactly what
+    // the literal extractor reads.
+    const stripped = stripCommentLines(`/* note */ const m = "${SURVIVING_LITERAL}";`);
+    expect(stripped).not.toContain("note");
+    expect(stripped).toContain(SURVIVING_LITERAL);
+    // And the literal must still be extractable from what survives.
+    expect(quotedLiterals(stripped)).toContain(SURVIVING_LITERAL);
+  });
+});
+
+describe("messagePhrases (mt#4399)", () => {
+  test("yields the clause that actually relates the three renderers", () => {
+    // NOT a guess. Run against the real tree at `fbc352c97^` — the revision as
+    // it stood when mt#4379 swept — `git grep -F RETIRED_PHRASE`
+    // returns `packages/domain/src/persistence/unconfigured-provider.ts` and
+    // `src/cockpit/db-providers.ts`, the two renderers PR #3220 had to fix.
+    //
+    // This is pinned because two earlier search units did NOT produce it and
+    // each failed against that same tree: whole quoted chunks returned zero hits
+    // for all five literals (the renderers break their chunks at different
+    // points), and a 6-word window stepping by 3 produced "backend is
+    // registered. The database is" — which found one renderer and missed the
+    // other. A regression to either would be invisible without this.
+    const literals = replacedLiterals([MESSAGE_EDIT]).map((r) => r.literal);
+    expect(messagePhrases(literals)).toContain(RETIRED_PHRASE);
+  });
+
+  test("rejoins chunks, so a clause split across two string literals survives", () => {
+    // The whole reason literals are joined before splitting: `+` concatenation
+    // is what the chunks are FOR, and a sibling renderer wraps at a different
+    // column.
+    expect(messagePhrases(["restart once the database is ", "reachable now"])).toContain(
+      "restart once the database is reachable now"
+    );
+  });
+
+  test("drops a clause carrying an interpolation — it can never match as a fixed string", () => {
+    const phrases = messagePhrases(["the ${backend} persistence backend is configured but"]);
+    expect(phrases).toEqual([]);
+  });
+
+  test("drops fragments below the length floor", () => {
+    expect(messagePhrases(["too short. also brief."])).toEqual([]);
+  });
+
+  test("splits on an em-dash clause boundary, not only on sentence punctuation", () => {
+    const phrases = messagePhrases([
+      "The database is unreachable — this is a degraded provider, not a missing configuration",
+    ]);
+    expect(phrases).toContain(RETIRED_PHRASE);
   });
 });
