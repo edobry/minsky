@@ -520,6 +520,69 @@ one available — `principal-context.mdc §What Eugene can see`, and
 Incident record: mem#1086 (`5b8858f0`). Family: `family:assertion-without-verification`,
 bounded-negative slice — siblings mem#704, mem#804, mem#490.
 
+## Ranking axis: the channel perceives the kind but sorts by the wrong thing (mt#4268)
+
+The section above stops one question short. Naming the KIND tells you whether a channel can
+perceive the thing at all. It does not tell you whether the channel ORDERS its results by the
+axis your question turns on — and a semantic index orders by MEANING, while an identifier's
+meaning is not its spelling.
+
+### Why this sub-shape needed its own text
+
+Every other member of this family is a view that returns **less** than its source: a parsed record
+dropping a sibling field, a `grep` filtering a log, a silenced logger, a screenshot, a `jq`
+projection. That trains the reader's tell to be _"something is missing."_ A ranked search fails the
+other way — it returns a **full, plausible set** and omits the exact match. Eight ranked
+near-misses do not feel like something is missing; they feel like a completed survey. So the
+existing conjunct covered this logically and was unreachable perceptually, which is why the
+recurrence happened ~50 minutes after mt#4227 merged into this very section, with the file open.
+
+**The tell, stated so it is usable:** a full result set of near-misses with **no direct hit**. That
+shape is evidence about the INSTRUMENT, not about the subject. An empty result prompts more
+digging; a full one does not, which is exactly what makes it more dangerous than a zero.
+
+### Which instrument answers which question
+
+| Question                                                                                                             | Instrument                                               | Why                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| "What work is ABOUT this topic?"                                                                                     | semantic / embedding search                              | Ranks by meaning; finds paraphrases and neighbours a lexical search cannot.                                                             |
+| "What mentions this TOKEN?" — a code symbol, config key, error string, table or column name, migration slot, env var | EXACT search: substring, `grep`, `ILIKE` over the corpus | An identifier's meaning is not its spelling, so meaning-ranking is the wrong sort order. A token match is decidable; similarity is not. |
+| "Does any ACTIVE spec already claim this token?"                                                                     | `duplicate-signature-scan` at `tasks_create`             | Already shipped, and is what caught the originating incident.                                                                           |
+
+The two are complements, not substitutes. The failure is not "semantic search is bad" — it is
+using a meaning-ranked instrument for a spelling-shaped question and reading its fullness as
+coverage.
+
+### Worked example (2026-08-18, mt#4267)
+
+Filing mt#4267 — a reviewer in-flight-marker defect — the query was
+`"reviewer service in-flight marker stale concurrent review skipped redeploy kills review"`. It
+returned eight plausible reviewer-subsystem tasks (mt#2853, mt#1897, mt#2926, mt#1815, mt#1896,
+mt#1136, mt#1552, mt#1559) and **none of the three that own the mechanism**. A duplicate-check
+record was written from that set, then a Summary asserting the marker "is not cleared", then
+success criteria asking for a TTL to be **added**.
+
+`duplicate-signature-scan` fired at `tasks_create` on exact-substring match and returned all three
+immediately:
+
+- **mt#1907** (DONE) owns the marker. Its SC#1 requires "a TTL or explicit expiry"; its
+  `Does NOT cover` states the 5-minute default. The TTL had shipped three months earlier.
+- **mt#1914** (TODO) instruments `runReview.skipped_concurrent_inflight`.
+- **mt#1697** (TODO) had already recorded five same-day instances of the surrounding class.
+
+Why the search missed: `concurrent_inflight` is a code token. The owning tasks are titled "sweeper
+in-flight marker to eliminate webhook-vs-sweeper double-trigger race" and "instrument
+marker-mechanism health signals via Braintrust" — semantically distant from a query framed around
+"redeploy kills review, stale lock." A meaning-ranked instrument was used for a lexical question.
+
+The same false premise also reached a memory (mem#1093), where no guard exists — which is the
+uncovered surface this prose is for. `memory_create` has no analogous check, and the signature
+scan's overlap target (active task specs) does not obviously transfer to it.
+
+Incident record: mem#1025 R6. Family: `family:derived-view-absence` — this is the sixth
+recurrence and the third rule-widening (mt#4121 output-shaped, mt#4227 the synthesizing inverse,
+mt#4259 the modality mismatch).
+
 ## Enforcement surfaces (not in the rule) + cross-references
 
 Vocabulary only; enforcement is the conditional siblings under parent **mt#2544**: **mt#2923**
