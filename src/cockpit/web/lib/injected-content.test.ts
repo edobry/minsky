@@ -384,6 +384,11 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
   const MCP_SUMMARY = "MCP task kef11dmw (minsky/session_commit) completed.";
   const MCP_SUMMARY_TAG = `<summary>${MCP_SUMMARY}</summary>`;
 
+  // The result line the decode and decoy tests both reach for, named so the
+  // three sites cannot drift (`custom/no-magic-string-duplication`).
+  const MCP_RESULT_MESSAGE_LINE =
+    '  "message": "the probe tested `&lt;repoPath&gt;/.git`, so a server started",';
+
   const MCP_TASK_NOTIFICATION_TURN = [
     OPEN,
     "<task-id>kef11dmwa</task-id>",
@@ -391,7 +396,7 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
     MCP_SUMMARY_TAG,
     "<result>",
     '{ "success": true, "subject": "fix(mt#4342): ascend to the work tree",',
-    '  "message": "the probe tested `&lt;repoPath&gt;/.git`, so a server started",',
+    MCP_RESULT_MESSAGE_LINE,
     '  "branch": "task/mt-4342" }',
     "</result>",
     CLOSE,
@@ -494,7 +499,7 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
 
   test("an escaped <summary> inside the result does not displace the envelope's own", () => {
     const withDecoy = MCP_TASK_NOTIFICATION_TURN.replace(
-      '  "message": "the probe tested `&lt;repoPath&gt;/.git`, so a server started",',
+      MCP_RESULT_MESSAGE_LINE,
       ESCAPED_SUMMARY_IN_RESULT
     );
 
@@ -535,6 +540,90 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
 
     expect(span.label).toContain("<repoPath>/.git");
     expect(span.label).not.toContain("&lt;");
+  });
+
+  // ── mt#4419 — the envelope, taken apart ────────────────────────────────────
+  //
+  // The span now carries structured parts so the renderer can put the tool's
+  // payload through the same JSON tree an inline tool result gets. These assert
+  // the PARSE; the render half lives in
+  // `../components/ConversationElementRenderers.task-notification.test.tsx`.
+
+  function partsOf(turn: string) {
+    const span = (splitInjectedContent(turn)[0] as { span: { notification?: unknown } }).span;
+    return span.notification as {
+      taskId: string | null;
+      status: string | null;
+      summary: string | null;
+      toolName: string | null;
+      result: string | null;
+      remainder: string | null;
+    };
+  }
+
+  test("the envelope's four modelled elements are carried on the span", () => {
+    const parts = partsOf(MCP_TASK_NOTIFICATION_TURN);
+
+    expect(parts.taskId).toBe("kef11dmwa");
+    expect(parts.status).toBe("completed");
+    expect(parts.summary).toBe(MCP_SUMMARY);
+    expect(parts.result).toContain('"success": true');
+  });
+
+  test("the tool name is recovered from the summary, BARE — the form the registry keys on", () => {
+    // `minsky/session_commit` → `session_commit`. Unsplit, it would never match
+    // a registered per-tool renderer, and would do so silently.
+    expect(partsOf(MCP_TASK_NOTIFICATION_TURN).toolName).toBe("session_commit");
+  });
+
+  test("a summary naming no tool yields no tool name, rather than a guess", () => {
+    // The mt#3396 shape: a background shell command, no parenthesised tool.
+    expect(partsOf(TASK_NOTIFICATION_TURN).toolName).toBeNull();
+  });
+
+  test("an unmodelled element survives as the remainder — nothing is dropped", () => {
+    // mt#2791's demote-never-drop contract, at the seam where a structured view
+    // could silently lose a tag it has no slot for. `<tool-use-id>` is the one
+    // in today's corpus; the point is the mechanism, not that tag.
+    const parts = partsOf(TASK_NOTIFICATION_TURN);
+
+    expect(parts.remainder).toContain("toolu_01Qbhg9FEjEW6VENjy6hGRmH");
+  });
+
+  test("a body the four elements fully account for leaves no remainder", () => {
+    expect(partsOf(MCP_TASK_NOTIFICATION_TURN).remainder).toBeNull();
+  });
+
+  test("the result's escaped entities are decoded", () => {
+    const parts = partsOf(MCP_TASK_NOTIFICATION_TURN);
+
+    expect(parts.result).toContain("`<repoPath>/.git`");
+    expect(parts.result).not.toContain("&lt;");
+  });
+
+  test("the parts are read from the RAW body — an escaped tag in the result cannot displace one", () => {
+    // The same hazard PR #3239 R1 fixed for the label, now for the parts: decode
+    // first and `&lt;summary&gt;…&lt;/summary&gt;` inside the payload becomes a
+    // real element the tag scan cannot distinguish from the envelope's own.
+    const withDecoy = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_RESULT_MESSAGE_LINE,
+      ESCAPED_SUMMARY_IN_RESULT
+    );
+
+    const parts = partsOf(withDecoy);
+
+    expect(parts.summary).toBe(MCP_SUMMARY);
+    expect(parts.status).toBe("completed");
+    expect(parts.toolName).toBe("session_commit");
+  });
+
+  test("no parts are attached to a span of a different kind", () => {
+    // The field is opt-in per tag: a bash block declares no extractor, so its
+    // span carries nothing and the renderer takes the unchanged prose path.
+    const bash = "<bash-input>ls -la</bash-input>";
+    const span = (splitInjectedContent(bash)[0] as { span: { notification?: unknown } }).span;
+
+    expect(span.notification).toBeUndefined();
   });
 
   test("AT3 anchoring: prose mentioning the tag mid-sentence is NOT split", () => {

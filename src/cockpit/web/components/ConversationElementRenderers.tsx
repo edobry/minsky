@@ -89,7 +89,8 @@ import { friendlyToolName, parseToolName } from "../lib/tool-name";
 import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
-import type { InjectedSpan } from "../lib/injected-content";
+import type { InjectedSpan, TaskNotificationParts } from "../lib/injected-content";
+import { classifyToolPayload } from "../lib/tool-payload";
 import { isApiErrorText } from "../lib/conversation-outcome";
 import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
@@ -673,14 +674,108 @@ export function InjectedContentBlock({
           ({span.content.length.toLocaleString()} chars)
         </span>
       </button>
-      {open && (
-        <div className="border-t border-border/40 px-2 py-1">
+      {open &&
+        (span.notification !== undefined ? (
+          // No padding on the wrapper: the structured body pads its own rows,
+          // exactly as ToolInvocation's expanded branch does.
+          <div className="border-t border-border/40">
+            <TaskNotificationBody
+              span={span}
+              parts={span.notification}
+              entityIndex={entityIndex}
+            />
+          </div>
+        ) : (
+          <div className="border-t border-border/40 px-2 py-1">
+            <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+              {span.content}
+            </Prose>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * A background-task notification's body, rendered as the deferred TOOL RESULT
+ * it is (mt#4419).
+ *
+ * When the harness backgrounds a slow MCP call it returns the tool's entire
+ * JSON payload later, wrapped in a `<task-notification>` turn. That payload is
+ * the same shape an INLINE tool result carries, and the cockpit has rendered
+ * inline results as an entity-aware collapsible tree since mt#2552 — with an
+ * optional per-tool renderer keyed on the bare tool name. Only the DEFERRED
+ * copy came through the injected-content path, which prints its body verbatim,
+ * so one kind of content had two renderings and the operator met the worse one
+ * precisely when a call had taken long enough to be backgrounded.
+ *
+ * Three things keep this from losing information the prose path preserved:
+ *
+ *   - The tree is entered ONLY when the payload actually parses as JSON.
+ *     `classifyToolPayload` is the same deterministic yes/no `ToolPayload`
+ *     itself dispatches on, so asking it here cannot disagree with what
+ *     `ToolPayload` would then do.
+ *   - Anything the envelope carried that the parse did not model comes through
+ *     as `remainder` and renders beneath — mt#2791's demote-never-drop contract
+ *     survives a structured view that has no slot for a future tag.
+ *   - Every other case falls back to the exact prose rendering shipped before.
+ */
+function TaskNotificationBody({
+  span,
+  parts,
+  entityIndex,
+}: {
+  span: InjectedSpan;
+  parts: TaskNotificationParts;
+  entityIndex: EntityIndex;
+}) {
+  const isJsonResult =
+    parts.result !== null && classifyToolPayload(parts.result).kind === "json";
+
+  if (!isJsonResult) {
+    return (
+      <div className="px-2 py-1">
+        <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+          {span.content}
+        </Prose>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {(parts.taskId !== null || parts.status !== null) && (
+        <div className="flex items-baseline gap-2 px-2 pt-1 text-[10px] text-muted-foreground/60">
+          {parts.taskId !== null && (
+            <>
+              <span className="uppercase tracking-wide">task</span>
+              <span className="font-mono">{parts.taskId}</span>
+            </>
+          )}
+          {parts.status !== null && <span className="ml-auto">{parts.status}</span>}
+        </div>
+      )}
+      <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+        result
+      </div>
+      {/* `toolName` is the BARE name parsed from the summary, which is the form
+          ToolPayload's Tier-3 registry is keyed on — so a renderer registered
+          for this tool applies to its deferred result exactly as it does to an
+          inline one. */}
+      <ToolPayload
+        value={parts.result}
+        toolName={parts.toolName ?? undefined}
+        entityIndex={entityIndex}
+        className="border-border/40 text-foreground/70"
+      />
+      {parts.remainder !== null && (
+        <div className="px-2 py-1">
           <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
-            {span.content}
+            {parts.remainder}
           </Prose>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
