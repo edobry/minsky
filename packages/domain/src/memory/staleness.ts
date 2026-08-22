@@ -250,6 +250,36 @@ export function computeStaleness(
   return { outcome: "current", source, completedTasks, unresolvedTasks };
 }
 
+/** One memory's unresolved tracking refs, ready to be logged. */
+export interface UnresolvedStalenessRef {
+  memoryId: string;
+  taskIds: string[];
+}
+
+/**
+ * Collect the per-memory unresolved refs that warrant a warning (mt#1709, AT4).
+ *
+ * A pure function returning WHAT to warn about, so the decision is testable without
+ * patching a logger — `tests/setup.ts` silences winston's Console under the in-process
+ * harness, which would make an "assert the log line appeared" test assert nothing
+ * (`claim-confidence.mdc` — a missing log line is a claim about the LOGGER, not the code
+ * path). The caller does the emitting; this decides.
+ *
+ * Only `unresolved` verdicts qualify. A `current` or `stale` verdict resolved everything it
+ * needed to, and an id that resolved is not a failure to report.
+ */
+export function collectUnresolvedRefs(
+  entries: { memoryId: string; staleness?: MemoryStaleness }[]
+): UnresolvedStalenessRef[] {
+  const out: UnresolvedStalenessRef[] = [];
+  for (const { memoryId, staleness } of entries) {
+    if (staleness?.outcome === "unresolved" && staleness.unresolvedTasks.length > 0) {
+      out.push({ memoryId, taskIds: [...staleness.unresolvedTasks] });
+    }
+  }
+  return out;
+}
+
 /**
  * The reader-facing line, or `undefined` when nothing should render.
  *

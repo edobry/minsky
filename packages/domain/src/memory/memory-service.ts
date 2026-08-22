@@ -20,7 +20,7 @@ import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
-import { computeStaleness, extractTrackingTaskRefs } from "./staleness";
+import { collectUnresolvedRefs, computeStaleness, extractTrackingTaskRefs } from "./staleness";
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -727,6 +727,20 @@ export class MemoryService implements MemoryServiceSurface {
       if (!extracted) continue;
       const staleness = computeStaleness(extracted.refs, extracted.source, statuses);
       if (staleness) result.staleness = staleness;
+    }
+
+    // AT4: a memory naming a task id that does not resolve is a graceful no-annotation AND a
+    // logged warning — the record is citing something the task graph cannot account for, which
+    // is worth knowing even though it must not block or annotate the search. The decision of
+    // what to warn about is a pure function so it can be tested without asserting on a logger
+    // the test harness silences.
+    const unresolved = collectUnresolvedRefs(
+      results.map((r) => ({ memoryId: r.record.id, staleness: r.staleness }))
+    );
+    if (unresolved.length > 0) {
+      log.warn("[memory.search] Memory cites tracking task ids that could not be resolved", {
+        unresolved,
+      });
     }
   }
 

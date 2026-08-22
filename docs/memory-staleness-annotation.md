@@ -67,6 +67,29 @@ The anchor is checked on **both** sides because the canonical phrasings put it o
 ones: _"bridge until mt#X ships"_ before, _"Once mt#X ships, delete this"_ after. It is bounded
 to the line so a stray anchor in a neighbouring bullet cannot vouch for an unrelated clause.
 
+**The line bound has a known cost, accepted deliberately.** A clause hard-wrapped away from its
+anchor does not fire:
+
+```
+This entry is a bridge, and it
+remains in force until mt#1001 lands.     <- no anchor on this line -> silent
+```
+
+Widening across lines would re-admit exactly mem#96's shape, where a neighbouring bullet
+supplies the anchor:
+
+```
+- This entry is a bridge for something else entirely.
+- Subtask E: push transport, scheduled for when mt#1001 lands
+```
+
+Both directions are pinned by tests (`anchor scanning is line-bounded`), so a future widening
+has to change a test rather than silently move the trade-off. The asymmetry that makes this the
+right default: a miss costs one un-annotated memory, while a false positive costs a banner on a
+current memory, on a surface read dozens of times a session. Only the conditional family
+consults the anchor — self-anchoring forms like `Tracking task: mt#N` are unaffected by line
+position.
+
 A **bare `mt#NNNN` mention never fires.** Memories cite tasks constantly for ordinary
 cross-reference, and 500+ tasks reached DONE in the 22 days to 2026-08-22 — a general task-id
 match would flag most of the corpus.
@@ -118,6 +141,15 @@ structured field for anyone who asks; it just does not shout.
 
 A record declaring no retirement clause at all gets **no `staleness` field**, which is the
 overwhelmingly common case (about 87% of the corpus).
+
+**`unresolved` also emits a structured warning.** A memory naming a task id the task graph
+cannot account for is worth knowing about even though it must never block or annotate the
+search, so `annotateStaleness` logs the memory id and the unresolved ids together. The decision
+of what to warn about is a pure function (`collectUnresolvedRefs`) rather than an inline
+condition, so it can be tested directly — `tests/setup.ts` silences winston's Console under the
+in-process harness, which would make an "assert the log line appeared" test assert nothing. A
+`stale` verdict with an unresolved sibling does **not** warn: it resolved what it needed to, and
+the annotation already fired.
 
 ## Response shape
 

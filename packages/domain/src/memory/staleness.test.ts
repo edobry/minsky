@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  collectUnresolvedRefs,
   computeStaleness,
   extractTrackingTaskRefs,
   renderStalenessNote,
@@ -206,6 +207,89 @@ describe("computeStaleness", () => {
     );
     expect(result?.outcome).toBe("stale");
     expect(result?.unresolvedTasks).toEqual([UNKNOWN_TASK]);
+  });
+});
+
+describe("collectUnresolvedRefs — AT4's warning decision", () => {
+  test("reports a memory whose tracking task id does not resolve", () => {
+    const staleness = detect({ content: `Tracking task: ${UNKNOWN_TASK}` }, {});
+    expect(collectUnresolvedRefs([{ memoryId: "mem-1", staleness }])).toEqual([
+      { memoryId: "mem-1", taskIds: [UNKNOWN_TASK] },
+    ]);
+  });
+
+  test("reports nothing for a current verdict", () => {
+    const staleness = detect({ content: TRACKING_CLAUSE }, { [TRACKED_TASK]: "TODO" });
+    expect(collectUnresolvedRefs([{ memoryId: "mem-1", staleness }])).toEqual([]);
+  });
+
+  test("reports nothing for a stale verdict, even with an unresolved sibling", () => {
+    // A stale verdict resolved what it needed to. The annotation already fired; a warning
+    // about the sibling would be noise on a path that is working.
+    const staleness = detect(
+      { content: `${TRACKING_CLAUSE}. This bridge holds until ${UNKNOWN_TASK} ships.` },
+      { [TRACKED_TASK]: "DONE" }
+    );
+    expect(staleness?.outcome).toBe("stale");
+    expect(collectUnresolvedRefs([{ memoryId: "mem-1", staleness }])).toEqual([]);
+  });
+
+  test("reports nothing when there is no staleness verdict at all", () => {
+    expect(collectUnresolvedRefs([{ memoryId: "mem-1", staleness: undefined }])).toEqual([]);
+  });
+
+  test("reports each affected memory separately across a result page", () => {
+    const a = detect({ content: `Tracking task: ${UNKNOWN_TASK}` }, {});
+    const b = detect({ content: TRACKING_CLAUSE }, { [TRACKED_TASK]: "DONE" });
+    const c = detect({ content: "Tracking task: mt#88888" }, {});
+    expect(
+      collectUnresolvedRefs([
+        { memoryId: "mem-1", staleness: a },
+        { memoryId: "mem-2", staleness: b },
+        { memoryId: "mem-3", staleness: c },
+      ])
+    ).toEqual([
+      { memoryId: "mem-1", taskIds: [UNKNOWN_TASK] },
+      { memoryId: "mem-3", taskIds: ["mt#88888"] },
+    ]);
+  });
+});
+
+describe("anchor scanning is line-bounded — the documented precision trade-off", () => {
+  // PR #3258 R1 (non-blocking): the line bound is deliberate, and until now only the
+  // false-positive direction was pinned. These lock the cost side too, so a future widening
+  // has to change a test rather than silently alter the trade-off.
+
+  test("a clause wrapped onto the line AFTER its anchor does not fire", () => {
+    // The known cost of line-bounding. Hard-wrapped prose splits anchor from clause, and
+    // this is accepted rather than fixed — the alternative re-admits mem#96's shape.
+    const { refs } = extractTrackingTaskRefs({
+      content: "This entry is a bridge, and it\nremains in force until mt#1001 lands.",
+    });
+    expect(refs).toEqual([]);
+  });
+
+  test("the same clause fires when anchor and clause share a line", () => {
+    const { refs } = extractTrackingTaskRefs({
+      content: "This entry is a bridge, and it remains in force until mt#1001 lands.",
+    });
+    expect(refs).toEqual(["mt#1001"]);
+  });
+
+  test("an anchor beyond the character window does not reach the clause", () => {
+    const filler = "x".repeat(200);
+    const { refs } = extractTrackingTaskRefs({
+      content: `This is a bridge ${filler} until mt#1001 lands.`,
+    });
+    expect(refs).toEqual([]);
+  });
+
+  test("self-anchored patterns are unaffected by line bounding", () => {
+    // Only the conditional family consults the anchor; "Tracking task:" stands alone.
+    const { refs } = extractTrackingTaskRefs({
+      content: "Some unrelated line.\nTracking task: mt#1001\nAnother unrelated line.",
+    });
+    expect(refs).toEqual(["mt#1001"]);
   });
 });
 
