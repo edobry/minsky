@@ -30,7 +30,8 @@
     "transcriptSweep": "object",
     "dispatchWatchdogSweep": "object",
     "prodStateSweep": "object",
-    "schema": "object"
+    "schema": "object",
+    "sweepLiveness": "object"
   },
   "transcriptWatcherFields": {
     "running": "boolean",
@@ -52,10 +53,23 @@
     "commit": "abc1234",
     "uptimeSec": 42,
     "db": "ok",
-    "dbCheck": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 7 },
-    "dbRecycle": { "lastRecycleAt": null, "recycleCount": 0 },
-    "dbHealth": { "mode": "connected", "lastAttemptAt": "2026-08-08T17:20:10.881Z" },
-    "survivedExceptions": { "lastAt": null, "count": 0, "distinctSignatures": 0 },
+    "dbCheck": {
+      "checkedAt": "2026-08-03T17:20:11.004Z",
+      "latencyMs": 7
+    },
+    "dbRecycle": {
+      "lastRecycleAt": null,
+      "recycleCount": 0
+    },
+    "dbHealth": {
+      "mode": "connected",
+      "lastAttemptAt": "2026-08-08T17:20:10.881Z"
+    },
+    "survivedExceptions": {
+      "lastAt": null,
+      "count": 0,
+      "distinctSignatures": 0
+    },
     "principalChannel": {
       "state": "running",
       "chatId": "167346572",
@@ -90,8 +104,13 @@
         }
       ]
     },
-    "transcriptSweep": { "totalRuns": 0 },
-    "dispatchWatchdogSweep": { "ticksRun": 0, "flagsWritten": 0 },
+    "transcriptSweep": {
+      "totalRuns": 0
+    },
+    "dispatchWatchdogSweep": {
+      "ticksRun": 0,
+      "flagsWritten": 0
+    },
     "prodStateSweep": {
       "runsCount": 0,
       "lastRunAt": null,
@@ -103,37 +122,71 @@
       "current": true,
       "pending": [],
       "checkedAt": "2026-07-29T06:22:40.780Z"
+    },
+    "sweepLiveness": {
+      "lastAttemptAt": "2026-08-22T02:40:00.000Z",
+      "registrants": 17,
+      "abandonedTicksOutstanding": 0,
+      "abandonedSweeps": [],
+      "abandonedSweepsTruncated": false,
+      "declaringDomainOutcome": 17,
+      "reportingDomainOutcome": 17,
+      "authoritativeSurface": "/api/sweeps"
     }
   },
   "$transcriptWatcherFieldNote": "mt#3857: unlike the other nested objects here, this one IS type-asserted — `transcriptWatcherFields` above is enforced by health-contract.test.ts, because this sub-object caused a real payload defect and a loose `object` pin is what let it through. `activeSessions` carries only the LIVE subset (entries whose `lastEventAt` is within LIVE_SESSION_WINDOW_MS, 2 min, per transcript-watcher-tracker.ts), NOT the full registry; `activeSessionCount` carries the registry total. Before mt#3857 `activeSessions` WAS the full registry: it reached 1,380 entries / 209 KB, which is 99.5% of a response the tray supervisor polls every 5s and three webview query keys poll every 15s. Two invariants a consumer — or a future edit — must preserve: (1) the array is bounded by the recency window, never by the registry size, so this response does not grow with transcript history; (2) `activeSessionCount` is the ONLY place the total is reported, so a consumer wanting 'how many conversations does the watcher know about' reads the scalar and must not infer it from the array length. The boot scan seeds via recordSessionSeeded() with a null lastEventAt precisely so a restart does not make the whole history look live and re-inflate this array.",
   "$dbFieldNote": "mt#3563: `db` reports LIVE reachability as of the last probe, not a boot-time constant. \"ok\" = a query completed through the SHARED pool inside the probe deadline; \"degraded\" = one did not (timed out, errored, or a previously issued probe has still not returned — the never-settling-query wedge of mt#3092/mt#2773); \"unreachable\" = no init has ever succeeded. Before mt#3563 this was set once at init and only left \"ok\" on a circuit-breaker rejection, so a daemon whose every DB route hung reported \"ok\" indefinitely (incidents 2026-08-01 and 2026-08-03) and the tray's DB-degraded watchdog never fired. Two properties consumers depend on and must not 'optimize' away: (1) the HTTP status stays 200 regardless of `db` — ADR-014 makes the status code the tray's liveness/adoption signal, so DB truth belongs in the body, exactly as `schema` does; (2) the probe runs OUT-OF-BAND and the handler never awaits it, so this route cannot be made slow by the database it reports on. Consequence: `db` lags reality by at most one poll, which is why `dbCheck.checkedAt` exists — an `ok` you cannot date is the same false confidence this field was fixed to remove.",
   "$dbCheckFieldNote": "mt#3563: `dbCheck` is always an OBJECT (never null), but BOTH of its members are nullable and a consumer must handle each. `checkedAt` (ISO string | null) is null until the first probe FINISHES, and thereafter names when reachability was last actually determined — it is deliberately NOT restamped on a poll that merely observes an earlier probe still outstanding, so during a wedge it goes stale on purpose; stale `checkedAt` + `db: \"degraded\"` reads as 'stuck since then', which is the intended signal, not a gap. `latencyMs` (number | null) is the round-trip of the last SUCCESSFUL probe and stays null until one succeeds — it is NOT reset when a later probe fails, so a non-null `latencyMs` alongside `db: \"degraded\"` describes the last good measurement, not the current state. Read `db` for current state and `dbCheck` for its provenance; do not infer health from `latencyMs` alone.",
   "$dbCheckFieldVariants": {
-    "neverProbed": { "checkedAt": null, "latencyMs": null },
-    "healthy": { "checkedAt": "2026-08-03T17:57:36.748Z", "latencyMs": 231 },
-    "wedgedSinceLastGoodProbe": { "checkedAt": "2026-08-03T17:20:11.004Z", "latencyMs": 231 }
+    "neverProbed": {
+      "checkedAt": null,
+      "latencyMs": null
+    },
+    "healthy": {
+      "checkedAt": "2026-08-03T17:57:36.748Z",
+      "latencyMs": 231
+    },
+    "wedgedSinceLastGoodProbe": {
+      "checkedAt": "2026-08-03T17:20:11.004Z",
+      "latencyMs": 231
+    }
   },
   "$dbRecycleFieldNote": "mt#3638: `dbRecycle` reports the wedge-triggered pool recycle (the recovery half of mt#3563's detection). Always an object; `lastRecycleAt` (ISO string | null) is null until the first recycle this process, `recycleCount` (number) counts recycles since process start. A non-zero count means the daemon detected sustained DB degradation and rebuilt its connection pool in place instead of waiting for a restart; a count that keeps rising while `db` stays degraded means recycling is not helping — the DB itself (or the network path) is down, which is the case the recycle deliberately does not try to fix.",
   "$dbHealthFieldNote": "mt#3826: `dbHealth` says WHY the database is unusable; `db` above only says THAT it is. The two are deliberately not merged — `db` is the tray's long-standing degraded signal and its three values are a consumed contract, so the explanation is additive beside it rather than a widening of it. Shape is ADR-035 rule 4's: `mode` ('connected' | 'unavailable' — this subsystem never reports 'unconfigured', since it is only reached once the cockpit has decided to use Postgres, and rule 3's configured-vs-unconfigured distinction is made upstream by assessPersistenceHealth), `reason` (operator-facing prose, present only when a failure has been classified) and `lastAttemptAt` (ISO string, ABSENT until the first init attempt — absence means 'nothing tried since boot', which is what distinguishes a wedged process from one actively working a real outage). The addition beyond rule 4 is `failure`: the DISCRIMINATED form of `reason`, so a consumer branches on `failure.kind` instead of parsing prose. `kind` is one of connect-timeout / refused / dns / auth / connection-lost / circuit-breaker / unknown, derived from the driver's structured `code` (postgres-js attaches `{code, errno, address, port}` to every connection error) and NEVER from message text, which varies by driver version. `failure` carries `kind` and `code` ONLY — the driver's raw message is deliberately NOT forwarded (PR #2732 R1), because a postgres-js connection error embeds `host:port` and a server-side PostgresError message is arbitrary server-controlled text; this endpoint is polled by the tray and three webview query keys, so it should not relay text the daemon did not author. The full message is still logged. Three consumer rules: (1) treat `unknown` as 'no information', never as a synonym for transient — it means the error carried no code this classifier recognizes; (2) `failure` is ABSENT while healthy and is cleared on any recovery, so its presence is itself the fault signal; (3) do not expect `message` here, and do not add it — `reason` is the human-readable field and it is written by this daemon. Why this exists: before mt#3826 a half-open pool wedge and a network refusing the port produced the identical `degraded`, so the pool-recycle remedy was applied to both and helped only one — on 2026-08-07 an operator on an outbound-80/443-only network took ~500 futile recycles over ~9h. The classification is also what bounds that churn: `connect-timeout`/`refused`/`dns`/`auth` back the recycle cadence off once recycling has demonstrably not helped, while `connection-lost`/`circuit-breaker`/`unknown` — the kinds a fresh pool DOES fix — keep the flat 60s floor.",
   "$dbHealthFieldVariants": {
-    "healthy": { "mode": "connected", "lastAttemptAt": "2026-08-08T17:20:10.881Z" },
+    "healthy": {
+      "mode": "connected",
+      "lastAttemptAt": "2026-08-08T17:20:10.881Z"
+    },
     "blockedPort": {
       "mode": "unavailable",
       "reason": "Nothing answered on the database port before the connect deadline. This is what an outbound-port block on the current network looks like; it is also what a saturated server looks like.",
       "lastAttemptAt": "2026-08-08T17:29:41.204Z",
-      "failure": { "kind": "connect-timeout", "code": "CONNECT_TIMEOUT" }
+      "failure": {
+        "kind": "connect-timeout",
+        "code": "CONNECT_TIMEOUT"
+      }
     },
     "poolWedge": {
       "mode": "unavailable",
       "reason": "An established connection went away. A pool recycle is the remedy for this one.",
       "lastAttemptAt": "2026-08-08T17:29:41.204Z",
-      "failure": { "kind": "connection-lost", "code": "CONNECTION_CLOSED" }
+      "failure": {
+        "kind": "connection-lost",
+        "code": "CONNECTION_CLOSED"
+      }
     },
-    "neverAttempted": { "mode": "unavailable" }
+    "neverAttempted": {
+      "mode": "unavailable"
+    }
   },
   "$schemaFieldNote": "mt#3297: `schema.current` is TRI-STATE — true (every shipped migration applied), false (the DB is behind this build, `pending` names which), or null (readiness could not be determined; `unknownReason` says why). A consumer that treats null as true reintroduces the bug this field exists to surface: the daemon boots fine and answers 200 while every schema-dependent write fails, so the status code cannot carry this and the body has to. Handle all three explicitly — true: proceed; false: the DB needs `minsky persistence migrate --execute`, and schema-dependent sweeps are paused; null: state unknown, treat as 'cannot vouch for it' rather than as either healthy or broken.",
   "$schemaFieldVariants": {
-    "current": { "current": true, "pending": [], "checkedAt": "2026-07-29T06:22:40.780Z" },
+    "current": {
+      "current": true,
+      "pending": [],
+      "checkedAt": "2026-07-29T06:22:40.780Z"
+    },
     "behind": {
       "current": false,
       "pending": ["0076_cuddly_giant_girl"],
@@ -148,7 +201,9 @@
   },
   "$principalChannelFieldNote": "mt#3608 introduced this field; mt#3683 removed its retry CEILING. `state` is one of disabled/starting/running/unconfigured/retrying/failed. `unconfigured`/`disabled` are healthy-quiet states; `retrying` and `failed` are faults, but different ones. `retrying` means a credential read failed and is classified TRANSIENT — per ADR-035 rule 1 it no longer gives up on its own: past the original ~2-minute/6-attempt window it keeps retrying on a widening, capped backoff instead of settling into `failed`, for as long as the fault persists. `lastAttemptAt`/`nextAttemptAt` (ISO strings, present ONLY on `retrying`, per ADR-035 rule 4) are what make 'still actively working the problem' legible without parsing `reason` prose or inferring it from a possibly-stale `attempts` count — a `nextAttemptAt` in the near future is the discriminator between 'retrying' and 'stuck'. `failed` is now a DIFFERENT fault class entirely: an exception raised AFTER credentials resolved (poller/actuator construction), not reachable from a credential-read failure any more, since that path no longer exhausts. mt#3689 REMOVED `attempts` from the `failed` variant: it was always the literal 1 there and counted nothing (the failure happens once, after credentials already resolved), so one field was carrying two meanings across two fault classes. `state` already separates them. `attempts` is now present ONLY on `retrying`, where it is a real count of credential reads. mt#4183 added `stalled` and gave `running` two new fields. `running` now carries `since` (when the poller was launched, written once) and `lastProgressAt` (the poll loop's most recent progress, PROJECTED on read from the sweep-liveness registry entry mt#4185 registers as `principal-channel poll` — not written by the channel). `stalled` is the same object plus `staleForMs` and `thresholdMs`, and it has NO write site: it is computed when `lastProgressAt ?? since` is older than the registry's own stall threshold (`intervalMs` x 2 = 840s at the current 420s budget). That is deliberate — a latch is exactly what failed here, where `running` was written once at startup and outlived the poller it described by ~44 hours, so the replacement is a surface nothing has to remember to update. `lastProgressAt` is null when the loop has reported nothing since launch, which is normal for the first seconds and a fault after that; staleness is therefore measured against `since` in that case rather than treated as no-opinion. Note that this sub-object's FULL shape is documented HERE and is still NOT type-asserted field-by-field — those tests pin the TOP-LEVEL field set (`principalChannel: object`) plus `rustConsumedFields`, so a change inside this object must be reflected in this block by hand. ONE property is now mechanically enforced rather than hand-maintained (mt#4186): the PRESENCE of a field dating any affirmative liveness assertion. `src/cockpit/health-liveness-invariant.ts` states that rule once, keyed on SHAPE rather than on a list of today's field names, and `health-contract.test.ts` runs it against the live payload — so a future `state: running` here carrying no `since` / `lastProgressAt` / `*At` field fails CI instead of depending on a reviewer noticing, which is what failed for `db` (mt#3563), `dbHealth` (mt#3826) and this field (mt#4183) in turn. Full per-variant type assertion was considered and NOT adopted: the variants differ by state, and pinning each would re-encode this prose as a second hand-maintained artifact that drifts the same way — the dating property is the one worth mechanizing because it is the one that was silently wrong for ~44 hours.",
   "$principalChannelFieldVariants": {
-    "disabled": { "state": "disabled" },
+    "disabled": {
+      "state": "disabled"
+    },
     "unconfigured": {
       "state": "unconfigured",
       "reason": "Telegram principal channel is not configured: neither TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are set in the environment, nor are the Pulumi stack values set."
@@ -194,5 +249,6 @@
       "state": "failed",
       "reason": "actuator construction threw: ECONNREFUSED"
     }
-  }
+  },
+  "$sweepLivenessFieldNote": "mt#4384: the AGGREGATE sweep-liveness projection. The sibling prodStateSweep / transcriptSweep / dispatchWatchdogSweep blocks are DOMAIN trackers, and a domain tracker records the outcome of WORK — an ABANDONED tick never completes, so it produces no outcome ever and those three blocks read clean straight through a wedge. Until mt#4384 this endpoint never read the liveness registry at all, so abandonment could not appear here BY CONSTRUCTION. abandonedTicksOutstanding > 0 means at least one sweep is wedged RIGHT NOW; do NOT read a zero domain-failure count beside it as reassurance. reportingDomainOutcome legitimately trails declaringDomainOutcome shortly after a restart (the runtime flag flips on the first tick that completes), so a low value is not by itself a fault — read it beside abandonedTicksOutstanding. Per-sweep detail stays on /api/sweeps, which authoritativeSurface names. The top-level status deliberately does NOT flip on abandonment: the tray restarts on an unhealthy status, and a restart is not a reliable remedy for this class (mem#1178 records an occurrence that self-cleared, and mt#4335 recovery can take 15 minutes)."
 }

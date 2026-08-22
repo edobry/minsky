@@ -24,6 +24,8 @@ import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
+import { getSweepLivenessSnapshot } from "../sweepers";
+import { deriveHealthSweepLiveness } from "../health-sweep-liveness";
 import {
   getDbCheck,
   getDbHealth,
@@ -260,6 +262,29 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       transcriptSweep: sweepTracker.getSummary(),
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),
+      // mt#4384: the three sweep fields above are DOMAIN trackers, and a domain
+      // tracker records the outcome of work. An ABANDONED tick never completes, so
+      // it produces no outcome ever — which is why on 2026-08-21 `prodStateSweep`
+      // read `lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0`
+      // (indistinguishable from "in flight, fine") while `/api/sweeps` showed nine
+      // sweeps wedged with guards held.
+      //
+      // Until now this endpoint never read the liveness registry at all, so that
+      // state could not appear here BY CONSTRUCTION. This field is the aggregate
+      // projection; `/api/sweeps` remains the per-sweep authority.
+      //
+      // Deliberately does NOT change the top-level `status`. The tray restarts the
+      // daemon on an unhealthy status, and a restart is not a reliable remedy for
+      // this class — mem#1178 records an occurrence that self-cleared with no
+      // restart, and mt#4335's hard release means recovery can legitimately take 15
+      // minutes. Flipping `status` would trade a silent wedge for a restart loop
+      // against a condition that often heals itself. ADR-035 rule 5 asks for surface
+      // HONESTY, which the body carries; recovery is a separate obligation and is
+      // not this task's.
+      sweepLiveness: deriveHealthSweepLiveness(
+        getSweepLivenessSnapshot(),
+        new Date().toISOString()
+      ),
     });
   });
 
