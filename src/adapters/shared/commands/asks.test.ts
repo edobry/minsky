@@ -604,16 +604,32 @@ describe("service-window-defaults module", () => {
     }
   });
 
-  test("direction.decide defaults to scheduled/ask-hours", () => {
+  test("mt#4421: direction.decide defaults to asap with NO window", () => {
+    // Was scheduled/ask-hours. The window runtime is retired (mt#4410), so a
+    // default naming one recorded a batching policy that no longer exists —
+    // on the kind agents file principal escalations as.
     const def = getServiceWindowDefault(KIND_DIRECTION_DECIDE);
-    expect(def.serviceStrategy).toBe("scheduled");
-    expect(def.windowKey).toBe("ask-hours");
+    expect(def.serviceStrategy).toBe("asap");
+    expect(def.windowKey).toBeUndefined();
   });
 
-  test("quality.review defaults to scheduled/ask-hours", () => {
+  test("mt#4421: quality.review defaults to asap with NO window", () => {
     const def = getServiceWindowDefault(KIND_QUALITY_REVIEW);
-    expect(def.serviceStrategy).toBe("scheduled");
-    expect(def.windowKey).toBe("ask-hours");
+    expect(def.serviceStrategy).toBe("asap");
+    expect(def.windowKey).toBeUndefined();
+  });
+
+  test("mt#4421: NO kind default produces a windowKey any more", () => {
+    // The class assertion, not the two instances: a future kind added with a
+    // window default fails here rather than silently reintroducing the retired
+    // concept through a door the two tests above do not watch.
+    for (const [kind, def] of Object.entries(SERVICE_WINDOW_DEFAULTS)) {
+      expect({ kind, windowKey: def.windowKey }).toEqual({ kind, windowKey: undefined });
+      expect({ kind, strategy: def.serviceStrategy }).not.toEqual({
+        kind,
+        strategy: "scheduled",
+      });
+    }
   });
 
   test("authorization.approve defaults to deadline-bound with no windowKey", () => {
@@ -649,7 +665,11 @@ describe("service-window-defaults module", () => {
 // ---------------------------------------------------------------------------
 
 describe("createAsk — service-window defaults and overrides", () => {
-  test("direction.decide with no service-window args gets scheduled/ask-hours", async () => {
+  test("mt#4421: direction.decide with no service-window args gets asap and NO window", async () => {
+    // End-to-end through createAsk, not just the matrix: this is the path that
+    // produced ask#9750 with `windowKey: "ask-hours"` and
+    // `suspendedForWindowKey: "ask-hours"` on 2026-08-22, against a runtime
+    // mt#4410 had already retired.
     const repo = new FakeAskRepository();
 
     await createAsk(
@@ -665,8 +685,13 @@ describe("createAsk — service-window defaults and overrides", () => {
     const persisted = repo.all[0];
     expect(persisted).toBeDefined();
     if (!persisted) return;
-    expect(persisted.serviceStrategy).toBe("scheduled");
-    expect(persisted.windowKey).toBe("ask-hours");
+    expect(persisted.serviceStrategy).toBe("asap");
+    // `suspendedForWindowKey` — the field that made ask#9750's record actively
+    // misleading — is not asserted here because it lives on `SuspendedAsk`, not
+    // the base `Ask` this repository returns. It is derived: the router's
+    // scheduled branch sets it from `ask.windowKey`, and that branch is now
+    // unreachable by default, so `windowKey` being unset above is what closes it.
+    expect(persisted.windowKey).toBeUndefined();
   });
 
   test("stuck.unblock with no service-window args gets asap/null windowKey", async () => {
@@ -792,10 +817,18 @@ describe("createAsk — service-window defaults and overrides", () => {
     expect(persisted.windowKey).toBe("custom-window");
   });
 
-  test("absent serviceStrategy + windowKey for scheduled-default kind persists custom windowKey", async () => {
-    // R4 fix: absent serviceStrategy is legitimate when kind defaults to scheduled.
-    // direction.decide defaults to scheduled/ask-hours; caller may supply a custom windowKey
-    // to override just the window name without specifying the strategy explicitly.
+  test("mt#4421: direction.decide now behaves as an asap-default kind — a bare windowKey is dropped", async () => {
+    // This test used to assert the OPPOSITE, and the change of expectation is
+    // the point rather than a repair. R4's scenario was "absent serviceStrategy
+    // is legitimate when the KIND defaults to scheduled, so a caller may name a
+    // custom window without naming the strategy". After mt#4421 no kind defaults
+    // to scheduled, so that scenario has no kind left to exercise — reaching it
+    // now requires an explicit `serviceStrategy: "scheduled"`, which the test
+    // directly above this one already covers.
+    //
+    // What remains true, and is what this asserts: `direction.decide` now falls
+    // into the same branch as every other asap-default kind, so a windowKey with
+    // no strategy is silently dropped rather than honoured.
     const repo = new FakeAskRepository();
 
     await createAsk(
@@ -804,7 +837,7 @@ describe("createAsk — service-window defaults and overrides", () => {
         kind: KIND_DIRECTION_DECIDE,
         title: "T",
         question: "Q",
-        // serviceStrategy intentionally absent — should resolve to "scheduled" via kind default
+        // serviceStrategy intentionally absent — resolves to "asap" via kind default
         windowKey: "custom-window",
       },
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
@@ -813,10 +846,8 @@ describe("createAsk — service-window defaults and overrides", () => {
     const persisted = repo.all[0];
     expect(persisted).toBeDefined();
     if (!persisted) return;
-    // Kind default resolves strategy to "scheduled"
-    expect(persisted.serviceStrategy).toBe("scheduled");
-    // Caller's windowKey overrides the kind default ("ask-hours")
-    expect(persisted.windowKey).toBe("custom-window");
+    expect(persisted.serviceStrategy).toBe("asap");
+    expect(persisted.windowKey).toBeUndefined();
   });
 
   test("absent serviceStrategy + windowKey for asap-default kind silently drops windowKey", async () => {
