@@ -280,7 +280,9 @@ function taskNotificationLabel(body: string): string {
 }
 
 /**
- * The five HTML entities the harness escapes into a notification body.
+ * The HTML entities the harness escapes into a notification body: five
+ * characters, six mappings — the apostrophe arrives as either `&apos;` or
+ * the numeric `&#39;` (PR #3239 R2).
  *
  * The notification envelope is XML-shaped, so the harness escapes `<` and its
  * siblings before embedding a tool result inside it. Nothing on our side
