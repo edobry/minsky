@@ -73,6 +73,44 @@ describe("extractTrackingTaskRefs", () => {
     expect(refs).toEqual([]);
   });
 
+  test("a conditional clause needs a retirement anchor on its own line", () => {
+    // The measured false positive (mem#96, "Cockpit v0 task cluster"): a subtask bullet
+    // read "push transport (polling v0 → SSE migration when mt#1001 lands)". That schedules
+    // OTHER work; it says nothing about whether the memory holding it is still true.
+    const scheduling = extractTrackingTaskRefs({
+      content:
+        "- **mt#1148** — Subtask E: push transport (polling v0 → SSE migration when mt#1001 lands)",
+    });
+    expect(scheduling.refs).toEqual([]);
+
+    // Same grammatical form, but anchored to the memory's own lifetime — this must fire.
+    const retirement = extractTrackingTaskRefs({
+      content: "This is a bridge; it holds until mt#1001 lands.",
+    });
+    expect(retirement.refs).toEqual(["mt#1001"]);
+  });
+
+  test("an anchor on a NEIGHBOURING line does not vouch for a clause", () => {
+    // Anchor containment: the false positive lived in a bulleted list, where a stray
+    // "bridge" one bullet up would otherwise license every conditional below it.
+    const { refs } = extractTrackingTaskRefs({
+      content: [
+        "- This entry is a bridge for something else entirely.",
+        "- Subtask E: push transport, scheduled for when mt#1001 lands",
+      ].join("\n"),
+    });
+    expect(refs).toEqual([]);
+  });
+
+  test("the anchor may follow the clause, not only precede it", () => {
+    // "Once mt#X ships, delete this" is a canonical phrasing; a backwards-only anchor
+    // scan would silently drop it.
+    const { refs } = extractTrackingTaskRefs({
+      content: "Once mt#1703 ships, delete this memory.",
+    });
+    expect(refs).toEqual(["mt#1703"]);
+  });
+
   test("prefers the structured association over the text scan", () => {
     const { refs, source } = extractTrackingTaskRefs({
       content: BUDGET_CLAUSE,
@@ -136,7 +174,11 @@ describe("computeStaleness", () => {
 
   test("mixed statuses report only the completed ones as stale", () => {
     const result = detect(
-      { content: `${TRACKING_CLAUSE}. Also superseded by mt#1701. Until mt#1702 ships.` },
+      {
+        content:
+          `${TRACKING_CLAUSE}. Also superseded by mt#1701. ` +
+          `This bridge holds until mt#1702 ships.`,
+      },
       { [TRACKED_TASK]: "DONE", "mt#1701": "TODO", "mt#1702": "CLOSED" }
     );
     expect(result?.outcome).toBe("stale");
@@ -159,7 +201,7 @@ describe("computeStaleness", () => {
 
   test("a completed task wins over an unresolved sibling", () => {
     const result = detect(
-      { content: `${TRACKING_CLAUSE}. Until ${UNKNOWN_TASK} ships.` },
+      { content: `${TRACKING_CLAUSE}. This bridge holds until ${UNKNOWN_TASK} ships.` },
       { [TRACKED_TASK]: "DONE" }
     );
     expect(result?.outcome).toBe("stale");

@@ -72,20 +72,48 @@ export const TRACKS_TASK_ASSOCIATION = "tracksTask";
  * `mt#\d+` rather than a looser id shape: cross-project ids are explicitly out of scope for
  * v1 per the task's `## Scope`.
  */
-const RETIREMENT_CLAUSE_PATTERNS: readonly RegExp[] = [
-  // "Budget: retire when mt#1700 ships" / "retire when mt#1700 lands"
+/**
+ * SELF-ANCHORING patterns: the phrasing itself states a retirement relationship, so no
+ * surrounding context is needed to know the clause is about THIS memory's validity.
+ */
+const SELF_ANCHORED_PATTERNS: readonly RegExp[] = [
+  // "Budget: retire when mt#1700 ships" / "retire once mt#1700 lands"
   /\bretire[sd]?\s+(?:when|once|after)\s+(mt#\d+)\b/gi,
-  // "Tracking task: mt#1700" / "tracking: mt#1700" / "Tracking task is mt#1700"
-  /\btracking(?:\s+task)?(?:\s+is)?\s*[:\-—]?\s*(mt#\d+)\b/gi,
-  // "until mt#1700 ships" / "once mt#1700 lands" / "when mt#1700 ships"
-  /\b(?:until|once|when)\s+(mt#\d+)\s+(?:ships|lands|completes|merges|is\s+done)\b/gi,
-  // "bridge until mt#1700" / "bridge memory until mt#1700"
+  // "Tracking task: mt#1700" / "Tracking task is mt#1700" — the word "task" is required
+  /\btracking\s+task\b(?:\s+is)?\s*[:\-—]?\s*(mt#\d+)\b/gi,
+  // "Tracking: mt#1700" — the colon is required; a bare "tracking mt#1700" is prose
+  /\btracking\s*:\s*(mt#\d+)\b/gi,
+  // "bridge until mt#1700" / "bridge memory until mt#1700 ships"
   /\bbridge\b[^.\n]{0,60}?\buntil\s+(mt#\d+)\b/gi,
   // "superseded by mt#1700" / "subsumed by mt#1700" / "replaced by mt#1700"
-  /\b(?:superseded|subsumed|replaced|closed)\s+by\s+(mt#\d+)\b/gi,
-  // "structural fix: mt#1700" / "structural fix is mt#1700"
-  /\bstructural\s+fix(?:\s+is)?\s*[:\-—]?\s*(mt#\d+)\b/gi,
+  /\b(?:superseded|subsumed|replaced)\s+by\s+(mt#\d+)\b/gi,
 ];
+
+/**
+ * CONDITIONAL patterns: "until mt#X lands", "once mt#X ships". These are genuine retirement
+ * clauses about half the time and ordinary scheduling prose the other half, so a match only
+ * counts when {@link RETIREMENT_ANCHOR} also appears in the preceding window.
+ *
+ * Measured, not assumed. A first cut treated these as self-anchoring and fired on 194 of
+ * 1206 live memories; spot-checking the output found mem#96 ("Cockpit v0 task cluster")
+ * flagged because a SUBTASK line read *"push transport (polling v0 → SSE migration when
+ * mt#1001 lands)"*. That sentence schedules other work; it says nothing about whether the
+ * memory holding it is still true. The anchor requirement is what separates the two, and
+ * without the corpus run there was no way to know the distinction mattered.
+ */
+const CONDITIONAL_PATTERNS: readonly RegExp[] = [
+  /\b(?:until|once|when)\s+(mt#\d+)\s+(?:ships|lands|completes|merges|is\s+done)\b/gi,
+];
+
+/**
+ * Words that make a conditional clause a statement about THIS memory's lifetime. Checked
+ * against the text preceding the match on the same sentence.
+ */
+const RETIREMENT_ANCHOR =
+  /\b(?:retire|retirement|budget|bridge|interim|temporary|stopgap|workaround|this memory|holds?|applies|obsolete|delete this|remove this)\b/i;
+
+/** How far back to look for an anchor. One clause's worth of context, not a paragraph. */
+const ANCHOR_WINDOW_CHARS = 140;
 
 /** Where a set of tracking refs came from. Recorded so a reader can weigh it. */
 export type StalenessRefSource = "associations" | "text";
@@ -154,13 +182,23 @@ export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
 
   const haystack = `${record.description ?? ""}\n${record.content}`;
   const refs: string[] = [];
-  for (const pattern of RETIREMENT_CLAUSE_PATTERNS) {
+
+  for (const pattern of SELF_ANCHORED_PATTERNS) {
     // Patterns are module-level and `g`-flagged, so lastIndex persists across calls.
     // Reset before each use rather than relying on exec-to-exhaustion.
     pattern.lastIndex = 0;
     for (const match of haystack.matchAll(pattern)) {
       const captured = match[1];
       if (captured) refs.push(captured.toLowerCase());
+    }
+  }
+
+  for (const pattern of CONDITIONAL_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (const match of haystack.matchAll(pattern)) {
+      const captured = match[1];
+      if (!captured) continue;
+      if (hasRetirementAnchor(haystack, match.index ?? 0)) refs.push(captured.toLowerCase());
     }
   }
 
@@ -232,6 +270,31 @@ function buildNote(completed: CompletedTrackingTask[]): string {
     `The structural fix it was written to bridge may already have shipped; verify before ` +
     `acting on its prescription.`
   );
+}
+
+/**
+ * Does the LINE containing `matchIndex` mark this clause as being about the memory's own
+ * lifetime?
+ *
+ * The whole line, not just what precedes the match: the anchor lands on either side in
+ * practice — *"bridge until mt#X ships"* puts it before, *"Once mt#X ships, delete this"*
+ * after. Checking only backwards would have silently dropped the second form, which is one
+ * of the canonical phrasings this module exists to catch.
+ *
+ * Bounded to the line (and to {@link ANCHOR_WINDOW_CHARS} either side) so that an anchor in
+ * an unrelated bullet cannot vouch for a clause in a different one. That containment is the
+ * whole point: the mem#96 false positive lived in a bulleted subtask list where a
+ * neighbouring line could easily have supplied a stray "bridge".
+ */
+function hasRetirementAnchor(haystack: string, matchIndex: number): boolean {
+  const lineStart = haystack.lastIndexOf("\n", matchIndex) + 1;
+  const lineEndRaw = haystack.indexOf("\n", matchIndex);
+  const lineEnd = lineEndRaw === -1 ? haystack.length : lineEndRaw;
+
+  const start = Math.max(lineStart, matchIndex - ANCHOR_WINDOW_CHARS);
+  const end = Math.min(lineEnd, matchIndex + ANCHOR_WINDOW_CHARS);
+
+  return RETIREMENT_ANCHOR.test(haystack.slice(start, end));
 }
 
 function dedupe(values: string[]): string[] {
