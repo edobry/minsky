@@ -39,9 +39,24 @@
  * `THRESHOLD_CHARS` is, and the routing is on the KEY'S PRESENCE so every mt#4365 dataset
  * still reaches the paths above byte-for-byte.
  *
+ * ## The third pre-registration this file carries (mt#4409, §SC2/SC3/SC5)
+ *
+ * Rows carrying `replicateIndex > 1` — two calls of one identical arm — select
+ * `replicateAnalysis` FIRST, before any other path, and the replicate rows are then set aside
+ * so every comparison below scores one call per arm as it always did. What it measures is the
+ * INSTRUMENT: agreement between two identical calls, chance-corrected, at both grains
+ * mem#1182 requires (conditional on joint acceptance, and per input attempted). Its paired
+ * mean difference is a negative control whose expected value is zero — an interval excluding
+ * zero means the arms were not identical and voids the run, rather than reporting an effect.
+ *
+ * The two SC5 dispositions it evaluates — kappa's interval including zero, and the noise
+ * interval being wider than the coverage MDE — are thresholds fixed in the task spec before
+ * this ran, for the same reason `THRESHOLD_CHARS` is fixed here.
+ *
  * Usage:
  *   bun scripts/analyze-field-compliance-run.ts .tmp/prereg-run.jsonl
  *   bun scripts/analyze-field-compliance-run.ts .tmp/mt4370-window.jsonl
+ *   bun scripts/analyze-field-compliance-run.ts .tmp/mt4409-replicate.jsonl
  */
 
 import { readFileSync } from "node:fs";
@@ -94,7 +109,8 @@ const COVERAGE_MDE_FINDINGS_PER_RUN = 0.29;
  */
 const COMPLIANCE_MDE_POINTS = 10;
 
-interface Row {
+/** Exported so a test can build a fixture row without restating the shape (mt#4409). */
+export interface Row {
   conversationId: string;
   arm: string;
   totalMessages: number;
@@ -120,6 +136,20 @@ interface Row {
   truncateChars?: number;
   /** Transcript characters delivered, excluding the prompt's fixed scaffolding (mt#4370). */
   transcriptChars?: number;
+  /** The registry arm this row's configuration came from (mt#4409); groups a replicate pair. */
+  armBase?: string;
+  /**
+   * Which call of a replicate group this row is, 1-based (mt#4409).
+   *
+   * OPTIONAL like `mode` and `truncateChars`, but the missing-key case is handled DIFFERENTLY
+   * and deliberately: absence here means the dataset predates replicates, and such a run made
+   * exactly one call per arm — so treating an absent key as `1` states a fact about those runs
+   * rather than assuming one. Contrast `truncateChars`, where defaulting an absent key to the
+   * control's value would have MANUFACTURED a dose the run never recorded (PR #3225 R2); the
+   * difference is that a dose is a configuration choice with alternatives, while "this is the
+   * first call" is the only thing a pre-replicate row can be.
+   */
+  replicateIndex?: number;
   outcome:
     | { kind: "ok"; findingCount: number; summaryChars: number; findingLabels?: string[] }
     | { kind: "schema-violation"; paths: string[]; message: string }
@@ -290,19 +320,7 @@ export function pairedBootstrapMeanDifferenceCI(
 ): [number, number] {
   const n = differences.length;
   if (n === 0) return [0, 0];
-  // Numerical Recipes' LCG constants. Any full-period generator does here — the requirement
-  // is reproducibility, not cryptographic or spectral quality.
-  let state = seed >>> 0;
-  const nextIndex = (): number => {
-    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
-    // HIGH bits, not `state % n`. The low bits of a power-of-two-modulus LCG have very short
-    // periods — bit k cycles with period 2^(k+1) — so `% n` inherits that whenever n shares a
-    // factor with a power of two. Caught by the narrows-as-n-grows test: at n=20, `% 20`
-    // carried a period-4 component that lined up with the fixture's own period-4 pattern and
-    // produced resample means far too alike, i.e. an interval that was tight because the
-    // generator was degenerate rather than because the data were.
-    return Math.floor((state / 0x1_0000_0000) * n);
-  };
+  const nextIndex = makeResampleIndexer(n, seed);
   const means: number[] = [];
   for (let b = 0; b < iterations; b++) {
     let acc = 0;
@@ -313,6 +331,119 @@ export function pairedBootstrapMeanDifferenceCI(
   const at = (q: number): number =>
     means[Math.max(0, Math.min(means.length - 1, Math.floor(q * (means.length - 1))))] ?? 0;
   return [at(0.025), at(0.975)];
+}
+
+/**
+ * A seeded with-replacement index generator, shared by every bootstrap in this file.
+ *
+ * Extracted (mt#4409) rather than copied: the `% n` trap below cost a real debugging round the
+ * first time, and a second bootstrap written from scratch would have been an even-odds chance
+ * of reintroducing it.
+ */
+function makeResampleIndexer(n: number, seed: number): () => number {
+  // Numerical Recipes' LCG constants. Any full-period generator does here — the requirement
+  // is reproducibility, not cryptographic or spectral quality.
+  let state = seed >>> 0;
+  return (): number => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    // HIGH bits, not `state % n`. The low bits of a power-of-two-modulus LCG have very short
+    // periods — bit k cycles with period 2^(k+1) — so `% n` inherits that whenever n shares a
+    // factor with a power of two. Caught by the narrows-as-n-grows test: at n=20, `% 20`
+    // carried a period-4 component that lined up with the fixture's own period-4 pattern and
+    // produced resample means far too alike, i.e. an interval that was tight because the
+    // generator was degenerate rather than because the data were.
+    return Math.floor((state / 0x1_0000_0000) * n);
+  };
+}
+
+/** A 2x2 agreement table between two raters on one binary label. */
+export interface AgreementCells {
+  bothYes: number;
+  onlyFirst: number;
+  onlySecond: number;
+  bothNo: number;
+}
+
+/** Tally a list of paired binary judgments into the 2x2 table above. */
+export function agreementCells(pairs: readonly (readonly [boolean, boolean])[]): AgreementCells {
+  const cells: AgreementCells = { bothYes: 0, onlyFirst: 0, onlySecond: 0, bothNo: 0 };
+  for (const [first, second] of pairs) {
+    if (first && second) cells.bothYes++;
+    else if (first) cells.onlyFirst++;
+    else if (second) cells.onlySecond++;
+    else cells.bothNo++;
+  }
+  return cells;
+}
+
+/**
+ * Cohen's kappa — agreement corrected for the agreement two independent raters would reach by
+ * chance alone (mt#4409). `null` when kappa is undefined.
+ *
+ * RAW agreement is unusable for this measurand and the reason is the whole point of the task.
+ * Finding-bearing runs were 3–9% of transcripts in mt#4370, so two calls that agree on
+ * nothing but the 91% of transcripts where neither finds anything still score ~90% raw
+ * agreement. Chance correction is what makes "the sets were fully disjoint" legible: the
+ * mt#4370 shape (0 shared, 8 and 22 of 250) scores kappa ≈ -0.05, i.e. very slightly WORSE
+ * than independent coin flips at those base rates.
+ *
+ * **The `null` case is real here, not defensive.** When neither call finds anything in the
+ * whole sample, expected agreement is 1 and kappa is 0/0. A rater that never says yes agrees
+ * perfectly with another that never says yes, and there is no evidence in that about whether
+ * they would agree on a positive — so returning `null` (reported as "undefined") is the honest
+ * answer, where returning 1 would claim perfect reliability from a sample containing no
+ * findings at all.
+ */
+export function cohensKappa(cells: AgreementCells): number | null {
+  const n = cells.bothYes + cells.onlyFirst + cells.onlySecond + cells.bothNo;
+  if (n === 0) return null;
+  const observedAgreement = (cells.bothYes + cells.bothNo) / n;
+  const firstYes = (cells.bothYes + cells.onlyFirst) / n;
+  const secondYes = (cells.bothYes + cells.onlySecond) / n;
+  const expectedAgreement = firstYes * secondYes + (1 - firstYes) * (1 - secondYes);
+  if (expectedAgreement >= 1) return null;
+  return (observedAgreement - expectedAgreement) / (1 - expectedAgreement);
+}
+
+/**
+ * Percentile bootstrap CI for Cohen's kappa, resampling TRANSCRIPTS with replacement.
+ *
+ * Bootstrapped rather than computed from the standard normal-approximation SE, because the
+ * positive cell here is tiny by construction — 8 of 250 at the control dose in mt#4370 — and
+ * that approximation is unreliable at those counts. It also matches the CI already used for
+ * the paired mean difference in this file, so the two intervals in one report are not built on
+ * different assumptions.
+ *
+ * `degenerateResamples` counts resamples where kappa came out undefined (a resample drawing no
+ * finding-bearing pair at all). Those are EXCLUDED from the interval and reported alongside it
+ * rather than silently dropped: a large count means the sample is too sparse for the interval
+ * to mean much, which is a fact about the measurement the reader needs.
+ */
+export function bootstrapKappaCI(
+  pairs: readonly (readonly [boolean, boolean])[],
+  seed = 20260822,
+  iterations = 10_000
+): { lo: number; hi: number; degenerateResamples: number } | null {
+  const n = pairs.length;
+  if (n === 0) return null;
+  const nextIndex = makeResampleIndexer(n, seed);
+  const kappas: number[] = [];
+  let degenerate = 0;
+  for (let b = 0; b < iterations; b++) {
+    const resample: (readonly [boolean, boolean])[] = [];
+    for (let i = 0; i < n; i++) {
+      const pick = pairs[nextIndex()];
+      if (pick) resample.push(pick);
+    }
+    const k = cohensKappa(agreementCells(resample));
+    if (k === null) degenerate++;
+    else kappas.push(k);
+  }
+  if (kappas.length === 0) return null;
+  kappas.sort((a, b) => a - b);
+  const at = (q: number): number =>
+    kappas[Math.max(0, Math.min(kappas.length - 1, Math.floor(q * (kappas.length - 1))))] ?? 0;
+  return { lo: at(0.025), hi: at(0.975), degenerateResamples: degenerate };
 }
 
 /**
@@ -344,6 +475,230 @@ function pct(x: number): string {
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// mt#4409 — the replicate arm
+// ---------------------------------------------------------------------------
+
+/**
+ * Rows from the FIRST call of each arm — the dataset every pre-mt#4409 analysis assumed.
+ *
+ * A row with no `replicateIndex` predates the field and was, necessarily, a first call. See
+ * the `Row.replicateIndex` doc for why defaulting is legitimate here and was not for the dose.
+ */
+export function selectPrimaryRows(rows: readonly Row[]): Row[] {
+  return rows.filter((r) => (r.replicateIndex ?? 1) === 1);
+}
+
+/** One transcript answered by both calls of a replicate pair. */
+export interface ReplicatePair {
+  conversationId: string;
+  first: Row;
+  second: Row;
+}
+
+export interface ReplicateGroup {
+  base: string;
+  armNames: [string, string];
+  pairs: ReplicatePair[];
+  /** Transcripts only one of the two calls produced a row for — dropped, never half-counted. */
+  incomplete: number;
+  /** Copies beyond the second, which this analysis does not score. Reported, not swallowed. */
+  unscoredCopies: string[];
+}
+
+/**
+ * Group rows into replicate pairs by `armBase`, scoring copies 1 and 2 of each group.
+ *
+ * Exported so the pairing is testable without driving the printing path — the decision here
+ * (which rows pair with which) is the part that can be wrong, and it should be observable as a
+ * return value rather than through a spy on `console.log`.
+ */
+export function replicateGroups(rows: readonly Row[]): ReplicateGroup[] {
+  const byBase = new Map<string, Row[]>();
+  for (const r of rows) {
+    const base = r.armBase ?? r.arm;
+    const bucket = byBase.get(base) ?? [];
+    bucket.push(r);
+    byBase.set(base, bucket);
+  }
+  const groups: ReplicateGroup[] = [];
+  for (const [base, baseRows] of byBase) {
+    const firsts = baseRows.filter((r) => (r.replicateIndex ?? 1) === 1);
+    const seconds = baseRows.filter((r) => r.replicateIndex === 2);
+    if (seconds.length === 0) continue;
+    const firstName = firsts[0]?.arm ?? base;
+    const secondName = seconds[0]?.arm ?? `${base}~2`;
+    const secondById = new Map(seconds.map((r) => [r.conversationId, r]));
+    const pairs: ReplicatePair[] = [];
+    let incomplete = 0;
+    for (const first of firsts) {
+      const second = secondById.get(first.conversationId);
+      if (!second) {
+        incomplete++;
+        continue;
+      }
+      pairs.push({ conversationId: first.conversationId, first, second });
+    }
+    incomplete += seconds.filter(
+      (r) => !firsts.some((f) => f.conversationId === r.conversationId)
+    ).length;
+    groups.push({
+      base,
+      armNames: [firstName, secondName],
+      pairs,
+      incomplete,
+      unscoredCopies: [
+        ...new Set(baseRows.filter((r) => (r.replicateIndex ?? 1) > 2).map((r) => r.arm)),
+      ],
+    });
+  }
+  return groups;
+}
+
+/** The instrument's own variance, for the dose analysis to print its effects against. */
+export interface NoiseFloor {
+  base: string;
+  grain: "conditional" | "attempt";
+  pairs: number;
+  meanDifference: number;
+  ci: [number, number];
+}
+
+const findingsDelivered = (r: Row): number =>
+  r.outcome.kind === "ok" ? r.outcome.findingCount : 0;
+const bearing = (r: Row): boolean => r.outcome.kind === "ok" && r.outcome.findingCount > 0;
+
+/**
+ * mt#4409's measurement: how much of an arm-to-arm difference is the instrument itself?
+ *
+ * Reported at BOTH grains, and both are pre-registered in the task spec BEFORE this ran —
+ * mem#1182's rule, from the run that produced this task. The conditional grain answers "given
+ * both calls succeeded, do they agree?"; the attempt grain scores a rejected call as zero
+ * delivered and answers "does the pipeline return the same thing twice?". mt#4370's two grains
+ * pointed opposite ways, and choosing between them after seeing the numbers is the forking
+ * path that record exists to prevent.
+ *
+ * The paired mean difference here is a NEGATIVE CONTROL, not a finding: two identical arms
+ * differ only by call-to-call nondeterminism, so its expected value is zero. An interval that
+ * excludes zero does not mean "the treatment worked" — there is no treatment. It means the two
+ * arms were not identical, and the run is void.
+ */
+function replicateAnalysis(rows: Row[], callErrorCount: number): NoiseFloor[] {
+  const groups = replicateGroups(rows);
+  if (groups.length === 0) return [];
+
+  console.log("=== mt#4409 REPLICATE ARM — the instrument's own noise floor ===");
+  console.log(`call errors excluded: ${callErrorCount}`);
+  console.log(
+    "Two arms, identical in every dimension, distinguished only by being a second call. " +
+      "Expected paired difference: ZERO."
+  );
+
+  const floors: NoiseFloor[] = [];
+  for (const group of groups) {
+    console.log("");
+    console.log(`base arm: ${group.base}   arms: ${group.armNames.join(" vs ")}`);
+    console.log(
+      `complete pairs: ${group.pairs.length}   incomplete (dropped): ${group.incomplete}`
+    );
+    if (group.unscoredCopies.length > 0) {
+      console.log(
+        `NOTE: copies beyond the second are NOT scored here: ${group.unscoredCopies.join(", ")}`
+      );
+    }
+
+    const grains: { name: "conditional" | "attempt"; pairs: ReplicatePair[]; gloss: string }[] = [
+      {
+        name: "conditional",
+        pairs: group.pairs.filter(
+          (p) => p.first.outcome.kind === "ok" && p.second.outcome.kind === "ok"
+        ),
+        gloss: "both calls accepted",
+      },
+      {
+        name: "attempt",
+        pairs: group.pairs,
+        gloss: "a rejected call scores zero delivered",
+      },
+    ];
+
+    for (const grain of grains) {
+      const judgments = grain.pairs.map(
+        (p) => [bearing(p.first), bearing(p.second)] as readonly [boolean, boolean]
+      );
+      const cells = agreementCells(judgments);
+      const n = grain.pairs.length;
+      console.log("");
+      console.log(`-- ${grain.name.toUpperCase()} grain (${grain.gloss}) — ${n} pairs --`);
+      if (n === 0) {
+        console.log("no pairs at this grain; nothing to report");
+        continue;
+      }
+      console.log(
+        `finding-bearing: both ${cells.bothYes}, only ${group.armNames[0]} ${cells.onlyFirst}, ` +
+          `only ${group.armNames[1]} ${cells.onlySecond}, neither ${cells.bothNo}`
+      );
+      console.log(`raw agreement: ${pct((cells.bothYes + cells.bothNo) / n)}`);
+      const kappa = cohensKappa(cells);
+      const kappaCI = bootstrapKappaCI(judgments);
+      if (kappa === null) {
+        console.log(
+          "Cohen's kappa: UNDEFINED — no pair at this grain was finding-bearing for either " +
+            "call, so chance agreement is 1. Raw agreement above is not evidence of reliability."
+        );
+      } else {
+        console.log(
+          `Cohen's kappa: ${kappa.toFixed(3)}${
+            kappaCI === null
+              ? "  (no interval: bootstrap produced no defined resample)"
+              : `  (95% bootstrap CI ${kappaCI.lo.toFixed(3)} to ${kappaCI.hi.toFixed(3)}` +
+                `${kappaCI.degenerateResamples > 0 ? `, ${kappaCI.degenerateResamples} degenerate resamples` : ""})`
+          }`
+        );
+      }
+
+      const differences = grain.pairs.map(
+        (p) => findingsDelivered(p.first) - findingsDelivered(p.second)
+      );
+      const meanDifference = differences.reduce((acc, d) => acc + d, 0) / n;
+      const [lo, hi] = pairedBootstrapMeanDifferenceCI(differences);
+      console.log(
+        `paired difference in findings/run: ${meanDifference >= 0 ? "+" : ""}` +
+          `${meanDifference.toFixed(4)} (95% CI ${lo.toFixed(4)} to ${hi.toFixed(4)})`
+      );
+      const bracketsZero = lo <= 0 && hi >= 0;
+      console.log(
+        bracketsZero
+          ? "  >>> CI brackets zero — the pair behaves as a replicate, as it must."
+          : "  >>> VOID: the CI EXCLUDES zero. Two identical arms cannot differ systematically, " +
+              "so the arms were not identical — do not read any effect from this run."
+      );
+      floors.push({ base: group.base, grain: grain.name, pairs: n, meanDifference, ci: [lo, hi] });
+
+      // SC5's two triggers, evaluated against the thresholds the task spec pre-registered
+      // BEFORE this run. Printed as booleans so the disposition is read off the output rather
+      // than argued for afterwards.
+      const kappaCIIncludesZero = kappaCI !== null && kappaCI.lo <= 0 && kappaCI.hi >= 0;
+      const width = hi - lo;
+      console.log(
+        `  SC5 condition A (kappa CI includes zero): ${
+          kappa === null
+            ? "FIRES — kappa is undefined, which is not distinguishable from independence"
+            : kappaCIIncludesZero
+              ? "FIRES"
+              : "does not fire"
+        }`
+      );
+      console.log(
+        `  SC5 condition B (noise interval width ${width.toFixed(4)} > the ` +
+          `${COVERAGE_MDE_FINDINGS_PER_RUN} MDE): ${width > COVERAGE_MDE_FINDINGS_PER_RUN ? "FIRES" : "does not fire"}`
+      );
+    }
+  }
+  console.log("");
+  return floors;
+}
 
 /**
  * mt#4365 Run 2: the PRE-REGISTERED paired comparison of two arms over the same transcripts.
@@ -516,7 +871,11 @@ function pairedAnalysis(rows: Row[], callErrorCount: number, arms: string[]): vo
  * - **Compliance** (schema-violation rate) is what the dose BUYS, and mt#4365 already
  *   established the mechanism it works through.
  */
-function doseResponseAnalysis(rows: Row[], callErrorCount: number): void {
+function doseResponseAnalysis(
+  rows: Row[],
+  callErrorCount: number,
+  noiseFloors: readonly NoiseFloor[] = []
+): void {
   // Descending, so the control (the largest, least-truncated dose) reads first everywhere.
   // Rows WITHOUT the key are dropped, not defaulted (PR #3225 R2). `?? CONTROL_TRUNCATE_CHARS`
   // manufactures a dose for a row that records none, and a fabricated control row is worse
@@ -544,16 +903,54 @@ function doseResponseAnalysis(rows: Row[], callErrorCount: number): void {
     process.exit(2);
   }
 
+  // Keyed by DOSE, which is why a replicate arm cannot be fed to this function: its twin
+  // shares its dose, so the second row would overwrite the first and half the data would
+  // vanish with nothing to notice — the output would read as an ordinary three-dose run
+  // (mt#4409). `main` passes primaries only; this guard makes the requirement structural
+  // rather than a convention the next caller has to know, and fails LOUDLY the way the
+  // missing-control-dose check below does.
   const byConversation = new Map<string, Map<number, Row>>();
   for (const r of dosed) {
     const dose = r.truncateChars as number;
     if (!byConversation.has(r.conversationId)) byConversation.set(r.conversationId, new Map());
-    byConversation.get(r.conversationId)?.set(dose, r);
+    const forConversation = byConversation.get(r.conversationId);
+    const existing = forConversation?.get(dose);
+    if (existing) {
+      console.error(
+        `Dose-response analysis received TWO rows for conversation ${r.conversationId} at ` +
+          `dose ${dose}: arms "${existing.arm}" and "${r.arm}". Keying by dose would silently ` +
+          `drop one. Pass only primary rows (selectPrimaryRows) and score replicates with ` +
+          `replicateAnalysis.`
+      );
+      process.exit(2);
+    }
+    forConversation?.set(dose, r);
   }
   // Only transcripts every dose answered can form a tuple, for the same reason mt#4365 drops
   // a half-answered pair: a transcript one dose failed to reach is not evidence about it.
   const tuples = [...byConversation.values()].filter((m) => doses.every((d) => m.has(d)));
   const incomplete = byConversation.size - tuples.length;
+
+  // SC3: the dose effect is printed next to the instrument's own variance, so a reader can
+  // see whether an effect exceeds it without holding two reports side by side. Absent when the
+  // run carried no replicate arm — and its ABSENCE is stated, because "no noise floor was
+  // measured" and "the noise floor is small" are opposite things and must not read alike.
+  if (noiseFloors.length === 0) {
+    console.log(
+      "NOISE FLOOR: not measured — this run carried no replicate arm, so every coverage " +
+        "difference below has an UNKNOWN noise floor (mt#4409). Re-run with --replicate 2."
+    );
+  } else {
+    for (const floor of noiseFloors) {
+      console.log(
+        `NOISE FLOOR (${floor.base}, ${floor.grain} grain, ${floor.pairs} replicate pairs): ` +
+          `paired difference ${floor.meanDifference >= 0 ? "+" : ""}${floor.meanDifference.toFixed(4)} ` +
+          `(95% CI ${floor.ci[0].toFixed(4)} to ${floor.ci[1].toFixed(4)}). An effect whose ` +
+          `interval sits inside this one is not distinguishable from call-to-call variance.`
+      );
+    }
+  }
+  console.log("");
 
   const failed = (r: Row | undefined): boolean => r?.outcome.kind === "schema-violation";
   const findingsOf = (r: Row | undefined): number =>
@@ -809,7 +1206,23 @@ function main(): void {
   // A call error is a provider/transport failure and says nothing about whether the model
   // complied with the schema. Counting it as a violation inflates the very rate under test.
   const callErrors = rows.filter((r) => r.outcome.kind === "call-error");
-  const analyzed = rows.filter((r) => r.outcome.kind !== "call-error");
+  const allAnalyzed = rows.filter((r) => r.outcome.kind !== "call-error");
+
+  // mt#4409: replicate rows are scored FIRST, on the full set, and then set aside. Every
+  // analysis below this line assumes ONE row per arm per conversation — the dose map and the
+  // paired map both key on that, and the single-arm path treats a repeated conversation id as
+  // a harness bug. Narrowing here rather than inside each of them means a future analysis
+  // inherits the correct dataset by default instead of having to remember.
+  const noiseFloors = replicateAnalysis(allAnalyzed, callErrors.length);
+  const analyzed = selectPrimaryRows(allAnalyzed);
+  if (analyzed.length !== allAnalyzed.length) {
+    console.log(
+      `NOTE: ${allAnalyzed.length - analyzed.length} replicate rows scored in the section ` +
+        `above are EXCLUDED from the analyses below, which compare configurations rather than ` +
+        `calls. They are not lost; they are the noise floor.`
+    );
+    console.log("");
+  }
 
   // Routed on the DOSE dimension before the arm count, and on PRESENCE of `truncateChars`
   // rather than on its value (the `mode` lesson: an absent key means the dataset predates the
@@ -820,7 +1233,7 @@ function main(): void {
     ...new Set(analyzed.filter((r) => "truncateChars" in r).map((r) => r.truncateChars)),
   ];
   if (doses.length > 1) {
-    doseResponseAnalysis(analyzed, callErrors.length);
+    doseResponseAnalysis(analyzed, callErrors.length, noiseFloors);
     return;
   }
 
