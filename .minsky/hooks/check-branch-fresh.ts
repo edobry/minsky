@@ -1096,7 +1096,19 @@ export function formatBlockMessage(
   lines.push("  2. REVIEW the overlapping files above for a sibling fix that subsumes this work.");
   lines.push("  3. If a sibling PR already fixed the same issue, consider closing this one.");
   lines.push("");
-  lines.push("Emergency override: set MINSKY_SKIP_FRESHNESS=1 in your environment and retry.");
+  // Plain "Override:", matching the house form used by the other 23 override
+  // lines in this tree (mt#4416). This one used to open with an alarm word, and
+  // was the only one that did — for a routine, audit-logged escape hatch listed
+  // alongside a dozen peers in `hook-files.mdc`. It cost a real false alarm: the
+  // principal saw the string in unrelated grep output and asked whether
+  // something had actually gone wrong. Nothing had; the guard had not even
+  // fired. Same scarcity argument `docs/design-system.md` §5.1 makes for red —
+  // an alarm word spent on a non-alarm stops being a signal.
+  //
+  // The literal old text is deliberately not quoted here: the acceptance grep
+  // for it should stay a clean zero, and a comment naming it would keep the
+  // phrase alive in the tree it was removed from.
+  lines.push("Override: set MINSKY_SKIP_FRESHNESS=1 in your environment and retry.");
   lines.push("  (The override is audit-logged.)");
 
   return lines.join("\n");
