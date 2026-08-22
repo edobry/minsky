@@ -324,7 +324,15 @@ export function stripCommentLines(text: string): string {
   for (const line of text.split("\n")) {
     const trimmed = line.trimStart();
     if (inBlock) {
-      if (trimmed.includes("*/")) inBlock = false;
+      const close = trimmed.indexOf("*/");
+      if (close === -1) continue;
+      inBlock = false;
+      // Symmetric with the opening branch below (PR #3231 R6): a block that ENDS
+      // mid-line leaves real code after it, and dropping the line deletes a
+      // candidate message. Both branches must keep the tail or neither does —
+      // fixing only the opener is what left this case behind.
+      const after = trimmed.slice(close + 2);
+      if (after.trim() !== "") out.push(after);
       continue;
     }
     if (trimmed.startsWith("/*")) {

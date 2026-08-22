@@ -747,6 +747,8 @@ describe("staleOccurrences (mt#4399)", () => {
 
 /** A line of ordinary code the comment stripper must never drop. */
 const KEPT_CODE_LINE = 'const a = "kept";';
+/** A message literal that must survive stripping AND remain extractable afterwards. */
+const SURVIVING_LITERAL = "a retired message string";
 
 describe("PR #3231 review fixes", () => {
   test("R1 — a failed search is SKIPPED, never clean", () => {
@@ -799,15 +801,32 @@ describe("PR #3231 review fixes", () => {
     expect(stripped).toContain("* still code");
   });
 
+  test("R7 — a MULTI-LINE block closing mid-line keeps the code after it too", () => {
+    // The symmetric half of R6, and the one fixing only the opener left behind:
+    // here the block was opened on an earlier line, so the close is handled by
+    // the in-block branch. Both branches must keep the tail or neither does.
+    const src = ["/* start", ` more comment */ const m = "${SURVIVING_LITERAL}";`].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("more comment");
+    expect(quotedLiterals(stripped)).toContain(SURVIVING_LITERAL);
+  });
+
+  test("R7 — a multi-line block with NOTHING after the close still drops the line", () => {
+    const src = ["/* start", " more comment */", KEPT_CODE_LINE].join("\n");
+    const stripped = stripCommentLines(src);
+    expect(stripped).not.toContain("more comment");
+    expect(stripped).toContain("kept");
+  });
+
   test("R6 — a block that closes MID-LINE keeps the code after it", () => {
     // Dropping the whole line would delete real code: the comment is a PREFIX,
     // not the line. That matters here because the surviving text is exactly what
     // the literal extractor reads.
-    const stripped = stripCommentLines('/* note */ const m = "a retired message string";');
+    const stripped = stripCommentLines(`/* note */ const m = "${SURVIVING_LITERAL}";`);
     expect(stripped).not.toContain("note");
-    expect(stripped).toContain("a retired message string");
+    expect(stripped).toContain(SURVIVING_LITERAL);
     // And the literal must still be extractable from what survives.
-    expect(quotedLiterals(stripped)).toContain("a retired message string");
+    expect(quotedLiterals(stripped)).toContain(SURVIVING_LITERAL);
   });
 });
 
