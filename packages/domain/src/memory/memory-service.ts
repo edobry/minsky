@@ -20,6 +20,7 @@ import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
+import { computeStaleness, extractTrackingTaskRefs } from "./staleness";
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -106,6 +107,23 @@ export interface MemoryServiceDeps {
   db: MemoryServiceDb;
   vectorStorage: VectorStorage;
   embeddingService: EmbeddingService;
+  /**
+   * Batched task-status lookup used to decide whether a memory's own retirement clause has
+   * already been met (mt#1709). Given task ids, return a map from id to current status;
+   * omit an id (or map it to `undefined`) when it cannot be resolved — that is reported as
+   * `unresolved`, never as "nothing is stale".
+   *
+   * An injected callback rather than a `TaskServiceInterface` for two reasons. It keeps the
+   * detection path testable without standing up a task service, matching
+   * `../tasks/spec-freshness.ts`'s injected-lookup shape; and it keeps the memory domain
+   * from taking a hard dependency on the tasks domain for what is a read-time annotation.
+   *
+   * OPTIONAL by design: every existing construction site keeps working untouched, and a
+   * MemoryService built without it simply returns unannotated results. Degrading to "no
+   * annotation" is the correct failure here — a staleness banner is an enhancement to a
+   * search result, never a precondition for returning one.
+   */
+  taskStatusLookup?: (taskIds: string[]) => Promise<ReadonlyMap<string, string | undefined>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -664,10 +682,52 @@ export class MemoryService implements MemoryServiceSurface {
       }
     }
 
+    // Read-time staleness annotation (mt#1709). Mutates only the response, never the row.
+    await this.annotateStaleness(results);
+
     // Access tracking: bump non-blocking (fire-and-forget).
     this.bumpAccessCount(results.map((r) => r.record.id));
 
     return { results, backend: "embeddings", degraded: false };
+  }
+
+  /**
+   * Attach a staleness verdict to each result whose record declares a retirement clause
+   * (mt#1709). Mutates `results` in place; the stored rows are untouched.
+   *
+   * ONE lookup for the whole result set, not one per result: the refs from every record are
+   * unioned before the single `taskStatusLookup` call, so a K=10 search costs one query
+   * rather than ten (`efficient-database-queries`).
+   *
+   * Fail-open, and deliberately so — a search that returns unannotated results is strictly
+   * better than a search that throws. But note the asymmetry this creates: a lookup failure
+   * is indistinguishable from "no memory declared a clause", both being silent. That is
+   * acceptable HERE because the annotation is additive; it would not be acceptable for a
+   * check whose silence reads as a pass, which is exactly why `computeStaleness` reports
+   * `unresolved` separately from `current` one level down.
+   */
+  private async annotateStaleness(results: MemorySearchResult[]): Promise<void> {
+    const lookup = this.deps.taskStatusLookup;
+    if (!lookup || results.length === 0) return;
+
+    const perResult = results.map((r) => extractTrackingTaskRefs(r.record));
+    const allRefs = [...new Set(perResult.flatMap((p) => p.refs))];
+    if (allRefs.length === 0) return;
+
+    let statuses: ReadonlyMap<string, string | undefined>;
+    try {
+      statuses = await lookup(allRefs);
+    } catch (err) {
+      log.warn("[memory.search] Staleness lookup failed; returning unannotated results", { err });
+      return;
+    }
+
+    for (const [i, result] of results.entries()) {
+      const extracted = perResult[i];
+      if (!extracted) continue;
+      const staleness = computeStaleness(extracted.refs, extracted.source, statuses);
+      if (staleness) result.staleness = staleness;
+    }
   }
 
   // -------------------------------------------------------------------------

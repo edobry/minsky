@@ -8,6 +8,8 @@
  * @see mt#1012 Memory Phase 1 spec
  */
 
+import type { MemoryStaleness } from "./staleness";
+
 // --- Enum-like constants ---
 
 /**
@@ -138,6 +140,16 @@ export interface MemoryUpdateInput {
 export interface MemorySearchResult {
   record: MemoryRecord;
   score: number;
+  /**
+   * Read-time staleness verdict (mt#1709). Present only when the record declares a
+   * retirement clause ("Budget: retire when mt#X ships", "Tracking task: mt#X", …) or
+   * carries a `tracksTask` association — which is the small minority of records, hence
+   * optional rather than an always-present "current".
+   *
+   * COMPUTED PER RESPONSE, never persisted: the stored record is not mutated, so the
+   * verdict cannot itself go stale.
+   */
+  staleness?: MemoryStaleness;
 }
 
 /**
