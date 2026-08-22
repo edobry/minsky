@@ -169,6 +169,30 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     }
   });
 
+  test("sweepLiveness's nested field set and types match the fixture (mt#4384)", async () => {
+    // PR #3240 R1: `.fields.sweepLiveness = "object"` pins that the block EXISTS and
+    // is an object; it cannot catch a field added, removed or retyped INSIDE it. That
+    // is the same cannot-see-it shape this whole task is about — a surface that does
+    // not look at the layer holding the answer — so the block gets the same nested
+    // pin `transcriptWatcher` already has.
+    const parsed = healthShapeFixtureJson as unknown as {
+      sweepLivenessFields: Record<string, string>;
+    };
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as { sweepLiveness: Record<string, unknown> };
+
+    expect(Object.keys(body.sweepLiveness).sort()).toEqual(
+      Object.keys(parsed.sweepLivenessFields).sort()
+    );
+    for (const [field, expectedType] of Object.entries(parsed.sweepLivenessFields)) {
+      expect(body.sweepLiveness).toHaveProperty(field);
+      expect(typeOf(body.sweepLiveness[field])).toBe(expectedType);
+    }
+  });
+
   test("activeSessions is bounded by the live window, not the registry size", async () => {
     // The exact shape of the defect: a large registry of sessions the watcher
     // knows about but has seen no recent activity in. Pre-mt#3857 all of these
