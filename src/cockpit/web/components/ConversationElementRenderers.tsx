@@ -89,7 +89,7 @@ import { friendlyToolName, parseToolName } from "../lib/tool-name";
 import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
-import type { InjectedSpan } from "../lib/injected-content";
+import type { InjectedSpan, TaskNotificationParts } from "../lib/injected-content";
 import { isApiErrorText } from "../lib/conversation-outcome";
 import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
@@ -673,14 +673,137 @@ export function InjectedContentBlock({
           ({span.content.length.toLocaleString()} chars)
         </span>
       </button>
-      {open && (
-        <div className="border-t border-border/40 px-2 py-1">
+      {open &&
+        (span.notification !== undefined ? (
+          // No padding on the wrapper: the structured body pads its own rows,
+          // exactly as ToolInvocation's expanded branch does.
+          <div className="border-t border-border/40">
+            <TaskNotificationBody
+              span={span}
+              parts={span.notification}
+              entityIndex={entityIndex}
+            />
+          </div>
+        ) : (
+          <div className="border-t border-border/40 px-2 py-1">
+            <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+              {span.content}
+            </Prose>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * A background-task notification's body, rendered as the deferred TOOL RESULT
+ * it is (mt#4419).
+ *
+ * When the harness backgrounds a slow MCP call it returns the tool's entire
+ * JSON payload later, wrapped in a `<task-notification>` turn. That payload is
+ * the same shape an INLINE tool result carries, and the cockpit has rendered
+ * inline results as an entity-aware collapsible tree since mt#2552 — with an
+ * optional per-tool renderer keyed on the bare tool name. Only the DEFERRED
+ * copy came through the injected-content path, which prints its body verbatim,
+ * so one kind of content had two renderings and the operator met the worse one
+ * precisely when a call had taken long enough to be backgrounded.
+ *
+ * Three things keep this from losing information the prose path preserved:
+ *
+ *   - The payload goes to `ToolPayload` unconditionally, which dispatches JSON
+ *     to the tree and everything else to a `<pre>`. So a non-JSON result is
+ *     still shown as its own text, rather than as the envelope markup around it.
+ *   - Anything the envelope carried that the parse did not model comes through
+ *     as `remainder` and renders beneath — mt#2791's demote-never-drop contract
+ *     survives a structured view that has no slot for a future tag.
+ *   - A body the parse can make nothing of at all falls back to the exact prose
+ *     rendering shipped before, so an unanticipated shape degrades to "shown
+ *     verbatim" rather than to blank.
+ */
+function TaskNotificationBody({
+  span,
+  parts,
+  entityIndex,
+}: {
+  span: InjectedSpan;
+  parts: TaskNotificationParts;
+  entityIndex: EntityIndex;
+}) {
+  // PR #3245 R1. This used to gate the whole structured view on the payload
+  // parsing as JSON, and fall back to `span.content` — the ENTIRE decoded body,
+  // envelope tags and all — otherwise. The reviewer was right that this
+  // reintroduced the exact defect the task exists to fix, on the one path where
+  // nobody would look: a tool returning a non-JSON result still rendered
+  // `<task-id>…</task-id>` at the operator.
+  //
+  // The gate was also unnecessary. `ToolPayload` ALREADY dispatches on the same
+  // question and renders non-JSON as a <pre> — so asking `classifyToolPayload`
+  // here only to route around `ToolPayload` was duplicating its dispatch in
+  // order to do something worse with the answer. Handing it the payload
+  // unconditionally is both the fix and a deletion.
+  const hasStructure =
+    parts.taskId !== null ||
+    parts.status !== null ||
+    parts.summary !== null ||
+    parts.result !== null ||
+    parts.remainder !== null;
+
+  // The floor, for a body the parse could make nothing of at all — reachable
+  // only by a degenerate envelope of empty modelled tags (`<status></status>`),
+  // since anything else leaves at least a remainder. It exists so an
+  // unanticipated shape degrades to "shown verbatim", never to blank.
+  if (!hasStructure) {
+    return (
+      <div className="px-2 py-1">
+        <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+          {span.content}
+        </Prose>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {(parts.taskId !== null || parts.status !== null) && (
+        <div className="flex items-baseline gap-2 px-2 pt-1 text-[10px] text-muted-foreground/60">
+          {parts.taskId !== null && (
+            <>
+              <span className="uppercase tracking-wide">task</span>
+              <span className="font-mono">{parts.taskId}</span>
+            </>
+          )}
+          {parts.status !== null && <span className="ml-auto">{parts.status}</span>}
+        </div>
+      )}
+      {parts.result !== null && (
+        <>
+          <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+            result
+          </div>
+          {/* Handed over unconditionally: `ToolPayload` dispatches JSON to the
+              tree and everything else to a <pre>, so a non-JSON payload still
+              renders as its own text rather than as envelope markup.
+
+              `toolName` is the BARE name parsed from the summary, which is the
+              form ToolPayload's Tier-3 registry is keyed on — so a renderer
+              registered for this tool applies to its deferred result exactly as
+              it does to an inline one. */}
+          <ToolPayload
+            value={parts.result}
+            toolName={parts.toolName ?? undefined}
+            entityIndex={entityIndex}
+            className="border-border/40 text-foreground/70"
+          />
+        </>
+      )}
+      {parts.remainder !== null && (
+        <div className="px-2 py-1">
           <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
-            {span.content}
+            {parts.remainder}
           </Prose>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
