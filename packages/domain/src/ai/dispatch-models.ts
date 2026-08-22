@@ -91,11 +91,22 @@ export function dispatchModelLabelForCanonicalId(canonicalId: string): string | 
  * The harness-generated retry sentinel Claude Code records in place of a real
  * model (mt#3260). Never a tier, and never rendered as one.
  *
- * Mirrors `SYNTHETIC_MODEL_SENTINEL` in `../subagent/transcript-metrics.ts` and
- * the copy in `src/cockpit/web/components/ConversationTurnView.tsx`; declared
- * here so {@link modelTierLabel} can reject it without importing either.
+ * **This is the one declaration of the literal (mt#4237).** It was hand-copied
+ * into three modules until then, with nothing checking they agreed — and the
+ * drift would have been silent in both directions: a module still holding the
+ * old spelling does not throw, it just stops recognizing retry turns, so
+ * {@link modelTierLabel} would hand a harness retry a tier and the cockpit
+ * would render it as though a model spoke.
+ *
+ * It lives HERE rather than in `packages/shared` — where cross-boundary facts
+ * normally go — because this module's "no imports" property (see the file
+ * docblock) is load-bearing, and consuming the constant from anywhere else
+ * would force an import and break it. Everything else imports from here:
+ * `../subagent/transcript-metrics.ts`, `../transcripts/agent-transcript-ingest-service.ts`,
+ * and the cockpit web tree, which may because `@minsky/domain/ai/dispatch-models`
+ * is on `eslint.config.js`'s cockpit import allowlist.
  */
-const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
+export const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
 
 /**
  * TIER label for an arbitrary recorded model id — `"claude-opus-5"` → `"Opus"`.
