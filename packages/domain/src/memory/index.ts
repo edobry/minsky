@@ -21,3 +21,18 @@ export { MemoryService, getMemoryRecordById, getMemoryRefSummary } from "./memor
 export type { MemoryServiceDeps, MemoryServiceDb, MemoryServiceSurface } from "./memory-service";
 export { checkDerivation } from "./validation";
 export type { DerivationIssue } from "./validation";
+
+// Read-time staleness annotation (mt#1709).
+export {
+  computeStaleness,
+  extractTrackingTaskRefs,
+  renderStalenessNote,
+  TRACKS_TASK_ASSOCIATION,
+} from "./staleness";
+export type {
+  MemoryStaleness,
+  StalenessOutcome,
+  StalenessRefSource,
+  CompletedTrackingTask,
+} from "./staleness";
+export { createTaskStatusLookup } from "./task-status-lookup";
