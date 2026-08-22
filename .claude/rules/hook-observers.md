@@ -71,9 +71,16 @@ Detail: `guard-dispatcher-framework.md`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens already in an active task's spec that its duplicate-check record does not concede. Exact substring, no similarity metric (mem#819). Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`. Detail: `duplicate-signature-scan.md`.
 - **Stale-signal sweep** (mt#3959) — `session_pr_create` on a branch that STOPPED emitting an operator-facing `<label>=` while active specs, memories or ADRs still quote it. Calibration-first. `MINSKY_SKIP_STALE_SIGNAL_SWEEP`. Detail: `stale-signal-sweep.md`.
 - **Unrendered-result-field scan** (mt#3913) — `session_pr_create` on a branch adding a counter/flag to a `*Result` type that no output site renders. **A log call is not a render site.** Calibration-first. `MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN`. Detail: `unrendered-result-field-scan.md`.
-- **Enumeration-scope check** (mt#4171) — `session_pr_create` changing a serialized contract with
-  no `docs/` sweep; a SUBTREE is not its directory. At `pr`, not ADR-042's READY seam (mt#4293).
-  Calibration-first. `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
+- **Enumeration-scope check** (mt#4171) — TWO rows now, and the second is the one that fires. Row 1:
+  `session_pr_create` changing a serialized contract with no `docs/` sweep; a SUBTREE is not its
+  directory. Row 2 (mt#4399): a session that REPLACED a message literal whose wording still renders
+  in files the sweep never reached — the inverse direction, since row 1 can only see "swept code,
+  missed docs" and PR #3219 was "swept docs, missed code". Its prescribed set is DERIVED from the
+  change (the clauses removed, searched with `git grep -F`), not asserted as a constant, so it can
+  name `src`/`packages` where row 1 deliberately would not. Row 1 decided 0 of 86 live invocations;
+  replayed over 1,124 windows the two together decide 29.7% against row 1's 1.2%. At `pr`, not
+  ADR-042's READY seam (mt#4293). Calibration-first.
+  `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
 - **Gate-walk provenance** (mt#1880) — `session_pr_merge` on a task with no `task.status_changed`
   → READY row: was it gated at ALL? The existence half of the pair above, at the only seam
   mem#416's four bypass paths share. `skipped` (pre-horizon, unreadable) is kept strictly apart
