@@ -35,6 +35,60 @@ export function isInsideGitWorkTree(startDir: string): boolean {
 }
 
 /**
+ * mt#4342: does this process hold the capability that DEFINES a local (as
+ * opposed to hosted) MCP server — a usable `git` AND a work tree to use it on?
+ *
+ * ## Why BOTH signals
+ *
+ * `src/cli-discriminators.ts`'s `isHostedMcpServer` consumes this to decide
+ * whether to enter hosted mode, and that decision must fail CLOSED:
+ * `docs/architecture/hosted-vs-local-mcp-capabilities.md` (mt#1601) records that
+ * "a false _allow_ reaches the raw `git: not found`, the exact bad UX this guard
+ * removes; a false _block_ only returns a clean 'use the local server' message."
+ *
+ * The hosted image fails each signal independently, so neither is load-bearing
+ * alone: `.dockerignore` excludes `.git` from the build context and the root
+ * `Dockerfile` COPYs only named source paths, so there is no work tree; and
+ * nothing installs a git binary (the runtime-git removal being the deliberate
+ * bundling decision `docs/architecture/bundling.md` records). An image that
+ * later gained `git` would still classify hosted, having no work tree.
+ *
+ * ## Why it lives here rather than beside the predicate
+ *
+ * It delegates the work-tree half to {@link isInsideGitWorkTree}, which already
+ * ASCENDS to find `.git` and already counts the worktree/submodule file form.
+ * PR #3233 R1 (BLOCKING) caught the first draft checking only `<repoPath>/.git`
+ * — a server started from a subdirectory of a repo was misclassified hosted,
+ * which is the same defect class mt#4342 exists to fix, one level in.
+ *
+ * `cli-discriminators.ts` is deliberately light (`cli.ts` imports it at
+ * preAction to SKIP eager DI init, and cold start is measured by
+ * `scripts/measure-mcp-start-cold-start.ts`), so it must not pull this module's
+ * `@minsky/shared/exec` and error-template imports. Hence: pure predicate there,
+ * capability probe here, composed at the `start-command.ts` call site.
+ */
+export function hasLocalGitCapability(
+  startDir: string,
+  deps: {
+    whichGit?: (cmd: string) => string | null;
+    insideWorkTree?: (dir: string) => boolean;
+  } = {}
+): boolean {
+  const whichGit = deps.whichGit ?? ((cmd: string) => Bun.which(cmd));
+  const insideWorkTree = deps.insideWorkTree ?? isInsideGitWorkTree;
+  try {
+    if (whichGit("git") === null) return false;
+    return insideWorkTree(startDir);
+  } catch {
+    // intentional-swallow: a probe that cannot complete must not WIDEN the
+    // guard. Failing closed classifies the server hosted, which costs a clean
+    // "use the local server" message; the opposite error reaches the raw
+    // `git: not found` the guard exists to remove.
+    return false;
+  }
+}
+
+/**
  * Enhanced git execution options
  */
 export interface GitExecOptions {

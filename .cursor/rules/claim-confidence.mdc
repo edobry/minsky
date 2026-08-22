@@ -103,7 +103,14 @@ zero either way; the feature existed, and the principal was watching it render w
 ran. **The falsifier for a rendered behaviour is a rendering** — a screenshot, an image search,
 a user describing what they see. And when the primary artifact sits on the principal's side of a
 boundary you cannot cross, HE is a first-tier channel rather than the audience for the answer:
-`principal-context.mdc §What Eugene can see`.
+`principal-context.mdc §What Eugene can see`. And the same question runs one step further, past
+perception to the RANKING axis (mt#4268): an embedding index orders by MEANING, and an identifier's
+meaning is not its spelling, so a semantic search for a code token, config key, error string or
+column name returns a full, plausible set of neighbours while missing the exact match. Here the
+trap is non-silence. Every view above returns LESS than its source, which trains the tell to be
+"something is missing" — so **a full result set of near-misses with no direct hit** is the shape to
+learn, and it is evidence the INSTRUMENT was wrong rather than that nothing owns the subject. When
+the subject is an identifier the falsifier is an EXACT search: substring or grep over the corpus.
 
 **The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
 Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
