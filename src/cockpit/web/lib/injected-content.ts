@@ -242,6 +242,14 @@ function firstTagText(body: string, tag: string): string | null {
  * character half behind the disclosure, so the only way to learn WHICH task
  * finished was to open a wall of JSON. The summary is what the reader wants and
  * the harness has already written it.
+ *
+ * **`body` is the UNDECODED block (PR #3239 R1).** Entity decoding must not run
+ * before this function, because it manufactures tags: a `<result>` payload
+ * carrying the literal text `&lt;summary&gt;…&lt;/summary&gt;` — which is how a
+ * commit message quoting an XML tag arrives — decodes into a REAL `<summary>`
+ * element that `firstTagText` cannot tell from the envelope's own. Structure is
+ * read from the raw body, where the envelope's tags are the only real ones; only
+ * the extracted leaf text is decoded, below.
  */
 function taskNotificationLabel(body: string): string {
   const summary = firstTagText(body, "summary");
@@ -252,10 +260,17 @@ function taskNotificationLabel(body: string): string {
   // NOT already carry it — which is precisely the case a reader most needs to
   // see, a task that ended some other way.
   const status = firstTagText(body, "status");
+
+  // Decode the LEAVES, after the structure has been read from the raw body.
+  // A summary is prose the harness escaped on its way into an XML-shaped
+  // envelope; the row should show the characters it encodes.
+  const summaryText = decodeHarnessEntities(summary);
+  const statusText = status === null ? null : decodeHarnessEntities(status);
+
   const headline =
-    status !== null && !summary.toLowerCase().includes(status.toLowerCase())
-      ? `${summary} (${status})`
-      : summary;
+    statusText !== null && !summaryText.toLowerCase().includes(statusText.toLowerCase())
+      ? `${summaryText} (${statusText})`
+      : summaryText;
 
   // Truncate from the HEAD for the same reason `bashCommandLabel` does: the
   // words that identify the task come first.
@@ -403,6 +418,11 @@ function matchTurnStartTagBlock(text: string): PrefixMatch | null {
     // Terminal control bytes are captured verbatim by the harness; strip
     // them so they don't reach the DOM as replacement glyphs.
     const stripped = stripAnsi((match[1] ?? "").trim());
+    // Decoding happens AFTER the label is derived, never before (PR #3239 R1).
+    // Decoding first would let an escaped `&lt;summary&gt;` inside a tool
+    // result's JSON become a real `<summary>` tag, which the label's own
+    // extraction would then read as the envelope's — so a payload could name
+    // the row. The label reads `stripped`; only the RENDERED body is decoded.
     const content = presentation.decodeEntities ? decodeHarnessEntities(stripped) : stripped;
     // An empty block is consumed and dropped, never rendered (mt#4058). The
     // bash pair routinely carries one empty half — a `<bash-stdout></bash-stdout>`
@@ -413,9 +433,15 @@ function matchTurnStartTagBlock(text: string): PrefixMatch | null {
       consumedLength: match[0].length,
       span: {
         kind: presentation.kind,
+        // Derived from `stripped`, NOT `content` (PR #3239 R1). Decoding runs
+        // before this point and can manufacture tags out of escaped text inside
+        // the block's own payload, which a tag-reading label function would then
+        // mistake for the envelope's. Every label function reads structure, so
+        // all of them get the raw body; the ones on undecoded tags see no
+        // difference, since `content === stripped` there.
         label:
           typeof presentation.label === "function"
-            ? presentation.label(content)
+            ? presentation.label(stripped)
             : presentation.label,
         content,
       },

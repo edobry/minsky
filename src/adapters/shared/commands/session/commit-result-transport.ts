@@ -54,6 +54,23 @@ export interface FilesTruncation {
 }
 
 /**
+ * What {@link shapeCommitResultForTransport} returns (PR #3239 R1).
+ *
+ * `Partial<T>` rather than `T`: the whole point of the shaping is that a field
+ * may be absent on the MCP branch, and a return type promising `T` would let a
+ * caller read `.message` as a `string` on a payload that no longer carries one.
+ * The two additions are optional for the same reason — they appear only on the
+ * branch that dropped or capped something.
+ *
+ * Callers keep their own field types either way, which a bare
+ * `Record<string, unknown>` return threw away.
+ */
+export type ShapedCommitResult<T extends Record<string, unknown>> = Partial<T> & {
+  messageOmitted?: MessageOmissionReason;
+  filesTruncated?: FilesTruncation;
+};
+
+/**
  * Shape a `session.commit` result for the transport carrying it.
  *
  * Returns `result` untouched for every transport but MCP — the CLI, and any
@@ -81,11 +98,24 @@ export function shapeCommitResultForTransport<T extends Record<string, unknown>>
   result: T,
   suppliedMessage: unknown,
   transport: string | undefined
-): Record<string, unknown> {
+): ShapedCommitResult<T> {
   if (transport !== "mcp") return result;
 
+  // The working copy is deliberately untyped (PR #3239 R1). This function
+  // REMOVES a key and adds two, which `Partial<T>` cannot express for a generic
+  // `T`: TS will not resolve a literal key against an unresolved type
+  // parameter, so `shaped.files` is an error even though `T extends
+  // Record<string, unknown>` guarantees the access is sound. Mutating an
+  // untyped bag and asserting ONCE, at the boundary, keeps the assertion in one
+  // reviewable place rather than scattering a cast per property — and the
+  // signature is what callers see, so they still get their own field types back.
   const shaped: Record<string, unknown> = { ...result };
 
+  // No separate `typeof shaped.message === "string"` guard, and it would be
+  // dead code if added (PR #3239 R1): `suppliedMessage` is narrowed to `string`
+  // on the left, and `===` is strict, so the right side can only match when it
+  // is that same string. A non-string `message` fails the comparison rather
+  // than passing it loosely.
   if (typeof suppliedMessage === "string" && shaped.message === suppliedMessage) {
     delete shaped.message;
     shaped.messageOmitted = "echoed-caller-input" satisfies MessageOmissionReason;
@@ -100,5 +130,5 @@ export function shapeCommitResultForTransport<T extends Record<string, unknown>>
     } satisfies FilesTruncation;
   }
 
-  return shaped;
+  return shaped as ShapedCommitResult<T>;
 }

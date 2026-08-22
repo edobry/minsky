@@ -378,11 +378,17 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
   // `<result>` element holding the tool's entire JSON payload. Taken verbatim
   // from the stored turn behind it (session 322e94eb, turnIndex 177), including
   // the `&lt;` the harness escaped into the commit body.
+  //
+  // The summary is named so the several tests that swap it out cannot drift
+  // from the fixture that defines it (`custom/no-magic-string-duplication`).
+  const MCP_SUMMARY = "MCP task kef11dmw (minsky/session_commit) completed.";
+  const MCP_SUMMARY_TAG = `<summary>${MCP_SUMMARY}</summary>`;
+
   const MCP_TASK_NOTIFICATION_TURN = [
     OPEN,
     "<task-id>kef11dmwa</task-id>",
     STATUS_COMPLETED,
-    "<summary>MCP task kef11dmw (minsky/session_commit) completed.</summary>",
+    MCP_SUMMARY_TAG,
     "<result>",
     '{ "success": true, "subject": "fix(mt#4342): ascend to the work tree",',
     '  "message": "the probe tested `&lt;repoPath&gt;/.git`, so a server started",',
@@ -396,9 +402,7 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
       splitInjectedContent(MCP_TASK_NOTIFICATION_TURN)[0] as { span: { label: string } }
     ).span;
 
-    expect(span.label).toBe(
-      "task notification: MCP task kef11dmw (minsky/session_commit) completed."
-    );
+    expect(span.label).toBe(`task notification: ${MCP_SUMMARY}`);
   });
 
   test("the status is not repeated when the summary already carries it", () => {
@@ -415,7 +419,7 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
       STATUS_COMPLETED,
       "<status>failed</status>"
     ).replace(
-      "<summary>MCP task kef11dmw (minsky/session_commit) completed.</summary>",
+      MCP_SUMMARY_TAG,
       "<summary>MCP task kef11dmw (minsky/session_commit) finished.</summary>"
     );
 
@@ -434,7 +438,7 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
 
   test("a long summary is bounded and marked, so it cannot push the row off screen", () => {
     const long = MCP_TASK_NOTIFICATION_TURN.replace(
-      "MCP task kef11dmw (minsky/session_commit) completed.",
+      MCP_SUMMARY,
       `MCP task ${"x".repeat(200)} completed.`
     );
 
@@ -475,6 +479,62 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
       .span;
 
     expect(span.content).toContain("<task-id>bhlkh6oiq</task-id>");
+  });
+
+  // ── PR #3239 R1 ────────────────────────────────────────────────────────────
+  //
+  // The label is derived from the UNDECODED body, because decoding manufactures
+  // tags. A commit message quoting an XML tag arrives inside `<result>` as
+  // `&lt;summary&gt;…&lt;/summary&gt;`; decode first and it becomes a REAL
+  // `<summary>` element that the label's tag scan cannot distinguish from the
+  // envelope's own.
+  const ESCAPED_SUMMARY_IN_RESULT =
+    '  "message": "the spec says &lt;summary&gt;not this one&lt;/summary&gt; and ' +
+    '&lt;status&gt;failed&lt;/status&gt;",';
+
+  test("an escaped <summary> inside the result does not displace the envelope's own", () => {
+    const withDecoy = MCP_TASK_NOTIFICATION_TURN.replace(
+      '  "message": "the probe tested `&lt;repoPath&gt;/.git`, so a server started",',
+      ESCAPED_SUMMARY_IN_RESULT
+    );
+
+    const span = (splitInjectedContent(withDecoy)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toBe(`task notification: ${MCP_SUMMARY}`);
+    expect(span.label).not.toContain("not this one");
+  });
+
+  test("an escaped <summary> is not promoted when the envelope carries NO summary", () => {
+    // The case that would actually have broken: with no real `<summary>` to win
+    // the first-match race, a decoded decoy is the ONLY candidate — so the row
+    // would have been labeled with a fragment of a commit message.
+    const noSummaryWithDecoy = [
+      OPEN,
+      "<task-id>kef11dmwa</task-id>",
+      STATUS_COMPLETED,
+      "<result>",
+      ESCAPED_SUMMARY_IN_RESULT,
+      "</result>",
+      CLOSE,
+    ].join("\n");
+
+    const span = (splitInjectedContent(noSummaryWithDecoy)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toBe("task notification");
+  });
+
+  test("the summary's own entities still decode — structure is raw, leaves are not", () => {
+    // Reading structure from the raw body must not cost the row its decoding:
+    // the summary is prose the harness escaped on the way into its envelope.
+    const escapedSummary = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY_TAG,
+      "<summary>MCP task read &lt;repoPath&gt;/.git completed.</summary>"
+    );
+
+    const span = (splitInjectedContent(escapedSummary)[0] as { span: { label: string } }).span;
+
+    expect(span.label).toContain("<repoPath>/.git");
+    expect(span.label).not.toContain("&lt;");
   });
 
   test("AT3 anchoring: prose mentioning the tag mid-sentence is NOT split", () => {
