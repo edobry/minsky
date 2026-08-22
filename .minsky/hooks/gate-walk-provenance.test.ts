@@ -14,6 +14,10 @@ import {
   normalizeTaskId,
 } from "./gate-walk-provenance";
 import type { GateWalkFacts, GateWalkOutcome } from "./gate-walk-provenance";
+// The SHARED reader whose verdict decides this detector's coverage receipt.
+// Imported here on purpose: asserting the record against the guard's own
+// accessors is what let an unreadable record ship (mt#4390).
+import { checkCoverageReceipt } from "./coverage-receipt";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -295,6 +299,49 @@ describe("buildCalibrationRecord", () => {
       },
     });
     expect(record["unavailable"]).toBe(NO_DB_CONNECTION);
+  });
+
+  test("mt#4390 — the record is READABLE by the shared coverage-receipt reader", () => {
+    // The gap this closes: every assertion above checks a field the guard's own
+    // code writes and reads, so all of them passed while the record was
+    // unreadable by the SHARED reader that decides the detector's verdict. The
+    // record was well-formed on its own terms and invisible on everyone else's.
+    const record = buildCalibrationRecord({
+      ts: "2026-08-19T18:00:00.000Z",
+      sessionId: "sess-1",
+      toolName: "mcp__minsky__session_pr_merge",
+      taskId: "mt#1880",
+      taskResolutionSource: "tool_input",
+      classification: { outcome: "gated", reason: "a → READY event exists" },
+      facts: { readyEventAt: AFTER_HORIZON, horizonAt: HORIZON, taskCreatedAt: AFTER_HORIZON },
+    });
+
+    expect(record["timestamp"]).toBe("2026-08-19T18:00:00.000Z");
+    // The old key must be GONE, not merely joined by the new one: two spellings
+    // of one field is how the next reader picks the wrong one.
+    expect(record).not.toHaveProperty("ts");
+
+    // Now the real reader, over the real record shape.
+    const now = new Date("2026-08-19T19:00:00.000Z");
+    const result = checkCoverageReceipt([record as never], {
+      detectorName: GUARD_NAME,
+      windowDays: 7,
+      now: () => now,
+    });
+    expect(result.liveFireCount).toBe(1);
+    expect(result.state).toBe("covered");
+
+    // Negative control, in-test: strip the timestamp and the SAME reader drops
+    // the record. Without this the assertion above could pass against a reader
+    // that counted everything regardless of shape.
+    const { timestamp: _dropped, ...withoutTimestamp } = record as Record<string, unknown>;
+    const blind = checkCoverageReceipt([withoutTimestamp as never], {
+      detectorName: GUARD_NAME,
+      windowDays: 7,
+      now: () => now,
+    });
+    expect(blind.liveFireCount).toBe(0);
+    expect(blind.state).toBe("no-liveness-evidence");
   });
 
   test("the calibration log is namespaced to this guard", () => {
