@@ -90,7 +90,6 @@ import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan, TaskNotificationParts } from "../lib/injected-content";
-import { classifyToolPayload } from "../lib/tool-payload";
 import { isApiErrorText } from "../lib/conversation-outcome";
 import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
@@ -729,10 +728,30 @@ function TaskNotificationBody({
   parts: TaskNotificationParts;
   entityIndex: EntityIndex;
 }) {
-  const isJsonResult =
-    parts.result !== null && classifyToolPayload(parts.result).kind === "json";
+  // PR #3245 R1. This used to gate the whole structured view on the payload
+  // parsing as JSON, and fall back to `span.content` — the ENTIRE decoded body,
+  // envelope tags and all — otherwise. The reviewer was right that this
+  // reintroduced the exact defect the task exists to fix, on the one path where
+  // nobody would look: a tool returning a non-JSON result still rendered
+  // `<task-id>…</task-id>` at the operator.
+  //
+  // The gate was also unnecessary. `ToolPayload` ALREADY dispatches on the same
+  // question and renders non-JSON as a <pre> — so asking `classifyToolPayload`
+  // here only to route around `ToolPayload` was duplicating its dispatch in
+  // order to do something worse with the answer. Handing it the payload
+  // unconditionally is both the fix and a deletion.
+  const hasStructure =
+    parts.taskId !== null ||
+    parts.status !== null ||
+    parts.summary !== null ||
+    parts.result !== null ||
+    parts.remainder !== null;
 
-  if (!isJsonResult) {
+  // The floor, for a body the parse could make nothing of at all — reachable
+  // only by a degenerate envelope of empty modelled tags (`<status></status>`),
+  // since anything else leaves at least a remainder. It exists so an
+  // unanticipated shape degrades to "shown verbatim", never to blank.
+  if (!hasStructure) {
     return (
       <div className="px-2 py-1">
         <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
@@ -755,19 +774,27 @@ function TaskNotificationBody({
           {parts.status !== null && <span className="ml-auto">{parts.status}</span>}
         </div>
       )}
-      <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
-        result
-      </div>
-      {/* `toolName` is the BARE name parsed from the summary, which is the form
-          ToolPayload's Tier-3 registry is keyed on — so a renderer registered
-          for this tool applies to its deferred result exactly as it does to an
-          inline one. */}
-      <ToolPayload
-        value={parts.result}
-        toolName={parts.toolName ?? undefined}
-        entityIndex={entityIndex}
-        className="border-border/40 text-foreground/70"
-      />
+      {parts.result !== null && (
+        <>
+          <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+            result
+          </div>
+          {/* Handed over unconditionally: `ToolPayload` dispatches JSON to the
+              tree and everything else to a <pre>, so a non-JSON payload still
+              renders as its own text rather than as envelope markup.
+
+              `toolName` is the BARE name parsed from the summary, which is the
+              form ToolPayload's Tier-3 registry is keyed on — so a renderer
+              registered for this tool applies to its deferred result exactly as
+              it does to an inline one. */}
+          <ToolPayload
+            value={parts.result}
+            toolName={parts.toolName ?? undefined}
+            entityIndex={entityIndex}
+            className="border-border/40 text-foreground/70"
+          />
+        </>
+      )}
       {parts.remainder !== null && (
         <div className="px-2 py-1">
           <Prose entityIndex={entityIndex} className="text-muted-foreground/90">

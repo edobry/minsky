@@ -304,14 +304,22 @@ const TASK_NOTIFICATION_PART_TAGS = ["task-id", "status", "summary", "result"] a
  * registered renderer and would fail silently — the generic tree renders either
  * way, which is exactly the kind of miss nothing downstream reports.
  *
- * Returns null rather than guessing when the parenthesised text is not a plain
- * identifier: a summary is prose, and the parenthetical is a convention of
- * today's harness rather than a contract.
+ * **The `server/tool` slash form is REQUIRED, not merely accepted (PR #3245 R1).**
+ * An earlier version took any parenthetical that looked like an identifier,
+ * which a summary containing an ordinary aside — a version, a note — could
+ * satisfy. The failure mode of a wrong match is worse than the failure mode of
+ * no match: a wrong name silently invokes some OTHER tool's renderer on this
+ * payload, while no name falls through to the generic tree, which is a perfectly
+ * good rendering. Requiring the slash is what makes the match evidence that this
+ * really is the harness's `MCP task … (server/tool) …` shape rather than prose
+ * that happens to have brackets in it.
  */
 function toolNameFromSummary(summary: string): string | null {
   const parenthesized = /\(([^)]*)\)/.exec(summary)?.[1]?.trim();
-  if (parenthesized === undefined || parenthesized.length === 0) return null;
-  const bare = parenthesized.split("/").pop()?.trim() ?? "";
+  if (parenthesized === undefined) return null;
+  const [server, ...rest] = parenthesized.split("/");
+  const bare = rest.join("/").trim();
+  if (server === undefined || server.trim().length === 0 || rest.length !== 1) return null;
   return /^[A-Za-z0-9_.-]+$/.test(bare) ? bare : null;
 }
 
@@ -339,6 +347,15 @@ function parseTaskNotification(body: string): TaskNotificationParts {
   const statusRaw = firstTagText(body, "status");
   const taskIdRaw = firstTagText(body, "task-id");
 
+  // NOT global, deliberately (PR #3245 R1 non-blocking). The reviewer read the
+  // missing `g` as an oversight that lets a REPEATED modelled tag leak into the
+  // remainder. It does — and that leak is the correct behaviour, because
+  // `firstTagText` surfaces only the FIRST occurrence of each. Strip exactly the
+  // one occurrence that was surfaced, and a duplicate `<status>` still reaches
+  // the reader through the remainder; strip globally, and it is surfaced nowhere
+  // and removed everywhere, which is a silent drop of the kind mt#2791 exists to
+  // prevent. The two halves have to agree on the count, and `firstTagText` is
+  // the one that sets it.
   const remainderRaw = TASK_NOTIFICATION_PART_TAGS.reduce(
     (rest, tag) => rest.replace(new RegExp(tagBlockSource(tag), "i"), ""),
     body

@@ -115,7 +115,12 @@ describe("task-notification body (mt#4419)", () => {
     }
   });
 
-  test("AT3: a result that is not JSON keeps the prose rendering", () => {
+  test("AT3: a non-JSON result renders as its own text, NOT as envelope markup", () => {
+    // Rewritten at PR #3245 R1. This test previously asserted the opposite —
+    // that the whole body, tags included, came through on this path — which
+    // locked in the exact defect the task exists to fix, on the one path nobody
+    // would look at. `ToolPayload` renders non-JSON as a <pre>, so the payload
+    // is still shown; what is gone is the markup around it.
     const notJson = MCP_NOTIFICATION.replace(
       /<result>[\s\S]*<\/result>/,
       "<result>the daemon exited before writing a payload</result>"
@@ -123,13 +128,16 @@ describe("task-notification body (mt#4419)", () => {
 
     const { container } = renderExpanded(notJson);
 
-    expect(container.textContent).toContain("the daemon exited before writing a payload");
-    // The whole body comes through verbatim on this path — including the tags,
-    // exactly as it did before mt#4419.
-    expect(container.textContent).toContain("<task-id>");
+    expect(container.querySelector("pre")?.textContent).toContain(
+      "the daemon exited before writing a payload"
+    );
+    expect(container.textContent).not.toContain("<task-id>");
+    expect(container.textContent).not.toContain("<result>");
+    // The meta row still names the task, exactly as on the JSON path.
+    expect(container.textContent).toContain("kef11dmwa");
   });
 
-  test("AT4: a notification with no result at all is unchanged", () => {
+  test("AT4: a notification with no result renders its meta row, not its tags", () => {
     // The mt#3396 shape, which predates `<result>` entirely.
     const noResult = [
       OPEN,
@@ -141,8 +149,21 @@ describe("task-notification body (mt#4419)", () => {
 
     const { container } = renderExpanded(noResult);
 
-    expect(container.textContent).toContain("<task-id>");
     expect(container.textContent).toContain("bhlkh6oiq");
+    expect(container.textContent).toContain("completed");
+    expect(container.textContent).not.toContain("<task-id>");
+    // No payload, so no result section is rendered at all.
+    expect(container.textContent).not.toContain("RESULT");
+  });
+
+  test("a body the parse can make nothing of falls back to verbatim, never to blank", () => {
+    // The floor: a degenerate envelope of empty modelled tags leaves every part
+    // null, so there is no structure to render and the pre-mt#4419 path stands.
+    const degenerate = [OPEN, "<status></status>", CLOSE].join("\n");
+
+    const { container } = renderExpanded(degenerate);
+
+    expect(container.textContent).toContain("<status>");
   });
 
   test("AT5: entity-escaped text inside the result renders decoded", () => {

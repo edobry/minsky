@@ -581,6 +581,28 @@ describe("splitInjectedContent — task notifications (mt#3396 AT1)", () => {
     expect(partsOf(TASK_NOTIFICATION_TURN).toolName).toBeNull();
   });
 
+  test("an ordinary parenthetical is NOT read as a tool name (PR #3245 R1)", () => {
+    // The `server/tool` slash form is required. A wrong match would silently
+    // invoke some other tool's renderer on this payload; no match falls through
+    // to the generic tree, which is a perfectly good rendering. So an aside in
+    // the summary must not be mistaken for a tool.
+    const aside = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY_TAG,
+      "<summary>Background task finished (retried once) and wrote its output.</summary>"
+    );
+
+    expect(partsOf(aside).toolName).toBeNull();
+  });
+
+  test("a parenthetical with more than one slash is not a tool name either", () => {
+    const pathLike = MCP_TASK_NOTIFICATION_TURN.replace(
+      MCP_SUMMARY_TAG,
+      "<summary>MCP task abc (a/b/c) completed.</summary>"
+    );
+
+    expect(partsOf(pathLike).toolName).toBeNull();
+  });
+
   test("an unmodelled element survives as the remainder — nothing is dropped", () => {
     // mt#2791's demote-never-drop contract, at the seam where a structured view
     // could silently lose a tag it has no slot for. `<tool-use-id>` is the one
