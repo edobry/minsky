@@ -1,5 +1,15 @@
 import { describe, test, expect } from "bun:test";
-import { DaemonClient, DaemonRequestError } from "./client";
+import {
+  DaemonClient,
+  DaemonRequestError,
+  REQUEST_TIMEOUT_MS,
+  MAX_TOOL_WAIT_SECONDS,
+  REQUEST_TIMEOUT_MARGIN_SECONDS,
+} from "./client";
+import {
+  sessionPrWaitForReviewCommandParams,
+  sessionPrDriveCommandParams,
+} from "../../adapters/shared/commands/session/session-parameters";
 import type { JsonRpcMessage } from "./protocol";
 
 interface FakeCall {
@@ -358,5 +368,91 @@ describe("DaemonClient — request timeout (mt#4450)", () => {
 
     await expect(client.send(INIT_REQUEST)).resolves.toBeDefined();
     expect(calls).toHaveLength(2);
+  });
+});
+
+/**
+ * The transport bound must clear the largest budget a CALLER may request (mt#4455).
+ *
+ * This is the check whose absence let mt#4450 ship a 600s bound over a tool that
+ * accepts 1800s. It deliberately reads the REAL parameter schema rather than
+ * comparing two constants: a test that hardcodes 1800 is a second copy of the
+ * number, and would keep passing after someone raises the schema's `.max()` —
+ * which is precisely the silent failure being guarded against.
+ *
+ * The ceiling is probed BEHAVIORALLY (`safeParse`) rather than by reaching into
+ * zod's `_def.checks`, so it survives the pending v3→v4 migration (mt#824);
+ * internals are exactly the kind of thing that migration moves.
+ *
+ * Importing the adapters layer here is a TEST-only edge and does not reach the
+ * shim's own module graph, which mt#3812 keeps deliberately thin (see
+ * `rss-budget.test.ts`).
+ */
+describe("REQUEST_TIMEOUT_MS vs the tool schemas' declared ceiling (mt#4455)", () => {
+  /**
+   * Largest value the schema accepts, found by bisection. Returns null if even
+   * the low probe is rejected (a schema shape this helper cannot read), so the
+   * caller can fail loudly rather than silently comparing against a bad number.
+   */
+  function probeSchemaCeilingSeconds(schema: { safeParse: (v: unknown) => { success: boolean } }) {
+    if (!schema.safeParse(1).success) return null;
+    let accepted = 1;
+    let rejected = 100_000_000;
+    while (rejected - accepted > 1) {
+      const mid = Math.floor((accepted + rejected) / 2);
+      if (schema.safeParse(mid).success) accepted = mid;
+      else rejected = mid;
+    }
+    return accepted;
+  }
+
+  test("the declared ceiling is what the shim bound is derived from", () => {
+    const ceiling = probeSchemaCeilingSeconds(
+      sessionPrWaitForReviewCommandParams.timeoutSeconds.schema
+    );
+
+    expect(ceiling).not.toBeNull();
+    // If this fails, the schema moved. Re-derive MAX_TOOL_WAIT_SECONDS from it —
+    // do not edit this expectation to match.
+    expect(ceiling).toBe(MAX_TOOL_WAIT_SECONDS);
+  });
+
+  test("session_pr_drive declares the same ceiling", () => {
+    // Both long-wait commands must be covered; the bound is derived from one
+    // number, so a divergence between them would leave the other unprotected.
+    // Note the parameter is `reviewTimeoutSeconds` here, not `timeoutSeconds` —
+    // pr-drive carries two independent waits.
+    expect(probeSchemaCeilingSeconds(sessionPrDriveCommandParams.reviewTimeoutSeconds.schema)).toBe(
+      MAX_TOOL_WAIT_SECONDS
+    );
+  });
+
+  test("the UNBOUNDED wait params are pinned as known residue, not silently covered", () => {
+    // `checksTimeoutSeconds` is a bare `z.number()` — no ceiling — so a caller
+    // can request a budget this bound cannot clear. That gap is documented on
+    // REQUEST_TIMEOUT_MS and accepted for now (the durable fix is a per-request
+    // bound; see mt#4455's Direction).
+    //
+    // Asserted rather than left in prose so the residue is VISIBLE: if someone
+    // later gives it a `.max()`, this fails and the new ceiling gets folded into
+    // the derivation instead of quietly becoming a second uncovered case.
+    const ceiling = probeSchemaCeilingSeconds(
+      sessionPrDriveCommandParams.checksTimeoutSeconds.schema
+    );
+    expect(ceiling).toBeGreaterThan(MAX_TOOL_WAIT_SECONDS);
+  });
+
+  test("the shim bound strictly exceeds the largest legitimate wait", () => {
+    // The assertion mt#4450 lacked. At 600_000 this fails: 600_000 < 1_800_000.
+    expect(REQUEST_TIMEOUT_MS).toBeGreaterThan(MAX_TOOL_WAIT_SECONDS * 1000);
+  });
+
+  test("the margin is real, not incidental", () => {
+    // Guards against someone "simplifying" the derivation to exactly the
+    // ceiling, which would make the bound and the wait race each other.
+    expect(REQUEST_TIMEOUT_MS - MAX_TOOL_WAIT_SECONDS * 1000).toBe(
+      REQUEST_TIMEOUT_MARGIN_SECONDS * 1000
+    );
+    expect(REQUEST_TIMEOUT_MARGIN_SECONDS).toBeGreaterThan(0);
   });
 });

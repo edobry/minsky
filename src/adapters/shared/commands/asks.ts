@@ -1690,6 +1690,30 @@ export async function createAskWithFormLint(
 // asks.wait-for-response — schemas + render helper (mt#2266)
 // ---------------------------------------------------------------------------
 
+/**
+ * Parameters for `asks.wait-for-response`.
+ *
+ * ## `timeoutSeconds` is not reliably reachable over MCP (mt#4455)
+ *
+ * This command emits **no progress notifications**. `context.onProgress?.()`
+ * (mt#2677) exists so a long-running command produces transport activity
+ * instead of silence; the emitters are the PR-polling commands
+ * (`session.pr.checks`, `session.pr.wait-for-review`, and `session.pr.drive`
+ * through its delegation to the latter) plus `session.migrate`. This command is
+ * not among them, so a wait here is silent for its whole duration, the
+ * connection looks IDLE to the transport underneath, and it can be closed
+ * before the requested budget elapses (~225 s measured 2026-08-22 on the
+ * sibling `deployment.wait-for-latest`).
+ *
+ * The clamp below still says `[1, 1800]` because it is the DOMAIN's contract and
+ * remains correct on the CLI path; over MCP the reachable ceiling is lower and
+ * not stated by any schema. Mechanism: **mt#1576** Occurrence 8. Transport-side
+ * decision: **mt#4455** (the shim's absolute bound is sized above 1800 s; the
+ * idle half is separate and unfixed).
+ *
+ * For an ask that may take minutes, prefer filing and continuing over blocking
+ * here — which is the shape mt#3564's answered-ask injection exists to support.
+ */
 const asksWaitForResponseParams = {
   id: {
     schema: z.string().trim().min(1),
@@ -1698,7 +1722,10 @@ const asksWaitForResponseParams = {
   },
   timeoutSeconds: {
     schema: z.number().int().positive(),
-    description: "Max seconds to wait (default 600; clamped to [1, 1800])",
+    description:
+      "Max seconds to wait (default 600; clamped to [1, 1800]). " +
+      "NOTE (mt#4455): over MCP this command emits no progress, so the transport's " +
+      "idle timeout can end the call before this budget elapses.",
     required: false,
     defaultValue: 600,
   },

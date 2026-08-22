@@ -42,26 +42,75 @@ export const RETRY_WINDOW_MS = 15_000;
 export const RETRY_INTERVAL_MS = 250;
 
 /**
- * Hard bound on a single in-flight POST to the daemon (mt#4450).
+ * The largest `timeoutSeconds` any MCP tool's schema accepts (mt#4455).
+ *
+ * `session_pr_wait-for-review` and `session_pr_drive` both declare
+ * `z.number().int().min(1).max(1800)` in
+ * `src/adapters/shared/commands/session/session-parameters.ts`. That ceiling —
+ * not any observed typical — is what `REQUEST_TIMEOUT_MS` below must clear,
+ * because it is the longest a CALLER is permitted to ask the daemon to work.
+ *
+ * `client.test.ts` probes the real schema behaviorally rather than trusting
+ * this copy, so raising the schema's `.max()` without raising the bound below
+ * fails loudly instead of silently clipping legitimate waits.
+ */
+export const MAX_TOOL_WAIT_SECONDS = 1800;
+
+/**
+ * Margin between the longest legitimate server-side wait and the transport
+ * bound: enough for the request/response round trip, the daemon's own final
+ * authoritative re-check (`FINAL_CHECK_DEADLINE_MS`, 10s), and scheduling
+ * slack, without being so wide that the bound stops meaning anything.
+ */
+export const REQUEST_TIMEOUT_MARGIN_SECONDS = 120;
+
+/**
+ * Hard bound on a single in-flight POST to the daemon (mt#4450, resized mt#4455).
  *
  * Distinct from `RETRY_WINDOW_MS` above, which bounds how long `send()` keeps
  * RETRYING a refused connection and does nothing about a request that has
- * already been accepted and never answers. Before this, such a request rode
+ * already been accepted and never answers. Before mt#4450 such a request rode
  * whatever default the runtime happened to apply — a value we neither chose,
  * documented, nor could reason about, and which surfaced to the agent as the
  * bare string "The operation timed out."
  *
- * Sized ABOVE the longest legitimate call rather than tight: `session_commit`
- * runs the gated suite in pre-push and has been measured at 150-315s (mem#1120),
- * and the harness already backgrounds anything past 120s, so a tight bound here
- * would kill working calls. Ten minutes is comfortably clear of that band while
- * still turning an indefinite hang into a bounded, attributable failure.
+ * ## Why it is derived rather than picked
+ *
+ * mt#4450 set this to a flat 600_000 (ten minutes), sized against mem#1120's
+ * measured 150-315s band for `session_commit`. That number was real and the
+ * reference class was wrong: `session_commit` is a long-RUNNING call, and what
+ * this bound must not clip is a long-WAITING call whose budget the CALLER
+ * chooses. `session_pr_wait-for-review` accepts up to 1800s, so a 600s bound
+ * killed a legitimate 30-minute review wait at ten minutes — and reported it as
+ * a transport failure, which reads exactly like reviewer silence and is the
+ * documented lead-in to the bypass-merge ladder.
+ *
+ * Worse, `AbortSignal.timeout()` is an ABSOLUTE deadline. `onProgress`
+ * (mt#2677) exists so a long wait emits transport activity instead of silence —
+ * measured: a 300ms `AbortSignal.timeout()` fires at ~301ms with continuous
+ * activity in the window — so an absolute bound does not merely under-budget
+ * the inner layer, it defeats a keepalive the system already had.
+ *
+ * So the value is a stated function of the inner budget's declared ceiling
+ * rather than an independent guess. This is `decision-defaults §Thresholds`'s
+ * ceiling case: when a threshold bounds work whose own budget is
+ * caller-specified, the binding constraint is that budget's declared MAXIMUM.
+ *
+ * ## Known residue
+ *
+ * `session_pr_checks` and `deployment_wait-for-latest` declare no `.max()` on
+ * `timeoutSeconds`, so a caller can still request a budget above this bound.
+ * Accepted knowingly: the durable fix is deriving the bound per-request from
+ * the caller's own `timeoutSeconds`, which would make the shim read into tool
+ * ARGUMENTS and couple a deliberately transport-only component to the
+ * application schema (ADR-038's thin-shim posture argues against it). Revisit
+ * if a caller is observed clipped here.
  *
  * This is a backstop, NOT the fix for the mt#4450 deadlock — that is the
  * capability narrowing in `capabilities.ts`. A backstop that fires is still a
  * defect worth chasing; it just fails in a way that names itself.
  */
-export const REQUEST_TIMEOUT_MS = 600_000;
+export const REQUEST_TIMEOUT_MS = (MAX_TOOL_WAIT_SECONDS + REQUEST_TIMEOUT_MARGIN_SECONDS) * 1000;
 
 export class ConnectionRefusedError extends Error {}
 export class SessionNotFoundError extends Error {}

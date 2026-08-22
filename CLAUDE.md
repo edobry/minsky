@@ -560,6 +560,17 @@ Check for Minsky's own answer before a generic (SE) default. Full detail:
   - **Stall threshold (status hasn't changed):** 5 days for active work, 10 days for lynchpin tracking
 
   SE: "2-week sprint, 30-day window." `feedback_threshold_grounding`.
+
+  **CEILING case — a different question, and observed cadence is the wrong answer to it.** The
+  rule above grounds a threshold in what typically happens. When the threshold is instead a
+  **ceiling over work whose own budget is caller-specified or declared elsewhere** — a transport
+  bound over a tool's `timeoutSeconds`, a wrapper timeout over an SDK's own, a queue TTL over a
+  job's declared deadline — the binding constraint is that budget's **declared MAXIMUM**. Read
+  it and derive the value from it; a measured typical is not evidence about a permitted extreme.
+  Corollary: a wrapper bound BELOW the inner layer's own timeout makes that inner timeout dead
+  code, and you get the wrapper's error instead of the inner layer's diagnosis. Incidents:
+  mt#4455 (a 600s shim bound over a tool accepting 1800s — correctly measured band, wrong
+  population), mem#1112 (the same shape over an SDK's retry budget, three days earlier).
 - **Time estimates**: asked for a time estimate → don't; use scope descriptors (files, LOC, task
   IDs). SE: "velocity-based estimation." `feedback_no_time_estimates`.
 - **Task overlap**: two tasks, same outcome → subsume (subset) or coordinate (independent). SE:
