@@ -167,9 +167,24 @@ export class DaemonClient {
   }
 
   /**
-   * Record an inbound (client → shim) frame the shim may need to replay
-   * against the daemon after a session loss. Call this for EVERY inbound
-   * frame before forwarding it — it never mutates the message.
+   * Record a frame the shim may need to REPLAY against the daemon after a
+   * session loss. It never mutates the message.
+   *
+   * **Pass the frame exactly as it will be SENT, not as it arrived** (mt#4450).
+   * Whatever is stored here is what `reinitialize()` re-sends verbatim, so this
+   * is not a diagnostic record of client input — it is the recovery copy, and
+   * it has to be byte-identical to what the daemon negotiated the first time.
+   * `handleLine` transforms `initialize` before sending (`capabilities.ts`
+   * removes capabilities this transport cannot service), so observing the raw
+   * inbound frame instead would re-advertise a capability the connection cannot
+   * honor on the first reconnect, silently undoing that fix at the moment
+   * nobody is watching.
+   *
+   * This docstring previously said "call this for EVERY inbound frame before
+   * forwarding it." That was accurate while the shim forwarded everything
+   * untouched; it is the sentence a reader would have followed straight into
+   * the bug, which is why it is corrected here rather than merely amended at
+   * the call site.
    */
   observeInbound(msg: JsonRpcMessage): void {
     if (msg.method === "initialize") {

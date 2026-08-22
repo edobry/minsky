@@ -83,9 +83,60 @@ first place — session storage is local-filesystem by design (out of scope:
 migrating session storage off the local filesystem, see the mt#1601 spec). The
 documented-error path is the correct fix for the capability gap.
 
+## A third boundary: MCP protocol capabilities across the shim (mt#4450)
+
+Everything above is about MINSKY's capabilities — which of our commands a server will
+run. There is a second, independent capability axis: the **MCP protocol's own**
+client-capability negotiation, declared in the `initialize` handshake. The two are
+unrelated mechanisms and fail in different places, so they are documented separately.
+
+Since the `.mcp.json` flip to `minsky mcp shim` (ADR-038, 2026-08-20), a local
+connection is not client-to-server — it is client → shim → daemon. **The shim is
+one-directional**: it reads a line from stdin, POSTs it, and writes the responses back.
+It opens no GET/SSE stream and holds no correlation table, and it reads the response
+body with a fully-buffering `await response.text()`. So a **server-initiated request**
+has no path back to the client, and one sent inside the response stream cannot surface
+until that stream closes — which cannot happen until the request is answered.
+
+The consequence, if the declaration is forwarded verbatim: the daemon believes the
+client can service a request that structurally cannot arrive, and the call hangs. That
+is not hypothetical — it is what mt#4450 diagnosed, where every `direction.decide` ask
+routed to the MCP elicitation transport and blocked the calling agent for minutes.
+
+So `src/mcp/shim/capabilities.ts` **removes `elicitation` from the declared set as the
+`initialize` frame crosses the shim.** The principle is that a capability declaration
+describes a CONNECTION, not a client program: the MCP spec's normative sentence is
+"Clients that support elicitation MUST declare the `elicitation` capability during
+initialization", and its model has a client and a server on one wire with no
+intermediary. Through this connection, elicitation genuinely is not supported.
+
+Two things worth knowing when reading that file:
+
+- **The narrowing is minimal on purpose.** `sampling` and `roots` are also
+  server-initiated and equally unservicable here, and are deliberately left declared —
+  nothing in this repo calls them, so removing them would change what a connection
+  reports without fixing anything. The admission test is "server-initiated **and**
+  actually called here."
+- **It is not a verdict against elicitation.** If the shim ever carries server-initiated
+  requests (a GET/SSE stream plus request correlation), deleting the transform restores
+  the capability with no other change.
+
+Routing consequence for asks: with elicitation undeclared, the ADR-008 router falls
+through to the static kind→transport binding, so `direction.decide` goes to the
+operator inbox. That is Shape B's specified fallback ("async or host-doesn't-support-it
+→ write to the Inbox queue"), not a degradation of it.
+
+Related, and NOT fixed by the above: `MCPClientCapabilityRegistry` answers for the
+whole daemon process rather than for the calling connection, so one connected
+elicitation-capable client still influences routing for asks filed by others.
+That is mt#4451.
+
 ## Cross-references
 
 - mt#1601 — this capability-gap task
+- mt#4450 / mt#4451 — the MCP-protocol capability axis above
+- `docs/architecture/adr-038-local-shared-mcp-daemon-architecture.md` — the shim topology
+- `src/mcp/shim/capabilities.ts` — the narrowing, with its admission test
 - mt#1389 — the local-MCP disconnect investigation whose hosted-fallback attempts
   surfaced this gap (its Acceptance Test 3 is mt#1601's documented-error criterion)
 - `docs/architecture/bundling.md` — the bundling that removed runtime `git`

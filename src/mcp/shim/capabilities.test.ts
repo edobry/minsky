@@ -34,13 +34,20 @@ function capsOf(msg: JsonRpcMessage): Record<string, unknown> {
 }
 
 describe("stripUnsupportedCapabilities (mt#4450)", () => {
-  test("removes every server-initiated capability from a real Claude Code initialize", () => {
+  test("removes elicitation from a real Claude Code initialize, and nothing else", () => {
+    // The narrowing is MINIMAL by design (PR #3259 R1). `roots` is in the same
+    // structural class — a server-initiated request the shim cannot carry — and
+    // is deliberately left declared, because nothing in this repo calls
+    // `roots/list` and removing it would change what the connection reports
+    // about itself without fixing anything. This assertion is what pins that
+    // decision: widening the strip again fails here, and should, until a real
+    // call site justifies it.
     const narrowed = stripUnsupportedCapabilities(realInitialize());
 
     expect(narrowed).not.toBeNull();
     const caps = capsOf(narrowed as JsonRpcMessage);
     expect("elicitation" in caps).toBe(false);
-    expect("roots" in caps).toBe(false);
+    expect(caps["roots"]).toEqual({ listChanged: true });
   });
 
   test("leaves the rest of the initialize params untouched", () => {

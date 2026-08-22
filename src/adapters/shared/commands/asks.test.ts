@@ -458,7 +458,14 @@ describe("createAsk", () => {
     // The repo state matches the return — single coherent producer path.
     const persisted = await repo.getById(result.id);
     expect(persisted?.state).toBe("closed");
+    // mt#4450: the row carries the routing target the router chose, on the
+    // success path as well as the failure path below.
+    expect(persisted?.routingTarget).toBe("operator");
   });
+
+  // The FAILED-dispatch counterpart lives in `asks-elicitation-routing.test.ts`
+  // (mt#4450) — this file is at the 1500-line max-lines ceiling, so the new case
+  // went into its own file rather than pushing this one over.
 
   test("walks Ask to suspended when registry reports elicitation but no active server (strand recovery)", async () => {
     const repo = new FakeAskRepository();

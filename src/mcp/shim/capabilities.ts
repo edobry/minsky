@@ -24,19 +24,29 @@
  * verbatim in ADR-038 §Question 1 "Observation B"), the ask router honored it,
  * and every `direction.decide` ask hung for minutes and then landed suspended.
  *
- * ## Why the whole class, not just `elicitation`
+ * ## Why only `elicitation`, when the class is larger
  *
- * `SERVER_INITIATED_CAPABILITIES` is defined by the property that breaks —
- * "the capability's only use is a request the SERVER sends to the CLIENT" — and
- * not by which one happens to be exercised today. As of this writing the
- * `Server` class's `elicitInput` method is the only such call Minsky makes
- * (named without its call syntax on purpose: `elicitation-containment.test.ts`
- * scans the repo for that literal and allowlists exactly two files, so writing
- * it here would trip a guard this file does not belong inside). `sampling` and
- * `roots` are declared by Claude Code and used by nothing here. Stripping only
- * the exercised one would leave two declarations that are equally false about
- * this connection, and a future `roots/list` call would deadlock identically
- * and just as silently. The set is the class.
+ * The CRITERION is "the capability's only use is a request the SERVER sends to
+ * the CLIENT", and by that criterion `sampling` and `roots` belong to the same
+ * class: Claude Code declares both, and neither can be serviced here.
+ *
+ * They are deliberately NOT stripped. The first draft of this file removed all
+ * three on the class argument, and PR #3259 R1 was right to block it: nothing
+ * in this repo has ever exercised either one — the `Server` class's
+ * `elicitInput` method is the only server-initiated call Minsky makes — so
+ * removing their declarations fixes no observed defect while changing what a
+ * connection reports about itself. That is speculative widening, and the
+ * evidence for it is exactly as strong as the evidence against.
+ *
+ * (`elicitInput` is named above without its call syntax on purpose:
+ * `elicitation-containment.test.ts` scans the repo for that literal and
+ * allowlists exactly two files, so writing it here would trip a guard this
+ * file does not belong inside.)
+ *
+ * The criterion stays written down because it is the ADMISSION TEST for this
+ * list, not a description of it. If a `roots/list` or `sampling/createMessage`
+ * call is ever added, it will deadlock exactly as elicitation did, and the
+ * entry belongs here THEN — with the call site as its evidence.
  *
  * ## What this deliberately does NOT do
  *
@@ -55,15 +65,19 @@
 import type { JsonRpcMessage } from "./protocol";
 
 /**
- * Client capabilities whose only use is a request the SERVER sends to the
- * CLIENT. None of them can be serviced across the shim's one-directional
- * transport, so none may be declared on a connection that runs through it.
+ * Client capabilities this shim removes from the declared set.
  *
- * Keep this list defined by the PROPERTY, not by usage: an entry earns its
- * place by requiring a server-initiated request, whether or not Minsky makes
- * that request today.
+ * Admission takes BOTH: the capability's only use must be a request the SERVER
+ * sends to the CLIENT (so the shim's transport cannot service it), AND this
+ * repo must actually make that request (so removing the declaration fixes an
+ * observable defect rather than changing a report about the connection for no
+ * reason).
+ *
+ * Today that is `elicitation` alone. `sampling` and `roots` satisfy the first
+ * half and not the second — see the header for why they are deliberately left
+ * declared.
  */
-export const SERVER_INITIATED_CAPABILITIES = ["elicitation", "sampling", "roots"] as const;
+export const SERVER_INITIATED_CAPABILITIES = ["elicitation"] as const;
 
 /**
  * Remove capabilities the shim's transport cannot service from an `initialize`
