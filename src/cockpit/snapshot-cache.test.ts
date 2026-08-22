@@ -242,6 +242,38 @@ describe("OverviewCache", () => {
     expect(cache.get("c", "t", T0)).toBeDefined();
   });
 
+  test("an expired entry is DELETED on read, not merely withheld", () => {
+    // PR #3252 R1 BLOCKING. Withholding is not enough: the token matched, so
+    // the inner lookup already refreshed recency. An undeleted expired entry is
+    // therefore the LAST thing that would be evicted.
+    const cache = new OverviewCache<{ label: string }>();
+    cache.set("conv-a", "tok-1", payload("expired"), T0);
+    expect(cache.size()).toBe(1);
+
+    cache.get("conv-a", "tok-1", T0 + OVERVIEW_FRESHNESS_CEILING_MS + 1);
+
+    expect(cache.size()).toBe(0);
+  });
+
+  test("reading expired keys does not evict the live ones — the poisoning case", () => {
+    // The failure this guards is not a leaked slot, it is INVERTED eviction
+    // priority: without the delete, each expired read promotes a never-servable
+    // entry above a servable one, and a cache read repeatedly at the ceiling
+    // ends up holding nothing useful.
+    const cache = new OverviewCache<{ label: string }>(2);
+    cache.set("stale-a", "tok", payload("stale-a"), T0);
+    cache.set("stale-b", "tok", payload("stale-b"), T0);
+
+    const past = T0 + OVERVIEW_FRESHNESS_CEILING_MS + 1;
+    cache.get("stale-a", "tok", past);
+    cache.get("stale-b", "tok", past);
+    expect(cache.size()).toBe(0);
+
+    // Both slots are free, so a live entry stored afterwards survives.
+    cache.set("live", "tok", payload("live"), past);
+    expect(cache.get("live", "tok", past + 1)?.label).toBe("live");
+  });
+
   test("rejects a non-positive freshness ceiling rather than degrading silently", () => {
     expect(() => new OverviewCache(8, 0)).toThrow(RangeError);
     expect(() => new OverviewCache(8, -1)).toThrow(RangeError);

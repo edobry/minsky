@@ -112,6 +112,19 @@ export class VersionedLruCache<T> {
     }
   }
 
+  /**
+   * Drop `key` if present.
+   *
+   * Exists for a subclass whose validity has a second condition this class
+   * cannot see (`OverviewCache`'s freshness ceiling). `get` above already
+   * deletes on a token mismatch, for the reason that applies equally there: an
+   * entry that can never be served again must not keep occupying a slot — and,
+   * worse, must not keep the recency refresh that `get` just gave it.
+   */
+  delete(key: string): void {
+    this.entries.delete(key);
+  }
+
   /** Current entry count. Exposed so the bound is assertable from a test. */
   size(): number {
     return this.entries.size;
@@ -218,7 +231,18 @@ export class OverviewCache<T> {
   get(key: string, token: string, now: number): T | undefined {
     const entry = this.inner.get(key, token);
     if (entry === undefined) return undefined;
-    if (now - entry.storedAt >= this.ceilingMs) return undefined;
+    if (now - entry.storedAt >= this.ceilingMs) {
+      // DELETE, do not merely withhold (PR #3252 R1 BLOCKING). The lookup above
+      // matched the token, and a token match REFRESHES recency — so an expired
+      // entry has just been promoted to most-recently-used and is now the LAST
+      // thing this cache would evict. Returning `undefined` without deleting
+      // therefore does not just leak a slot: it preferentially keeps entries
+      // that can never be served over ones that can, and under sustained reads
+      // of expired keys the whole cache fills with them. This mirrors what
+      // `VersionedLruCache.get` already does on a token mismatch.
+      this.inner.delete(key);
+      return undefined;
+    }
     return entry.payload;
   }
 
