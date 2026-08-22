@@ -837,6 +837,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Stamps the workspace<->conversation link at session_pr_create — recording, not enforcement (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/stamp-ask-conversation.ts",
+    reason:
+      "Stamps the ask<->conversation attribution at asks_create (mt#3564) — recording, not enforcement; writes one local JSON file and denies nothing (hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/bridge-memory-retirement.ts",
     reason: "Retires stale bridge memories post-merge — housekeeping automation, no deny logic",
   },

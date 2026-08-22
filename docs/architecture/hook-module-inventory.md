@@ -60,9 +60,9 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 10      |
-| movable        | 80      |
-| immovable      | 77      |
-| **total**      | **167** |
+| movable        | 82      |
+| immovable      | 78      |
+| **total**      | **170** |
 
 Of the 84 movable, **14** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
@@ -145,13 +145,13 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (80)
+## movable (82)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (66)
+### ADR-026 tier 2 — no persistence reach (68)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
@@ -186,6 +186,7 @@ bootstrap requirement.
 | `evidence-record-provenance.ts`                | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
 | `guard-health-escalation-detector.ts`          | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
 | `inject-current-time.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
+| `inject-ask-responses.ts`                      | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | advisory   |
 | `inject-dispatch-watchdog.ts`                  | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
 | `inject-git-state.ts`                          | dispatcher-guard | detectDefaultBranch                                               | decides-only (injector)                       | plant | advisory   |
 | `inject-memory-capture.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
@@ -210,6 +211,7 @@ bootstrap requirement.
 | `retrospective-completeness-detector.ts`       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | preference |
 | `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                  | side-effecting (injector+recorder)            | plant | preference |
 | `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                  | decides-only (injector)                       | plant | advisory   |
+| `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `stop-at-decision-scan.ts`                     | dispatcher-guard | detectDecisionStop                                                | side-effecting (recorder)                     | plant | advisory   |
 | `substrate-bypass-detector.ts`                 | dispatcher-guard | detectVerbalCommitment, detectSkillBypass                         | side-effecting (injector+recorder)            | plant | preference |
 | `truncated-outcome-read-detector.ts`           | dispatcher-guard | scanCommand                                                       | side-effecting (recorder)                     | plant | advisory   |
@@ -247,11 +249,12 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `stamp-session-creator-link.ts`            | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `turn-end-stale-state-assertion-scan.ts`   | dispatcher-guard | findPendingClaims, classifyResolved                               | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (77)
+## immovable (78)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
 | `agent-dispatch-stamp.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `ask-conversation-map.ts`                 | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-grant-store.ts`                      | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-verification.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `bare-entity-ref-scan.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |

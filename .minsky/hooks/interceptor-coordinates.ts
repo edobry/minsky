@@ -539,6 +539,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["inject-current-time", constantFeeder],
+  ["inject-ask-responses", conditionalFeeder],
   ["inject-dispatch-watchdog", conditionalFeeder],
   ["inject-git-state", constantFeeder],
   ["inject-memory-capture", conditionalFeeder],
@@ -816,6 +817,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       mechanism: "structural",
       role: "infrastructure",
       note: "Writes the `<harness pid> -> conversation id` mapping the MCP stdio proxy reads to attribute calls to the CURRENT conversation — without it, `/clear`, resume and fork leave the proxy stamping the pre-switch conversation onto every call, so an agent's presence claims land under a stranger's id (ADR-006 Layer 3). Also bootstraps the remote environment, but only in remote/web conversations.",
+    },
+  ],
+  [
+    "stamp-ask-conversation",
+    {
+      interventions: [recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The ask-side twin of the two `minsky_session_links` writers below, and the same shape for the same reason: only a PostToolUse hook sees the harness conversation id and the record's own id together. It writes a LOCAL file rather than a column — the consumer is a per-turn hook that must not touch the DB (ADR-028 D7(5)), and a DB-writing hook dies silently at bootstrap (mem#672).",
     },
   ],
   [
@@ -1218,6 +1228,7 @@ export const OUT_OF_MODEL_NAMES: readonly string[] = [
   "record-subagent-invocation",
   "record-turn-anchor",
   "session-start",
+  "stamp-ask-conversation",
   "stamp-pr-author-link",
   "stamp-session-creator-link",
   "transcript-ingest-on-session-end",

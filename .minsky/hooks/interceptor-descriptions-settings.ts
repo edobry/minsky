@@ -263,6 +263,16 @@ export const SETTINGS_REGISTERED_DESCRIPTIONS: readonly (readonly [
     },
   ],
   [
+    "stamp-ask-conversation",
+    {
+      description:
+        "Records which CONVERSATION filed an ask — the one place that sees the harness conversation id and the newly-minted ask id together. Without it `inject-ask-responses` can never fire: `Ask.parentSessionId` holds a WORKSPACE session id, and a main-workspace conversation has no workspace session to record.",
+      failureClasses: ["corrupt-record"],
+      provenance: [hook("stamp-ask-conversation")],
+      stratum: "standalone",
+    },
+  ],
+  [
     "stamp-pr-author-link",
     {
       description:
