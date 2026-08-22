@@ -37,16 +37,98 @@ import type { Command } from "commander";
  * `persistence.mode: "unconfigured"` for 31 hours while every DB-backed call
  * failed at call time.
  *
- * The generalizable rule for anyone adding another transport-selecting flag:
- * **add it here too.** This predicate is the single place that decides whether
- * DI is initialized eagerly, and a mode flag that implies a transport is
- * indistinguishable — from here — from one that names it.
+ * mt#4322 removed the instruction that used to close this docblock — *"the
+ * generalizable rule for anyone adding another transport-selecting flag: add it
+ * here too"*. It was exactly as reliable as remembering to read it, and
+ * mt#4338's site was ALREADY wrong when it was written: that site was not
+ * someone adding a flag, it was an existing consumer re-deriving the same fact
+ * independently, which no instruction addressed. This predicate no longer
+ * enumerates flags at all — it asks {@link resolveMcpTransport}, and a future
+ * transport-selecting flag is added THERE, once.
  */
-export function isMcpStartStdio(cmd: Command): boolean {
+export function isMcpStartStdio(cmd: McpStartCommandLike): boolean {
   if (cmd.name() !== "start") return false;
   if (cmd.parent?.name() !== "mcp") return false;
   const opts = typeof cmd.opts === "function" ? cmd.opts() : {};
-  return !opts.http && !opts.localDaemon;
+  return resolveMcpTransport(opts).transport === "stdio";
+}
+
+/**
+ * The three things {@link isMcpStartStdio} actually reads off a command
+ * (PR #3238 R1).
+ *
+ * Declared structurally rather than as commander's `Command` so this predicate
+ * depends on the shape it uses, not on the CLI framework. A real `Command`
+ * satisfies it by structural typing, so `cli.ts`'s call site is unchanged —
+ * what changes is that a commander API shift can no longer make a passing test
+ * and a failing production path diverge, because both now type against the same
+ * three members. That divergence was the reviewer's concern about the test's
+ * hand-built stand-in, and narrowing the PRODUCTION signature answers it at the
+ * source rather than only in the test.
+ */
+export interface McpStartCommandLike {
+  name(): string;
+  parent?: { name(): string } | null;
+  opts?: () => { http?: boolean; localDaemon?: boolean };
+}
+
+/** The two transports `minsky mcp start` can run on. */
+export type McpTransport = "http" | "stdio";
+
+/** What {@link resolveMcpTransport} answers, in one value. */
+export interface McpTransportResolution {
+  /** The transport this invocation runs on. */
+  transport: McpTransport;
+  /** Whether this is the ADR-038 shared local daemon specifically. */
+  isLocalDaemon: boolean;
+}
+
+/**
+ * mt#4322: the ONE place that answers "which transport is this invocation
+ * using". Every other site reads this rather than testing flags itself.
+ *
+ * ## Why a single source, and not a better-documented predicate
+ *
+ * Two incidents, eleven days apart, were the same shape at different sites.
+ * mt#4297: `isMcpStartStdio` inferred stdio from the absence of `--http`, so
+ * the tray's `--local-daemon` daemon skipped eager DI and served `/health` 200
+ * with no persistence provider for 31 hours. mt#4338: `start-command.ts` called
+ * `setHostedMode(true)` for every HTTP start, so that same daemon called itself
+ * hosted and refused every `git.*` command on the operator's own laptop.
+ *
+ * The first fix carried a docblock telling future authors to update the
+ * predicate — and the second site was already wrong when that sentence was
+ * written, because it was never an author FORGETTING to add a flag. It was N
+ * sites each answering the transport question from raw flags. A sweep at
+ * planning time found four such sites, two of them the identical expression
+ * written twice in one file. That is the failure no instruction reaches.
+ *
+ * ## The ordering property this exists to remove
+ *
+ * `--local-daemon` is a MODE that IMPLIES the transport: `start-command.ts`'s
+ * action body sets `options.http = true` for it. The preAction hook runs BEFORE
+ * that body, so the two sides were reading the same object in two different
+ * states — which is why they could disagree at all.
+ *
+ * This function is a pure function of the RAW flags and treats `localDaemon` as
+ * implying http ITSELF, so it returns the same answer on both sides of that
+ * mutation. The agreement is by construction rather than by ordering, which is
+ * the property mt#4322's SC2 asks for: a design that only normalized inside the
+ * action body would leave the preAction caller reading pre-mutation state and
+ * fix nothing.
+ *
+ * Takes a plain options bag rather than a `Command` so it is callable from the
+ * action body (which holds resolved options, not the command) and directly
+ * assertable. {@link isMcpStartStdio} is the `Command`-shaped adapter.
+ */
+export function resolveMcpTransport(opts: {
+  http?: boolean;
+  localDaemon?: boolean;
+}): McpTransportResolution {
+  const isLocalDaemon = Boolean(opts.localDaemon);
+  // `localDaemon` implies http (ADR-038). Deriving that HERE is what makes this
+  // idempotent across the action body's `options.http = true` assignment.
+  return { transport: opts.http || isLocalDaemon ? "http" : "stdio", isLocalDaemon };
 }
 
 /**
@@ -118,7 +200,11 @@ export function isHostedMcpServer(opts: {
   localDaemon?: boolean;
   hasLocalWorkspace?: boolean;
 }): boolean {
-  if (!opts.http) return false;
+  // mt#4322: the transport question is asked ONCE, here as everywhere else,
+  // rather than re-tested as `Boolean(opts.http)`. Behaviour is unchanged for
+  // every flag combination — `--local-daemon` already returned false below —
+  // but this site no longer has its own opinion about what "http" means.
+  if (resolveMcpTransport(opts).transport !== "http") return false;
   return !opts.localDaemon && !opts.hasLocalWorkspace;
 }
 

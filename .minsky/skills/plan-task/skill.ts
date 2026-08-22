@@ -335,6 +335,26 @@ Run all three:
    - Also check recent merges: \`mcp__minsky__git_log\` with the file path filter for the
      last 7 days — a fix that just landed on \`main\` is just as bad as one in flight.
 
+   **Read pathMatched on the result — an empty output alone does not distinguish the two
+   things it can mean (mt#4422).** git log -- <pathspec> exits 0 with EMPTY output when the
+   pathspec matches nothing, which is byte-identical to a real "no commits in this window". A
+   typo, a stale path, or several paths passed space-separated in the single path string
+   (quoted into ONE pathspec, so it can never match) therefore all read as "no collision" — the
+   pass this check is supposed to earn, handed over for free. The result now carries the
+   discriminator:
+
+   - pathMatched: true — the path has history and nothing touched it in your window. A real
+     negative: **no collision.**
+   - pathMatched: false — no commit has EVER touched this path. If the file is new or not yet
+     created, that is still **no collision** and is the expected answer for a spec listing files
+     it will create. If you believed the file exists, it is a typo or a stale path — fix it and
+     re-run, because nothing was searched.
+   - **field absent** — the probe could not run (not a git repository, git unavailable). You have
+     learned nothing about the path; do not score it either way.
+
+   Also: path takes ONE pathspec. **Issue one call per path** — a space-separated list is
+   quoted as a single filename containing spaces and always reports pathMatched: false.
+
    **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
    evidence is \`get_files\`/\`get_diff\` for an open PR, or \`git_log --path\` for a merge. A task's
    title, its \`## Scope\` prose, or an inference about where that kind of code lives is NOT

@@ -26,6 +26,7 @@ import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resourc
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
+import { buildMcpHealthResponse } from "../../mcp/health-payload";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
@@ -42,7 +43,7 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { hasLocalGitCapability } from "@minsky/domain/utils/git-exec";
-import { isHostedMcpServer } from "../../cli-discriminators";
+import { isHostedMcpServer, resolveMcpTransport } from "../../cli-discriminators";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -627,41 +628,13 @@ async function startHttpServer(
       ? (container.get("persistence") as PersistenceProvider)
       : undefined;
     const persistenceHealth = assessPersistenceHealth(persistence);
-    res.status(persistenceHealth.healthy ? 200 : 503).json({
-      status: persistenceHealth.healthy ? "ok" : "unhealthy",
-      // mt#3148: `service` is the uniform, assertable identity key every
-      // Minsky service emits. `server` is retained UNCHANGED alongside it —
-      // mt#3142's own diagnosis read `server` to identify the wrong app on the
-      // reviewer host, and mem#704's probe recipe still cites it. Renaming
-      // would break the diagnostic path this field exists to strengthen.
-      service: "minsky-mcp",
-      server: "Minsky MCP Server",
-      transport: "http",
-      timestamp: new Date().toISOString(),
-      persistence: {
-        mode: persistenceHealth.mode,
-        ...(persistenceHealth.reason ? { reason: persistenceHealth.reason } : {}),
-      },
-      // mt#4297: LIVENESS and READINESS are different questions, and this
-      // endpoint answered only the first. `status`/the status code say "the
-      // process booted"; `ready` says "it can serve DB-backed work".
-      //
-      // They diverge precisely in the `unconfigured` case, which is reported as
-      // healthy ON PURPOSE — it is the expected local/dev/offline boot and the
-      // bundle-boot-smoke CI gate's exact state, and that gate asserts a 200 and
-      // never reads this body. So the status code must NOT change. What was
-      // missing was any field a CUTOVER check could read: a shared daemon with
-      // no persistence provider served 200 for 31 hours while every DB-backed
-      // call failed, and `minsky setup local-http` would have pointed every
-      // conversation at it, because "a Minsky daemon answered" was the whole
-      // test (`classifyDaemonProbe`).
-      //
-      // Deliberately derived from `mode` alone rather than from the process's
-      // own mode flags: a reader asking "can this serve me?" should not have to
-      // know how the process was launched, and a future transport gets the
-      // right answer here without touching this line.
-      ready: persistenceHealth.mode === "connected",
-    });
+    // mt#4322: the body is built by `buildMcpHealthResponse` so the golden
+    // contract in `contract/mcp-health-shape.json` can assert the SAME code
+    // this route runs, rather than a copy of it. The per-field rationale moved
+    // there with it — including why `unconfigured` stays a 200 while `ready` is
+    // false, which is the invariant `bundle-boot-smoke` depends on.
+    const health = buildMcpHealthResponse(persistenceHealth, new Date().toISOString());
+    res.status(health.statusCode).json(health.body);
   });
 
   // OAuth discovery + Dynamic Client Registration (mt#1634c).
@@ -1393,8 +1366,19 @@ export function createStartCommand(
           process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS = defaults.sessionIdleTimeoutMs;
         }
 
-        // Determine transport type from --http flag
-        const transportType = options.http ? "http" : "stdio";
+        // mt#4322: ask the single source rather than re-deriving from flags.
+        // Note this is deliberately still read AFTER the mode branch above:
+        // `resolveMcpTransport` treats `localDaemon` as implying http itself,
+        // so it returns the same answer either side of that `options.http`
+        // assignment — which is precisely the property that lets the preAction
+        // hook and this body agree without depending on which ran first.
+        //
+        // PR #3238 R1: resolved ONCE for this whole action body and reused
+        // below (the stdin-cleanup branch, the error log). Re-calling it per
+        // site would be cheap and correct today, but re-opens in miniature the
+        // very thing this task closes — N derivations that a later edit
+        // mutating `options` in between could drift apart.
+        const transportType = resolveMcpTransport(options).transport;
 
         // Validate HTTP configuration if using HTTP transport
         if (transportType === "http") {
@@ -2279,7 +2263,7 @@ export function createStartCommand(
         // than once (PR #881 R1 NON-BLOCKING). Only attach for stdio transport —
         // HTTP-mode containers don't use stdin and may run with stdin closed at
         // startup, which would falsely trigger.
-        if (!options.http) {
+        if (transportType === "stdio") {
           process.stdin.on("close", cleanup);
         }
 
@@ -2293,7 +2277,12 @@ export function createStartCommand(
         await new Promise(() => {});
       } catch (error) {
         log.error("Failed to start MCP server", {
-          transportType: options.http ? "http" : "stdio",
+          // Re-resolved rather than reusing the `transportType` binding above:
+          // that const lives inside the `try`, and a throw before it is reached
+          // means it never existed. This is the "once per EXECUTION PATH" the
+          // R1 finding asks for — the catch is a different path, not a repeat
+          // of the same one.
+          transportType: resolveMcpTransport(options).transport,
           withInspector: options.withInspector || false,
           error: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
