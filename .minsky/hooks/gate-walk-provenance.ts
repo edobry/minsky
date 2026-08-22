@@ -448,7 +448,16 @@ export function buildCalibrationRecord(args: {
   facts: GateWalkFacts;
 }): Record<string, unknown> {
   return {
-    ts: args.ts,
+    // `timestamp`, NOT `ts` (mt#4390). Every shared reader of a
+    // `.minsky/*-calibration.jsonl` log keys on `timestamp`:
+    // `checkCoverageReceipt` does `Date.parse(entry.timestamp)` and DROPS the
+    // entry when that is NaN, and the calibration sweep renders `rec.timestamp`
+    // in every branch. This guard emitted `ts` alone, so all 50 records on disk
+    // were silently discarded before being counted — the receipt reported "no
+    // live fires in the last 7d" about a log that had been appended to a minute
+    // earlier. Measured: 0 live fires as written, 50 with the field renamed.
+    // The other 44 declared logs all use `timestamp`; this was the lone outlier.
+    timestamp: args.ts,
     guard: GUARD_NAME,
     sessionId: args.sessionId,
     toolName: args.toolName,

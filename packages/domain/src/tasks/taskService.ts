@@ -49,6 +49,30 @@ async function resolveCurrentProjectId(
   return isAllProjects(scope) ? undefined : scope;
 }
 
+/**
+ * Result of a spec-content read.
+ *
+ * `specUpdatedAt` is the SPEC-CONTENT timestamp (`task_specs.updated_at`): it
+ * advances only when the spec's TEXT is written. It is deliberately distinct
+ * from `task.updatedAt`, the tasks-table row timestamp that ANY mutation bumps
+ * — status, title, tags, kind. Callers that need "when did this spec last
+ * change" must read this field; reading `task.updatedAt` for that question is
+ * the mt#4415 defect, where a status transition moved the baseline to ~now and
+ * silently suppressed every drift row.
+ *
+ * Optional because a backend need not track one (the GitHub-issues path stores
+ * no separate spec row). Absent means "no spec-content baseline available",
+ * which consumers must distinguish from "baseline is old" — never collapse the
+ * two into a clean pass.
+ */
+export interface TaskSpecContentResult {
+  task: Task;
+  specPath: string;
+  content: string;
+  section?: string;
+  specUpdatedAt?: Date;
+}
+
 // Define the base TaskService interface used across the domain
 export interface TaskServiceInterface {
   listTasks(options?: TaskListOptions): Promise<Task[]>;
@@ -62,10 +86,7 @@ export interface TaskServiceInterface {
   ): Promise<Task>;
   deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean>;
   getTasks(ids: string[]): Promise<Task[]>;
-  getTaskSpecContent(
-    taskId: string,
-    section?: string
-  ): Promise<{ task: Task; specPath: string; content: string; section?: string }>;
+  getTaskSpecContent(taskId: string, section?: string): Promise<TaskSpecContentResult>;
   getWorkspacePath(): string;
   getBackendForTask?(taskId: string): Promise<string>;
   listBackends?(): Pick<TaskBackendInterface, "name" | "prefix">[];
