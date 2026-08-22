@@ -64,7 +64,11 @@ async function main(): Promise<number> {
 
   const persistence = container.has("persistence") ? container.get("persistence") : undefined;
 
-  if (!(persistence instanceof PersistenceProvider) || !persistence.capabilities.sql) {
+  if (
+    !(persistence instanceof PersistenceProvider) ||
+    !persistence.capabilities.sql ||
+    typeof persistence.getDatabaseConnection !== "function"
+  ) {
     // Skip gracefully rather than fail — §7a's env-gating contract.
     console.log("SKIP: no SQL-capable persistence provider configured; nothing to verify.");
     return 0;
