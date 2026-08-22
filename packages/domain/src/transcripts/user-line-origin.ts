@@ -94,16 +94,20 @@ export const HARNESS_META_ORIGIN: UserTextOrigin = "harness_meta";
 export const DISPATCH_BRIEF_ORIGIN: UserTextOrigin = "dispatch_brief";
 
 /**
- * The mt#2292 dispatch stamp's version token.
+ * The mt#2292 dispatch stamp's version token — THE definition (PR #3242 R2).
  *
- * DUPLICATED from `.minsky/hooks/agent-dispatch-stamp.ts`'s
- * `DISPATCH_STAMP_VERSION` rather than imported: that file is in the hook-script
- * bundling context, which `packages/domain` cannot import from — the same
- * boundary `RETAINED_TYPES` and `SYNTHETIC_INTERRUPT_MARKERS` are already
- * duplicated across. `user-line-origin.test.ts` asserts the two stay identical,
- * so drift fails a test rather than silently un-classifying every dispatch.
+ * Lives here rather than in `.minsky/hooks/agent-dispatch-stamp.ts`, which
+ * imports it, because a dispatch stamp is transcript vocabulary that two sides
+ * share: the hook WRITES it into a prompt, this module READS it back out.
+ *
+ * The first attempt duplicated it here with a sync test, on the assumption that
+ * `packages/domain` cannot import from the hook tree. The premise was right and
+ * the conclusion was backwards — hooks import from `@minsky/domain` routinely
+ * (`block-nested-fork-dispatch.ts`, `dispatch-intent-store.ts`), so the
+ * dependency inverts cleanly and one definition serves both. A sync test is a
+ * detector for drift; a single definition makes drift unrepresentable.
  */
-const DISPATCH_STAMP_TOKEN = "minsky:dispatch:v1";
+export const DISPATCH_STAMP_VERSION = "minsky:dispatch:v1";
 
 /**
  * Does this text carry a marker Minsky itself wrote to mark an agent-composed
@@ -130,7 +134,7 @@ const DISPATCH_STAMP_TOKEN = "minsky:dispatch:v1";
  * the marked text is written BY, not merely who wrote the marker.
  */
 function carriesDispatchMarker(text: string): boolean {
-  return text.includes(PROMPT_WATERMARK) || text.includes(DISPATCH_STAMP_TOKEN);
+  return text.includes(PROMPT_WATERMARK) || text.includes(DISPATCH_STAMP_VERSION);
 }
 
 /**
@@ -261,12 +265,6 @@ export function classifyUserLineOrigin(line: unknown): UserTextOrigin {
     return normalizeKind(promptSource);
   }
 
-  // mt#4401 — LAST before the fail-open, and deliberately so. A Minsky dispatch
-  // prompt carries none of the four harness fields above, so this is the only
-  // check that can catch it; putting it last means an explicit harness verdict
-  // always wins. In particular `origin.kind: "human"` beats a watermark, which
-  // is what keeps an operator PASTING a generated prompt classified as the
-  // operator (mt#3405's hazard).
   // mt#4401 — LAST before the fail-open, and deliberately so. A Minsky dispatch
   // prompt carries none of the four harness fields above, so this is the only
   // check that can catch it; putting it last means an explicit harness verdict

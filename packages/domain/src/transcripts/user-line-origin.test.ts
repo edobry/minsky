@@ -358,11 +358,14 @@ describe("classifyUserLineOrigin — the marker is not a prefix heuristic (mt#44
   });
 });
 
-describe("the duplicated dispatch-stamp token stays in sync (mt#4401)", () => {
-  test("domain's copy matches the hook's DISPATCH_STAMP_VERSION", async () => {
-    // The constant is duplicated because `packages/domain` cannot import from
-    // the hook-script bundling context. This makes drift a failing test rather
-    // than a silent stop-classifying-every-dispatch.
+describe("the hook and the classifier share ONE stamp token (mt#4401)", () => {
+  test("the hook's DISPATCH_STAMP_VERSION is the domain constant, not a copy", async () => {
+    // Was a drift test over two declarations; PR #3242 R2 replaced the
+    // duplication with a re-export, so this now pins the INVERSION: the hook
+    // writes the stamp, this module reads it, and both name the same constant.
+    // If someone re-declares it in the hook, the identity assertion below still
+    // passes on equal strings — so the classify assertion is what carries the
+    // check, exercising the token the hook actually exports.
     const { DISPATCH_STAMP_VERSION } = await import(
       "../../../../.minsky/hooks/agent-dispatch-stamp"
     );
