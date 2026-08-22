@@ -352,16 +352,17 @@ export function startPrWatchScheduler(
     return null;
   }
 
-  log.info("pr_watch_scheduler.started", {
-    event: "pr_watch_scheduler.started",
-    intervalMs: schedulerConfig.intervalMs,
-  });
-
   // mt#4435: fail LOUD at startup rather than degrading silently per-cycle.
   // These credentials are `requireEnv`-mandatory in config.ts, so this normally
   // cannot fire — but `parseInt` yields NaN for a non-numeric value and a key
   // can be present-but-empty, and either would otherwise surface only as opaque
   // 401s inside a background loop nobody reads.
+  //
+  // This guard runs BEFORE the `started` log, alongside the enabled/container
+  // guards above. Emitting `started` first and then refusing would leave a
+  // `started` line in the log for a scheduler that never ran — the same
+  // claim-without-the-behavior shape as the docblock that hid the original
+  // defect (PR #3254 R1).
   const missingCredentials = findMissingReviewerCredentials(config);
   if (missingCredentials.length > 0) {
     log.error(`pr_watch_scheduler.missing_github_credentials: ${missingCredentials.join(", ")}`, {
@@ -374,13 +375,6 @@ export function startPrWatchScheduler(
     return null;
   }
 
-  let isRunning = false;
-
-  /** Consecutive cycles in which every inspected watch failed (mt#4435). */
-  let consecutiveTotalFailures = 0;
-  /** Remaining ticks to skip while backing off from a total-failure streak. */
-  let ticksToSkip = 0;
-
   // Per-instance interval jitter (PR #1153 R1): when multiple reviewer
   // instances run in parallel (staging + production, or horizontal scale-out)
   // they shouldn't all hit GitHub on the same wall-clock second. Each
@@ -388,8 +382,27 @@ export function startPrWatchScheduler(
   // intervalMs at startup, added to the base interval. Over time the
   // instances drift apart and natural spreading dilutes thundering-herd
   // alignment. Computed once — subsequent ticks use the same jittered value.
+  //
+  // Computed before the `started` log so that line can report the interval
+  // actually used rather than the configured one (PR #3254 R1).
   const jitterMs = Math.random() * JITTER_FRACTION * schedulerConfig.intervalMs;
   const effectiveIntervalMs = schedulerConfig.intervalMs + jitterMs;
+
+  log.info("pr_watch_scheduler.started", {
+    event: "pr_watch_scheduler.started",
+    // Both: the configured value an operator set, and the jittered value the
+    // timer actually runs on. Reporting only the former makes an observed
+    // cadence look like drift against the config.
+    intervalMs: schedulerConfig.intervalMs,
+    effectiveIntervalMs: Math.round(effectiveIntervalMs),
+  });
+
+  let isRunning = false;
+
+  /** Consecutive cycles in which every inspected watch failed (mt#4435). */
+  let consecutiveTotalFailures = 0;
+  /** Remaining ticks to skip while backing off from a total-failure streak. */
+  let ticksToSkip = 0;
 
   const handle = setInterval(() => {
     if (isRunning) {

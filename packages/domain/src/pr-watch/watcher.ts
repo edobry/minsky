@@ -140,12 +140,19 @@ export interface WatcherResult {
  * responses (wait for the reset vs. fix the credential's scopes). The message
  * is what carries the distinction.
  *
- * Covers both forms GitHub emits:
+ * Covers both forms GitHub emits, and ONLY those:
  * - primary: `"API rate limit exceeded for <ip-or-user>"`
  * - secondary: `"You have exceeded a secondary rate limit"`
+ *
+ * Anchored on `API rate limit exceeded` rather than a bare `rate limit
+ * exceeded` (PR #3254 R1). The looser pattern matched any message merely
+ * CONTAINING that phrase — a PR title, a review body, an unrelated upstream
+ * error quoted into a message — and a false positive here is not cosmetic: it
+ * would put the scheduler into a 30-minute backoff against a fault that waiting
+ * does not fix.
  */
 export function isGitHubRateLimitError(message: string): boolean {
-  return /rate limit exceeded/i.test(message) || /secondary rate limit/i.test(message);
+  return /api rate limit exceeded/i.test(message) || /secondary rate limit/i.test(message);
 }
 
 export async function runWatcher(

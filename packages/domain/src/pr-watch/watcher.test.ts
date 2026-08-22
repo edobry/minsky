@@ -863,4 +863,16 @@ describe("isGitHubRateLimitError", () => {
     expect(isGitHubRateLimitError("Bad credentials")).toBe(false);
     expect(isGitHubRateLimitError("")).toBe(false);
   });
+
+  it("does NOT match a message that merely mentions the phrase (PR #3254 R1)", () => {
+    // The classifier is anchored on GitHub's own "API rate limit exceeded"
+    // wording. A bare `rate limit exceeded` substring appears in text the
+    // scheduler can legitimately encounter — a PR title, a quoted upstream
+    // error — and matching it would trigger a 30-minute backoff against a
+    // fault that waiting does not fix.
+    expect(isGitHubRateLimitError("Upstream provider rate limit exceeded")).toBe(false);
+    expect(isGitHubRateLimitError('PR title: "fix: handle rate limit exceeded responses"')).toBe(
+      false
+    );
+  });
 });

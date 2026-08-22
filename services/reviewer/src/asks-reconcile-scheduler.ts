@@ -228,14 +228,14 @@ export function startAsksReconcileScheduler(
     return null;
   }
 
-  log.info("asks_reconcile_scheduler.enabled", {
-    event: "asks_reconcile_scheduler.enabled",
-    intervalMs: schedulerConfig.intervalMs,
-  });
-
   // mt#4435: refuse to start rather than degrade silently. Same rationale as
   // the pr-watch scheduler — an unauthenticated reconciler exhausts GitHub's
   // 60/hour per-IP budget and then fails every cycle with nothing surfacing.
+  //
+  // Runs BEFORE the `enabled` log, alongside the guards above: an `enabled`
+  // line for a scheduler that then refuses to start is a claim the behavior
+  // does not back, which is the shape of the defect this task fixes
+  // (PR #3254 R1).
   const missingCredentials = findMissingReviewerCredentials(config);
   if (missingCredentials.length > 0) {
     log.error(
@@ -248,6 +248,11 @@ export function startAsksReconcileScheduler(
     );
     return null;
   }
+
+  log.info("asks_reconcile_scheduler.enabled", {
+    event: "asks_reconcile_scheduler.enabled",
+    intervalMs: schedulerConfig.intervalMs,
+  });
 
   let isRunning = false;
 

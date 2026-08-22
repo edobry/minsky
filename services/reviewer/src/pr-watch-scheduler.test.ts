@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { evaluateCycleOutcome, startPrWatchScheduler } from "./pr-watch-scheduler";
 import type { ReviewerConfig } from "./config";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 /**
  * A container stub. The credential guard runs before anything touches the
@@ -167,5 +168,52 @@ describe("startPrWatchScheduler credential guard (AT1)", () => {
     const handle = startPrWatchScheduler(reviewerConfig(), enabled, STUB_CONTAINER);
     expect(handle).not.toBeNull();
     if (handle) clearInterval(handle);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #3254 R1 — a refusal must not be preceded by a "started" claim
+// ---------------------------------------------------------------------------
+
+describe("startPrWatchScheduler startup logging (PR #3254 R1)", () => {
+  const enabled = { intervalMs: 60_000, enabled: true };
+
+  test("does NOT log 'started' when it refuses on missing credentials", () => {
+    // The reviewer caught this on R1: the `started` line was emitted before the
+    // credential guard, so a scheduler that never ran left a `started` record in
+    // the log. That is the same claim-without-the-behavior shape as the docblock
+    // which hid the original defect, so it is worth a regression test rather
+    // than only a reordering.
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      const handle = startPrWatchScheduler(
+        reviewerConfig({ privateKey: "" }),
+        enabled,
+        STUB_CONTAINER
+      );
+      expect(handle).toBeNull();
+      expect(findLogEvent(logs, "pr_watch_scheduler.started")).toBeNull();
+      expect(findLogEvent(logs, "pr_watch_scheduler.missing_github_credentials")).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  test("DOES log 'started' on a successful start — the control", () => {
+    // Without this the assertion above would pass for a scheduler that never
+    // logs `started` under any circumstances.
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      const handle = startPrWatchScheduler(reviewerConfig(), enabled, STUB_CONTAINER);
+      expect(handle).not.toBeNull();
+      if (handle) clearInterval(handle);
+      const started = findLogEvent(logs, "pr_watch_scheduler.started");
+      expect(started).not.toBeNull();
+      // R1 also asked the line to report the interval actually used, not just
+      // the configured one.
+      expect(started?.["effectiveIntervalMs"]).toBeDefined();
+    } finally {
+      restore();
+    }
   });
 });
