@@ -287,3 +287,76 @@ describe("DaemonClient.closeSession", () => {
     await expect(client.closeSession()).resolves.toBeUndefined();
   });
 });
+
+/**
+ * Request timeout (mt#4450) — AT4.
+ *
+ * Two independent properties, because the bug this backstops was invisible in
+ * exactly the gap between them: a request the daemon ACCEPTED and never
+ * answered used to ride an undocumented runtime default and then surface as a
+ * connection failure, which is the opposite diagnosis.
+ */
+describe("DaemonClient — request timeout (mt#4450)", () => {
+  /** The error shape `AbortSignal.timeout()` rejects with. */
+  function timeoutError(): Error {
+    const err = new Error("The operation timed out.");
+    err.name = "TimeoutError";
+    return err;
+  }
+
+  test("every POST carries an abort signal", async () => {
+    const { fetchImpl, calls } = makeFakeFetch([
+      () => jsonResponse({ jsonrpc: "2.0", id: 1, result: {} }),
+    ]);
+    const client = new DaemonClient({ url: "http://d/mcp", authToken: null, fetchImpl });
+
+    await client.send(INIT_REQUEST);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init.signal).toBeDefined();
+  });
+
+  test("a timeout is reported as an unanswered request, NOT as an unreachable daemon", async () => {
+    // The discriminating assertion. `DEFAULT_IS_CONNECTION_REFUSED` returns
+    // true for every network-level throw, so without the explicit timeout
+    // branch this same input produces "daemon unreachable after 15000ms retry
+    // window" — a message that sends the reader to look at whether the daemon
+    // is running, when in fact it accepted the request and held it.
+    const { fetchImpl } = makeFakeFetch([timeoutError()]);
+    const client = new DaemonClient({
+      url: "http://d/mcp",
+      authToken: null,
+      fetchImpl,
+      requestTimeoutMs: 1234,
+    });
+
+    const err = await client.send(INIT_REQUEST).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    expect(err).toBeInstanceOf(DaemonRequestError);
+    expect((err as Error).message).toContain("1234ms");
+    expect((err as Error).message).toContain("never answered");
+    expect((err as Error).message).not.toContain("unreachable");
+  });
+
+  test("a genuine connection failure is still retried, not misread as a timeout", async () => {
+    // Negative control for the branch above: the timeout check must not
+    // swallow the connection-refused path it was inserted in front of. A
+    // refused connection followed by a success still succeeds.
+    const { fetchImpl, calls } = makeFakeFetch([
+      new TypeError(ECONNREFUSED_MESSAGE),
+      () => jsonResponse({ jsonrpc: "2.0", id: 1, result: {} }),
+    ]);
+    const client = new DaemonClient({
+      url: "http://d/mcp",
+      authToken: null,
+      fetchImpl,
+      retryIntervalMs: 1,
+    });
+
+    await expect(client.send(INIT_REQUEST)).resolves.toBeDefined();
+    expect(calls).toHaveLength(2);
+  });
+});

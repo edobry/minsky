@@ -753,6 +753,55 @@ expect this inversion rather than assume the key names line up with what they ho
 observation for future integration work, not a rename — `agent_id` is ADR-006's own established
 key and changing it is out of scope here.
 
+## Amendment (2026-08-22) — the shim is one-directional, and that is now explicit
+
+This ADR's Question 1 records a capture of Claude Code's `initialize` params
+(§"Observation B") showing `"capabilities": { "roots": { "listChanged": true },
+"elicitation": {} }`. What it did not draw out is the consequence of forwarding that
+declaration through a shim that **cannot carry a server-initiated request**.
+
+The shim reads a line from stdin, POSTs it, and writes the responses back
+(`src/mcp/shim/main.ts`, `client.ts`). It opens no GET/SSE stream, holds no correlation
+table for a server→client request, and reads the response body with a fully-buffering
+`await response.text()`. A server request sent inside the response stream therefore
+cannot surface until the stream closes, and the stream cannot close until the request
+is answered — a deadlock by construction rather than a race.
+
+**mt#4450 is the incident this produced.** MCP elicitation is a server-initiated
+request; the ask router honored the forwarded declaration; every `direction.decide` ask
+dispatched to the elicitation transport and blocked the calling agent for up to five
+minutes before failing. Two consequences beyond the stall: the ask persisted with a
+NULL `routingTarget`, which the cockpit inbox filters on, and agents retried, minting
+duplicate asks ~5m30s apart.
+
+Two changes follow, and both belong to this ADR's topology rather than to the ask
+subsystem that surfaced them:
+
+1. **The shim narrows the declared capability set** (`src/mcp/shim/capabilities.ts`),
+   removing `elicitation`. A capability declaration describes a CONNECTION; through this
+   one, elicitation is not supported. The narrowing is minimal on purpose — `sampling`
+   and `roots` are structurally identical but uncalled here, so they stay declared until
+   a real call site justifies otherwise.
+2. **A single in-flight POST carries an explicit 600 s bound** (`REQUEST_TIMEOUT_MS`),
+   sized above the measured 150–315 s `session_commit` band so it cannot kill a working
+   call. Previously such a request rode an undocumented runtime default. The timeout is
+   classified ahead of the connection-refused classifier, which treats every network
+   throw as retryable and would otherwise report an accepted-then-unanswered request as
+   "daemon unreachable" — the opposite diagnosis.
+
+**Consequence for future work on this topology:** anything that adds a server-initiated
+MCP request (`roots/list`, `sampling/createMessage`, a future protocol addition) is
+unreachable across the shim as built. Either teach the shim to carry them — a GET/SSE
+stream plus request correlation, which is the change that would let capability 1 be
+reverted — or keep the feature off the local path. This is a property of the topology
+this ADR chose, not of the feature that trips over it.
+
+Separately, `MCPClientCapabilityRegistry` resolves capabilities for the daemon PROCESS
+rather than for the calling connection — correct under the pre-ADR-038 one-server-per-
+conversation topology this document replaced, and wrong under consolidation. mt#4451
+owns that; it is a direct consequence of this ADR's decision and is recorded here so the
+next reader of Question 1 does not have to rediscover it.
+
 ## References
 
 - mt#1713 — parent RFC; July 2026 decision package; 2026-08-05 process census.

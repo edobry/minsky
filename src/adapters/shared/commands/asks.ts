@@ -1390,6 +1390,29 @@ export async function createAsk(
     const registry = routerOptions.capabilityRegistry;
     const server = registry?.activeElicitationServer();
     if (server) {
+      // mt#4450: persist the route outcome BEFORE dispatching, so the row
+      // carries the `routingTarget` the router already chose.
+      //
+      // This branch RETURNS, so it never reaches the shared
+      // `persistRouteOutcome` call below — and `dispatchToElicitation` walks
+      // state only (`advanceToSuspended` issues `repo.transition` calls and
+      // writes no other column). The result was an elicitation-routed ask
+      // persisted with `routingTarget = NULL` even though `pickTransport`
+      // returned "operator" for it, which is not cosmetic: the cockpit inbox
+      // filters on `routingTarget === "operator"` and its resolve endpoint
+      // refuses anything else (`src/cockpit/routes/asks.ts:407`, `:615`), so a
+      // dispatch that failed left an ask the operator could neither see nor
+      // answer. The warn at `:1431` already existed for exactly this shape and
+      // was firing into the log with nothing to fix it.
+      //
+      // Reuses `routeResultToOutcomeWrite` rather than writing the field
+      // directly so this path inherits the same authority rules as every
+      // other — notably that a creator-specified "operator" beats the
+      // kind→target default (mt#3491). The write lands `state: "routed"`;
+      // `advanceToSuspended` then walks routed → suspended as before, so the
+      // state machine is untouched and only the missing column is added.
+      const { write: elicitationWrite } = routeResultToOutcomeWrite(routed, ask.routingTarget);
+      await repo.persistRouteOutcome(ask.id, elicitationWrite);
       return await dispatchToElicitation(routed, { server, repo });
     }
     log.warn(

@@ -18,6 +18,7 @@
  */
 
 import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
+import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
 import { DaemonClient } from "./client";
 import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
@@ -134,13 +135,30 @@ export async function handleLine(
     return;
   }
 
-  ctx.client.observeInbound(msg);
-
   let outgoing = msg;
   if (ctx.conversationAgentId) {
     const injected = injectAgentIdMeta(msg, ctx.conversationAgentId);
     if (injected) outgoing = injected;
   }
+
+  // mt#4450: a client capability is a claim about this CONNECTION, and this
+  // connection cannot carry a server-initiated request (see capabilities.ts).
+  // Applied to `outgoing`, not `msg`, so the two transforms compose — they
+  // never both fire today (one matches `initialize`, the other `tools/call`),
+  // but chaining them is what makes that a fact about the methods rather than
+  // a dependency on the order this function happens to run them in.
+  const narrowed = stripUnsupportedCapabilities(outgoing);
+  if (narrowed) outgoing = narrowed;
+
+  // Observe the OUTGOING message, not the original — and this ordering is
+  // load-bearing rather than tidy. `observeInbound` stores the `initialize`
+  // request for REPLAY: `reinitialize()` re-sends it verbatim when the daemon
+  // reports the transport session gone (`SessionNotFoundError`). Observing
+  // `msg` here would stash the un-narrowed declaration and re-advertise
+  // `elicitation` on every session recovery, so the fix above would hold only
+  // until the first reconnect — the kind of regression that reappears under
+  // exactly the conditions nobody reproduces on purpose.
+  ctx.client.observeInbound(outgoing);
 
   try {
     const responses = await ctx.client.send(outgoing);
