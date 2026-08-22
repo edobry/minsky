@@ -433,7 +433,15 @@ describe("bootstrapKappaCI", () => {
     ];
     const ci = bootstrapKappaCI(sparse, 99, 500);
     expect(ci).not.toBeNull();
-    expect((ci as { degenerateResamples: number }).degenerateResamples).toBeGreaterThan(0);
+    const { degenerateResamples, iterations } = ci as {
+      degenerateResamples: number;
+      iterations: number;
+    };
+    expect(degenerateResamples).toBeGreaterThan(0);
+    // The count is only readable as a share if the denominator comes back with it — the
+    // report's caution threshold is a fraction of the iterations actually run.
+    expect(iterations).toBe(500);
+    expect(degenerateResamples).toBeLessThanOrEqual(iterations);
   });
 });
 

@@ -423,7 +423,7 @@ export function bootstrapKappaCI(
   pairs: readonly (readonly [boolean, boolean])[],
   seed = 20260822,
   iterations = 10_000
-): { lo: number; hi: number; degenerateResamples: number } | null {
+): { lo: number; hi: number; degenerateResamples: number; iterations: number } | null {
   const n = pairs.length;
   if (n === 0) return null;
   const nextIndex = makeResampleIndexer(n, seed);
@@ -443,7 +443,7 @@ export function bootstrapKappaCI(
   kappas.sort((a, b) => a - b);
   const at = (q: number): number =>
     kappas[Math.max(0, Math.min(kappas.length - 1, Math.floor(q * (kappas.length - 1))))] ?? 0;
-  return { lo: at(0.025), hi: at(0.975), degenerateResamples: degenerate };
+  return { lo: at(0.025), hi: at(0.975), degenerateResamples: degenerate, iterations };
 }
 
 /**
@@ -656,6 +656,17 @@ function replicateAnalysis(rows: Row[], callErrorCount: number): NoiseFloor[] {
                 `${kappaCI.degenerateResamples > 0 ? `, ${kappaCI.degenerateResamples} degenerate resamples` : ""})`
           }`
         );
+        // A kappa computed from a handful of finding-bearing pairs prints exactly like one
+        // computed from hundreds — "1.000 (CI 1.000 to 1.000)" reads as certainty, and on the
+        // 2-pair smoke run that exact string arrived with 4,975 of 10,000 resamples degenerate.
+        // Say so in the report rather than leaving the count to be noticed.
+        if (kappaCI !== null && kappaCI.degenerateResamples > 0.1 * kappaCI.iterations) {
+          console.log(
+            `  CAUTION: ${pct(kappaCI.degenerateResamples / kappaCI.iterations)} of resamples ` +
+              `drew no finding-bearing pair at all. This interval rests on too few positives to ` +
+              `carry weight — read it as "not measurable at this n", not as agreement.`
+          );
+        }
       }
 
       const differences = grain.pairs.map(
