@@ -150,6 +150,91 @@ export class StructureCache extends VersionedLruCache<SnapshotStructure> {
   }
 }
 
+/** Entries retained by `OverviewCache`. Small payloads, so the working set can be wide. */
+export const DEFAULT_MAX_OVERVIEW_ENTRIES = 32;
+
+/**
+ * Ceiling on how long an overview entry may be served (mt#4429).
+ *
+ * Matches `ConversationPage.tsx`'s `staleTime: 30_000` deliberately — see the
+ * class docblock for why the ceiling exists at all.
+ */
+export const OVERVIEW_FRESHNESS_CEILING_MS = 30_000;
+
+interface TimestampedEntry<T> {
+  readonly storedAt: number;
+  readonly payload: T;
+}
+
+/**
+ * Cache for `GET /api/conversation/:id/overview` payloads (mt#4429).
+ *
+ * That route had no server-side cache of any kind and re-ran three round trips
+ * against a remote database on every request: measured 2026-08-22 across six
+ * calls at 0.588 / 0.813 / 1.598 / 1.876 / 1.969 / 3.557s, phases
+ * `transcript;dur=143, turns+workspace;dur=455, enrichment;dur=667`. The SPA's
+ * `staleTime: 30_000` is a BROWSER cache, so a fresh page load, a second tab, or
+ * a cockpit restart paid full cost every time.
+ *
+ * ## Why validity is a conjunction, not just a token
+ *
+ * The siblings above are validated by version token ALONE, and that is correct
+ * for them: a snapshot is a pure function of the transcript row, so a matching
+ * token means the cached value is exactly what re-assembly would produce.
+ *
+ * This payload is NOT such a pure function. It carries a `workspace` section
+ * built by `buildWorkspaceOverview`, whose commits come from `git log` in a
+ * session workdir — that can change with no transcript change at all, so a
+ * transcript-derived token would happily serve a commit list that is hours
+ * stale. Hence both conditions must hold for a hit:
+ *
+ * 1. the version token matches (catches everything conversation-derived), AND
+ * 2. the entry is younger than `OVERVIEW_FRESHNESS_CEILING_MS` (bounds drift in
+ *    the git/PR half, which no transcript token can see).
+ *
+ * The ceiling is NOT a TTL cache wearing a token: a TTL alone would serve a
+ * conversation's stale turn count for up to 30s, which is the failure the token
+ * exists to prevent. Each condition covers what the other cannot.
+ *
+ * `now` is passed in rather than read from the clock so the ceiling is testable
+ * without fake timers.
+ */
+export class OverviewCache<T> {
+  private readonly inner: VersionedLruCache<TimestampedEntry<T>>;
+  private readonly ceilingMs: number;
+
+  constructor(
+    maxEntries: number = DEFAULT_MAX_OVERVIEW_ENTRIES,
+    ceilingMs: number = OVERVIEW_FRESHNESS_CEILING_MS
+  ) {
+    if (!Number.isInteger(ceilingMs) || ceilingMs < 1) {
+      throw new RangeError(`OverviewCache ceilingMs must be a positive integer, got ${ceilingMs}`);
+    }
+    this.inner = new VersionedLruCache<TimestampedEntry<T>>(maxEntries);
+    this.ceilingMs = ceilingMs;
+  }
+
+  /** The cached payload, but only if BOTH the token matches and it is young enough. */
+  get(key: string, token: string, now: number): T | undefined {
+    const entry = this.inner.get(key, token);
+    if (entry === undefined) return undefined;
+    if (now - entry.storedAt >= this.ceilingMs) return undefined;
+    return entry.payload;
+  }
+
+  set(key: string, token: string, value: T, now: number): void {
+    this.inner.set(key, token, { storedAt: now, payload: value });
+  }
+
+  size(): number {
+    return this.inner.size();
+  }
+
+  clear(): void {
+    this.inner.clear();
+  }
+}
+
 /**
  * Render a version token as an HTTP entity tag.
  *
