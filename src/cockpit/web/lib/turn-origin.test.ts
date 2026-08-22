@@ -209,3 +209,82 @@ describe("classifyTurnOrigin — bash-mode turns, end to end (mt#4058)", () => {
     });
   });
 });
+
+// ── mt#4354: the dispatch brief, a THIRD author class ─────────────────────────
+//
+// A generated subagent dispatch prompt is neither the operator's nor the
+// harness's — the PARENT AGENT composed it. The signal is `userOrigin`, carried
+// from mt#4289's classifier. The property under test: a positive non-`human`
+// value outranks the prose rule, and `"human"` never does.
+describe("mt#4354 — dispatch-brief origin", () => {
+  const DISPATCH_PROSE =
+    "You are working on mt#4351 in session ws#412.\n\n## Operating Envelope\n…";
+
+  test("a dispatch brief is its own author class, not the operator", () => {
+    // Without `userOrigin` this exact turn is operator prose — that is the
+    // defect. The column is what distinguishes it.
+    expect(
+      classifyTurnOrigin({
+        role: "user",
+        elements: [text(DISPATCH_PROSE)],
+        userOrigin: "dispatch_brief",
+      })
+    ).toEqual({ kind: "dispatch", label: "dispatch brief" });
+  });
+
+  test("the same turn WITHOUT the signal still reads as the operator", () => {
+    // The negative control for the test above: it pins that `userOrigin` is
+    // what moved the verdict, not something incidental about the prose.
+    expect(classifyTurnOrigin({ role: "user", elements: [text(DISPATCH_PROSE)] })).toEqual({
+      kind: "operator",
+    });
+  });
+
+  test('"human" is the fail-open default and does NOT override prose', () => {
+    expect(
+      classifyTurnOrigin({ role: "user", elements: [text("fix the header")], userOrigin: "human" })
+    ).toEqual({ kind: "operator" });
+  });
+
+  test("operator prose QUOTING a watermark is still the operator (mt#3405 hazard)", () => {
+    // A live instance, not a hypothetical: `tasks decompose|estimate|analyze`
+    // emit `<!-- minsky:task-prompt:v1 -->` in prompts generated FOR A HUMAN TO
+    // PASTE, so a watermark-bearing turn on that path genuinely IS the operator.
+    // This is the whole difference between reading a first-party marker and
+    // pattern-matching prose — `check-prompt-watermark` already false-positives
+    // on exactly this shape.
+    expect(
+      classifyTurnOrigin({
+        role: "user",
+        elements: [
+          text("why does this prompt end with <!-- minsky:task-prompt:v1 --> ? is that a bug?"),
+        ],
+        userOrigin: "human",
+      })
+    ).toEqual({ kind: "operator" });
+  });
+
+  test("an origin kind this build has never seen renders, and is not the operator", () => {
+    // `UserTextOrigin` is `string`, not an enum, so a harness kind can appear
+    // without a migration. It must degrade to a readable non-operator label
+    // rather than throwing or silently reading as operator speech.
+    expect(
+      classifyTurnOrigin({
+        role: "user",
+        elements: [text("some future harness payload")],
+        userOrigin: "some_future_kind",
+      })
+    ).toEqual({ kind: "harness", label: "some future kind" });
+  });
+
+  test("a dispatch brief outranks isMeta", () => {
+    expect(
+      classifyTurnOrigin({
+        role: "user",
+        elements: [text(DISPATCH_PROSE)],
+        isMeta: true,
+        userOrigin: "dispatch_brief",
+      })
+    ).toEqual({ kind: "dispatch", label: "dispatch brief" });
+  });
+});

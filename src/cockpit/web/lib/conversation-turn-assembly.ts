@@ -56,6 +56,12 @@ export interface PreparedTurn {
   isCompactSummary?: boolean;
   /** The harness, not the operator, generated this turn (mt#3322). */
   isMeta?: boolean;
+  /**
+   * Who authored this `user` turn's text (mt#4354), from the one classifier
+   * that also writes `agent_transcript_turns.user_origin` (mt#4289).
+   * `"human"` is its FAIL-OPEN default — only a non-`"human"` value informs.
+   */
+  userOrigin?: string;
   /** Assistant model; `<synthetic>` marks a harness retry turn (mt#3260). */
   model?: string;
 }
@@ -185,6 +191,7 @@ export function pairToolInvocations(
       spawnChildAgentSessionId: turn.spawnChildAgentSessionId,
       isCompactSummary: turn.isCompactSummary,
       isMeta: turn.isMeta,
+      userOrigin: turn.userOrigin,
       model: turn.model,
     };
   });
