@@ -51,7 +51,7 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
-import { appendFileSync, mkdtempSync, readFileSync, existsSync } from "fs";
+import { appendFileSync, mkdtempSync, readFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -125,7 +125,8 @@ async function runCase(opts: {
   // the machine running the script — see the module docblock. A FRESH dir per
   // case, not one shared across the run: a shared dir would let one case's
   // side effect reach the next, which is the same class of leak this closes.
-  env["XDG_STATE_HOME"] = mkdtempSync(join(tmpdir(), "conv-identity-state-"));
+  const stateDir = mkdtempSync(join(tmpdir(), "conv-identity-state-"));
+  env["XDG_STATE_HOME"] = stateDir;
 
   let proxy: ChildProcess | null = null;
   try {
@@ -194,6 +195,15 @@ async function runCase(opts: {
     return { name: opts.name, pass: failure === null, detail: failure ?? "ok" };
   } finally {
     if (proxy && proxy.pid) proxy.kill("SIGTERM");
+    // Both temp dirs, not just the one this change added (PR #3255 R1). The
+    // capture dir has leaked since the script was written; a run over four
+    // cases now leaves eight directories in $TMPDIR, and a script whose whole
+    // purpose is to be run repeatedly should not accumulate them. `force` so a
+    // dir the OS already reaped is not an error, and cleanup never masks the
+    // case's own result — it runs after the assert has been captured.
+    for (const dir of [captureDir, stateDir]) {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
