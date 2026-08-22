@@ -421,6 +421,35 @@ export interface SessionContextSnapshotBlock {
   isMeta?: boolean;
 
   /**
+   * Who authored this `user` line's text (mt#4354), from the SAME classifier
+   * that writes `agent_transcript_turns.user_origin` — `classifyUserLineOrigin`
+   * in `../transcripts/user-line-origin.ts` (mt#4289).
+   *
+   * **Computed here rather than read from the column, deliberately.** The column
+   * and this field are two call sites of ONE classifier, not two classifiers —
+   * which is the property that matters. Computing has two advantages the column
+   * read does not: `turnLineToBlock` also serves the live-tail SSE path
+   * (mt#2232), where no `agent_transcript_turns` row exists yet, so a column read
+   * would leave every live conversation unlabeled; and it does not depend on the
+   * backfill reaching a historical row.
+   *
+   * **`"human"` is the classifier's FAIL-OPEN default, not positive evidence of
+   * operator authorship.** It is the value returned when no structural marker
+   * matched, so a consumer must not treat it as a claim. Only a NON-`human`
+   * value carries information.
+   *
+   * Set only when the `user` line actually carries text, mirroring the DB
+   * invariant `user_origin IS NOT NULL` ⟺ `user_text IS NOT NULL`. A
+   * `tool_result`-only user line contributes no text, and stamping it `human`
+   * would put an operator-speech marker on a row that carries none — inverting
+   * the question the field exists to answer (`turn-extractor.ts:400-409`).
+   *
+   * Optional and additive: absent on assistant lines and on text-less user
+   * lines, so no existing consumer changes behavior.
+   */
+  userOrigin?: string;
+
+  /**
    * The assistant message's `model`, when the line carried one (mt#3260).
    *
    * Load-bearing case: Claude Code records a retried turn with the sentinel
