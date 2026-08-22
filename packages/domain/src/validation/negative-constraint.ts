@@ -122,8 +122,18 @@ export const PROHIBITION_PATTERNS: readonly RegExp[] = [
  *
  *  1. **Causal connectives** — including consequence markers ("so do not ..."), which signal
  *     that the reason was just stated.
- *  2. **Explanatory colon** — "X is not possible: <clause>". A semicolon deliberately does NOT
- *     count; it joins two assertions without claiming one explains the other.
+ *  2. **Explanatory colon** — "X is not possible: <clause>", over a FIXED lead-in set
+ *     (`blocked` / `possible` / `feasible` / `available` / `supported` / `work(s)`), not any
+ *     word before a colon. A semicolon deliberately does NOT count; it joins two assertions
+ *     without claiming one explains the other.
+ *
+ *     The narrowness is deliberate and stated here because it is load-bearing (mt#4385):
+ *     generalizing to "any lead-in + colon" would credit every `Note:` / `Context:` heading in
+ *     ordinary dispatch prose, which on a SUPPRESSING predicate is the nullification mt#3861
+ *     rejected two candidates for. A separate explanatory-verb form (`… explains why: <clause>`)
+ *     was measured against the same corpus and flipped no window the citation marker below did
+ *     not already flip, so it was not shipped — a widening with no measured gain is pure cost
+ *     here.
  *  3. **Citation markers** — a backticked symbol, a file path, or a task/memory id. mem#702's
  *     account of what made the mt#3120 prompt recoverable is precisely that it "named the MCP
  *     identity chain specifically, not just 'it's blocked'". Naming the thing you checked is
@@ -147,7 +157,31 @@ export const BASIS_PATTERNS: readonly RegExp[] = [
   /(?:blocked|possible|feasible|available|supported|works?)\s*:\s*\S/i,
   // (3) citation markers — naming the specific thing checked
   /`[^`]+`/,
+  // A DIRECTORY is not required (mt#4385). Until 2026-08-21 the only file citation was the
+  // directory-qualified form immediately below, whose leading `\w+\/` made a directory
+  // mandatory — so `src/foo.ts` was a citation and a bare `foo.ts` was not, though the docblock
+  // above credits "a file path" either way. The 2026-08-19T20:22 calibration fire is exactly
+  // that gap: a prompt naming `postgres-vector-storage.ts` and pointing at the spec section
+  // that explains why, recorded `hasBasis: false`.
+  //
+  // The two forms are kept SEPARATE rather than collapsed into one, because they do not carry
+  // the same extension set — see the `js` note on the bare form.
+  //
+  // Measured before shipping, because this predicate SUPPRESSES and every widening buys
+  // silence (mt#3861 rejected two candidates on exactly this bar): over 671 local dispatch
+  // prompts / 97 prohibition windows it moves the marked fraction 87.6% -> 88.7% (+1.03pp)
+  // and flips 1 of 12 bare windows — the target. `scripts/measure-basis-marker-widening.ts`
+  // reproduces it and exits non-zero if a future edit pushes the delta past 1.5pp, if the
+  // marked fraction passes 95% outright, or if the target fire goes bare again.
   /\b\w+\/[\w./-]+\.(?:ts|tsx|js|json|md|mdc|sql|ya?ml)\b/i,
+  // The BARE-filename form deliberately omits `js` (PR #3235 R1). Every other extension here
+  // names an artifact; `.js` also ends a family of TECHNOLOGY names — `node.js`, `next.js`,
+  // `vue.js`, `three.js` — and naming a runtime is not "naming the specific thing you checked",
+  // so crediting it would suppress a fire on a prompt that stated no basis. Zero such tokens
+  // appeared in the 671-prompt corpus, but absence in one corpus is not impossibility, and the
+  // corpus grows. A directory-qualified `src/foo.js` is still a citation via the pattern above:
+  // the directory is what makes it an artifact reference rather than a product name.
+  /\b[\w-]+\.(?:ts|tsx|json|md|mdc|sql|ya?ml)\b/i,
   /\b(?:mt|md|gh)#\d+/i,
   /\bmem#\d+/i,
 ];

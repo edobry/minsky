@@ -41,6 +41,7 @@ describe("createIntervalSweeper", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {
@@ -67,6 +68,7 @@ describe("createIntervalSweeper", () => {
       tick: async () => {
         ingestCount++;
         await gate; // Block indefinitely until the test resolves it.
+        return { ok: true };
       },
     });
 
@@ -99,9 +101,10 @@ describe("createIntervalSweeper", () => {
         if (callCount === 1) {
           // First call hangs forever — simulates mt#2625's hung DB call.
           await neverResolves;
-          return;
+          return { ok: true };
         }
         // Every subsequent call resolves immediately.
+        return { ok: true };
       },
     });
 
@@ -135,8 +138,9 @@ describe("createIntervalSweeper", () => {
         callCount++;
         if (callCount === 1) {
           await neverResolves;
-          return;
+          return { ok: true };
         }
+        return { ok: true };
       },
     });
 
@@ -188,6 +192,7 @@ describe("createIntervalSweeper", () => {
         } finally {
           inFlight--;
         }
+        return { ok: true };
       },
     });
 
@@ -227,6 +232,7 @@ describe("createIntervalSweeper", () => {
       tick: async () => {
         starts++;
         if (starts === 1) await neverResolves;
+        return { ok: true };
       },
     });
 
@@ -254,6 +260,7 @@ describe("createIntervalSweeper", () => {
         if (callCount === 1) {
           throw new Error("unexpected failure");
         }
+        return { ok: true };
       },
     });
 
@@ -273,6 +280,7 @@ describe("createIntervalSweeper", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
 
@@ -296,6 +304,7 @@ describe("createIntervalSweeper", () => {
       intervalMs: 60_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {
@@ -319,7 +328,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-liveness-success",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     try {
       await waitFor(() => {
@@ -348,6 +357,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       tickTimeoutMs: 15,
       tick: async () => {
         await neverResolves;
+        return { ok: true };
       },
     });
     try {
@@ -376,6 +386,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
           await new Promise(() => {});
         }
         // Ticks after the threshold resolve immediately (success).
+        return { ok: true };
       },
     });
     try {
@@ -400,7 +411,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-liveness-deregister",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     await waitFor(() =>
       getSweepLivenessSnapshot().some((e) => e.name === "test-liveness-deregister")
@@ -426,6 +437,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
         // consecutiveFailures on schedule without this test needing to
         // orchestrate exact promise resolution timing.
         await new Promise<void>(() => {});
+        return { ok: true };
       },
     });
 
@@ -464,7 +476,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-duplicate-name",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     try {
       expect(() =>
@@ -472,7 +484,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
           name: "test-duplicate-name",
           intervalMs: 60_000,
           tickTimeoutMs: 5_000,
-          tick: async () => {},
+          tick: async () => ({ ok: true }),
         })
       ).toThrow(/duplicate active sweep registration/);
     } finally {
@@ -485,7 +497,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-reuse-after-stop",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     stopFirst();
 
@@ -496,6 +508,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {
@@ -522,6 +535,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     // Short meta-cadence for test speed; stall threshold is 2x intervalMs (15ms) = 30ms.
@@ -563,6 +577,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     const stopWatchdog = startSweepMetaWatchdog(20);
@@ -588,6 +603,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     await waitFor(() => callCount >= 1);
@@ -638,6 +654,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     const stopWatchdog = startSweepMetaWatchdog(20); // stall threshold = 2 * 500ms = 1000ms
@@ -727,29 +744,87 @@ describe("sweep domain-outcome reporting (mt#3684)", () => {
     }
   });
 
-  test("negative control: the same tick reporting nothing leaves the failure invisible (AT2)", async () => {
-    // This is the pre-fix surface, and what an operator read for 13 hours.
+  test("a silent tick is no longer expressible — `void` fails to typecheck (AT2, mt#4412)", async () => {
+    // This test used to BE the pre-fix surface: it registered a tick that
+    // handled its own failure and said nothing, then asserted the resulting
+    // entry was indistinguishable from a healthy sweep on every field that
+    // existed — what an operator read for 13 hours.
+    //
+    // mt#4412 makes that case unrepresentable rather than merely discouraged,
+    // so the negative control moves from runtime to COMPILE time. The
+    // `@ts-expect-error` below IS the assertion: it fails the build if a
+    // void-returning tick ever becomes assignable again, which is the
+    // regression this task exists to prevent.
     const stop = createIntervalSweeper({
       name: "test-domain-silent",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
+      // @ts-expect-error mt#4412 — a tick returning nothing is no longer
+      // assignable to `IntervalSweeperOptions.tick`. Removing the type change
+      // makes this directive unused and the build fails on it.
       tick: async () => {
         /* handled its own failure and said nothing — the old contract */
       },
     });
     try {
-      await waitFor(() => entryFor("test-domain-silent")?.lastSuccessAt != null);
+      // Paired runtime assertion so this exercises real behavior rather than
+      // resting on a type directive alone: the registrant still appears, and
+      // it DECLARES a domain outcome even though this particular (illegal)
+      // tick never reports one. Declaration is static; reporting is observed.
+      await waitFor(() => entryFor("test-domain-silent") != null);
       const entry = entryFor("test-domain-silent");
 
+      expect(entry?.declaresDomainOutcome).toBe(true);
       expect(entry?.reportsDomainOutcome).toBe(false);
-      expect(entry?.lastDomainFailureAt).toBeNull();
-      expect(entry?.lastDomainSuccessAt).toBeNull();
-      expect(entry?.consecutiveDomainFailures).toBe(0);
-      // Indistinguishable from a healthy sweep on every field that exists.
-      expect(entry?.lastSuccessAt).not.toBeNull();
-      expect(entry?.consecutiveFailures).toBe(0);
     } finally {
       stop();
+    }
+  });
+
+  test("EVERY registrant declares a domain outcome, by whichever path it joined (mt#4412)", async () => {
+    // The invariant is asserted over the REGISTRY, not per-sweep, because the
+    // defect this task closes was never in a member — it was in the
+    // enumeration. mem#1060: "when you fix a defect in one member of an
+    // enumeration, the class lives in the enumeration, not the member."
+    //
+    // Concretely, mt#4412's own spec originally scoped itself to
+    // `createIntervalSweeper` and would have left `registerSelfSchedulingSweep`
+    // — the OTHER way into this registry, and the one ADR-035's class-owner
+    // note names alongside it — still silent. Both paths are registered here so
+    // a future third path fails this test rather than quietly joining as the
+    // next silent registrant.
+    const stopInterval = createIntervalSweeper({
+      name: "test-invariant-interval",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => ({ ok: true }),
+    });
+    const selfHandle = registerSelfSchedulingSweep({
+      name: "test-invariant-self-scheduled",
+      progressBudgetMs: 60_000,
+      restart: () => {},
+    });
+
+    try {
+      const snapshot = getSweepLivenessSnapshot();
+
+      // Denominator first (mem#1079): without this the `every` below passes
+      // vacuously on an empty registry, which is precisely the shape of a
+      // green test that checks nothing.
+      expect(snapshot.length).toBeGreaterThanOrEqual(2);
+
+      // And both REGISTRATION PATHS are actually present — a non-empty
+      // snapshot containing two interval sweeps would satisfy the count while
+      // leaving the self-scheduled path untested, which is the gap this test
+      // exists to hold closed.
+      expect(snapshot.some((e) => e.selfScheduled)).toBe(true);
+      expect(snapshot.some((e) => !e.selfScheduled)).toBe(true);
+
+      const silent = snapshot.filter((e) => !e.declaresDomainOutcome).map((e) => e.name);
+      expect(silent).toEqual([]);
+    } finally {
+      stopInterval();
+      selfHandle.stop();
     }
   });
 
@@ -1307,7 +1382,7 @@ describe("self-scheduling registrants (mt#4185)", () => {
       name: "test-interval-not-flagged",
       intervalMs: 1_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     const selfHandle = registerSelfSchedulingSweep({
       name: "test-self-never-reports",
@@ -1365,7 +1440,7 @@ describe("self-scheduling registrants (mt#4185)", () => {
       name: "test-self-scheduling-discriminator",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     try {
       await waitFor(() =>

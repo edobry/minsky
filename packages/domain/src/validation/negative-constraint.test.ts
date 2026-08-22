@@ -266,3 +266,86 @@ describe("PR #2260 R1 — regex corrections", () => {
     expect(report.bare).toEqual([]);
   });
 });
+
+describe("mt#4385 — a bare filename is a citation, no directory required", () => {
+  /**
+   * The 2026-08-19T20:22 fire from `.minsky/bare-prohibition-calibration.jsonl`, quoted
+   * VERBATIM from the record's `excerpt` field (mem#1020: a paraphrased detector fixture is
+   * silently inert, and trimming is a paraphrase).
+   *
+   * Note there are no backticks around the filename in the source text — the markdown in
+   * mt#4385's original summary added them, which is precisely why the citation predicate had
+   * to fall back to the file-path alternative and why the mandatory directory was load-bearing.
+   */
+  const MT4385_FIRE_PROMPT =
+    "DO NOT try to route transcripts through postgres-vector-storage.ts in this task. " +
+    'The spec\'s "What use the common infra actually costs" section explains why: that layer ' +
+    "is single-table, single-id, equal-dimension.";
+
+  /** The same instruction with the filename replaced by a bare noun phrase — no citation left. */
+  const MT4385_FIRE_PROMPT_UNCITED =
+    "DO NOT try to route transcripts through the shared vector store in this task. " +
+    'The spec\'s "What use the common infra actually costs" section explains why: that layer ' +
+    "is single-table, single-id, equal-dimension.";
+
+  test("AT1 — the recovered 2026-08-19 fire is no longer bare", () => {
+    const report = analyzeNegativeConstraints(MT4385_FIRE_PROMPT);
+
+    // Liveness first (mem#1020): the prohibition is still SEEN. Without this, a fixture that
+    // stopped matching PROHIBITION_PATTERNS would satisfy the `bare` assertion vacuously.
+    expect(report.findings.length).toBeGreaterThan(0);
+    expect(report.findings.every((f) => f.hasBasis)).toBe(true);
+    expect(report.bare).toEqual([]);
+  });
+
+  test("AT2 — the CITATION carries the verdict, not the surrounding sentence", () => {
+    // The isolation guard mem#1002 prescribes: strip only the filename and the same prose must
+    // read bare again. If this ever passes with the filename removed, some OTHER basis pattern
+    // has started matching the sentence and AT1 is no longer testing the citation marker.
+    const uncited = analyzeNegativeConstraints(MT4385_FIRE_PROMPT_UNCITED);
+
+    expect(uncited.findings.length).toBeGreaterThan(0);
+    expect(uncited.bare.length).toBeGreaterThan(0);
+    expect(uncited.findings.every((f) => !f.hasBasis)).toBe(true);
+  });
+
+  test("a directory-qualified path is still a citation — the widening ADDS, never replaces", () => {
+    const report = analyzeNegativeConstraints(
+      // "do not attempt" rather than "do not route": the latter reaches no PROHIBITION_PATTERN,
+      // so the fixture was inert and this test proved nothing (mem#1020). The liveness
+      // assertion below is what surfaced that, which is the reason it is written first.
+      "Do not attempt the transcript route through packages/domain/src/storage/postgres-vector-storage.ts."
+    );
+
+    expect(report.findings.length).toBeGreaterThan(0);
+    expect(report.findings.every((f) => f.hasBasis)).toBe(true);
+  });
+
+  test("PR #3235 R1 — a bare technology name is not a citation, but a path to one is", () => {
+    // `.js` is the one extension in the set that also ends a family of PRODUCT names. Naming a
+    // runtime is not "naming the specific thing you checked", so the bare form omits `js` —
+    // otherwise this prompt would be credited with a basis it never stated, and SUPPRESSED.
+    const bareTechName = analyzeNegativeConstraints(
+      "Do not attempt the migration on node.js in this task."
+    );
+    expect(bareTechName.findings.length).toBeGreaterThan(0);
+    expect(bareTechName.bare.length).toBeGreaterThan(0);
+
+    // The directory-qualified form still credits `js` — a path names an artifact, not a product.
+    const qualified = analyzeNegativeConstraints(
+      "Do not attempt the migration in scripts/legacy/bootstrap.js here."
+    );
+    expect(qualified.findings.length).toBeGreaterThan(0);
+    expect(qualified.findings.every((f) => f.hasBasis)).toBe(true);
+  });
+
+  test("AT3 — negative control: mt#3861's basis-less prohibition still fires", () => {
+    // The nullification floor. mt#3861 rejected two widenings because they suppressed this
+    // shape too; a widening that clears it is the one outcome forbidden here.
+    const report = analyzeNegativeConstraints("The approach is blocked. Do not attempt it.");
+
+    expect(report.findings.length).toBeGreaterThan(0);
+    expect(report.bare.length).toBeGreaterThan(0);
+    expect(report.findings.every((f) => !f.hasBasis)).toBe(true);
+  });
+});
