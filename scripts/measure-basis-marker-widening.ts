@@ -84,6 +84,21 @@ const TARGET_FIRE =
  */
 const MAX_MARKED_FRACTION_DELTA_PCT = 1.5;
 
+/**
+ * An ABSOLUTE ceiling on the marked fraction, checked against the whole shipped set.
+ *
+ * The delta above is scoped to the citation pattern, which leaves a hole this script was
+ * measured to have: add an over-wide pattern ANYWHERE ELSE in `BASIS_PATTERNS` and the baseline
+ * and shipped sets both inherit it, so the delta stays at +0.00pp and the run PASSES — while the
+ * corpus sits at 100.0% marked and the category is fully nullified. Observed directly by
+ * inserting `/\.\s+\S/` (any sentence boundary) during mt#4385's verification.
+ *
+ * 95% sits below the 96.3% that mt#3861 rejected two candidates at, and well above the 88.7%
+ * the shipped set measures — so it fires on nullification without being tripped by ordinary
+ * corpus drift.
+ */
+const MAX_MARKED_FRACTION_ABSOLUTE_PCT = 95;
+
 interface Window {
   text: string;
   rung1HasBasis: boolean;
@@ -244,6 +259,17 @@ function main(): number {
     console.log(
       "FAIL: the 2026-08-19 fire is bare again — the mt#4385 citation widening has been " +
         "reverted or narrowed. See packages/domain/src/validation/negative-constraint.ts."
+    );
+    return 1;
+  }
+
+  if (afterPct > MAX_MARKED_FRACTION_ABSOLUTE_PCT) {
+    console.log("");
+    console.log(
+      `FAIL: the shipped patterns mark ${afterPct.toFixed(1)}% of the corpus as basis-bearing, ` +
+        `past the ${MAX_MARKED_FRACTION_ABSOLUTE_PCT}% ceiling. The category is nullified — it ` +
+        "suppresses nearly every prohibition it sees. Note the delta check above cannot catch " +
+        "this when the over-wide pattern is not the citation one."
     );
     return 1;
   }
