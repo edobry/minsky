@@ -331,8 +331,16 @@ export function stripCommentLines(text: string): string {
       continue;
     }
     if (trimmed.startsWith("/*")) {
-      // A single-line `/* … */` closes on the same line and opens no block.
-      if (!trimmed.includes("*/")) inBlock = true;
+      const close = trimmed.indexOf("*/");
+      if (close === -1) {
+        inBlock = true;
+        continue;
+      }
+      // A block that closes MID-LINE leaves real code after it, and dropping the
+      // whole line would delete that code (PR #3231 R6). `/* note */ const m =
+      // "…";` is the case: the comment is a prefix, not the line.
+      const after = trimmed.slice(close + 2);
+      if (after.trim() !== "") out.push(after);
       continue;
     }
     if (trimmed.startsWith("//")) continue;

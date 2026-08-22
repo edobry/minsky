@@ -5,6 +5,7 @@ import {
   callsSinceLastPr,
   isSerializedSurfacePath,
   messagePhrases,
+  quotedLiterals,
   replacedLiterals,
   staleOccurrences,
   stripCommentLines,
@@ -796,6 +797,17 @@ describe("PR #3231 review fixes", () => {
     expect(stripped).not.toContain("dropped");
     expect(stripped).toContain("kept");
     expect(stripped).toContain("* still code");
+  });
+
+  test("R6 — a block that closes MID-LINE keeps the code after it", () => {
+    // Dropping the whole line would delete real code: the comment is a PREFIX,
+    // not the line. That matters here because the surviving text is exactly what
+    // the literal extractor reads.
+    const stripped = stripCommentLines('/* note */ const m = "a retired message string";');
+    expect(stripped).not.toContain("note");
+    expect(stripped).toContain("a retired message string");
+    // And the literal must still be extractable from what survives.
+    expect(quotedLiterals(stripped)).toContain("a retired message string");
   });
 });
 
