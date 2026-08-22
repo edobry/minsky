@@ -27,7 +27,15 @@
  * @see docs/architecture/adr-006-agent-identity.md
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { getMinskyStateDir } from "./paths";
 
@@ -42,6 +50,17 @@ export interface MappingIo {
   /** Append one line to a log. Separate from {@link MappingIo.write} because
    *  the transition log is append-only while the mapping file is replaced. */
   append(path: string, line: string): void;
+  /**
+   * Entry filenames in a directory, and removal of one (mt#4378's prune).
+   *
+   * OPTIONAL so every existing test double keeps satisfying this interface
+   * without change — a fake that omits them simply does not prune, which is
+   * today's behavior and cannot make a mapping wrong. Making them required
+   * would have forced an edit to every unrelated fixture, and a mechanical
+   * sweep like that is where a real behavioral change hides.
+   */
+  list?(dir: string): string[];
+  remove?(path: string): void;
 }
 
 /** Real-filesystem {@link MappingIo}. The default for every caller. */
@@ -55,6 +74,10 @@ export const realMappingIo: MappingIo = {
   },
   append: (path, line) => {
     appendFileSync(path, line, "utf8");
+  },
+  list: (dir) => (existsSync(dir) ? readdirSync(dir) : []),
+  remove: (path) => {
+    rmSync(path, { force: true });
   },
 };
 
@@ -213,6 +236,49 @@ function readProcessInfo(pid: number): { ppid: number; comm: string } | null {
  * The exact format does not matter — it is only ever compared verbatim against
  * a value produced the same way on the same machine.
  */
+/**
+ * Whether a pid names a running process — the THREE-valued answer (mt#4378).
+ *
+ * `readProcessStartTime` below returns `null` for two different facts: the
+ * process is GONE, and `ps` could not be run. That conflation is the defect
+ * this task exists to fix. `readConversationMapping`'s recycling check
+ * tolerates a `null` (correctly — a failed `ps` is not evidence of recycling),
+ * so a DEAD pid's entry sailed through and was returned as a live mapping. The
+ * store never prunes, so a two-day-old entry for a pid nobody is running is
+ * byte-indistinguishable from a current one, and there is no fallback to
+ * observe because nothing looks absent. That is the mem#704 shape: the probe
+ * returns a well-formed answer whether or not the system is healthy.
+ *
+ * `process.kill(pid, 0)` sends no signal and only performs the existence and
+ * permission check, which is what makes the three cases separable:
+ *   - resolves           -> the process exists and is ours
+ *   - throws `EPERM`     -> it EXISTS and belongs to another user
+ *   - throws `ESRCH`     -> no such process
+ *   - anything else      -> we cannot tell, and must not guess
+ *
+ * `EPERM` is deliberately `alive`: the question is whether the pid is running,
+ * not whether we may signal it. Reading it as dead would discard a live
+ * mapping, which is the false-negative direction.
+ */
+export type ProcessLiveness = "alive" | "dead" | "unknown";
+
+export function processLiveness(pid: number): ProcessLiveness {
+  if (!Number.isInteger(pid) || pid <= 0) return "unknown";
+  // This repo's ambient `process` shim (`src/types/node.d.ts`) omits `kill`,
+  // the same omission `ownParentPid` below casts around for `ppid`.
+  const kill = (process as typeof process & { kill?: (pid: number, signal: number) => void }).kill;
+  if (typeof kill !== "function") return "unknown";
+  try {
+    kill(pid, 0);
+    return "alive";
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "ESRCH") return "dead";
+    if (code === "EPERM") return "alive";
+    return "unknown";
+  }
+}
+
 export function readProcessStartTime(pid: number): string | null {
   try {
     const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
@@ -272,6 +338,64 @@ export function resolveHarnessPid(
  * Never throws: this runs inside a hook, and a hook must not block the event it
  * observes. Returns whether the write landed so a caller can log it.
  */
+/**
+ * Delete entries for pids that are no longer running (SC4, mt#4378).
+ *
+ * ON WRITE rather than on a schedule: a SessionStart write is exactly when a
+ * harness has just started or switched conversations, which is both infrequent
+ * and already paying for filesystem work — there is no daemon here to hang a
+ * timer on, and adding one would be a mechanism where a sweep suffices. The
+ * store held 223 entries going back to 2026-08-11 when this was filed.
+ *
+ * ONLY `dead` is pruned. An `unknown` liveness must never delete a mapping: the
+ * cost of wrongly keeping one is a stale entry the reader now rejects anyway,
+ * while the cost of wrongly deleting one is the live session losing its own
+ * identity and falling back to the spawn-time env value.
+ *
+ * Failure-isolated like the transition log below it — pruning is hygiene, and
+ * the mapping write is what correctness depends on (mt#3900). A directory that
+ * cannot be listed, or an entry that cannot be removed, must never cost the
+ * caller its write.
+ */
+export function pruneDeadMappings(
+  io: MappingIo = realMappingIo,
+  liveness: (pid: number) => ProcessLiveness = processLiveness,
+  keepPid?: number
+): number {
+  const list = io.list;
+  const remove = io.remove;
+  if (typeof list !== "function" || typeof remove !== "function") return 0;
+
+  let pruned = 0;
+  try {
+    const dir = getConversationPidMapDir();
+    for (const entry of list(dir)) {
+      const match = entry.match(/^(\d+)\.json$/);
+      const raw = match?.[1];
+      if (raw === undefined) continue;
+      const pid = Number.parseInt(raw, 10);
+      if (!Number.isFinite(pid)) continue;
+      // NEVER the entry the caller just wrote. A write comes from the harness
+      // that owns the pid, so it is live by construction; deleting it because a
+      // `ps` hiccup answered "dead" would destroy the mapping in the very call
+      // that created it. Caught by a test whose synthetic pid really is dead.
+      if (keepPid !== undefined && pid === keepPid) continue;
+      if (liveness(pid) !== "dead") continue;
+      try {
+        remove(join(dir, entry));
+        pruned++;
+      } catch {
+        // intentional-swallow: one unremovable entry must not abort the sweep
+        // or the write it rides on. The reader rejects a dead pid regardless,
+        // so a survivor is a disk-space cost, not a correctness one.
+      }
+    }
+  } catch {
+    // intentional-swallow: see the docblock — hygiene never fails a write.
+  }
+  return pruned;
+}
+
 export function writeConversationMapping(
   harnessPid: number,
   conversationId: string,
@@ -300,6 +424,11 @@ export function writeConversationMapping(
       ...(startedAt ? { harnessStartedAt: startedAt } : {}),
     };
     io.write(path, `${JSON.stringify(payload)}\n`);
+
+    // AFTER the write, for the same reason the transition log is: the mapping
+    // is what correctness depends on, and the sweep is hygiene (SC4). The pid
+    // just written is held out — see `keepPid`.
+    pruneDeadMappings(io, processLiveness, harnessPid);
 
     // AFTER the mapping write, and independently failure-isolated: the mapping
     // is what correctness depends on (mt#3900), the log is observability. A
@@ -400,9 +529,21 @@ export function appendConversationTransition(
 export function readConversationMapping(
   harnessPid: number,
   io: MappingIo = realMappingIo,
-  readStartTime: (pid: number) => string | null = readProcessStartTime
+  readStartTime: (pid: number) => string | null = readProcessStartTime,
+  liveness: (pid: number) => ProcessLiveness = processLiveness
 ): string | null {
   try {
+    // LIVENESS FIRST (SC1, mt#4378). A dead pid's entry is not stale data to be
+    // sanity-checked, it is data about a process that no longer exists — and
+    // the recycling check below cannot catch it, because a dead pid makes `ps`
+    // fail and that path is deliberately tolerant. The store never prunes, so
+    // without this a two-day-old entry answers as confidently as a current one.
+    //
+    // Only `dead` rejects. `unknown` degrades to the previous behavior rather
+    // than discarding a mapping we merely could not verify — the fallback is
+    // the spawn-time env value, which is exactly what goes stale on `/clear`.
+    if (liveness(harnessPid) === "dead") return null;
+
     const contents = io.read(getConversationPidMapPath(harnessPid));
     if (contents === null) return null;
 

@@ -38,7 +38,7 @@ import {
   GEN_AI_CONVERSATION_ID_KEY,
   appendBaggageEntry,
 } from "@minsky/domain/agent-identity/baggage";
-import { readConversationMapping } from "@minsky/shared/conversation-pid-map";
+import { readConversationMapping, resolveHarnessPid } from "@minsky/shared/conversation-pid-map";
 import type { JsonRpcMessage } from "./tools";
 
 export { BAGGAGE_META_KEY };
@@ -142,9 +142,15 @@ export function resolveLiveConversationAgentId(
   deps: {
     readMapping?: (pid: number) => string | null;
     now?: () => number;
+    /** Re-walk the ancestor chain when the seed pid misses (SC3, mt#4378). */
+    reresolvePid?: () => number | null;
   } = {}
 ): string | null {
-  const { readMapping = readConversationMapping, now = Date.now } = deps;
+  const {
+    readMapping = readConversationMapping,
+    now = Date.now,
+    reresolvePid = resolveHarnessPid,
+  } = deps;
 
   if (harnessPid === null) return fallbackAgentId;
 
@@ -163,8 +169,38 @@ export function resolveLiveConversationAgentId(
     return mappingCache.agentId ?? fallbackAgentId;
   }
 
-  const mapped = readMapping(harnessPid);
+  let mapped = readMapping(harnessPid);
+
+  // RE-RESOLVE ON A MISS (SC3, mt#4378). `harnessPid` is walked once in the
+  // proxy's constructor and held in a `readonly` field, and the docblock above
+  // justifies that with "it cannot change for the life of the process". That
+  // sentence is true of the VARIABLE and false of the FACT it stands for: the
+  // MCP server outlives the harness that spawned it, so which harness is
+  // actually driving this server does change. Two observed shapes, one task:
+  //
+  //   - the walked pid is DEAD and its entry was never pruned, so a two-day-old
+  //     conversation answered as current (the filing incident);
+  //   - the walked pid has NO entry at all while the live harness's entry is
+  //     present and correct, so the reader missed and fell back to the
+  //     spawn-time env value — which is the pre-`/clear` conversation (the
+  //     third recurrence, 2026-08-21, where the mapping was written 5 seconds
+  //     before the first mislabeled claim).
+  //
+  // A miss is the only trigger, so the `ps` cost that motivated resolve-once is
+  // respected: the walk runs when the lookup already failed, never per frame,
+  // and the result is cached under the pid it produced. A hit never re-walks.
+  if (mapped === null) {
+    const rewalked = reresolvePid();
+    if (rewalked !== null && rewalked !== harnessPid) {
+      mapped = readMapping(rewalked);
+    }
+  }
+
   const agentId = mapped ? toConversationAgentId(mapped) : null;
+  // Cached under the SEED pid, which is the key the caller will present again.
+  // The re-walk's result rides in `agentId`, so a hit inside the TTL answers
+  // from cache and does not re-walk; the walk recurs only once the TTL lapses
+  // and the seed pid misses again, which is the bounded cost SC3 asks for.
   mappingCache = { harnessPid, agentId, readAtMs: nowMs };
 
   return agentId ?? fallbackAgentId;
