@@ -140,6 +140,32 @@ contract:
 `minsky setup local-http --execute` starts the daemon itself if nothing is already serving, so a
 migrated config is never left pointing at nothing.
 
+### The response shape is pinned (mt#4322)
+
+`/health`'s body is a checked-in contract: `contract/mcp-health-shape.json`, asserted by
+`src/mcp/health-payload.test.ts` against the same builder the route calls. Renaming or removing a
+field fails a test rather than surfacing later as a downstream misread. The fields:
+
+| field         | meaning                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `status`      | `"ok"` / `"unhealthy"` — liveness, matching the status code                             |
+| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question |
+| `service`     | `"minsky-mcp"` — the identity assertion below                                           |
+| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                      |
+| `transport`   | `"http"` (this route exists only on the HTTP transport)                                 |
+| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                      |
+| `timestamp`   | ISO, when the response was built                                                        |
+
+**Assert `service`, not just the status code.** Every Minsky service is built from the same
+monorepo, so a misconfigured build can put a DIFFERENT application on this port and it answers 200
+exactly like the right one — mt#3142 is the incident where the MCP server served the reviewer's host
+for about an hour while every reviewer route 404'd, with the status check green throughout. A probe
+that cannot fail carries no information.
+
+```bash
+curl -s 127.0.0.1:48765/health | jq -r '.service'   # expect: minsky-mcp
+```
+
 ### Liveness is not readiness
 
 Check readiness before pointing anything at the daemon:

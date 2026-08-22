@@ -15,9 +15,12 @@
 
 import { describe, test, expect } from "bun:test";
 
-import type { Command } from "commander";
-
-import { isHostedMcpServer, isMcpStartStdio, resolveMcpTransport } from "./cli-discriminators";
+import {
+  isHostedMcpServer,
+  isMcpStartStdio,
+  resolveMcpTransport,
+  type McpStartCommandLike,
+} from "./cli-discriminators";
 
 /**
  * A minimal stand-in for the `Command` the preAction hook receives (mt#4322).
@@ -33,12 +36,12 @@ function makeCommand(
   name: string,
   parentName: string | undefined,
   opts: Record<string, unknown>
-): Command {
+): McpStartCommandLike {
   return {
     name: () => name,
     parent: parentName ? { name: () => parentName } : undefined,
     opts: () => opts,
-  } as unknown as Command;
+  };
 }
 
 describe("isHostedMcpServer — mt#4338 hosted-vs-local derivation", () => {

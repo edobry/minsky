@@ -38,7 +38,16 @@ export interface McpHealthPayload {
   status: "ok" | "unhealthy";
   service: typeof MCP_HEALTH_SERVICE;
   server: string;
-  transport: string;
+  /**
+   * Always `"http"`, and typed as the literal rather than `string` (PR #3238 R1).
+   *
+   * This route only exists on the HTTP transport — a stdio process serves no
+   * HTTP surface — so the value is correct by construction rather than derived
+   * from mt#4322's transport resolution. The literal type is what makes that
+   * invariant visible to the compiler instead of only to the fixture's
+   * `$transportFieldNote`.
+   */
+  transport: "http";
   timestamp: string;
   persistence: { mode: PersistenceHealthStatus["mode"]; reason?: string };
   ready: boolean;

@@ -46,11 +46,30 @@ import type { Command } from "commander";
  * enumerates flags at all — it asks {@link resolveMcpTransport}, and a future
  * transport-selecting flag is added THERE, once.
  */
-export function isMcpStartStdio(cmd: Command): boolean {
+export function isMcpStartStdio(cmd: McpStartCommandLike): boolean {
   if (cmd.name() !== "start") return false;
   if (cmd.parent?.name() !== "mcp") return false;
   const opts = typeof cmd.opts === "function" ? cmd.opts() : {};
   return resolveMcpTransport(opts).transport === "stdio";
+}
+
+/**
+ * The three things {@link isMcpStartStdio} actually reads off a command
+ * (PR #3238 R1).
+ *
+ * Declared structurally rather than as commander's `Command` so this predicate
+ * depends on the shape it uses, not on the CLI framework. A real `Command`
+ * satisfies it by structural typing, so `cli.ts`'s call site is unchanged —
+ * what changes is that a commander API shift can no longer make a passing test
+ * and a failing production path diverge, because both now type against the same
+ * three members. That divergence was the reviewer's concern about the test's
+ * hand-built stand-in, and narrowing the PRODUCTION signature answers it at the
+ * source rather than only in the test.
+ */
+export interface McpStartCommandLike {
+  name(): string;
+  parent?: { name(): string } | null;
+  opts?: () => { http?: boolean; localDaemon?: boolean };
 }
 
 /** The two transports `minsky mcp start` can run on. */

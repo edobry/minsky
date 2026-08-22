@@ -1372,6 +1372,12 @@ export function createStartCommand(
         // so it returns the same answer either side of that `options.http`
         // assignment — which is precisely the property that lets the preAction
         // hook and this body agree without depending on which ran first.
+        //
+        // PR #3238 R1: resolved ONCE for this whole action body and reused
+        // below (the stdin-cleanup branch, the error log). Re-calling it per
+        // site would be cheap and correct today, but re-opens in miniature the
+        // very thing this task closes — N derivations that a later edit
+        // mutating `options` in between could drift apart.
         const transportType = resolveMcpTransport(options).transport;
 
         // Validate HTTP configuration if using HTTP transport
@@ -2257,7 +2263,7 @@ export function createStartCommand(
         // than once (PR #881 R1 NON-BLOCKING). Only attach for stdio transport —
         // HTTP-mode containers don't use stdin and may run with stdin closed at
         // startup, which would falsely trigger.
-        if (resolveMcpTransport(options).transport === "stdio") {
+        if (transportType === "stdio") {
           process.stdin.on("close", cleanup);
         }
 
@@ -2271,6 +2277,11 @@ export function createStartCommand(
         await new Promise(() => {});
       } catch (error) {
         log.error("Failed to start MCP server", {
+          // Re-resolved rather than reusing the `transportType` binding above:
+          // that const lives inside the `try`, and a throw before it is reached
+          // means it never existed. This is the "once per EXECUTION PATH" the
+          // R1 finding asks for — the catch is a different path, not a repeat
+          // of the same one.
           transportType: resolveMcpTransport(options).transport,
           withInspector: options.withInspector || false,
           error: getErrorMessage(error),
