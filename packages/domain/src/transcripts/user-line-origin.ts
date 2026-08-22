@@ -48,6 +48,8 @@
  *   the same precedent `RETAINED_TYPES` and `SYNTHETIC_INTERRUPT_MARKERS` set)
  */
 
+import { PROMPT_WATERMARK } from "../session/prompt-generation";
+
 /**
  * Who authored a turn's `user_text`, as stored in
  * `agent_transcript_turns.user_origin`.
@@ -72,6 +74,115 @@ export const COMPACT_SUMMARY_ORIGIN: UserTextOrigin = "compact_summary";
  * bodies and slash-command re-invocation notices are the observed members.
  */
 export const HARNESS_META_ORIGIN: UserTextOrigin = "harness_meta";
+
+/**
+ * A dispatch brief: the prompt a PARENT AGENT composed to instruct a subagent,
+ * landing as the first `user`-role line of the subagent's transcript (mt#4401).
+ *
+ * Not a harness product — Minsky writes it. Which is exactly why the four
+ * harness fields above are all absent from the record, so before this kind
+ * existed it fell through to {@link OPERATOR_ORIGIN} and an agent-composed
+ * prompt was filed as the operator's own words. Verified against
+ * `<project>/subagents/agent-a335fb8b0e7586511.jsonl` line 1, whose key set is
+ * `agentId, cwd, entrypoint, gitBranch, isSidechain, message, parentUuid,
+ * promptId, sessionId, timestamp, type, userType, uuid, version` — no
+ * `isCompactSummary`, no `isMeta`, no `origin`, no `promptSource`.
+ *
+ * Measured 2026-08-21: 400 of 763 local subagent transcripts carry a marker on
+ * that first line, and the corpus grows with every dispatch.
+ */
+export const DISPATCH_BRIEF_ORIGIN: UserTextOrigin = "dispatch_brief";
+
+/**
+ * The mt#2292 dispatch stamp's version token — THE definition (PR #3242 R2).
+ *
+ * Lives here rather than in `.minsky/hooks/agent-dispatch-stamp.ts`, which
+ * imports it, because a dispatch stamp is transcript vocabulary that two sides
+ * share: the hook WRITES it into a prompt, this module READS it back out.
+ *
+ * The first attempt duplicated it here with a sync test, on the assumption that
+ * `packages/domain` cannot import from the hook tree. The premise was right and
+ * the conclusion was backwards — hooks import from `@minsky/domain` routinely
+ * (`block-nested-fork-dispatch.ts`, `dispatch-intent-store.ts`), so the
+ * dependency inverts cleanly and one definition serves both. A sync test is a
+ * detector for drift; a single definition makes drift unrepresentable.
+ */
+export const DISPATCH_STAMP_VERSION = "minsky:dispatch:v1";
+
+/**
+ * Does this text carry a marker Minsky itself wrote to mark an agent-composed
+ * dispatch prompt?
+ *
+ * **Why a text check does not violate mt#4289's "structural, never
+ * text-prefix" rule.** That rule has two stated reasons and neither reaches a
+ * marker we emit. AMBIGUITY: a prefix cannot separate an operator pasting
+ * `Base directory for this skill:` from the harness emitting it — a versioned
+ * HTML comment our own `prompt-generation.ts` writes is not text an operator
+ * produces incidentally. INSTABILITY: the harness is a vendor whose prose we do
+ * not control, whereas `PROMPT_WATERMARK` is ours, versioned, and any change to
+ * it is a greppable change in this repo. The rule is really *read the
+ * provenance the writer recorded, not the shape of the prose* — and for a
+ * dispatch the prompt body is the only channel that provably crosses the
+ * boundary (`agent-dispatch-stamp.ts`'s own docblock says so).
+ *
+ * **`TASK_PROMPT_WATERMARK` is deliberately NOT in this set (mt#4401).**
+ * `<!-- minsky:task-prompt:v1 -->` marks the prompts `tasks decompose|estimate|
+ * analyze` generate FOR A HUMAN TO PASTE. A turn carrying it is therefore
+ * genuinely the operator speaking, and keying on it would misattribute in the
+ * opposite direction — a live instance of mt#3405's hazard rather than a
+ * hypothetical one. Adding a Minsky watermark here is not automatic: ask who
+ * the marked text is written BY, not merely who wrote the marker.
+ */
+function carriesDispatchMarker(text: string): boolean {
+  return text.includes(PROMPT_WATERMARK) || text.includes(DISPATCH_STAMP_VERSION);
+}
+
+/**
+ * Structural corroboration that this record IS a dispatch, not prose ABOUT one.
+ *
+ * `isSidechain` / `agentId` are both present on a real subagent transcript's
+ * opening line and absent from an ordinary conversation turn. Used ONLY as a
+ * conjunct with {@link carriesDispatchMarker} — never alone, which is the
+ * distinction that matters and the reason the sibling test asserting
+ * "isSidechain is NOT the discriminator" still holds. Alone it labels by
+ * LOCATION rather than authorship, so an operator message inside a sidechain
+ * would be mislabeled; paired with a marker it answers a different and
+ * answerable question — is this the record a dispatch produced?
+ *
+ * The cost, stated: a watermark-bearing turn in a ROOT conversation is no
+ * longer classified `dispatch_brief`. Measured at 1 such turn against the
+ * misclassification risk this removes, and the fail-open-to-operator policy
+ * says to err this way.
+ *
+ * mt#4401's SC2 originally read "NOT on `isSidechain`" and was AMENDED to
+ * require marker-plus-corroboration once shipping it literally produced a false
+ * positive (PR #3242 R1/R3). The amendment lives in the criterion's own text,
+ * not only here — a rationale recorded beside the code while the criterion
+ * still says the opposite is the deviation, not the reconciliation.
+ */
+function isSubagentRecord(line: unknown): boolean {
+  if (readField(line, "isSidechain") === true) return true;
+  const agentId = readField(line, "agentId");
+  return typeof agentId === "string" && agentId.trim().length > 0;
+}
+
+/** The text a user-role line carries, whether `content` is a string or blocks. */
+function userLineText(line: unknown): string | null {
+  const message = readField(line, "message");
+  const content = readField(message, "content");
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return null;
+  const parts = content
+    .filter(
+      (b): b is { type: string; text: string } =>
+        typeof b === "object" &&
+        b !== null &&
+        (b as { type?: unknown }).type === "text" &&
+        typeof (b as { text?: unknown }).text === "string"
+    )
+    .map((b) => b.text);
+  return parts.length > 0 ? parts.join("\n") : null;
+}
 
 /**
  * Normalize a harness-supplied kind into the column's vocabulary.
@@ -131,7 +242,12 @@ const OPERATOR_PROMPT_SOURCES: ReadonlySet<string> = new Set(["typed", "queued"]
  *    conclusive and returns operator EVEN IF `promptSource` says otherwise —
  *    the writer is a stronger statement than the delivery channel.
  * 4. `promptSource` last, as a fallback for lines carrying no `origin`.
- * 5. Otherwise operator, per the fail-open rationale in this module's header.
+ * 5. A Minsky dispatch marker in the TEXT **and** structural corroboration that
+ *    the record is a subagent transcript's. The marker is the only signal a
+ *    dispatch prompt carries, since it is ours rather than the harness's; the
+ *    corroborator is what stops an operator QUOTING one from matching. Last, so
+ *    any explicit harness verdict above outranks both.
+ * 6. Otherwise operator, per the fail-open rationale in this module's header.
  *
  * Takes `unknown` rather than `RawTurnLine` deliberately. Three different types
  * describe the same stored line in this codebase — `RawTurnLine` on the ingest
@@ -153,6 +269,22 @@ export function classifyUserLineOrigin(line: unknown): UserTextOrigin {
   const promptSource = readPromptSource(line);
   if (promptSource !== undefined && !OPERATOR_PROMPT_SOURCES.has(promptSource)) {
     return normalizeKind(promptSource);
+  }
+
+  // mt#4401 — LAST before the fail-open, and deliberately so. A Minsky dispatch
+  // prompt carries none of the four harness fields above, so this is the only
+  // check that can catch it; putting it last means an explicit harness verdict
+  // always wins.
+  //
+  // BOTH conjuncts are required (PR #3242 R1, BLOCKING). The marker alone
+  // misclassifies an operator who QUOTES a watermark in a message the harness
+  // never stamped — pre-`origin` history, or any unstamped line. That is not
+  // hypothetical: mt#3405 records `check-prompt-watermark` false-positiving on
+  // exactly this prose. The corroborator is what separates "this text mentions
+  // a watermark" from "this record IS a dispatch".
+  const text = userLineText(line);
+  if (text !== null && carriesDispatchMarker(text) && isSubagentRecord(line)) {
+    return DISPATCH_BRIEF_ORIGIN;
   }
 
   return OPERATOR_ORIGIN;
