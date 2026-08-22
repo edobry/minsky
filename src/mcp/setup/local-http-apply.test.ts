@@ -333,7 +333,13 @@ describe("ensureDaemonRunning", () => {
     expect(spawned).toEqual([]);
   });
 
-  test("a daemon that never becomes healthy fails and points at the revert", async () => {
+  test("mt#4337: a daemon that never becomes healthy reports that nothing was written", async () => {
+    // This assertion used to be `.rejects.toThrow("--revert")`, because the
+    // message pointed the operator at `setup local-http --revert` to undo a
+    // migration that had already happened. It no longer has: the caller now
+    // runs this step BEFORE `applyPlan`, so there is nothing to revert and
+    // saying otherwise would send the operator to a command with no backup to
+    // restore. See the CALLER INVARIANT on `ensureDaemonRunning`.
     const spawned: string[][] = [];
     await expect(
       ensureDaemonRunning(ARGV, {
@@ -341,7 +347,7 @@ describe("ensureDaemonRunning", () => {
         attempts: 3,
         deps: deps([down], spawned),
       })
-    ).rejects.toThrow("--revert");
+    ).rejects.toThrow("Nothing has been written.");
   });
 
   test("the spawn command names the repo it binds, so the choice is visible", () => {

@@ -373,10 +373,16 @@ export interface EnsureDaemonResult {
 /**
  * Make sure a Minsky MCP daemon is answering before the run reports success.
  *
- * Refuses to spawn over a `foreign` holder: the config now points at this
- * port, and starting a second process that loses the bind race would leave
- * the operator worse off than before the migration, with a config pointing at
- * someone else's server.
+ * Refuses to spawn over a `foreign` holder rather than start a second process
+ * that loses the bind race, which would leave the caller about to point its
+ * config at someone else's server.
+ *
+ * CALLER INVARIANT (mt#4337): every throw below tells the operator "Nothing
+ * has been written." That is true only because `runSetupLocalHttp` calls this
+ * BEFORE `applyPlan`. A caller that writes config first turns all three
+ * refusals into false statements — which is the defect mt#4337 fixed, where
+ * the not-ready refusal fired after the entry had been rewritten and a backup
+ * left on disk. Call this before mutating anything, or change the messages.
  */
 export async function ensureDaemonRunning(
   spawnArgv: string[],
@@ -400,7 +406,7 @@ export async function ensureDaemonRunning(
   if (initial.state === "foreign") {
     throw new ConfigWriteError(
       `Refusing to start the local MCP daemon: ${healthUrl} is already answered by something ` +
-        `else — ${initial.detail}. Stop it first, then re-run.`
+        `else — ${initial.detail}. Stop it first, then re-run. Nothing has been written.`
     );
   }
   // mt#4297: must be refused BEFORE the spawn below, and separately from
@@ -441,7 +447,7 @@ export async function ensureDaemonRunning(
 
   throw new ConfigWriteError(
     `Started the local MCP daemon but it never became healthy at ${healthUrl} — ${last.detail}. ` +
-      `The config has been migrated; run \`minsky setup local-http --revert\` to undo it.`
+      `Nothing has been written.`
   );
 }
 

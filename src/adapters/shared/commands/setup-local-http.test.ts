@@ -3,15 +3,25 @@
  *
  * These are the acceptance tests 1–4 in unit form: dry-run leaves the file's
  * BYTES untouched, execute rewrites it with a byte-identical backup, a second
- * execute is a no-op, and revert restores the original bytes. The daemon step
- * is skipped here (it is covered in local-http-apply.test.ts); AT4's
- * "no listener" half and AT5's live client run are exercised against real
- * processes in scripts/verify-setup-local-http.ts.
+ * execute is a no-op, and revert restores the original bytes. Those cases skip
+ * the daemon step with `skipDaemon: true`; `ensureDaemonRunning` itself is
+ * covered in local-http-apply.test.ts, and the ordering between the daemon
+ * check and the write is covered by the mt#4337 block at the bottom of THIS
+ * file — the `skipDaemon` default above is precisely why nothing here could
+ * observe that ordering.
+ *
+ * mt#4337: this header used to claim AT4's "no listener" half and AT5's live
+ * client run were "exercised against real processes in
+ * scripts/verify-setup-local-http.ts". That script does not exist and never
+ * has — `git log` on the path is empty — so those two halves have NO automated
+ * coverage. Tracked as mt#4413; building it is out of mt#4337's scope. Remove
+ * this paragraph and point at the script when mt#4413 lands.
  */
 
 import { describe, test, expect } from "bun:test";
 import { runSetupLocalHttp } from "./setup-local-http";
 import type { ConfigFsDeps } from "../../../mcp/setup/local-http-config";
+import type { DaemonProcessDeps } from "../../../mcp/setup/local-http-apply";
 
 const PROJECT = "/w/minsky";
 const HOME = "/home/e";
@@ -241,5 +251,138 @@ describe("runSetupLocalHttp — revert", () => {
     expect(result.changed).toBe(false);
     expect(result.message).toContain("nothing to revert");
     expect(fs.read(PROJECT_MCP_JSON)).toBe(ORIGINAL_BYTES);
+  });
+});
+
+/**
+ * mt#4337 acceptance tests. `--execute` used to call `applyPlan` BEFORE
+ * `ensureDaemonRunning`, so a refusal left the operator migrated onto the very
+ * daemon it had just refused — while the refusal said "Nothing has been
+ * written."
+ *
+ * These assert on the FILE, not on the message. That is the whole point: the
+ * refusal text was already correct-looking throughout the defect's life, and
+ * the only existing coverage of this path (`local-http-apply.test.ts`)
+ * exercises `ensureDaemonRunning` in isolation, where no config exists to
+ * observe. Both passed while the bug shipped.
+ *
+ * The suite above cannot catch it either — every `--execute` case there sets
+ * `skipDaemon: true`, which returns before the daemon step is reached.
+ */
+describe("runSetupLocalHttp — a refused daemon leaves the config untouched (mt#4337)", () => {
+  /** A refusal must leave the tree as found: no rewrite, and no backup beside it. */
+  function expectNothingWritten(fs: ReturnType<typeof scenario>): void {
+    expect(fs.read(PROJECT_MCP_JSON)).toBe(ORIGINAL_BYTES);
+    expect(fs.paths()).toEqual([PROJECT_MCP_JSON]);
+  }
+
+  const refuseToSpawn = (): void => {
+    throw new Error("spawnDetached called on a daemon that must be refused, not spawned");
+  };
+
+  const answering = (body: unknown) => ({
+    probe: async () => ({ kind: "body" as const, body }),
+    spawnDetached: refuseToSpawn,
+    sleep: async () => {},
+  });
+
+  const NOT_READY = answering({ service: "minsky-mcp", ready: false });
+  const READY = answering({ service: "minsky-mcp", ready: true });
+  const FOREIGN = {
+    probe: async () => ({ kind: "http-error" as const, status: 404 }),
+    spawnDetached: refuseToSpawn,
+    sleep: async () => {},
+  };
+  /** Spawning IS expected here — the daemon just never comes up. */
+  const NEVER_HEALTHY = {
+    probe: async () => ({ kind: "unreachable" as const, detail: "ECONNREFUSED" }),
+    spawnDetached: () => {},
+    sleep: async () => {},
+  };
+
+  function withDaemon(
+    daemon: DaemonProcessDeps
+  ): Omit<typeof BASE_DEPS, "skipDaemon"> & { daemon: DaemonProcessDeps } {
+    const { skipDaemon: _skipDaemon, ...rest } = BASE_DEPS;
+    return { ...rest, daemon };
+  }
+
+  test("AT1: a not-ready daemon is refused and the config keeps its exact bytes", async () => {
+    const fs = scenario();
+
+    await expect(
+      runSetupLocalHttp({ execute: true }, { ...withDaemon(NOT_READY), fs })
+    ).rejects.toThrow(/cannot reach the database/);
+
+    expectNothingWritten(fs);
+  });
+
+  test('AT2: the refusal\'s "Nothing has been written" is true when it is emitted', async () => {
+    const fs = scenario();
+
+    const refusal = await runSetupLocalHttp(
+      { execute: true },
+      { ...withDaemon(NOT_READY), fs }
+    ).then(
+      () => undefined,
+      (error: Error) => error
+    );
+
+    expect(refusal?.message).toContain("Nothing has been written.");
+    // Claim and tree asserted together, deliberately: pre-fix the message read
+    // exactly like this while the entry had already been rewritten.
+    expectNothingWritten(fs);
+  });
+
+  test("a foreign holder is refused on the same terms — same class, same guarantee", async () => {
+    const fs = scenario();
+
+    await expect(
+      runSetupLocalHttp({ execute: true }, { ...withDaemon(FOREIGN), fs })
+    ).rejects.toThrow(/Nothing has been written/);
+
+    expectNothingWritten(fs);
+  });
+
+  test("a daemon we spawned that never becomes healthy also writes nothing", async () => {
+    const fs = scenario();
+
+    await expect(
+      runSetupLocalHttp({ execute: true }, { ...withDaemon(NEVER_HEALTHY), fs })
+    ).rejects.toThrow(/never became healthy/);
+
+    // This path previously told the operator the opposite — "The config has
+    // been migrated; run `minsky setup local-http --revert` to undo it."
+    expectNothingWritten(fs);
+  });
+
+  test("AT3: a ready daemon still migrates and still writes a backup", async () => {
+    const fs = scenario();
+
+    const result = await runSetupLocalHttp({ execute: true }, { ...withDaemon(READY), fs });
+
+    expect(result.changed).toBe(true);
+    expect(fs.read(PROJECT_MCP_JSON)).not.toBe(ORIGINAL_BYTES);
+    const backup = fs.paths().find((p) => p.startsWith(`${PROJECT_MCP_JSON}.minsky-backup-`));
+    expect(backup).toBeDefined();
+    expect(fs.read(backup as string)).toBe(ORIGINAL_BYTES);
+  });
+
+  test("AT4: --revert --execute restores the bytes whatever the daemon reports", async () => {
+    for (const daemon of [NOT_READY, FOREIGN, READY]) {
+      const fs = scenario();
+      await runSetupLocalHttp({ execute: true }, { ...BASE_DEPS, fs });
+      expect(fs.read(PROJECT_MCP_JSON)).not.toBe(ORIGINAL_BYTES);
+
+      const result = await runSetupLocalHttp(
+        { revert: true, execute: true },
+        // `readRecord` stubbed to null so the stop step reports "nothing to
+        // stop" instead of reading this machine's real discovery file.
+        { ...withDaemon({ ...daemon, readRecord: () => null }), fs }
+      );
+
+      expect(result.changed).toBe(true);
+      expect(fs.read(PROJECT_MCP_JSON)).toBe(ORIGINAL_BYTES);
+    }
   });
 });

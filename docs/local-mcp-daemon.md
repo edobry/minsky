@@ -166,6 +166,16 @@ writes anything. That is the check that must fail loudly, rather than the operat
 when conversations start failing. A daemon built before `ready` existed is judged on
 `persistence.mode` instead, so an older daemon is classified correctly rather than refused outright.
 
+**"Before it writes anything" is an ordering guarantee, not a statement of intent (mt#4337).** The
+daemon step runs first and the config write is the last thing `--execute` does, so every refusal —
+not-ready, foreign, or spawned-but-never-healthy — leaves `.mcp.json` and its backup directory
+untouched. From mt#4297 until mt#4337 this paragraph was **false**: the check sat below the write,
+so a refusal rewrote the entry to the shim, left a timestamped backup beside it, and then told the
+operator "Nothing has been written." Nothing detected it, because the only test of that path
+exercised `ensureDaemonRunning` in isolation, where there is no config to observe.
+`setup-local-http.test.ts` now asserts the config bytes are unchanged after each refusal — the
+assertion that would have caught it. Asserting on the message text alone passes either way.
+
 ### Which repo the daemon binds
 
 The spawned daemon is passed `--repo` for the project whose entry was migrated, and the command
