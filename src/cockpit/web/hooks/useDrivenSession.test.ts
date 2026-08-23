@@ -82,7 +82,7 @@ class StubWebSocket {
     this.dispatch("close", {});
   }
   /** Dispatch a close event carrying a specific close code (mt#3038 —
-   * the actuator-swap reconnect-signal code, or a plain abnormal closure). */
+   * the session driver-swap reconnect-signal code, or a plain abnormal closure). */
   simulateCodedClose(code: number): void {
     this.readyState = StubWebSocket.CLOSED;
     this.dispatch("close", { code });
@@ -283,7 +283,7 @@ describe("useDrivenSession", () => {
 // ---------------------------------------------------------------------------
 
 describe("useDrivenSession — reconnect protocol (mt#3038)", () => {
-  test("an actuator-swap close (code 4001) redials automatically and preserves accumulated blocks", async () => {
+  test("a session driver-swap close (code 4001) redials automatically and preserves accumulated blocks", async () => {
     const { result } = renderHook(() => useDrivenSession("local-1"));
     act(() => {
       firstWs().simulateOpen();
@@ -369,7 +369,7 @@ describe("useDrivenSession — outbound queue (mt#3375)", () => {
   });
 
   test("a message sent during a reconnect survives to the NEW socket", () => {
-    // The actuator-swap path closes the socket and redials the same localId.
+    // The session driver-swap path closes the socket and redials the same localId.
     // A message typed in that window used to vanish.
     const { result } = renderHook(() => useDrivenSession("local-1"));
     const first = firstWs();

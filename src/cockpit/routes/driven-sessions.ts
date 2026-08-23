@@ -269,7 +269,7 @@ export function mountDrivenSessionRoutes(
   });
 
   /**
-   * POST /api/driven-session/attach — put an actuator on a conversation Minsky
+   * POST /api/driven-session/attach — put a session driver on a conversation Minsky
    * did NOT spawn (mt#3095), e.g. one the operator started in their terminal.
    *
    * Body: `{ conversationId }`.
@@ -281,7 +281,7 @@ export function mountDrivenSessionRoutes(
    *   - **409** refused — a writer is (or may be) holding the conversation.
    *     Carries `{ refused: true, presence, reason, message }`; the `message` is
    *     operator-facing prose explaining the risk, not a status name.
-   *   - **423** locked — another COCKPIT actuator won the advisory lock. Distinct
+   *   - **423** locked — another COCKPIT session driver won the advisory lock. Distinct
    *     from 409: nothing is wrong with the conversation, this caller simply
    *     lost a race and a retry may succeed.
    *   - **404** no transcript, or one with no recoverable cwd — nothing to
@@ -330,7 +330,7 @@ export function mountDrivenSessionRoutes(
           return;
         case "locked":
           res.status(423).json({
-            error: "Another cockpit actuator is attaching to this conversation right now.",
+            error: "Another cockpit session driver is attaching to this conversation right now.",
           });
           return;
         case "no-transcript":

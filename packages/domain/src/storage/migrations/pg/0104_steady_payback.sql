@@ -1,0 +1,2 @@
+ALTER TABLE "driven_session_conversations" RENAME COLUMN "actuator_generation" TO "driver_generation";--> statement-breakpoint
+ALTER TABLE "driven_sessions" RENAME COLUMN "actuator_generation" TO "driver_generation";

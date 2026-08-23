@@ -33,7 +33,7 @@ import { shortenId } from "./format";
 /**
  * `"driven"` (mt#3400) is a TEMPORARY member of this union. mt#3095 re-keys the
  * drive surface from the spawn-time localId this kind addresses to the harness
- * conversation id ("the localId demotes to an actuator implementation detail"),
+ * conversation id ("the localId demotes to a session driver implementation detail"),
  * and mt#3130 Phase 6 then deprecates `/driven/:id` outright once the composer
  * lands on the unified conversation route. At that point a driven tab is just a
  * conversation tab and this member is deleted.

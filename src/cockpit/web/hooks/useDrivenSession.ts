@@ -46,7 +46,7 @@ import {
  * Transport-level WebSocket lifecycle — distinct from `status` below, which
  * is the session-run status. `"reconnecting"` (mt#3038) is a DISTINCT state
  * from `"connecting"`: the initial connect attempt is `"connecting"`; a
- * retry after a transient close (an actuator-swap redial signal, or a
+ * retry after a transient close (a session driver-swap redial signal, or a
  * never-opened channel being retried a bounded number of times) is
  * `"reconnecting"` — so the UI can tell "first contact" from "recovering
  * from an interruption" apart.
@@ -118,12 +118,12 @@ function buildDrivenSessionWsUrl(localId: string): string {
 }
 
 /**
- * The actuator-swap reconnect-signal close code (mt#3038 R1 delta #3 —
+ * The session driver-swap reconnect-signal close code (mt#3038 R1 delta #3 —
  * ../driven-session-ws.ts's `wireDrivenSessionSocket` `onSwap` handler closes
  * with this exact code/reason). The 4000-4999 range is reserved for
  * application-defined codes per RFC 6455 §7.4.2.
  */
-const ACTUATOR_SWAP_RECONNECT_CLOSE_CODE = 4001;
+const DRIVER_SWAP_RECONNECT_CLOSE_CODE = 4001;
 
 /** Bounded retry budget for a channel that never opened at all (auth
  * failure, unknown id, or the daemon racing a resume-lock 503 — see
@@ -131,7 +131,7 @@ const ACTUATOR_SWAP_RECONNECT_CLOSE_CODE = 4001;
  * close (4001) is NOT subject to this budget — see `scheduleReconnect`. */
 const MAX_NEVER_LIVE_RECONNECT_ATTEMPTS = 5;
 const NEVER_LIVE_RECONNECT_BASE_DELAY_MS = 500;
-const ACTUATOR_SWAP_RECONNECT_DELAY_MS = 300;
+const DRIVER_SWAP_RECONNECT_DELAY_MS = 300;
 
 function deriveStatus(
   connectionState: DrivenSessionConnectionState,
@@ -177,7 +177,7 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
   // mt#3038 R1 delta #9 — reconnect protocol state, entirely new (this hook
   // previously had none: any closed/error transport mapped straight to
   // "crashed"). `everLiveRef` distinguishes "never connected at all" (bound
-  // retries, then give up) from "was live, actuator swapped mid-session"
+  // retries, then give up) from "was live, session driver swapped mid-session"
   // (always redial, uncounted). `wsGeneration` is a pure re-render trigger —
   // bumping it re-runs the connect effect, which is how a scheduled retry
   // actually opens a NEW WebSocket.
@@ -267,14 +267,14 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
       if (cancelled) return;
       wsRef.current = null;
 
-      if (ev.code === ACTUATOR_SWAP_RECONNECT_CLOSE_CODE) {
-        // The actuator was swapped out from under this socket (R1 delta #3)
+      if (ev.code === DRIVER_SWAP_RECONNECT_CLOSE_CODE) {
+        // The session driver was swapped out from under this socket (R1 delta #3)
         // — the SAME localId now has a NEW live record on the daemon side.
         // Always redial immediately; this is a designed signal, not a
         // failure, so it is uncounted against the never-live retry budget.
         neverLiveAttemptsRef.current = 0;
         setConnectionState("reconnecting");
-        scheduleReconnect(ACTUATOR_SWAP_RECONNECT_DELAY_MS);
+        scheduleReconnect(DRIVER_SWAP_RECONNECT_DELAY_MS);
         return;
       }
 

@@ -35,7 +35,7 @@ interface AdoptionRow {
   localId: string;
   harnessSessionId: string;
   harness: string;
-  actuatorGeneration: number;
+  driverGeneration: number;
   adoptionReason: string;
   adoptedAt: Date;
 }
@@ -139,22 +139,22 @@ describe("recordConversationAdoption — append-only (AT1)", () => {
     expect(stores.rows.map((r) => r.adoptionReason)).toEqual(["initial", "resumed"]);
   });
 
-  test("defaults actuatorGeneration to 0 and stamps adoptedAt", async () => {
+  test("defaults driverGeneration to 0 and stamps adoptedAt", async () => {
     const stores = makeStores();
     await recordConversationAdoption(asPg(makeDb(stores)), adopt("conv-a", "initial"));
 
-    expect(stores.rows[0]?.actuatorGeneration).toBe(0);
+    expect(stores.rows[0]?.driverGeneration).toBe(0);
     expect(stores.rows[0]?.adoptedAt).toBeInstanceOf(Date);
   });
 
-  test("carries the actuator generation through when given one", async () => {
+  test("carries the session driver generation through when given one", async () => {
     const stores = makeStores();
     await recordConversationAdoption(asPg(makeDb(stores)), {
       ...adopt("conv-a", "initial"),
-      actuatorGeneration: 3,
+      driverGeneration: 3,
     });
 
-    expect(stores.rows[0]?.actuatorGeneration).toBe(3);
+    expect(stores.rows[0]?.driverGeneration).toBe(3);
   });
 });
 

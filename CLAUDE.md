@@ -1147,6 +1147,27 @@ Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning
   per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
   loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
 
+## Acquiring a credential you do not have (mt#4030)
+
+Everything below is the EMISSION side — a secret you already hold reaching a channel it should
+not. This section is the ACQUISITION side, and it fails the same way for the same reason: asking
+the principal to paste a value into chat puts it in the transcript, which is persisted to disk AND
+ingested into the transcripts DB.
+
+**Never ask for a credential in chat, and never call `config.credentials.add` over MCP to get
+one.** That command takes a `token` parameter for its scripted path, so an agent calling it writes
+the secret into its own tool-call input — the masking is a CLI-only property.
+
+**Use `credentials.request`.** It names a provider plus a reason, and has no field that can carry a
+value. The principal enters it in a masked cockpit form that posts straight to the credential store;
+the request resolves on the credential being PRESENT, so satisfying it in a terminal with
+`config credentials add` closes it just the same. Poll `credentials.request-status` for
+`pending` / `satisfied` / `declined` / `unanswered` plus a status line — a decline is distinct from
+an unanswered request, so do not re-ask on one.
+
+If no provider is registered the tool refuses at call time and names the registry file: register the
+provider first rather than filing a request the principal has no way to satisfy.
+
 ## Secret handling in shell commands
 
 Shell output is persisted AND ingested into the transcripts DB — no scratch output. NEVER place

@@ -173,7 +173,7 @@ Every cockpit API handler distinguishes the two, and callers should too:
 
 The classification runs through `respondIfDatabaseUnavailable`
 (`src/cockpit/db-unavailable-response.ts`), which wraps `isDatabaseUnavailableError` (mt#3398).
-That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the driver
+That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the Postgres driver
 error and carries the QUERY TEXT as the wrapper's own message, so a non-walking check sees a query
 string and concludes "application bug" for what is really an outage.
 
@@ -1005,7 +1005,7 @@ Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 returns `{ active: boolean, activeSessionIds: string[] }` — a cheap,
 in-memory scan of the registry for any session whose LATEST observed event
 is not yet a terminal `result`/`minsky_exit` event (a record with no live
-actuator — any terminal status, or `reconnecting` — is never mid-turn). This
+session driver — any terminal status, or `reconnecting` — is never mid-turn). This
 is the pre-restart gate the cockpit-tray watcher's backend-source watcher
 (mt#2299, `cockpit-tray/src-tauri/src/watcher_backend.rs`) queries before a
 hot-reload daemon restart: if a turn is active, the restart is deferred for

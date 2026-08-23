@@ -210,7 +210,7 @@ async function resolveDrivenSessionForUpgrade(
         minskySessionId: null,
         status: "unrecoverable",
         unrecoverableReason: outcome.reason,
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         startedAt: new Date().toISOString(),
       });
       registry.register(record);
@@ -301,7 +301,7 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
   // Gated on the record's ORIGIN (`needsHistoryReplay`), not on its log being
   // empty. That distinction is load-bearing and was found by live verification:
   // an earlier form checked `eventLog.length === 0` and silently never fired,
-  // because the actuator begins emitting frames immediately after attach, so by
+  // because the session driver begins emitting frames immediately after attach, so by
   // the time any client connects the log is already non-empty. Origin does not
   // change with timing.
   //
@@ -352,16 +352,26 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
         ws.send(JSON.stringify(event.payload));
       }
     },
-    // mt#3038 R1 delta #3 — an actuator swap replaced this record; force the
+    // mt#3038 R1 delta #3 — a session driver swap replaced this record; force the
     // client to redial the SAME localId (never hot-swap a live socket onto
     // the new record). Close code 4001 is this channel's private
     // reconnect-signal (the 4000-4999 range is reserved for
     // application-defined codes per RFC 6455 §7.4.2); the client hook keys
     // off it to distinguish "please reconnect immediately" from an ordinary
     // close/error, which it treats as session-ended.
+    //
+    // The reason STRING is diagnostic only and is NOT part of the contract —
+    // the close CODE is (PR #3267 R1 raised the rename of this literal as a
+    // possible cross-surface break). Verified rather than assumed: the sole
+    // consumer, `useDrivenSession.ts`, branches on
+    // `ev.code === DRIVER_SWAP_RECONNECT_CLOSE_CODE` and never reads
+    // `ev.reason`; its tests drive the path with `simulateCodedClose(4001)`,
+    // which supplies no reason at all. Keep it that way — a client that starts
+    // matching on this text re-introduces exactly the coupling this note rules
+    // out.
     onSwap: () => {
       try {
-        ws.close(4001, "actuator-swap-reconnect");
+        ws.close(4001, "sessionDriver-swap-reconnect");
       } catch {
         // Best-effort — the socket may already be closing.
       }
