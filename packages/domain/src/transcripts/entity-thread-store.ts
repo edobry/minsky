@@ -64,7 +64,7 @@ export const ENTITY_THREAD_ID_PREFIX = "entity-thread";
  * This is ALSO the id handed to `startDrivenSession`'s `localId` option
  * (mt#3243), which upserts `driven_sessions` on that key. Determinism is what
  * makes an entity resolve to exactly ONE driven-session row for its whole
- * life, across daemon restarts and actuator respawns — the property mt#3364's
+ * life, across daemon restarts and session driver respawns — the property mt#3364's
  * "same row across a restart, not a new row per spawn" criterion asserts.
  *
  * Deliberately NOT a hash: a readable id makes a `driven_sessions` row
@@ -172,7 +172,7 @@ export interface RawEntityThreadTurnRow {
  *
  * `seq` is widened to `number | string` on the way in because postgres-js
  * returns some integer types as strings depending on the column type and
- * driver settings; coercing here keeps every downstream consumer (ordering,
+ * Postgres driver settings; coercing here keeps every downstream consumer (ordering,
  * id derivation) working with an actual number.
  */
 export function mapRawEntityThreadTurnRow(raw: RawEntityThreadTurnRow): EntityThreadTurn {

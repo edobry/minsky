@@ -261,7 +261,7 @@ function classifyCwdProbeError(err: unknown, cwd: string): CwdProbeResult {
  *
  * Deliberately says the WORKSPACE is gone, not that the work is: a driven
  * session's conversation lives in the harness's own on-disk transcript, which
- * survives both the actuator's death and the workspace's deletion (memory
+ * survives both the session driver's death and the workspace's deletion (memory
  * mem#669 — "the process died" is NOT "the work is gone"). What is lost is the
  * ability to RESUME in place: `claude --resume` needs the original cwd, both to
  * run in and because the harness keys its transcript directory off that path.
@@ -310,7 +310,7 @@ export function buildDrivenSessionArgs(
  * <harnessSessionId>`, which resumes the CLI's own on-disk transcript for
  * that conversation id rather than starting a fresh one. This is the ONLY
  * difference between a fresh spawn and a restart-recovery respawn — the
- * durable entity is the conversation (the RFC's thesis), and the actuator
+ * durable entity is the conversation (the RFC's thesis), and the session driver
  * (child process) is disposable.
  */
 export function buildResumeSessionArgs(
@@ -332,7 +332,7 @@ export function buildResumeSessionArgs(
     // mt#3040 preservation: a resume must keep the ORIGINALLY-selected model
     // rather than silently falling back to the CLI's default.
     ...(model ? ["--model", model] : []),
-    // mt#3377: a resumed actuator needs the same server set as a fresh spawn —
+    // mt#3377: a resumed session driver needs the same server set as a fresh spawn —
     // the conversation is durable, the process is disposable, and a resume
     // that silently dropped the MCP servers would degrade mid-conversation.
     ...mcpConfigArgs(mcpConfig),
@@ -571,7 +571,7 @@ export interface DrivenSessionEvent {
 /**
  * A live subscriber to a `DrivenSessionRecord` (registered by
  * ./driven-session-ws.ts on WS connect). Two callbacks, not one function
- * (mt#3038 R1 delta #3 — "record replacement, not mutation"): an actuator
+ * (mt#3038 R1 delta #3 — "record replacement, not mutation"): a session driver
  * swap (`DrivenSessionRegistry.replace`) constructs a NEW record for the
  * SAME `localId` rather than mutating the old one in place, so an existing
  * socket subscribed to the OLD record must be told to close and have its
@@ -582,7 +582,7 @@ export interface DrivenSessionSubscriber {
   /** A new event was appended to the record this subscriber is attached to. */
   onEvent: (event: DrivenSessionEvent) => void;
   /**
-   * This record was just REPLACED by an actuator swap (a resume-respawn).
+   * This record was just REPLACED by a session driver swap (a resume-respawn).
    * Called at most once per subscriber. The subscriber (a WS connection)
    * MUST close its socket with a reconnect-signaling code/reason so the
    * client redials the SAME `localId` — the registry will resolve the new
@@ -648,12 +648,12 @@ export interface DrivenSessionRecord {
    * graceful stop from an unexpected crash when classifying the exit. */
   stopRequested: boolean;
   /**
-   * Actuator-swap generation (mt#3038 R1 delta #3/#7) — 0 for the original
+   * Session driver-swap generation (mt#3038 R1 delta #3/#7) — 0 for the original
    * spawn, incremented once per resume-respawn (`resumeDrivenSession`).
    * Persisted so cost continuity can attribute rows to a generation without
    * resetting/double-counting across a respawn.
    */
-  readonly actuatorGeneration: number;
+  readonly driverGeneration: number;
   /** Internal — the wired child handle. Not serialized to any API response. */
   readonly proc: ProcessLike;
   /** All events observed since spawn, in order (bounded by MAX_EVENT_LOG). */
@@ -681,7 +681,7 @@ export interface DrivenSessionRecord {
    *
    * This is a property of the record's ORIGIN, deliberately not a check on
    * `eventLog.length`. The first implementation gated replay on an empty log
-   * and live-verification found it silently never fired: the actuator starts
+   * and live-verification found it silently never fired: the session driver starts
    * emitting frames immediately, so by the time any client connects the log is
    * already non-empty and the "needs history" condition has evaporated. Origin
    * does not change with timing.
@@ -720,7 +720,7 @@ export class DrivenSessionRegistry {
   }
 
   /**
-   * Actuator swap (mt#3038 R1 delta #3): replace whatever record is
+   * Session driver swap (mt#3038 R1 delta #3): replace whatever record is
    * currently registered under `localId` with `newRecord` — NEVER mutate the
    * old record in place. Every existing subscriber of the OLD record is told
    * to swap (see `DrivenSessionSubscriber.onSwap`) before the new record
@@ -800,7 +800,7 @@ function classifyExit(
   return code === 0 ? "exited" : "crashed";
 }
 
-/** Statuses where the record's actuator is definitely gone — no live stdin to write to,
+/** Statuses where the record's session driver is definitely gone — no live stdin to write to,
  * no live process to stop (mt#3038: `unrecoverable` joins the original exited/crashed pair). */
 export function isTerminalStatus(status: DrivenSessionStatus): boolean {
   return status === "exited" || status === "crashed" || status === "unrecoverable";
@@ -816,7 +816,7 @@ export function isTerminalStatus(status: DrivenSessionStatus): boolean {
  * lazy-resume-only, nothing is spawned until an attach). A write there
  * succeeds at the stream level and goes nowhere.
  */
-export function hasLiveActuator(record: DrivenSessionRecord): boolean {
+export function hasLiveSessionDriver(record: DrivenSessionRecord): boolean {
   return !isTerminalStatus(record.status) && record.status !== "reconnecting";
 }
 
@@ -829,10 +829,10 @@ export function hasLiveActuator(record: DrivenSessionRecord): boolean {
  * hot-reload daemon restart, so it can defer (a bounded grace period, never
  * indefinitely) rather than interrupt a turn that is actively streaming.
  *
- * A record with no LIVE actuator is never mid-turn, regardless of its
+ * A record with no LIVE session driver is never mid-turn, regardless of its
  * (possibly stale) `eventLog` tail:
  *   - any terminal status (`isTerminalStatus`) — the process is already gone;
- *   - `"reconnecting"` — the actuator already died and is deliberately NOT
+ *   - `"reconnecting"` — the session driver already died and is deliberately NOT
  *     respawned eagerly (mt#3038 R1 delta #6, lazy-resume-only); there is no
  *     live turn to interrupt, that is exactly the case the mt#3038 resume
  *     machinery exists to recover, not a reason to defer a restart.
@@ -940,7 +940,7 @@ export interface StartDrivenSessionOptions {
    * Install the new record with {@link DrivenSessionRegistry.replace} instead
    * of `register` (mt#3550).
    *
-   * `register` is a bare `byLocalId.set`: spawning a fresh actuator for a
+   * `register` is a bare `byLocalId.set`: spawning a fresh session driver for a
    * `localId` that ALREADY holds a record would drop the old one out of the
    * map without telling its subscribers, which is exactly what mt#3038 R1
    * delta #3 forbids — a live socket would keep observing a record nothing
@@ -1011,7 +1011,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       minskySessionId: opts.minskySessionId ?? null,
       status: "unrecoverable",
       unrecoverableReason: reason,
-      actuatorGeneration: 0,
+      driverGeneration: 0,
       startedAt: new Date().toISOString(),
     });
     registry.install(record, installOpts);
@@ -1042,7 +1042,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     exitSignal: null,
     crashError: null,
     stopRequested: false,
-    actuatorGeneration: 0,
+    driverGeneration: 0,
     proc,
     eventLog: [],
     // A fresh spawn STARTS the conversation — there is no prior history.
@@ -1060,7 +1060,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
 /**
  * Shared stdout/stderr/error/exit wiring — factored out of
  * {@link startDrivenSession} so {@link resumeDrivenSession} (mt#3038) can
- * wire an actuator-swap respawn's child through the IDENTICAL parse/persist
+ * wire a session driver-swap respawn's child through the IDENTICAL parse/persist
  * pipeline without duplicating it. Assumes `record` is ALREADY registered
  * under its `localId` in `registry` (both callers register/replace before
  * calling this).
@@ -1178,7 +1178,7 @@ function wireChildProcess(
 }
 
 // ---------------------------------------------------------------------------
-// Actuator swap (resume-respawn) — mt#3038, RFC "Conversation-first drive"
+// Session driver swap (resume-respawn) — mt#3038, RFC "Conversation-first drive"
 // Phase 1. R1 expert-review deltas #3 (record replacement) and #5
 // (interruption-notice injection) are BINDING here.
 // ---------------------------------------------------------------------------
@@ -1186,7 +1186,7 @@ function wireChildProcess(
 /**
  * Injected as the FIRST input line of every resume-respawn (R1 delta #5).
  * Empirical basis (RFC, kill-mid-tool test): the transcript durably records
- * an interruption when the actuator dies mid-turn, and a resumed model
+ * an interruption when the session driver dies mid-turn, and a resumed model
  * VERIFIES rather than blindly re-executes when told to — this notice turns
  * that observed behavior into a designed one rather than leaving it to
  * chance whether the model happens to notice the gap on its own.
@@ -1211,8 +1211,8 @@ export interface DrivenSessionResumeSource {
   minskySessionId: string | null;
   /** Preserved from the ORIGINAL spawn — stable across every swap (see schema docblock). */
   startedAt: string;
-  /** The PRE-swap generation counter; the new record's is `previous.actuatorGeneration + 1`. */
-  actuatorGeneration: number;
+  /** The PRE-swap generation counter; the new record's is `previous.driverGeneration + 1`. */
+  driverGeneration: number;
   /** The principal-selected model alias (mt#3040) from the original launch — preserved
    * across the resume so it doesn't silently fall back to the CLI's default. */
   model?: string | null;
@@ -1246,7 +1246,7 @@ export interface ResumeDrivenSessionOptions {
 }
 
 /**
- * Respawn `claude --resume <harnessSessionId>` to replace a dead actuator for
+ * Respawn `claude --resume <harnessSessionId>` to replace a dead session driver for
  * an EXISTING `localId` — the restart-recovery path (RFC minimal-first-slice
  * step 3): a WS connect to a persisted-but-dead record triggers this instead
  * of a fresh `startDrivenSession` spawn.
@@ -1262,7 +1262,7 @@ export interface ResumeDrivenSessionOptions {
  * which forces every existing subscriber of the OLD record to swap (closing
  * their sockets so clients redial). The new record keeps the SAME `localId`
  * and `harnessSessionId` (a resume continues the same conversation) and
- * increments `actuatorGeneration`.
+ * increments `driverGeneration`.
  */
 export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDrivenSessionResult {
   const { previous } = opts;
@@ -1288,7 +1288,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   // live conversation left every resume attempt crashing with an ENOENT that
   // named `claude`. `registry.replace` (not `register`) so the old record's
   // subscribers get the swap signal and redial onto the terminal state; the
-  // generation is NOT incremented, because no new actuator was created.
+  // generation is NOT incremented, because no new session driver was created.
   if (probeSpawnCwd(previous.cwd) === "missing") {
     const reason = missingCwdReason(previous.cwd);
     log.error(`[driven-session] not resuming ${previous.localId} — ${reason}`);
@@ -1301,7 +1301,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
       minskySessionId: previous.minskySessionId,
       status: "unrecoverable",
       unrecoverableReason: reason,
-      actuatorGeneration: previous.actuatorGeneration,
+      driverGeneration: previous.driverGeneration,
       startedAt: previous.startedAt,
     });
     registry.replace(previous.localId, record);
@@ -1311,7 +1311,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
 
   log.info(
     `[driven-session] resuming ${command} ${redactMcpConfigForLog(argv)} (localId=${previous.localId}, ` +
-      `harnessSessionId=${previous.harnessSessionId}, generation=${previous.actuatorGeneration + 1}, cwd=${previous.cwd})`
+      `harnessSessionId=${previous.harnessSessionId}, generation=${previous.driverGeneration + 1}, cwd=${previous.cwd})`
   );
 
   const proc = spawnFn(command, argv, { cwd: previous.cwd, env: opts.env });
@@ -1332,7 +1332,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     exitSignal: null,
     crashError: null,
     stopRequested: false,
-    actuatorGeneration: previous.actuatorGeneration + 1,
+    driverGeneration: previous.driverGeneration + 1,
     proc,
     eventLog: [],
     // Attached-from-disk or resumed: prior history is on disk, never in this
@@ -1359,7 +1359,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
 // ---------------------------------------------------------------------------
 
 /**
- * A `ProcessLike` stub with NO live actuator behind it — used for a record
+ * A `ProcessLike` stub with NO live session driver behind it — used for a record
  * loaded from persistence at daemon boot (R1 delta #6: lazy-resume-only,
  * nothing is spawned here). `stdin`/`stdout`/`stderr` are inert
  * `PassThrough` streams (never receive real data); `kill()` is a no-op
@@ -1387,15 +1387,15 @@ export interface ReconnectingRecordInput {
   minskySessionId: string | null;
   /** Only these two persisted-only statuses ever reach this builder — a
    * `spawned`/`running`/`exited`/`crashed` row belongs to a live or
-   * genuinely-terminal actuator, never a boot-time placeholder. */
+   * genuinely-terminal session driver, never a boot-time placeholder. */
   status: "reconnecting" | "unrecoverable";
   unrecoverableReason: string | null;
-  actuatorGeneration: number;
+  driverGeneration: number;
   startedAt: string;
 }
 
 /**
- * Build a placeholder `DrivenSessionRecord` — one with no live actuator behind
+ * Build a placeholder `DrivenSessionRecord` — one with no live session driver behind
  * it. Two callers: a persisted row loaded at daemon boot (RFC
  * minimal-first-slice step 2, the original use), and the mt#3397 cwd preflight,
  * which produces a terminal `unrecoverable` record INSTEAD of spawning. Both
@@ -1427,7 +1427,7 @@ export function buildReconnectingDrivenSessionRecord(
     exitSignal: null,
     crashError: null,
     stopRequested: false,
-    actuatorGeneration: input.actuatorGeneration,
+    driverGeneration: input.driverGeneration,
     proc: createDeadProcessPlaceholder(),
     eventLog: [],
     // Rehydrated at boot: its predecessor's log died with that process (mt#3453).
@@ -1518,13 +1518,13 @@ function buildInputContent(
  *     stdout frame could do it). `running` here means "this session is
  *     active", which it is — the operator just handed it a turn. It does NOT
  *     assert the child has spoken; nothing keys on that distinction.
- *   - **The guard is {@link hasLiveActuator}, not `isTerminalStatus`.** A
+ *   - **The guard is {@link hasLiveSessionDriver}, not `isTerminalStatus`.** A
  *     `"reconnecting"` record is non-terminal but has no child behind it, so
  *     the write would land in an inert `PassThrough` and vanish. Before this
  *     change that silent loss returned `true`; now it returns `false`, and no
  *     phantom operator turn is rendered for a message that was never
  *     delivered. (Callers already branch on the return: the principal-channel
- *     actuator surfaces the failure to the sender.)
+ *     session driver surfaces the failure to the sender.)
  *   - **Content-less input now returns `false` instead of being written**
  *     (mt#3235, flagged in PR #2483 R1). Previously blank text was written as
  *     `[{type:"text", text:""}]`; the Messages API rejects an empty text block,
@@ -1540,7 +1540,7 @@ export function sendDrivenSessionInput(
   text: string,
   opts: { echo?: boolean; images?: DrivenInputImage[] } = {}
 ): boolean {
-  if (!hasLiveActuator(record)) return false;
+  if (!hasLiveSessionDriver(record)) return false;
   const content = buildInputContent(text, opts.images ?? []);
   if (content.length === 0) return false;
   const line = JSON.stringify({

@@ -2,13 +2,13 @@
  * What a conversation-route id actually addresses (mt#3132 Scope item 5).
  *
  * The unified conversation route accepts BOTH id spaces: a harness conversation
- * uuid, and the spawn-time local id an actuator is addressed by. This module is
+ * uuid, and the spawn-time local id a session driver is addressed by. This module is
  * the pure resolution between them.
  *
  * ## Why resolution cannot be done by id SHAPE
  *
  * The natural-looking implementation — "uuid-shaped means conversation,
- * anything else means actuator" — is wrong, and mt#3132's
+ * anything else means session driver" — is wrong, and mt#3132's
  * `## Implementation-entry findings` records why. A driven record's `localId`
  * is minted as `opts.localId ?? randomUUID()` (`src/cockpit/driven-session-host.ts`),
  * so the DEFAULT local id is uuid-shaped and passes `looksLikeConversationId`
@@ -21,19 +21,19 @@
  * So resolution is a REGISTRY LOOKUP, mirroring `DrivenSessionRegistry.get()`'s
  * own `byLocalId.get(id) ?? byHarnessId.get(id)` dual-space precedence.
  *
- * ## Why an actuator with no conversation is a first-class state
+ * ## Why a session driver with no conversation is a first-class state
  *
  * `linkHarnessId` only runs on the harness `init` frame, while the cockpit
  * navigates on the spawn POST's success — strictly earlier. In that window the
  * record has no `harnessSessionId` AT ALL, so there is nothing to translate the
  * local id INTO: no amount of id mapping can serve the transcript, because the
  * conversation does not exist yet. The route has to be able to say "known
- * actuator, no conversation yet" rather than 404.
+ * session driver, no conversation yet" rather than 404.
  *
  * @see mt#3132 — `## The id-space question` and `## Implementation-entry findings`
  * @see src/cockpit/driven-session-host.ts — `registry.get()`, `linkHarnessId`
  */
-import { isTerminalActuatorStatus } from "./conversation-outcome";
+import { isTerminalSessionDriverStatus } from "./conversation-outcome";
 
 /**
  * One row of `GET /api/driven-session`'s registry snapshot — the subset this
@@ -41,7 +41,7 @@ import { isTerminalActuatorStatus } from "./conversation-outcome";
  * module: the cockpit bundle's contract is with the endpoint's JSON wire shape,
  * and `driven-session-host.ts` is server-side code this bundle must not pull in.
  */
-export interface ActuatorSummary {
+export interface SessionDriverSummary {
   /** The spawn-time local id — what `/driven/:id` is addressed by. */
   sessionId: string;
   /** The harness conversation id, once the `init` frame has linked it. */
@@ -53,17 +53,17 @@ export interface ActuatorSummary {
 /**
  * What the route's `:id` resolved to.
  *
- * `actuator` is carried on the `conversation` variant too — a conversation that
- * HAS a live actuator is still just a conversation for read purposes (that is
+ * `session driver` is carried on the `conversation` variant too — a conversation that
+ * HAS a live session driver is still just a conversation for read purposes (that is
  * this task's whole thesis), but the route needs to know one exists so it can
  * offer the drive view.
  */
 export type ConversationAddress =
-  | { kind: "conversation"; conversationId: string; actuator: ActuatorSummary | null }
-  | { kind: "actuator-starting"; localId: string; actuator: ActuatorSummary };
+  | { kind: "conversation"; conversationId: string; sessionDriver: SessionDriverSummary | null }
+  | { kind: "driver-starting"; localId: string; sessionDriver: SessionDriverSummary };
 
 /**
- * Resolve a route id against the actuator registry snapshot.
+ * Resolve a route id against the session driver registry snapshot.
  *
  * Precedence matches `DrivenSessionRegistry.get()`: local id first, harness id
  * second. An id matching NEITHER resolves to a plain conversation — the
@@ -72,9 +72,9 @@ export type ConversationAddress =
  */
 export function resolveConversationAddress(
   id: string,
-  actuators: readonly ActuatorSummary[]
+  sessionDrivers: readonly SessionDriverSummary[]
 ): ConversationAddress {
-  const byLocalId = actuators.find((a) => a.sessionId === id);
+  const byLocalId = sessionDrivers.find((a) => a.sessionId === id);
   if (byLocalId) {
     // Linked: the local id is a permanently-valid ALIAS for the conversation.
     // Resolved internally rather than redirected — mt#3132 requires local-id
@@ -84,18 +84,18 @@ export function resolveConversationAddress(
       return {
         kind: "conversation",
         conversationId: byLocalId.harnessSessionId,
-        actuator: byLocalId,
+        sessionDriver: byLocalId,
       };
     }
-    return { kind: "actuator-starting", localId: id, actuator: byLocalId };
+    return { kind: "driver-starting", localId: id, sessionDriver: byLocalId };
   }
 
-  const byHarnessId = actuators.find((a) => a.harnessSessionId === id);
-  return { kind: "conversation", conversationId: id, actuator: byHarnessId ?? null };
+  const byHarnessId = sessionDrivers.find((a) => a.harnessSessionId === id);
+  return { kind: "conversation", conversationId: id, sessionDriver: byHarnessId ?? null };
 }
 
 /**
- * Whether a starting actuator can still be expected to produce a conversation.
+ * Whether a starting session driver can still be expected to produce a conversation.
  *
  * A record that reached a terminal status without ever linking a harness id
  * never will — the child died before emitting its `init` frame. Rendering
@@ -103,7 +103,7 @@ export function resolveConversationAddress(
  * whole umbrella exists to remove, and it would also keep the registry poll
  * running against a record that can never change (see `useConversationAddress`).
  *
- * Delegates to `isTerminalActuatorStatus` rather than enumerating here. That
+ * Delegates to `isTerminalSessionDriverStatus` rather than enumerating here. That
  * predicate is the browser-side mirror of `isTerminalStatus` in
  * `src/cockpit/driven-session-host.ts` (server-side code this bundle must not
  * import, per `custom/no-node-import-in-cockpit-web`) — so there is ONE
@@ -115,6 +115,6 @@ export function resolveConversationAddress(
  * general shape: over a closed enum that GROWS, test membership of the set you
  * mean, never exclusion from the set you don't.
  */
-export function actuatorMayStillLink(actuator: ActuatorSummary): boolean {
-  return !isTerminalActuatorStatus(actuator.status);
+export function sessionDriverMayStillLink(sessionDriver: SessionDriverSummary): boolean {
+  return !isTerminalSessionDriverStatus(sessionDriver.status);
 }

@@ -393,7 +393,7 @@ describe("GET /api/driven-session/turn-active", () => {
  * ../driven-session-launch-persistence.test.ts; what this route owns — and what
  * these tests pin — is the outcome→status-code mapping. The codes are load-bearing
  * for a caller: 409 (the conversation has a writer) and 423 (you lost a race
- * with another cockpit actuator) call for different UI, so collapsing them
+ * with another cockpit session driver) call for different UI, so collapsing them
  * would lose the distinction.
  */
 describe("POST /api/driven-session/attach (mt#3095)", () => {
@@ -453,7 +453,7 @@ describe("POST /api/driven-session/attach (mt#3095)", () => {
     expect(res.body.message).toContain("written to right now");
   });
 
-  test("423 — distinct from 409 — when another cockpit actuator holds the lock", async () => {
+  test("423 — distinct from 409 — when another cockpit session driver holds the lock", async () => {
     const h = await makeHarness({
       attachDrivenSession: async () => ({ outcome: "locked" }),
     });
@@ -531,6 +531,12 @@ describe("GET /api/driven-session after boot reconciliation retires a row (mt#42
   // `registry.get(...)` is undefined, which is the mechanism; this asserts the
   // consequence at the surface the principal actually sees, over the real
   // Express route and a real HTTP request.
+  // Named once rather than repeated: the retirement assertions below reference
+  // each id several times, and a typo in one of them would silently weaken the
+  // check instead of failing it.
+  const LIVE_ID = "live-session-driver";
+  const DEAD_ID = "dead-session-driver";
+
   const BASE: DrivenSessionRow = {
     localId: "placeholder",
     harnessSessionId: "harness-x",
@@ -543,7 +549,7 @@ describe("GET /api/driven-session after boot reconciliation retires a row (mt#42
     pid: 4242,
     pidCmdline: "claude -p --input-format stream-json",
     model: null,
-    actuatorGeneration: 0,
+    driverGeneration: 0,
     startedAt: new Date("2026-08-01T00:00:00.000Z"),
     updatedAt: new Date("2026-08-01T00:00:00.000Z"),
   };
@@ -554,12 +560,12 @@ describe("GET /api/driven-session after boot reconciliation retires a row (mt#42
     await reconcilePersistedDrivenSessions({
       getDb: async () => ({}) as never,
       listNonTerminal: async () => [
-        { ...BASE, localId: "dead-actuator", pid: 1 },
-        { ...BASE, localId: "live-actuator", pid: 2 },
+        { ...BASE, localId: DEAD_ID, pid: 1 },
+        { ...BASE, localId: LIVE_ID, pid: 2 },
       ],
       registry: h.registry,
       persistTerminalVerdict: async () => "written",
-      probeActuator: async (pid) => (pid === 1 ? "gone" : "ours"),
+      probeSessionDriver: async (pid) => (pid === 1 ? "gone" : "ours"),
     });
 
     const res = await fetch(`${h.url}/api/driven-session`);
@@ -568,11 +574,11 @@ describe("GET /api/driven-session after boot reconciliation retires a row (mt#42
     const ids = body.sessions.map((s) => s.sessionId);
 
     // The phantom is gone from the surface, on the same boot that detected it.
-    expect(ids).not.toContain("dead-actuator");
+    expect(ids).not.toContain(DEAD_ID);
     // And the check can fail: a sweep that retired everything would drop this
     // one too, and a change that retired nothing would leave both.
-    expect(ids).toContain("live-actuator");
-    expect(body.sessions.find((s) => s.sessionId === "live-actuator")?.status).toBe("reconnecting");
+    expect(ids).toContain(LIVE_ID);
+    expect(body.sessions.find((s) => s.sessionId === LIVE_ID)?.status).toBe("reconnecting");
   });
 
   test("a row whose retirement write FAILED is still listed", async () => {
@@ -588,7 +594,7 @@ describe("GET /api/driven-session after boot reconciliation retires a row (mt#42
       persistTerminalVerdict: async () => {
         throw new Error("simulated upsert failure");
       },
-      probeActuator: async () => "gone",
+      probeSessionDriver: async () => "gone",
     });
 
     const res = await fetch(`${h.url}/api/driven-session`);

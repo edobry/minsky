@@ -1,5 +1,5 @@
 /**
- * Attach admissibility (mt#3095) — may the cockpit attach an input actuator to
+ * Attach admissibility (mt#3095) — may the cockpit attach an input session driver to
  * this conversation right now?
  *
  * ## Why this is a gate and not a hint
@@ -35,7 +35,7 @@
  * attached, and this gate cannot make it mean that. An iTerm tab left open
  * while the operator does something else reports `IDLE` — `presence.ts` is
  * explicit that a conversation quiet for a week is still `IDLE`, because
- * silence cannot prove an end — so admitting here can put a cockpit actuator on
+ * silence cannot prove an end — so admitting here can put a cockpit session driver on
  * a file a terminal process still holds. Both then write from their own cached
  * tip (mem#805) and one branch is silently orphaned. No simultaneity is needed:
  * the two writers overlap in ATTACHMENT, not in time.
@@ -61,7 +61,7 @@
  * @see ./presence.ts — `derivePresence`, the source of the value this gates on
  * @see mt#3095 — this module
  * @see mt#3038 — the cross-process advisory lock that guards the OTHER writer
- *   class (two cockpit actuators); this function guards the class that lock
+ *   class (two cockpit session drivers); this function guards the class that lock
  *   cannot see (a `claude` the operator started in a terminal)
  */
 import type { ConversationPresence } from "./presence";
@@ -110,7 +110,7 @@ function assertNeverPresence(presence: never): never {
 }
 
 /**
- * Decide whether an actuator may attach to a conversation in `presence`.
+ * Decide whether a session driver may attach to a conversation in `presence`.
  *
  * Exhaustive over `ConversationPresence`, enforced two ways: the `switch`
  * returns on every member, and `assertNeverPresence` below makes an unhandled

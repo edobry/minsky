@@ -12,7 +12,7 @@
  *  - **AT2** — a conversation with no telemetry reads `UNKNOWN`, not a blank
  *    and not a falsely confident value.
  *  - **In scope item 6** — the tab set is a property of the KEYSPACE, so a
- *    conversation that arrived through the actuator pipeline gets the same tabs
+ *    conversation that arrived through the session driver pipeline gets the same tabs
  *    as any other. Pinned so nobody special-cases the driven path back in.
  *
  * Run via:
@@ -61,7 +61,7 @@ beforeEach(() => {
   // @ts-expect-error — stub
   globalThis.EventSource = StubEventSource;
   // A WebSocket constructor that RECORDS rather than connects: the read-only
-  // guarantee is "no actuator channel is opened", and the only way to assert
+  // guarantee is "no session driver channel is opened", and the only way to assert
   // that from outside is to watch the constructor.
   // @ts-expect-error — stub
   globalThis.WebSocket = class {
@@ -88,7 +88,7 @@ function createTestQueryClient(): QueryClient {
 
 interface StubOptions {
   /** Rows served by `GET /api/driven-session`. */
-  actuators?: Array<{ sessionId: string; harnessSessionId: string | null; status: string }>;
+  sessionDrivers?: Array<{ sessionId: string; harnessSessionId: string | null; status: string }>;
   /** Conversation ids that have a transcript. Anything else 404s. */
   transcripts?: string[];
   /** Presence payload per conversation id; absent ids get `UNKNOWN`. */
@@ -112,7 +112,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 function stubFetches(opts: StubOptions = {}) {
-  const actuators = opts.actuators ?? [];
+  const sessionDrivers = opts.sessionDrivers ?? [];
   const transcripts = new Set(opts.transcripts ?? []);
 
   globalThis.fetch = mock((url: string) => {
@@ -120,7 +120,7 @@ function stubFetches(opts: StubOptions = {}) {
     const pathname = parsed.pathname;
 
     if (pathname === "/api/driven-session") {
-      const body = () => json({ sessions: actuators });
+      const body = () => json({ sessions: sessionDrivers });
       return opts.registryDelayMs
         ? new Promise<Response>((resolve) => setTimeout(() => resolve(body()), opts.registryDelayMs))
         : Promise.resolve(body());
@@ -214,7 +214,7 @@ function queryComposer(): HTMLElement | null {
 describe("AT5 — a conversation reached before its init frame", () => {
   test("renders the starting state rather than 404ing", async () => {
     stubFetches({
-      actuators: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "running" }],
+      sessionDrivers: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "running" }],
     });
     renderAt(LOCAL_ID);
 
@@ -224,9 +224,9 @@ describe("AT5 — a conversation reached before its init frame", () => {
     expect(screen.getByTitle(LOCAL_ID)).toBeDefined();
   });
 
-  test("an actuator that died before linking says so, rather than starting forever", async () => {
+  test("a session driver that died before linking says so, rather than starting forever", async () => {
     stubFetches({
-      actuators: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "crashed" }],
+      sessionDrivers: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "crashed" }],
     });
     renderAt(LOCAL_ID);
 
@@ -240,7 +240,7 @@ describe("AT5 — a conversation reached before its init frame", () => {
     // never link rendered "Starting…" indefinitely and kept the registry poll
     // alive behind it.
     stubFetches({
-      actuators: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "unrecoverable" }],
+      sessionDrivers: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "unrecoverable" }],
     });
     renderAt(LOCAL_ID);
 
@@ -251,7 +251,7 @@ describe("AT5 — a conversation reached before its init frame", () => {
 
   test("once linked, the same local-id URL serves the conversation", async () => {
     stubFetches({
-      actuators: [
+      sessionDrivers: [
         { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
       ],
       transcripts: [CONVERSATION_UUID],
@@ -274,7 +274,7 @@ describe("AT5 — a conversation reached before its init frame", () => {
     // an errored, non-persisted tab. The deferred prune records WHICH id it was
     // about, and drops it when that is not the id finally resolved to.
     stubFetches({
-      actuators: [
+      sessionDrivers: [
         { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
       ],
       transcripts: [CONVERSATION_UUID],
@@ -304,21 +304,21 @@ describe("SC5 / AT4 — the unified route is read-only by construction", () => {
     expect(queryComposer()).toBeNull();
   });
 
-  test("no composer renders for a starting actuator", async () => {
+  test("no composer renders for a starting session driver", async () => {
     stubFetches({
-      actuators: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "running" }],
+      sessionDrivers: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "running" }],
     });
     renderAt(LOCAL_ID);
     await screen.findByTestId("conversation-starting");
     expect(queryComposer()).toBeNull();
   });
 
-  test("no composer renders for a conversation with a LIVE actuator attached", async () => {
+  test("no composer renders for a conversation with a LIVE session driver attached", async () => {
     // The state most likely to tempt a composer back in: the cockpit owns a
-    // running actuator for this exact conversation. It still must not mount one
+    // running session driver for this exact conversation. It still must not mount one
     // here — mt#3325 owns that, once mt#3095's liveness gate exists.
     stubFetches({
-      actuators: [
+      sessionDrivers: [
         { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
       ],
       transcripts: [CONVERSATION_UUID],
@@ -331,9 +331,9 @@ describe("SC5 / AT4 — the unified route is read-only by construction", () => {
     expect(queryComposer()).toBeNull();
   });
 
-  test("opens no actuator WebSocket in any of those states", async () => {
+  test("opens no session driver WebSocket in any of those states", async () => {
     stubFetches({
-      actuators: [
+      sessionDrivers: [
         { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
       ],
       transcripts: [CONVERSATION_UUID],
@@ -364,7 +364,7 @@ describe("In scope item 6 — the tab set belongs to the keyspace, not the pipel
     return screen.getAllByRole("tab").map((t) => (t.textContent ?? "").trim());
   }
 
-  test("a plain conversation and an actuator-delivered one render the SAME tabs", async () => {
+  test("a plain conversation and a session driver-delivered one render the SAME tabs", async () => {
     stubFetches({ transcripts: [CONVERSATION_UUID] });
     renderAt(CONVERSATION_UUID);
     const plain = await renderedTabs(CONVERSATION_UUID);
@@ -372,13 +372,13 @@ describe("In scope item 6 — the tab set belongs to the keyspace, not the pipel
     cleanup();
 
     stubFetches({
-      actuators: [
+      sessionDrivers: [
         { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
       ],
       transcripts: [CONVERSATION_UUID],
     });
     renderAt(LOCAL_ID);
-    const viaActuator = await renderedTabs(LOCAL_ID);
-    expect(viaActuator).toEqual(plain);
+    const viaDriver = await renderedTabs(LOCAL_ID);
+    expect(viaDriver).toEqual(plain);
   });
 });

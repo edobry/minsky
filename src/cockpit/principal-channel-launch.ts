@@ -2,7 +2,7 @@
  * Composition root for the principal channel (mt#3228).
  *
  * Binds the poller to its real collaborators — Telegram credentials, the
- * append-only event log, the driven-session actuator, the ask substrate — and
+ * append-only event log, the driven-session session driver, the ask substrate — and
  * decides whether the channel runs at all.
  *
  * ## Opt-in, deliberately
@@ -18,7 +18,7 @@
  *
  * @see mt#3228 — the bidirectional principal channel
  * @see ./principal-channel-poller.ts — the loop this starts
- * @see ./principal-channel-actuator.ts — what carries out the decisions
+ * @see ./principal-channel-driver.ts — what carries out the decisions
  */
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -48,15 +48,12 @@ import {
   META_WATCHDOG_STALL_MULTIPLIER,
   type SweepLivenessSnapshot,
 } from "./sweepers";
-import {
-  createDrivenSessionActuator,
-  createTopicActuatorRegistry,
-} from "./principal-channel-actuator";
+import { createDrivenSessionDriver, createTopicDriverRegistry } from "./principal-channel-driver";
 import {
   startPrincipalChannelPoller,
   PRINCIPAL_CHANNEL_SWEEP_NAME,
   type BindTopicOutcome,
-  type ChannelActuator,
+  type ChannelDriver,
   type InboundEventRecorder,
   type PollCursor,
   type PollerHandle,
@@ -272,7 +269,7 @@ export async function respondToAskFromChannel(askRef: string, text: string): Pro
 }
 
 // ---------------------------------------------------------------------------
-// Topic mapping + per-topic actuators (mt#3505, parent mt#3500)
+// Topic mapping + per-topic session drivers (mt#3505, parent mt#3500)
 // ---------------------------------------------------------------------------
 
 /**
@@ -363,7 +360,7 @@ export interface BindTelegramChannelTopicDeps {
  * enough (a principal opening a fresh topic and immediately naming its task)
  * that the mapping row may not exist yet — `ensureTelegramChannelTopic` is
  * normally what creates it, but that only runs when a message is routed
- * through `resolveActuatorForMessage`, which a `bind` route deliberately
+ * through `resolveDriverForMessage`, which a `bind` route deliberately
  * skips (see `principal-channel-poller.ts`'s `handleBind`). Only the
  * `entity_type`/`entity_id` columns are ever touched here — `local_id`
  * (and therefore `driven_sessions.local_id`, which shares that keyspace) is
@@ -429,38 +426,38 @@ async function defaultGetTask(taskId: string): Promise<unknown | null> {
   return service.getTask(taskId);
 }
 
-/** Deps {@link createTopicActuatorResolver} needs to build and cache per-topic actuators. */
-export interface TopicActuatorResolverDeps {
+/** Deps {@link createTopicDriverResolver} needs to build and cache per-topic session drivers. */
+export interface TopicDriverResolverDeps {
   chatId: string;
   getDb: DbGetter;
   /**
-   * Build a fresh actuator bound to `localId`. Production wraps
-   * `createDrivenSessionActuator` with the channel's `cwd`/`permissionMode`/
+   * Build a fresh session driver bound to `localId`. Production wraps
+   * `createDrivenSessionDriver` with the channel's `cwd`/`permissionMode`/
    * `respondToAsk` fixed and only `localId` varying per topic; tests inject a
    * stub so no `claude` process is ever spawned.
    */
-  buildActuator: (localId: string) => ChannelActuator;
+  buildSessionDriver: (localId: string) => ChannelDriver;
 }
 
 /**
- * Build the poller's `resolveTopicActuator` dependency (mt#3505).
+ * Build the poller's `resolveTopicDriver` dependency (mt#3505).
  *
- * The registry (`createTopicActuatorRegistry`) is what makes this safe to
+ * The registry (`createTopicDriverRegistry`) is what makes this safe to
  * call once per inbound message rather than once per topic: the SAME
- * actuator instance is returned for a topic across calls, preserving that
+ * session driver instance is returned for a topic across calls, preserving that
  * instance's own "one caller at a time" concurrency contract (see
- * `./principal-channel-actuator.ts`'s docblock) while different topics get
+ * `./principal-channel-driver.ts`'s docblock) while different topics get
  * independent instances and therefore run concurrently.
  */
-export function createTopicActuatorResolver(
-  deps: TopicActuatorResolverDeps
-): (messageThreadId: number) => Promise<ChannelActuator> {
-  const registry = createTopicActuatorRegistry();
+export function createTopicDriverResolver(
+  deps: TopicDriverResolverDeps
+): (messageThreadId: number) => Promise<ChannelDriver> {
+  const registry = createTopicDriverRegistry();
   return async (messageThreadId: number) => {
     const localId = await ensureTelegramChannelTopic(deps.chatId, messageThreadId, {
       getDb: deps.getDb,
     });
-    return registry.getOrCreate(localId, () => deps.buildActuator(localId));
+    return registry.getOrCreate(localId, () => deps.buildSessionDriver(localId));
   };
 }
 
@@ -516,7 +513,7 @@ export async function logTopicModeCapability(
  *   "still actively retrying" legible against "gave up" without reading the
  *   reason prose.
  * - `failed` — a DIFFERENT fault class: an exception raised AFTER
- *   credentials resolved (poller/actuator construction — see
+ *   credentials resolved (poller/session driver construction — see
  *   {@link startPrincipalChannel}'s catch block). No longer reachable from a
  *   credential-read failure, since that path no longer exhausts.
  *
@@ -699,7 +696,7 @@ export function _setPrincipalChannelDedupeForTest(dedupe: DegradedDedupe | undef
  *
  * The projection in {@link getPrincipalChannelStatus} is the unit under test
  * for SC1, and reaching `running` legitimately requires live credentials, a
- * spawned actuator and a real poller. Seeding the latch is what lets the
+ * spawned session driver and a real poller. Seeding the latch is what lets the
  * projection be tested on its own terms; the projection itself reads the
  * registry through its injected `snapshot` seam, so nothing here is patched.
  */
@@ -1007,16 +1004,16 @@ async function startResolvedChannel(args: {
   // reliably lands before the "inbound poller started" line below it.
   await logTopicModeCapability(token);
 
-  const actuator = createDrivenSessionActuator({
+  const sessionDriver = createDrivenSessionDriver({
     cwd: config.cwd,
     permissionMode: config.permissionMode,
     respondToAsk: opts.respondToAsk,
   });
-  const resolveTopicActuator = createTopicActuatorResolver({
+  const resolveTopicDriver = createTopicDriverResolver({
     chatId,
     getDb: getPrincipalChannelDb,
-    buildActuator: (localId) =>
-      createDrivenSessionActuator({
+    buildSessionDriver: (localId) =>
+      createDrivenSessionDriver({
         cwd: config.cwd,
         permissionMode: config.permissionMode,
         respondToAsk: opts.respondToAsk,
@@ -1060,8 +1057,8 @@ async function startResolvedChannel(args: {
     chatId,
     degradedDedupe: channelDedupe,
     auth: { allowedChatId: chatId, allowedUserIds },
-    actuator,
-    resolveTopicActuator,
+    sessionDriver,
+    resolveTopicDriver,
     bindTopic: (messageThreadId, taskRef) =>
       bindTelegramChannelTopicToTask(chatId, messageThreadId, taskRef, {
         getDb: getPrincipalChannelDb,

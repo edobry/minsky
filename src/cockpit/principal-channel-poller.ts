@@ -69,9 +69,9 @@ import {
 import { registerSelfSchedulingSweep } from "./sweepers";
 import type { DegradedDedupe } from "./principal-channel-degraded-dedupe";
 import { withDeadline } from "@minsky/domain/utils/deadline";
-// Value import, not a cycle: this module's only edge back from the actuator is
+// Value import, not a cycle: this module's only edge back from the session driver is
 // `import type` (erased at runtime), so nothing loads twice.
-import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
+import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-driver";
 
 /**
  * Long-poll seconds. 25s sits inside Telegram's own server-side ceiling while
@@ -88,7 +88,7 @@ const ERROR_BACKOFF_MS = 30_000;
  * the cursor read, the cursor write, and the per-message audit write.
  *
  * None of these carried ANY bound before: they receive no `AbortSignal` and
- * the driver imposes no deadline, so a connection that goes away without
+ * the Postgres driver imposes no deadline, so a connection that goes away without
  * settling its promise parks the cycle forever with nothing thrown and nothing
  * logged. That is the shape of the 2026-08-16 incident, where the loop sat on
  * an empty cycle for ~44 hours (mt#4183 `## SC3 falsifier result`).
@@ -130,7 +130,7 @@ export const PRINCIPAL_CHANNEL_SWEEP_NAME = "principal-channel poll";
  *
  * DERIVED, not chosen. The loop reports progress after every await that could
  * park, so the widest legitimate gap is the slowest single one: handling one
- * message, which the actuator already bounds. Both terms are real enforced
+ * message, which the session driver already bounds. Both terms are real enforced
  * ceilings, not intentions — `awaitTurnResult` resolves its promise from a
  * `setTimeout` on every path, so a turn cannot outlast the turn timeout.
  *
@@ -161,14 +161,14 @@ const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
  *
  * A seam, not an abstraction for its own sake: it is what lets every routing
  * and audit path be tested without spawning a `claude` process, and it is where
- * a future actuator (steering an arbitrary live conversation, once mt#3095's
+ * a future session driver (steering an arbitrary live conversation, once mt#3095's
  * conversation-keyed identity lands) drops in.
  */
 /**
  * One resolved image, ready to attach to a turn (mt#3235).
  *
  * Declared here rather than imported from the driven-session host so the
- * actuator seam stays free of the host's types — a future actuator that is not
+ * session driver seam stays free of the host's types — a future session driver that is not
  * backed by a `claude` child still speaks this interface.
  */
 export interface ChannelImage {
@@ -197,7 +197,7 @@ export interface ConverseOptions {
    * Called with the assistant text accumulated SO FAR as the turn produces it
    * (mt#3542), for rendering progress into the chat.
    *
-   * Advisory, and not every actuator emits it. The resolved value — not the
+   * Advisory, and not every session driver emits it. The resolved value — not the
    * last `onPartial` argument — is the turn's authoritative answer: a turn with
    * tool-use rounds streams text around each round, while the resolved result
    * carries the final reply. Callers settle on the resolved value, but only
@@ -210,13 +210,13 @@ export interface ConverseOptions {
    * The prose before a tool call is a finished thought, so this is where a
    * streamed reply closes one message and opens the next — the difference
    * between a turn that reads like chat and one paragraph that keeps growing.
-   * Advisory in exactly the same way `onPartial` is: an actuator that does not
+   * Advisory in exactly the same way `onPartial` is: a session driver that does not
    * emit it degrades to one message per turn, which is the previous behaviour.
    */
   onBlockEnd?: () => void;
 }
 
-export interface ChannelActuator {
+export interface ChannelDriver {
   /** Hand text to the standing channel conversation; resolve with its reply. */
   converse(text: string, opts?: ConverseOptions): Promise<string>;
   /** Interrupt the current turn. Must not queue behind it. */
@@ -288,22 +288,22 @@ export interface PollCycleDeps {
   token: string;
   chatId: string;
   auth: InboundAuthorization;
-  /** The standing (non-topic) conversation's actuator — used for a message with no thread id. */
-  actuator: ChannelActuator;
+  /** The standing (non-topic) conversation's session driver — used for a message with no thread id. */
+  sessionDriver: ChannelDriver;
   /**
-   * Resolve the actuator for a specific Telegram topic (mt#3505, parent
+   * Resolve the session driver for a specific Telegram topic (mt#3505, parent
    * mt#3500).
    *
    * Called ONLY for a message carrying a `messageThreadId` — a message with
-   * none always uses {@link actuator} instead, unconditionally, so a poller
+   * none always uses {@link session driver} instead, unconditionally, so a poller
    * launched without topic support (this field omitted) behaves EXACTLY as
-   * before. The resolver is expected to return the SAME actuator instance for
-   * the same thread id across calls (a cache, not a fresh actuator per
-   * message) — see `./principal-channel-actuator.ts`'s
-   * `createTopicActuatorRegistry`, which is what the composition root
+   * before. The resolver is expected to return the SAME session driver instance for
+   * the same thread id across calls (a cache, not a fresh session driver per
+   * message) — see `./principal-channel-driver.ts`'s
+   * `createTopicDriverRegistry`, which is what the composition root
    * (`./principal-channel-launch.ts`) backs this with.
    */
-  resolveTopicActuator?: (messageThreadId: number) => Promise<ChannelActuator>;
+  resolveTopicDriver?: (messageThreadId: number) => Promise<ChannelDriver>;
   /**
    * Carry out a `/bind` (mt#3507). Called only for a `bind` route ALREADY
    * confirmed to carry a thread id — a `/bind` typed in the standing
@@ -359,9 +359,9 @@ export interface PollCycleDeps {
 export interface PollCycleOutcome {
   /** Messages Telegram returned, including ones the allowlist refused. */
   received: number;
-  /** Acted on AND the actuator succeeded. */
+  /** Acted on AND the session driver succeeded. */
   handled: number;
-  /** Acted on but the actuator threw. Counted apart from `handled` so a
+  /** Acted on but the session driver threw. Counted apart from `handled` so a
    * channel that is answering-but-failing is distinguishable from a healthy
    * one (PR #2324 R1 — "attempted" was being conflated with "succeeded"). */
   failed: number;
@@ -537,24 +537,24 @@ function topicKeyFor(message: InboundTelegramMessage): string {
 }
 
 /**
- * Resolve the actuator a message's conversation should be carried out
+ * Resolve the session driver a message's conversation should be carried out
  * against (mt#3505).
  *
- * A message with no thread id ALWAYS uses the standing actuator, regardless
- * of whether `resolveTopicActuator` is configured — the untouched default the
+ * A message with no thread id ALWAYS uses the standing session driver, regardless
+ * of whether `resolveTopicDriver` is configured — the untouched default the
  * spec calls for. Only a message carrying a thread id consults the resolver,
  * and only when one was supplied; a poller launched without topic support
  * (the resolver omitted) falls back to standing rather than throwing, so it
  * degrades safely.
  */
-async function resolveActuatorForMessage(
+async function resolveDriverForMessage(
   deps: PollCycleDeps,
   message: InboundTelegramMessage
-): Promise<ChannelActuator> {
-  if (message.messageThreadId !== undefined && deps.resolveTopicActuator) {
-    return deps.resolveTopicActuator(message.messageThreadId);
+): Promise<ChannelDriver> {
+  if (message.messageThreadId !== undefined && deps.resolveTopicDriver) {
+    return deps.resolveTopicDriver(message.messageThreadId);
   }
-  return deps.actuator;
+  return deps.sessionDriver;
 }
 
 /** A cycle that acted on nothing, optionally carrying a poll error. */
@@ -680,7 +680,7 @@ async function handleRoute(
   // for a turn nobody is waiting on, forever.
   try {
     // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
-    // per image, so it happens once here rather than inside the actuator, which
+    // per image, so it happens once here rather than inside the session driver, which
     // is the seam every test stubs.
     const { images, notes } = await resolveAttachments(deps, route);
 
@@ -696,12 +696,12 @@ async function handleRoute(
     let succeeded = true;
     try {
       if (route.kind === "bind") {
-        // No conversation actuator involved: binding writes a mapping row, it
+        // No conversation session driver involved: binding writes a mapping row, it
         // does not carry out a turn.
         reply = await handleBind(deps, message, route);
       } else {
-        const actuator = await resolveActuatorForMessage(deps, message);
-        reply = await runActuator(actuator, route, images, notes, stream);
+        const sessionDriver = await resolveDriverForMessage(deps, message);
+        reply = await runSessionDriver(sessionDriver, route, images, notes, stream);
       }
     } catch (err: unknown) {
       succeeded = false;
@@ -710,7 +710,7 @@ async function handleRoute(
       // holding a phone waiting for an answer; a silent swallow is the one
       // outcome the channel must never produce.
       reply = `Could not carry that out: ${detail}`;
-      log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
+      log.error("[principal-channel] session driver failed", { route: route.kind, error: detail });
       await recordFailureOutcome(deps, message, route, detail);
     }
 
@@ -751,7 +751,7 @@ async function handleRoute(
     // Close the ack (mt#3486). Replaces the pickup reaction rather than
     // accumulating, so the message carries exactly one state at a time.
     //
-    // Gated on DELIVERY, not just on the actuator (PR #2525 R4): a turn can run
+    // Gated on DELIVERY, not just on the session driver (PR #2525 R4): a turn can run
     // clean and still fail to reach the principal — a 400, a 429, a dead topic.
     // In that case the reaction is the ONLY signal they get, since the reply
     // itself is what went missing, so marking it 👌 would assert delivery of
@@ -834,8 +834,8 @@ function createStreamFor(deps: PollCycleDeps, message: InboundTelegramMessage): 
   });
 }
 
-function runActuator(
-  actuator: ChannelActuator,
+function runSessionDriver(
+  sessionDriver: ChannelDriver,
   route: Exclude<InboundRoute, { kind: "rejected" } | { kind: "bind" }>,
   images: ChannelImage[],
   notes: string[],
@@ -843,11 +843,11 @@ function runActuator(
 ): Promise<string> {
   switch (route.kind) {
     case "ask-response":
-      return actuator.answerAsk(route.askRef, route.text);
+      return sessionDriver.answerAsk(route.askRef, route.text);
     case "interrupt":
-      return actuator.interrupt();
+      return sessionDriver.interrupt();
     case "reset":
-      return actuator.reset();
+      return sessionDriver.reset();
     case "unsupported-media":
       // Answered here, with no agent turn: there is nothing for an agent to
       // act on, and the whole point is that the principal hears back at all
@@ -857,7 +857,7 @@ function runActuator(
           `Send it as a caption or describe it and I'll pick it up from there.`
       );
     case "channel-agent":
-      return actuator.converse(withChannelNotes(route.text, notes), {
+      return sessionDriver.converse(withChannelNotes(route.text, notes), {
         ...(route.replyToText === undefined ? {} : { replyToText: route.replyToText }),
         ...(images.length > 0 ? { images } : {}),
         ...(stream
@@ -912,7 +912,7 @@ export function startTypingLoop(opts: {
    *
    * Per-turn teardown is not sufficient on its own. `stop()` on the poller
    * aborts this signal, but a turn already in flight keeps awaiting its
-   * actuator — so without this listener the interval would go on calling
+   * session driver — so without this listener the interval would go on calling
    * `sendChatAction` after the poller was told to stop, for as long as the
    * abandoned turn ran. Binding to the signal makes shutdown immediate rather
    * than eventual.

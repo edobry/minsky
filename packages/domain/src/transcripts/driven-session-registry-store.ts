@@ -63,11 +63,11 @@ export interface UpsertDrivenSessionInput {
   unrecoverableReason?: string | null;
   pid?: number | null;
   pidCmdline?: string | null;
-  actuatorGeneration?: number;
+  driverGeneration?: number;
   /** The principal-selected model alias (mt#3040), e.g. "fable" — persisted
    * so a restart-recovery resume (mt#3038) preserves it. */
   model?: string | null;
-  /** ISO timestamp of the ORIGINAL spawn (stable across an actuator swap — see schema docblock). */
+  /** ISO timestamp of the ORIGINAL spawn (stable across a session driver swap — see schema docblock). */
   startedAt: string;
 }
 
@@ -99,7 +99,7 @@ export async function upsertDrivenSessionRecord(
       pid: input.pid ?? null,
       pidCmdline: input.pidCmdline ?? null,
       model: input.model ?? null,
-      actuatorGeneration: input.actuatorGeneration ?? 0,
+      driverGeneration: input.driverGeneration ?? 0,
       startedAt: new Date(input.startedAt),
       updatedAt: new Date(),
     };
@@ -124,7 +124,7 @@ export interface RecordConversationAdoptionInput {
   localId: string;
   harnessSessionId: string;
   harness: string;
-  actuatorGeneration?: number;
+  driverGeneration?: number;
   adoptionReason: AdoptionReason;
 }
 
@@ -151,7 +151,7 @@ export async function recordConversationAdoption(
       localId: input.localId,
       harnessSessionId: input.harnessSessionId,
       harness: input.harness,
-      actuatorGeneration: input.actuatorGeneration ?? 0,
+      driverGeneration: input.driverGeneration ?? 0,
       adoptionReason: input.adoptionReason,
       adoptedAt: new Date(),
     });
@@ -284,7 +284,7 @@ interface RawDrivenSessionRow {
   pid: number | null;
   pid_cmdline: string | null;
   model: string | null;
-  actuator_generation: number;
+  driver_generation: number;
   started_at: Date | string;
   updated_at: Date | string;
 }
@@ -303,7 +303,7 @@ export function mapRawDrivenSessionRow(raw: RawDrivenSessionRow): DrivenSessionR
     pid: raw.pid,
     pidCmdline: raw.pid_cmdline,
     model: raw.model,
-    actuatorGeneration: raw.actuator_generation,
+    driverGeneration: raw.driver_generation,
     startedAt: raw.started_at instanceof Date ? raw.started_at : new Date(raw.started_at),
     updatedAt: raw.updated_at instanceof Date ? raw.updated_at : new Date(raw.updated_at),
   };
