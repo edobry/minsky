@@ -221,3 +221,74 @@ export function selectSatisfiedCredentialRequests(
   }
   return satisfied;
 }
+
+/**
+ * Responder recorded when a request is closed by credential presence.
+ *
+ * The `system:<event>` convention: the principal satisfied this by ENTERING a
+ * credential, not by answering the ask, so surfaces must not render it as an
+ * operator response payload — and the agent side uses it to tell "satisfied" from
+ * "declined", which are both `closed`.
+ *
+ * Defined here rather than in `./request-resolver` so the classifier below and
+ * the resolver share one definition without the classifier importing the IO
+ * shell. The resolver re-exports it.
+ */
+export const CREDENTIAL_REQUEST_RESPONDER = "system:credential-configured";
+
+/**
+ * What the requesting agent observes. A status and a status LINE — never a value.
+ *
+ * `declined` is deliberately distinct from `unanswered`: the spec requires the
+ * agent to tell "the principal said no" (do not retry) from "nobody has answered
+ * yet" (keep waiting) and from "this expired" (the request went stale). Collapsing
+ * them would make a decline look like a slow answer and produce exactly the
+ * retry loop this is meant to prevent.
+ */
+export type CredentialRequestStatus =
+  | { status: "pending"; provider: string }
+  | { status: "satisfied"; provider: string; detail: string }
+  | { status: "declined"; provider: string; reason?: string }
+  | { status: "unanswered"; provider: string; reason: "cancelled" | "expired" };
+
+/**
+ * Classify a credential-request ask for the agent that filed it.
+ *
+ * Pure, and returns `null` when the ask is not a credential request at all, so a
+ * caller handed the wrong id gets a distinguishable answer rather than a
+ * plausible-looking "pending".
+ */
+export function classifyCredentialRequest(
+  ask: Pick<Ask, "state" | "metadata" | "response"> | null | undefined
+): CredentialRequestStatus | null {
+  if (!ask) return null;
+  const payload = readCredentialRequest(ask);
+  if (!payload) return null;
+  const { provider } = payload;
+
+  if (PENDING_STATES.has(ask.state)) return { status: "pending", provider };
+
+  if (ask.state === "cancelled" || ask.state === "expired") {
+    return { status: "unanswered", provider, reason: ask.state };
+  }
+
+  // `responded` and `closed` both carry an answer. Presence-close is the only
+  // path that records this responder, so anything else at this point is the
+  // principal having settled it themselves — i.e. a decline.
+  const responder = ask.response?.responder;
+  if (responder === CREDENTIAL_REQUEST_RESPONDER) {
+    const detail = (ask.response?.payload as { detail?: unknown } | undefined)?.detail;
+    return {
+      status: "satisfied",
+      provider,
+      detail: typeof detail === "string" ? detail : "credential configured",
+    };
+  }
+
+  const reason = (ask.response?.payload as { reason?: unknown } | undefined)?.reason;
+  return {
+    status: "declined",
+    provider,
+    ...(typeof reason === "string" && reason.length > 0 ? { reason } : {}),
+  };
+}

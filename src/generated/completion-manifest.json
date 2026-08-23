@@ -5019,6 +5019,30 @@
                 }
               ],
               "commandId": "credentials.request"
+            },
+            {
+              "name": "request-status",
+              "description": "request-status commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request-status",
+                  "description": "Check a credential request filed with credentials.request. Returns pending / satisfied / declined / unanswered plus a status line. Never returns the credential.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "requestId",
+                      "required": true,
+                      "description": "The requestId returned by credentials.request."
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request-status"
             }
           ]
         }

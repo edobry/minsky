@@ -10,7 +10,10 @@
 
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { sharedCommandRegistry } from "../command-registry";
-import { createCredentialRequestRegistration } from "./config/credential-request-command";
+import {
+  createCredentialRequestRegistration,
+  createCredentialRequestStatusRegistration,
+} from "./config/credential-request-command";
 import { configListRegistration, configShowRegistration } from "./config/list-show-commands";
 import {
   configGetRegistration,
@@ -48,4 +51,5 @@ export function registerConfigCommands(container?: AppContainerInterface) {
   sharedCommandRegistry.registerCommand(configCredentialsRemoveRegistration);
   sharedCommandRegistry.registerCommand(configCredentialsRecheckRegistration);
   sharedCommandRegistry.registerCommand(createCredentialRequestRegistration(container));
+  sharedCommandRegistry.registerCommand(createCredentialRequestStatusRegistration(container));
 }

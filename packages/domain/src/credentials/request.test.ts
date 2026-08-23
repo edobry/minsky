@@ -16,6 +16,8 @@ import {
   readCredentialRequest,
   selectPendingCredentialRequests,
   selectSatisfiedCredentialRequests,
+  classifyCredentialRequest,
+  CREDENTIAL_REQUEST_RESPONDER,
 } from "./request";
 
 const PROVIDER: CredentialProvider = {
@@ -58,7 +60,7 @@ describe("buildCredentialRequestAsk", () => {
   it("carries only the provider id in metadata", () => {
     const draft = buildCredentialRequestAsk({ provider: PROVIDER, reason: "needed for X" });
     expect(draft.metadata[CREDENTIAL_REQUEST_METADATA_KEY]).toEqual({
-      provider: "supabase-service-role",
+      provider: PROVIDER.id,
     });
   });
 
@@ -213,5 +215,103 @@ describe("selectSatisfiedCredentialRequests", () => {
       { provider: "github", configured: true, detail: "8 repos visible" },
     ]);
     expect(JSON.stringify(satisfied[0]?.detail)).not.toContain("sbp_");
+  });
+});
+
+describe("classifyCredentialRequest", () => {
+  const PROVIDER_ID = PROVIDER.id;
+  const DETAIL = "3 buckets visible";
+
+  /**
+   * Criterion 5 lives here: the agent must tell "the principal said no" from
+   * "nobody answered yet" from "this went stale". Collapsing any pair produces
+   * the retry loop the request primitive exists to avoid.
+   */
+  function requestAsk(overrides: Record<string, unknown> = {}): any {
+    return {
+      state: "routed",
+      metadata: { credentialRequest: { provider: PROVIDER_ID } },
+      ...overrides,
+    };
+  }
+
+  it("a routed request reads as pending", () => {
+    expect(classifyCredentialRequest(requestAsk())).toEqual({
+      status: "pending",
+      provider: PROVIDER_ID,
+    });
+  });
+
+  it("a suspended request is still pending, not answered", () => {
+    expect(classifyCredentialRequest(requestAsk({ state: "suspended" }))?.status).toBe("pending");
+  });
+
+  it("a presence-close reads as satisfied and carries the provider's status line", () => {
+    const result = classifyCredentialRequest(
+      requestAsk({
+        state: "closed",
+        response: {
+          responder: CREDENTIAL_REQUEST_RESPONDER,
+          payload: { satisfied: true, detail: DETAIL },
+        },
+      })
+    );
+    expect(result).toEqual({
+      status: "satisfied",
+      provider: PROVIDER_ID,
+      detail: DETAIL,
+    });
+  });
+
+  it("satisfied never carries a value — only the status line the resolver recorded", () => {
+    const result = classifyCredentialRequest(
+      requestAsk({
+        state: "closed",
+        response: {
+          responder: CREDENTIAL_REQUEST_RESPONDER,
+          payload: { satisfied: true, detail: DETAIL },
+        },
+      })
+    );
+    expect(JSON.stringify(result)).not.toContain("sbp_");
+    expect(Object.keys(result ?? {}).sort()).toEqual(["detail", "provider", "status"]);
+  });
+
+  it("an operator close is a DECLINE, distinct from pending and from satisfied", () => {
+    const result = classifyCredentialRequest(
+      requestAsk({
+        state: "closed",
+        response: { responder: "operator", payload: { reason: "not sharing that one" } },
+      })
+    );
+    expect(result).toEqual({
+      status: "declined",
+      provider: PROVIDER_ID,
+      reason: "not sharing that one",
+    });
+  });
+
+  it("a decline without a stated reason is still a decline", () => {
+    const result = classifyCredentialRequest(
+      requestAsk({ state: "closed", response: { responder: "operator", payload: {} } })
+    );
+    expect(result?.status).toBe("declined");
+    expect((result as { reason?: string }).reason).toBeUndefined();
+  });
+
+  it("cancelled and expired read as unanswered, NOT as declined", () => {
+    for (const state of ["cancelled", "expired"] as const) {
+      const result = classifyCredentialRequest(requestAsk({ state }));
+      expect(result).toEqual({
+        status: "unanswered",
+        provider: PROVIDER_ID,
+        reason: state,
+      });
+    }
+  });
+
+  it("an ask that is not a credential request classifies as null, not as pending", () => {
+    expect(classifyCredentialRequest({ state: "routed", metadata: {} } as any)).toBeNull();
+    expect(classifyCredentialRequest(null)).toBeNull();
   });
 });

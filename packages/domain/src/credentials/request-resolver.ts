@@ -21,20 +21,14 @@ import type { Ask, AskState } from "../ask/types";
 import type { AskRepository } from "../ask/repository";
 import { listCredentials } from "./lifecycle";
 import {
+  CREDENTIAL_REQUEST_RESPONDER,
   selectPendingCredentialRequests,
   selectSatisfiedCredentialRequests,
   type ProviderPresence,
 } from "./request";
 
-/**
- * Responder recorded on a resolved request.
- *
- * The `system:<event>` convention (`@minsky/shared/ask-closure`), because the
- * principal satisfied this by entering a credential rather than by answering the
- * ask — so surfaces must not render it as an operator response payload. The
- * detail line says what actually happened.
- */
-export const CREDENTIAL_REQUEST_RESPONDER = "system:credential-configured";
+/** Re-exported for existing importers; defined in `./request` beside the classifier that reads it. */
+export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
 
 /** States a pending request can be sitting in when the sweep finds it. */
 const CANDIDATE_STATES: readonly AskState[] = ["routed", "suspended"];

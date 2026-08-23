@@ -25,7 +25,11 @@ import {
   getCredentialProvider,
   listCredentialProviders,
 } from "@minsky/domain/credentials";
-import { buildCredentialRequestAsk, isPolicyResolved } from "@minsky/domain/credentials/request";
+import {
+  buildCredentialRequestAsk,
+  classifyCredentialRequest,
+  isPolicyResolved,
+} from "@minsky/domain/credentials/request";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { createAskWithFormLint, requireAskRepository } from "../asks";
 
@@ -126,6 +130,68 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
         state: persisted.state,
         // No value, and no field that could hold one — the agent's observable is
         // the request's identity plus where it will land.
+      };
+    },
+  });
+}
+
+/**
+ * `credentials.request-status` — the agent-side read of a filed request.
+ *
+ * The awaitable half: a requesting agent polls this rather than ending its turn
+ * and losing the thread. It is a POLL rather than a push because no push toward
+ * an agent exists yet — mt#3564 owns that, and until it ships the durable handle
+ * is the parent task, not the conversation.
+ *
+ * **The observable is a status plus a status LINE, never a value.** `satisfied`
+ * carries the provider's own validation detail ("3 buckets visible"); there is no
+ * field here, or on the ask row it reads, capable of holding a credential.
+ *
+ * `declined` is deliberately distinct from `pending` and from `unanswered`
+ * (cancelled/expired): an agent that cannot tell a refusal from a slow answer
+ * re-asks, which is the loop this primitive exists to prevent.
+ */
+export function createCredentialRequestStatusRegistration(container?: AppContainerInterface) {
+  return defineCommand({
+    id: "credentials.request-status",
+    category: CommandCategory.CONFIG,
+    name: "credentials.request-status",
+    description:
+      "Check a credential request filed with credentials.request. Returns pending / satisfied / " +
+      "declined / unanswered plus a status line. Never returns the credential.",
+    requiresSetup: false,
+    parameters: composeParams(
+      { json: CommonParameters.json },
+      {
+        requestId: {
+          schema: z.string().min(1),
+          description: "The requestId returned by credentials.request.",
+          required: true as const,
+        },
+      }
+    ),
+    execute: async (params, _ctx) => {
+      const repo = await requireAskRepository(container, "credentials.request-status");
+      const ask = await repo.getById(params.requestId);
+      if (!ask) {
+        throw new Error(`credentials.request-status: no ask found for id "${params.requestId}".`);
+      }
+
+      const status = classifyCredentialRequest(ask);
+      if (!status) {
+        // A real id that is not a credential request is a caller mistake worth
+        // naming, not a "pending" to sit and wait on.
+        throw new Error(
+          `credentials.request-status: ask ${params.requestId} is not a credential request ` +
+            `(kind=${ask.kind}). Check the id returned by credentials.request.`
+        );
+      }
+
+      return {
+        success: true,
+        json: params.json || false,
+        requestId: params.requestId,
+        ...status,
       };
     },
   });
