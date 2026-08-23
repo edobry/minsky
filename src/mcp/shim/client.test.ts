@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   DaemonClient,
   DaemonRequestError,
+  describeDaemonFailure,
   REQUEST_TIMEOUT_MS,
   MAX_TOOL_WAIT_SECONDS,
   REQUEST_TIMEOUT_MARGIN_SECONDS,
@@ -454,5 +455,83 @@ describe("REQUEST_TIMEOUT_MS vs the tool schemas' declared ceiling (mt#4455)", (
       REQUEST_TIMEOUT_MARGIN_SECONDS * 1000
     );
     expect(REQUEST_TIMEOUT_MARGIN_SECONDS).toBeGreaterThan(0);
+  });
+});
+
+describe("describeDaemonFailure — the summary names the condition (mt#4466)", () => {
+  test("AT3 — unreachable and timed-out produce DIFFERENT summaries", () => {
+    // The acceptance test, stated directly. These are opposite conditions with
+    // opposite remedies, and until mt#4466 both rendered as
+    // `daemon request failed:` — which is what made a pool wedge read as a
+    // broken transport during mem#1120 R2.
+    const unreachable = describeDaemonFailure(
+      new DaemonRequestError(
+        "daemon unreachable after 15000ms retry window: ECONNREFUSED",
+        "unreachable"
+      )
+    );
+    const timedOut = describeDaemonFailure(
+      new DaemonRequestError("daemon did not respond within 1920000ms", "timeout")
+    );
+
+    expect(unreachable.summary).not.toBe(timedOut.summary);
+    expect(unreachable.summary).toContain("unreachable");
+    expect(timedOut.summary).toContain("did not answer");
+  });
+
+  test("the timeout summary says explicitly that it is NOT a transport failure", () => {
+    // The single most useful sentence in the whole change: it is the inference
+    // an agent gets wrong, and getting it wrong costs reconnects at the wrong
+    // process.
+    const { summary } = describeDaemonFailure(
+      new DaemonRequestError("daemon did not respond", "timeout")
+    );
+    expect(summary).toContain("NOT a transport failure");
+    expect(summary).toContain("pool");
+  });
+
+  test("both actionable summaries route to a command that bypasses this transport", () => {
+    // Pointing an agent at an MCP tool while MCP is the broken thing is the
+    // trap; the CLI opens its own connection.
+    for (const kind of ["unreachable", "timeout"] as const) {
+      const { summary } = describeDaemonFailure(new DaemonRequestError("x", kind));
+      expect(summary).toContain("minsky mcp status");
+      expect(summary).toContain("CLI");
+    }
+  });
+
+  test("http-error and session-lost each get their own summary", () => {
+    const httpError = describeDaemonFailure(
+      new DaemonRequestError("daemon returned HTTP 500", "http-error")
+    );
+    const sessionLost = describeDaemonFailure(
+      new DaemonRequestError("session lost", "session-lost")
+    );
+
+    expect(httpError.summary).toContain("error response");
+    expect(sessionLost.summary).toContain("session lost");
+    expect(httpError.summary).not.toBe(sessionLost.summary);
+  });
+
+  test("an untagged error keeps the original generic summary", () => {
+    // Back-compat: the default kind is `unknown`, and its summary is the string
+    // every failure used to produce. Nothing regresses for an unclassified fault.
+    expect(describeDaemonFailure(new DaemonRequestError("boom")).summary).toBe(
+      "daemon request failed"
+    );
+    expect(describeDaemonFailure(new Error("boom")).summary).toBe("daemon request failed");
+  });
+
+  test("the detail is preserved verbatim in every case", () => {
+    // The summary is ADDED context, never a replacement — the underlying
+    // message is what a deeper diagnosis needs.
+    const { detail } = describeDaemonFailure(
+      new DaemonRequestError("ECONNREFUSED 127.0.0.1:48765", "unreachable")
+    );
+    expect(detail).toBe("ECONNREFUSED 127.0.0.1:48765");
+  });
+
+  test("a non-Error value does not throw", () => {
+    expect(describeDaemonFailure("a bare string").detail).toBe("a bare string");
   });
 });

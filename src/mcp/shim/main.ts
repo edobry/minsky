@@ -20,7 +20,7 @@
 import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
 import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
-import { DaemonClient } from "./client";
+import { DaemonClient, describeDaemonFailure } from "./client";
 import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
@@ -208,12 +208,18 @@ export async function handleLine(
     // the client sees a normal tool-call failure instead of a silent hang;
     // a notification (no id) has no response slot in JSON-RPC 2.0, so it
     // can only be logged.
-    const detail = err instanceof Error ? err.message : String(err);
-    ctx.stderr.write(`[shim] daemon request failed: ${detail}\n`);
+    // mt#4466: the top-level text now NAMES the condition. It used to be
+    // `daemon request failed:` for every failure, so "nothing is listening" and
+    // "the daemon accepted this and went quiet" — opposite conditions with
+    // opposite remedies — produced an identical first line. In mem#1120 R2 that
+    // read as a broken transport and sent two `/mcp` reconnects at the wrong
+    // process while the actual fault was the daemon's connection pool.
+    const { summary, detail } = describeDaemonFailure(err);
+    ctx.stderr.write(`[shim] ${summary}: ${detail}\n`);
     if (msg.id !== undefined && msg.id !== null) {
       ctx.stdout.write(
         `${JSON.stringify(
-          makeErrorResponse(msg.id, -32000, `minsky mcp shim: daemon request failed: ${detail}`)
+          makeErrorResponse(msg.id, -32000, `minsky mcp shim: ${summary}: ${detail}`)
         )}\n`
       );
     }
