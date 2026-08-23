@@ -142,12 +142,35 @@ export function describeDaemon(snapshot: DaemonSnapshot, nowMs: number): DaemonR
   const dbCheckedAt = readDbCheckedAt(body);
   const ready = readBoolean(body, "ready");
   const healthStatus = readString(body, "status");
+  // mt#4471 puts the probe's explanation here rather than adding a field, so
+  // this is the wedge's WHY on a daemon that publishes no `db`.
+  const persistenceReason = readString(
+    typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)["persistence"]
+      : null,
+    "reason"
+  );
 
   // A wedged pool is the case this whole task exists for, so it gets its own
-  // branch rather than being folded into `not-ready`: the remedy is a RESTART,
-  // and saying so here is what turns an hour of topology archaeology into one
-  // command.
-  if (status.state === "not-ready" && db !== null && db !== "ok") {
+  // branch rather than being folded into a generic `not-ready`: the remedy is a
+  // RESTART, and saying so here is what turns an hour of topology archaeology
+  // into one command.
+  //
+  // Keyed on `ready === false` (which is what `classifyDaemonProbe` turns into
+  // `not-ready`), NOT on the `db` field. mt#4471 gives `ready` a real
+  // observation — a bounded round trip against the pool — and reports the
+  // explanation in `persistence.reason` without adding a field. So `ready:
+  // false` on a `connected` provider IS the wedge signal, and it is available
+  // whether or not this daemon publishes the richer diagnostics below.
+  if (status.state === "not-ready") {
+    // `db`/`dbCheck` are strictly ADDITIONAL detail when present: `dbCheckedAt`
+    // is the one thing `reason` cannot carry, because a stamp that stops
+    // advancing is what distinguishes a probe that never came back from a query
+    // that failed fast.
+    const observed =
+      db !== null
+        ? `db: ${db}, last measured ${dbCheckedAt ?? "never"}`
+        : (persistenceReason ?? "the daemon reports it cannot serve DB-backed work");
     return {
       ...base,
       state: status.state,
@@ -155,13 +178,13 @@ export function describeDaemon(snapshot: DaemonSnapshot, nowMs: number): DaemonR
       dbCheckedAt,
       ready,
       detail:
-        `the daemon is alive and answering, but a query has not gotten through its connection ` +
-        `pool since ${dbCheckedAt ?? "an unknown time"} (db: ${db}). The database itself may be ` +
-        `fine — the CLI opens its own connection and bypasses this pool entirely.`,
+        `the daemon is alive and answering, but it cannot currently serve DB-backed work ` +
+        `(${observed}). The database itself may be fine — the CLI opens its own connection and ` +
+        `bypasses this daemon's pool entirely.`,
       remedy:
         `restart the daemon: \`minsky mcp restart --execute\`. The tray supervises pid ` +
-        `${record.pid} and respawns it. Confirm with \`minsky tasks status get <id>\` via the ` +
-        `CLI first — if that is fast while MCP hangs, the pool is the fault, not the database.`,
+        `${record.pid} and respawns it. Confirm with a DB-backed read via the CLI first — if ` +
+        `that is fast while MCP hangs, this daemon's pool is the fault, not the database.`,
     };
   }
 

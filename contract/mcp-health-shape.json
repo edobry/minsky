@@ -7,9 +7,7 @@
     "src/mcp/daemon/local-daemon.ts (adopt-or-fail — asserts `service: \"minsky-mcp\"` before adopting a port holder)",
     "src/cockpit/widgets/mcp-server-status.ts (HOSTED_MCP_SERVICE — the hosted server's identity assertion)",
     "docs/local-mcp-daemon.md (the operator-facing description of this surface)",
-    ".github/workflows/bundle-boot-smoke.yml (asserts a 200 within 30s; does NOT read this body)",
-    "cockpit-tray/src-tauri/src/supervisor/daemon_core.rs (probe_health/parse_health_body — reads `service` for identity and keeps the whole body for policy-specific fields; its `is_ours` deliberately does NOT key on the status code)",
-    "cockpit-tray/src-tauri/src/supervisor.rs (the DB-degraded policy that reads a `db` field — cockpit-only until the MCP daemon started publishing one in mt#4466)"
+    ".github/workflows/bundle-boot-smoke.yml (asserts a 200 within 30s; does NOT read this body)"
   ],
   "fields": {
     "status": "string",
@@ -29,16 +27,8 @@
     "persistence",
     "ready"
   ],
-  "conditionalFields": {
-    "db": "string",
-    "dbCheck": "object"
-  },
   "persistenceFields": {
     "mode": "string"
-  },
-  "dbCheckFields": {
-    "checkedAt": "string",
-    "latencyMs": "number"
   },
   "sample": {
     "status": "ok",
@@ -49,19 +39,6 @@
     "persistence": { "mode": "connected" },
     "ready": true
   },
-  "degradedSample": {
-    "status": "degraded",
-    "service": "minsky-mcp",
-    "server": "Minsky MCP Server",
-    "transport": "http",
-    "timestamp": "2026-08-23T18:00:00.000Z",
-    "persistence": { "mode": "connected" },
-    "ready": false,
-    "db": "degraded",
-    "dbCheck": { "checkedAt": "2026-08-23T17:35:12.000Z", "latencyMs": 41 }
-  },
-  "$conditionalFieldsNote": "mt#4466 added `db` and `dbCheck`, and they are CONDITIONAL rather than required — present only when `persistence.mode === \"connected\"`, because there is no pool to probe otherwise. They are declared in their own `conditionalFields` block precisely so the exact-key-set assertion above keeps working for the unconfigured/unavailable bodies, which must stay byte-identical to what they emitted before mt#4466. `db` is a bare string, not a sub-object, and its dating field is the sibling `dbCheck.checkedAt` — the same shape the cockpit's `/api/health` uses (contract/cockpit-health-shape.json), deliberately, so the tray's existing DB-degraded policy (`supervisor.rs`, DB_DEGRADED_POLL_THRESHOLD = 24 polls ~ 2 min) can generalize to this daemon instead of needing a second differently-shaped one.",
-  "$degradedStateNote": "WHY `degraded` carries HTTP 200 (mt#4466). Before mt#4466 this body had no way to say \"alive, provider wired, but a query cannot get through\" — `persistence.mode` is decided by `getCapabilities().sql`, a STATIC capability flag that reads `connected` with every connection in the pool held. On 2026-08-23 the local daemon answered `{\"status\":\"ok\",\"persistence\":{\"mode\":\"connected\"},\"ready\":true}` in ~1ms for ~50 minutes while every DB-backed MCP tool timed out for every conversation on the machine (mem#1120 R2); the CLI, which opens its own connection, served the identical read in 1.19s. The status code stays 200 for two independent reasons and BOTH must hold for any future change here: (1) the code answers LIVENESS ('did the process boot?'), which in a pool wedge it did — `ready` answers readiness, and `$readyFieldNote` already forbids deriving either from the other; (2) a 503 would be actively wrong for this repo's own consumer — `classifyDaemonProbe` in src/mcp/setup/local-http-apply.ts tests `kind === \"http-error\"` BEFORE it checks identity, so any non-2xx is classified `foreign` ('another app holds the port'), which for a wedged-but-ours daemon is a misdiagnosis with a destructive remedy. Its `ready: false` path already yields the correct `not-ready`. Note the tray's Rust side gets this right independently (`is_ours` keys on identity, not status code) — the two sides disagree today, and only the TS side is wrong.",
   "$readyFieldNote": "mt#4297 added `ready`; mt#4322 pinned it. `ready` answers READINESS ('can this daemon serve DB-backed work?'), which is a different question from the LIVENESS the status code answers ('did the process boot?'). They diverge in exactly one case and that divergence is deliberate: `persistence.mode === \"unconfigured\"` is reported HEALTHY (200, `status: \"ok\"`) because it is the expected local/dev/offline boot path AND the exact state `bundle-boot-smoke` asserts a 200 against — while `ready` is false, because every DB-backed call would fail. A consumer that infers readiness from the status code reintroduces the incident this field exists to make visible: a shared daemon served 200 with no persistence provider for 31 hours, and `minsky setup local-http` would have pointed every conversation at it, because 'a Minsky daemon answered' was the whole test. Do NOT derive the status code from `ready`, and do NOT derive readiness from the status code.",
   "$readyProbeNote": "mt#4471 changed what `ready` is DERIVED FROM, without changing this shape — no field was added, renamed or retyped, so every consumer listed above is unaffected structurally. It was `persistence.mode === \"connected\"`, which is a claim about the provider's TYPE (`provider.getCapabilities().sql`, a static declaration); it is now that precondition AND an observed round trip against the pool, bounded at 1500ms. The change is that `ready` can now be FALSE while `mode` is `\"connected\"` — a value combination this body could not previously emit, and the one the 2026-08-23 outage needed: a SQL-capable provider whose pool had stopped serving, while /health answered `ready: true` twice across 45 minutes and three dead conversations. When that combination is emitted, `persistence.reason` carries the probe's explanation. The 1500ms bound is derived from the tray supervisor's own 2s HTTP request timeout (cockpit-tray/src-tauri/src/supervisor.rs), NOT from its 5s poll interval: a probe that outlives the request budget makes the daemon read as DOWN rather than NOT-READY, and those two states have opposite recoveries.",
   "$readyFallbackNote": "mt#4297's consumer-side tolerance is load-bearing and must survive any change here. `classifyDaemonProbe` in src/mcp/setup/local-http-apply.ts reads `ready` WHEN PRESENT and falls back to `persistence.mode` otherwise, because keying on `ready` alone would classify EVERY daemon built before mt#4297 as not-ready — including during the rollout window, which turns a safety check into an outage. So `ready` is required in THIS fixture (the current emitter always sends it) while the consumer stays tolerant of its absence. Those are not in conflict: the fixture pins what this build EMITS, the fallback covers what an OLDER build emits, and a consumer talking to a daemon it did not build cannot assume they match.",

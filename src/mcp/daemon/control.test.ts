@@ -102,6 +102,38 @@ describe("describeDaemon", () => {
     expect(report.detail).toContain("2026-08-23T17:35:12.000Z");
   });
 
+  test("detects the wedge from mt#4471's shape — ready:false plus a reason, no db field", () => {
+    // mt#4471 gives `ready` a real observation (a bounded round trip) and puts
+    // the explanation in `persistence.reason` WITHOUT adding a field. This
+    // command must read that signal, not depend on the richer `db` diagnostics
+    // — otherwise it would go blind on exactly the daemon that carries the fix.
+    const report = describeDaemon(
+      {
+        record: RECORD,
+        probe: {
+          kind: "body",
+          body: {
+            service: "minsky-mcp",
+            status: "ok",
+            ready: false,
+            persistence: {
+              mode: "connected",
+              reason: "readiness probe exceeded 1500ms against the pool",
+            },
+          },
+        },
+      },
+      NOW
+    );
+
+    expect(report.state).toBe("not-ready");
+    expect(report.ready).toBe(false);
+    expect(report.db).toBeNull();
+    // The WHY comes through even with no `db` field.
+    expect(report.detail).toContain("exceeded 1500ms");
+    expect(report.remedy).toContain("minsky mcp restart --execute");
+  });
+
   test("an unreachable probe reports absent and points at the tray", () => {
     const report = describeDaemon(
       { record: RECORD, probe: { kind: "unreachable", detail: "ECONNREFUSED" } },
