@@ -27,6 +27,15 @@ import {
   extractTrackingTaskRefs,
 } from "./staleness";
 import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
+
+/**
+ * Ceiling on measurement-decay lookups per search page (mt#4452, PR #3271 R1).
+ *
+ * Set above a normal page size rather than below it: the goal is a backstop against unbounded
+ * growth, not a throttle on ordinary pages. `memory_search`'s default limit is 10, and only
+ * 2.30% of records carry a dated measurement, so this is not reached in practice today.
+ */
+const MAX_MEASUREMENT_LOOKUPS_PER_PAGE = 25;
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -788,6 +797,13 @@ export class MemoryService implements MemoryServiceSurface {
     if (!lookup || results.length === 0) return;
 
     const now = new Date();
+    // Hard ceiling on lookups per page, so the per-record shape cannot degrade into an
+    // unbounded N+1 if the corpus's measurement density rises (PR #3271 R1, non-blocking).
+    // Measured at 2.30% of records today, so this is never reached in practice — which is
+    // exactly why it is a cap rather than a comment: the reasoning that makes per-record
+    // acceptable is a property of the DATA, and data moves.
+    let lookupsRemaining = MAX_MEASUREMENT_LOOKUPS_PER_PAGE;
+
     for (const result of results) {
       const measurement = extractMeasurement(result.record);
       if (!measurement) continue;
@@ -806,7 +822,15 @@ export class MemoryService implements MemoryServiceSurface {
         continue;
       }
 
+      if (lookupsRemaining <= 0) {
+        log.warn("[memory.search] Measurement-decay lookup cap reached; page partially annotated", {
+          cap: MAX_MEASUREMENT_LOOKUPS_PER_PAGE,
+        });
+        break;
+      }
+
       try {
+        lookupsRemaining--;
         const intervening = await lookup(
           measurement.subsystems,
           new Date(`${measurement.measuredOn}T00:00:00Z`)

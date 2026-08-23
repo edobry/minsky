@@ -31,9 +31,26 @@
 import { and, gte, inArray, or, sql } from "drizzle-orm";
 import { taskSpecsTable, tasksTable } from "../storage/schemas/task-embeddings";
 import type { MemoryServiceDb } from "./memory-service";
+import { COMPLETED_TASK_STATUSES } from "./staleness";
 
-/** Statuses that mean the work landed. Mirrors `./staleness.ts`'s COMPLETED_STATUSES. */
-const COMPLETED_STATUSES = ["DONE", "CLOSED"];
+/**
+ * Escape a subsystem token for use as a SQL `LIKE` pattern.
+ *
+ * `_` is a SINGLE-CHARACTER WILDCARD in `LIKE`, and every snake_case identifier this receives
+ * is full of them — unescaped, `agent_transcript_turns` matches `agent<any>transcript<any>turns`
+ * and silently overmatches. `%` and the escape character itself need the same treatment.
+ *
+ * Caught in review of PR #3271, and worth naming as the shape rather than the typo: the tokens
+ * fed to this function are precisely the ones densest in `LIKE` metacharacters, so the defect
+ * is systematic rather than occasional. Paired with an explicit `ESCAPE '\'` below, because
+ * Postgres's default escape character inside `LIKE` is the backslash only by convention.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/** Statuses that mean the work landed. Imported so there is ONE source of truth. */
+const COMPLETED_STATUSES = [...COMPLETED_TASK_STATUSES];
 
 /**
  * Cap on how many intervening tasks a single record's annotation reports.
@@ -57,7 +74,9 @@ export function createInterveningTaskLookup(
     // and table names, and is passed as a bound parameter rather than interpolated — the `%`
     // wrapping is the only thing built here.
     const citesAnySubsystem = or(
-      ...subsystems.map((s) => sql`${taskSpecsTable.content} LIKE ${`%${s}%`}`)
+      ...subsystems.map(
+        (s) => sql`${taskSpecsTable.content} LIKE ${`%${escapeLikePattern(s)}%`} ESCAPE '\\'`
+      )
     );
 
     const rows = (await db

@@ -57,8 +57,17 @@
 
 import { renderMeasurementNote, type MeasurementDecay } from "./measurement-decay";
 
-/** Task statuses that mean the tracked work has landed. */
-const COMPLETED_STATUSES = new Set(["DONE", "CLOSED"]);
+/**
+ * Task statuses that mean the tracked work has landed.
+ *
+ * Exported because BOTH triggers need it — trigger 1 to decide a tracking task completed,
+ * trigger 2 to select intervening tasks — and a second hand-maintained copy in
+ * `./intervening-task-lookup.ts` was flagged in review of PR #3271 as a divergence risk. One
+ * array, one meaning of "landed".
+ */
+export const COMPLETED_TASK_STATUSES = ["DONE", "CLOSED"] as const;
+
+const COMPLETED_STATUSES = new Set<string>(COMPLETED_TASK_STATUSES);
 
 /** The association key ADR-012 assigns to memory -> tracking-task links. */
 export const TRACKS_TASK_ASSOCIATION = "tracksTask";
