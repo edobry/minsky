@@ -23,7 +23,7 @@ export type {
 } from "@minsky/domain/client-capabilities";
 export { NoopClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 
-// Import types needed by MCPClientCapabilityRegistry
+// Import types needed by the two MCP-SDK-backed classes below
 import type {
   ClientCapabilityRegistry,
   ElicitationCapableServer,

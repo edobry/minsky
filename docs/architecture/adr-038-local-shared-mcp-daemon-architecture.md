@@ -796,11 +796,15 @@ stream plus request correlation, which is the change that would let capability 1
 reverted — or keep the feature off the local path. This is a property of the topology
 this ADR chose, not of the feature that trips over it.
 
-Separately, `MCPClientCapabilityRegistry` resolves capabilities for the daemon PROCESS
+Separately, `MCPClientCapabilityRegistry` resolved capabilities for the daemon PROCESS
 rather than for the calling connection — correct under the pre-ADR-038 one-server-per-
-conversation topology this document replaced, and wrong under consolidation. mt#4451
-owns that; it is a direct consequence of this ADR's decision and is recorded here so the
-next reader of Question 1 does not have to rediscover it.
+conversation topology this document replaced, and wrong under consolidation. **Fixed by
+mt#4451** (2026-08-23): capabilities are now resolved per CallTool request from the
+connection that made the call (`SingleConnectionCapabilityRegistry`), and the fleet-wide
+class survives as `MCPConnectionTracker` for diagnostics only. It is recorded here
+because it was a direct consequence of this ADR's decision, and the sequence is the
+lesson: consolidating the topology silently invalidated a correctness assumption held by
+code that was never touched.
 
 ## References
 
