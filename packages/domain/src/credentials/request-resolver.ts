@@ -30,7 +30,15 @@ import {
 /** Re-exported for existing importers; defined in `./request` beside the classifier that reads it. */
 export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
 
-/** States a pending request can be sitting in when the sweep finds it. */
+/**
+ * States a pending request can be sitting in when the sweep finds it.
+ *
+ * **`routed` is where these actually live.** `buildCredentialRequestAsk` sets no
+ * `serviceStrategy`, so the router takes the `asap` path and returns a
+ * `RoutedAsk` — `suspended` is produced only for `scheduled` / `deadline-bound`
+ * asks held for a service window (`../ask/router.ts`). Dropping `routed` here
+ * would mean the sweep never fires for any credential request at all.
+ */
 const CANDIDATE_STATES: readonly AskState[] = ["routed", "suspended"];
 
 /** Injected IO. Every member is replaceable, so the orchestration tests hermetically. */
@@ -118,14 +126,25 @@ export function createCredentialRequestResolverDeps(
         responder: CREDENTIAL_REQUEST_RESPONDER,
         payload: { satisfied: true, detail },
       };
-      // `respondAndClose` carries the optimistic-concurrency guard: if the row
-      // left `suspended` between the read and this write, it throws rather than
-      // overwriting whatever the principal just did.
-      if (ask.state === "suspended") {
-        await repo.respondAndClose(ask.id, { response }, { response });
-        return;
+
+      // Walk the state machine's real edges rather than jumping to `closed`
+      // (PR #3264 R2). `../ask/state-machine.ts` permits
+      // `routed -> suspended | cancelled | expired` and `suspended -> responded`,
+      // with `closed` reachable only from `responded`. A bare `close()` on a
+      // routed row therefore THROWS — and this resolver's own catch would file
+      // that as a "raced" close and warn, leaving the row routed so the next tick
+      // repeats it forever: a satisfiable request that never resolves while
+      // emitting a warning on every sweep. Exactly the silent stall this feature
+      // exists to prevent.
+      if (ask.state === "routed") {
+        await repo.transition(ask.id, "suspended");
       }
-      await repo.close(ask.id, { response });
+
+      // `respondAndClose` is the legal `suspended -> responded -> closed` walk,
+      // and carries the optimistic-concurrency guard: if the row moved under us
+      // between the read and this write it throws rather than overwriting
+      // whatever the principal just did, and the caller records a real race.
+      await repo.respondAndClose(ask.id, { response }, { response });
     },
   };
 }

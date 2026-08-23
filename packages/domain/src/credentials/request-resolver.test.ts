@@ -9,6 +9,7 @@ import { describe, it, expect } from "bun:test";
 import type { Ask } from "../ask/types";
 import { CREDENTIAL_REQUEST_METADATA_KEY } from "./request";
 import {
+  createCredentialRequestResolverDeps,
   resolveSatisfiedCredentialRequests,
   type CredentialRequestResolverDeps,
 } from "./request-resolver";
@@ -142,5 +143,72 @@ describe("resolveSatisfiedCredentialRequests", () => {
 
     expect(result.pending).toBe(0);
     expect(closed).toEqual([]);
+  });
+});
+
+describe("createCredentialRequestResolverDeps — closing takes the legal path", () => {
+  /**
+   * Regression for PR #3264 R2. The reviewer caught a real bug: closing a
+   * `routed` row is not a legal transition, so it threw, was misfiled as a
+   * "race", and left the row routed to repeat forever.
+   *
+   * The obvious fix — stop looking at routed rows — is WRONG and these tests pin
+   * why. `buildCredentialRequestAsk` sets no serviceStrategy, so the router takes
+   * the `asap` path and every credential request lands in `routed`. Excluding it
+   * would mean the sweep never fires at all: a silent no-op that all the other
+   * tests would still pass.
+   */
+  it("still queries routed — that is where these asks actually live", async () => {
+    const queried: string[] = [];
+    const repo = {
+      listByState: async (state: string) => {
+        queried.push(state);
+        return [];
+      },
+    } as never;
+
+    await createCredentialRequestResolverDeps(repo).listCandidateAsks();
+
+    expect(queried.sort()).toEqual(["routed", "suspended"]);
+  });
+
+  it("moves a routed row through suspended before closing, never jumping to closed", async () => {
+    const calls: string[] = [];
+    const repo = {
+      transition: async (_id: string, to: string) => {
+        calls.push(`transition:${to}`);
+      },
+      respondAndClose: async () => {
+        calls.push("respondAndClose");
+      },
+      close: async () => {
+        calls.push("close");
+      },
+    } as never;
+
+    const ask = requestAsk("ask-1", "github", "routed");
+    await createCredentialRequestResolverDeps(repo).satisfy(ask, "3 buckets visible");
+
+    // The order is the point: routed -> suspended, then the legal
+    // suspended -> responded -> closed walk. A bare close() would throw.
+    expect(calls).toEqual(["transition:suspended", "respondAndClose"]);
+    expect(calls).not.toContain("close");
+  });
+
+  it("a suspended row needs no transition — it is already there", async () => {
+    const calls: string[] = [];
+    const repo = {
+      transition: async (_id: string, to: string) => {
+        calls.push(`transition:${to}`);
+      },
+      respondAndClose: async () => {
+        calls.push("respondAndClose");
+      },
+    } as never;
+
+    const ask = requestAsk("ask-1", "github", "suspended");
+    await createCredentialRequestResolverDeps(repo).satisfy(ask, "ok");
+
+    expect(calls).toEqual(["respondAndClose"]);
   });
 });
