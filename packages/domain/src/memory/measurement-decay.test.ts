@@ -175,6 +175,18 @@ describe("extractCitedSubsystems", () => {
     expect(extractCitedSubsystems(`writes \`${TURNS_TABLE}\``)).toEqual([TURNS_TABLE]);
   });
 
+  test("a dated measurement with NO resolvable subsystem is found but unscoped", () => {
+    // The negative-control input. `extractMeasurement` still returns a measurement — we know
+    // there is something worth checking — but with no subsystem to scope the intervening-change
+    // query to. The service turns that into an `unresolved` verdict rather than silence, so
+    // "could not check" stays distinguishable from "checked, nothing intervened".
+    const m = mustExtract({
+      content: "Measured on prod 2026-05-01: throughput was 40% of target. No files cited.",
+    });
+    expect(m.measuredOn).toBe("2026-05-01");
+    expect(m.subsystems).toEqual([]);
+  });
+
   test("keeps a path regardless of length, since an extension makes it specific", () => {
     expect(extractCitedSubsystems("see `turn-writer.ts`")).toEqual(["turn-writer.ts"]);
   });

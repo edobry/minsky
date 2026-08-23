@@ -790,7 +790,21 @@ export class MemoryService implements MemoryServiceSurface {
     const now = new Date();
     for (const result of results) {
       const measurement = extractMeasurement(result.record);
-      if (!measurement || measurement.subsystems.length === 0) continue;
+      if (!measurement) continue;
+
+      // A dated measurement whose subsystem cannot be resolved is UNRESOLVED, not silent —
+      // we found something worth checking and could not check it. Renders nothing either way,
+      // but stays distinguishable in the structured field, per the same discipline
+      // `computeStaleness` applies to an unknown task id.
+      if (measurement.subsystems.length === 0) {
+        result.staleness = result.staleness ?? {
+          outcome: "unresolved",
+          source: "text",
+          completedTasks: [],
+          unresolvedTasks: [],
+        };
+        continue;
+      }
 
       try {
         const intervening = await lookup(
