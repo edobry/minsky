@@ -95,6 +95,17 @@ export function registerMcpRestartCommand(): void {
         "Restart the local MCP daemon (the tray respawns it). Previews by default; pass --execute to act.",
       parameters: restartParams,
       requiresSetup: false,
+      // PR #3268 R1. Declared rather than left default: this sends SIGTERM to a
+      // process every conversation on the machine shares, which is as mutating
+      // as a tool call gets. `MinskyMCPServer.checkDriftGate` consumes this and
+      // REFUSES a mutating tool call while the server's source is stale, which
+      // is the right behaviour here — a stale daemon is about to be replaced by
+      // its own staleness exit anyway, so a restart issued against it would race
+      // that. Note the CLI path is deliberately unaffected (see
+      // `src/commands/mcp/control-commands.ts`), and that asymmetry is a feature:
+      // the CLI is the surface to reach for precisely when the MCP one is not
+      // answering.
+      mutating: true,
       execute: async (params) => {
         const report = await snapshotDaemon();
         const plan = planRestart(report);

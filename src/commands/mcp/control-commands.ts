@@ -22,6 +22,28 @@ import { log } from "@minsky/shared/logger";
  * That asymmetry is easy to get wrong from the outside: sibling categories
  * (`window`, for instance) DO auto-generate, nested under their category name.
  * MCP is the exception, and this file is the cost of it.
+ *
+ * ## The adapter-flag asymmetry, stated rather than left to be discovered
+ *
+ * PR #3268 R1. These wrappers call `commandDef.execute()` directly, so they
+ * carry NONE of the adapter behaviour flags in `ADAPTER_BEHAVIOR_FLAG_KEYS`
+ * (`mutating`, `readsPresence`). `mcp.restart` declares `mutating: true`, which
+ * the MCP surface honours via `MinskyMCPServer.checkDriftGate` — it refuses a
+ * mutating tool call while the server's source is stale — and which this CLI
+ * path ignores.
+ *
+ * **That divergence is deliberate here, and it is the whole point of having a
+ * CLI surface at all.** The MCP tool is unreachable exactly when the daemon is
+ * the thing that is broken; a drift gate that refuses `mcp_restart` on a stale
+ * daemon would be refusing the recovery. The CLI opens its own connection, is
+ * re-read from source on every invocation (so it cannot itself be stale), and
+ * is therefore the correct surface to be un-gated.
+ *
+ * **The footgun the reviewer named is real for any FUTURE flag**, though: a flag
+ * added for a reason unrelated to drift would be silently dropped here. If a
+ * third flag ever lands, the fix is a shared flag-aware execution helper both
+ * surfaces call — not another hand-copied check in this file. Until then, this
+ * paragraph is the record that the asymmetry was chosen rather than missed.
  */
 
 /** Print a `key: value` block, skipping fields the command did not populate. */
