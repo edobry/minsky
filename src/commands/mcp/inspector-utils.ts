@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { log } from "@minsky/shared/logger";
+import { resolveMinskyCommand } from "../../mcp/resolve-server-command";
 
 /**
  * Enhanced error information from MCP inspector
@@ -89,10 +90,15 @@ export async function runInspectorCli(
       serverArgs.push("--repo", options.repo);
     }
 
+    // mt#4475. The Inspector CLI takes the server command as positional argv,
+    // so a bare "minsky" here made IT resolve the name on $PATH — the same
+    // defect one process further out, and the reason the resolver returns an
+    // ARRAY rather than a single string: on a source checkout the command is
+    // two elements (`bun <entry>`), and both have to reach the child.
     const inspectorArgs = [
       "@modelcontextprotocol/inspector",
       "--cli",
-      "minsky",
+      ...resolveMinskyCommand(),
       ...serverArgs,
       ...args,
     ];

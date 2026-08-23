@@ -116,6 +116,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "asks.edit": "mutates",
   "asks.respond": "mutates",
   "asks.reconcile": "mutates", // writes verdicts + fires wake sinks
+  "asks.repair": "mutates", // graph/routing field write + provenance note (mt#4305)
   "asks.get": "reads",
   "asks.list": "reads",
   "asks.wait-for-response": "reads",

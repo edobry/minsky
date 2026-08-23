@@ -52,6 +52,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "asks.get",
   "asks.list",
   "asks.reconcile",
+  "asks.repair",
   "asks.respond",
   "asks.wait-for-response",
   "attention.report",

@@ -5758,6 +5758,34 @@
                 }
               ],
               "commandId": "asks.edit"
+            },
+            {
+              "name": "repair",
+              "description": "Repair a non-terminal Ask's GRAPH fields — its parent task, or a routingTarget the router failed to persist (mt#4305). Distinct from asks_edit, which owns CONTENT: routing fields are mechanism-owned and deliberately not reachable there. State is never changed — a suspended Ask stays suspended and stays in the operator queue, so this is not a way to retire an ask (use asks_cancel). Terminal asks are rejected. `repairRoutingTarget` only FILLS an absent target, re-deriving the value from the router itself; an Ask that already carries one is rejected, and there is no parameter that can name a target. Every repair appends an editHistory provenance note carrying the touched fields, the editor, and the prior parent when one was replaced. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+              "options": [
+                {
+                  "flags": ["--parent-task-id"],
+                  "description": "Move the Ask to this parent task. The task must exist; a reparent to the parent it already has is rejected. State is never changed — reparenting is not a way to retire an ask (use asks_cancel for that).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repair-routing-target"],
+                  "description": "Fill an ABSENT routingTarget by re-deriving it from the router. Rejected when the Ask already carries a target — this fills a field the router failed to write, it does not re-route. There is deliberately no way to specify WHICH target."
+                },
+                {
+                  "flags": ["--editor"],
+                  "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID, unambiguous prefix, or ask#N short id) to repair"
+                }
+              ],
+              "commandId": "asks.repair"
             }
           ]
         },
