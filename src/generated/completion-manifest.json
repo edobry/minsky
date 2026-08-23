@@ -4985,6 +4985,64 @@
                 }
               ],
               "commandId": "config.credentials.recheck"
+            },
+            {
+              "name": "request",
+              "description": "request commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request",
+                  "description": "Ask the principal for a credential you cannot read. Routes to a masked cockpit form; resolves when the credential is present. Never accepts or returns the value.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    },
+                    {
+                      "flags": ["--reason"],
+                      "description": "Why this credential is needed now, in the principal's terms. Shown on the request.",
+                      "takesValue": true
+                    },
+                    {
+                      "flags": ["--parent-task-id"],
+                      "description": "Task blocked by this request. Set it — the task is what holds the pending state when the requesting conversation ends.",
+                      "takesValue": true
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request"
+            },
+            {
+              "name": "request-status",
+              "description": "request-status commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request-status",
+                  "description": "Check a credential request filed with credentials.request. Returns pending / satisfied / declined / unanswered plus a status line. Never returns the credential.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "requestId",
+                      "required": true,
+                      "description": "The requestId returned by credentials.request."
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request-status"
             }
           ]
         }
