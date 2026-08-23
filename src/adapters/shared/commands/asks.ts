@@ -78,6 +78,8 @@ import {
   type ElicitationClosedAsk,
 } from "@minsky/domain/ask/transports/elicitation";
 import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
+import { repairAskGraph } from "@minsky/domain/ask/repair";
+import { asksRepairParams, buildRepairDeps } from "./asks-repair";
 import {
   askWaitForResponse,
   type AskWaitForResponseResult,
@@ -2681,6 +2683,55 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           metadata: params.metadata as Record<string, unknown> | undefined,
           editor: params.editor as string | undefined,
         });
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.repair",
+      category: CommandCategory.TOOLS,
+      name: "repair",
+      description:
+        "Repair a non-terminal Ask's GRAPH fields — its parent task, or a routingTarget the " +
+        "router failed to persist (mt#4305). Distinct from asks_edit, which owns CONTENT: " +
+        "routing fields are mechanism-owned and deliberately not reachable there. State is " +
+        "never changed — a suspended Ask stays suspended and stays in the operator queue, so " +
+        "this is not a way to retire an ask (use asks_cancel). Terminal asks are rejected. " +
+        "`repairRoutingTarget` only FILLS an absent target, re-deriving the value from the " +
+        "router itself; an Ask that already carries one is rejected, and there is no parameter " +
+        "that can name a target. Every repair appends an editHistory provenance note carrying " +
+        "the touched fields, the editor, and the prior parent when one was replaced. `id` " +
+        "accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+      // requiresSetup: false — same posture as asks.edit / asks.respond: this
+      // depends on the persistence provider, not on global Minsky config.
+      requiresSetup: false,
+      parameters: asksRepairParams,
+      validate: async (params) => {
+        // Reject a no-op call at the parameter boundary so the caller gets
+        // immediate feedback rather than a domain-layer error after two reads.
+        if (params.parentTaskId === undefined && !params.repairRoutingTarget) {
+          throw new Error(
+            "asks.repair: at least one repair must be requested (parentTaskId, repairRoutingTarget)."
+          );
+        }
+      },
+      execute: async (params): Promise<{ ask: Ask; repaired: string[] }> => {
+        const repo = await requireAskRepository(container, "asks.repair");
+        // mt#2696: resolve a short-prefix / ask#N citation before it reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
+        return repairAskGraph(
+          repo,
+          {
+            id,
+            parentTaskId: params.parentTaskId as string | undefined,
+            repairRoutingTarget: params.repairRoutingTarget as boolean | undefined,
+            editor: params.editor as string | undefined,
+          },
+          buildRepairDeps(container)
+        );
       },
     })
   );
