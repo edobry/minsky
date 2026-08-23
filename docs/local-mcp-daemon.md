@@ -146,15 +146,17 @@ migrated config is never left pointing at nothing.
 `src/mcp/health-payload.test.ts` against the same builder the route calls. Renaming or removing a
 field fails a test rather than surfacing later as a downstream misread. The fields:
 
-| field         | meaning                                                                                 |
-| ------------- | --------------------------------------------------------------------------------------- |
-| `status`      | `"ok"` / `"unhealthy"` — liveness, matching the status code                             |
-| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question |
-| `service`     | `"minsky-mcp"` — the identity assertion below                                           |
-| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                      |
-| `transport`   | `"http"` (this route exists only on the HTTP transport)                                 |
-| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                      |
-| `timestamp`   | ISO, when the response was built                                                        |
+| field         | meaning                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `status`      | `"ok"` / `"degraded"` / `"unhealthy"` — see §A green body used to hide a dead pool                             |
+| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question                        |
+| `service`     | `"minsky-mcp"` — the identity assertion below                                                                  |
+| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                                             |
+| `transport`   | `"http"` (this route exists only on the HTTP transport)                                                        |
+| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                                             |
+| `timestamp`   | ISO, when the response was built                                                                               |
+| `db`          | live pool reachability: `ok` / `degraded` / `unreachable`. Present only when `persistence.mode` is `connected` |
+| `dbCheck`     | `{ checkedAt, latencyMs }` — when that was last MEASURED, not when this response was built                     |
 
 **Assert `service`, not just the status code.** Every Minsky service is built from the same
 monorepo, so a misconfigured build can put a DIFFERENT application on this port and it answers 200
@@ -180,6 +182,65 @@ curl -s 127.0.0.1:48765/health | jq '.ready, .persistence.mode'
 as _healthy_ on purpose — it is the expected offline/dev boot, and the `bundle-boot-smoke` CI gate
 asserts exactly that 200. So the status code cannot be the readiness signal without breaking a gate
 that depends on it, which is why `ready` exists as a separate field.
+
+### A green body used to hide a dead pool
+
+`persistence.mode` answers "is a SQL-capable provider WIRED?" — it is decided by
+`getCapabilities().sql`, a static flag. It never touched the database, so it read `connected` with
+every connection in the pool held. On 2026-08-23 this daemon answered
+`{"status":"ok","persistence":{"mode":"connected"},"ready":true}` in about a millisecond for roughly
+fifty minutes while every DB-backed MCP tool timed out, for every conversation on the machine. The
+database was fine: the CLI opens its own connection and served the identical read in 1.19s
+(mem#1120 R2).
+
+`db` closes that gap. It is a LIVE probe — a real parameterized query through the same shared pool
+every tool call uses — refreshed out of band, so `/health` stays fast while reporting on a pool that
+is not. Reading it:
+
+```bash
+curl -s 127.0.0.1:48765/health | jq '.status, .db, .dbCheck.checkedAt'
+# healthy:      "ok"        "ok"        <a few seconds ago>
+# wedged pool:  "degraded"  "degraded"  <stops advancing>
+```
+
+Two things to know when reading it:
+
+- **`degraded` carries HTTP 200, deliberately.** The process booted — that is what the status code
+  answers. `ready` goes false, which is the field that means "do not point anything at me". A 503
+  here would be read as `foreign` by `classifyDaemonProbe` (it checks the status before the
+  identity), i.e. "another app holds the port" — a misdiagnosis whose remedy is destructive.
+- **A `checkedAt` that stops advancing while `db` reads `degraded` is the wedge signature.** It
+  means a probe was issued and never came back, so nothing newer has been measured. That pair is the
+  single most diagnostic thing in the body; a fresh `checkedAt` with `degraded` is an ordinary
+  failing query, which is a different and lesser problem.
+
+A daemon built before this shipped publishes no `db` at all. Absent means "not measured" — never
+assume a value.
+
+### Reading and restarting the daemon without the tray
+
+Until mt#4466 the only start/stop/restart affordance was the cockpit tray's GUI menu, so a wedged
+daemon was operator-only to recover: a human at a Mac menu bar. Two commands close that.
+
+```bash
+minsky mcp status            # state, pid, port, uptime, live pool reachability, and a remedy line
+minsky mcp restart           # PREVIEW only — prints what it would do and changes nothing
+minsky mcp restart --execute # sends SIGTERM; the tray respawns it
+```
+
+Both are also MCP tools (`mcp_status`, `mcp_restart`) — but reach for the **CLI** when MCP calls are
+what is failing, since it opens its own connection and does not traverse the shim.
+
+`minsky mcp status` exits non-zero when the daemon is not serving, so it scripts. `restart` is
+preview-by-default because the daemon is shared: every conversation on the machine loses its
+transport session at once. ADR-038 §Question 6 accepted that cost on a measurement — six concurrent
+clients recovered in 8–14ms once the daemon was back (mt#3811) — and the shim retries
+connection-refused for 15s, covering the ~5.1s cold start. What is NOT covered is a call already
+accepted and in flight; those fail and are not retried. The preview prints all of this.
+
+`restart` refuses rather than killing when the port holder is not an identified `minsky-mcp` daemon,
+and the kill itself re-reads the live command line first — the pid comes from a file written at
+boot, and this daemon routinely lives 20+ hours, which is a long window for pid reuse.
 
 The gap that produced it (mt#4297): a tray-supervised daemon ran for 31 hours serving `/health` 200
 with the right `service` identity and no database at all. Nothing was wrong with the endpoint — it
