@@ -287,6 +287,38 @@ export interface EditAskFields {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Graph fields repairable after creation (mt#4305).
+ *
+ * Deliberately a SEPARATE interface from {@link EditAskFields} rather than two
+ * more optional keys on it. `EditAskFields`' docblock above states that routing
+ * fields are mechanism-owned and "NOT reachable through `updateContent`"; that
+ * boundary is right and is not being moved. What was missing is not a wider
+ * content surface but a REPAIR surface — a way to correct a field the mechanism
+ * that owns it failed to write, or wrote against the wrong parent.
+ *
+ * Both fields were unreachable after creation until this shipped:
+ *
+ * - `parentTaskId` had no write path at all. `CreateAskInput` sets it and
+ *   nothing else ever touched it, so an Ask filed against the wrong task stayed
+ *   there. mem#724 prescribed re-parenting as a mitigation for years; no surface
+ *   could perform it.
+ * - `routingTarget` had {@link AskRepository.updateRoutingTarget}, but no tool
+ *   surface exposed it. When mt#4450's elicitation early-return skipped
+ *   `persistRouteOutcome`, three suspended asks landed with a NULL target — and
+ *   the cockpit inbox filters on `routingTarget === "operator"` on both its list
+ *   and resolve paths, so they were invisible and unresolvable there.
+ *
+ * `metadata` rides along so the field change and its provenance note land in ONE
+ * write. Splitting them would leave a window where the graph moved and the
+ * `editHistory` record of the move did not.
+ */
+export interface RepairAskGraphFields {
+  parentTaskId?: string;
+  routingTarget?: string;
+  metadata?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // AskRepository interface
 // ---------------------------------------------------------------------------
@@ -590,6 +622,35 @@ export interface AskRepository {
    *               fields provided.
    */
   updateContent(id: string, fields: EditAskFields): Promise<Ask>;
+
+  /**
+   * Persist repaired GRAPH fields on a non-terminal Ask (mt#4305).
+   *
+   * Same contract as {@link updateContent} in every respect that matters —
+   * does NOT enforce the state machine, MUST NOT change `state`, and carries
+   * the identical optimistic-concurrency `WHERE id = ? AND state NOT IN
+   * (closed, cancelled, expired)` so a concurrent close between the caller's
+   * read and this write matches zero rows and throws.
+   *
+   * It is a distinct method rather than a widening of `updateContent` because
+   * the two answer to different owners: `updateContent` serves the CONTENT
+   * surface (`asks.edit`), whose field set is what a producer may rewrite,
+   * while this serves the REPAIR surface (`asks.repair`), whose field set is
+   * what a MECHANISM owns and got wrong. Collapsing them would put
+   * `routingTarget` inside the set `asks.edit` accepts, which is the boundary
+   * `EditAskFields`' own docblock draws.
+   *
+   * The value-level constraint — that a `routingTarget` repair may only FILL an
+   * absent one, never re-route a set one — is enforced in `repairAskGraph`
+   * (`repair.ts`), not here. This layer is the atomic write; the authority rule
+   * needs the router, which is a domain concern.
+   *
+   * @param id     Primary key of the Ask to repair.
+   * @param fields Graph fields to persist (at least one must be present).
+   * @returns      The updated Ask.
+   * @throws       `Error` — Ask not found, Ask in terminal state, or no fields.
+   */
+  repairGraphFields(id: string, fields: RepairAskGraphFields): Promise<Ask>;
 
   /**
    * Atomically persist a router outcome on a pre-routing Ask (mt#2265).
@@ -1384,6 +1445,43 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async repairGraphFields(id: string, fields: RepairAskGraphFields): Promise<Ask> {
+    const updates: Partial<AskInsert> = {};
+    if (fields.parentTaskId !== undefined) updates.parentTaskId = fields.parentTaskId;
+    if (fields.routingTarget !== undefined) updates.routingTarget = fields.routingTarget;
+    if (fields.metadata !== undefined) updates.metadata = fields.metadata;
+    if (Object.keys(updates).length === 0) {
+      throw new Error(`Ask repairGraphFields: no fields to update for ${id}`);
+    }
+
+    // Same optimistic-concurrency guard as `updateContent` above, for the same
+    // reason: a repair must never land on a row that reached a terminal state
+    // between the caller's read and this write. MUST NOT change `state`.
+    const rows = await this.db
+      .update(asksTable)
+      .set(updates)
+      .where(
+        and(eq(asksTable.id, id), notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[]))
+      )
+      .returning();
+
+    if (rows.length === 0) {
+      // Disambiguate: not-found vs. terminal-state.
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — graph repairs are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask repairGraphFields returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
   async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
     // Validate the logical walk against the state-machine table first.
     guardRouteOutcomeWalk(outcome.state);
@@ -1889,6 +1987,42 @@ export class FakeAskRepository implements AskRepository {
     }
     if (!touched) {
       throw new Error(`Ask updateContent: no fields to update for ${id}`);
+    }
+
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async repairGraphFields(id: string, fields: RepairAskGraphFields): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    // Mirror the Drizzle backend's non-terminal guard, message included — the
+    // hermetic tests assert against this text, so a divergence here would make
+    // them agree with a production query that reports something else.
+    if (isTerminal(existing.state)) {
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — graph repairs are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+
+    const updated: Ask = { ...existing };
+    let touched = false;
+    if (fields.parentTaskId !== undefined) {
+      updated.parentTaskId = fields.parentTaskId;
+      touched = true;
+    }
+    if (fields.routingTarget !== undefined) {
+      updated.routingTarget = fields.routingTarget as Ask["routingTarget"];
+      touched = true;
+    }
+    if (fields.metadata !== undefined) {
+      updated.metadata = fields.metadata;
+      touched = true;
+    }
+    if (!touched) {
+      throw new Error(`Ask repairGraphFields: no fields to update for ${id}`);
     }
 
     this.store.set(id, updated);

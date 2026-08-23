@@ -36,6 +36,37 @@ export interface AskEditNote {
   editor: string;
   /** Which content fields the edit touched (param names, e.g. "question"). */
   fields: string[];
+  /**
+   * Prior values of the GRAPH fields a repair replaced (mt#4305). Absent on a
+   * content edit.
+   *
+   * `fields` above records WHICH fields changed and not what they said — the
+   * gap mem#1133 cost real work to discover, and which mt#4329 closed for
+   * content fields via {@link AskOriginalContent}. That mechanism deliberately
+   * captures the ORIGINAL only, once, because a question body is multi-KB and
+   * `asks.list`'s body size is a live constraint (mt#2748).
+   *
+   * A graph field is not that. A task id and a routing target are short
+   * strings, so recording the prior value on EVERY repair costs a few dozen
+   * bytes per note and no growth argument applies. And for a reparent the prior
+   * value is the whole point of the record: "this ask moved" without "from
+   * where" cannot be audited or reversed.
+   */
+  previous?: AskGraphPrevious;
+}
+
+/**
+ * Prior values of the graph fields a repair replaced (mt#4305).
+ *
+ * A field is present here only when the repair actually changed it. In
+ * particular a `routingTarget` repair only ever fills an ABSENT target — see
+ * `repairAskGraph` — so `routingTarget` here is always `undefined` in practice
+ * today; it is declared so a future widening of the repair rule cannot silently
+ * drop the prior value it would then be discarding.
+ */
+export interface AskGraphPrevious {
+  parentTaskId?: string;
+  routingTarget?: string;
 }
 
 /** Reserved metadata key carrying the append-only edit provenance notes. */
