@@ -24,6 +24,7 @@
  */
 
 import type { PersistenceHealthStatus } from "@minsky/domain/persistence/health";
+import type { ReadinessResult } from "@minsky/domain/persistence/readiness-probe";
 
 /** The `service` identity every Minsky service emits (mt#3148). */
 export const MCP_HEALTH_SERVICE = "minsky-mcp";
@@ -74,8 +75,33 @@ export interface McpHealthResponse {
  */
 export function buildMcpHealthResponse(
   health: PersistenceHealthStatus,
-  nowIso: string
+  nowIso: string,
+  readiness?: ReadinessResult
 ): McpHealthResponse {
+  // mt#4471: `ready` needs an OBSERVATION, not a type declaration. `health.mode`
+  // is derived from `provider.getCapabilities().sql` — true for any SQL-capable
+  // provider, including one whose pool has stopped serving. On 2026-08-23 that
+  // gap let this endpoint answer `ready: true` twice during a 45-minute outage
+  // in which every DB-backed call hung.
+  //
+  // The mode check is retained as a PRECONDITION rather than replaced: an
+  // `unconfigured` daemon has nothing to round-trip against, and must keep
+  // reporting `ready: false` without a probe ever running (that is the
+  // offline/dev boot the CI smoke gate asserts a 200 against).
+  //
+  // A caller that supplies no probe result gets the pre-mt#4471 behaviour. That
+  // is deliberate for the two non-route callers — the contract test and any
+  // consumer building a body without a live provider — and the route itself
+  // always passes one.
+  const probeSatisfied = readiness === undefined || readiness.ok;
+  const ready = health.mode === "connected" && probeSatisfied;
+
+  // Prefer the assessment's own reason (the `unavailable` outage case, which is
+  // more specific), and fall back to the probe's explanation so a `connected`
+  // provider that cannot serve says WHY rather than reporting a bare
+  // `ready: false` the operator has to go diagnose from scratch.
+  const reason = health.reason ?? (ready ? undefined : readiness?.reason);
+
   return {
     statusCode: health.healthy ? 200 : 503,
     body: {
@@ -91,17 +117,21 @@ export function buildMcpHealthResponse(
       timestamp: nowIso,
       persistence: {
         mode: health.mode,
-        ...(health.reason ? { reason: health.reason } : {}),
+        ...(reason ? { reason } : {}),
       },
       // mt#4297: LIVENESS and READINESS are different questions, and this
       // endpoint answered only the first. `status`/the status code say "the
       // process booted"; `ready` says "it can serve DB-backed work".
       //
-      // Deliberately derived from `mode` alone rather than from the process's
-      // own mode flags: a reader asking "can this serve me?" should not have to
-      // know how the process was launched, and a future transport gets the
-      // right answer here without touching this line.
-      ready: health.mode === "connected",
+      // Deliberately NOT derived from the process's own mode flags: a reader
+      // asking "can this serve me?" should not have to know how the process was
+      // launched, and a future transport gets the right answer here without
+      // touching this line.
+      //
+      // mt#4471 changed WHAT it is derived from. It was `mode === "connected"`
+      // alone, which is a claim about the provider's TYPE; it is now that
+      // precondition AND an observed round trip. See the computation above.
+      ready,
     },
   };
 }
