@@ -152,13 +152,19 @@ describe("createCredentialRequestResolverDeps — closing takes the legal path",
    * `routed` row is not a legal transition, so it threw, was misfiled as a
    * "race", and left the row routed to repeat forever.
    *
-   * The obvious fix — stop looking at routed rows — is WRONG and these tests pin
-   * why. `buildCredentialRequestAsk` sets no serviceStrategy, so the router takes
-   * the `asap` path and every credential request lands in `routed`. Excluding it
-   * would mean the sweep never fires at all: a silent no-op that all the other
-   * tests would still pass.
+   * The obvious fix — stop looking at routed rows — is WRONG, and these tests pin
+   * why: BOTH states are reachable, so dropping either one can make the sweep a
+   * silent no-op that every other test in this file still passes.
+   *
+   * The first version of this docblock justified that with "the router takes the
+   * `asap` path and every credential request lands in `routed`", which is false —
+   * `createAsk` resolves the per-kind default onto the row before the router runs,
+   * and `authorization.approve` defaults to `deadline-bound`. Recorded rather than
+   * quietly replaced, because the conclusion (query both) was right while the
+   * reason attached to it was not, and that pairing survives review.
+   * See `./request-resolver.ts`'s CANDIDATE_STATES comment for the full path.
    */
-  it("still queries routed — that is where these asks actually live", async () => {
+  it("queries BOTH states — narrowing to either one is the regression", async () => {
     const queried: string[] = [];
     const repo = {
       listByState: async (state: string) => {
@@ -169,6 +175,12 @@ describe("createCredentialRequestResolverDeps — closing takes the legal path",
 
     await createCredentialRequestResolverDeps(repo).listCandidateAsks();
 
+    // The `toEqual` below is the actual guard — it fails if EITHER member is
+    // dropped. The two `toContain`s are not redundant belt-and-braces: they name
+    // the two narrowings that have actually been proposed, so a future reader who
+    // breaks one sees which direction they went rather than a diff of two arrays.
+    expect(queried).toContain("routed");
+    expect(queried).toContain("suspended");
     expect(queried.sort()).toEqual(["routed", "suspended"]);
   });
 
