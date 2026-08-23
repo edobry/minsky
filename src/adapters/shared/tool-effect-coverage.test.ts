@@ -125,6 +125,8 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "knowledge.sources",
   "knowledge.sync",
   "mcp.register",
+  "mcp.restart",
+  "mcp.status",
   "memory.create",
   "memory.delete",
   "memory.get",

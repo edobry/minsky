@@ -27,23 +27,21 @@ import { log } from "@minsky/shared/logger";
  *
  * PR #3268 R1. These wrappers call `commandDef.execute()` directly, so they
  * carry NONE of the adapter behaviour flags in `ADAPTER_BEHAVIOR_FLAG_KEYS`
- * (`mutating`, `readsPresence`). `mcp.restart` declares `mutating: true`, which
- * the MCP surface honours via `MinskyMCPServer.checkDriftGate` — it refuses a
- * mutating tool call while the server's source is stale — and which this CLI
- * path ignores.
+ * (`mutating`, `readsPresence`). Today that is inert: neither `mcp.status` nor
+ * `mcp.restart` sets one, and the reasoning for `mcp.restart` specifically —
+ * why a command that SIGTERMs a shared daemon is nonetheless not `mutating` —
+ * is recorded at its definition in
+ * `src/adapters/shared/commands/mcp/control-commands.ts`.
  *
- * **That divergence is deliberate here, and it is the whole point of having a
- * CLI surface at all.** The MCP tool is unreachable exactly when the daemon is
- * the thing that is broken; a drift gate that refuses `mcp_restart` on a stale
- * daemon would be refusing the recovery. The CLI opens its own connection, is
- * re-read from source on every invocation (so it cannot itself be stale), and
- * is therefore the correct surface to be un-gated.
+ * **The footgun the reviewer named is real for any FUTURE flag**: one added here
+ * for a reason unrelated to the drift gate would be silently dropped on this
+ * path. The fix then is a shared flag-aware execution helper both surfaces call
+ * — not another hand-copied check in this file. Until then, this paragraph is
+ * the record that the asymmetry was seen and chosen rather than missed.
  *
- * **The footgun the reviewer named is real for any FUTURE flag**, though: a flag
- * added for a reason unrelated to drift would be silently dropped here. If a
- * third flag ever lands, the fix is a shared flag-aware execution helper both
- * surfaces call — not another hand-copied check in this file. Until then, this
- * paragraph is the record that the asymmetry was chosen rather than missed.
+ * Note the divergence is not purely a liability: the CLI is the surface to reach
+ * for precisely when the MCP one is not answering, so a gate that could refuse a
+ * recovery command belongs on the MCP side alone.
  */
 
 /** Print a `key: value` block, skipping fields the command did not populate. */
