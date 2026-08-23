@@ -204,7 +204,7 @@ export interface DrivenInitObserverDeps {
       localId: string;
       harnessSessionId: string;
       harness: string;
-      actuatorGeneration?: number;
+      driverGeneration?: number;
       adoptionReason: AdoptionReason;
     }
   ) => Promise<unknown>;
@@ -301,7 +301,7 @@ export function createDrivenInitObserver(
           localId: record.localId,
           harnessSessionId,
           harness: DRIVEN_SESSION_HARNESS,
-          actuatorGeneration: record.actuatorGeneration,
+          driverGeneration: record.driverGeneration,
           adoptionReason: deps.adoptionReason,
         });
       } catch (err) {
@@ -479,7 +479,7 @@ export function createDrivenSessionPersistObserver(
           // name/path, never the raw argv alone).
           pidCmdline: record.pid ? `${CLAUDE_BINARY} ${record.argv.join(" ")}` : null,
           model: extractModelFromArgv(record.argv),
-          actuatorGeneration: record.actuatorGeneration,
+          driverGeneration: record.driverGeneration,
           startedAt: record.startedAt,
         });
       } catch (err) {
@@ -515,7 +515,7 @@ export interface LoadPersistedDrivenSessionsDeps {
    */
   probeCwd?: typeof probeSpawnCwdAsync;
   /**
-   * Probe whether a row's recorded actuator process is still the one we
+   * Probe whether a row's recorded session driver process is still the one we
    * spawned. Test seam (mt#4255); defaults to `probeProcessIdentity`.
    *
    * Injected as a whole rather than exposing `process-identity.ts`'s own two
@@ -523,7 +523,10 @@ export interface LoadPersistedDrivenSessionsDeps {
    * branches on — instead of assembling one out of a fake `ps` and a fake
    * `kill`.
    */
-  probeActuator?: (pid: number, expectedCmdSubstring: string) => Promise<ProcessIdentityVerdict>;
+  probeSessionDriver?: (
+    pid: number,
+    expectedCmdSubstring: string
+  ) => Promise<ProcessIdentityVerdict>;
   /** Override the whole-run stage bound (mt#4103). Tests pass a small value. */
   stageTimeoutMs?: number;
   /** Override the per-row bound (mt#4103). Tests pass a small value. */
@@ -577,16 +580,16 @@ async function persistUnrecoverableVerdict(
 }
 
 /**
- * Persist a boot-determined `exited` verdict for a row whose ACTUATOR is gone
+ * Persist a boot-determined `exited` verdict for a row whose SESSION DRIVER is gone
  * (mt#4255).
  *
  * This is a strictly narrower claim than {@link persistUnrecoverableVerdict}'s,
  * and the distinction is the whole point. `unrecoverable` says the
  * CONVERSATION can never come back; `exited` says only that the PROCESS we
  * recorded is no longer running — which is the ordinary end state of every
- * actuator, and says nothing about the conversation. So `unrecoverableReason`
+ * session driver, and says nothing about the conversation. So `unrecoverableReason`
  * is carried through untouched rather than given a value: that column is the
- * conversation-layer fact, and writing an actuator-layer reason into it would
+ * conversation-layer fact, and writing a session driver-layer reason into it would
  * make the next reader think this conversation was condemned.
  *
  * Retiring a row this way costs NOTHING in resumability, which is what makes it
@@ -596,7 +599,7 @@ async function persistUnrecoverableVerdict(
  * Its three callers all consult it unconditionally rather than requiring the
  * registry to hold a record first (../cockpit/entity-thread-launch.ts's mt#4093
  * comment names a terminal-status row as the case it fixes;
- * ./principal-channel-actuator.ts resumes by its deterministic id and already
+ * ./principal-channel-driver.ts resumes by its deterministic id and already
  * treats a terminal record as absent; ./driven-session-ws.ts consults it
  * whenever the registry has no live record). So `principal-channel-standing`
  * retired here resumes on the principal's next message exactly as before.
@@ -605,7 +608,7 @@ async function persistUnrecoverableVerdict(
  * only reader of the non-terminal predicate, so an `exited` row stops being
  * registered as `reconnecting` — which is the phantom this exists to end.
  */
-async function persistActuatorGoneVerdict(
+async function persistDriverGoneVerdict(
   db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
   row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
   verdict: Extract<ProcessIdentityVerdict, "gone" | "not-ours">,
@@ -621,7 +624,7 @@ async function persistActuatorGoneVerdict(
     {
       status: "exited",
       unrecoverableReason: row.unrecoverableReason,
-      describedAs: `actuator-gone verdict (${because})`,
+      describedAs: `driver-gone verdict (${because})`,
     },
     deps
   );
@@ -695,7 +698,7 @@ async function persistBootTerminalVerdict(
       pid: row.pid,
       pidCmdline: row.pidCmdline,
       model: row.model,
-      actuatorGeneration: row.actuatorGeneration,
+      driverGeneration: row.driverGeneration,
       startedAt: row.startedAt.toISOString(),
     });
     log.info(
@@ -724,7 +727,7 @@ export type ReconcileStage =
   | "resolve-db"
   | "list-rows"
   | "cwd-probe"
-  | "actuator-probe"
+  | "sessionDriver-probe"
   | "persist-verdict";
 
 /**
@@ -751,7 +754,7 @@ export type ReconciliationOutcome =
        */
       count: number;
       /**
-       * Rows CONFIRMED persisted `exited` because their actuator was gone
+       * Rows CONFIRMED persisted `exited` because their session driver was gone
        * (mt#4255).
        *
        * Confirmed, not attempted (PR #3126 R1): a row whose write timed out or
@@ -792,7 +795,9 @@ export function describeReconciliationOutcome(outcome: ReconciliationOutcome): {
       // is omitted at zero (mt#4255) — retirement is the exceptional event, so
       // a run that retires nothing should read exactly as it did before.
       const retiredClause =
-        outcome.retired > 0 ? `, retired ${outcome.retired} whose recorded actuator was gone` : "";
+        outcome.retired > 0
+          ? `, retired ${outcome.retired} whose recorded session driver was gone`
+          : "";
       const base = `${prefix} loaded ${outcome.count} persisted session(s) (reconnecting/unrecoverable)${retiredClause}`;
       if (outcome.degraded.length === 0) return { level: "info", message: base };
       // Loaded, but not cleanly — some rows hit a per-row bound. Reported at
@@ -1002,7 +1007,7 @@ export async function reconcilePersistedDrivenSessions(
       // outside the reach of both tests by construction, and no number of
       // reboots would ever have retired one.
       //
-      // This test asks a different question — is the ACTUATOR still there? —
+      // This test asks a different question — is the SESSION DRIVER still there? —
       // and its answer is already recorded on every row: `pid` + `pidCmdline`,
       // the orphan-cleanup identity pair (RFC "Conversation-first drive" R1
       // delta #4). Identity, not bare liveness, and the difference is not
@@ -1019,26 +1024,29 @@ export async function reconcilePersistedDrivenSessions(
       // Fail-open on both no-pid and `unknown`, matching what `probeSpawnCwd`
       // does one branch up: a row is retired only on a DEFINITIVE answer, never
       // on the probe's own failure to produce one.
-      let actuatorVerdict: ProcessIdentityVerdict | "not-probed" = "not-probed";
+      let driverVerdict: ProcessIdentityVerdict | "not-probed" = "not-probed";
       if (resumable && row.pid !== null) {
         // Bounded like its sibling probe (mt#4103): `ps` on a loaded machine is
         // not guaranteed to be fast, and this runs per row at boot.
         const probe = await raceAgainstTimeout(
-          (deps.probeActuator ?? probeProcessIdentity)(row.pid, row.pidCmdline ?? CLAUDE_BINARY),
+          (deps.probeSessionDriver ?? probeProcessIdentity)(
+            row.pid,
+            row.pidCmdline ?? CLAUDE_BINARY
+          ),
           rowTimeoutMs,
           deps.timeoutSignal
         );
-        if (probe.timedOut) degraded.push("actuator-probe");
-        else actuatorVerdict = probe.value;
+        if (probe.timedOut) degraded.push("sessionDriver-probe");
+        else driverVerdict = probe.value;
       }
       // Narrowed by the condition itself rather than via a boolean plus a cast,
-      // so `persistActuatorGoneVerdict`'s two-verdict parameter type stays
+      // so `persistDriverGoneVerdict`'s two-verdict parameter type stays
       // checked at the call site.
-      if (actuatorVerdict === "gone" || actuatorVerdict === "not-ours") {
+      if (driverVerdict === "gone" || driverVerdict === "not-ours") {
         // Retired, and deliberately NOT registered — unlike the `unrecoverable`
         // branch below, which registers so the WS route can render the
         // transcript read-only with its reason. There is no such thing to show
-        // here: the conversation is fine and simply has no actuator, which is
+        // here: the conversation is fine and simply has no session driver, which is
         // the same state as the 55 rows already sitting terminal in this table.
         // Skipping registration is what makes the phantom disappear on THIS
         // boot rather than the next one.
@@ -1054,7 +1062,7 @@ export async function reconcilePersistedDrivenSessions(
         // registry consistent with what is actually stored and recording the
         // stage in `degraded`.
         const verdict = await raceAgainstTimeout(
-          persistActuatorGoneVerdict(db, row, actuatorVerdict, deps),
+          persistDriverGoneVerdict(db, row, driverVerdict, deps),
           rowTimeoutMs,
           deps.timeoutSignal
         );
@@ -1074,7 +1082,7 @@ export async function reconcilePersistedDrivenSessions(
         minskySessionId: row.minskySessionId,
         status: resumable ? "reconnecting" : "unrecoverable",
         unrecoverableReason,
-        actuatorGeneration: row.actuatorGeneration,
+        driverGeneration: row.driverGeneration,
         startedAt: row.startedAt.toISOString(),
       });
       registry.register(record);
@@ -1249,7 +1257,7 @@ export async function orchestrateDrivenSessionResume(
     // ever killing it — never a bare `kill(pid)` (PID reuse over a
     // multi-day idle gap). Best-effort: a failed/skipped kill does NOT
     // block the resume itself — `--resume` against a still-live prior
-    // actuator races the SAME transcript file, which is exactly the
+    // session driver races the SAME transcript file, which is exactly the
     // scenario this cleanup exists to prevent, but a kill that can't be
     // confirmed safe must still let a genuinely-dead PID's resume proceed.
     if (row.pid) {
@@ -1285,7 +1293,7 @@ export async function orchestrateDrivenSessionResume(
         taskId: row.taskId,
         minskySessionId: row.minskySessionId,
         startedAt: row.startedAt.toISOString(),
-        actuatorGeneration: row.actuatorGeneration,
+        driverGeneration: row.driverGeneration,
         model: row.model,
       },
       // mt#4323: a `resumeDrivenSession` call — by construction the session is
@@ -1327,19 +1335,19 @@ export interface OrchestrateDrivenSessionAttachDeps {
     db: PostgresJsDatabase,
     conversationId: string
   ) => Promise<import("@minsky/domain/conversation-run-state/presence").ConversationPresence>;
-  /** Mint the actuator's local id. Overridden in tests for a deterministic id. */
+  /** Mint the session driver's local id. Overridden in tests for a deterministic id. */
   newLocalId?: () => string;
 }
 
 /**
- * Attach an input actuator to a conversation Minsky did NOT spawn (mt#3095) —
+ * Attach an input session driver to a conversation Minsky did NOT spawn (mt#3095) —
  * the Phase 2 capability: an operator's terminal-started `claude` becomes
  * drivable from the cockpit.
  *
  * ## This is deliberately {@link orchestrateDrivenSessionResume} with two substitutions
  *
  * Resume and attach are the same operation on different inputs — "put an
- * actuator on this conversation id in this cwd". So this reuses that path's
+ * session driver on this conversation id in this cwd". So this reuses that path's
  * machinery verbatim (the cross-process lock, `resumeDrivenSession`, and the
  * same three observers, so an attached conversation records driven_spawn links,
  * cost rows, and its own `driven_sessions` row exactly like a spawned one). The
@@ -1349,7 +1357,7 @@ export interface OrchestrateDrivenSessionAttachDeps {
  *    `driven_sessions` row; a foreign conversation has none, so this reads the
  *    on-disk transcript — the same `~/.claude/projects/**` tree the observe rung
  *    already tails.
- * 2. **The presence gate.** Resume owns its record and knows no other actuator
+ * 2. **The presence gate.** Resume owns its record and knows no other session driver
  *    holds it. Attach cannot assume that, so it refuses unless
  *    {@link attachAdmissibility} admits. See that module for why refusing on
  *    absent telemetry is the safe direction.
@@ -1358,7 +1366,7 @@ export interface OrchestrateDrivenSessionAttachDeps {
  *
  * The advisory lock (mt#3038) and the presence gate guard DIFFERENT writers and
  * neither subsumes the other. The lock is Minsky-internal: it stops two cockpit
- * actuators racing. It cannot see a `claude` the operator started in a terminal,
+ * session drivers racing. It cannot see a `claude` the operator started in a terminal,
  * because that process never takes it. The presence gate covers exactly that
  * blind spot, using hook telemetry the terminal process emits without knowing
  * anyone is watching. Both are required; dropping either reopens a fork path.
@@ -1443,7 +1451,7 @@ export async function orchestrateDrivenSessionAttach(
       // the conversation silently loses tools at the first daemon restart.
       mcpServerNames: drivenSessionMcpServerNames(),
       previous: {
-        // A fresh actuator id. The conversation id is the durable key; the
+        // A fresh session driver id. The conversation id is the durable key; the
         // localId is this process's handle on it, and an attached conversation
         // has never had one. Passing `harnessSessionId` up front (unlike a
         // spawn, which learns it at `init`) is what puts the record into the
@@ -1459,7 +1467,7 @@ export async function orchestrateDrivenSessionAttach(
         taskId: null,
         minskySessionId: null,
         startedAt: new Date().toISOString(),
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         model: null,
       },
       // mt#4323: a `resumeDrivenSession` call — by construction the session is

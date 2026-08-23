@@ -1,12 +1,12 @@
 /**
- * Tests for the driven-session actuator (mt#3228).
+ * Tests for the driven-session driver (mt#3228).
  *
  * Uses the same injected-`spawnFn` discipline as driven-session-host.test.ts —
  * no test spawns a real `claude`. The cases worth having are the ones about
- * conversation CONTINUITY, since that is the actuator's whole reason to exist.
+ * conversation CONTINUITY, since that is the session driver's whole reason to exist.
  */
 
-/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so the actuator's cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so the session driver's cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
 import { describe, expect, test, afterAll } from "bun:test";
 import { EventEmitter } from "events";
 import { mkdtempSync, rmSync } from "fs";
@@ -21,14 +21,14 @@ import {
   type SpawnOptions,
 } from "./driven-session-host";
 import {
-  createDrivenSessionActuator,
-  createTopicActuatorRegistry,
+  createDrivenSessionDriver,
+  createTopicDriverRegistry,
   partialAssistantText,
   resultText,
   PRINCIPAL_CHANNEL_LOCAL_ID,
-  type DrivenSessionActuatorOptions,
-} from "./principal-channel-actuator";
-import type { ChannelActuator } from "./principal-channel-poller";
+  type DrivenSessionDriverOptions,
+} from "./principal-channel-driver";
+import type { ChannelDriver } from "./principal-channel-poller";
 
 // mt#3397 — the host preflights the spawn cwd, so this has to be a REAL
 // directory or every spawn below would take the missing-cwd branch instead.
@@ -120,7 +120,7 @@ function fakeSpawn(opts: { neverReady?: boolean } = {}): {
   return { spawnFn, calls };
 }
 
-function makeActuator(
+function makeSessionDriver(
   overrides: {
     respondToAsk?: (ref: string, text: string) => Promise<string>;
     turnTimeoutMs?: number;
@@ -128,14 +128,14 @@ function makeActuator(
     permissionMode?: "default" | "bypassPermissions";
     neverReady?: boolean;
     onStateChange?: (record: DrivenSessionRecord) => void;
-    orchestrateResume?: DrivenSessionActuatorOptions["orchestrateResume"];
+    orchestrateResume?: DrivenSessionDriverOptions["orchestrateResume"];
   } = {}
 ) {
   const { spawnFn, calls } = fakeSpawn(
     overrides.neverReady === undefined ? {} : { neverReady: overrides.neverReady }
   );
   const registry = new DrivenSessionRegistry();
-  const actuator = createDrivenSessionActuator({
+  const sessionDriver = createDrivenSessionDriver({
     cwd: CWD,
     registry,
     spawnFn,
@@ -152,7 +152,7 @@ function makeActuator(
     // refuse that anyway).
     orchestrateResume: overrides.orchestrateResume ?? (async () => ({ outcome: "not-found" })),
   });
-  return { actuator, calls, registry };
+  return { sessionDriver, calls, registry };
 }
 
 /** Reads a capture's process, failing loudly rather than with a non-null assertion. */
@@ -164,7 +164,7 @@ function mustProc(calls: SpawnCapture[], index = 0): FakeClaudeProcess {
 
 /**
  * A record standing in for one a resume-respawn would return — already linked
- * to a harness session, so the actuator treats it as live and does not wait
+ * to a harness session, so the session driver treats it as live and does not wait
  * for `init`.
  */
 function buildResumedRecord(): DrivenSessionRecord {
@@ -185,7 +185,7 @@ function buildResumedRecord(): DrivenSessionRecord {
     exitSignal: null,
     crashError: null,
     stopRequested: false,
-    actuatorGeneration: 1,
+    driverGeneration: 1,
     proc,
     eventLog: [],
     costHistory: [],
@@ -228,11 +228,11 @@ async function waitForWrite(proc: FakeClaudeProcess, needle?: string): Promise<s
 const waitForSpawn = (calls: SpawnCapture[], n: number): Promise<void> =>
   waitUntil(() => calls.length >= n, `${n} spawn(s)`);
 
-describe("createDrivenSessionActuator — conversing", () => {
+describe("createDrivenSessionDriver — conversing", () => {
   test("spawns a conversation on the first message and returns the turn's text", async () => {
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    const reply = actuator.converse(BLOCKED_Q);
+    const reply = sessionDriver.converse(BLOCKED_Q);
     await waitForSpawn(calls, 1);
     expect(await waitForWrite(calls[0]?.proc as FakeClaudeProcess)).toContain(BLOCKED_Q);
 
@@ -243,15 +243,15 @@ describe("createDrivenSessionActuator — conversing", () => {
   test("REUSES the conversation across messages", async () => {
     // The whole point: "focus on that one" only resolves against what was
     // just said, so a second message must not get a fresh session.
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    const first = actuator.converse("list the tasks");
+    const first = sessionDriver.converse("list the tasks");
     await waitForSpawn(calls, 1);
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("three tasks");
     await first;
 
-    const second = actuator.converse("focus on the second one");
+    const second = sessionDriver.converse("focus on the second one");
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess, "focus on the second one");
     calls[0]?.proc.finishTurn("focusing");
     await second;
@@ -261,9 +261,9 @@ describe("createDrivenSessionActuator — conversing", () => {
 
   test("starts a new conversation transparently after the old one exits", async () => {
     // The principal should never have to know a process died.
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    const first = actuator.converse("hi");
+    const first = sessionDriver.converse("hi");
     await waitForSpawn(calls, 1);
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("hello");
@@ -271,7 +271,7 @@ describe("createDrivenSessionActuator — conversing", () => {
 
     calls[0]?.proc.exit(1);
 
-    const second = actuator.converse("still there?");
+    const second = sessionDriver.converse("still there?");
     await waitForSpawn(calls, 2);
     await waitForWrite(calls[1]?.proc as FakeClaudeProcess);
     calls[1]?.proc.finishTurn("yes");
@@ -279,66 +279,66 @@ describe("createDrivenSessionActuator — conversing", () => {
   });
 
   test("spawns with the requested permission mode", async () => {
-    const { actuator, calls } = makeActuator({ permissionMode: "default" });
-    void actuator.converse("hi");
+    const { sessionDriver, calls } = makeSessionDriver({ permissionMode: "default" });
+    void sessionDriver.converse("hi");
     await waitForSpawn(calls, 1);
     expect(calls[0]?.args).not.toContain("--dangerously-skip-permissions");
   });
 
   test("defaults to the same permission mode as every other driven session", async () => {
-    const { actuator, calls } = makeActuator();
-    void actuator.converse("hi");
+    const { sessionDriver, calls } = makeSessionDriver();
+    void sessionDriver.converse("hi");
     await waitForSpawn(calls, 1);
     expect(calls[0]?.args).toContain("--dangerously-skip-permissions");
   });
 
   test("runs in the configured working directory", async () => {
-    const { actuator, calls } = makeActuator();
-    void actuator.converse("hi");
+    const { sessionDriver, calls } = makeSessionDriver();
+    void sessionDriver.converse("hi");
     await waitForSpawn(calls, 1);
     expect(calls[0]?.options.cwd).toBe(CWD);
   });
 
   test("answers rather than hanging when a turn overruns", async () => {
-    const { actuator } = makeActuator({ turnTimeoutMs: 10 });
-    const reply = await actuator.converse("something slow");
+    const { sessionDriver } = makeSessionDriver({ turnTimeoutMs: 10 });
+    const reply = await sessionDriver.converse("something slow");
     expect(reply).toContain("longer than expected");
   });
 });
 
-describe("createDrivenSessionActuator — control verbs", () => {
+describe("createDrivenSessionDriver — control verbs", () => {
   test("interrupt reports that nothing is running when idle", async () => {
-    const { actuator } = makeActuator();
-    expect(await actuator.interrupt()).toContain("Nothing is running");
+    const { sessionDriver } = makeSessionDriver();
+    expect(await sessionDriver.interrupt()).toContain("Nothing is running");
   });
 
   test("interrupt drops the conversation so the next message starts fresh", async () => {
-    const { actuator, calls } = makeActuator();
-    const first = actuator.converse("hi");
+    const { sessionDriver, calls } = makeSessionDriver();
+    const first = sessionDriver.converse("hi");
     await waitForSpawn(calls, 1);
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("hello");
     await first;
 
-    await actuator.interrupt();
-    void actuator.converse("again");
+    await sessionDriver.interrupt();
+    void sessionDriver.converse("again");
     await waitForSpawn(calls, 2);
     expect(calls).toHaveLength(2);
   });
 
   test("reset drops the conversation even when idle", async () => {
-    const { actuator, calls } = makeActuator();
-    expect(await actuator.reset()).toContain("Starting fresh");
-    void actuator.converse("hi");
+    const { sessionDriver, calls } = makeSessionDriver();
+    expect(await sessionDriver.reset()).toContain("Starting fresh");
+    void sessionDriver.converse("hi");
     await waitForSpawn(calls, 1);
     expect(calls).toHaveLength(1);
   });
 
   test("answerAsk delegates without touching a conversation", async () => {
-    const { actuator, calls } = makeActuator({
+    const { sessionDriver, calls } = makeSessionDriver({
       respondToAsk: async (ref, text) => `ok ${ref}/${text}`,
     });
-    expect(await actuator.answerAsk("abc", "yes")).toBe("ok abc/yes");
+    expect(await sessionDriver.answerAsk("abc", "yes")).toBe("ok abc/yes");
     expect(calls).toHaveLength(0);
   });
 });
@@ -361,7 +361,7 @@ describe("resultText", () => {
 });
 
 // mt#3243 — Telegram's reply affordance has to survive into the turn.
-describe("createDrivenSessionActuator — reply context", () => {
+describe("createDrivenSessionDriver — reply context", () => {
   /** Reads the first spawn's process without a non-null assertion. */
   const firstProc = (calls: SpawnCapture[]): FakeClaudeProcess => {
     const capture = calls[0];
@@ -373,9 +373,9 @@ describe("createDrivenSessionActuator — reply context", () => {
   const QUOTED = "mt#3243 is the next task";
 
   test("puts the quoted text in front of the agent, alongside the new message", async () => {
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    void actuator.converse(FOLLOW_UP, { replyToText: QUOTED });
+    void sessionDriver.converse(FOLLOW_UP, { replyToText: QUOTED });
     await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), FOLLOW_UP);
 
@@ -388,9 +388,11 @@ describe("createDrivenSessionActuator — reply context", () => {
   test("works on a FRESH conversation — it does not depend on the agent remembering", async () => {
     // Success Criterion 4: a reply carries its own context, so a conversation
     // that has never seen the quoted message can still resolve it.
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    void actuator.converse("what did you mean?", { replyToText: "the guard goes at the resolver" });
+    void sessionDriver.converse("what did you mean?", {
+      replyToText: "the guard goes at the resolver",
+    });
     await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), "what did you mean?");
 
@@ -399,9 +401,9 @@ describe("createDrivenSessionActuator — reply context", () => {
   });
 
   test("sends the message unchanged when there is no reply target", async () => {
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    void actuator.converse("plain message");
+    void sessionDriver.converse("plain message");
     await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), "plain message");
 
@@ -413,16 +415,16 @@ describe("createDrivenSessionActuator — reply context", () => {
 });
 
 // mt#3243 — the conversation is the durable entity; the child process is not.
-describe("createDrivenSessionActuator — resume across a restart", () => {
+describe("createDrivenSessionDriver — resume across a restart", () => {
   test("wires the persistence observers, so the conversation is recorded at all", async () => {
-    // Before this, the actuator passed NO observers — driven_sessions had zero
+    // Before this, the session driver passed NO observers — driven_sessions had zero
     // rows for the channel, so there was never anything to resume FROM.
     const stateChanges: string[] = [];
-    const { actuator, calls } = makeActuator({
+    const { sessionDriver, calls } = makeSessionDriver({
       onStateChange: (record) => stateChanges.push(record.status),
     });
 
-    void actuator.converse("hello");
+    void sessionDriver.converse("hello");
     await waitForSpawn(calls, 1);
     await waitForWrite(mustProc(calls), "hello");
 
@@ -430,9 +432,9 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
   });
 
   test("spawns with the fixed channel localId, so one row is upserted for the whole life", async () => {
-    const { actuator, registry } = makeActuator();
+    const { sessionDriver, registry } = makeSessionDriver();
 
-    void actuator.converse("hello");
+    void sessionDriver.converse("hello");
     await waitUntil(
       () => registry.get(PRINCIPAL_CHANNEL_LOCAL_ID) !== undefined,
       "the standing conversation to be registered under the fixed id"
@@ -443,11 +445,11 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
 
   test("RESUMES a persisted conversation instead of spawning a blank one", async () => {
     const resumed = buildResumedRecord();
-    const { actuator, calls } = makeActuator({
+    const { sessionDriver, calls } = makeSessionDriver({
       orchestrateResume: async () => ({ outcome: "resumed", record: resumed }),
     });
 
-    void actuator.converse("what were we discussing?");
+    void sessionDriver.converse("what were we discussing?");
     await waitUntil(
       () => (resumed.proc as unknown as FakeClaudeProcess).written.length > 0,
       "input written to the RESUMED child"
@@ -458,11 +460,11 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
   });
 
   test("falls back to a fresh spawn when there is nothing to resume", async () => {
-    const { actuator, calls } = makeActuator({
+    const { sessionDriver, calls } = makeSessionDriver({
       orchestrateResume: async () => ({ outcome: "not-found" }),
     });
 
-    void actuator.converse("hello");
+    void sessionDriver.converse("hello");
     await waitForSpawn(calls, 1);
     await waitForWrite(mustProc(calls), "hello");
 
@@ -470,29 +472,29 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
   });
 
   test("an unrecoverable persisted row also falls back rather than failing the message", async () => {
-    const { actuator, calls } = makeActuator({
+    const { sessionDriver, calls } = makeSessionDriver({
       orchestrateResume: async () => ({
         outcome: "unrecoverable",
         reason: "spawn-died-before-init",
       }),
     });
 
-    void actuator.converse("hello");
+    void sessionDriver.converse("hello");
     await waitForSpawn(calls, 1);
     await waitForWrite(mustProc(calls), "hello");
 
     expect(calls.length).toBe(1);
   });
 
-  test("a LOCKED resume does not spawn a second actuator for the same conversation", async () => {
+  test("a LOCKED resume does not spawn a second session driver for the same conversation", async () => {
     // The cross-process advisory lock exists because two `claude --resume` on
     // one conversation silently fork its transcript DAG. Spawning a fresh
     // child here would sidestep the lock and produce exactly that.
-    const { actuator, calls } = makeActuator({
+    const { sessionDriver, calls } = makeSessionDriver({
       orchestrateResume: async () => ({ outcome: "locked" }),
     });
 
-    await expect(actuator.converse("hello")).rejects.toThrow(/another/i);
+    await expect(sessionDriver.converse("hello")).rejects.toThrow(/another/i);
     expect(calls.length).toBe(0);
   });
 
@@ -503,9 +505,9 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
   // adding a task binding later has to be a deliberate change with a failing
   // test in front of it.
   test("the channel conversation is untasked BY DESIGN, not incidentally", async () => {
-    const { actuator, registry } = makeActuator();
+    const { sessionDriver, registry } = makeSessionDriver();
 
-    void actuator.converse("hello");
+    void sessionDriver.converse("hello");
     await waitUntil(
       () => registry.get(PRINCIPAL_CHANNEL_LOCAL_ID) !== undefined,
       "the standing conversation to be registered"
@@ -520,22 +522,22 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
   });
 });
 
-describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
+describe("createDrivenSessionDriver — readiness (mt#3234)", () => {
   test("a conversation that never starts is reported, not silently swallowed", async () => {
     // The live incident: the child spawned, never emitted init, and every
     // message routed into it vanished for twenty minutes.
-    const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
+    const { sessionDriver } = makeSessionDriver({ neverReady: true, readyTimeoutMs: 100 });
 
-    await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting/);
+    await expect(sessionDriver.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting/);
   });
 
   test("a failed start is abandoned, so the NEXT message spawns fresh", async () => {
     // Otherwise the dead session is reused forever and the channel never
     // recovers on its own.
-    const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
+    const { sessionDriver, calls } = makeSessionDriver({ neverReady: true, readyTimeoutMs: 100 });
 
-    await expect(actuator.converse("first")).rejects.toThrow();
-    await expect(actuator.converse("second")).rejects.toThrow();
+    await expect(sessionDriver.converse("first")).rejects.toThrow();
+    await expect(sessionDriver.converse("second")).rejects.toThrow();
     expect(calls).toHaveLength(2);
   });
 
@@ -545,8 +547,8 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     // it receives input, so gating the write on init means neither ever
     // happens. Measured live: input withheld -> no init, ever; input written
     // -> init at 3006ms.
-    const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 200 });
-    const pending = actuator.converse(BLOCKED_Q);
+    const { sessionDriver, calls } = makeSessionDriver({ neverReady: true, readyTimeoutMs: 200 });
+    const pending = sessionDriver.converse(BLOCKED_Q);
 
     await waitForSpawn(calls, 1);
     const spawned = calls[0]?.proc as FakeClaudeProcess;
@@ -559,15 +561,15 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
   });
 
   test("a ready conversation is reused without waiting again", async () => {
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    const first = actuator.converse("one");
+    const first = sessionDriver.converse("one");
     await waitForSpawn(calls, 1);
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("a");
     await first;
 
-    const second = actuator.converse("two");
+    const second = sessionDriver.converse("two");
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess, "two");
     calls[0]?.proc.finishTurn("b");
     expect(await second).toBe("b");
@@ -583,10 +585,10 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     // stream-json does not do. The poller upholds the contract by handling
     // messages strictly sequentially; this test exists so the limitation is
     // explicit rather than discovered.
-    const { actuator, calls } = makeActuator();
+    const { sessionDriver, calls } = makeSessionDriver();
 
-    const a = actuator.converse("one");
-    const b = actuator.converse("two");
+    const a = sessionDriver.converse("one");
+    const b = sessionDriver.converse("two");
     await waitForSpawn(calls, 1);
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
 
@@ -602,8 +604,8 @@ describe("awaitSessionReady outcomes (PR #2330 R1)", () => {
     // Different remedies: a crash points at the spawn (binary, cwd, flags), a
     // timeout at startup cost. Collapsing both sends whoever reads it on a
     // phone looking in the wrong place.
-    const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 5000 });
-    const pending = actuator.converse(BLOCKED_Q);
+    const { sessionDriver, calls } = makeSessionDriver({ neverReady: true, readyTimeoutMs: 5000 });
+    const pending = sessionDriver.converse(BLOCKED_Q);
 
     await waitForSpawn(calls, 1);
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
@@ -613,30 +615,32 @@ describe("awaitSessionReady outcomes (PR #2330 R1)", () => {
   });
 
   test("a child that stays silent is reported as a timeout", async () => {
-    const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
-    await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting within/);
+    const { sessionDriver } = makeSessionDriver({ neverReady: true, readyTimeoutMs: 100 });
+    await expect(sessionDriver.converse(BLOCKED_Q)).rejects.toThrow(
+      /did not finish starting within/
+    );
   });
 });
 
 /**
- * Per-topic actuator registry (mt#3505, parent mt#3500).
+ * Per-topic session driver registry (mt#3505, parent mt#3500).
  *
  * Phase 1 generalizes the channel from one standing conversation to one
  * conversation PER TOPIC while preserving the module's own "one caller at a
- * time" contract per conversation. `createDrivenSessionActuator` already
+ * time" contract per conversation. `createDrivenSessionDriver` already
  * parametrizes over `localId` (originally added so a live probe would not
  * collide with the running channel's own row); this registry is what lets
- * the launch-time composition root reuse ONE actuator instance per topic
+ * the launch-time composition root reuse ONE session driver instance per topic
  * across calls, rather than constructing a fresh closure (and therefore a
  * fresh `standingLocalId`/in-flight guard) on every message — which would
  * silently break the "concurrent callers share one conversation" guarantee
  * for a topic that receives two messages back to back.
  */
-describe("createTopicActuatorRegistry (mt#3505)", () => {
+describe("createTopicDriverRegistry (mt#3505)", () => {
   test("returns the SAME instance for the same localId across calls", () => {
-    const registry = createTopicActuatorRegistry();
+    const registry = createTopicDriverRegistry();
     let factoryCalls = 0;
-    const factory = (): ChannelActuator => {
+    const factory = (): ChannelDriver => {
       factoryCalls += 1;
       return {
         converse: async (text) => text,
@@ -654,8 +658,8 @@ describe("createTopicActuatorRegistry (mt#3505)", () => {
   });
 
   test("returns DIFFERENT instances for different localIds", () => {
-    const registry = createTopicActuatorRegistry();
-    const makeStub = (): ChannelActuator => ({
+    const registry = createTopicDriverRegistry();
+    const makeStub = (): ChannelDriver => ({
       converse: async (text) => text,
       interrupt: async () => "stopped",
       reset: async () => "fresh",
@@ -669,12 +673,12 @@ describe("createTopicActuatorRegistry (mt#3505)", () => {
   });
 
   test("get() returns undefined for a localId never created", () => {
-    const registry = createTopicActuatorRegistry();
+    const registry = createTopicDriverRegistry();
     expect(registry.get("telegram-topic:1:999")).toBeUndefined();
   });
 
   test("get() returns the cached instance after getOrCreate", () => {
-    const registry = createTopicActuatorRegistry();
+    const registry = createTopicDriverRegistry();
     const localId = ["telegram-topic", "1", "100"].join(":");
     const created = registry.getOrCreate(localId, () => ({
       converse: async (text) => text,

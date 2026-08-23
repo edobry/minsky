@@ -12,7 +12,7 @@
 import { cn } from "../lib/utils";
 import type { DrivenSessionStatus } from "../hooks/useDrivenSession";
 import type { DrivenSessionResultSummary } from "../lib/driven-session-accumulator";
-import { classifyOutcome, isTerminalActuatorStatus } from "../lib/conversation-outcome";
+import { classifyOutcome, isTerminalSessionDriverStatus } from "../lib/conversation-outcome";
 
 export interface DrivenSessionStatusBarProps {
   status: DrivenSessionStatus;
@@ -52,9 +52,9 @@ const TRANSPORT_LABEL: Record<"connecting" | "live" | "reconnecting", string> = 
 const NOT_RESUMABLE_NOTE = "not resumable";
 
 function statusLabel(status: DrivenSessionStatus): string {
-  if (isTerminalActuatorStatus(status)) {
-    // Non-null by construction: the actuator arm always classifies.
-    return classifyOutcome({ source: "actuator", status }) as string;
+  if (isTerminalSessionDriverStatus(status)) {
+    // Non-null by construction: the session driver arm always classifies.
+    return classifyOutcome({ source: "sessionDriver", status }) as string;
   }
   return TRANSPORT_LABEL[status];
 }

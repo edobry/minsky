@@ -86,7 +86,7 @@ import {
 } from "../db-providers";
 import {
   drivenSessionRegistry,
-  hasLiveActuator,
+  hasLiveSessionDriver,
   sendDrivenSessionInput,
   type DrivenSessionRegistry,
 } from "../driven-session-host";
@@ -99,13 +99,13 @@ import {
  * operator's" — which is also what a crashed, exited, or never-started agent
  * looks like, so a stranded thread claimed a reply was coming indefinitely.
  *
- * `hasLiveActuator` (not merely "a record exists") is the right predicate: a
+ * `hasLiveSessionDriver` (not merely "a record exists") is the right predicate: a
  * record loaded by boot reconciliation sits in `reconnecting` with no process
  * behind it, and that cannot answer either.
  */
 function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): boolean {
   const record = registry.get(localId);
-  return record !== undefined && hasLiveActuator(record);
+  return record !== undefined && hasLiveSessionDriver(record);
 }
 
 /**
@@ -119,7 +119,7 @@ function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): b
  * `reconnecting` is exactly the durable evidence criterion 4 requires. Boot
  * reconciliation builds that record FROM the persisted `driven_sessions` row
  * (`driven-session-launch.ts`), for a row that was still non-terminal when the
- * daemon stopped writing — i.e. an actuator that was alive when the process
+ * daemon stopped writing — i.e. a session driver that was alive when the process
  * went away, rather than one that exited and wrote its own terminal status.
  * The claim therefore survives the restart that produced it; it is not
  * reconstructed from an in-memory registry the restart just cleared.
@@ -134,7 +134,7 @@ export function deriveAgentStopReason(
   registry = drivenSessionRegistry
 ): "cockpit-restart" | "unrecoverable" | undefined {
   const record = registry.get(localId);
-  if (!record || hasLiveActuator(record)) return undefined;
+  if (!record || hasLiveSessionDriver(record)) return undefined;
   if (record.status === "reconnecting") return "cockpit-restart";
   if (record.status === "unrecoverable") return "unrecoverable";
   return undefined;
@@ -172,7 +172,7 @@ export async function deriveAgentStopReasonWithPersisted(
   const fromRegistry = deriveAgentStopReason(localId, registry);
   if (fromRegistry) return fromRegistry;
   // Only the ABSENT case falls through to the store. A record that exists and
-  // reports a live actuator, or a terminal state this function deliberately
+  // reports a live session driver, or a terminal state this function deliberately
   // does not name, has already been answered by the registry — re-deriving it
   // from a row the registry's own record was built from could only disagree.
   if (registry.get(localId)) return undefined;

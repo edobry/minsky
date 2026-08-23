@@ -43,7 +43,7 @@ import {
   sendDrivenSessionInput,
   buildReconnectingDrivenSessionRecord,
   drivenSessionRegistry,
-  hasLiveActuator,
+  hasLiveSessionDriver,
   DEFAULT_PERMISSION_MODE,
   type DrivenSessionCostSummary,
   type DrivenSessionEvent,
@@ -411,25 +411,25 @@ export interface EntityThreadSession {
   localId: string;
   record: DrivenSessionRecord;
   /**
-   * True when this call put a NEW actuator behind the thread — a first spawn, a
+   * True when this call put a NEW session driver behind the thread — a first spawn, a
    * resume-respawn, or a fresh replacement for a dead one. False only when an
    * already-live session was reused.
    *
    * The route keys the reply-recorder subscription on this: a swapped-in record
    * carries none of the old record's subscribers (`registry.replace` tells them
-   * to swap away), so anything that must observe the new actuator has to be
+   * to swap away), so anything that must observe the new session driver has to be
    * re-attached whenever this is true.
    */
   spawned: boolean;
   /**
    * True when a reachable agent is scoped to this entity — i.e. the returned
-   * record has a live actuator AND its conversation carries the seed prompt.
+   * record has a live session driver AND its conversation carries the seed prompt.
    *
    * Per branch: a fresh spawn reports whether the child's stdin actually
    * accepted the prompt (false means the spawn succeeded but the child was not
    * writable — the agent has NOT been told what entity it is discussing); a
    * reused live record and a resumed conversation are both already scoped; and
-   * a record handed back with NO actuator behind it is false regardless of
+   * a record handed back with NO session driver behind it is false regardless of
    * what its conversation once held, because nothing is reachable to have been
    * seeded (PR #2601 R1 BLOCKING).
    *
@@ -489,8 +489,8 @@ export type { FreshSpawnReason } from "@minsky/domain/storage/schemas/driven-ses
 // its own signatures below — hence the separate type-only import.
 import type { FreshSpawnReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 
-/** What {@link respawnThreadActuator} decided to do about an absent or dead record. */
-type ThreadActuatorRespawn =
+/** What {@link respawnThreadDriver} decided to do about an absent or dead record. */
+type ThreadDriverRespawn =
   | { kind: "resumed"; record: DrivenSessionRecord }
   /** Nothing to resume — the caller should spawn a fresh seeded child. */
   | { kind: "spawn-fresh"; reason: FreshSpawnReason; replacedConversationId?: string }
@@ -498,7 +498,7 @@ type ThreadActuatorRespawn =
   | { kind: "held-elsewhere" };
 
 /**
- * Put a live actuator back behind a thread whose child has exited (mt#3550).
+ * Put a live session driver back behind a thread whose child has exited (mt#3550).
  *
  * Resume FIRST, because the thread's earlier turns are the point: the seed
  * prompt carries the ENTITY's content and no discussion history, so a fresh
@@ -516,10 +516,10 @@ type ThreadActuatorRespawn =
  * undelivered. The panel's "send again" is the right advice in that one case —
  * the lock is released in seconds.
  */
-async function respawnThreadActuator(
+async function respawnThreadDriver(
   localId: string,
   opts: StartEntityThreadSessionOptions
-): Promise<ThreadActuatorRespawn> {
+): Promise<ThreadDriverRespawn> {
   const resume = opts.resumeSession ?? orchestrateDrivenSessionResume;
   let outcome: Awaited<ReturnType<typeof orchestrateDrivenSessionResume>>;
   try {
@@ -539,7 +539,7 @@ async function respawnThreadActuator(
 
   switch (outcome.outcome) {
     case "resumed":
-      log.info(`entity-thread: resumed the actuator for ${localId}`);
+      log.info(`entity-thread: resumed the session driver for ${localId}`);
       return { kind: "resumed", record: outcome.record };
     case "locked":
       log.info(`entity-thread: another process is resuming ${localId} — not spawning a rival`);
@@ -583,7 +583,7 @@ async function respawnThreadActuator(
  * on one conversation is the DAG-fork corruption mt#3095 exists to prevent, and
  * the registry lookup is what keeps this path from being a way to cause it.
  *
- * "Still live" is {@link hasLiveActuator}, NOT "a record exists" (mt#3550).
+ * "Still live" is {@link hasLiveSessionDriver}, NOT "a record exists" (mt#3550).
  * A record whose child has exited stays in the registry with a terminal status,
  * and reusing it produced a thread that could never answer again: the turn was
  * stored, `sendDrivenSessionInput` refused the dead stdin, and nothing
@@ -598,11 +598,11 @@ export async function startEntityThreadSession(
   const localId = entityThreadLocalId(opts.seed.entityType, opts.seed.entityId);
 
   const existing = registry.get(localId);
-  if (existing && hasLiveActuator(existing)) {
+  if (existing && hasLiveSessionDriver(existing)) {
     return { localId, record: existing, spawned: false, seeded: true };
   }
 
-  // mt#4093: consulted whenever no LIVE actuator is behind the thread — NOT
+  // mt#4093: consulted whenever no LIVE session driver is behind the thread — NOT
   // only when the registry happens to hold a record. The `if (existing)` this
   // replaced made an ABSENT record fall straight through to the fresh spawn
   // below, so a thread whose conversation the registry had simply not loaded
@@ -619,7 +619,7 @@ export async function startEntityThreadSession(
   // ./driven-session-ws.ts consults the same orchestration unconditionally and
   // treats only a `not-found` OUTCOME as gone. The two callers of one
   // orchestration no longer disagree about when to ask it.
-  const respawn = await respawnThreadActuator(localId, opts);
+  const respawn = await respawnThreadDriver(localId, opts);
   if (respawn.kind === "resumed") {
     // Already seeded — a resume continues the conversation the seed prompt
     // scoped, so re-sending it would repeat the whole scoping instruction to
@@ -627,7 +627,7 @@ export async function startEntityThreadSession(
     return { localId, record: respawn.record, spawned: true, seeded: true };
   }
   if (respawn.kind === "held-elsewhere") {
-    // `seeded: false` (PR #2601 R1 BLOCKING): no actuator is behind this
+    // `seeded: false` (PR #2601 R1 BLOCKING): no session driver is behind this
     // record, so nothing accepted anything. The thread's conversation WAS
     // scoped once, but reporting that as `seeded` here would tell the caller
     // an agent is ready when none is reachable until the other process
@@ -638,7 +638,7 @@ export async function startEntityThreadSession(
     // spawning a rival — the lock exists precisely to stop a second child
     // against one conversation, and that constraint does not weaken just
     // because this daemon has not loaded the record. `driven-session-ws.ts`
-    // builds the same placeholder for the same reason. It has no actuator, so
+    // builds the same placeholder for the same reason. It has no session driver, so
     // `sendDrivenSessionInput` refuses and the caller reports the message
     // undelivered — which is the truth, and clears in seconds.
     const record =
@@ -652,7 +652,7 @@ export async function startEntityThreadSession(
         minskySessionId: null,
         status: "reconnecting",
         unrecoverableReason: null,
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         startedAt: new Date().toISOString(),
       });
     return { localId, record, spawned: false, seeded: false };
@@ -830,7 +830,7 @@ export function createEntityThreadReplyRecorder(
         schedulePendingDrain(db);
       });
     },
-    // An actuator swap replaces the record this subscriber is attached to. The
+    // A session driver swap replaces the record this subscriber is attached to. The
     // thread itself is unaffected — it is keyed by localId, which survives the
     // swap — so there is nothing to tear down here; the route re-registers a
     // recorder against the new record on the next message.

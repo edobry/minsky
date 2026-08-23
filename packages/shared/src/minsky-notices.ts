@@ -21,7 +21,7 @@
  */
 
 /**
- * The notice Minsky sends when it resumes a conversation whose actuator died
+ * The notice Minsky sends when it resumes a conversation whose session driver died
  * mid-turn (mt#3038). Sent verbatim through the input channel.
  *
  * ## Why it names the harness's own marker (mt#4037)
@@ -34,7 +34,7 @@
  * `[Request interrupted by user for tool use]`. That is boilerplate for every
  * interrupt, including one where no human was present.
  *
- * Observed 2026-08-11: a cockpit restart killed a thread's actuator mid-turn at
+ * Observed 2026-08-11: a cockpit restart killed a thread's session driver mid-turn at
  * 03:38:43Z. On resume the agent read those markers and reported to the
  * operator that its call had been "rejected" — attributing to them an action
  * they did not take and were asleep for. The notice was already accurate about
@@ -43,7 +43,7 @@
  */
 export const INTERRUPTION_NOTICE_TEXT =
   "[minsky] This conversation was resumed after an unexpected interruption — the previous " +
-  "actuator process was terminated (most likely a cockpit daemon restart) potentially " +
+  "session driver process was terminated (most likely a cockpit daemon restart) potentially " +
   "mid-turn. Before continuing, verify whether your last in-flight action actually " +
   "completed rather than assuming it did. Your transcript may show " +
   "'[Request interrupted by user for tool use]' or a tool_result saying the user rejected " +

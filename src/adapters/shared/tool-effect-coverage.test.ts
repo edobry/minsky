@@ -67,6 +67,8 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "config.credentials.list",
   "config.credentials.recheck",
   "config.credentials.remove",
+  "credentials.request",
+  "credentials.request-status",
   "config.doctor",
   "config.get",
   "config.list",

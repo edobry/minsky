@@ -211,3 +211,69 @@ describe("AskDetail — option letter prefixes are not doubled (mt#3253)", () =>
     expect(container.textContent).toContain("B — this is the description");
   });
 });
+
+describe("AskDetail — credential-request render mode (mt#4030)", () => {
+  /**
+   * The mt#4030 ↔ mt#4447 seam decision in test form: a `metadata` key selects
+   * which control replaces the option buttons. These two tests pin the dispatch
+   * — one that it fires on the payload, one that it does NOT fire without it.
+   */
+  const CREDENTIAL_REQUEST_ASK: Partial<AskItem> = {
+    kind: "authorization.approve",
+    state: "routed",
+    title: "Add the Supabase service_role credential",
+    question: "A queued step needs it.",
+    metadata: { credentialRequest: { provider: "supabase-service-role" } },
+  };
+
+  function mockProviders() {
+    global.fetch = mock(async (url: string) => {
+      if (url.startsWith("/api/credentials/providers")) {
+        return jsonResponse({
+          providers: [
+            {
+              id: "supabase-service-role",
+              displayName: "Supabase service_role",
+              acquireUrl: "https://supabase.com/dashboard/project/_/settings/api",
+              scopeGuidance: "service_role, not the anon key",
+            },
+          ],
+        });
+      }
+      return fallback();
+    }) as unknown as typeof fetch;
+  }
+
+  test("a credential-request ask renders the masked form instead of approve/deny", async () => {
+    mockProviders();
+    renderAsk(baseAsk(CREDENTIAL_REQUEST_ASK));
+
+    await waitFor(() => expect(screen.getByTestId("credential-request-form")).toBeTruthy());
+    const input = screen.getByTestId("credential-request-token-input");
+    expect(input.getAttribute("type")).toBe("password");
+
+    // The lettered pair must be gone: an "A) Approve" here would settle the ask
+    // without a credential ever being entered, which the presence-based resolver
+    // would then never reconcile.
+    expect(screen.queryByRole("button", { name: /^A\) Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^B\) Deny/ })).toBeNull();
+  });
+
+  test("negative control: a plain authorization.approve ask still renders approve/deny and no form", async () => {
+    mockProviders();
+    renderAsk(baseAsk({ kind: "authorization.approve", state: "routed", metadata: {} }));
+
+    expect(screen.queryByTestId("credential-request-form")).toBeNull();
+    expect(screen.getByRole("button", { name: /^A\) Approve/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^B\) Deny/ })).toBeTruthy();
+  });
+
+  test("defer and escalate survive the render-mode switch", async () => {
+    mockProviders();
+    renderAsk(baseAsk(CREDENTIAL_REQUEST_ASK));
+
+    await waitFor(() => expect(screen.getByTestId("credential-request-form")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /Defer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Escalate/ })).toBeTruthy();
+  });
+});

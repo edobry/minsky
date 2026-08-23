@@ -9,7 +9,7 @@ import { describe, test, expect } from "bun:test";
 import {
   classifyOutcome,
   isApiErrorText,
-  isTerminalActuatorStatus,
+  isTerminalSessionDriverStatus,
   OUTCOME_TONE,
   type ConversationOutcome,
 } from "./conversation-outcome";
@@ -64,28 +64,28 @@ describe("classifyOutcome — transcript evidence", () => {
   });
 });
 
-describe("classifyOutcome — actuator evidence", () => {
+describe("classifyOutcome — session driver evidence", () => {
   test("a clean exit is Completed", () => {
-    expect(classifyOutcome({ source: "actuator", status: "exited" })).toBe("Completed");
+    expect(classifyOutcome({ source: "sessionDriver", status: "exited" })).toBe("Completed");
   });
 
   test("both crash flavours are Crashed", () => {
-    expect(classifyOutcome({ source: "actuator", status: "crashed" })).toBe("Crashed");
-    expect(classifyOutcome({ source: "actuator", status: "unrecoverable" })).toBe("Crashed");
+    expect(classifyOutcome({ source: "sessionDriver", status: "crashed" })).toBe("Crashed");
+    expect(classifyOutcome({ source: "sessionDriver", status: "unrecoverable" })).toBe("Crashed");
   });
 });
 
-describe("isTerminalActuatorStatus", () => {
+describe("isTerminalSessionDriverStatus", () => {
   test("admits the three terminal statuses", () => {
-    expect(isTerminalActuatorStatus("exited")).toBe(true);
-    expect(isTerminalActuatorStatus("crashed")).toBe(true);
-    expect(isTerminalActuatorStatus("unrecoverable")).toBe(true);
+    expect(isTerminalSessionDriverStatus("exited")).toBe(true);
+    expect(isTerminalSessionDriverStatus("crashed")).toBe(true);
+    expect(isTerminalSessionDriverStatus("unrecoverable")).toBe(true);
   });
 
   test("rejects transport states — a channel's lifecycle is not an outcome", () => {
-    expect(isTerminalActuatorStatus("connecting")).toBe(false);
-    expect(isTerminalActuatorStatus("reconnecting")).toBe(false);
-    expect(isTerminalActuatorStatus("live")).toBe(false);
+    expect(isTerminalSessionDriverStatus("connecting")).toBe(false);
+    expect(isTerminalSessionDriverStatus("reconnecting")).toBe(false);
+    expect(isTerminalSessionDriverStatus("live")).toBe(false);
   });
 });
 

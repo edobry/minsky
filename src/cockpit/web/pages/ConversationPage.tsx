@@ -54,17 +54,17 @@
  *
  * This route is the unified conversation surface: it serves a conversation the
  * same way regardless of which pipeline produced it, and it accepts BOTH the
- * harness conversation uuid and a spawn-time actuator local id. Resolution runs
+ * harness conversation uuid and a spawn-time session driver local id. Resolution runs
  * through `useConversationAddress` — a registry lookup, never an id-shape guess,
  * because a default local id is uuid-shaped and would pass any shape check (see
  * `../lib/conversation-address.ts`).
  *
- * An actuator that has spawned but not yet emitted its harness `init` frame has
+ * A session driver that has spawned but not yet emitted its harness `init` frame has
  * NO conversation id to resolve to — nothing to translate the local id into. So
- * "known actuator, no conversation yet" renders as its own state rather than as
+ * "known session driver, no conversation yet" renders as its own state rather than as
  * a 404 or an id-space error.
  *
- * **This route mounts no composer, no send path, and no actuator channel** —
+ * **This route mounts no composer, no send path, and no session driver channel** —
  * mt#3132 Success Criterion 5, read-only by construction. Controllability stays
  * on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325 can
  * mount a composer here safely.
@@ -89,11 +89,11 @@ import { Button } from "../components/ui/button";
 import { PublishConversationDialog } from "../components/PublishConversationDialog";
 import { useTabs } from "../lib/tabs";
 import { useConversationAddress } from "../hooks/useConversationAddress";
-import { actuatorMayStillLink, type ActuatorSummary } from "../lib/conversation-address";
+import { sessionDriverMayStillLink, type SessionDriverSummary } from "../lib/conversation-address";
 import type { ConversationId } from "@minsky/domain/ids";
 
 /**
- * The "known actuator, no conversation yet" body.
+ * The "known session driver, no conversation yet" body.
  *
  * Renders no presence readout: presence is keyed by conversation id, and there
  * is not one yet. Querying it with the local id would return a wrong-id-space
@@ -101,8 +101,8 @@ import type { ConversationId } from "@minsky/domain/ids";
  * run — the exact confusion `useConversationPresence`'s four-outcome split
  * exists to prevent.
  */
-function StartingConversation({ actuator }: { actuator: ActuatorSummary }) {
-  const mayStillLink = actuatorMayStillLink(actuator);
+function StartingConversation({ sessionDriver }: { sessionDriver: SessionDriverSummary }) {
+  const mayStillLink = sessionDriverMayStillLink(sessionDriver);
   return (
     <div className="rounded border border-border bg-card p-4" data-testid="conversation-starting">
       <p className="text-sm text-foreground">
@@ -129,16 +129,16 @@ export function ConversationPage() {
   /**
    * Tab pruning waits for the address, but RENDERING does not (mt#3132).
    *
-   * Blocking the whole page on the actuator-registry read would put a second
+   * Blocking the whole page on the session driver-registry read would put a second
    * request in front of every ordinary conversation load — a regression paid by
    * the common case to serve a rare one. So the conversation path renders
    * optimistically, exactly as before this task, and the registry arrives as a
-   * CORRECTION: if it says "actuator, no conversation yet", the body swaps to
+   * CORRECTION: if it says "session driver, no conversation yet", the body swaps to
    * the starting state below.
    *
    * The one thing that must NOT run optimistically is the 404 handler, because
    * it is destructive — it marks the tab errored and drops it from persistence.
-   * A pre-`init` actuator local id 404s here legitimately, and pruning its tab
+   * A pre-`init` session driver local id 404s here legitimately, and pruning its tab
    * would delete a live run's tab for the crime of being young.
    *
    * So a reported 404 is DEFERRED rather than dropped: it is recorded WITH THE
@@ -151,7 +151,7 @@ export function ConversationPage() {
    * that HAS linked spends its first render fetching under the local id (the
    * fallback below), which legitimately 404s; the address then resolves and the
    * real conversation loads fine. Pruning on that stale 404 would mark a
-   * perfectly good tab dead — observed live against a real linked actuator,
+   * perfectly good tab dead — observed live against a real linked session driver,
    * where the transcript rendered correctly under an errored tab.
    */
   // The conversation to READ. Differs from the URL id only for a local-id
@@ -171,7 +171,7 @@ export function ConversationPage() {
 
   useEffect(() => {
     if (!notFoundFor || !addressResolved) return;
-    // An actuator that has not linked a conversation yet has no transcript BY
+    // A session driver that has not linked a conversation yet has no transcript BY
     // CONSTRUCTION — that 404 is the expected answer, not a dead tab.
     if (address?.kind === "conversation" && notFoundFor === address.conversationId) {
       markTabError(pathname);
@@ -188,10 +188,10 @@ export function ConversationPage() {
     queryFn: () => fetchConversationOverview(conversationId as ConversationId),
     staleTime: 30_000,
     retry: 1,
-    // Skipped once the id is known to address an actuator with no conversation:
+    // Skipped once the id is known to address a session driver with no conversation:
     // there is nothing for the overview endpoint to find, and asking anyway
     // would spend a request to be told so.
-    enabled: Boolean(conversationId) && address?.kind !== "actuator-starting",
+    enabled: Boolean(conversationId) && address?.kind !== "driver-starting",
   });
 
   if (!id) {
@@ -211,7 +211,7 @@ export function ConversationPage() {
     isFilmTab ? "max-w-none" : "max-w-4xl"
   );
 
-  if (address?.kind === "actuator-starting") {
+  if (address?.kind === "driver-starting") {
     return (
       <div className={wrapperClass}>
         <div className="flex flex-col gap-0.5">
@@ -220,7 +220,7 @@ export function ConversationPage() {
             {address.localId}
           </span>
         </div>
-        <StartingConversation actuator={address.actuator} />
+        <StartingConversation sessionDriver={address.sessionDriver} />
       </div>
     );
   }

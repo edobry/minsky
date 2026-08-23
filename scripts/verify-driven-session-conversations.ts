@@ -90,7 +90,7 @@ const PROBE_ID = `mt4323-adoption-probe-${Date.now()}`;
 const HARNESS = "claude_code";
 
 const EXPECTED_COLUMNS = [
-  "actuator_generation",
+  "driver_generation",
   "adopted_at",
   "adoption_reason",
   "harness",
@@ -149,7 +149,7 @@ async function main(): Promise<void> {
     const t2 = new Date("2026-01-01T00:00:02.000Z");
 
     // `.toISOString()`, not the Date itself: this is the RAW-SQL path, where
-    // the driver binds parameters with no column type to consult and rejects a
+    // the Postgres driver binds parameters with no column type to consult and rejects a
     // Date outright. The production writer does not have this problem — it
     // goes through drizzle's typed insert builder, which knows the column is
     // `timestamptz` and serializes for it. Seeding by hand here is what makes
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
     const append = async (convId: string, reason: string, at: Date): Promise<void> => {
       await db.execute(sql`
         INSERT INTO driven_session_conversations
-          (local_id, harness_session_id, harness, actuator_generation, adoption_reason, adopted_at)
+          (local_id, harness_session_id, harness, driver_generation, adoption_reason, adopted_at)
         VALUES (${PROBE_ID}, ${convId}, ${HARNESS}, 0, ${reason}, ${at.toISOString()})
       `);
     };
@@ -229,12 +229,12 @@ async function main(): Promise<void> {
     const tieId = `${PROBE_ID}-tie`;
     await db.execute(sql`
       INSERT INTO driven_session_conversations
-        (local_id, harness_session_id, harness, actuator_generation, adoption_reason, adopted_at)
+        (local_id, harness_session_id, harness, driver_generation, adoption_reason, adopted_at)
       VALUES (${tieId}, ${"tie-first"}, ${HARNESS}, 0, ${"initial"}, ${TIE.toISOString()})
     `);
     await db.execute(sql`
       INSERT INTO driven_session_conversations
-        (local_id, harness_session_id, harness, actuator_generation, adoption_reason, adopted_at)
+        (local_id, harness_session_id, harness, driver_generation, adoption_reason, adopted_at)
       VALUES (${tieId}, ${"tie-second"}, ${HARNESS}, 0, ${"resumed"}, ${TIE.toISOString()})
     `);
     const tieSpan = await store.resolveConversationIds(db, tieId);
