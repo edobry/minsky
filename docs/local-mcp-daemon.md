@@ -181,6 +181,107 @@ as _healthy_ on purpose — it is the expected offline/dev boot, and the `bundle
 asserts exactly that 200. So the status code cannot be the readiness signal without breaking a gate
 that depends on it, which is why `ready` exists as a separate field.
 
+### Reading and restarting the daemon without the tray
+
+Until mt#4466 the only start/stop/restart affordance was the cockpit tray's GUI menu, so a wedged
+daemon was operator-only to recover: a human at a Mac menu bar. On 2026-08-23 that cost about fifty
+minutes, during which every DB-backed MCP tool timed out for every conversation on the machine while
+`/health` answered 200 throughout (mem#1120 R2). Two commands close that gap.
+
+```bash
+minsky mcp status            # state, pid, port, uptime, readiness, and a remedy line
+minsky mcp restart           # PREVIEW only — prints what it would do and changes nothing
+minsky mcp restart --execute # sends SIGTERM; the tray respawns it
+```
+
+Both are also MCP tools (`mcp_status`, `mcp_restart`) — but reach for the **CLI** when MCP calls are
+what is failing, since it opens its own connection and does not traverse the shim. That is the same
+reason the CLI was the control that diagnosed the incident: it served the identical read in 1.19s
+while the MCP path hung past 120s.
+
+`minsky mcp status` exits non-zero when the daemon is not serving, so it scripts. It reads `ready`
+and `persistence.reason` from the health body, so a daemon reporting it cannot serve DB-backed work
+is surfaced with the reason and with the restart as the named remedy — rather than leaving the next
+reader to derive the two-process topology from scratch.
+
+`restart` is preview-by-default because the daemon is shared: every conversation on the machine
+loses its transport session at once. ADR-038 §Question 6 accepted that cost on a measurement — six
+concurrent clients recovered in 8–14ms once the daemon was back (mt#3811) — and the shim retries
+connection-refused for 15s, covering the ~5.1s cold start. What is NOT covered is a call already
+accepted and in flight; those fail and are not retried. The preview prints all of this.
+
+`restart` refuses rather than killing when the port holder is not an identified `minsky-mcp` daemon,
+and the kill itself re-reads the live command line first — the pid comes from a file written at
+boot, and this daemon can live 20+ hours, which is a long window for pid reuse.
+
+### Decision record: why there is a restart command, and why there is no zero-downtime handover
+
+Recorded here rather than only in mt#4466's task spec, because it corrects a premise in an Accepted
+RFC and a future reader of this repo needs to find that.
+
+**ADR-038 §Question 6 — MATCH.** It already ACCEPTED shared fate for the restart path, calling it
+"measured and cheap": all N conversations lose their transport session at once, recovery is
+per-client and lazy, and mt#3811 measured six concurrent clients recovering in **8–14ms** with zero
+surfaced failures. `minsky mcp restart` does not change those semantics — it surfaces them, and its
+preview quotes the measurement rather than warning vaguely. The one exposure ADR-038 named for
+Phase 2, the ~5.1s cold-start window, is discharged: the shim retries connection-refused for 15s
+(`RETRY_WINDOW_MS`). What is still lost is a call already ACCEPTED and in flight; the preview says
+so.
+
+**ADR-038 §Question 4 — EXTEND, as designed.** The discovery file at
+`~/.local/state/minsky/local-mcp.json` exists so that "`minsky` commands and the tray can find a
+daemon they did not spawn". These are the first `minsky` commands to use it that way.
+
+**"RFC: Thin hooks" §Answerer recovery (Accepted 2026-08-11) — PARTIALLY IMPLEMENTED, across three
+tasks.** The RFC requires that persistent degradation "surface in the daemon's health semantics
+**and** trigger a supervisor restart". The first half shipped in mt#4471 (`ready` is now an observed
+round trip, not a static capability read); the second half is mt#4472, in the Rust tray. mt#4466 —
+this command surface — is neither half: it is the manual path for when neither has fired yet.
+
+**ADR-041 — considered, does not govern (Proposed, gateway unimplemented), corroborates.** Its
+§Question 3 warns that queueing "converts a fast local failure into a slow one". That is why the
+readiness probe is bounded and why this command is not on the daemon's own request path.
+
+#### Restart cadence, measured — and the correction that matters more than the number
+
+Measured 2026-08-23 from `~/.local/state/minsky/mcp-disconnect-log.json` (23,859 records) plus `ps`
+and the discovery file.
+
+- **The aggregate `process_start` count is NOT this daemon's restart count.** 51 starts on
+  2026-08-23, spread across five hours — exactly ONE of which was the shared daemon. The rest are
+  per-invocation stdio server processes (hooks, subagents, tests). Under ADR-038 a conversation runs
+  `minsky mcp shim`, which is a CLIENT and writes no `process_start`.
+- **Quiet-regime lifetimes are long:** one instance ran **20h45m** (pid 57792, 2026-08-22T21:35Z
+  through the next afternoon); its successor ran ~4h. Every `staleness_exit` in the preceding week
+  carries an uptime of **10–44 hours**.
+- **Active-development lifetimes are minutes.** While mt#4466's own branch was merging to `src/`,
+  the daemon staleness-exited and respawned roughly every **4–8 minutes** (observed 22:34:45Z,
+  22:46:48Z, with a manual restart between).
+
+**So the cadence is BIMODAL, and the first draft of this census got it wrong by pooling the two
+regimes and reporting the quiet one.** The Thin-hooks RFC's §Host contract builds its trilemma on
+"~100 restarts/day"; that figure does not describe a quiet day — a daemon cannot reach 20h45m under
+it — but it may be about right for a day of active `src/` merging, which is plausibly the day it was
+written from.
+
+**Consequence for option 4 (zero-downtime restart choreography: start-new → handover → drain-old),
+which the RFC marks "unpriced" and assigns to daemon-lifecycle work.** Its benefit is a direct
+function of restart frequency, so a bimodal cadence makes the benefit bimodal too:
+
+|                                | fail-open cost of option 1 (accept the windows)                              |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| quiet regime (~1/day)          | ~5 seconds per day — negligible, and mostly absorbed by the shim's 15s retry |
+| active regime (~every 4–8 min) | materially worse; not properly measured                                      |
+
+The cost side is not bimodal: socket handover or `SO_REUSEPORT` on the Bun HTTP server, a drain
+protocol for stateful per-connection MCP sessions, tray-side coordination in Rust, and a new failure
+mode where two daemons are briefly live and contend for the same pool.
+
+**Recommendation: do not build option 4 on the quiet-regime numbers alone, and do not treat this as
+settled.** Before the RFC's host-contract ask goes to the principal, bucket `process_start` by hour
+across a week and report the two regimes SEPARATELY. A pooled statistic describes neither. That
+measurement is the precondition the ask was waiting on, and it is still owed.
+
 The gap that produced it (mt#4297): a tray-supervised daemon ran for 31 hours serving `/health` 200
 with the right `service` identity and no database at all. Nothing was wrong with the endpoint — it
 was answering the question it was asked. Every DB-backed tool call against that daemon would have

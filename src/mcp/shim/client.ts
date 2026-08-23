@@ -114,10 +114,86 @@ export const REQUEST_TIMEOUT_MS = (MAX_TOOL_WAIT_SECONDS + REQUEST_TIMEOUT_MARGI
 
 export class ConnectionRefusedError extends Error {}
 export class SessionNotFoundError extends Error {}
-export class DaemonRequestError extends Error {}
+/**
+ * What went wrong, as a value rather than a prose message (mt#4466).
+ *
+ * Every failure below already carried a distinguishing MESSAGE; what it lacked
+ * was anything a caller could branch on, so `main.ts` prefixed all of them with
+ * the same `daemon request failed:` and the top-level string an agent reads was
+ * identical for opposite conditions. During mem#1120 R2 that made a pool wedge
+ * read as a broken transport, and two `/mcp` reconnects were spent on the wrong
+ * process before the topology was understood.
+ *
+ * - `unreachable` — nothing answered, through the whole retry window. The daemon
+ *   is down or was never started.
+ * - `timeout` — the daemon ACCEPTED the request and never answered it. The
+ *   opposite finding: the transport is fine and the daemon is stuck or slow.
+ * - `http-error` — it answered, with a failure status.
+ * - `session-lost` — its session went away and re-initialization failed.
+ * - `unknown` — anything else, including a shim-internal fault.
+ */
+export type DaemonFailureKind =
+  | "unreachable"
+  | "timeout"
+  | "http-error"
+  | "session-lost"
+  | "unknown";
+
+export class DaemonRequestError extends Error {
+  readonly kind: DaemonFailureKind;
+  constructor(message: string, kind: DaemonFailureKind = "unknown") {
+    super(message);
+    this.kind = kind;
+  }
+}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Render a shim failure so its TOP-LEVEL text names the condition (mt#4466).
+ *
+ * `main.ts` used to prefix every failure with `daemon request failed:`, so the
+ * first line an agent read was identical whether nothing was listening or the
+ * daemon had accepted the request and gone quiet — two conditions whose remedies
+ * are opposites. The detail already differed; nothing surfaced it, and a reader
+ * scanning a tool error sees the prefix.
+ *
+ * Each kind also carries the NEXT ACTION, because the reader is an agent mid-task
+ * whose other MCP calls are probably failing too — and because "there is no
+ * command for this" was true until this same task added one.
+ */
+export function describeDaemonFailure(err: unknown): { summary: string; detail: string } {
+  const detail = errorMessage(err);
+  const kind: DaemonFailureKind = err instanceof DaemonRequestError ? err.kind : "unknown";
+  switch (kind) {
+    case "unreachable":
+      return {
+        summary:
+          "daemon unreachable (nothing answered) — it is down or was never started; " +
+          "run `minsky mcp status` via the CLI, which does not go through this transport",
+        detail,
+      };
+    case "timeout":
+      return {
+        summary:
+          "daemon reachable but did not answer (the request was accepted, then went quiet) — " +
+          "this is NOT a transport failure; the daemon is stuck or its connection pool is " +
+          "exhausted. Run `minsky mcp status` via the CLI to see live pool reachability",
+        detail,
+      };
+    case "http-error":
+      return { summary: "daemon answered with an error response", detail };
+    case "session-lost":
+      return {
+        summary:
+          "daemon session lost and could not be re-established (the daemon likely restarted)",
+        detail,
+      };
+    default:
+      return { summary: "daemon request failed", detail };
+  }
 }
 
 /**
@@ -288,7 +364,8 @@ export class DaemonClient {
         if (err instanceof ConnectionRefusedError) {
           if (Date.now() >= deadline) {
             throw new DaemonRequestError(
-              `daemon unreachable after ${this.retryWindowMs}ms retry window: ${err.message}`
+              `daemon unreachable after ${this.retryWindowMs}ms retry window: ${err.message}`,
+              "unreachable"
             );
           }
           this.log(`[shim] daemon unreachable, retrying: ${err.message}`);
@@ -301,7 +378,8 @@ export class DaemonClient {
           const reinitOk = await this.reinitialize(deadline);
           if (!reinitOk) {
             throw new DaemonRequestError(
-              `daemon session lost and re-initialize failed: ${err.message}`
+              `daemon session lost and re-initialize failed: ${err.message}`,
+              "session-lost"
             );
           }
           this.log("[shim] re-initialize succeeded; retrying original request");
@@ -393,11 +471,12 @@ export class DaemonClient {
       if (isRequestTimeout(err)) {
         throw new DaemonRequestError(
           `daemon did not respond within ${this.requestTimeoutMs}ms (request was accepted, ` +
-            `then never answered — not a connection failure)`
+            `then never answered — not a connection failure)`,
+          "timeout"
         );
       }
       if (!this.isConnectionRefused(err)) {
-        throw new DaemonRequestError(`daemon request failed: ${errorMessage(err)}`);
+        throw new DaemonRequestError(`daemon request failed: ${errorMessage(err)}`, "unknown");
       }
       throw new ConnectionRefusedError(errorMessage(err));
     }
@@ -413,13 +492,17 @@ export class DaemonClient {
       if (bodyText.includes("-32001") || bodyText.toLowerCase().includes("session not found")) {
         throw new SessionNotFoundError(bodyText || "404 session not found");
       }
-      throw new DaemonRequestError(`daemon returned 404: ${safeTruncate(bodyText, 200, "head")}`);
+      throw new DaemonRequestError(
+        `daemon returned 404: ${safeTruncate(bodyText, 200, "head")}`,
+        "http-error"
+      );
     }
 
     if (!response.ok) {
       const bodyText = await response.text().catch(() => "");
       throw new DaemonRequestError(
-        `daemon returned HTTP ${response.status}: ${safeTruncate(bodyText, 200, "head")}`
+        `daemon returned HTTP ${response.status}: ${safeTruncate(bodyText, 200, "head")}`,
+        "http-error"
       );
     }
 
