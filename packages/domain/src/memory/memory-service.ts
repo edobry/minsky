@@ -151,7 +151,7 @@ export interface MemoryServiceDeps {
   interveningTaskLookup?: (
     subsystems: string[],
     since: Date
-  ) => Promise<{ taskId: string; title: string; completedAt?: string }[]>;
+  ) => Promise<{ taskId: string; title: string; rowUpdatedAt?: string }[]>;
 }
 
 // ---------------------------------------------------------------------------

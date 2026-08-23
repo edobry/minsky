@@ -66,7 +66,7 @@ export function createInterveningTaskLookup(
 ): (
   subsystems: string[],
   since: Date
-) => Promise<{ taskId: string; title: string; completedAt?: string }[]> {
+) => Promise<{ taskId: string; title: string; rowUpdatedAt?: string }[]> {
   return async (subsystems: string[], since: Date) => {
     if (subsystems.length === 0) return [];
 
@@ -115,7 +115,7 @@ export function createInterveningTaskLookup(
     return rows.map((row) => ({
       taskId: row.id,
       title: row.title ?? "",
-      ...(row.updatedAt ? { completedAt: row.updatedAt.toISOString() } : {}),
+      ...(row.updatedAt ? { rowUpdatedAt: row.updatedAt.toISOString() } : {}),
     }));
   };
 }

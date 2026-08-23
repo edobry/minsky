@@ -55,7 +55,7 @@ function mustDecay(
 const MT4345: InterveningTask = {
   taskId: "mt#4345",
   title: "Transcript ingest rewrites every unchanged turn: 19.2M updates against 327k rows",
-  completedAt: "2026-08-20T00:00:00Z",
+  rowUpdatedAt: "2026-08-20T00:00:00Z",
 };
 
 describe("extractMeasurement", () => {

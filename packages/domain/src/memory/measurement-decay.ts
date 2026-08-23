@@ -119,8 +119,16 @@ const BARE_TABLE_PATTERN = /\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b(?=\s+(?:table|ro
 export interface InterveningTask {
   taskId: string;
   title: string;
-  /** ISO timestamp of the task row's last update — a proxy for "when it completed". */
-  completedAt?: string;
+  /**
+   * ISO timestamp of the task ROW's last update — deliberately NOT named `completedAt`.
+   *
+   * It is a weak proxy for completion: any later mutation bumps it (a status correction, a
+   * spec patch, a reparent), so it can be arbitrarily later than the work actually landing.
+   * Naming it `completedAt` would assert something the value does not carry, which is the
+   * same quiet misnomer this whole module exists to catch one level up — a stored figure that
+   * reads as current and is not. Renamed on PR #3271 R2.
+   */
+  rowUpdatedAt?: string;
 }
 
 /**
