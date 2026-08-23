@@ -144,14 +144,27 @@ export function CredentialRequestForm({
         <label htmlFor={inputId} className="text-xs font-medium text-muted-foreground">
           {provider.displayName} credential
         </label>
+        {/* Styling is deliberately identical to `AddCredentialForm`'s token input
+            in `Credentials.tsx` — same control, same affordances, two places. The
+            focus-visible ring and the disabled treatment are load-bearing rather
+            than cosmetic: this is a keyboard-entry field, and it must not stay
+            editable while a save is in flight. */}
         <input
           id={inputId}
           type="password"
           autoComplete="off"
           spellCheck={false}
           data-testid="credential-request-token-input"
-          className="w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-sm"
-          placeholder="Paste the value here"
+          className={[
+            "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm",
+            "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+            "focus-visible:ring-ring focus-visible:ring-offset-2",
+            "disabled:pointer-events-none disabled:opacity-50",
+            "placeholder:text-muted-foreground",
+          ].join(" ")}
+          placeholder="Paste the value here..."
+          aria-label={`Paste the ${provider.displayName} credential`}
+          disabled={addMutation.isPending || declining}
           value={token}
           onChange={(e) => {
             setToken(e.target.value);
