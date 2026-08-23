@@ -310,6 +310,37 @@ describe("classifyCredentialRequest", () => {
     }
   });
 
+  it("a POLICY close is not a decline — nobody refused, nobody was asked (PR #3264 R1)", () => {
+    // The conflation this guards: `authorization.approve` is the sole
+    // policy-eligible kind, so this request's own kind is the one the router can
+    // auto-close against an unrelated citation with no human involved (mt#3233).
+    // Reporting that as "declined" attributes to the principal a decision they
+    // were never shown, and an agent would then not re-ask.
+    const viaResponder = classifyCredentialRequest(
+      requestAsk({ state: "closed", response: { responder: "policy", payload: {} } })
+    );
+    expect(viaResponder).toEqual({ status: "policy-closed", provider: PROVIDER_ID });
+
+    const viaRoutingTarget = classifyCredentialRequest(
+      requestAsk({
+        state: "closed",
+        routingTarget: "policy",
+        response: { responder: "x", payload: {} },
+      })
+    );
+    expect(viaRoutingTarget?.status).toBe("policy-closed");
+  });
+
+  it("a policy close carries no reason field — there is no refusal to explain", () => {
+    const result = classifyCredentialRequest(
+      requestAsk({
+        state: "closed",
+        response: { responder: "policy", payload: { reason: "auto-resolved" } },
+      })
+    );
+    expect(Object.keys(result ?? {}).sort()).toEqual(["provider", "status"]);
+  });
+
   it("an ask that is not a credential request classifies as null, not as pending", () => {
     expect(classifyCredentialRequest({ state: "routed", metadata: {} } as any)).toBeNull();
     expect(classifyCredentialRequest(null)).toBeNull();

@@ -249,7 +249,13 @@ export type CredentialRequestStatus =
   | { status: "pending"; provider: string }
   | { status: "satisfied"; provider: string; detail: string }
   | { status: "declined"; provider: string; reason?: string }
-  | { status: "unanswered"; provider: string; reason: "cancelled" | "expired" };
+  | { status: "unanswered"; provider: string; reason: "cancelled" | "expired" }
+  /**
+   * The router auto-resolved it in-policy and no human ever saw it (mt#3233).
+   * Distinct from `declined` on purpose: no credential is coming, but nobody
+   * refused. An agent should escalate rather than treat it as an answer.
+   */
+  | { status: "policy-closed"; provider: string };
 
 /**
  * Classify a credential-request ask for the agent that filed it.
@@ -259,7 +265,7 @@ export type CredentialRequestStatus =
  * plausible-looking "pending".
  */
 export function classifyCredentialRequest(
-  ask: Pick<Ask, "state" | "metadata" | "response"> | null | undefined
+  ask: Pick<Ask, "state" | "metadata" | "response" | "routingTarget"> | null | undefined
 ): CredentialRequestStatus | null {
   if (!ask) return null;
   const payload = readCredentialRequest(ask);
@@ -272,9 +278,7 @@ export function classifyCredentialRequest(
     return { status: "unanswered", provider, reason: ask.state };
   }
 
-  // `responded` and `closed` both carry an answer. Presence-close is the only
-  // path that records this responder, so anything else at this point is the
-  // principal having settled it themselves — i.e. a decline.
+  // `responded` and `closed` both carry an answer.
   const responder = ask.response?.responder;
   if (responder === CREDENTIAL_REQUEST_RESPONDER) {
     const detail = (ask.response?.payload as { detail?: unknown } | undefined)?.detail;
@@ -285,6 +289,22 @@ export function classifyCredentialRequest(
     };
   }
 
+  // A phase-1 policy close is NOT a decline, and the difference is the whole
+  // point of the distinction. `authorization.approve` is the sole member of
+  // POLICY_ELIGIBLE_KINDS, so this request's own kind is the one the router can
+  // auto-resolve against an unrelated citation in ~150ms with nobody ever seeing
+  // it (mt#3233). Reporting that as "the principal declined" would attribute to
+  // them a decision they were never shown — worse than the silent stall it
+  // replaces, because the agent would act on it confidently and not re-ask.
+  //
+  // The create path already fails loudly on this, but a request can be closed
+  // this way after creation, and this classifier is also reachable for a row it
+  // did not create. Clean fix for the exposure itself: mt#3715.
+  if (isPolicyResolved({ routingTarget: ask.routingTarget, response: ask.response })) {
+    return { status: "policy-closed", provider };
+  }
+
+  // Everything else at this point is the principal settling it themselves.
   const reason = (ask.response?.payload as { reason?: unknown } | undefined)?.reason;
   return {
     status: "declined",
