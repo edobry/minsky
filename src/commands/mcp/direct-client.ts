@@ -2,6 +2,43 @@ import { spawn } from "child_process";
 import { log } from "@minsky/shared/logger";
 
 /**
+ * Parse repeated `--arg key=value` strings into the arguments object sent to the tool.
+ *
+ * Extracted as a pure function so the marshalling can be tested without spawning a
+ * server (the pure-decision-core pattern, mt#3629): everything else in this module is IO.
+ *
+ * **Fails closed on anything it cannot marshal faithfully (mt#4459).** The whole point of
+ * this function is that a caller's value reaches the tool intact; an entry that cannot be
+ * split into a key and a value is therefore an error, not something to drop quietly. Silent
+ * skipping is the same failure mode as the truncation this function was written to fix —
+ * the command succeeds and the tool is called without the argument the operator supplied.
+ */
+export function parseToolArgs(args: string[]): Record<string, string> {
+  const argsObj: Record<string, string> = {};
+  for (const arg of args) {
+    // Split on the FIRST separator only, keeping the remainder in the value.
+    // Do NOT use `arg.split("=", 2)`: JavaScript's limit caps the RESULT ARRAY
+    // LENGTH and DISCARDS the rest, so `content=a=b=c` yielded `content -> "a"`
+    // and the tool was called with a silently truncated value (mt#4459).
+    const separatorIndex = arg.indexOf("=");
+    if (separatorIndex < 0) {
+      throw new Error(
+        `Malformed --arg '${arg}': expected key=value, but no '=' was found. ` +
+          `Pass the argument as --arg 'name=value'.`
+      );
+    }
+    if (separatorIndex === 0) {
+      throw new Error(
+        `Malformed --arg '${arg}': the parameter name before '=' is empty. ` +
+          `Pass the argument as --arg 'name=value'.`
+      );
+    }
+    argsObj[arg.slice(0, separatorIndex)] = arg.slice(separatorIndex + 1);
+  }
+  return argsObj;
+}
+
+/**
  * Call an MCP tool directly via stdio (faster than inspector CLI)
  * @param toolName Name of the tool to call
  * @param args Tool arguments as key-value pairs
@@ -12,6 +49,10 @@ export async function callMcpToolDirectly(
   args: string[],
   options: { repo?: string; timeout?: number } = {}
 ): Promise<void> {
+  // Parse BEFORE spawning: a malformed --arg is a caller error, and failing here avoids
+  // starting a server process only to reject and leave it to be torn down (mt#4459).
+  const argsObj = parseToolArgs(args);
+
   return new Promise((resolve, reject) => {
     const serverArgs = ["mcp", "start"];
     if (options.repo) {
@@ -42,15 +83,6 @@ export async function callMcpToolDirectly(
         reject(new Error(`Tool '${toolName}' timed out after ${timeoutMs / 1000} seconds`));
       }
     }, timeoutMs);
-
-    // Convert args array to object
-    const argsObj: Record<string, string> = {};
-    for (const arg of args) {
-      const [key, value] = arg.split("=", 2);
-      if (key && value !== undefined) {
-        argsObj[key] = value;
-      }
-    }
 
     // Send the MCP request
     const request = {
