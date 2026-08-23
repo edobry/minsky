@@ -53,7 +53,7 @@ export interface SessionDriverSummary {
 /**
  * What the route's `:id` resolved to.
  *
- * `session driver` is carried on the `conversation` variant too — a conversation that
+ * `sessionDriver` is carried on the `conversation` variant too — a conversation that
  * HAS a live session driver is still just a conversation for read purposes (that is
  * this task's whole thesis), but the route needs to know one exists so it can
  * offer the drive view.

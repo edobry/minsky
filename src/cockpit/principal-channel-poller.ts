@@ -295,7 +295,7 @@ export interface PollCycleDeps {
    * mt#3500).
    *
    * Called ONLY for a message carrying a `messageThreadId` — a message with
-   * none always uses {@link session driver} instead, unconditionally, so a poller
+   * none always uses {@link sessionDriver} instead, unconditionally, so a poller
    * launched without topic support (this field omitted) behaves EXACTLY as
    * before. The resolver is expected to return the SAME session driver instance for
    * the same thread id across calls (a cache, not a fresh session driver per
