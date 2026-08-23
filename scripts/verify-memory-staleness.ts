@@ -40,6 +40,20 @@ interface Summary {
   fireRatePercent: number;
   staleRecords: { shortId?: string; name: string; completed: string[] }[];
   unresolvedRecords: { shortId?: string; name: string; refs: string[] }[];
+  /** Trigger 2 (mt#4452), reported separately — see the comment at its computation. */
+  measurement: {
+    withDatedMeasurement: number;
+    fires: number;
+    handoffFires: number;
+    fireRatePercent: number;
+    records: {
+      shortId?: string;
+      name: string;
+      measuredOn: string;
+      ageDays: number;
+      interveningTasks: string[];
+    }[];
+  };
 }
 
 async function main(): Promise<number> {
@@ -80,9 +94,14 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const { createTaskStatusLookup, extractTrackingTaskRefs, computeStaleness } = await import(
-    "@minsky/domain/memory"
-  );
+  const {
+    createTaskStatusLookup,
+    extractTrackingTaskRefs,
+    computeStaleness,
+    createInterveningTaskLookup,
+    extractMeasurement,
+    computeMeasurementDecay,
+  } = await import("@minsky/domain/memory");
   const { memoriesTable } = await import("@minsky/domain/storage/schemas/memory-embeddings");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,6 +131,13 @@ async function main(): Promise<number> {
     fireRatePercent: 0,
     staleRecords: [],
     unresolvedRecords: [],
+    measurement: {
+      withDatedMeasurement: 0,
+      fires: 0,
+      handoffFires: 0,
+      fireRatePercent: 0,
+      records: [],
+    },
   };
 
   for (const { row, extracted } of perRecord) {
@@ -140,6 +166,45 @@ async function main(): Promise<number> {
   summary.fireRatePercent =
     rows.length === 0 ? 0 : Math.round((summary.stale / rows.length) * 10000) / 100;
 
+  // ── Trigger 2: measurement decay (mt#4452) ────────────────────────────────
+  // Reported SEPARATELY from trigger 1 rather than folded into one rate: they are independent
+  // detectors with independent precision profiles, and a combined number would hide which one
+  // is noisy. The handoff share is broken out because the planning calibration found handoffs
+  // were 39% of trigger 2's CANDIDATE set — mt#4452 §Design decision B declines to exclude
+  // them by genre in v1 and requires this number to decide with evidence rather than a hunch.
+  const interveningLookup = createInterveningTaskLookup(db as never);
+  const now = new Date();
+  for (const { row } of perRecord) {
+    const measurement = extractMeasurement({
+      content: String(row["content"] ?? ""),
+      description: String(row["description"] ?? ""),
+    });
+    if (!measurement || measurement.subsystems.length === 0) continue;
+    summary.measurement.withDatedMeasurement++;
+
+    const intervening = await interveningLookup(
+      measurement.subsystems,
+      new Date(`${measurement.measuredOn}T00:00:00Z`)
+    );
+    const decay = computeMeasurementDecay(measurement, intervening, now);
+    if (!decay) continue;
+
+    summary.measurement.fires++;
+    const name = String(row["name"] ?? "");
+    if (/^handoff[_-]/i.test(name)) summary.measurement.handoffFires++;
+    if (summary.measurement.records.length < 40) {
+      summary.measurement.records.push({
+        shortId: row["shortId"] ? String(row["shortId"]) : undefined,
+        name,
+        measuredOn: decay.measuredOn,
+        ageDays: decay.ageDays,
+        interveningTasks: decay.interveningTasks.map((t) => t.taskId),
+      });
+    }
+  }
+  summary.measurement.fireRatePercent =
+    rows.length === 0 ? 0 : Math.round((summary.measurement.fires / rows.length) * 10000) / 100;
+
   if (asJson) {
     console.log(JSON.stringify(summary, null, 2));
     return 0;
@@ -153,6 +218,14 @@ async function main(): Promise<number> {
   console.log(`  -> unresolved (silent):      ${summary.unresolved}`);
   console.log(`Fire rate over whole corpus:   ${summary.fireRatePercent}%`);
 
+  const m = summary.measurement;
+  const handoffShare = m.fires === 0 ? 0 : Math.round((m.handoffFires / m.fires) * 100);
+  console.log("\n--- trigger 2: measurement decay (mt#4452) ---");
+  console.log(`Carry a dated measurement:     ${m.withDatedMeasurement}`);
+  console.log(`  -> decayed (FIRES):          ${m.fires}`);
+  console.log(`     of which handoff_*:       ${m.handoffFires} (${handoffShare}%)`);
+  console.log(`Fire rate over whole corpus:   ${m.fireRatePercent}%`);
+
   if (verbose) {
     console.log("\n--- firing records ---");
     for (const r of summary.staleRecords) {
@@ -161,6 +234,14 @@ async function main(): Promise<number> {
     console.log("\n--- unresolved records (silent, but not 'current') ---");
     for (const r of summary.unresolvedRecords) {
       console.log(`  ${r.shortId ?? "?"} ${r.name} :: ${r.refs.join(", ")}`);
+    }
+    console.log("\n--- measurement-decay firings (trigger 2) ---");
+    for (const r of summary.measurement.records) {
+      const tag = /^handoff[_-]/i.test(r.name) ? "[handoff] " : "          ";
+      console.log(
+        `  ${tag}${r.shortId ?? "?"} ${r.name.slice(0, 56)} :: ${r.measuredOn} ` +
+          `(${r.ageDays}d) <- ${r.interveningTasks.slice(0, 3).join(", ")}`
+      );
     }
   }
 

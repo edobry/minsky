@@ -36,3 +36,14 @@ export type {
   CompletedTrackingTask,
 } from "./staleness";
 export { createTaskStatusLookup } from "./task-status-lookup";
+
+// Measurement-decay annotation (mt#4452, trigger 2).
+export {
+  computeMeasurementDecay,
+  extractCitedSubsystems,
+  extractMeasurement,
+  renderMeasurementNote,
+} from "./measurement-decay";
+export type { DetectedMeasurement, InterveningTask, MeasurementDecay } from "./measurement-decay";
+export { combineStaleness } from "./staleness";
+export { createInterveningTaskLookup } from "./intervening-task-lookup";

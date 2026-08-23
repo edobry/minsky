@@ -213,11 +213,8 @@ correctness. Re-run it after any pattern change; the ceiling is the regression g
 
 ## Not covered
 
-- **Dated-measurement staleness** — a memory whose _numbers_ were measured before a change
-  that invalidated them, carrying no retirement clause because its author could not have known
-  which future task would invalidate it. That is trigger 2, gated on its own fire-rate
-  measurement; see mt#1709's `## Scope extension (2026-08-22)`. The originating incident is
-  mem#1205.
+- **Dated-measurement staleness** — **now covered, as trigger 2 (mt#4452)**. See
+  `## Trigger 2 — measurement decay` below.
 - **Figure-level attribution.** v1 annotates the RECORD. mem#773 is the counter-example: its
   turn-table numbers were invalidated by mt#4345 while its blob numbers were untouched, so
   decaying the whole record would have been as wrong as decaying none of it. Attributing decay
@@ -227,6 +224,64 @@ correctness. Re-run it after any pattern change; the ceiling is the regression g
 - **Auto-retirement.** This annotates; it never deletes, edits, or supersedes. The write-side
   counterpart is `.minsky/hooks/bridge-memory-retirement.ts` (mt#2062), which prompts at
   task-DONE time; offline bulk consolidation is memory Phase 2 (mt#279).
+
+## Trigger 2 — measurement decay (mt#4452)
+
+Trigger 1 keys on a clause the author WROTE. Trigger 2 keys on what they could not have
+written, because they could not know which future task would invalidate their numbers: a
+**dated measurement** whose cited subsystem has changed since it was taken.
+
+`packages/domain/src/memory/measurement-decay.ts`. A record needs all three to fire:
+
+1. **A measurement-bound date** — `measured 2026-07-30`, `Baseline 2026-05-12`,
+   `the 2026-06-30 measurement`. NOT `as of <date>` or `verified <date>`: those match session
+   boundaries and status checks, and the loose first cut was dominated by `handoff_*` records
+   because every handoff carries a "Statuses verified in-turn at …" line.
+2. **A figure with a magnitude unit** — `%`, `MB`, `rows`, `updates`, optionally with an SI
+   prefix (`14.2 M updates`). A bare integer is a task id or a year; neither decays.
+3. **Something that landed on a cited subsystem since** — a completed task whose spec cites one
+   of the memory's own backticked paths or table names.
+
+Age alone is never staleness. A ten-month-old measurement of something nobody has touched is
+still accurate, and stays silent.
+
+### Two bounds, both added because the live run demanded them
+
+**A 5-day age floor.** Grounded in observed cadence per `decision-defaults.mdc §Thresholds`:
+that is this project's budget window, and roughly 23 tasks complete per day here, so below it
+"something touched that subsystem" carries no information.
+
+**A specificity requirement on non-path subsystem tokens** (14 chars). `task_specs` appears in
+a large share of specs; matching on it means the subsystem is not what selected the tasks.
+
+Without them the first live run fired on **38 of 39** candidates — including a baseline
+recorded ONE DAY before the run — with the same few task ids recurring as "intervening" across
+unrelated memories. With them: **27 of 37, 2.22% of the corpus.** mem#773 still fires at 54
+days; the day-old baselines do not.
+
+### The known weakness, stated plainly
+
+The intervening-task signal rests on `tasks.updatedAt`, which the schema bumps on **any** row
+mutation rather than on completion. A task finished in June but reparented last week satisfies
+`updatedAt >= since` for a measurement taken in August. The two bounds above limit how wrong
+that can look; they do not fix it. A real fix needs a completion timestamp the `tasks` table
+does not carry. This is the same defect mt#4420 documents for `task_specs.updated_at`.
+
+### Reading the annotation
+
+A measurement-decay verdict is `stale` with EMPTY tracking-task fields — mem#773's shape. It
+can also **promote** a trigger-1 `current` verdict: an open tracking task says nothing about
+whether the record's numbers still hold. When both fire, both notes render.
+
+### Handoffs are not excluded by genre
+
+`handoff_*` records are ~44% of firings. Not filtered out in v1, deliberately: a handoff whose
+figures describe a changed subsystem is arguably a TRUE positive, and the only argument against
+annotating it is that a handoff is self-evidently historical. That is a usefulness judgment, to
+be made on measured data rather than pre-empted — `scripts/verify-memory-staleness.ts` reports
+the handoff share separately so the revisit has evidence. Read
+`RFC: Conversation succession — handoffs as first-class substrate entities` first if handoffs
+gain their own lifecycle.
 
 ## See also
 

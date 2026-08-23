@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   collectUnresolvedRefs,
+  combineStaleness,
   computeStaleness,
   extractTrackingTaskRefs,
   renderStalenessNote,
@@ -207,6 +208,56 @@ describe("computeStaleness", () => {
     );
     expect(result?.outcome).toBe("stale");
     expect(result?.unresolvedTasks).toEqual([UNKNOWN_TASK]);
+  });
+});
+
+describe("combineStaleness — the two triggers are independent (mt#4452)", () => {
+  const DECAY = {
+    measuredOn: "2026-07-30",
+    ageDays: 23,
+    matchedSentence: "Measured on prod 2026-07-30",
+    subsystems: ["turn-writer.ts"],
+    interveningTasks: [{ taskId: "mt#4345", title: "ingest rewrites every turn" }],
+  };
+
+  test("neither trigger fires → no verdict", () => {
+    expect(combineStaleness(undefined, undefined)).toBeUndefined();
+  });
+
+  test("only trigger 1 → its verdict is returned unchanged", () => {
+    const t1 = detect({ content: TRACKING_CLAUSE }, { [TRACKED_TASK]: "DONE" });
+    if (!t1) throw new Error("expected a trigger-1 verdict for the fixture");
+    // Identity, not equality: with no measurement there is nothing to combine, so the same
+    // object should come back rather than a reconstructed copy.
+    expect(combineStaleness(t1, undefined)).toBe(t1);
+  });
+
+  test("only trigger 2 → stale, with empty tracking-task fields (mem#773's shape)", () => {
+    const combined = combineStaleness(undefined, DECAY);
+    expect(combined?.outcome).toBe("stale");
+    expect(combined?.completedTasks).toEqual([]);
+    expect(combined?.note).toContain("MEASUREMENT MAY BE STALE");
+    expect(combined?.measurement?.interveningTasks[0]?.taskId).toBe("mt#4345");
+  });
+
+  test("trigger 2 PROMOTES a `current` trigger-1 verdict to stale", () => {
+    // An open tracking task says nothing about whether the record's numbers still hold, so
+    // the measurement finding is not subordinate to it.
+    const t1 = detect({ content: TRACKING_CLAUSE }, { [TRACKED_TASK]: "TODO" });
+    expect(t1?.outcome).toBe("current");
+    expect(combineStaleness(t1, DECAY)?.outcome).toBe("stale");
+  });
+
+  test("both fire → both notes are carried", () => {
+    const t1 = detect({ content: TRACKING_CLAUSE }, { [TRACKED_TASK]: "DONE" });
+    const note = combineStaleness(t1, DECAY)?.note;
+    expect(note).toContain("POSSIBLY OBSOLETE");
+    expect(note).toContain("MEASUREMENT MAY BE STALE");
+  });
+
+  test("combining preserves trigger 1's completed tasks", () => {
+    const t1 = detect({ content: TRACKING_CLAUSE }, { [TRACKED_TASK]: "DONE" });
+    expect(combineStaleness(t1, DECAY)?.completedTasks[0]?.taskId).toBe(TRACKED_TASK);
   });
 });
 
