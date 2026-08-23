@@ -44,6 +44,8 @@ const { getContextInspectorDb } = await import("../src/cockpit/db-providers");
 const { sql } = await import("drizzle-orm");
 
 const EXPECTED = "driver_generation";
+/** The pre-rename spelling. Its PRESENCE is a failure even alongside `EXPECTED`. */
+const SUPERSEDED = "actuator_generation";
 const TABLES = ["driven_sessions", "driven_session_conversations"] as const;
 
 const db = await getContextInspectorDb();
@@ -58,7 +60,9 @@ for (const table of TABLES) {
   const rows = Array.from(
     (await db.execute(
       sql`SELECT column_name FROM information_schema.columns
-          WHERE table_name = ${table} AND column_name LIKE '%generation%'
+          WHERE table_schema = current_schema()
+            AND table_name = ${table}
+            AND column_name LIKE '%generation%'
           ORDER BY column_name`
     )) as Iterable<Record<string, unknown>>
   );
@@ -66,6 +70,18 @@ for (const table of TABLES) {
 
   if (names.length === 0) {
     console.error(`FAIL ${table}: no *generation* column at all — is the table present?`);
+    ok = false;
+    continue;
+  }
+  // Both halves are checked, not just the presence of the new name (PR #3267
+  // R1). A half-applied rename leaves BOTH columns, and asserting only
+  // `includes(EXPECTED)` would pass that — reporting success on the exact
+  // failure this script exists to catch.
+  if (names.includes(SUPERSEDED)) {
+    console.error(
+      `FAIL ${table}: ${SUPERSEDED} is still present (found: ${names.join(", ")}) — ` +
+        `the rename did not complete.`
+    );
     ok = false;
     continue;
   }

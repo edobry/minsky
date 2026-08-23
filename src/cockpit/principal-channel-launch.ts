@@ -2,7 +2,7 @@
  * Composition root for the principal channel (mt#3228).
  *
  * Binds the poller to its real collaborators — Telegram credentials, the
- * append-only event log, the driven-session session driver, the ask substrate — and
+ * append-only event log, the driven-session driver, the ask substrate — and
  * decides whether the channel runs at all.
  *
  * ## Opt-in, deliberately

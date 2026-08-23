@@ -359,6 +359,16 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
     // application-defined codes per RFC 6455 §7.4.2); the client hook keys
     // off it to distinguish "please reconnect immediately" from an ordinary
     // close/error, which it treats as session-ended.
+    //
+    // The reason STRING is diagnostic only and is NOT part of the contract —
+    // the close CODE is (PR #3267 R1 raised the rename of this literal as a
+    // possible cross-surface break). Verified rather than assumed: the sole
+    // consumer, `useDrivenSession.ts`, branches on
+    // `ev.code === DRIVER_SWAP_RECONNECT_CLOSE_CODE` and never reads
+    // `ev.reason`; its tests drive the path with `simulateCodedClose(4001)`,
+    // which supplies no reason at all. Keep it that way — a client that starts
+    // matching on this text re-introduces exactly the coupling this note rules
+    // out.
     onSwap: () => {
       try {
         ws.close(4001, "sessionDriver-swap-reconnect");

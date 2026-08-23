@@ -1,5 +1,5 @@
 /**
- * Tests for the driven-session session driver (mt#3228).
+ * Tests for the driven-session driver (mt#3228).
  *
  * Uses the same injected-`spawnFn` discipline as driven-session-host.test.ts —
  * no test spawns a real `claude`. The cases worth having are the ones about

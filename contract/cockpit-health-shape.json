@@ -247,6 +247,7 @@
     },
     "failedNonCredential": {
       "state": "failed",
+      "$reasonNote": "ILLUSTRATIVE, not a golden literal (PR #3267 R1). `reason` on the `failed` variant is `err.message` from startPrincipalChannel's catch (src/cockpit/principal-channel-launch.ts ~line 981), so its text is whatever the underlying exception said — arbitrary and unpinnable. No producer emits the sample string below, before or after mt#4456's rename; it illustrates the SHAPE and the fault class. Do not assert on it, and do not treat a mismatch against runtime output as drift.",
       "reason": "session driver construction threw: ECONNREFUSED"
     }
   },

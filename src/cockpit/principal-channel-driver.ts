@@ -1,5 +1,5 @@
 /**
- * Driven-session session driver for the principal channel (mt#3228).
+ * Driven-session driver for the principal channel (mt#3228).
  *
  * Carries out the inbound router's decisions against a STANDING driven session
  * — one long-lived `claude` conversation that is the principal's counterpart on
