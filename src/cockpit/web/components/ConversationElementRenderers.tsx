@@ -462,14 +462,14 @@ export function ToolInvocation({
     () => (result ? { content: result.content, isError: result.isError } : undefined),
     [result]
   );
-  // What this call DID, read off the payload — `unknown` until it says (mt#4437).
-  const consequence = useMemo(
-    () => toolConsequence(call.name, resultInfo),
-    [call.name, resultInfo]
-  );
+  // The weight step, derived in ONE memo from the payload (mt#4437). Kept as a
+  // single derivation rather than a consequence memo feeding a weight memo
+  // (PR #3273 R1): the intermediate had no other consumer, and chaining memos
+  // on a freshly-built `resultInfo` object just adds a link that invalidates on
+  // exactly the same inputs.
   const weight = useMemo(
-    () => effectWeightFor(call.name, consequence),
-    [call.name, consequence]
+    () => effectWeightFor(call.name, toolConsequence(call.name, resultInfo)),
+    [call.name, resultInfo]
   );
   // A native file tool acting on a session workspace reveals that only through
   // its absolute path (mt#3378) — mark it in the label, and keep the session

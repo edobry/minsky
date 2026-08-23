@@ -265,7 +265,14 @@ function statusSetSummary(input: unknown, result: ToolResultInfo | undefined): s
   return `${id ? `${id} · ` : ""}${prev} → ${next}`;
 }
 
-/** `2 files +26/−2`; an empty commit reports `0 files` rather than a byte count. */
+/**
+ * `2 files +26/-2`; an empty commit reports `0 files` rather than a byte count.
+ *
+ * ASCII hyphen, not U+2212 MINUS SIGN (PR #3273 R1). This is diffstat notation,
+ * which is ASCII everywhere it appears — and the digest is text a reader copies
+ * into a search box or a commit message, where a lookalike glyph silently fails
+ * to match.
+ */
 function commitSummary(_input: unknown, result: ToolResultInfo | undefined): string | null {
   if (!result) return null;
   const j = resultJson(result.content);
@@ -273,7 +280,7 @@ function commitSummary(_input: unknown, result: ToolResultInfo | undefined): str
   if (files === undefined) return null;
   const ins = j ? num(j.insertions) : undefined;
   const del = j ? num(j.deletions) : undefined;
-  const delta = ins !== undefined && del !== undefined ? ` +${ins}/−${del}` : "";
+  const delta = ins !== undefined && del !== undefined ? ` +${ins}/-${del}` : "";
   return `${files} file${files === 1 ? "" : "s"}${files > 0 ? delta : ""}`;
 }
 
