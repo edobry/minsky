@@ -63,11 +63,18 @@ export interface ReadinessResult {
   durationMs: number;
 }
 
-/** The three ways a probe attempt can settle. */
+/**
+ * The four ways a probe attempt can settle.
+ *
+ * `outstanding` is the one that is not about THIS attempt: it means a PREVIOUS
+ * attempt's query has still not settled, so this attempt declined to issue
+ * another. See `createReadinessProbe`.
+ */
 export type ProbeOutcome =
   | { kind: "ok" }
   | { kind: "timeout" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  | { kind: "outstanding"; outstandingForMs: number };
 
 /**
  * Functional core: turn a settled probe attempt into a readiness verdict.
@@ -99,6 +106,18 @@ export function assessProbeOutcome(input: {
         `persistence round-trip did not complete within ${timeoutMs}ms — ` +
         `the connection pool is not serving queries (a saturated pool queues ` +
         `without bound; see mt#4471)`,
+      checkedAt,
+      durationMs,
+    };
+  }
+
+  if (outcome.kind === "outstanding") {
+    return {
+      ok: false,
+      reason:
+        `a previous persistence round-trip has not settled after ` +
+        `${outcome.outstandingForMs}ms — no new query was issued, because the ` +
+        `pool is already not serving one (mt#4471)`,
       checkedAt,
       durationMs,
     };
@@ -147,28 +166,60 @@ export function createReadinessProbe(deps: ReadinessProbeDeps): ReadinessProbe {
   const now = deps.now ?? (() => Date.now());
   const delay = deps.delay ?? defaultDelay;
 
-  // Deduplication: one in-flight probe shared by every concurrent caller. See
-  // the module docblock — without this, each health poll adds pool pressure.
+  // Deduplication of concurrent CHECKS: callers arriving while a check is
+  // running join it rather than starting their own.
   let inFlight: Promise<ReadinessResult> | null = null;
+
+  // When the QUERY of a previous check started, if it has still not settled.
+  //
+  // This is a SEPARATE lifetime from `inFlight`, and the distinction is the
+  // whole point (PR #3265 R1). A timed-out check RESOLVES — it returns
+  // not-ready and clears `inFlight` — while its query keeps waiting in
+  // postgres.js's unbounded queue, because there is no checkout timeout to
+  // cancel it and no cancellation API to call. Tracking only the check would
+  // therefore issue a FRESH query on every subsequent poll, each one joining
+  // the same queue and never leaving: on a saturated pool the health endpoint
+  // would accumulate one permanently-parked query per poll, becoming a source
+  // of the pressure it exists to report.
+  //
+  // So at most ONE probe query is ever outstanding. While one is, later checks
+  // answer from that fact instead of adding to it — which is also the more
+  // honest reading: a query that has not returned is itself the evidence the
+  // pool is not serving.
+  let outstandingSince: number | null = null;
 
   async function runOnce(): Promise<ReadinessResult> {
     const startedAt = now();
 
-    const timedOut = Symbol("timeout");
-    let outcome: ProbeOutcome;
+    if (outstandingSince !== null) {
+      return assessProbeOutcome({
+        outcome: { kind: "outstanding", outstandingForMs: startedAt - outstandingSince },
+        timeoutMs: deps.timeoutMs,
+        durationMs: 0,
+        checkedAt: new Date(startedAt).toISOString(),
+      });
+    }
 
-    try {
-      const raced = await Promise.race([
-        deps.runProbeQuery().then(() => "ok" as const),
-        delay(deps.timeoutMs).then(() => timedOut),
-      ]);
-      outcome = raced === timedOut ? { kind: "timeout" } : { kind: "ok" };
-    } catch (error) {
-      outcome = {
+    outstandingSince = startedAt;
+
+    // Settles when the QUERY does, whatever the race below decides, and never
+    // rejects — so the outstanding slot is released exactly once, on the real
+    // completion, and a rejected promise is never left unhandled.
+    const query: Promise<ProbeOutcome> = deps
+      .runProbeQuery()
+      .then<ProbeOutcome>(() => ({ kind: "ok" }))
+      .catch<ProbeOutcome>((error) => ({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
-      };
-    }
+      }))
+      .finally(() => {
+        outstandingSince = null;
+      });
+
+    const outcome = await Promise.race([
+      query,
+      delay(deps.timeoutMs).then<ProbeOutcome>(() => ({ kind: "timeout" })),
+    ]);
 
     return assessProbeOutcome({
       outcome,

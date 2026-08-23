@@ -129,6 +129,90 @@ describe("createReadinessProbe (shell)", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
+  test("PR #3265 R1: a timed-out check does NOT leak a second query on the next poll", async () => {
+    // The reviewer's BLOCKING finding. A timed-out check RESOLVES while its
+    // query stays parked in postgres.js's unbounded queue — there is no
+    // checkout timeout to cancel it. Keyed on the check alone, every
+    // subsequent poll would issue another query that also never leaves, so on
+    // a saturated pool /health would accumulate one parked query per poll and
+    // become a source of the pressure it reports.
+    let queries = 0;
+    let clock = 1_000;
+
+    const probe = createReadinessProbe({
+      runProbeQuery: () => {
+        queries += 1;
+        return new Promise<void>(() => {}); // never settles: the saturated pool
+      },
+      timeoutMs: 1500,
+      now: () => clock,
+      delay: async () => {},
+    });
+
+    const first = await probe.check();
+    expect(first.ok).toBe(false);
+    expect(queries).toBe(1);
+
+    // The tray polls again 5s later.
+    clock += 5_000;
+    const second = await probe.check();
+
+    expect(second.ok).toBe(false);
+    expect(queries).toBe(1); // <-- the fix: still ONE, not two
+    expect(second.reason).toContain("has not settled");
+    expect(second.reason).toContain("5000ms");
+
+    // ...and again, for as long as it stays parked.
+    clock += 5_000;
+    await probe.check();
+    expect(queries).toBe(1);
+  });
+
+  test("once the parked query finally settles, the next check probes again", async () => {
+    // The other half: declining to re-probe must not latch not-ready forever
+    // after the pool recovers.
+    let queries = 0;
+    let release!: () => void;
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let clock = 1_000;
+    // The first check must time out; the recovery check must not. An
+    // instant-resolving timer would win the race even against an
+    // already-resolved query (the query settles through a longer promise
+    // chain), so the timer is armed per-phase rather than globally.
+    let timerFires = true;
+
+    const probe = createReadinessProbe({
+      runProbeQuery: () => {
+        queries += 1;
+        return queries === 1 ? parked : Promise.resolve();
+      },
+      timeoutMs: 1500,
+      now: () => clock,
+      delay: () => (timerFires ? Promise.resolve() : new Promise<void>(() => {})),
+    });
+
+    await probe.check();
+    expect(queries).toBe(1);
+    timerFires = false;
+
+    release();
+    await parked;
+    // The slot is released by a `.finally()` several links down the
+    // implementation's promise chain, so awaiting `parked` alone is not enough
+    // to observe it. A macrotask boundary flushes the whole microtask queue.
+    // (In production the gap is microseconds against a 5s poll — this is a test
+    // ordering concern, not a race the daemon can hit.)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    clock += 5_000;
+    const afterRecovery = await probe.check();
+
+    expect(queries).toBe(2);
+    expect(afterRecovery.ok).toBe(true);
+  });
+
   test("a settled probe does not latch — the next check runs a fresh query", async () => {
     // ADR-035's rule against memoizing a failed initializer, applied to a probe:
     // a transient failure must not pin `ready: false` for the process lifetime.
