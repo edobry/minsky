@@ -42,7 +42,9 @@ const IDENTITY_FALLBACK_REPORT_CAP = 256;
 import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import type { MCPClientCapabilityRegistry } from "./client-capabilities";
+import type { MCPConnectionTracker } from "./client-capabilities";
+import { SingleConnectionCapabilityRegistry } from "./client-capabilities";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
@@ -152,7 +154,7 @@ export interface MinskyMCPServerOptions {
    * is disabled — the no-op registry in CLI composition suffices for those
    * code paths.
    */
-  clientCapabilityRegistry?: MCPClientCapabilityRegistry;
+  connectionTracker?: MCPConnectionTracker;
 
   /**
    * Optional static memory bundle to include in the SDK Server's `instructions`
@@ -260,7 +262,11 @@ export interface ToolDefinition {
    * connections that were still correctly polling within their own
    * server-side timeout).
    */
-  handler?: (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>;
+  handler?: (
+    args: Record<string, unknown>,
+    progress?: ToolProgressReporter,
+    callerCapabilities?: ClientCapabilityRegistry
+  ) => Promise<unknown>;
   /**
    * mt#1792: lazy handler thunk — defers handler-module loading until first
    * invocation. Mutually exclusive with `handler` at registration time: provide
@@ -272,7 +278,11 @@ export interface ToolDefinition {
    * `getHandler` is ignored — backward-compatible coexistence.
    */
   getHandler?: () => Promise<
-    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+    (
+      args: Record<string, unknown>,
+      progress?: ToolProgressReporter,
+      callerCapabilities?: ClientCapabilityRegistry
+    ) => Promise<unknown>
   >;
   /**
    * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
@@ -282,7 +292,11 @@ export interface ToolDefinition {
    * (so retry can occur). Internal; not part of the registration API.
    */
   __resolving?: Promise<
-    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+    (
+      args: Record<string, unknown>,
+      progress?: ToolProgressReporter,
+      callerCapabilities?: ClientCapabilityRegistry
+    ) => Promise<unknown>
   >;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
@@ -411,7 +425,7 @@ export class MinskyMCPServer {
   private wakeSessionResolver: WakeSessionResolver | undefined;
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
-  private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  private connectionTracker: MCPConnectionTracker | undefined;
   /**
    * mt#1751: DI initialization promise. When set via `setInitPromise`, every
    * CallTool dispatch awaits this promise before invoking the tool handler.
@@ -627,7 +641,7 @@ export class MinskyMCPServer {
 
     // mt#1457: capability registry for the Ask router. When provided, each
     // Server created via createConfiguredServer is registered.
-    this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+    this.connectionTracker = options.connectionTracker;
 
     // mt#1625: optional static memory bundle for the `instructions` field.
     // Must be set BEFORE createConfiguredServer is called below so the
@@ -819,7 +833,7 @@ export class MinskyMCPServer {
     // Capabilities are read live from the SDK Server (no caching), so registering
     // here pre-init is safe — the SDK populates getClientCapabilities() on
     // initialize. HTTP onclose / idle reaper / close() handle unregistration.
-    this.clientCapabilityRegistry?.registerServer(server);
+    this.connectionTracker?.registerServer(server);
 
     this.setupRequestHandlers(server, sessionKey);
     return server;
@@ -1045,7 +1059,7 @@ export class MinskyMCPServer {
           }
           // mt#1457: unregister from the capability registry so a closed
           // connection's stale capabilities don't influence routing decisions.
-          this.clientCapabilityRegistry?.unregisterServer(server);
+          this.connectionTracker?.unregisterServer(server);
           // Only close the Server if no external initiator claimed ownership —
           // the initiator (reaper / MinskyMCPServer.close) is responsible for
           // closing the Server directly.
@@ -1146,7 +1160,7 @@ export class MinskyMCPServer {
       this.httpSessions.delete(id);
       // mt#1457: unregister from capability registry. Idempotent — safe even
       // if onclose also fires and unregisters again.
-      this.clientCapabilityRegistry?.unregisterServer(session.server);
+      this.connectionTracker?.unregisterServer(session.server);
       const idleMinutes = Math.floor((now - session.lastActiveAt) / 60_000);
       log.debug("Reaping idle HTTP session", { sessionId: id, idleMinutes });
       try {
@@ -1351,7 +1365,28 @@ export class MinskyMCPServer {
             request.params.arguments = injectedArgs;
           }
 
-          const result = await tool.handler(request.params.arguments || {}, progress);
+          // mt#4451: capabilities scoped to the connection that made THIS call.
+          // `server` is this handler's own connection — `setupRequestHandlers`
+          // takes it as a parameter and `createServer` registers the handler on
+          // the same instance it just built, so no plumbing is needed to obtain
+          // it. Built per request rather than per connection because the SDK
+          // populates `getClientCapabilities()` during `initialize`, which may
+          // not have completed when the connection was created.
+          //
+          // This replaces a process-wide lookup: under ADR-038's shared daemon
+          // every conversation registers into one process, so asking "does ANY
+          // connection support elicitation" let one connected client decide
+          // routing for asks filed by every other, and dispatch to an arbitrary
+          // one of them. `connectionTracker` still answers the fleet-wide
+          // question, under a name that says so.
+          const callerCapabilities: ClientCapabilityRegistry =
+            new SingleConnectionCapabilityRegistry(server);
+
+          const result = await tool.handler(
+            request.params.arguments || {},
+            progress,
+            callerCapabilities
+          );
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
           this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {
@@ -2507,7 +2542,7 @@ export class MinskyMCPServer {
         for (const [sessionId, entry] of this.httpSessions.entries()) {
           (entry as typeof entry & { markExternalClose?: () => void }).markExternalClose?.();
           // mt#1457: unregister from capability registry on shutdown.
-          this.clientCapabilityRegistry?.unregisterServer(entry.server);
+          this.connectionTracker?.unregisterServer(entry.server);
           try {
             await entry.transport.close();
             log.debug("Closed HTTP transport", { sessionId });
@@ -2532,7 +2567,7 @@ export class MinskyMCPServer {
 
       // mt#1457: unregister the singleton stdio Server (HTTP sessions are
       // unregistered above). Idempotent for the http-mode path.
-      this.clientCapabilityRegistry?.unregisterServer(this.server);
+      this.connectionTracker?.unregisterServer(this.server);
 
       await this.server.close();
       log.debug("MCP Server closed");

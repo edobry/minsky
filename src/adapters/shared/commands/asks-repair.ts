@@ -16,7 +16,7 @@ import type { Ask } from "@minsky/domain/ask/types";
 import type { RepairAskGraphDeps } from "@minsky/domain/ask/repair";
 import { policyFirstRoute, type PolicyFirstRouteOptions } from "@minsky/domain/ask/router";
 import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
-import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
+import { selectCapabilityRegistry } from "./asks";
 
 /**
  * Params for `asks.repair` — the GRAPH-field repair surface.
@@ -81,9 +81,19 @@ export function buildRepairDeps(container: AppContainerInterface | undefined): R
       // Re-run the SAME router the create path runs, with the same options, so
       // the value that lands is the one the router itself would have chosen
       // rather than one this repair surface invented.
-      const capabilityRegistry =
-        container?.has("clientCapabilityRegistry") &&
-        (container.get("clientCapabilityRegistry") as ClientCapabilityRegistry);
+      // mt#4451: deliberately does NOT pass the repairer's own connection
+      // capabilities, and the `undefined` first argument is the point rather
+      // than an omission. A repair fixes an ask filed by some OTHER
+      // conversation, often long ago; routing it by whoever happens to be
+      // running the repair is precisely the "one connection decides for
+      // another" category error mt#4451 exists to remove. So a repaired ask
+      // resolves to no elicitation and lands addressable in the inbox.
+      //
+      // In production this is also what the container yields on its own — the
+      // key holds the no-op since `createStartCommand` stopped overriding it —
+      // but going through the shared selector states the intent instead of
+      // depending on that default staying put.
+      const capabilityRegistry = selectCapabilityRegistry(undefined, container);
       const routerOptions: PolicyFirstRouteOptions = capabilityRegistry
         ? { capabilityRegistry }
         : {};

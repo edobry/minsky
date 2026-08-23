@@ -4,8 +4,10 @@
  * These types define the interface for checking MCP client capabilities
  * (e.g., elicitation). They live in the domain package because domain code
  * (ask router, composition types) depends on them. The MCP-server-backed
- * implementation (MCPClientCapabilityRegistry) stays in src/mcp/ since it
- * depends on the MCP SDK's Server class.
+ * implementations stay in src/mcp/ since they depend on the MCP SDK's Server
+ * class: `SingleConnectionCapabilityRegistry` (caller-scoped, what the router
+ * actually consumes) and `MCPConnectionTracker` (fleet-wide, diagnostics only —
+ * deliberately NOT an implementation of the interface below, per mt#4451).
  *
  * @see mt#2133 — moved here from src/mcp/client-capabilities.ts to fix
  *   Docker container path resolution (packages/domain/ couldn't reach
