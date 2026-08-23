@@ -24,10 +24,7 @@
  */
 
 import type { PersistenceHealthStatus } from "@minsky/domain/persistence/health";
-import type {
-  ReachabilityCheck,
-  ReachabilityStatus,
-} from "@minsky/domain/persistence/reachability";
+import type { ReadinessResult } from "@minsky/domain/persistence/readiness-probe";
 
 /** The `service` identity every Minsky service emits (mt#3148). */
 export const MCP_HEALTH_SERVICE = "minsky-mcp";
@@ -39,22 +36,7 @@ export const MCP_HEALTH_SERVICE = "minsky-mcp";
  * is the compile-time half of the same contract.
  */
 export interface McpHealthPayload {
-  /**
-   * Three states, not two (mt#4466).
-   *
-   * `"degraded"` is the state this daemon could not previously express: the
-   * process is alive and a SQL-capable provider IS wired, but a query cannot
-   * currently get through its pool. Before mt#4466 that case was
-   * indistinguishable from full health, because `persistence.mode` is decided by
-   * `getCapabilities().sql` — a static flag that stays `connected` with every
-   * connection in the pool held (mem#1120 R2: ~50 minutes of that, at ~1ms,
-   * across every conversation on the machine).
-   *
-   * It carries HTTP **200**, and that is deliberate rather than an oversight —
-   * see {@link buildMcpHealthResponse}'s note on why the status code must not
-   * move for this state.
-   */
-  status: "ok" | "degraded" | "unhealthy";
+  status: "ok" | "unhealthy";
   service: typeof MCP_HEALTH_SERVICE;
   server: string;
   /**
@@ -70,31 +52,6 @@ export interface McpHealthPayload {
   timestamp: string;
   persistence: { mode: PersistenceHealthStatus["mode"]; reason?: string };
   ready: boolean;
-  /**
-   * Live reachability of this process's own pool, as of the last out-of-band
-   * probe (mt#4466). Present ONLY when a SQL-capable provider is wired — there
-   * is nothing to probe otherwise, and emitting `"unreachable"` for the expected
-   * local/dev boot would read as an alarm for the normal case.
-   *
-   * A bare string rather than a sub-object, matching the cockpit's `db` field
-   * exactly: its dating field is the sibling {@link McpHealthPayload.dbCheck}.
-   * That shape is not cosmetic — the tray's supervisor already parses the
-   * cockpit's `db` out of the health body it has in hand
-   * (`supervisor.rs`, `DB_DEGRADED_POLL_THRESHOLD`), so publishing the same key
-   * here is what lets that policy generalize to this daemon instead of needing a
-   * second, differently-shaped one.
-   */
-  db?: ReachabilityStatus;
-  /**
-   * When the last probe FINISHED, and how long the last successful one took.
-   *
-   * `checkedAt` is what distinguishes "ok, just measured" from a stale "ok" —
-   * without it `db` would be another value a reader cannot date. A `checkedAt`
-   * that stops advancing while `db` reads `"degraded"` is the never-settling
-   * -query wedge, and is the single most diagnostic pair in this body.
-   * Present under the same condition as {@link McpHealthPayload.db}.
-   */
-  dbCheck?: ReachabilityCheck;
 }
 
 /** The response as the route will send it: a status code plus a body. */
@@ -119,40 +76,36 @@ export interface McpHealthResponse {
 export function buildMcpHealthResponse(
   health: PersistenceHealthStatus,
   nowIso: string,
-  reachability?: { status: ReachabilityStatus; check: ReachabilityCheck }
+  readiness?: ReadinessResult
 ): McpHealthResponse {
-  // mt#4466: a live probe only means something when a SQL-capable provider is
-  // actually wired. In `unconfigured` there is no pool to reach, and in
-  // `unavailable` initialization already failed — reporting reachability for
-  // either would add a second, redundant alarm to a state the existing fields
-  // already describe correctly.
-  const probeApplies = health.mode === "connected" && reachability !== undefined;
-  // `unreachable` cannot legitimately occur while `mode === "connected"` (the
-  // provider IS initialized), so fold it in with `degraded` rather than adding a
-  // fourth top-level state for a case that would indicate a wiring bug.
-  const dbDegraded = probeApplies && reachability.status !== "ok";
+  // mt#4471: `ready` needs an OBSERVATION, not a type declaration. `health.mode`
+  // is derived from `provider.getCapabilities().sql` — true for any SQL-capable
+  // provider, including one whose pool has stopped serving. On 2026-08-23 that
+  // gap let this endpoint answer `ready: true` twice during a 45-minute outage
+  // in which every DB-backed call hung.
+  //
+  // The mode check is retained as a PRECONDITION rather than replaced: an
+  // `unconfigured` daemon has nothing to round-trip against, and must keep
+  // reporting `ready: false` without a probe ever running (that is the
+  // offline/dev boot the CI smoke gate asserts a 200 against).
+  //
+  // A caller that supplies no probe result gets the pre-mt#4471 behaviour. That
+  // is deliberate for the two non-route callers — the contract test and any
+  // consumer building a body without a live provider — and the route itself
+  // always passes one.
+  const probeSatisfied = readiness === undefined || readiness.ok;
+  const ready = health.mode === "connected" && probeSatisfied;
+
+  // Prefer the assessment's own reason (the `unavailable` outage case, which is
+  // more specific), and fall back to the probe's explanation so a `connected`
+  // provider that cannot serve says WHY rather than reporting a bare
+  // `ready: false` the operator has to go diagnose from scratch.
+  const reason = health.reason ?? (ready ? undefined : readiness?.reason);
 
   return {
-    // **The status code deliberately does NOT move for `degraded`** (mt#4466),
-    // and this is the one decision in this file most likely to be "corrected"
-    // later, so the reasoning is here rather than in a commit message:
-    //
-    // 1. LIVENESS is what the code answers — "did the process boot?" — and in a
-    //    pool wedge it did. `ready` answers READINESS. The fixture's own
-    //    `$readyFieldNote` already forbids deriving either from the other; a
-    //    degraded pool is exactly the case that separates them.
-    // 2. A 503 would be actively WRONG for the one consumer that reads it.
-    //    `classifyDaemonProbe` (src/mcp/setup/local-http-apply.ts) tests
-    //    `kind === "http-error"` BEFORE it checks identity, so a non-2xx answer
-    //    is classified **foreign** — "some other app holds the port". For a
-    //    wedged-but-ours daemon that is a misdiagnosis with a destructive
-    //    remedy. Its `ready: false` path already returns the correct
-    //    `not-ready`, which refuses adoption without disowning the process.
-    //    (The tray's Rust side gets this right independently — `is_ours` keys on
-    //    identity, not status, and its docstring says so.)
     statusCode: health.healthy ? 200 : 503,
     body: {
-      status: health.healthy ? (dbDegraded ? "degraded" : "ok") : "unhealthy",
+      status: health.healthy ? "ok" : "unhealthy",
       // mt#3148: `service` is the uniform, assertable identity key every
       // Minsky service emits. `server` is retained UNCHANGED alongside it —
       // mt#3142's own diagnosis read `server` to identify the wrong app on the
@@ -164,23 +117,21 @@ export function buildMcpHealthResponse(
       timestamp: nowIso,
       persistence: {
         mode: health.mode,
-        ...(health.reason ? { reason: health.reason } : {}),
+        ...(reason ? { reason } : {}),
       },
       // mt#4297: LIVENESS and READINESS are different questions, and this
       // endpoint answered only the first. `status`/the status code say "the
       // process booted"; `ready` says "it can serve DB-backed work".
       //
-      // Deliberately derived from `mode` alone rather than from the process's
-      // own mode flags: a reader asking "can this serve me?" should not have to
-      // know how the process was launched, and a future transport gets the
-      // right answer here without touching this line.
-      // mt#4466 widened this from `mode === "connected"` alone. `ready` claims
-      // "it can serve DB-backed work", and a daemon whose pool is not answering
-      // cannot — that claim was false for ~50 minutes on 2026-08-23 while this
-      // field read true, which is the whole defect. The static-capability term
-      // stays: both must hold.
-      ready: health.mode === "connected" && !dbDegraded,
-      ...(probeApplies ? { db: reachability.status, dbCheck: reachability.check } : {}),
+      // Deliberately NOT derived from the process's own mode flags: a reader
+      // asking "can this serve me?" should not have to know how the process was
+      // launched, and a future transport gets the right answer here without
+      // touching this line.
+      //
+      // mt#4471 changed WHAT it is derived from. It was `mode === "connected"`
+      // alone, which is a claim about the provider's TYPE; it is now that
+      // precondition AND an observed round trip. See the computation above.
+      ready,
     },
   };
 }

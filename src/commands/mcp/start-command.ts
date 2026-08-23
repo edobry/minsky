@@ -26,8 +26,12 @@ import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resourc
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
+import {
+  createReadinessProbe,
+  type ReadinessProbe,
+  type ReadinessResult,
+} from "@minsky/domain/persistence/readiness-probe";
 import { buildMcpHealthResponse } from "../../mcp/health-payload";
-import { installDbReachabilityTracker, readDbReachability } from "../../mcp/daemon/db-reachability";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
@@ -615,17 +619,87 @@ async function startHttpServer(
   // connection string WAS configured but initialization failed — a genuine
   // outage): only the latter flips this endpoint to 503. See
   // packages/domain/src/persistence/health.ts for the full rationale.
-  // mt#4466: install the live pool probe before the route can serve. The
-  // tracker holds no connection and issues nothing until first read, so this is
-  // cheap at boot; what it needs is the same container accessor the route uses,
-  // bound once rather than re-resolved per probe.
-  installDbReachabilityTracker(() =>
-    container?.has("persistence")
-      ? (container.get("persistence") as PersistenceProvider)
-      : undefined
-  );
+  // mt#4471: bound on the readiness round trip, DERIVED from the ceiling it has
+  // to fit inside rather than picked as a round number
+  // (`decision-defaults.mdc §Thresholds`, CEILING case).
+  //
+  // The binding constraint is the tray supervisor's own HTTP request timeout:
+  // `cockpit-tray/src-tauri/src/supervisor.rs:1244` sets `.timeout(2s)` on the
+  // health request, inside a `POLL_INTERVAL` of 5s
+  // (`supervisor/daemon_core.rs:51`). A probe slower than that budget makes the
+  // whole request time out, and a timed-out request reads as "daemon DOWN"
+  // rather than "daemon not ready" — two states with opposite recoveries. So
+  // this must sit BELOW 2s with room for the rest of the response, not merely
+  // below the poll interval.
+  //
+  // A healthy `select 1` is single-digit milliseconds, so 1500ms is ~2 orders
+  // of magnitude of headroom over normal and still leaves 500ms of the tray's
+  // budget. If that Rust timeout ever changes, this must change with it.
+  const HEALTH_READINESS_PROBE_TIMEOUT_MS = 1_500;
 
-  app.get("/health", (_req, res) => {
+  // mt#4471: one probe per process, created lazily on the first `/health` that
+  // finds a connected provider. Deduplication lives inside the probe; this
+  // memo just avoids rebuilding the closure per request.
+  let readinessProbe: ReadinessProbe | undefined;
+
+  /**
+   * Build the probe bound to a specific provider. Extracted so startup can warm
+   * it (below) with the same closure the route uses — a second closure would
+   * open a second connection and defeat the point.
+   */
+  const ensureReadinessProbe = (provider: PersistenceProvider): ReadinessProbe => {
+    readinessProbe ??= createReadinessProbe({
+      timeoutMs: HEALTH_READINESS_PROBE_TIMEOUT_MS,
+      runProbeQuery: async () => {
+        // The TAGGED-TEMPLATE path, deliberately — not `.unsafe()`. mt#2773's
+        // guard wraps `.unsafe()` with its own FIFO, so a probe sent through it
+        // would report on that queue rather than on the pool every drizzle
+        // consumer contends for. This acquires a real pool connection exactly
+        // as an ordinary query does, which is what makes it end-to-end.
+        const raw = await (
+          provider as PersistenceProvider & {
+            getRawSqlConnection?: () => Promise<unknown>;
+          }
+        ).getRawSqlConnection?.();
+        if (!raw) {
+          throw new Error("provider reports SQL capability but exposes no raw connection");
+        }
+        const sql = raw as (strings: TemplateStringsArray) => Promise<unknown>;
+        await sql`select 1`;
+      },
+    });
+    return readinessProbe;
+  };
+
+  // mt#4471: WARM the pool at startup, because postgres.js connects lazily and
+  // the first query pays TCP + TLS + auth.
+  //
+  // Found by live verification, not by the unit tests, which all passed: a
+  // freshly booted daemon's FIRST `/health` measured 1.505s and reported
+  // `ready: false` with the saturation reason, while calls 2-4 returned
+  // `ready: true` in ~90ms. That is a false negative — the daemon was healthy
+  // and merely cold — and it is exactly the reading that would make a
+  // health-driven supervisor (mt#4472) restart a working process.
+  //
+  // Fire-and-forget: the result is discarded because it is not a verdict about
+  // anything yet, and a rejection cannot escape (the probe never rejects). Its
+  // only job is to have paid the handshake before anything polls.
+  //
+  // RESIDUAL, stated rather than implied: `max_lifetime` (30-60 min) recycles
+  // connections, so a later probe can still land on a fresh connect and blip
+  // not-ready. That is why mt#4472 requires a PERSISTENCE threshold rather than
+  // acting on a single poll — one blip that clears on the next poll is expected
+  // behaviour here, not a degraded daemon.
+  {
+    const bootProvider = container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined;
+    if (bootProvider && assessPersistenceHealth(bootProvider).mode === "connected") {
+      void ensureReadinessProbe(bootProvider).check();
+    }
+  }
+
+  app.get("/health", async (_req, res) => {
     // `container.get()` is synchronous by design: `AppServices["persistence"]`
     // is typed as a plain `BasePersistenceProvider`, not a Promise. All async
     // factory resolution already happened inside `container.initialize()`
@@ -644,17 +718,20 @@ async function startHttpServer(
     // this route runs, rather than a copy of it. The per-field rationale moved
     // there with it — including why `unconfigured` stays a 200 while `ready` is
     // false, which is the invariant `bundle-boot-smoke` depends on.
-    // mt#4466: kick the live pool probe and read the PREVIOUS one's answer. The
-    // handler stays synchronous — see `readDbReachability`'s docstring for why
-    // awaiting here would reintroduce the failure this is meant to report.
-    // Before this, `persistenceHealth` alone decided the body, and it is a
-    // static capability read: it reported `connected`/`ready: true` in ~1ms for
-    // ~50 minutes while no query could get through (mem#1120 R2).
-    const health = buildMcpHealthResponse(
-      persistenceHealth,
-      new Date().toISOString(),
-      readDbReachability()
-    );
+    // mt#4471: `mode === "connected"` only says a SQL-capable provider object
+    // exists. Round-trip it, so a pool that has stopped serving reports
+    // not-ready instead of the `ready: true` this endpoint answered twice
+    // during the 2026-08-23 outage.
+    //
+    // Skipped when there is nothing to round-trip against: `unconfigured` is
+    // the offline/dev boot (already `ready: false` without a probe, and the
+    // state `bundle-boot-smoke` asserts a 200 against), and `unavailable` is
+    // already reporting the outage on its own evidence.
+    let readiness: ReadinessResult | undefined;
+    if (persistence && persistenceHealth.mode === "connected") {
+      readiness = await ensureReadinessProbe(persistence).check();
+    }
+    const health = buildMcpHealthResponse(persistenceHealth, new Date().toISOString(), readiness);
     res.status(health.statusCode).json(health.body);
   });
 
