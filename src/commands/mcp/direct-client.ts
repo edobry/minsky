@@ -63,10 +63,17 @@ export async function callMcpToolDirectly(
     // Re-invoke THIS build rather than resolving "minsky" on $PATH (mt#4475).
     // The bare name only worked where a global install exists, which is why
     // this file's own round-trip test failed in CI and took main red.
-    const { command, args } = resolveMinskyServerSpawn(serverArgs);
+    // Named `spawn*` rather than destructured to `{ command, args }` (PR #3266 R1):
+    // this function's own PARAMETER is `args`, meaning the TOOL's arguments, and a
+    // local of the same name meaning the SERVER PROCESS's arguments shadowed it.
+    // Legal TypeScript — typecheck passed across 8 projects, so it was a latent
+    // readability hazard rather than the compile error R1 reported — but two
+    // unrelated meanings under one identifier in overlapping scope is exactly how a
+    // later edit reaches for `args` and silently gets the wrong one.
+    const { command: spawnCommand, args: spawnArgs } = resolveMinskyServerSpawn(serverArgs);
 
-    log.debug(`Spawning ${command} with args: ${JSON.stringify(args)}`);
-    const child = spawn(command, args, {
+    log.debug(`Spawning ${spawnCommand} with args: ${JSON.stringify(spawnArgs)}`);
+    const child = spawn(spawnCommand, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: process.cwd(),
       env: { ...process.env },

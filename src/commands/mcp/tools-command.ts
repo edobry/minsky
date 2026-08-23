@@ -26,8 +26,14 @@ export function createToolsCommand(): Command {
         await new Promise<void>((resolve, reject) => {
           // Re-invoke THIS build rather than $PATH (mt#4475) — same defect and
           // same fix as direct-client.ts; this site simply had no test to fail.
-          const { command, args } = resolveMinskyServerSpawn(["mcp", "start"]);
-          const child = spawn(command, args, {
+          // No shadowing here — this callback takes `options`, not `args` — but
+          // named the same way as direct-client.ts so the pair reads identically
+          // and neither drifts back toward the ambiguous name (PR #3266 R1).
+          const { command: spawnCommand, args: spawnArgs } = resolveMinskyServerSpawn([
+            "mcp",
+            "start",
+          ]);
+          const child = spawn(spawnCommand, spawnArgs, {
             stdio: ["pipe", "pipe", "pipe"],
             cwd: options.repo || process.cwd(),
             env: { ...process.env },
