@@ -83,10 +83,28 @@ export interface McpHealthPayload {
    *
    * `durationMs` is the field with the most value beyond `reason`: on an
    * outstanding (never-settled) probe, mt#4471's `reason` names the wait in
-   * prose, and a supervisor thresholding on it needs the number. Note
-   * `checkedAt` ADVANCES on every poll including the outstanding case —
-   * `assessProbeOutcome` stamps it on all four branches — so do NOT read a
-   * stale `checkedAt` as a wedge signal; read `reason` or `durationMs`.
+   * prose, and a supervisor thresholding on it needs the number.
+   *
+   * ## This sub-object does NOT mirror the cockpit's, despite the shared name
+   *
+   * PR #3277 R1. `db` above matches the cockpit deliberately — `ok`/`degraded`
+   * mean the same thing on both daemons. `dbCheck`'s MEMBERS do not, and a
+   * reader who assumes symmetry gets both of them wrong:
+   *
+   * - **`durationMs` is NOT the cockpit's `latencyMs`, which is why it has a
+   *   different name.** The cockpit's is "the round-trip of the last SUCCESSFUL
+   *   probe … NOT reset when a later probe fails", i.e. a last-good-measurement
+   *   that can sit next to `db: "degraded"`. Ours is how long THIS check took
+   *   however it settled — success, timeout, or error. Emitting a 43-second
+   *   timeout under the name `latencyMs` would tell a cross-daemon consumer it
+   *   was a healthy round-trip.
+   * - **`checkedAt` shares its name and has the OPPOSITE behaviour.** The
+   *   cockpit deliberately does not restamp it while a probe is outstanding, so
+   *   a stale value there IS the wedge signal. Here `assessProbeOutcome` stamps
+   *   it on all four branches, so it always advances. Do NOT read a stale
+   *   `checkedAt` as a wedge signal on THIS daemon; read `persistence.reason`
+   *   (which names how long the outstanding round-trip has waited) or
+   *   `durationMs`.
    */
   dbCheck?: { checkedAt: string; durationMs: number };
 }
