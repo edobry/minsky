@@ -580,14 +580,20 @@ async function resolveMemoryService(
   // the barrel rather than a deep path — that specifier is already proven to resolve at
   // runtime here, and a deep import's `exports` resolution is exactly the class of thing
   // that typechecks clean and fails on first execution (mt#2760).
-  const { MemoryService: MemoryServiceClass, createTaskStatusLookup } = await import(
-    "@minsky/domain/memory"
-  );
+  const {
+    MemoryService: MemoryServiceClass,
+    createTaskStatusLookup,
+    createInterveningTaskLookup,
+  } = await import("@minsky/domain/memory");
   return new MemoryServiceClass({
     db,
     vectorStorage,
     embeddingService,
     taskStatusLookup: createTaskStatusLookup(db),
+    // mt#4452: trigger 2. Same connection, same reasoning as above — `tasks` and `task_specs`
+    // live beside `memories`, so this costs a query on the few records that carry a dated
+    // measurement and no new service dependency.
+    interveningTaskLookup: createInterveningTaskLookup(db),
   });
 }
 

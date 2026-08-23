@@ -81,6 +81,32 @@ const MEASUREMENT_DATE_PATTERNS: readonly RegExp[] = [
 const FIGURE_PATTERN =
   /\b\d[\d,.]*\s*(?:[kKMGT]\s+)?(?:%|MB|GB|KB|TB|ms|rows?|updates?|tuples?|req\/s)(?!\w)/i;
 
+/**
+ * A measurement younger than this is never reported as decayed, however much has landed.
+ *
+ * Grounded in observed cadence per `decision-defaults.mdc §Thresholds`, not picked round: 5
+ * days is this project's budget window, and it is the interval below which "something touched
+ * that subsystem" carries no information — roughly 23 tasks reach a completed status per day
+ * here, so on any given week almost every subsystem has been touched by something.
+ *
+ * The floor exists because the intervening-task signal rests on `tasks.updatedAt`, which is
+ * bumped by any later row mutation rather than by completion (see
+ * `./intervening-task-lookup.ts`). Measured without it: 38 of 39 candidates fired, including a
+ * baseline recorded ONE DAY before the run. The floor does not fix that proxy — it bounds how
+ * embarrassing its failures can be.
+ */
+const MIN_DECAY_AGE_DAYS = 5;
+
+/**
+ * Minimum length for a NON-PATH subsystem token to be usable as a match key.
+ *
+ * A short snake_case identifier (`task_specs`, `agent_id`) appears in a large share of task
+ * specs, so matching on it means the SUBSYSTEM is not what selected the intervening tasks. The
+ * measured tell: the same few task ids recurred as "intervening" across unrelated memories.
+ * Paths carry an extension and are inherently specific, so they are exempt.
+ */
+const MIN_SUBSYSTEM_TOKEN_LENGTH = 14;
+
 /** A backticked path with a source-file extension — the strongest subsystem signal. */
 const CITED_PATH_PATTERN = /`([^`\n]*\.(?:ts|tsx|sql|json))`/g;
 
@@ -184,8 +210,10 @@ export function extractCitedSubsystems(haystack: string, limit = 12): string[] {
   const bump = (raw: string | undefined) => {
     if (!raw) return;
     const value = raw.trim();
-    // A 2-segment minimum on bare words avoids matching ordinary snake_case prose.
-    if (value.length < 6) return;
+    // A path is specific by construction; a bare identifier has to earn it on length, or it
+    // matches too many task specs to have selected anything. See MIN_SUBSYSTEM_TOKEN_LENGTH.
+    const isPath = /\.[a-z]+$/i.test(value);
+    if (!isPath && value.length < MIN_SUBSYSTEM_TOKEN_LENGTH) return;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   };
 
@@ -213,6 +241,7 @@ export function computeMeasurementDecay(
   now: Date
 ): MeasurementDecay | undefined {
   if (interveningTasks.length === 0) return undefined;
+  if (wholeDaysBetween(measurement.measuredOn, now) < MIN_DECAY_AGE_DAYS) return undefined;
   return {
     measuredOn: measurement.measuredOn,
     ageDays: wholeDaysBetween(measurement.measuredOn, now),

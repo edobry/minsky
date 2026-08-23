@@ -20,7 +20,13 @@ import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
-import { collectUnresolvedRefs, computeStaleness, extractTrackingTaskRefs } from "./staleness";
+import {
+  collectUnresolvedRefs,
+  combineStaleness,
+  computeStaleness,
+  extractTrackingTaskRefs,
+} from "./staleness";
+import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -124,6 +130,19 @@ export interface MemoryServiceDeps {
    * search result, never a precondition for returning one.
    */
   taskStatusLookup?: (taskIds: string[]) => Promise<ReadonlyMap<string, string | undefined>>;
+  /**
+   * Tasks that reached a completed status AFTER `since` and whose spec cites any of
+   * `subsystems` (mt#4452, trigger 2). Used to decide whether a memory's dated measurement
+   * still describes the system it measured.
+   *
+   * Same injected-callback shape and same optionality as `taskStatusLookup` above, for the
+   * same reasons: the detection core stays testable without a task service, and a MemoryService
+   * built without it returns results annotated by trigger 1 only.
+   */
+  interveningTaskLookup?: (
+    subsystems: string[],
+    since: Date
+  ) => Promise<{ taskId: string; title: string; completedAt?: string }[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,6 +748,10 @@ export class MemoryService implements MemoryServiceSurface {
       if (staleness) result.staleness = staleness;
     }
 
+    // mt#4452: trigger 2 folds in on top, and can promote a `current` verdict to `stale` —
+    // an open tracking task says nothing about whether the record's numbers still hold.
+    await this.annotateMeasurementDecay(results);
+
     // AT4: a memory naming a task id that does not resolve is a graceful no-annotation AND a
     // logged warning — the record is citing something the task graph cannot account for, which
     // is worth knowing even though it must not block or annotate the search. The decision of
@@ -741,6 +764,48 @@ export class MemoryService implements MemoryServiceSurface {
       log.warn("[memory.search] Memory cites tracking task ids that could not be resolved", {
         unresolved,
       });
+    }
+  }
+
+  /**
+   * Fold measurement-decay findings into each result's verdict (mt#4452, trigger 2).
+   *
+   * Runs AFTER trigger 1 so it can combine with (and promote) that verdict.
+   *
+   * Unlike trigger 1's single union'd lookup, this issues one query PER RECORD carrying a
+   * dated measurement, because each has its own `since` date and its own subsystem set —
+   * there is no single query covering them. That is bounded in practice rather than in
+   * principle: measured over the live corpus at planning time, 28 of 1215 records (2.30%)
+   * carry a dated measurement at all, and a search page is at most `limit` records, so a K=10
+   * page issues at most 10 and typically zero. If that ratio moves, batch by unioning the
+   * subsystems and filtering per-record in memory.
+   *
+   * Fail-open per record: one record's lookup failing must not cost the whole page its
+   * annotations, nor the search its results.
+   */
+  private async annotateMeasurementDecay(results: MemorySearchResult[]): Promise<void> {
+    const lookup = this.deps.interveningTaskLookup;
+    if (!lookup || results.length === 0) return;
+
+    const now = new Date();
+    for (const result of results) {
+      const measurement = extractMeasurement(result.record);
+      if (!measurement || measurement.subsystems.length === 0) continue;
+
+      try {
+        const intervening = await lookup(
+          measurement.subsystems,
+          new Date(`${measurement.measuredOn}T00:00:00Z`)
+        );
+        const decay = computeMeasurementDecay(measurement, intervening, now);
+        const combined = combineStaleness(result.staleness, decay);
+        if (combined) result.staleness = combined;
+      } catch (err) {
+        log.warn("[memory.search] Intervening-task lookup failed for one record", {
+          memoryId: result.record.id,
+          err,
+        });
+      }
     }
   }
 

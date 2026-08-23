@@ -20,6 +20,9 @@ import {
 /** Evaluation "now" for age arithmetic — fixed so the tests are not wall-clock dependent. */
 const NOW = new Date("2026-08-22T00:00:00Z");
 
+/** The turns table, cited by both mem#773 and mt#4345 — the join the replay rests on. */
+const TURNS_TABLE = "agent_transcript_turns";
+
 /** A real sentence from mem#773, the record the originating incident reasoned from. */
 const MEM773_SENTENCE =
   "**Measured on prod 2026-07-30 (`pg_stat_user_tables`):** `agent_transcripts`: 2,047 live " +
@@ -136,11 +139,11 @@ describe("extractCitedSubsystems", () => {
   test("picks up backticked source paths and table names", () => {
     const subsystems = extractCitedSubsystems(
       "The mechanism is in `agent-transcript-ingest-service.ts` and `turn-writer.ts`; " +
-        "it writes `agent_transcript_turns`."
+        `it writes \`${TURNS_TABLE}\`.`
     );
     expect(subsystems).toContain("agent-transcript-ingest-service.ts");
     expect(subsystems).toContain("turn-writer.ts");
-    expect(subsystems).toContain("agent_transcript_turns");
+    expect(subsystems).toContain(TURNS_TABLE);
   });
 
   test("picks up a bare table mention followed by 'table' or 'rows'", () => {
@@ -159,6 +162,21 @@ describe("extractCitedSubsystems", () => {
 
   test("ignores short identifiers that are ordinary prose", () => {
     expect(extractCitedSubsystems("`a_b` is too short to be a table")).toEqual([]);
+  });
+
+  test("drops a SHORT generic identifier, which would match most task specs", () => {
+    // `task_specs` (10 chars) appears in a large share of specs, so matching on it means the
+    // subsystem is not what selected the intervening tasks — the measured tell was the same
+    // few task ids recurring across unrelated memories.
+    expect(extractCitedSubsystems("we read `task_specs` and `agent_id` here")).toEqual([]);
+  });
+
+  test("keeps a LONG identifier, which is specific enough to select on", () => {
+    expect(extractCitedSubsystems(`writes \`${TURNS_TABLE}\``)).toEqual([TURNS_TABLE]);
+  });
+
+  test("keeps a path regardless of length, since an extension makes it specific", () => {
+    expect(extractCitedSubsystems("see `turn-writer.ts`")).toEqual(["turn-writer.ts"]);
   });
 });
 
@@ -183,9 +201,25 @@ describe("computeMeasurementDecay — the silence contract", () => {
     expect(computeMeasurementDecay(m, [MT4345], NOW)?.ageDays).toBe(23);
   });
 
-  test("never reports a negative age", () => {
+  test("a measurement younger than the floor never decays, however much landed", () => {
+    // The first live run fired on mem#1207 — a baseline recorded ONE DAY before the run —
+    // because `tasks.updatedAt` is bumped by any row mutation, not by completion. The floor
+    // bounds that proxy's failures; it does not fix them.
+    const m = mustExtract({ content: "Measured on prod 2026-08-21: 2,047 rows." });
+    expect(computeMeasurementDecay(m, [MT4345], new Date("2026-08-23T00:00:00Z"))).toBeUndefined();
+  });
+
+  test("the same measurement decays once it is older than the floor", () => {
+    const m = mustExtract({ content: "Measured on prod 2026-08-21: 2,047 rows." });
+    expect(computeMeasurementDecay(m, [MT4345], new Date("2026-08-30T00:00:00Z"))).toBeDefined();
+  });
+
+  test("a future-dated measurement is suppressed, not reported with a clamped age", () => {
+    // Before the age floor this returned a verdict with ageDays clamped to 0. Suppression is
+    // the better answer: a measurement dated after the evaluation time is either a typo or a
+    // scheduled note, and neither has decayed.
     const m = mustExtract({ content: "Measured on prod 2026-09-01: 10 rows." });
-    expect(computeMeasurementDecay(m, [MT4345], NOW)?.ageDays).toBe(0);
+    expect(computeMeasurementDecay(m, [MT4345], NOW)).toBeUndefined();
   });
 });
 
@@ -229,13 +263,13 @@ describe("replay of the originating incident (mem#773 x mt#4345)", () => {
     const mem773 =
       "transcript_blob_write_amplification_is_the_real_cost\n\n" +
       `${MEM773_SENTENCE}\n` +
-      "`agent_transcript_turns` carries 14.2 M updates on 239 k rows, because " +
+      `\`${TURNS_TABLE}\` carries 14.2 M updates on 239 k rows, because ` +
       "`turn-writer.ts` re-upserts EVERY turn on every incremental ingest.";
 
     const m = mustExtract({ content: mem773 });
     expect(m.measuredOn).toBe("2026-07-30");
     expect(m.subsystems).toContain("turn-writer.ts");
-    expect(m.subsystems).toContain("agent_transcript_turns");
+    expect(m.subsystems).toContain(TURNS_TABLE);
 
     const decay = mustDecay(m, [MT4345], NOW);
     expect(decay.ageDays).toBe(23);

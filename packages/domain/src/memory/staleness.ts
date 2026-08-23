@@ -55,6 +55,8 @@
  * @see mt#4448 — populating `associations.tracksTask` so source (1) becomes load-bearing
  */
 
+import { renderMeasurementNote, type MeasurementDecay } from "./measurement-decay";
+
 /** Task statuses that mean the tracked work has landed. */
 const COMPLETED_STATUSES = new Set(["DONE", "CLOSED"]);
 
@@ -149,6 +151,16 @@ export interface MemoryStaleness {
    * `current` and `unresolved` so nothing renders on those paths — see `renderStalenessNote`.
    */
   note?: string;
+  /**
+   * Trigger 2's finding (mt#4452): a dated measurement whose cited subsystem has changed since
+   * it was taken. Independent of the retirement-clause fields above — a record can carry both,
+   * either, or neither, so this is a sibling field rather than another `outcome` variant.
+   *
+   * When present, `outcome` is `"stale"` regardless of what the retirement clause said: a
+   * record whose tracking task is still open can still have numbers that no longer describe
+   * the system.
+   */
+  measurement?: MeasurementDecay;
 }
 
 /**
@@ -248,6 +260,47 @@ export function computeStaleness(
   }
 
   return { outcome: "current", source, completedTasks, unresolvedTasks };
+}
+
+/**
+ * Fold trigger 2's finding into trigger 1's verdict (mt#4452).
+ *
+ * The two triggers are independent detectors over the same record, so this is a combine, not a
+ * branch. Cases, all of which occur in the live corpus:
+ *
+ * - **Neither fires** → `undefined`. The overwhelmingly common case; nothing renders.
+ * - **Only trigger 1** → its verdict, unchanged.
+ * - **Only trigger 2** → a `stale` verdict with empty tracking-task fields. mem#773 is this
+ *   shape: a measurement record with no retirement clause, which is exactly why trigger 1
+ *   could not reach the originating incident.
+ * - **Both** → `stale`, with both notes joined. Note this can PROMOTE a `current` or
+ *   `unresolved` trigger-1 verdict: an open tracking task says nothing about whether the
+ *   record's numbers still hold, so the measurement finding is not subordinate to it.
+ */
+export function combineStaleness(
+  retirement: MemoryStaleness | undefined,
+  measurement: MeasurementDecay | undefined
+): MemoryStaleness | undefined {
+  if (!measurement) return retirement;
+
+  const measurementNote = renderMeasurementNote(measurement);
+  if (!retirement) {
+    return {
+      outcome: "stale",
+      source: "text",
+      completedTasks: [],
+      unresolvedTasks: [],
+      note: measurementNote,
+      measurement,
+    };
+  }
+
+  return {
+    ...retirement,
+    outcome: "stale",
+    note: retirement.note ? `${retirement.note}\n\n${measurementNote}` : measurementNote,
+    measurement,
+  };
 }
 
 /** One memory's unresolved tracking refs, ready to be logged. */
