@@ -58,15 +58,18 @@ export interface AskEditNote {
 /**
  * Prior values of the graph fields a repair replaced (mt#4305).
  *
- * A field is present here only when the repair actually changed it. In
- * particular a `routingTarget` repair only ever fills an ABSENT target — see
- * `repairAskGraph` — so `routingTarget` here is always `undefined` in practice
- * today; it is declared so a future widening of the repair rule cannot silently
- * drop the prior value it would then be discarding.
+ * `parentTaskId` is the only member, and that follows from the repair rules
+ * rather than being an oversight: a `routingTarget` repair only ever fills an
+ * ABSENT target (see `repairAskGraph`), so there is never a prior value to
+ * record. An earlier revision declared a `routingTarget` key here "for a future
+ * widening"; PR #3263 R1 correctly flagged it as unpopulatable, and a field the
+ * code can never set is not future-proofing — it is a claim the type makes and
+ * the implementation does not honor. `repair.test.ts` pins the invariant
+ * instead, so a future re-route verb has to come back here deliberately rather
+ * than inherit a silently-empty slot.
  */
 export interface AskGraphPrevious {
   parentTaskId?: string;
-  routingTarget?: string;
 }
 
 /** Reserved metadata key carrying the append-only edit provenance notes. */

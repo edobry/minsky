@@ -228,6 +228,24 @@ describe("repairAskGraph — routingTarget", () => {
     ).rejects.toThrow(/refusing to guess/);
   });
 
+  test("records no `previous` for a routing-only repair — there is no prior value", async () => {
+    // Pins the invariant `AskGraphPrevious` now documents instead of declaring a
+    // `routingTarget` slot it can never fill (PR #3263 R1). A routing repair only
+    // fills an ABSENT target, so there is nothing prior to record; if a future
+    // re-route verb makes that false, this test fails and sends the author back
+    // to the type rather than letting the value be dropped silently.
+    const repo = new FakeAskRepository();
+    const seeded = await seedAsk(repo);
+
+    const { ask } = await repairAskGraph(
+      repo,
+      { id: seeded.id, repairRoutingTarget: true },
+      PERMISSIVE_DEPS
+    );
+
+    expect(historyOf(ask)[0]?.previous).toBeUndefined();
+  });
+
   test("repairs both fields in one call and records both on one note", async () => {
     const repo = new FakeAskRepository();
     const seeded = await seedAsk(repo);
