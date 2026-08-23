@@ -21,6 +21,7 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
@@ -1273,6 +1274,13 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
           );
         }
         await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
+
+        // Credential-request resolution (mt#4030) rides this tick rather than
+        // its own timer: same repository, same cadence, and the same job of
+        // reconciling pending asks against what is true now. It swallows its own
+        // failures, so neither pass can mask the other's.
+        await runCredentialRequestResolutionTick(repo);
+
         return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

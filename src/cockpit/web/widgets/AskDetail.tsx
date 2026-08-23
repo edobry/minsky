@@ -20,6 +20,8 @@ import { Link } from "react-router-dom";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import { resolveChosenOption } from "../lib/ask-response";
+import { readCredentialRequest } from "@minsky/shared/credential-request";
+import { CredentialRequestForm } from "./CredentialRequestForm";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -453,17 +455,32 @@ export function AskDetail(props: AskDetailProps) {
   /** Which option the recorded response names, so the list can mark it. */
   const chosen = actions === null ? resolveChosenOption(ask) : null;
 
+  /**
+   * The credential-request payload when this ask is one (mt#4030).
+   *
+   * This is the render-mode dispatch the mt#4030 ↔ mt#4447 seam decision names:
+   * a `metadata` key selects which control replaces the option buttons. A second
+   * payload kind adds a branch here and shares nothing else.
+   */
+  const credentialRequest = readCredentialRequest(ask);
+
   const hasOptions =
     (ask.options && ask.options.length > 0) ||
     ask.kind === "authorization.approve" ||
     ask.kind === "quality.review";
 
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const optionCount = ask.options
-    ? Math.min(ask.options.length, letters.length)
-    : hasOptions
-      ? 2
-      : 0;
+  // A credential request has no letter options: the form owns Save, and Decline
+  // is rendered there rather than as a bare "B) Deny". Zeroing the count here
+  // rather than gating the button map keeps one source of truth for "how many
+  // lettered choices does this ask have".
+  const optionCount = credentialRequest
+    ? 0
+    : ask.options
+      ? Math.min(ask.options.length, letters.length)
+      : hasOptions
+        ? 2
+        : 0;
 
   return (
     <Card className="border-border">
@@ -628,10 +645,25 @@ export function AskDetail(props: AskDetailProps) {
               </div>
             )}
 
-            {!ask.options && ask.kind === "authorization.approve" && (
-              <div className="text-sm text-muted-foreground">
-                <p>A) Approve &nbsp; B) Deny</p>
-              </div>
+            {!ask.options &&
+              ask.kind === "authorization.approve" &&
+              !credentialRequest && (
+                <div className="text-sm text-muted-foreground">
+                  <p>A) Approve &nbsp; B) Deny</p>
+                </div>
+              )}
+
+            {/* A credential request renders a masked input instead of the
+                approve/deny pair: there is nothing to approve, only a value to
+                supply, and the value must not travel the response path. The
+                Decline affordance is still the ask's own B) resolution, so a
+                declined request stays distinguishable from an unanswered one. */}
+            {credentialRequest && actions && (
+              <CredentialRequestForm
+                providerId={credentialRequest.provider}
+                declining={actions.resolving}
+                onDecline={() => actions.onResolve(ask, "B")}
+              />
             )}
             {!ask.options && ask.kind === "quality.review" && (
               <div className="text-sm text-muted-foreground">
