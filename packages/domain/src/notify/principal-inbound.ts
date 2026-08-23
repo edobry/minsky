@@ -75,7 +75,7 @@ export type InboundRoute =
    * not know whether the message arrived in a topic at all (that is on
    * `InboundTelegramMessage.messageThreadId`, already available to whatever
    * carries this route out). Both checks, and the actual mapping write, are
-   * the poller/actuator's job — they have the I/O this router deliberately
+   * the poller/session driver's job — they have the I/O this router deliberately
    * lacks.
    */
   | { kind: "bind"; taskRef: string }
@@ -95,7 +95,7 @@ export type InboundRoute =
       replyToMessageId: number | undefined;
       /**
        * The quoted message's text, when the principal replied to one (mt#3243).
-       * The actuator puts this in front of the agent so a reply resolves
+       * The session driver puts this in front of the agent so a reply resolves
        * without depending on the conversation remembering the earlier turn.
        */
       replyToText: string | undefined;

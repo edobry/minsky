@@ -132,7 +132,7 @@ export interface ConversationSwapInfo {
 }
 
 /**
- * `cockpit-restart` — the daemon went down while this actuator was live, so the
+ * `cockpit-restart` — the daemon went down while this session driver was live, so the
  * agent was killed by the cockpit rather than stopping on its own. Resumable.
  * `unrecoverable` — there is no transcript to resume, or its workspace is gone.
  */

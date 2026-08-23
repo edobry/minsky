@@ -153,7 +153,7 @@ describe("buildDrivenReplayBlocks (mt#3453)", () => {
  * These assert the record-shape contract the WS channel branches on. The first
  * implementation gated on `eventLog.length === 0` and passed every unit test,
  * because a test controls the log directly; live verification showed it never
- * fired in production, since the actuator emits frames within milliseconds of
+ * fired in production, since the session driver emits frames within milliseconds of
  * attach and every real client connects after that. The property below is the
  * one that survives real timing.
  */
@@ -195,14 +195,14 @@ describe("needsHistoryReplay gate (mt#3453)", () => {
     }
     const { record } = resumeDrivenSession({
       previous: {
-        localId: "actuator-x",
+        localId: "sessionDriver-x",
         cwd: REAL_CWD,
         permissionMode: "default",
         harnessSessionId: "conv-x",
         taskId: null,
         minskySessionId: null,
         startedAt: new Date().toISOString(),
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         model: null,
       },
       spawnFn: () => new Fake() as never,
@@ -211,7 +211,7 @@ describe("needsHistoryReplay gate (mt#3453)", () => {
 
     expect(record.needsHistoryReplay).toBe(true);
     // The flag must NOT be a function of the log: a second client connecting
-    // after the actuator has emitted frames still needs the history.
+    // after the session driver has emitted frames still needs the history.
     record.eventLog.push({ seq: 0, receivedAt: new Date().toISOString(), payload: { type: "x" } });
     expect(record.needsHistoryReplay).toBe(true);
   });
@@ -219,14 +219,14 @@ describe("needsHistoryReplay gate (mt#3453)", () => {
   test("a boot-rehydrated placeholder requests replay — its predecessor's log is gone", async () => {
     const { buildReconnectingDrivenSessionRecord } = await import(HOST_MODULE);
     const record = buildReconnectingDrivenSessionRecord({
-      localId: "actuator-y",
+      localId: "sessionDriver-y",
       harnessSessionId: "conv-y",
       cwd: "/tmp",
       permissionMode: "default",
       taskId: null,
       minskySessionId: null,
       status: "reconnecting",
-      actuatorGeneration: 0,
+      driverGeneration: 0,
       startedAt: new Date().toISOString(),
     });
     expect(record.needsHistoryReplay).toBe(true);

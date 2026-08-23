@@ -177,7 +177,7 @@ describe("routeInboundMessage — default", () => {
   });
 
   // mt#3243: the router already carried the reply's id; the quoted TEXT is
-  // what the actuator can actually put in front of the agent.
+  // what the session driver can actually put in front of the agent.
   test("carries the quoted message's text on the channel-agent route", () => {
     const route = routeInboundMessage(
       message({ replyToMessageId: 13, replyToText: "mt#3243 is the next task" }),

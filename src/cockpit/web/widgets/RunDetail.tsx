@@ -487,7 +487,7 @@ export interface RunDetailProps {
   keySpace: RunKeySpace;
   /**
    * The conversation to FETCH, when it differs from the addressable `id`
-   * (mt#3132). The unified conversation route accepts a driven actuator's
+   * (mt#3132). The unified conversation route accepts a driven session driver's
    * spawn-time local id as a permanently-valid alias, so `id` stays whatever
    * the URL said — tab links must keep resolving to the address the operator
    * actually used — while data is read under the harness conversation id the

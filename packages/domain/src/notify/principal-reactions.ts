@@ -27,7 +27,7 @@
  * becomes noise the principal learns to ignore, which defeats the ack.
  */
 
-/** The message reached the actuator and a turn is starting. */
+/** The message reached the session driver and a turn is starting. */
 export const REACTION_RECEIVED = "👀";
 
 /** The turn completed and the reply was delivered. */

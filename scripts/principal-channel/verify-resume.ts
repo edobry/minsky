@@ -4,11 +4,11 @@
  *
  * Sibling of `verify-conversation.ts`, which proves a real `claude` child
  * answers at all. This proves the thing unit tests structurally cannot: that
- * the persistence observers actually write a row, and that a NEW actuator with
+ * the persistence observers actually write a row, and that a NEW session driver with
  * no in-memory state finds that row and resumes the SAME conversation.
  *
  * Why a unit test is not enough here. The unit tests inject `orchestrateResume`
- * and a fake `onStateChange`, so they prove the actuator ROUTES the outcomes
+ * and a fake `onStateChange`, so they prove the session driver ROUTES the outcomes
  * correctly — not that the production default reaches a real database and comes
  * back. That gap is exactly mt#3254's lesson (a seam-tested binding was dead for
  * five weeks while rendering healthy zeros), and this change's failure mode is
@@ -16,10 +16,10 @@
  * from "no history yet".
  *
  * What it does:
- *   1. Actuator A tells the conversation a fact and waits for acknowledgement.
+ *   1. Session driver A tells the conversation a fact and waits for acknowledgement.
  *   2. A is dropped WITHOUT stopping the child — the daemon-restart shape (the
  *      registry dies; the transcript on disk does not).
- *   3. Actuator B is built fresh, with its own empty registry — no in-memory
+ *   3. Session driver B is built fresh, with its own empty registry — no in-memory
  *      handle, exactly like a daemon that just booted.
  *   4. B is asked about the fact. Recalling it proves B resumed A's conversation
  *      rather than starting a blank one.
@@ -37,7 +37,7 @@
 // Must come first: the configuration bootstrap below pulls in tsyringe, which
 // throws at import time without this polyfill.
 import "reflect-metadata";
-import { createDrivenSessionActuator } from "../../src/cockpit/principal-channel-actuator";
+import { createDrivenSessionDriver } from "../../src/cockpit/principal-channel-driver";
 import { DrivenSessionRegistry } from "../../src/cockpit/driven-session-host";
 import { safeTruncate } from "../../src/utils/safe-truncate";
 
@@ -48,7 +48,7 @@ import { safeTruncate } from "../../src/utils/safe-truncate";
 // scripts/verify-agents-activity-bound.ts:28-33.)
 //
 // `workingDirectory` is deliberately `process.cwd()` — the REPO root — and NOT
-// the `--cwd` passed to the actuator (PR #2352 R1 raised this). They are
+// the `--cwd` passed to the session driver (PR #2352 R1 raised this). They are
 // different things: `--cwd` is where the `claude` CHILD runs, which for this
 // probe is a throwaway scratch directory; configuration resolution needs the
 // project/user config that lives at the repo and home level. Pointing config
@@ -83,17 +83,17 @@ async function main(): Promise<void> {
   const startedAt = Date.now();
 
   // UNIQUE PER RUN. A fixed id makes the probe non-idempotent in the most
-  // confusing way possible: run 2's first actuator resumes run 1's
+  // confusing way possible: run 2's first session driver resumes run 1's
   // conversation, so step 1 answers with run 1's secret and every later
   // assertion is meaningless. (Observed exactly that — which is itself the
   // clearest demonstration that resume works.)
   const probeLocalId = `${PROBE_LOCAL_ID}-${startedAt}`;
 
   const build = (label: string) =>
-    createDrivenSessionActuator({
+    createDrivenSessionDriver({
       cwd,
       localId: probeLocalId,
-      // A fresh registry per actuator IS the restart: the in-memory handle is
+      // A fresh registry per session driver IS the restart: the in-memory handle is
       // what a daemon restart destroys.
       registry: new DrivenSessionRegistry(),
       respondToAsk: async () => `${label}: ask path not exercised by this probe`,
@@ -104,11 +104,13 @@ async function main(): Promise<void> {
   const ack = await before.converse(TELL);
   console.log(`      answered: ${safeTruncate(ack.trim(), 80, "head")}`);
 
-  console.log("[2/3] dropping the actuator WITHOUT stopping the child (the restart shape)");
+  console.log("[2/3] dropping the session driver WITHOUT stopping the child (the restart shape)");
   // Deliberately no stop() — a daemon restart does not gracefully close the
-  // conversation, it just stops existing. The next actuator has to cope.
+  // conversation, it just stops existing. The next session driver has to cope.
 
-  console.log("[3/3] building a NEW actuator with an empty registry and asking about the fact");
+  console.log(
+    "[3/3] building a NEW session driver with an empty registry and asking about the fact"
+  );
   const after = build("B");
   const recalled = await after.converse(ASK);
   console.log(`      answered (full): ${recalled.trim()}`);

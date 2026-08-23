@@ -412,7 +412,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
       minskySessionId: null,
       status: "unrecoverable",
       unrecoverableReason: reason,
-      actuatorGeneration: 1,
+      driverGeneration: 1,
       startedAt: new Date().toISOString(),
     });
     record.eventLog.push({

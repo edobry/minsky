@@ -191,7 +191,7 @@ describe("supportsOriginSeeding (mt#3367, PR #2493 R1 BLOCKING)", () => {
  *
  * `reconnecting` is that state: boot reconciliation builds it FROM the persisted
  * `driven_sessions` row, for a row still non-terminal when the daemon stopped
- * writing. Every other status is either live, or a terminal verdict the actuator
+ * writing. Every other status is either live, or a terminal verdict the session driver
  * wrote about itself — neither of which is evidence the cockpit killed it.
  */
 describe("deriveAgentStopReason (mt#4037)", () => {
@@ -219,7 +219,7 @@ describe("deriveAgentStopReason (mt#4037)", () => {
   });
 
   test("an agent that exited on its own is NOT reported as a restart kill", () => {
-    // The actuator wrote its own terminal status, so the cockpit did not kill
+    // The session driver wrote its own terminal status, so the cockpit did not kill
     // it. Claiming otherwise would tell the operator to re-send at a thread
     // whose agent decided it was finished.
     expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("exited")))).toBeUndefined();
@@ -301,7 +301,7 @@ describe("deriveAgentStopReasonWithPersisted (mt#4093)", () => {
       },
     });
 
-    // An `exited` record is the actuator's own verdict about itself. Re-deriving
+    // An `exited` record is the session driver's own verdict about itself. Re-deriving
     // from the row could only disagree with it — and would turn "the agent
     // finished" into "send anything to pick it back up".
     expect(reason).toBeUndefined();
