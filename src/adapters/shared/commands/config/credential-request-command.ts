@@ -151,6 +151,12 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
  * all three cases. Whether to ALSO deliver an answered-ask push is a real design
  * question and deliberately not decided here.
  *
+ * If it is adopted, the seam is the resolver's close — `satisfy()` in
+ * `@minsky/domain/credentials/request-resolver`, which is the one place that
+ * knows a request just became satisfied — feeding mt#3564's wake path
+ * (`src/mcp/middleware/wake-enrichment.ts`). Recorded so the next reader does not
+ * have to re-derive where a push would attach.
+ *
  * Either way the durable handle when a conversation ends is the parent task, not
  * the conversation.
  *

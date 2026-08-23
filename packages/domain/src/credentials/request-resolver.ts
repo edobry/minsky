@@ -38,12 +38,22 @@ export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
  *
  * `buildCredentialRequestAsk` sets no `serviceStrategy`, and it is tempting to
  * read `router.ts`'s `ask.serviceStrategy ?? "asap"` and conclude these are
- * always `routed`. They are not: `createAsk`
- * (`src/adapters/shared/commands/asks.ts`) resolves the PER-KIND default from
- * `SERVICE_WINDOW_DEFAULTS` and writes it onto the row BEFORE the router runs,
- * so the router never sees an absent strategy. `authorization.approve` — this
- * request's kind — defaults to `deadline-bound`, whose beyond-threshold branch
- * suspends. The `?? "asap"` is real and simply never applies here.
+ * always `routed`. They are not. The full path, with citations so the next
+ * reader can check it rather than take it on trust:
+ *
+ * 1. `createAsk` (`src/adapters/shared/commands/asks.ts:1329`) resolves
+ *    `params.serviceStrategy ?? kindDefaults.serviceStrategy` at `:1343` and
+ *    writes it onto the row at `:1367` — BEFORE the router runs.
+ * 2. `SERVICE_WINDOW_DEFAULTS["authorization.approve"]`
+ *    (`../ask/service-window-defaults.ts:115-117`) is `"deadline-bound"`, and
+ *    that is this request's kind.
+ * 3. `../ask/router.ts:479-510` therefore takes the deadline-bound branch, whose
+ *    beyond-threshold case returns a `SuspendedAsk`.
+ *
+ * So the router never sees an absent strategy: the `?? "asap"` is real and simply
+ * never applies to this kind. Measured rather than traced — the real create path
+ * against a fake repository returns `state: "suspended"`,
+ * `serviceStrategy: "deadline-bound"`, `routingTarget: "operator"`.
  *
  * Which of the two a request lands in is also an OPEN QUESTION rather than a
  * fixed fact: **mt#4427** owns whether `deadline-bound` should keep suspending

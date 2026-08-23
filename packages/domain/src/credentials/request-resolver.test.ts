@@ -175,6 +175,12 @@ describe("createCredentialRequestResolverDeps — closing takes the legal path",
 
     await createCredentialRequestResolverDeps(repo).listCandidateAsks();
 
+    // The `toEqual` below is the actual guard — it fails if EITHER member is
+    // dropped. The two `toContain`s are not redundant belt-and-braces: they name
+    // the two narrowings that have actually been proposed, so a future reader who
+    // breaks one sees which direction they went rather than a diff of two arrays.
+    expect(queried).toContain("routed");
+    expect(queried).toContain("suspended");
     expect(queried.sort()).toEqual(["routed", "suspended"]);
   });
 
