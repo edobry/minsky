@@ -209,7 +209,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
    * Public sibling of {@link locateSessionFile} that returns the whole
    * {@link DiscoveredSession} rather than only its path (mt#3095).
    *
-   * Attaching an actuator to a conversation Minsky did not spawn needs the
+   * Attaching a session driver to a conversation Minsky did not spawn needs the
    * `cwd` as much as the path — `claude --resume` must run in the directory the
    * conversation belongs to. Discovery already resolves `cwd` for every session
    * it yields (see `yieldTranscripts`, which calls `recoverCwd`), so this

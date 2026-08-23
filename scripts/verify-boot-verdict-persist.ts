@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     pid: null,
     pidCmdline: null,
     model: null,
-    actuatorGeneration: 0,
+    driverGeneration: 0,
     startedAt: new Date().toISOString(),
   });
 

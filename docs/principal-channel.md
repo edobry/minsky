@@ -80,7 +80,7 @@ times**, and each was noticed only when a message went unanswered (mt#3608).
 | `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                                 |
 | `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                        |
 | `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason`, `attempts`, `lastAttemptAt`, `nextAttemptAt`.                   |
-| `failed`       | An exception AFTER credentials resolved (poller/actuator construction). Carries `reason` only. **The channel is not running.**                |
+| `failed`       | An exception AFTER credentials resolved (poller/session driver construction). Carries `reason` only. **The channel is not running.**          |
 | `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                                      |
 
 Field lists above are exhaustive per variant and match `PrincipalChannelStatus`
@@ -169,7 +169,7 @@ faults in one day went unexamined.
 This contrast used to name `failed` rather than `retrying`, and that stopped
 being true at mt#3683: an unreadable credential no longer exhausts into
 `failed`, it keeps retrying. `failed` now means something narrower and later —
-construction of the poller or actuator threw AFTER credentials had already
+construction of the poller or session driver threw AFTER credentials had already
 resolved — so it is not the counterpart to `unconfigured` any more.
 
 The tray does not parse this field (it reads only `db` and
@@ -182,7 +182,7 @@ your own message rather than leaving you watching an empty chat.
 
 | Signal             | Means                                                                                                                                         |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 👀 on your message | The message reached the actuator; a turn is starting.                                                                                         |
+| 👀 on your message | The message reached the session driver; a turn is starting.                                                                                   |
 | "typing…"          | A turn is running. Refreshed continuously for its whole duration.                                                                             |
 | 👌 on your message | The turn finished and the reply was delivered.                                                                                                |
 | 🤨 on your message | The turn failed, or its reply never reached you. If a reply did arrive, it says what went wrong; if none did, delivery itself is what failed. |

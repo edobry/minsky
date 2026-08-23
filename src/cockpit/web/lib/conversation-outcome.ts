@@ -31,8 +31,8 @@
  * | `Interrupted`  | transcript — a tool-result carrying `isInterruptionRejection` |
  * | `Errored`      | transcript — an anchored `API Error:` assistant turn       |
  * | `Rate-limited` | transcript — the same anchored turn, throttle-shaped       |
- * | `Completed`    | actuator — the channel reported a clean exit               |
- * | `Crashed`      | actuator — the channel reported a crash / unrecoverable    |
+ * | `Completed`    | session driver — the channel reported a clean exit               |
+ * | `Crashed`      | session driver — the channel reported a crash / unrecoverable    |
  * | `Stalled`      | **presence, not this module** — see below                  |
  *
  * `Stalled` is part of the vocabulary but is never returned by
@@ -141,18 +141,18 @@ function classifyErrorText(text: string): ConversationOutcome | null {
 }
 
 // ---------------------------------------------------------------------------
-// Actuator evidence
+// Session driver evidence
 // ---------------------------------------------------------------------------
 
 /**
- * The actuator statuses that are TERMINAL — the browser-side mirror of
+ * The session driver statuses that are TERMINAL — the browser-side mirror of
  * `isTerminalStatus` in `src/cockpit/driven-session-host.ts`, which this bundle
  * cannot import (`custom/no-node-import-in-cockpit-web` bans server-side value
  * imports here).
  *
  * This is the SINGLE definition of "terminal" for the cockpit bundle, not just
  * an outcome-classification detail: `conversation-address.ts`'s
- * `actuatorMayStillLink` delegates to it rather than keeping its own list. It
+ * `sessionDriverMayStillLink` delegates to it rather than keeping its own list. It
  * held a private denylist of `exited`/`crashed` once, which silently
  * mis-answered for `unrecoverable`; PR #2502 R1 caught it. One definition is
  * what keeps that from recurring per consumer.
@@ -163,9 +163,11 @@ function classifyErrorText(text: string): ConversationOutcome | null {
  * two-axis model exists to prevent (a channel reconnecting says nothing about
  * how the conversation ended). The status bar keeps rendering them itself.
  */
-export type TerminalActuatorStatus = "exited" | "crashed" | "unrecoverable";
+export type TerminalSessionDriverStatus = "exited" | "crashed" | "unrecoverable";
 
-export function isTerminalActuatorStatus(status: string): status is TerminalActuatorStatus {
+export function isTerminalSessionDriverStatus(
+  status: string
+): status is TerminalSessionDriverStatus {
   return status === "exited" || status === "crashed" || status === "unrecoverable";
 }
 
@@ -178,7 +180,7 @@ export function isTerminalActuatorStatus(status: string): status is TerminalActu
  *
  * A discriminated union rather than one wide options bag: each pipeline can
  * only supply the evidence it actually has, so a caller cannot accidentally ask
- * the transcript arm to answer an actuator question.
+ * the transcript arm to answer a session driver question.
  */
 export type OutcomeEvidence =
   | {
@@ -188,7 +190,7 @@ export type OutcomeEvidence =
       /** The turn's assistant text elements, in order. */
       texts: readonly string[];
     }
-  | { source: "actuator"; status: TerminalActuatorStatus };
+  | { source: "sessionDriver"; status: TerminalSessionDriverStatus };
 
 /**
  * The single terminal-condition classifier for both pipelines.
@@ -198,7 +200,7 @@ export type OutcomeEvidence =
  * unremarkable turn is not `Completed`).
  */
 export function classifyOutcome(evidence: OutcomeEvidence): ConversationOutcome | null {
-  if (evidence.source === "actuator") {
+  if (evidence.source === "sessionDriver") {
     return evidence.status === "exited" ? "Completed" : "Crashed";
   }
 

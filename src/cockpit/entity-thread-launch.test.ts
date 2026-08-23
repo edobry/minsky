@@ -22,7 +22,7 @@ const TEST_CWD = mkdtempSync(join(tmpdir(), "entity-thread-launch-"));
 import {
   DEFAULT_PERMISSION_MODE,
   DrivenSessionRegistry,
-  hasLiveActuator,
+  hasLiveSessionDriver,
   resumeDrivenSession,
   sendDrivenSessionInput,
   DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
@@ -711,7 +711,7 @@ describe("seed prompt attribution", () => {
  * message was stored as an operator turn and then refused by
  * `sendDrivenSessionInput`'s dead-stdin guard — permanently, since nothing
  * re-spawned. These tests pin the two halves of the fix: the guard now asks
- * `hasLiveActuator` (the same question the liveness report asks), and the
+ * `hasLiveSessionDriver` (the same question the liveness report asks), and the
  * replacement prefers a RESUME so the agent still has the thread's earlier
  * turns.
  */
@@ -806,7 +806,7 @@ describe("re-spawn after the agent exits (mt#3550)", () => {
     const spawns: Spawn[] = [];
     const first = await spawnThenExit("dead-replaced", registry, spawns);
 
-    expect(hasLiveActuator(first.record)).toBe(false);
+    expect(hasLiveSessionDriver(first.record)).toBe(false);
     expect(registry.get(first.localId)).toBe(first.record);
 
     const second = await startEntityThreadSession({
@@ -856,7 +856,7 @@ describe("re-spawn after the agent exits (mt#3550)", () => {
             taskId: null,
             minskySessionId: null,
             startedAt: first.record.startedAt,
-            actuatorGeneration: first.record.actuatorGeneration,
+            driverGeneration: first.record.driverGeneration,
           },
           registry,
           spawnFn: recordingSpawn(spawns),
@@ -871,7 +871,7 @@ describe("re-spawn after the agent exits (mt#3550)", () => {
     expect(spawns).toHaveLength(2);
     expect(spawns[1]?.argv).toContain("--resume");
     expect(spawns[1]?.argv).toContain(HARNESS_ID);
-    expect(second.record.actuatorGeneration).toBe(first.record.actuatorGeneration + 1);
+    expect(second.record.driverGeneration).toBe(first.record.driverGeneration + 1);
     expect(registry.get(second.localId)).toBe(second.record);
     // The resumed conversation was seeded the first time round; re-sending the
     // scoping prompt would repeat it to an agent that already has it.
@@ -1004,7 +1004,7 @@ describe("re-spawn after the agent exits (mt#3550)", () => {
               taskId: null,
               minskySessionId: null,
               startedAt: new Date().toISOString(),
-              actuatorGeneration: 0,
+              driverGeneration: 0,
             },
             registry,
             spawnFn: recordingSpawn(spawns),

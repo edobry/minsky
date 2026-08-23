@@ -349,7 +349,7 @@ describe("createReplyStream", () => {
  * Semantic-block segmentation (mt#3711).
  *
  * The unit of a message is a run of prose between tool calls, not a char-budget
- * overflow. `sealBlock()` is the boundary the actuator reports when a tool call
+ * overflow. `sealBlock()` is the boundary the session driver reports when a tool call
  * starts.
  */
 describe("createReplyStream — semantic blocks (mt#3711)", () => {

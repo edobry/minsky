@@ -1,5 +1,5 @@
 /**
- * Driven-session actuator for the principal channel (mt#3228).
+ * Driven-session driver for the principal channel (mt#3228).
  *
  * Carries out the inbound router's decisions against a STANDING driven session
  * — one long-lived `claude` conversation that is the principal's counterpart on
@@ -36,9 +36,9 @@
  * Deployments wanting the tighter posture set `permissionMode: "default"` and
  * accept that the channel can answer questions but not act.
  *
- * ## Concurrency contract: one caller at a time PER ACTUATOR INSTANCE
+ * ## Concurrency contract: one caller at a time PER SESSION DRIVER INSTANCE
  *
- * `converse` is NOT safe to call concurrently on the SAME actuator instance,
+ * `converse` is NOT safe to call concurrently on the SAME session driver instance,
  * and deliberately so (PR #2330 R1). A standing conversation is a single
  * sequential turn-taker: every caller subscribes to the same event stream, so
  * two overlapping calls both resolve on whichever `result` arrives first, and
@@ -56,12 +56,12 @@
  * Phase 1 of threaded mode needs many conversations, not one — a topic per
  * principal-initiated thought — while preserving the invariant above for EACH
  * one. This factory already parametrizes over `{@link
- * DrivenSessionActuatorOptions.localId}` (originally added so a live probe
+ * DrivenSessionDriverOptions.localId}` (originally added so a live probe
  * would not collide with the running channel's own row), so no change to
  * `ensureRecord`/`converse` was needed to support this: the launch-time
  * composition root (`./principal-channel-launch.ts`) calls this factory once
- * per Telegram topic, caches each returned actuator in a
- * {@link createTopicActuatorRegistry} keyed by that topic's `localId`, and the
+ * per Telegram topic, caches each returned session driver in a
+ * {@link createTopicDriverRegistry} keyed by that topic's `localId`, and the
  * poller resolves the right cached instance per inbound message. Each
  * instance's `standingLocalId`/in-flight guard is independent, so the
  * "one caller at a time" contract above holds PER TOPIC while different
@@ -74,7 +74,7 @@
  * @see mt#3505 — Phase 1 (principal-initiated topics), the generalization above
  * @see ./driven-session-host.ts — spawn / input / registry mechanics
  * @see ./principal-channel-poller.ts — what calls this, serialized per topic
- * @see ./principal-channel-launch.ts — builds and caches one actuator per topic
+ * @see ./principal-channel-launch.ts — builds and caches one session driver per topic
  */
 
 import { log } from "@minsky/shared/logger";
@@ -97,14 +97,14 @@ import {
   createDrivenSessionPersistObserver,
   orchestrateDrivenSessionResume,
 } from "./driven-session-launch";
-import type { ChannelActuator, ConverseOptions } from "./principal-channel-poller";
+import type { ChannelDriver, ConverseOptions } from "./principal-channel-poller";
 
 /**
  * The channel's standing conversation always occupies THIS row (mt#3243).
  *
  * `driven_sessions` is keyed on `localId` and the store upserts on it, so a
  * fixed id gives the channel exactly one row for its whole life — and, more
- * importantly, gives the actuator a way to find that row again after a daemon
+ * importantly, gives the session driver a way to find that row again after a daemon
  * restart has wiped its in-memory handle. Without a stable key there is nothing
  * to look up: the alternatives all cost a migration (a new event type, a new
  * column) or a fragile cwd-matching heuristic. See the task's Design decision.
@@ -166,7 +166,7 @@ export function composeTurnInput(text: string, replyToText?: string): string {
   return `In reply to:\n${quoted}\n\n${text}`;
 }
 
-export interface DrivenSessionActuatorOptions {
+export interface DrivenSessionDriverOptions {
   /** Working directory for the channel conversation. */
   cwd: string;
   /** See the permission-mode discussion in this module's header. */
@@ -178,7 +178,7 @@ export interface DrivenSessionActuatorOptions {
   /** Readiness poll granularity. Test seam. */
   readyPollMs?: number;
   registry?: DrivenSessionRegistry;
-  /** Answer an ask by ref. Injected so the actuator does not import the ask domain. */
+  /** Answer an ask by ref. Injected so the session driver does not import the ask domain. */
   respondToAsk: (askRef: string, text: string) => Promise<string>;
   /** Test seam — mirrors the driven-session routes' own injection points. */
   spawnFn?: SpawnFn;
@@ -206,13 +206,13 @@ export interface DrivenSessionActuatorOptions {
 }
 
 /**
- * Build the actuator the poller drives.
+ * Build the session driver the poller drives.
  *
  * Closes over the standing session rather than exposing it: the poller has no
  * business knowing whether a `claude` process currently exists, only that its
  * text reaches the principal's counterpart and comes back with an answer.
  */
-export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions): ChannelActuator {
+export function createDrivenSessionDriver(opts: DrivenSessionDriverOptions): ChannelDriver {
   const registry = opts.registry ?? drivenSessionRegistry;
   const turnTimeoutMs = opts.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
@@ -266,7 +266,7 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
         {
           localId: resumed.record.localId,
           harnessSessionId: resumed.record.harnessSessionId,
-          actuatorGeneration: resumed.record.actuatorGeneration,
+          driverGeneration: resumed.record.driverGeneration,
         }
       );
       return resumed.record;
@@ -445,24 +445,24 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
 }
 
 /**
- * Cache of per-topic actuators, keyed by the topic's `localId` (mt#3505).
+ * Cache of per-topic session drivers, keyed by the topic's `localId` (mt#3505).
  *
  * See this module's "Generalizing to one conversation per topic" docblock
  * section for why a cache is the right shape here rather than constructing a
- * fresh actuator per message: each instance closes over its own
+ * fresh session driver per message: each instance closes over its own
  * `standingLocalId`/in-flight-spawn guard, so a fresh instance per call would
  * lose the "concurrent callers share one conversation" guarantee for any
  * topic that receives more than one message.
  */
-export interface TopicActuatorRegistry {
-  /** The cached actuator for `localId`, or undefined if never created. */
-  get(localId: string): ChannelActuator | undefined;
-  /** The cached actuator for `localId`, creating and caching one via `factory` on first use. */
-  getOrCreate(localId: string, factory: () => ChannelActuator): ChannelActuator;
+export interface TopicDriverRegistry {
+  /** The cached session driver for `localId`, or undefined if never created. */
+  get(localId: string): ChannelDriver | undefined;
+  /** The cached session driver for `localId`, creating and caching one via `factory` on first use. */
+  getOrCreate(localId: string, factory: () => ChannelDriver): ChannelDriver;
 }
 
-export function createTopicActuatorRegistry(): TopicActuatorRegistry {
-  const cache = new Map<string, ChannelActuator>();
+export function createTopicDriverRegistry(): TopicDriverRegistry {
+  const cache = new Map<string, ChannelDriver>();
   return {
     get: (localId) => cache.get(localId),
     getOrCreate: (localId, factory) => {
@@ -642,7 +642,7 @@ function awaitTurnResult(
       finish(resultText(event.payload));
     },
     onSwap(): void {
-      // The record was replaced by an actuator swap (a resume-respawn). The
+      // The record was replaced by a session driver swap (a resume-respawn). The
       // turn's output is going to the new record's stream, which this
       // subscription can never see — say so rather than hang until timeout.
       finish("The conversation was restarted mid-turn; ask again.");

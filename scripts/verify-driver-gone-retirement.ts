@@ -3,7 +3,7 @@
  * DRY-RUN report of which non-terminal `driven_sessions` rows boot
  * reconciliation would retire (mt#4255).
  *
- * Why a unit test is not enough. The tests for this inject `probeActuator`, so
+ * Why a unit test is not enough. The tests for this inject `probeSessionDriver`, so
  * they prove the BRANCH is taken for a given verdict — not that the real
  * predicate, run against the real process table and the real row set, produces
  * the verdicts anyone expects. That is the mt#3254 seam-tested-binding gap, and
@@ -13,14 +13,14 @@
  *
  * Two modes, and the default one writes nothing:
  *
- *   bun scripts/verify-actuator-gone-retirement.ts
+ *   bun scripts/verify-driver-gone-retirement.ts
  *       DRY RUN. Reads the live non-terminal rows through the same store
  *       function boot reconciliation uses, runs the REAL
  *       `probeProcessIdentity` on each row carrying a pid, and prints the
  *       per-row verdict plus totals — so the change count can be compared
  *       against what was approved before anything is applied.
  *
- *   bun scripts/verify-actuator-gone-retirement.ts --seed-probe
+ *   bun scripts/verify-driver-gone-retirement.ts --seed-probe
  *       WRITES, but only to a row it creates and then deletes. Seeds a
  *       throwaway row whose pid is definitely dead, runs the reconciler with
  *       ONLY `listNonTerminal` narrowed to that row — real database, real
@@ -31,7 +31,7 @@
  * `loadPersistedDrivenSessions()` the way scripts/verify-boot-verdict-persist.ts
  * does: that call processes EVERY non-terminal row, and this table's rows
  * include `principal-channel-standing`. Retiring the principal's live channel is
- * safe by construction (it stays resumable — see `persistActuatorGoneVerdict`),
+ * safe by construction (it stays resumable — see `persistDriverGoneVerdict`),
  * but "safe by construction" is an argument, and doing it to his primary channel
  * before the change has been reviewed is not a call this script should make on
  * its own. Narrowing the row list is what makes the write binding testable
@@ -83,7 +83,7 @@ async function seedProbe(
   const { DrivenSessionRegistry } = await import("../src/cockpit/driven-session-host");
   const { sql } = await import("drizzle-orm");
 
-  const probeId = `mt4255-actuator-probe-${Date.now()}`;
+  const probeId = `mt4255-sessionDriver-probe-${Date.now()}`;
   // Above every platform's pid ceiling, so the kernel answers ESRCH rather
   // than this racing whatever real process holds a plausible number.
   const DEAD_PID = 1_073_741_824;
@@ -104,7 +104,7 @@ async function seedProbe(
     pid: DEAD_PID,
     pidCmdline: `${CLAUDE_BINARY} -p --input-format stream-json`,
     model: null,
-    actuatorGeneration: 0,
+    driverGeneration: 0,
     startedAt: new Date().toISOString(),
   });
 
@@ -133,7 +133,7 @@ async function seedProbe(
   await db.execute(sql`DELETE FROM driven_sessions WHERE local_id = ${probeId}`);
 
   if (after?.status !== "exited") {
-    fail(`the actuator-gone verdict was NOT persisted — status is "${after?.status}"`);
+    fail(`the driver-gone verdict was NOT persisted — status is "${after?.status}"`);
   }
   if (stillRead) fail("the row still appears in the boot query — it would reload forever");
   if (registered) fail("the row was registered — the phantom would still render this boot");
@@ -142,12 +142,12 @@ async function seedProbe(
   }
   if (after.unrecoverableReason !== null) {
     fail(
-      "the write set unrecoverableReason — an actuator verdict makes no claim about the conversation"
+      "the write set unrecoverableReason — a session driver verdict makes no claim about the conversation"
     );
   }
 
   console.log(
-    "\nPASS: a dead-actuator row is persisted `exited`, drops out of the boot query,\n" +
+    "\nPASS: a dead-session-driver row is persisted `exited`, drops out of the boot query,\n" +
       "is not registered, and every other column survived the write."
   );
   process.exit(0);

@@ -168,7 +168,7 @@ render problem untouched.
 GET is already a database read. Materialize later only if the join measurably hurts.
 
 **Required either way**: an append-only `driven_session_conversations (local_id,
-harness_session_id, harness, actuator_generation, adopted_at, adoption_reason)` binding. A thread's
+harness_session_id, harness, driver_generation, adopted_at, adoption_reason)` binding. A thread's
 history spans several conversation ids (a daemon restart can spawn a fresh seeded child rather than
 resuming), and the `driven_sessions` upsert overwrites the prior id — mt#4093's named data loss. No
 table carries this today (verified: no such table exists in the schema tree).
@@ -177,7 +177,7 @@ table carries this today (verified: no such table exists in the schema tree).
 §Reconciliation below. The overwriting upsert is `onConflictDoUpdate({ target:
 drivenSessionsTable.localId, set: values })` in
 `packages/domain/src/transcripts/driven-session-registry-store.ts:107`, a store shared by the
-principal channel (`principal-channel-launch.ts`, `principal-channel-actuator.ts`) and the
+principal channel (`principal-channel-launch.ts`, `principal-channel-driver.ts`) and the
 WS-driven callers (`routes/driven-sessions.ts`) as well as entity threads. A thread-scoped table
 would fix one caller's instance of a hole that lives in all of them.
 
@@ -217,7 +217,7 @@ be smuggled into this decision:
    the daemon's life. A cross-cutting availability defect that would degrade Option C's ingest leg
    just as happily.
 3. **Reachability has three answers.** "Is an agent reachable for this thread?" is currently
-   answered against registry presence, actuator liveness, and the persisted row, and callers
+   answered against registry presence, session driver liveness, and the persisted row, and callers
    disagree. A storage decision does not fix this and should not pretend to.
 4. **The unconfirmed tier needs a transport.** The panel is poll-only by explicit decision, and a
    3s poll cannot render streaming. Either accept sub-poll invisibility or revisit that decision —

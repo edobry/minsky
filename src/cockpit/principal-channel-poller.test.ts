@@ -4,7 +4,7 @@
  * Everything is injected — no network, no DB, no spawned `claude`. The cases
  * that matter most are the ones a live test could not reliably produce: the
  * audit-before-action ordering, cursor advancement past unparseable updates,
- * and the promise that an actuator failure still reaches the principal.
+ * and the promise that a session driver failure still reaches the principal.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -13,7 +13,7 @@ import {
   startPrincipalChannelPoller,
   truncateReply,
   type BindTopicOutcome,
-  type ChannelActuator,
+  type ChannelDriver,
   type PollCursor,
   type PollCycleDeps,
   startTypingLoop,
@@ -26,7 +26,7 @@ import {
   _resetSweepLivenessRegistryForTest,
   type SweepLivenessSnapshot,
 } from "./sweepers";
-import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
+import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-driver";
 import { DeadlineExceededError } from "@minsky/domain/utils/deadline";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import type { FetchFn } from "@minsky/domain/notify/telegram-transport";
@@ -63,7 +63,7 @@ interface Harness {
   deps: PollCycleDeps;
   recorded: Recorded[];
   sentTexts: string[];
-  actuatorCalls: string[];
+  driverCalls: string[];
   cursorWrites: number[];
   order: string[];
   /** The harness's own fetch, so a test can wrap it to inspect one request. */
@@ -105,13 +105,13 @@ function updateBody(
 function harness(
   body: unknown,
   overrides: {
-    actuator?: Partial<ChannelActuator>;
+    sessionDriver?: Partial<ChannelDriver>;
     cursorStart?: number;
     recordEventThrows?: boolean;
     /** Update ids the recorder reports as already-recorded replays. */
     duplicateUpdateIds?: number[];
-    /** mt#3505 — resolves the actuator for a message carrying a thread id. */
-    resolveTopicActuator?: PollCycleDeps["resolveTopicActuator"];
+    /** mt#3505 — resolves the session driver for a message carrying a thread id. */
+    resolveTopicDriver?: PollCycleDeps["resolveTopicDriver"];
     /** mt#3507 — carries out a `/bind`. */
     bindTopic?: PollCycleDeps["bindTopic"];
     /** mt#3507 — records a topic mapping as dead after drift reconciliation. */
@@ -120,32 +120,32 @@ function harness(
 ): Harness {
   const recorded: Recorded[] = [];
   const sentTexts: string[] = [];
-  const actuatorCalls: string[] = [];
+  const driverCalls: string[] = [];
   const cursorWrites: number[] = [];
   const order: string[] = [];
 
-  const actuator: ChannelActuator = {
+  const sessionDriver: ChannelDriver = {
     converse: async (text) => {
-      actuatorCalls.push(`converse:${text}`);
+      driverCalls.push(`converse:${text}`);
       order.push("act");
       return `answered: ${text}`;
     },
     interrupt: async () => {
-      actuatorCalls.push("interrupt");
+      driverCalls.push("interrupt");
       order.push("act");
       return "stopped";
     },
     reset: async () => {
-      actuatorCalls.push("reset");
+      driverCalls.push("reset");
       order.push("act");
       return "fresh conversation";
     },
     answerAsk: async (ref, text) => {
-      actuatorCalls.push(`answerAsk:${ref}:${text}`);
+      driverCalls.push(`answerAsk:${ref}:${text}`);
       order.push("act");
       return `ask ${ref} answered`;
     },
-    ...overrides.actuator,
+    ...overrides.sessionDriver,
   };
 
   const cursor: PollCursor = {
@@ -173,7 +173,7 @@ function harness(
     token: TOKEN,
     chatId: CHAT,
     auth: { allowedChatId: CHAT },
-    actuator,
+    sessionDriver,
     cursor,
     recordEvent: async (type, payload) => {
       order.push("record");
@@ -182,14 +182,12 @@ function harness(
       return overrides.duplicateUpdateIds?.includes(payload.updateId) ? "duplicate" : "recorded";
     },
     fetchFn: baseFetch,
-    ...(overrides.resolveTopicActuator
-      ? { resolveTopicActuator: overrides.resolveTopicActuator }
-      : {}),
+    ...(overrides.resolveTopicDriver ? { resolveTopicDriver: overrides.resolveTopicDriver } : {}),
     ...(overrides.bindTopic ? { bindTopic: overrides.bindTopic } : {}),
     ...(overrides.markTopicDead ? { markTopicDead: overrides.markTopicDead } : {}),
   };
 
-  return { deps, recorded, sentTexts, actuatorCalls, cursorWrites, order, baseFetch };
+  return { deps, recorded, sentTexts, driverCalls, cursorWrites, order, baseFetch };
 }
 
 describe("runPollCycle — happy path", () => {
@@ -198,20 +196,20 @@ describe("runPollCycle — happy path", () => {
     const outcome = await runPollCycle(h.deps);
 
     expect(outcome).toEqual({ received: 1, handled: 1, failed: 0, rejected: 0, duplicates: 0 });
-    expect(h.actuatorCalls).toEqual(["converse:what is blocked?"]);
+    expect(h.driverCalls).toEqual(["converse:what is blocked?"]);
     expect(h.sentTexts).toEqual(["answered: what is blocked?"]);
   });
 
   test("routes /answer straight to the ask, with no agent turn", async () => {
     const h = harness(updateBody([{ updateId: 5, text: "/answer abc123 yes do it" }]));
     await runPollCycle(h.deps);
-    expect(h.actuatorCalls).toEqual(["answerAsk:abc123:yes do it"]);
+    expect(h.driverCalls).toEqual(["answerAsk:abc123:yes do it"]);
   });
 
   test("routes /stop to interrupt", async () => {
     const h = harness(updateBody([{ updateId: 5, text: "/stop" }]));
     await runPollCycle(h.deps);
-    expect(h.actuatorCalls).toEqual(["interrupt"]);
+    expect(h.driverCalls).toEqual(["interrupt"]);
   });
 
   test("handles several messages in the order they were sent", async () => {
@@ -224,7 +222,7 @@ describe("runPollCycle — happy path", () => {
       ])
     );
     await runPollCycle(h.deps);
-    expect(h.actuatorCalls).toEqual(["converse:first", "converse:second"]);
+    expect(h.driverCalls).toEqual(["converse:first", "converse:second"]);
   });
 
   test("threads the reply to the message it answers", async () => {
@@ -244,12 +242,12 @@ describe("runPollCycle — happy path", () => {
 });
 
 describe("runPollCycle — authorization", () => {
-  test("refuses another chat, records it, and never reaches the actuator", async () => {
+  test("refuses another chat, records it, and never reaches the session driver", async () => {
     const h = harness(updateBody([{ updateId: 5, text: "rm -rf /", chatId: "999" }]));
     const outcome = await runPollCycle(h.deps);
 
     expect(outcome).toEqual({ received: 1, handled: 0, failed: 0, rejected: 1, duplicates: 0 });
-    expect(h.actuatorCalls).toEqual([]);
+    expect(h.driverCalls).toEqual([]);
     expect(h.sentTexts).toEqual([]);
     expect(h.recorded[0]?.type).toBe("principal.message_rejected");
   });
@@ -270,7 +268,7 @@ describe("runPollCycle — authorization", () => {
 });
 
 describe("runPollCycle — audit", () => {
-  test("records the event BEFORE running the actuator", async () => {
+  test("records the event BEFORE running the session driver", async () => {
     const h = harness(updateBody([{ updateId: 5, text: "go" }]));
     await runPollCycle(h.deps);
     expect(h.order).toEqual(["record", "act"]);
@@ -302,7 +300,7 @@ describe("runPollCycle — replay dedupe (PR #2324 R1)", () => {
     const outcome = await runPollCycle(h.deps);
 
     expect(outcome).toEqual({ received: 1, handled: 0, failed: 0, rejected: 0, duplicates: 1 });
-    expect(h.actuatorCalls).toEqual([]);
+    expect(h.driverCalls).toEqual([]);
     expect(h.sentTexts).toEqual([]);
   });
 
@@ -316,7 +314,7 @@ describe("runPollCycle — replay dedupe (PR #2324 R1)", () => {
     );
     const outcome = await runPollCycle(h.deps);
 
-    expect(h.actuatorCalls).toEqual(["converse:new"]);
+    expect(h.driverCalls).toEqual(["converse:new"]);
     expect(outcome.duplicates).toBe(1);
     expect(outcome.handled).toBe(1);
   });
@@ -335,15 +333,15 @@ describe("runPollCycle — replay dedupe (PR #2324 R1)", () => {
 
     expect(outcome.duplicates).toBe(0);
     expect(outcome.handled).toBe(1);
-    expect(h.actuatorCalls).toEqual(["converse:go"]);
+    expect(h.driverCalls).toEqual(["converse:go"]);
   });
 });
 
 describe("runPollCycle — failure outcome (PR #2324 R1)", () => {
   const failing = { converse: async (): Promise<string> => Promise.reject(new Error("no binary")) };
 
-  test("a failed actuator counts as failed, not handled", async () => {
-    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+  test("a failed session driver counts as failed, not handled", async () => {
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { sessionDriver: failing });
     const outcome = await runPollCycle(h.deps);
 
     expect(outcome.handled).toBe(0);
@@ -351,7 +349,7 @@ describe("runPollCycle — failure outcome (PR #2324 R1)", () => {
   });
 
   test("records a failure outcome event so the log says whether it worked", async () => {
-    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { sessionDriver: failing });
     await runPollCycle(h.deps);
 
     const failure = h.recorded.find((r) => r.type === "principal.message_failed");
@@ -362,7 +360,7 @@ describe("runPollCycle — failure outcome (PR #2324 R1)", () => {
   test("the failure row's token differs from the pre-action row's", async () => {
     // Otherwise the recorder's own dedupe would reject it as a replay of the
     // row written moments earlier for the same update.
-    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { sessionDriver: failing });
     await runPollCycle(h.deps);
 
     const tokens = h.recorded.map((r) => r.payload.token);
@@ -372,7 +370,7 @@ describe("runPollCycle — failure outcome (PR #2324 R1)", () => {
   });
 
   test("the principal is still told, despite the failure being recorded", async () => {
-    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { sessionDriver: failing });
     await runPollCycle(h.deps);
     expect(h.sentTexts[0]).toContain("no binary");
   });
@@ -436,9 +434,9 @@ describe("runPollCycle — failure handling", () => {
     expect(h.cursorWrites).toEqual([]);
   });
 
-  test("tells the principal when the actuator fails, rather than going silent", async () => {
+  test("tells the principal when the session driver fails, rather than going silent", async () => {
     const h = harness(updateBody([{ updateId: 5, text: "go" }]), {
-      actuator: {
+      sessionDriver: {
         converse: async () => {
           throw new Error("claude binary not found");
         },
@@ -455,7 +453,7 @@ describe("runPollCycle — failure handling", () => {
 
   test("sends a placeholder rather than an empty message", async () => {
     const h = harness(updateBody([{ updateId: 5, text: "go" }]), {
-      actuator: { converse: async () => "   " },
+      sessionDriver: { converse: async () => "   " },
     });
     await runPollCycle(h.deps);
     expect(h.sentTexts).toEqual(["(no output)"]);
@@ -507,7 +505,7 @@ describe("runPollCycle — media", () => {
   test("forwards a captioned photo's bytes to the channel agent", async () => {
     let seenImages: unknown;
     const h = harness(mediaBody({ ...PHOTO, caption: "why is this blank?" }), {
-      actuator: {
+      sessionDriver: {
         converse: async (text, opts) => {
           seenImages = opts?.images;
           return `saw: ${text}`;
@@ -526,7 +524,7 @@ describe("runPollCycle — media", () => {
   test("a caption-less photo is still delivered, with empty text", async () => {
     let seenImages: unknown;
     const h = harness(mediaBody(PHOTO), {
-      actuator: {
+      sessionDriver: {
         converse: async (_text, opts) => {
           seenImages = opts?.images;
           return "looked at it";
@@ -547,7 +545,7 @@ describe("runPollCycle — media", () => {
     // answer a question about a screenshot it never received.
     let seenText = "";
     const h = harness(mediaBody({ ...PHOTO, caption: "look at this" }), {
-      actuator: {
+      sessionDriver: {
         converse: async (text) => {
           seenText = text;
           return "ok";
@@ -570,7 +568,7 @@ describe("runPollCycle — media", () => {
     const outcome = await runPollCycle(h.deps);
 
     expect(outcome.handled).toBe(1);
-    expect(h.actuatorCalls).toEqual([]);
+    expect(h.driverCalls).toEqual([]);
     expect(h.sentTexts[0]).toContain("a voice message");
     expect(h.sentTexts[0]).toContain("can't read that yet");
   });
@@ -611,7 +609,7 @@ describe("runPollCycle — reply formatting", () => {
   } {
     const sends: Record<string, unknown>[] = [];
     const h = harness(updateBody([{ updateId: 40, text: "go" }]), {
-      actuator: { converse: async () => reply },
+      sessionDriver: { converse: async () => reply },
     });
     const inner = h.baseFetch;
     h.deps.fetchFn = async (url, init) => {
@@ -638,7 +636,7 @@ describe("runPollCycle — reply formatting", () => {
     // assert the principal still receives the answer.
     const sends: Record<string, unknown>[] = [];
     const h = harness(updateBody([{ updateId: 41, text: "go" }]), {
-      actuator: { converse: async () => "**bold**" },
+      sessionDriver: { converse: async () => "**bold**" },
     });
     const inner = h.baseFetch;
     h.deps.fetchFn = async (url, init) => {
@@ -693,33 +691,33 @@ describe("runPollCycle — reply formatting", () => {
 /**
  * Per-topic routing and concurrency (mt#3505, parent mt#3500).
  *
- * `converse` is documented as NOT concurrency-safe (principal-channel-actuator
+ * `converse` is documented as NOT concurrency-safe (principal-channel-driver
  * docblock), and the poller has historically enforced that by handling every
  * message strictly sequentially, globally. Phase 1 generalizes to one
  * conversation PER topic while preserving that safety property: serialize
  * per-topic, run different topics concurrently.
  */
 describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
-  test("a message with no thread id still uses the standing actuator, unchanged", async () => {
+  test("a message with no thread id still uses the standing session driver, unchanged", async () => {
     // AT: "Send a message with no topic at all: answered in the standing
-    // conversation, exactly as before." resolveTopicActuator must never be
+    // conversation, exactly as before." resolveTopicDriver must never be
     // consulted for this case.
     const h = harness(updateBody([{ updateId: 50, text: "hi" }]), {
-      resolveTopicActuator: async () => {
+      resolveTopicDriver: async () => {
         throw new Error("must not be called for a message with no thread id");
       },
     });
     const outcome = await runPollCycle(h.deps);
     expect(outcome.handled).toBe(1);
-    expect(h.actuatorCalls).toEqual(["converse:hi"]);
+    expect(h.driverCalls).toEqual(["converse:hi"]);
   });
 
-  test("a message carrying a thread id is routed through resolveTopicActuator", async () => {
+  test("a message carrying a thread id is routed through resolveTopicDriver", async () => {
     const seenThreadIds: number[] = [];
     const h = harness(
       updateBody([{ updateId: 51, text: "topic message", messageThreadId: 749667 }]),
       {
-        resolveTopicActuator: async (threadId) => {
+        resolveTopicDriver: async (threadId) => {
           seenThreadIds.push(threadId);
           return {
             converse: async (text) => `topic-answer:${text}`,
@@ -740,7 +738,7 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
   test("the reply to a topic message carries message_thread_id on the wire", async () => {
     let sentBody: Record<string, unknown> = {};
     const h = harness(updateBody([{ updateId: 52, text: "go", messageThreadId: 749667 }]), {
-      resolveTopicActuator: async () => ({
+      resolveTopicDriver: async () => ({
         converse: async () => "ok",
         interrupt: async () => "stopped",
         reset: async () => "fresh",
@@ -767,7 +765,7 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
         { updateId: 61, text: "second", messageThreadId: 100 },
       ]),
       {
-        resolveTopicActuator: async () => ({
+        resolveTopicDriver: async () => ({
           converse: async (text) => {
             order.push(`start:${text}`);
             await Promise.resolve();
@@ -793,7 +791,7 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
       releaseSlow = resolve;
     });
 
-    const actuatorFor = (threadId: number): ChannelActuator => ({
+    const driverFor = (threadId: number): ChannelDriver => ({
       converse: async (text) => {
         order.push(`${threadId}-start`);
         if (threadId === 100) await slowGate;
@@ -810,7 +808,7 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
         { updateId: 70, text: "slow one", messageThreadId: 100 },
         { updateId: 71, text: "fast one", messageThreadId: 200 },
       ]),
-      { resolveTopicActuator: async (threadId) => actuatorFor(threadId) }
+      { resolveTopicDriver: async (threadId) => driverFor(threadId) }
     );
 
     const cyclePromise = runPollCycle(h.deps);
@@ -827,17 +825,17 @@ describe("runPollCycle — per-topic routing and concurrency (mt#3505)", () => {
     expect(outcome.handled).toBe(2);
   });
 
-  test("/stop inside a topic interrupts THAT topic's actuator, not the standing one", async () => {
+  test("/stop inside a topic interrupts THAT topic's session driver, not the standing one", async () => {
     const standingInterrupted: string[] = [];
     const topicInterrupted: string[] = [];
     const h = harness(updateBody([{ updateId: 80, text: "/stop", messageThreadId: 100 }]), {
-      actuator: {
+      sessionDriver: {
         interrupt: async () => {
           standingInterrupted.push("standing");
           return "stopped";
         },
       },
-      resolveTopicActuator: async () => ({
+      resolveTopicDriver: async () => ({
         converse: async (text) => text,
         interrupt: async () => {
           topicInterrupted.push("topic");
@@ -871,7 +869,7 @@ describe("runPollCycle — /answer replies land in the topic it was asked in (mt
         { updateId: 97, text: "/answer abc123 go with option B", messageThreadId: 749667 },
       ]),
       {
-        resolveTopicActuator: async () => ({
+        resolveTopicDriver: async () => ({
           converse: async (text) => text,
           interrupt: async () => "stopped",
           reset: async () => "fresh",
@@ -895,7 +893,7 @@ describe("runPollCycle — /answer replies land in the topic it was asked in (mt
 /**
  * `/bind` handling (mt#3507).
  *
- * No actuator is ever consulted here — binding writes a mapping row, it does
+ * No session driver is ever consulted here — binding writes a mapping row, it does
  * not run a conversational turn, so every case below asserts `bindTopic`
  * (or its absence) drives the reply, not `converse`.
  */
@@ -913,7 +911,7 @@ describe("runPollCycle — /bind (mt#3507)", () => {
     expect(outcome.handled).toBe(1);
     expect(called).toBe(false);
     expect(h.sentTexts[0]).toContain("standing conversation");
-    expect(h.actuatorCalls).toEqual([]);
+    expect(h.driverCalls).toEqual([]);
   });
 
   test("with no bindTopic dep wired at all, answers that binding isn't available", async () => {
@@ -959,14 +957,14 @@ describe("runPollCycle — /bind (mt#3507)", () => {
     expect(h.sentTexts[0]).toContain("isn't a task id I recognize");
   });
 
-  test("never dispatches to the conversation actuator", async () => {
+  test("never dispatches to the conversation session driver", async () => {
     // Regression against the failure mode "bind quietly became a chat turn":
     // no route to converse/answerAsk/etc for a bind route, ever.
     const h = harness(
       updateBody([{ updateId: 94, text: "/bind mt#3507", messageThreadId: 749667 }]),
       {
         bindTopic: async () => ({ kind: "bound", taskId: "mt#3507" }),
-        resolveTopicActuator: async () => {
+        resolveTopicDriver: async () => {
           throw new Error("must not be called for a bind route");
         },
       }
@@ -996,7 +994,7 @@ describe("runPollCycle — reply drift reconciliation (mt#3507)", () => {
   } {
     const sentBodies: Record<string, unknown>[] = [];
     const h = harness(updateBody([{ updateId: 96, text: "go", messageThreadId }]), {
-      resolveTopicActuator: async () => ({
+      resolveTopicDriver: async () => ({
         converse: async () => "the answer",
         interrupt: async () => "stopped",
         reset: async () => "fresh",
@@ -1103,7 +1101,7 @@ describe("runPollCycle — receipt acks", () => {
     };
 
     const h = harness(body, {
-      actuator: {
+      sessionDriver: {
         converse: async () => {
           if (opts.fail) throw new Error("boom");
           return "done";
@@ -1151,7 +1149,7 @@ describe("runPollCycle — receipt acks", () => {
   });
 
   test("marks a turn whose reply never got delivered with the error reaction", async () => {
-    // The actuator succeeds, but Telegram rejects the reply. The principal is
+    // The session driver succeeds, but Telegram rejects the reply. The principal is
     // left with no answer, so 👌 would assert delivery of something they never
     // received — and here the reaction is the ONLY signal they get, because the
     // reply itself is what went missing.
@@ -1225,7 +1223,7 @@ describe("runPollCycle — receipt acks", () => {
  *
  * The stream's own mechanics are covered in
  * `principal-channel-reply-stream.test.ts`; these pin that the poller actually
- * HANDS it to the actuator and settles it — the production-wiring direction,
+ * HANDS it to the session driver and settles it — the production-wiring direction,
  * which a stream unit test cannot see.
  */
 describe("runPollCycle — streamed replies (mt#3542)", () => {
@@ -1265,7 +1263,7 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
     };
 
     const h = harness(body, {
-      actuator: {
+      sessionDriver: {
         converse: async (_text, converseOpts) => {
           // Drive the seam the way a real turn does: emit progress, then
           // resolve with the authoritative answer.
@@ -1390,7 +1388,7 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
           },
         ],
       },
-      { actuator: { converse: async () => "answered without streaming" } }
+      { sessionDriver: { converse: async () => "answered without streaming" } }
     );
 
     const outcome = await runPollCycle(h.deps);
@@ -1438,7 +1436,7 @@ describe("startTypingLoop", () => {
 
   test("aborting the poller's signal stops it, without stop() being called", async () => {
     // Per-turn teardown is not sufficient: the poller aborts on shutdown while
-    // an in-flight turn keeps awaiting its actuator, so without this binding
+    // an in-flight turn keeps awaiting its session driver, so without this binding
     // the interval outlives the poller it belongs to.
     const controller = new AbortController();
     const { calls, fetchFn } = collector();
@@ -1661,8 +1659,8 @@ describe("poller sweep-liveness registration (mt#4185)", () => {
     }
   });
 
-  test("the default progress budget is derived from the actuator's enforced ceilings", () => {
-    // Guards the derivation, not the number: if either actuator timeout moves,
+  test("the default progress budget is derived from the session driver's enforced ceilings", () => {
+    // Guards the derivation, not the number: if either session driver timeout moves,
     // this budget must move with it or a legitimately slow turn gets restarted.
     expect(PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS).toBe(
       DEFAULT_READY_TIMEOUT_MS + DEFAULT_TURN_TIMEOUT_MS

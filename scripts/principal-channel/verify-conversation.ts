@@ -2,7 +2,7 @@
 /**
  * Live verification of the INBOUND half of the principal channel (mt#3238).
  *
- * Drives the real `createDrivenSessionActuator` against a real `claude` child
+ * Drives the real `createDrivenSessionDriver` against a real `claude` child
  * and requires a real answer back. The sibling `verify-send.ts` does this for
  * the outbound half; this is the half that a unit test provably cannot cover.
  *
@@ -19,7 +19,7 @@
  * Exit codes: 0 = a real answer came back, 1 = failure (reason printed).
  */
 
-import { createDrivenSessionActuator } from "../../src/cockpit/principal-channel-actuator";
+import { createDrivenSessionDriver } from "../../src/cockpit/principal-channel-driver";
 import { DrivenSessionRegistry } from "../../src/cockpit/driven-session-host";
 
 const PROMPT = "Reply with exactly the word PONG and nothing else. Do not use any tools.";
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   const streaming = process.argv.includes("--streaming");
   const startedAt = Date.now();
 
-  const actuator = createDrivenSessionActuator({
+  const sessionDriver = createDrivenSessionDriver({
     cwd,
     registry: new DrivenSessionRegistry(),
     // Not exercised by this probe; the ask path has no bearing on the ordering
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   });
 
   // Streaming timing (mt#3542). A unit test can prove the poller HANDS an
-  // `onPartial` to the actuator, but only a real `claude` child can show that
+  // `onPartial` to the session driver, but only a real `claude` child can show that
   // partials actually arrive, and how soon — the whole feature is worthless if
   // the first one lands at the same moment the answer does.
   let firstPartialAtMs: number | null = null;
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
 
   let reply: string;
   try {
-    reply = await actuator.converse(streaming ? STREAM_PROMPT : PROMPT, {
+    reply = await sessionDriver.converse(streaming ? STREAM_PROMPT : PROMPT, {
       onPartial: (accumulated: string) => {
         if (firstPartialAtMs === null) firstPartialAtMs = Date.now() - startedAt;
         partialCount += 1;
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   if (streaming) {
     const warmStartedAt = Date.now();
     warmFirstPartialAtMs = null;
-    await actuator.converse(STREAM_PROMPT, {
+    await sessionDriver.converse(STREAM_PROMPT, {
       onPartial: () => {
         if (warmFirstPartialAtMs === null) warmFirstPartialAtMs = Date.now() - warmStartedAt;
         warmPartials += 1;
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
   }
 
   // Stop the child rather than leaving an orphan holding a claude process.
-  await actuator.reset();
+  await sessionDriver.reset();
 
   if (reply.trim().length === 0) {
     console.error(`FAIL after ${Date.now() - startedAt}ms: the conversation returned no text`);

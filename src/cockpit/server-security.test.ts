@@ -375,7 +375,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
 
     describe("WebSocket upgrade over the configured extra host (mt#2750 cross-origin defense + mt#3641)", () => {
       /** Register a placeholder driven-session record so the upgrade completes
-       * (101) without spawning a real actuator — the auth/allowlist/origin
+       * (101) without spawning a real session driver — the auth/allowlist/origin
        * checks all run BEFORE session resolution, so this is sufficient to
        * observe "accepted" vs "refused" at that layer. */
       function attachFakeDrivenSession(server: Server, allowedHosts: Set<string>): string {
@@ -391,7 +391,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
             minskySessionId: null,
             status: "unrecoverable",
             unrecoverableReason: "server-security.test.ts placeholder — never spawned",
-            actuatorGeneration: 0,
+            driverGeneration: 0,
             startedAt: new Date().toISOString(),
           })
         );
