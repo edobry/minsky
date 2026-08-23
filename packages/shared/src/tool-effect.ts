@@ -137,10 +137,14 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "config.credentials.add": "mutates",
   "config.credentials.remove": "mutates",
   "config.credentials.recheck": "mutates", // records 401 invalidations
+  "credentials.request": "mutates", // creates an ask; may push the parent task (mt#4030)
+
   "config.doctor": "mutates", // fixMcpAuthTokenFromSecretsFile repairs config
   "config.set": "mutates", // writer.setConfigValue
   "config.unset": "mutates", // writer.unsetConfigValue
   "config.credentials.list": "reads",
+  "credentials.request-status": "reads", // classifies a filed request; never returns the value
+
   "config.get": "reads",
   "config.list": "reads",
   "config.show": "reads",
