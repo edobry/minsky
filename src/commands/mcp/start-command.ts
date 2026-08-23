@@ -27,6 +27,7 @@ import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
 import { buildMcpHealthResponse } from "../../mcp/health-payload";
+import { installDbReachabilityTracker, readDbReachability } from "../../mcp/daemon/db-reachability";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
@@ -614,6 +615,16 @@ async function startHttpServer(
   // connection string WAS configured but initialization failed — a genuine
   // outage): only the latter flips this endpoint to 503. See
   // packages/domain/src/persistence/health.ts for the full rationale.
+  // mt#4466: install the live pool probe before the route can serve. The
+  // tracker holds no connection and issues nothing until first read, so this is
+  // cheap at boot; what it needs is the same container accessor the route uses,
+  // bound once rather than re-resolved per probe.
+  installDbReachabilityTracker(() =>
+    container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined
+  );
+
   app.get("/health", (_req, res) => {
     // `container.get()` is synchronous by design: `AppServices["persistence"]`
     // is typed as a plain `BasePersistenceProvider`, not a Promise. All async
@@ -633,7 +644,17 @@ async function startHttpServer(
     // this route runs, rather than a copy of it. The per-field rationale moved
     // there with it — including why `unconfigured` stays a 200 while `ready` is
     // false, which is the invariant `bundle-boot-smoke` depends on.
-    const health = buildMcpHealthResponse(persistenceHealth, new Date().toISOString());
+    // mt#4466: kick the live pool probe and read the PREVIOUS one's answer. The
+    // handler stays synchronous — see `readDbReachability`'s docstring for why
+    // awaiting here would reintroduce the failure this is meant to report.
+    // Before this, `persistenceHealth` alone decided the body, and it is a
+    // static capability read: it reported `connected`/`ready: true` in ~1ms for
+    // ~50 minutes while no query could get through (mem#1120 R2).
+    const health = buildMcpHealthResponse(
+      persistenceHealth,
+      new Date().toISOString(),
+      readDbReachability()
+    );
     res.status(health.statusCode).json(health.body);
   });
 
