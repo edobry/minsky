@@ -146,15 +146,30 @@ migrated config is never left pointing at nothing.
 `src/mcp/health-payload.test.ts` against the same builder the route calls. Renaming or removing a
 field fails a test rather than surfacing later as a downstream misread. The fields:
 
-| field         | meaning                                                                                 |
-| ------------- | --------------------------------------------------------------------------------------- |
-| `status`      | `"ok"` / `"unhealthy"` — liveness, matching the status code                             |
-| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question |
-| `service`     | `"minsky-mcp"` — the identity assertion below                                           |
-| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                      |
-| `transport`   | `"http"` (this route exists only on the HTTP transport)                                 |
-| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                      |
-| `timestamp`   | ISO, when the response was built                                                        |
+| field         | meaning                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `status`      | `"ok"` / `"unhealthy"` — liveness, matching the status code                                                    |
+| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question                        |
+| `service`     | `"minsky-mcp"` — the identity assertion below                                                                  |
+| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                                             |
+| `transport`   | `"http"` (this route exists only on the HTTP transport)                                                        |
+| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                                             |
+| `timestamp`   | ISO, when the response was built                                                                               |
+| `db`          | `"ok"` / `"degraded"` — live pool reachability. Present ONLY when `persistence.mode` is `connected`            |
+| `dbCheck`     | `{ checkedAt, durationMs }` — when the probe behind `db` settled, and how long it took. Same condition as `db` |
+
+The last two are a machine-readable rendering of the same probe that decides `ready` — nothing
+they say is absent from `ready` + `persistence.reason`, but `reason` is prose and the consumer
+that needs it is the tray's supervisor in a 5s poll loop. `db` uses the cockpit's own key name on
+purpose: the tray's DB-degraded policy is cockpit-only for exactly one stated reason — _"only the
+cockpit's `/api/health` publishes a `db` field"_ — so matching the key is what lets one policy
+read both daemons (mt#4472 owns doing that).
+
+**One trap, because the obvious reading is wrong.** `dbCheck.checkedAt` **advances on every
+poll**, including when a previous probe has still not settled — the probe stamps it on all four
+of its outcome branches. So a stale `checkedAt` is _not_ a wedge signal. To detect a wedge read
+`persistence.reason` (which names how long the outstanding round-trip has been waiting) or
+`dbCheck.durationMs`.
 
 **Assert `service`, not just the status code.** Every Minsky service is built from the same
 monorepo, so a misconfigured build can put a DIFFERENT application on this port and it answers 200

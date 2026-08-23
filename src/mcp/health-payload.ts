@@ -52,6 +52,43 @@ export interface McpHealthPayload {
   timestamp: string;
   persistence: { mode: PersistenceHealthStatus["mode"]; reason?: string };
   ready: boolean;
+  /**
+   * Live pool reachability as of the last probe (mt#4479).
+   *
+   * A MACHINE-READABLE rendering of the same `ReadinessResult` that decided
+   * `ready`. Everything it says is already in `ready` + `persistence.reason` —
+   * but `reason` is prose written "for an operator reading a health body at
+   * 3am", and the consumer that needs this is Rust in a 5s poll loop
+   * (`cockpit-tray/src-tauri/src/supervisor.rs`) which would otherwise have to
+   * regex a sentence.
+   *
+   * **The field NAME is the point.** The tray's DB-degraded policy already
+   * exists and is `CockpitPolicy`-only for one stated reason, verbatim in that
+   * file: *"only the cockpit's `/api/health` publishes a `db` field"*. Matching
+   * the cockpit's key exactly is what lets one policy read both daemons.
+   *
+   * Only `"ok"` and `"degraded"` are emitted. The cockpit's third value,
+   * `"unreachable"`, is deliberately absent: this field is present only when
+   * `persistence.mode === "connected"`, which already means a provider is
+   * wired, so "no pool at all" is unrepresentable here rather than merely
+   * unobserved. A consumer switching on the cockpit's three values still works.
+   */
+  db?: "ok" | "degraded";
+  /**
+   * When the probe behind `db` settled, and how long it took (mt#4479).
+   *
+   * Both come straight off `ReadinessResult` — never re-timed at the render
+   * site, so `db`, `ready` and `persistence.reason` always describe the SAME
+   * probe attempt.
+   *
+   * `durationMs` is the field with the most value beyond `reason`: on an
+   * outstanding (never-settled) probe, mt#4471's `reason` names the wait in
+   * prose, and a supervisor thresholding on it needs the number. Note
+   * `checkedAt` ADVANCES on every poll including the outstanding case —
+   * `assessProbeOutcome` stamps it on all four branches — so do NOT read a
+   * stale `checkedAt` as a wedge signal; read `reason` or `durationMs`.
+   */
+  dbCheck?: { checkedAt: string; durationMs: number };
 }
 
 /** The response as the route will send it: a status code plus a body. */
@@ -102,6 +139,23 @@ export function buildMcpHealthResponse(
   // `ready: false` the operator has to go diagnose from scratch.
   const reason = health.reason ?? (ready ? undefined : readiness?.reason);
 
+  // mt#4479: render the SAME `readiness` object as machine-readable fields.
+  // Conditional on `connected` for the same reason `ready` uses that mode as a
+  // precondition — an `unconfigured` daemon never probes, and an `unavailable`
+  // one failed to initialize, so in both cases there is no pool reading to
+  // report. Emitting one anyway would put an alarming-looking field on the
+  // expected offline boot that `bundle-boot-smoke` asserts a 200 against.
+  //
+  // Derived from `readiness`, never recomputed: `db` is exactly `readiness.ok`
+  // restated, so it cannot disagree with `ready` about the same probe.
+  const dbFields =
+    health.mode === "connected" && readiness !== undefined
+      ? {
+          db: (readiness.ok ? "ok" : "degraded") as "ok" | "degraded",
+          dbCheck: { checkedAt: readiness.checkedAt, durationMs: readiness.durationMs },
+        }
+      : {};
+
   return {
     statusCode: health.healthy ? 200 : 503,
     body: {
@@ -132,6 +186,7 @@ export function buildMcpHealthResponse(
       // alone, which is a claim about the provider's TYPE; it is now that
       // precondition AND an observed round trip. See the computation above.
       ready,
+      ...dbFields,
     },
   };
 }
