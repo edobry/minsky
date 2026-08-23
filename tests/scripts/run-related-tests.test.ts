@@ -21,6 +21,11 @@ const repoRoot = "/repo";
 // mt#3776 fixture: a source file whose related test lives inside a service
 // workspace (the partition that must NOT run under the root cwd).
 const SERVICE_SOURCE_FILE = "services/reviewer/src/alert-sink.ts";
+/** Fixture source whose sibling test runs in its own isolated partition (mt#2665). */
+const MCP_SOURCE_FILE = "src/mcp/server.ts";
+/** Fixture source under a DOT-directory, where bun needs a `./` anchor to read the arg as a path. */
+const HOOK_SOURCE_FILE = ".minsky/hooks/guard.ts";
+const HOOK_TEST_FILE = ".minsky/hooks/guard.test.ts";
 
 const ranLine = (n: number, files: number) =>
   `Ran ${n} tests across ${files} file${files === 1 ? "" : "s"}. [1.00s]`;
@@ -138,7 +143,7 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
   test("a related test under src/mcp/ runs isolated (its own runBunTest invocation, single file)", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: string[][] = [];
-    const result = await runFastRelatedTestGate(["src/mcp/server.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate([MCP_SOURCE_FILE], repoRoot, {
       fs,
       runBunTest: adapt((files) => {
         calls.push(files);
@@ -319,6 +324,108 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     expect(truncated.ok).toBe(false);
   });
 
+  test("the FAILURE path names the selected test files, not just how many (mt#4303)", async () => {
+    // Until mt#4303 this branch returned `relatedCount` — a number — while the
+    // PASS branch joined the whole list. The file list is exactly what a
+    // bisection needs, so the gate withheld it on the only path where anyone
+    // wants it. Three consecutive mt#3501 investigations (its sixth, seventh
+    // and eighth instances) each recorded that the N-file list "was again not
+    // printed"; it was never produced, so no amount of looking would have
+    // found it.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+      fs,
+      runBunTest: adapt((files) => ({
+        exitCode: 1,
+        combined: [" 0 pass", " 1 fail", ranLine(1, files.length)].join("\n"),
+      })),
+    });
+
+    expect(result.ok).toBe(false);
+    // The failure reason itself is still there -- this ADDS, it does not replace.
+    expect(result.reason).toContain("1 failing test(s)");
+    // ...and now the selection is too.
+    expect(result.reason).toContain("foo.test.ts");
+    expect(result.reason).toContain("1 related test file(s) selected");
+  });
+
+  test("the TIMEOUT path names the selection too (mt#4303)", async () => {
+    // The deferral branch had the same gap: it reported the COUNT of selected
+    // files and not which ones. A deferral is precisely when the operator is
+    // told to go look elsewhere, so naming the set matters as much as it does
+    // on the failure path.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const result = await runFastRelatedTestGate(["src/foo.ts"], repoRoot, {
+      fs,
+      runBunTest: timedOutFake,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.reason).toContain("TIMED OUT");
+    expect(result.reason).toContain("foo.test.ts");
+    expect(result.reason).toContain("related test file(s) selected");
+  });
+
+  test("the selection is space-separated so it can be pasted after `bun test` (mt#4303)", async () => {
+    // The PASS path joins with ", " and is deliberately unchanged (a criterion
+    // of mt#4303). The failure/timeout rendering is space-separated instead,
+    // so the tail is directly usable as an argument list rather than needing
+    // the commas stripped first.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    // Two files so the join has something to join. `src/mcp/server.ts` runs in
+    // its own partition, which does not matter here: `describeSelection`
+    // renders the whole `related` set, not the failing partition's slice.
+    const result = await runFastRelatedTestGate(["src/foo.ts", MCP_SOURCE_FILE], repoRoot, {
+      fs,
+      runBunTest: adapt((files) => ({
+        exitCode: 1,
+        combined: [" 0 pass", " 1 fail", ranLine(1, files.length)].join("\n"),
+      })),
+    });
+
+    expect(result.ok).toBe(false);
+
+    // Assert the marker EXISTS before slicing on it. An earlier draft of this
+    // test sliced on `indexOf("selected: ")` without checking, and `indexOf`
+    // returns -1 when the marker is absent -- so the slice silently succeeded
+    // against the UNFIXED source and the test passed either way. Caught by
+    // running it as a negative control (mem#729: a test never observed failing
+    // has no discriminating power).
+    const marker = "selected: ";
+    const markerAt = result.reason.indexOf(marker);
+    expect(markerAt).toBeGreaterThanOrEqual(0);
+
+    const selection = result.reason.slice(markerAt + marker.length);
+    expect(selection.split(" ").length).toBeGreaterThan(1);
+    expect(selection).not.toContain(",");
+  });
+
+  test("a dot-directory selection is ./-anchored so it is actually pasteable (mt#4303)", async () => {
+    // PR #3150 R1 (BLOCKING). "Space-separated" is not sufficient for the
+    // copy-pasteable criterion: bun treats a bare dot-directory argument like
+    // `.minsky/hooks/guard.test.ts` as a NAME filter, not a path — it matches
+    // nothing, runs zero tests, and emits no completion summary (the exact
+    // silent-skip this gate's own `toBunTestPath` was added to prevent, and
+    // which the fail-closed gate then reads as a failure).
+    //
+    // So a selection rendered without anchoring hands the reader a command
+    // that looks right and does nothing. Render through the same
+    // `toBunTestPath` the runner already uses.
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const result = await runFastRelatedTestGate([HOOK_SOURCE_FILE], repoRoot, {
+      fs,
+      runBunTest: adapt((files) => ({
+        exitCode: 1,
+        combined: [" 0 pass", " 1 fail", ranLine(1, files.length)].join("\n"),
+      })),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain(`./${HOOK_TEST_FILE}`);
+    // ...and NOT the unanchored form, which is what bun silently ignores.
+    expect(result.reason).not.toContain(` ${HOOK_TEST_FILE}`);
+  });
+
   test("the TOTAL budget bounds the gate across partitions, not just per-partition (PR #2733 R1)", async () => {
     // A per-partition budget alone leaves the total unbounded in the NUMBER of
     // partitions, and the outer wrapper treats its own kill as a hard FAILURE
@@ -328,7 +435,7 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const budgets: number[] = [];
     const result = await runFastRelatedTestGate(
-      ["src/foo.ts", "src/mcp/server.ts", SERVICE_SOURCE_FILE],
+      ["src/foo.ts", MCP_SOURCE_FILE, SERVICE_SOURCE_FILE],
       repoRoot,
       {
         fs,
@@ -394,7 +501,7 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
   test("dot-directory related tests are passed as ./-prefixed paths to the runner", async () => {
     const fs = buildFixtureFs() as unknown as FsLike;
     const calls: string[][] = [];
-    const result = await runFastRelatedTestGate([".minsky/hooks/guard.ts"], repoRoot, {
+    const result = await runFastRelatedTestGate([HOOK_SOURCE_FILE], repoRoot, {
       fs,
       runBunTest: adapt((files) => {
         calls.push(files);
@@ -405,17 +512,17 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
       }),
     });
     expect(result.ok).toBe(true);
-    expect(calls).toEqual([["./.minsky/hooks/guard.test.ts"]]);
+    expect(calls).toEqual([[`./${HOOK_TEST_FILE}`]]);
   });
 });
 
 describe("toBunTestPath (mt#2446 dot-directory fix)", () => {
   const ANCHORED_FOO = "./src/foo.test.ts";
-  const ANCHORED_GUARD = "./.minsky/hooks/guard.test.ts";
+  const ANCHORED_GUARD = `./${HOOK_TEST_FILE}`;
 
   test("prefixes bare repo-relative paths", () => {
     expect(toBunTestPath("src/foo.test.ts")).toBe(ANCHORED_FOO);
-    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe(ANCHORED_GUARD);
+    expect(toBunTestPath(HOOK_TEST_FILE)).toBe(ANCHORED_GUARD);
   });
 
   test("leaves already-anchored paths unchanged", () => {
@@ -425,6 +532,6 @@ describe("toBunTestPath (mt#2446 dot-directory fix)", () => {
 
   test("leaves parent-relative ../ paths unchanged (PR #2135 R1) — but a bare dot-directory still gets prefixed", () => {
     expect(toBunTestPath("../outside/foo.test.ts")).toBe("../outside/foo.test.ts");
-    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe(ANCHORED_GUARD);
+    expect(toBunTestPath(HOOK_TEST_FILE)).toBe(ANCHORED_GUARD);
   });
 });

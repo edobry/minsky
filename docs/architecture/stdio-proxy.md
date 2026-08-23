@@ -292,6 +292,47 @@ are classified as `clean_exit` and respawn immediately, bypassing the crash coun
 This means the staleness mechanism can trigger as many times as needed without
 eventually causing the proxy to give up.
 
+## Out-of-process memory ceiling over the child (mt#4112)
+
+The proxy polls its child's swap-inclusive memory (mt#4104's `readProcessMemory`, which
+takes a pid) against the same `MINSKY_MCP_MEMORY_CEILING_MB` the child applies to itself,
+and on a breach kills and respawns it.
+
+**Why the parent has to be the one doing it.** mt#3886's ceiling, mt#3764's watchers and the
+inner server's own SIGTERM handler are all timer- or event-loop-bound. On 2026-08-13 two
+`mcp start` processes reached 48.2 GB and 32 GB with every one of them armed and none of them
+running — a 3s `sample` showed the event loop had stopped turning entirely. A process that has
+wedged its own event loop cannot notice that it has. This is the supervisor-below pattern applied
+to a second failure class: the proxy already absorbs the child's staleness exit, and now bounds
+its memory too.
+
+Four properties, each load-bearing:
+
+- **One watcher, armed before the first spawn**, resolving `this.child.pid` per tick. A respawn
+  needs no re-arming, and a child that wedges during startup — which answers no readiness probe —
+  does not delay arming by the probe timeout.
+- **It repeats.** The in-process watcher is one-shot because its caller exits. The proxy survives
+  its breach, so a one-shot watcher would bound the first runaway and leave every later child
+  unguarded, silently. `startResidentMemoryCeilingWatcher` takes `repeatAfterBreach` for this.
+- **The kill escalates and is awaited.** `killChild` is SIGTERM, then SIGKILL after
+  `CHILD_SIGTERM_GRACE_MS`, resolving only once the process is gone. A wedged child always needs
+  the SIGKILL: registering a JS SIGTERM handler replaces the OS default action with a callback the
+  wedged loop can never run, which is exactly why the specimens "ignored SIGTERM".
+- **It is not a crash.** The close handler is detached before the kill, so `onChildClose` — the
+  only writer of `recentFailures` — never runs. A memory restart is accounted for like a
+  `__proxy_restart_server` restart, because both are deliberate.
+
+Worst case from crossing to gone: one poll interval plus the SIGTERM grace.
+
+The proxy writes an mt#3973-shaped artifact for the killed child with
+`processRole: "mcp start (killed by proxy)"` and no heap snapshot — a snapshot requires code
+running inside the target. See `docs/mcp-memory-forensics.md`.
+
+**Population boundary.** This covers children of a `minsky mcp proxy`. Tray-supervised local
+daemons are mt#4105; ad-hoc test-spawned servers are reaped by mt#4098's watchdog (an orphan
+reaper, not a memory bound); an `mcp start` spawned directly by a harness with no Minsky parent is
+covered by nothing, and retains the in-process ceiling only.
+
 ## Disconnect-tracker integration
 
 The inner Minsky server's disconnect-tracker (mt#1645 / mt#1682 / mt#1705) is unaffected

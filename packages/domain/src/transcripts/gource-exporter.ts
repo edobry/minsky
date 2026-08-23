@@ -86,6 +86,32 @@ export class UnscrubbedSessionError extends Error {
  * scrub cutoff, or `verifiedRescrubbed` is explicitly asserted by the caller
  * (e.g. after re-running the ingest pipeline's scrubber over this specific
  * session's stored row).
+ *
+ * ## Which surfaces this governs (ADR-040)
+ *
+ * The gate binds where transcript bytes CROSS the operator's trust boundary,
+ * not on every read. Its two callers are both crossings:
+ *
+ *   1. {@link exportGourceLog} — writes a file that outlives the process.
+ *   2. `src/cockpit/conversation-shares.ts` — mints and serves `/s/:token`,
+ *      which renders to a viewer who has NOT authenticated.
+ *
+ * It deliberately does NOT govern the operator reading their own stored
+ * history behind their own authentication: the cockpit's session-film
+ * endpoints and `routes/context-inspector.ts`'s snapshot are ungated by
+ * decision, not by omission. Do not add a call from a read surface without
+ * revisiting ADR-040.
+ *
+ * ## What passing this gate does and does not mean
+ *
+ * The scrubber matches CREDENTIAL patterns. ADR-025 §Security/access-control
+ * names three categories of sensitive transcript content — "secrets, tokens,
+ * and PII" — and this addresses roughly the first two. Passing is NOT
+ * evidence that a transcript is safe to publish; it means no known credential
+ * shape was matched. Treat it as a floor, never as a privacy control.
+ *
+ * @see docs/architecture/adr-040-transcript-scrub-gate-binds-at-trust-boundary-crossings.md
+ * @see docs/architecture/adr-025-transcript-storage-object-store-system-of-record.md
  */
 export function assertScrubGate(
   ingestedAt: Date | string | null | undefined,
@@ -95,9 +121,10 @@ export function assertScrubGate(
 
   if (!ingestedAt) {
     throw new UnscrubbedSessionError(
-      "Export refused: session has no ingestedAt timestamp, so it cannot be verified as " +
-        "ingested after the credential-scrubbing cutover (mt#2763/mt#2864). Pass " +
-        "verifiedRescrubbed=true only after confirming this specific session was re-scrubbed."
+      "Refused: this conversation has no ingestedAt timestamp, so it cannot be verified as " +
+        "ingested after the credential-scrubbing cutover (mt#2763/mt#2864), and its stored " +
+        "transcript may contain unscrubbed credentials. Pass verifiedRescrubbed=true only " +
+        "after confirming this specific session was re-scrubbed."
     );
   }
 
@@ -105,9 +132,9 @@ export function assertScrubGate(
   const cutoff = new Date(CREDENTIAL_SCRUB_CUTOFF_ISO);
   if (Number.isNaN(ts.getTime()) || ts.getTime() < cutoff.getTime()) {
     throw new UnscrubbedSessionError(
-      `Export refused: session ingested at ${String(ingestedAt)}, before the ` +
+      `Refused: this conversation was ingested at ${String(ingestedAt)}, before the ` +
         `credential-scrubbing cutoff (${CREDENTIAL_SCRUB_CUTOFF_ISO}, mt#2864 sweep confirmed ` +
-        "residue=0). This session's stored transcript may contain unscrubbed credentials. Pass " +
+        "residue=0). Its stored transcript may contain unscrubbed credentials. Pass " +
         "verifiedRescrubbed=true only after confirming this specific session was re-scrubbed."
     );
   }

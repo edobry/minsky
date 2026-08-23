@@ -45,7 +45,10 @@ import {
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
-import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
+import {
+  isAutomatedClosureResponder,
+  closeAskAsResolved,
+} from "@minsky/domain/ask/close-as-resolved";
 import {
   editAskContent,
   providedEditableFields,
@@ -54,6 +57,7 @@ import {
 } from "@minsky/domain/ask/edit";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
 import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
+import { getOpenIncidentAsks } from "@minsky/domain/ask/queries";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
@@ -80,7 +84,10 @@ import {
 } from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 // Severity transport binding (mt#3595)
-import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import {
+  notifyPrincipal,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
 import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
 import {
@@ -532,6 +539,89 @@ const asksRespondParams = {
 };
 
 /**
+ * Default responder for `asks.cancel` when the caller names none.
+ *
+ * Deliberately NOT `"operator"`, unlike `asksRespondParams.responder` above
+ * (mt#3353). `respondAndCloseAsk` falls back to `"operator"` on an omitted
+ * responder (`repository.ts`), so with no cancel verb the live practice became
+ * retiring an ask by ANSWERING it as its own author — which records the
+ * PRINCIPAL as having decided something they never saw. Withholding the verb did
+ * not protect the audit trail; it laundered agent withdrawals into the
+ * principal's answered record (mem#1122, mem#1007). A cancel path that inherited
+ * that default would reproduce the defect it exists to remove.
+ */
+const DEFAULT_CANCEL_RESPONDER = "system:agent-cancelled";
+
+const asksCancelParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description:
+      "Ask ID to cancel. Accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+    required: true,
+  },
+  reason: {
+    schema: z.string().trim().min(1),
+    description:
+      "Why this Ask is being retired — persisted as the cancellation disposition. Required: a cancellation with no reason is indistinguishable from the unattributed cancellations this command exists to replace.",
+    required: true,
+  },
+  responder: {
+    schema: z.string().trim().min(1),
+    description: `Who is cancelling — conventionally \`system:<event>\`. Defaults to \`${DEFAULT_CANCEL_RESPONDER}\`. The literal \`operator\` is REJECTED: cancelling is not answering, and recording the principal as the responder is the provenance laundering this command exists to end.`,
+    required: false,
+    defaultValue: DEFAULT_CANCEL_RESPONDER,
+  },
+};
+
+/** Result of `asks.cancel`. */
+export interface CancelAskResult {
+  askId: string;
+  outcome: "closed" | "cancelled" | "already-terminal" | "not-found" | "skipped";
+  responder: string;
+  reason: string;
+}
+
+/**
+ * Terminally cancel an Ask that no transport ever dispatched (mt#3353).
+ *
+ * Extracted from the `asks.cancel` handler rather than written inline so the
+ * decision it makes — chiefly the `operator` rejection — is observable from a
+ * test without standing up the command registry, matching the `respondToAsk`
+ * helper beside it. `id` is expected ALREADY RESOLVED to a full uuid; short-id
+ * resolution needs the container and stays at the handler boundary.
+ */
+export async function cancelAsk(
+  repo: AskRepository,
+  params: { id: string; reason: string; responder?: string }
+): Promise<CancelAskResult> {
+  const responder =
+    (params.responder ?? DEFAULT_CANCEL_RESPONDER).trim() || DEFAULT_CANCEL_RESPONDER;
+  const reason = params.reason.trim();
+
+  // The one hard rule this command carries. Cancelling is not answering, and an
+  // ask recorded against `operator` reads as a decision the principal made —
+  // see DEFAULT_CANCEL_RESPONDER above for why that is the exact failure this
+  // command exists to end. Rejected rather than silently rewritten, so a caller
+  // that meant to ANSWER is told to use `asks.respond` instead of having its
+  // intent quietly changed.
+  if (responder.toLowerCase() === "operator") {
+    throw new ValidationError(
+      'asks.cancel: `responder` may not be "operator" — cancelling is not answering, ' +
+        "and recording the principal as the responder would misreport an agent " +
+        "withdrawal as a principal decision. Use `asks.respond` to record a real " +
+        `answer, or pass a \`system:<event>\` responder (default: ${DEFAULT_CANCEL_RESPONDER}).`
+    );
+  }
+
+  const outcome = await closeAskAsResolved(repo, params.id, {
+    responder,
+    payload: { reason, cancelledVia: "asks.cancel" },
+  });
+
+  return { askId: params.id, outcome: outcome.kind, responder, reason };
+}
+
+/**
  * Typed input for `respondToAsk` — the internal helper exposed for testing.
  *
  * NOT a handler annotation type (mt#2779): the `asks.respond` execute handler
@@ -906,8 +996,18 @@ export function validateAuthorizationApproveOptions(params: {
  * distinction, not at the point that computes matches.
  *
  * The exclusion list stays a DENYLIST, deliberately: a new check blocks
- * unless it is added here. Two are excluded. `unlinkified-reference`
- * (mt#2918) is the second: the transform beside it is best-effort by design
+ * unless it is added here.
+ *
+ * **No count is stated here on purpose (PR #3158 R1).** This paragraph used to
+ * open "Two are excluded", and it was wrong by the time anyone read it: mt#4148
+ * and mt#4312 each added an exclusion without touching the sentence, and mt#4315
+ * made it a third off. A hand-maintained tally beside a list that only grows is
+ * a stale comment waiting to happen, so the reader is pointed at the filter body
+ * — which cannot drift from itself — and each exclusion carries its own reason
+ * at its own line. `asks.advisory-form-lint.test.ts` enumerates the current set
+ * as executable assertions.
+ *
+ * `unlinkified-reference` (mt#2918): the transform beside it is best-effort by design
  * — it linkifies a CUED external reference and warns about the rest — and an
  * ask carrying a citation it could not resolve is still a decidable ask, so
  * rejecting the create would withhold a decision over a formatting gap. The
@@ -983,7 +1083,30 @@ export function assertNoSerializedParameterArtifact(
 
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
   return matches.filter(
-    (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
+    (m) =>
+      m.check !== "missing-force-immediate" &&
+      m.check !== "unlinkified-reference" &&
+      // mt#4148: advisory permanently, not as a calibration-first term awaiting
+      // graduation. Every other check here states a condition the author can
+      // SATISFY — supply a link, shorten the body, add options. This one asks
+      // whether an exemption set is complete, which no matcher can decide, so
+      // blocking on it would only teach authors to reword the label. The fire
+      // is the prompt; the judgment stays with the author.
+      m.check !== "unscoped-option-exception" &&
+      // mt#4312: advisory permanently, and the direction is chosen rather than
+      // inherited. Blocking would mean a mis-scored overlap can SUPPRESS a real
+      // incident page, which is strictly worse than the duplicate page it would
+      // prevent — the whole subsystem exists to get the principal's attention
+      // when it is warranted. Fire, name the other ask, let the author decide.
+      m.check !== "duplicate-open-incident" &&
+      // mt#4315: advisory permanently, for the same reason as the check above
+      // and one of its own. Whether a condition will self-resolve is a
+      // PREDICTION about an external system — not something the author can
+      // settle before filing, and not something a matcher can adjudicate. The
+      // warning's job is to put category (b) in front of the author at the
+      // moment of escalation; blocking would let a wrong guess about someone
+      // else's infrastructure withhold a real page from the principal.
+      m.check !== "asserted-not-self-resolving"
   );
 }
 
@@ -1267,6 +1390,29 @@ export async function createAsk(
     const registry = routerOptions.capabilityRegistry;
     const server = registry?.activeElicitationServer();
     if (server) {
+      // mt#4450: persist the route outcome BEFORE dispatching, so the row
+      // carries the `routingTarget` the router already chose.
+      //
+      // This branch RETURNS, so it never reaches the shared
+      // `persistRouteOutcome` call below — and `dispatchToElicitation` walks
+      // state only (`advanceToSuspended` issues `repo.transition` calls and
+      // writes no other column). The result was an elicitation-routed ask
+      // persisted with `routingTarget = NULL` even though `pickTransport`
+      // returned "operator" for it, which is not cosmetic: the cockpit inbox
+      // filters on `routingTarget === "operator"` and its resolve endpoint
+      // refuses anything else (`src/cockpit/routes/asks.ts:407`, `:615`), so a
+      // dispatch that failed left an ask the operator could neither see nor
+      // answer. The warn at `:1431` already existed for exactly this shape and
+      // was firing into the log with nothing to fix it.
+      //
+      // Reuses `routeResultToOutcomeWrite` rather than writing the field
+      // directly so this path inherits the same authority rules as every
+      // other — notably that a creator-specified "operator" beats the
+      // kind→target default (mt#3491). The write lands `state: "routed"`;
+      // `advanceToSuspended` then walks routed → suspended as before, so the
+      // state machine is untouched and only the missing column is added.
+      const { write: elicitationWrite } = routeResultToOutcomeWrite(routed, ask.routingTarget);
+      await repo.persistRouteOutcome(ask.id, elicitationWrite);
       return await dispatchToElicitation(routed, { server, repo });
     }
     log.warn(
@@ -1387,6 +1533,11 @@ function makeProductionPageDeps(): PrincipalPageDeps {
           message: message.message,
           title: message.title,
           ...(message.taskId === undefined ? {} : { taskId: message.taskId }),
+          // Explicit production wiring (ADR-026, mt#3609). This is the second
+          // production caller of `notifyPrincipal`; the spec's original
+          // enumeration named only the `principal.notify` command, which is
+          // why the required-deps change had to re-derive its consumers.
+          deps: createRealPrincipalChannelDeps(),
         });
         return result.delivered
           ? { delivered: true }
@@ -1503,6 +1654,12 @@ export async function createAskWithFormLint(
   // Minsky id-set, and a Notion page id is in no Minsky index.
   const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
 
+  // mt#4312: read the open incident asks BEFORE creating this one, so the
+  // comparison set never contains the ask being created. Only for an incident
+  // create — an ordinary ask pays no read.
+  const openIncidentAsks =
+    params.severity === "incident" ? await getOpenIncidentAsks(repo) : undefined;
+
   const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
@@ -1516,6 +1673,11 @@ export async function createAskWithFormLint(
     // forceImmediate feeds the missing-force-immediate check (mt#3436) —
     // calibration-first, never blocking (see validateFormLintNotViolated).
     forceImmediate: params.forceImmediate,
+    // mt#4312: the counterweight to the check above. `severity` and the open
+    // incident set together drive `duplicate-open-incident`; both are absent
+    // for a non-incident create, which keeps that check silent.
+    severity: params.severity,
+    openIncidentAsks,
   });
   return {
     ask,
@@ -1528,6 +1690,30 @@ export async function createAskWithFormLint(
 // asks.wait-for-response — schemas + render helper (mt#2266)
 // ---------------------------------------------------------------------------
 
+/**
+ * Parameters for `asks.wait-for-response`.
+ *
+ * ## `timeoutSeconds` is not reliably reachable over MCP (mt#4455)
+ *
+ * This command emits **no progress notifications**. `context.onProgress?.()`
+ * (mt#2677) exists so a long-running command produces transport activity
+ * instead of silence; the emitters are the PR-polling commands
+ * (`session.pr.checks`, `session.pr.wait-for-review`, and `session.pr.drive`
+ * through its delegation to the latter) plus `session.migrate`. This command is
+ * not among them, so a wait here is silent for its whole duration, the
+ * connection looks IDLE to the transport underneath, and it can be closed
+ * before the requested budget elapses (~225 s measured 2026-08-22 on the
+ * sibling `deployment.wait-for-latest`).
+ *
+ * The clamp below still says `[1, 1800]` because it is the DOMAIN's contract and
+ * remains correct on the CLI path; over MCP the reachable ceiling is lower and
+ * not stated by any schema. Mechanism: **mt#1576** Occurrence 8. Transport-side
+ * decision: **mt#4455** (the shim's absolute bound is sized above 1800 s; the
+ * idle half is separate and unfixed).
+ *
+ * For an ask that may take minutes, prefer filing and continuing over blocking
+ * here — which is the shape mt#3564's answered-ask injection exists to support.
+ */
 const asksWaitForResponseParams = {
   id: {
     schema: z.string().trim().min(1),
@@ -1536,7 +1722,10 @@ const asksWaitForResponseParams = {
   },
   timeoutSeconds: {
     schema: z.number().int().positive(),
-    description: "Max seconds to wait (default 600; clamped to [1, 1800])",
+    description:
+      "Max seconds to wait (default 600; clamped to [1, 1800]). " +
+      "NOTE (mt#4455): over MCP this command emits no progress, so the transport's " +
+      "idle timeout can end the call before this budget elapses.",
     required: false,
     defaultValue: 600,
   },
@@ -1618,7 +1807,7 @@ export const asksEditParams = {
   metadata: {
     schema: z.record(z.string(), z.unknown()).optional(),
     description:
-      "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+      "Metadata keys to shallow-merge over existing metadata (editHistory and originalContent are reserved — provenance and the pre-edit content capture; caller-supplied values for either are ignored)",
     required: false,
   },
   editor: {
@@ -2156,6 +2345,43 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
   sharedCommandRegistry.registerCommand(
     defineCommand({
+      id: "asks.cancel",
+      category: CommandCategory.TOOLS,
+      name: "cancel",
+      description:
+        "Terminally cancel an Ask that was never dispatched (mt#3353, ADR-008). " +
+        "Covers the pre-suspended states — detected/classified/routed — which " +
+        "`asks.respond` rejects and which neither existing sweep reads: " +
+        "`advancement.ts` sweeps `detected` and `stale-suspended-close.ts` sweeps " +
+        "`suspended`, so `classified` and `routed` debris accumulates unreachable. " +
+        "This command is the terminal PRIMITIVE for those states; whether a RECURRING " +
+        "sweep may safely retire them, and under which rule, is mt#4361 — parent-terminal " +
+        "is not a safe trigger there, because a parent can go terminal by concluding the " +
+        "work is operator-only while that work is still outstanding. " +
+        "Silent to the operator: this is debris cleanup, not a decision. " +
+        "Idempotent — an already-terminal Ask is a no-op. " +
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+      // Same rationale as asks.respond: depends only on the persistence
+      // provider, not on global Minsky configuration.
+      requiresSetup: false,
+      parameters: asksCancelParams,
+      execute: async (params): Promise<CancelAskResult> => {
+        const repo = await requireAskRepository(container, "asks.cancel");
+        // mt#2696: resolve a short-prefix citation to the full uuid before it
+        // ever reaches a Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
+        return cancelAsk(repo, {
+          id,
+          reason: params.reason as string,
+          responder: params.responder as string | undefined,
+        });
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
       id: "asks.create",
       category: CommandCategory.TOOLS,
       name: "create",
@@ -2357,7 +2583,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "to metadata, and preserves each content field's PRE-EDIT value once, under " +
+        "metadata.originalContent — so the text an ask was originally escalated with survives a " +
+        "correction (mt#4329). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
         "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as

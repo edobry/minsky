@@ -67,6 +67,41 @@ export const cockpitConfigSchema = z
      * decided here and in one place only.
      */
     port: z.number().int().min(1).max(65535).default(3737),
+
+    /**
+     * Settings for driven sessions — the genuine `claude` processes the
+     * cockpit spawns (`src/cockpit/driven-session-host.ts`), including every
+     * session a Telegram message starts through the principal channel.
+     */
+    drivenSession: z
+      .strictObject({
+        /**
+         * Which MCP servers a driven session is provisioned with (mt#4239).
+         *
+         * Names are resolved against the operator's `.mcp.json` and copied
+         * verbatim into the `--mcp-config` payload. `minsky` is always
+         * present and is always SYNTHESIZED rather than inherited — it must
+         * point at the running build and at the session's own repo path, which
+         * no file on disk knows.
+         *
+         * **Local command servers only.** A name resolving to a REMOTE entry
+         * (a `url` rather than a `command`) is refused with a log line, because
+         * a headless `claude -p` child cannot complete an OAuth flow — verified
+         * live against `claude` 2.1.226, and vendor-documented at
+         * code.claude.com/docs/en/mcp ("In non-interactive mode there's no
+         * `/mcp` panel, so Claude Code can't run the OAuth flow for you").
+         * Shipping one anyway would cost up to `MCP_TIMEOUT` (30s default) of
+         * first-turn latency per spawn and still deliver no tools.
+         *
+         * Default is deliberately narrow. `supabase` is resolvable but NOT a
+         * default: driven sessions run under `bypassPermissions` and can be
+         * triggered from a phone with nobody watching, and that server carries
+         * `execute_sql` / `apply_migration` against the production project.
+         * Adding it is an explicit operator decision, not an inherited one.
+         */
+        mcpServers: z.array(z.string().min(1)).default(["minsky", "github"]),
+      })
+      .optional(),
   })
   .optional();
 

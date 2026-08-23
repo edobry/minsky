@@ -57,7 +57,16 @@ interface FireLogEntry {
   guardName: string; // e.g. "check-guessed-session-path", "nul-byte-check"
   event: string; // lifecycle event or pipeline stage ("PreToolUse", "PreCommit", ...)
   decision: "allow" | "warn" | "deny";
+  // mt#3892 / mt#3757 — what KIND of record this is. OPTIONAL, and absence is
+  // deliberately NOT read as "decided": records written before the field
+  // existed carry no evidence either way. See §guardOutcome below.
+  guardOutcome?: "decided" | "crashed" | "deadline-skipped";
   durationMs: number; // per-fire cost, not cumulative
+  // mt#3757 — set ONLY when the guard crossed its DECLARED timeoutMs and
+  // FINISHED ANYWAY. Carries the budget it crossed; `durationMs` is the cost.
+  // Deliberately ABSENT on a "deadline-skipped" record: that guard did not
+  // finish, so a value there would make the field mean two different things.
+  budgetExceededMs?: number;
   overrideEnvVar?: string; // the env-var name that produced the override, if any
   overrideClassification?: "authorized_exception" | "unclassified" | "contested";
   overrideSource?: "env" | "grant"; // which checkOverride() channel decided (dispatcher only; R1 fix)
@@ -68,10 +77,22 @@ interface FireLogEntry {
 
 ## Override classification
 
-Per the RFC's explicit three-way split, computed against the same oracle every
-override env-var must already be registered in (`HOOK_ONLY_ENV_VARS`,
-`packages/domain/src/configuration/sources/environment.ts` — the mt#1788
-registry that also gates the CLI's env-var-to-config dot-path parser):
+Per the RFC's explicit three-way split, computed against
+`OPERATOR_OVERRIDE_ENV_VARS` in
+`packages/domain/src/configuration/sources/environment.ts` — the
+`operator-override` slice of the mt#1788 registry that also gates the CLI's
+env-var-to-config dot-path parser:
+
+> **Corrected 2026-08-17 (mt#3882).** This paragraph used to name
+> `HOOK_ONLY_ENV_VARS` — the FULL registry — as the oracle, which was wrong and
+> known to be wrong at two definition sites that documented specific vars as
+> "deliberately NOT in `known-override-env-vars.ts` — it is not an operator
+> escape hatch." The full registry holds every `MINSKY_*` var with no
+> config-schema home: reviewer credentials, MCP server config, test fixtures,
+> timeout knobs. Classifying those `authorized_exception` would report an
+> operator authorization that never happened. The oracle is the categorized
+> slice, and `known-override-env-vars.test.ts` now holds the hooks-tree copy
+> equal to it in both directions.
 
 - **`authorized_exception`** — the override env-var IS a documented, registered
   legitimate-use escape-hatch (present in the oracle).
@@ -110,14 +131,26 @@ misclassification, not a design choice. The fix
 **Dependency boundary.** `.minsky/hooks/` is dependency-free (`SPEC.md`'s
 invariant — no `packages/domain` imports, so the hooks tree keeps working even
 when the main codebase has type errors). It therefore cannot import
-`HOOK_ONLY_ENV_VARS` directly; `.minsky/hooks/known-override-env-vars.ts` is a
-hand-maintained mirror, matching the established duplication-over-cross-import
+`OPERATOR_OVERRIDE_ENV_VARS` directly; `.minsky/hooks/known-override-env-vars.ts`
+carries a literal copy, matching the established duplication-over-cross-import
 precedent (`guard-health.ts` / `mcp-daemon-staleness-detector.ts` each duplicate a
-src-side reader rather than importing it, for the same reason). Staleness there is
-soft-failing by design — a missing entry only downgrades a classification from
-`authorized_exception` to `unclassified`, never changes a guard's actual decision.
+src-side reader rather than importing it, for the same reason).
 `src/hooks/pre-commit-fire-log.ts` has no such constraint (it's part of the root
-tsconfig program) and imports the real `HOOK_ONLY_ENV_VARS` directly.
+tsconfig program) and imports `OPERATOR_OVERRIDE_ENV_VARS` directly, so both
+sides now read the same oracle.
+
+**The copy is CHECKED, not hand-maintained (mt#3882).** This paragraph used to
+call the drift "soft-failing by design — a missing entry only downgrades a
+classification." True of any single guard's allow/deny decision, and false about
+the measurement the log exists to produce: by 2026-08-17 the copy was 63 entries
+behind, carried 45 entries that were never escape hatches, and held one
+(`MINSKY_POLICY_COVERAGE_MODE`) whose detector mt#4197 had retired — at which
+point `unclassified` mostly meant "a registered override nobody mirrored" rather
+than "an unregistered var was used." Six hand-syncs failed to hold it. A test
+file is not bound by the hooks tree's dependency-free constraint (that invariant
+is about the tree staying RUNNABLE), so
+`.minsky/hooks/known-override-env-vars.test.ts` imports both sides and asserts
+equality in both directions.
 
 ## Overhead measurement
 
@@ -140,6 +173,43 @@ the append operation itself (JSON.stringify + directory-exists check +
 guards record includes the GUARD's real work (which for e.g. `eslint-validation`
 or `unit-tests` is legitimately multi-second; that's the guard's own cost, not the
 fire-log's instrumentation overhead).
+
+## `guardOutcome`, and why an overrun is not one of its values (mt#3892, mt#3757)
+
+`guardOutcome` says what KIND of record a line is. Its consumer that must not ignore
+it is guard-health's recovery join, which counts `"decided"` records **only** —
+otherwise a continuously crashing guard reads as recovered, because each crash
+writes its own `allow` microseconds after its own failure event.
+
+| Value                | Meaning                                                                          | Counts as a clean run? |
+| -------------------- | -------------------------------------------------------------------------------- | ---------------------- |
+| `"decided"`          | the guard returned a verdict                                                     | **yes**                |
+| `"crashed"`          | the guard threw; the dispatcher failed open (mt#2597)                            | no                     |
+| `"deadline-skipped"` | the guard passed its hard deadline and was skipped — no verdict exists (mt#3757) | no                     |
+| absent               | written before the field existed — no evidence either way                        | no (dormant)           |
+
+**An overrun is deliberately NOT a fourth value.** A guard that crossed its declared
+`timeoutMs` and still returned a verdict _decided_; it was merely slow. Recording
+that as a distinct `guardOutcome` would drop it out of the join above, so a guard
+that worked correctly would read as never having produced a clean run — the same
+false-health signal mt#3892 exists to prevent. It is therefore an additive
+`budgetExceededMs` field alongside `guardOutcome: "decided"`: a fact about **cost**,
+not a different outcome.
+
+`"deadline-skipped"` is the opposite case and _is_ a new value, because that guard
+produced nothing to count.
+
+**The two are mutually exclusive, and that is the contract** (PR #3213 R3):
+`budgetExceededMs` is present ⟺ the guard overran and STILL RETURNED. It is absent on a
+`"deadline-skipped"` record, because that guard did not return. Setting it on both would
+collapse "slow but fine" and "cut off" into one signal at every reader — which is exactly
+what a reader consults this field to tell apart.
+
+**Operator reading.** A rising `budgetExceededMs` population for one guard means its
+declared budget no longer matches reality — re-budget it, or investigate why it slowed.
+A `"deadline-skipped"` record means a verdict was genuinely LOST for that turn; the
+merged context block carries a matching named notice, so the agent that ran the turn was
+told rather than left to read the silence as an all-clear.
 
 ## Fail-open verification
 
@@ -227,8 +297,12 @@ fetch`, an actual `git merge` on the blocked+clean-tree auto-merge path
     fire-log decision would need restructuring that function's void return
     into a decision-returning one — a larger structural change than the
     additive instrumentation this task's scope allows.
-  - `policy-coverage-detector.ts` — NO LONGER A GAP as of mt#3393; a
-    `policy-coverage` canary now ships in `STANDALONE_GUARD_CANARIES`. The
+  - `policy-coverage-detector.ts` — MOOT as of 2026-08-16 (mt#4197): the hook,
+    its module, and its canary are deleted. The paragraph below is retained as
+    the record of how the gap was closed while the detector existed, because
+    its reasoning about synthetic-corpus canaries generalizes to the next
+    decision-function guard. It was NO LONGER A GAP as of mt#3393; a
+    `policy-coverage` canary shipped in `STANDALONE_GUARD_CANARIES`. The
     original exclusion reasoned that a canary "would be structurally brittle
     (depends on live corpus content)"; that holds only if the canary loads the
     live corpus. Injecting a synthetic two-entry `PolicyCorpus` straight into
@@ -440,7 +514,15 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   `NON_GUARD_CALIBRATION_PRODUCERS` map naming the producer, reports those logs on a
   `[NON-GUARD]` line, and EXCLUDES them from the coverage results entirely — `FLAGGED`
   asserts "no evidence the entry point ran", which for a log with no entry point to
-  instrument is a false claim rather than a weak one. Recording fire-log entries from the
+  instrument is a false claim rather than a weak one. **A RETIRED producer gets the same
+  treatment on the same reasoning (mt#4204):** `RETIRED_CALIBRATION_PRODUCERS` names logs
+  whose producer was deleted on purpose while the log itself was kept as history, reported
+  on a `[RETIRED]` line and likewise excluded. Without it, retiring a detector and keeping
+  its log — which is what you want when the log is the evidence the retirement rested on —
+  moves that log from `[DORMANT]` to `[FLAGGED]` permanently, because deleting the producer
+  also deletes its only invocation-evidence join (mt#4197 is the originating case). This is
+  NOT a mute for a detector that has gone quiet: a live producer with zero fires and zero
+  invocations is the "shipped is not firing" defect, and still flags. Recording fire-log entries from the
   command path was rejected: the fire log is the GUARD invocation log (`guardName` is its
   identity field), and `src/` is bundled into the deployed MCP server, which must not import
   `.minsky/hooks/`.
@@ -527,7 +609,10 @@ fire-log JSONL record itself).
 - `src/hooks/pre-commit.ts` — `runInstrumentedStep` (R1 fix: override attribution
   via the step's own `HookResult.overridden` flag).
 - `packages/domain/src/configuration/sources/environment.ts` —
-  `HOOK_ONLY_ENV_VARS`, the override-classification oracle.
+  `HOOK_ONLY_ENV_VAR_CATEGORIES` and its derived `OPERATOR_OVERRIDE_ENV_VARS`,
+  the override-classification oracle (mt#3882).
+- `.minsky/hooks/known-override-env-vars.test.ts` — the equality check holding
+  the hooks-tree copy to that oracle in both directions (mt#3882).
 - mt#3078 — invocation-path audit that classified the merge-gate fire-log absence as by-design
   (not a wiring bug) and named the alternative evidence sources (see the dedicated section
   above); mt#3084 — the Phase-3 build-out task this classification filed.
@@ -606,3 +691,61 @@ under `~/.local/state/minsky/`). A closed laptop means:
 This is the same shape mt#2320's ADR-017 module doc already names for transcripts; recorded here
 so a miner reading THIS corpus's freshness guarantee does not have to cross-reference the
 transcript path to learn it applies here too.
+
+## Sweep-time claims on a calibration log (mt#4164)
+
+`observability calibration-review` takes a **claim** on each review-due log at SWEEP time — before
+it returns any records — so a second pass can see the first one working. Two passes classifying the
+same window is pure waste: both read the same records, both file findings, and only one ack can
+survive.
+
+### Why the claim exists rather than the prose probe alone
+
+`/calibration-review` Step 1 has carried a probe against this since R1: search for a tune task or
+disposition ask already filed. That probe searches for **artifacts**, and a pass that is
+mid-classification has filed none — classification is the entire expensive part and all of it is
+upstream of any artifact. R3 (2026-08-16) is the demonstration: two passes over the same
+`bare-entity-ref` window, filed one minute apart, the second's probe correctly finding nothing.
+
+The probe is still useful for what the claim cannot see: a pass that already FINISHED and released.
+
+### Store
+
+`.minsky/calibration-review-claims.json` — repo-local, gitignored, a sibling of
+`calibration-review-watermarks.json` and written under the **same** mkdir lock, so a claim and the
+watermark it will later advance are never inconsistent.
+
+```json
+{ "<log path>": { "actorId": "...", "claimedAt": "<iso>", "lastRefreshedAt": "<iso>" } }
+```
+
+Freshness is **derived at read**, never stored. `presence.ts` states the reason: _"a stored
+`presence = 'LIVE'` is a claim no writer can retract when the process dies mid-tool-call."_ A pass
+killed mid-classification therefore ages out on its own, with no reaper to run. `CLAIM_STALE_MS` is
+30 minutes, from observed sweep→ack spans of 4–10 minutes.
+
+It is deliberately NOT the `presence_claims` table, though that table is grain-agnostic and would
+have accepted a fourth `subject_kind`: the sweep is filesystem-only and runs in hook and CLI
+contexts with no database bootstrap, and `presence_claims` backs an operator-facing fleet-state
+surface that an internal coordination row has no business in (mt#2569).
+
+### Result fields
+
+| Field               | Meaning                                                                                                                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claimedByOthers`   | Log paths another actor is classifying right now. These are EXCLUDED from `reviewDue` on a read pass — the pass stands down rather than duplicating the work. Empty on every uncontended run.                                             |
+| `claimsUnavailable` | `true` when the runtime could not name this pass (`CLAUDE_AGENT_ID` / `CLAUDE_CODE_SESSION_ID` both absent). No claim was taken and none was honoured, so the pass runs with the pre-mt#4164 collision risk. Reported rather than silent. |
+
+Text mode adds a `Stood down on N log(s)` block naming each holder and how long it has held.
+
+### What the claim deliberately does NOT gate
+
+**The ack.** A claim answers "who is WORKING"; the receipt (`reviewToken`, mt#3906) answers "what
+was READ". Filtering the ack set by concurrent claims would conflate them, and a pass that
+legitimately classified a log would be unable to RECORD that because someone else started working
+on it in the interim — silently discarding real review work. `logsToActOn` keeps the two apart, and
+its `isAck` branch is asserted by test.
+
+**`driftedPaths` (mt#3899).** That is the after-the-fact DETECTION half and is unchanged. Detection
+and prevention are not substitutes: a claim can be missing (unidentifiable runtime) or stale, and
+the drift check is what still catches the resulting race.

@@ -240,26 +240,26 @@ export async function stopDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<vo
   }
 }
 
-/**
- * Restart the cockpit daemon (unload + reload the existing plist).
- * Waits for the process to stop before reloading.
+/*
+ * `restartDaemon` was here until mt#4232, and is deliberately NOT replaced by a
+ * launchd-flavoured equivalent.
+ *
+ * It opened with the same `existsSync(plistPath)` throw as `stopDaemon` above,
+ * which made `minsky cockpit restart` unusable under the tray-supervised setup
+ * ADR-014 calls the default — the whole defect mt#4232 fixes. Restart now lives
+ * in `./daemon-restart.ts` and is supervision-INDEPENDENT: it signals the
+ * serving pid, which both supervisors already respond to by respawning.
+ *
+ * Its single caller (`src/commands/cockpit/restart-command.ts`) was rewired in
+ * the same change, so nothing imports it. Leaving it exported would re-offer the
+ * launchd-only path to the next caller, which is how the asymmetry arose in the
+ * first place: `status` was rebuilt to model both supervisors after the
+ * 2026-08-04 outage and these two were simply never revisited.
+ *
+ * `stopDaemon` above SURVIVES, and that asymmetry is intentional — `launchctl
+ * unload` is the only stop launchd honours, since its plist's
+ * `KeepAlive SuccessfulExit:false` would undo a signal ~60s later.
  */
-export async function restartDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<void> {
-  const plistPath = getPlistPath();
-
-  if (!fs.existsSync(plistPath)) {
-    throw new Error(`No cockpit daemon installed (${plistPath} not found)`);
-  }
-
-  try {
-    execSync(`launchctl unload "${plistPath}"`, { stdio: "ignore" });
-  } catch {
-    // May not be loaded
-  }
-
-  await waitForDown(port);
-  execSync(`launchctl load "${plistPath}"`, { stdio: "ignore" });
-}
 
 async function waitForDown(port: number, attempts = 6): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
@@ -291,12 +291,16 @@ export interface DaemonStatus {
   installed: boolean;
   running: boolean;
   /**
-   * Null for an externally supervised daemon, deliberately rather than by
-   * oversight: launchd is the only PID source this command has, and
-   * `/api/health` does not carry one (`src/cockpit/routes/health.ts` returns
-   * status/commit/uptimeSec). Reporting a PID for the tray-supervised case
-   * needs a new health field, which belongs to the health surface's own task,
-   * not here. The CLI says so rather than leaving a bare blank.
+   * The serving process, under EITHER supervisor (mt#4232).
+   *
+   * Was null for anything launchd did not hold, because launchctl was the only
+   * PID source here and `/api/health` carried none — the earmark this comment
+   * used to record, deferring the field to "the health surface's own task".
+   * That task was mt#4232: the payload now carries `pid`, so the external case
+   * reads it from health instead of reporting a blank.
+   *
+   * Still null when nothing answers and no agent is loaded, which is the honest
+   * reading rather than a gap.
    */
   pid: number | null;
   port: number;
@@ -320,8 +324,16 @@ export interface DaemonStatusProbes {
   plistExists(plistPath: string): boolean;
   /** PID launchd reports for our label, or null when the agent is not loaded. */
   launchctlPid(): number | null;
-  /** Health fields when the port answers, or null when it does not. */
-  health(port: number): Promise<{ uptime: string | null; commit: string | null } | null>;
+  /**
+   * Health fields when the port answers, or null when it does not.
+   *
+   * `pid` is optional because it is only present on a daemon running mt#4232 or
+   * later — and the daemon you are asking about is very often the STALE one you
+   * are about to restart, which is exactly the case that predates the field.
+   */
+  health(
+    port: number
+  ): Promise<{ uptime: string | null; commit: string | null; pid?: number | null } | null>;
 }
 
 /**
@@ -366,9 +378,19 @@ export async function resolveDaemonStatus(
     running: true,
     uptime: health.uptime,
     commit: health.commit,
+    // launchd's PID wins when it has one — it is the supervisor's own record.
+    // Otherwise fall back to the daemon's self-reported `pid` (mt#4232), which
+    // is what makes the tray-supervised case report a process instead of a
+    // blank. `?? null` keeps the field's type honest for a daemon too old to
+    // carry it.
+    pid: pid ?? health.pid ?? null,
     // launchd is credited only when it is actually holding the process. A
     // loaded agent with no PID beside a port that answers means something else
     // won the bind, which ADR-014's single-owner invariant permits.
+    //
+    // Note this still keys on launchctl's PID, NOT on the merged field above:
+    // health's pid is present under BOTH supervisors, so deciding from it would
+    // credit launchd for every serving daemon.
     supervisor: pid !== null ? "launchd" : "external",
   };
 }
@@ -397,7 +419,7 @@ const realProbes: DaemonStatusProbes = {
       });
       if (!resp.ok) return null;
       const health = (await resp.json()) as Record<string, unknown>;
-      return { uptime: readUptime(health), commit: readCommit(health) };
+      return { uptime: readUptime(health), commit: readCommit(health), pid: readPid(health) };
     } catch {
       // Nothing answering on the port.
       return null;
@@ -420,6 +442,24 @@ export function readUptime(health: Record<string, unknown>): string | null {
 
 function readCommit(health: Record<string, unknown>): string | null {
   return typeof health["commit"] === "string" ? health["commit"] : null;
+}
+
+/**
+ * The serving process's pid from `/api/health` (mt#4232), or null.
+ *
+ * Null covers two DIFFERENT states that this reader deliberately does not try
+ * to tell apart, because no caller can act on the difference: a daemon whose
+ * build predates the field, and a payload where it is present but unusable.
+ * Both mean "no pid available from health" — callers that need one anyway fall
+ * back to resolving it from the port.
+ *
+ * `Number.isInteger` rather than `typeof === "number"`: NaN and Infinity are
+ * both numbers and neither is a pid, and `process.kill` on one throws rather
+ * than returning an error we could report.
+ */
+export function readPid(health: Record<string, unknown>): number | null {
+  const pid = health["pid"];
+  return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
 /** Seconds to a compact "2d 3h 4m" / "5m" form; sub-minute reads as "<1m". */

@@ -119,6 +119,19 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // version does not parse); deriving the cursor from message rows alone
   // re-fetches such an update forever and wedges the channel behind it.
   "principal.poll_advanced",
+  // mt#4205 — `cockpit start` terminated a previous cockpit instance that was
+  // holding the port and not answering its own health endpoint. Actionable for
+  // the same reason as `guard.overridden`: a process was force-terminated, and
+  // the operator should be able to see that it happened and how often. A RISING
+  // count is the signal that matters — each row means the daemon wedged badly
+  // enough to need displacing, so a recurrence is a wedge worth chasing rather
+  // than a recovery worth celebrating.
+  //
+  // The FIRST daemon-lifecycle event type in this enum. Every other value is
+  // emitted by an agent-driven action, which is exactly why the 2026-08-06
+  // outage (mt#4154) could not be reconstructed from this table: a quiet window
+  // meant "no agent was working", not "nothing happened to the daemon".
+  "cockpit.port_displaced",
 ] as const;
 
 /**
@@ -202,6 +215,25 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *
  * Payload shape for the mt#3021 shared destructive-override audit type:
  *
+ * Payload shape for the mt#4205 cockpit port-displacement type:
+ *
+ *   - `cockpit.port_displaced` → `{ port: number; displacedPid: number;
+ *       displacedCommand: string; forced: boolean }`
+ *       `forced` is false on the automatic path (the incumbent answered
+ *       nothing, so it was displaced without operator involvement) and true
+ *       when the disposition said preserve and `--force` overrode it. Without
+ *       it the row cannot tell a self-healed wedge from a manual kill, which is
+ *       the distinction that makes a rising count meaningful.
+ *       emitted by `src/commands/cockpit/start-command.ts` AFTER the
+ *       replacement server has successfully bound the port — not at the moment
+ *       of the kill. The guard runs before this process initializes
+ *       configuration or persistence, so an emit at the decision point resolves
+ *       no provider and silently no-ops (mt#4154's evidence-loss shape). The
+ *       consequence, stated rather than implied: a displacement whose
+ *       re-listen then fails leaves only the log line.
+ *
+ * Payload shape for the mt#3021 shared destructive-override audit type:
+ *
  *   - `guard.overridden` → `{ guard: string; reason: string; [key: string]: unknown }`
  *       emitted by `recordDestructiveOverride`
  *       (`packages/domain/src/safety/destructive-override.ts`) whenever a
@@ -267,6 +299,7 @@ export const eventCategory = {
   "ask.page_failed": "actionable",
   "principal.message_received": "informational",
   "principal.poll_advanced": "informational",
+  "cockpit.port_displaced": "actionable",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */

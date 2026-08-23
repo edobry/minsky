@@ -31,6 +31,26 @@ export function isNotification(msg: JsonRpcMessage): boolean {
 }
 
 /**
+ * The number of tools carried by a `tools/list` response, or `null` when `msg`
+ * is not one (mt#4128).
+ *
+ * A `tools/list` response is a `result` (not an `error`) whose result carries a
+ * `tools` array. Recognising it is the whole basis of the served-tool-count
+ * record in `main.ts` — see that call site for why the count is worth keeping.
+ *
+ * Deliberately a second implementation rather than an import of
+ * `stdio-proxy/tools.ts`'s equivalent, for exactly the reason this file's own
+ * header already gives: the shim's dependency graph must not reach into the
+ * proxy's augmentation surface. Three lines duplicated is the cheaper side of
+ * that trade.
+ */
+export function toolsListCount(msg: JsonRpcMessage): number | null {
+  if (!msg.result || msg.error) return null;
+  const tools = (msg.result as Record<string, unknown>)["tools"];
+  return Array.isArray(tools) ? tools.length : null;
+}
+
+/**
  * Build a JSON-RPC error response frame. Used when the shim cannot forward
  * a request's real response — an HTTP failure against the daemon that
  * survived the retry window (see client.ts) — so the failure reaches the

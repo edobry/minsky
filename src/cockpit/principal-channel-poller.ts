@@ -66,6 +66,12 @@ import {
   type InboundRoute,
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
+import { registerSelfSchedulingSweep } from "./sweepers";
+import type { DegradedDedupe } from "./principal-channel-degraded-dedupe";
+import { withDeadline } from "@minsky/domain/utils/deadline";
+// Value import, not a cycle: this module's only edge back from the actuator is
+// `import type` (erased at runtime), so nothing loads twice.
+import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
 
 /**
  * Long-poll seconds. 25s sits inside Telegram's own server-side ceiling while
@@ -76,6 +82,67 @@ const DEFAULT_LONG_POLL_SEC = 25;
 
 /** Backoff after a failed poll, so a Telegram outage is not hammered. */
 const ERROR_BACKOFF_MS = 30_000;
+
+/**
+ * Wall-clock bound on a single DB step inside a poll cycle (mt#4183 SC2) —
+ * the cursor read, the cursor write, and the per-message audit write.
+ *
+ * None of these carried ANY bound before: they receive no `AbortSignal` and
+ * the driver imposes no deadline, so a connection that goes away without
+ * settling its promise parks the cycle forever with nothing thrown and nothing
+ * logged. That is the shape of the 2026-08-16 incident, where the loop sat on
+ * an empty cycle for ~44 hours (mt#4183 `## SC3 falsifier result`).
+ *
+ * 30s is deliberately far above a healthy statement (sub-second against the
+ * Supabase pooler) and far below anything an operator would wait through. The
+ * point is not to tune latency — it is that the worst case becomes an error
+ * the loop's existing catch already handles, instead of silence.
+ */
+const DB_STEP_DEADLINE_MS = 30_000;
+
+/**
+ * Wall-clock bound on the long poll, as a function of the SERVER-side
+ * long-poll parameter (mt#4183 SC2).
+ *
+ * Telegram's Bot API `getUpdates` takes `timeout` — "Timeout in seconds for
+ * long polling" — which asks the SERVER to hold the request open that long and
+ * return an empty result if nothing arrives. It is not a client deadline, and
+ * `getTelegramUpdates` sets none of its own: it forwards the caller's signal
+ * and otherwise uses a bare `fetch`. So a healthy poll legitimately takes up
+ * to `longPollSec`, and any client bound below that would abort every healthy
+ * poll and convert a working channel into a permanent error-backoff loop.
+ *
+ * Match/extend/deviate vs. the vendor's documented model: **extend.** The
+ * server-side `timeout` is used exactly as documented; this adds the
+ * client-side deadline the API does not provide, at 2x the server value so the
+ * response body has generous room to transfer before the bound trips.
+ */
+function longPollDeadlineMs(longPollSec: number): number {
+  return longPollSec * 2 * 1000;
+}
+
+/** The name this poller registers under in the sweep-liveness registry (mt#4185). */
+export const PRINCIPAL_CHANNEL_SWEEP_NAME = "principal-channel poll";
+
+/**
+ * Longest legitimate gap between two progress reports from the poll loop
+ * (mt#4185) — the meta-watchdog treats twice this as a stall.
+ *
+ * DERIVED, not chosen. The loop reports progress after every await that could
+ * park, so the widest legitimate gap is the slowest single one: handling one
+ * message, which the actuator already bounds. Both terms are real enforced
+ * ceilings, not intentions — `awaitTurnResult` resolves its promise from a
+ * `setTimeout` on every path, so a turn cannot outlast the turn timeout.
+ *
+ * Idle and failing cadences sit far inside this: a long poll returns within
+ * {@link DEFAULT_LONG_POLL_SEC} and a failing one retries after
+ * {@link ERROR_BACKOFF_MS}. Importing the two terms rather than restating
+ * their sum is deliberate — a budget that silently stopped tracking the
+ * timeouts it is derived from would produce a restart loop against a turn that
+ * was still legitimately running.
+ */
+export const PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS =
+  DEFAULT_READY_TIMEOUT_MS + DEFAULT_TURN_TIMEOUT_MS;
 
 /** Cap on a single outbound reply. Telegram hard-rejects above 4096. */
 const MAX_REPLY_CHARS = 3500;
@@ -128,14 +195,25 @@ export interface ConverseOptions {
   images?: ChannelImage[];
   /**
    * Called with the assistant text accumulated SO FAR as the turn produces it
-   * (mt#3542), for rendering progress into an edited placeholder.
+   * (mt#3542), for rendering progress into the chat.
    *
    * Advisory, and not every actuator emits it. The resolved value — not the
    * last `onPartial` argument — is the turn's authoritative answer: a turn with
    * tool-use rounds streams text around each round, while the resolved result
-   * carries the final reply. Callers settle on the resolved value.
+   * carries the final reply. Callers settle on the resolved value, but only
+   * ADDITIVELY — see `principal-channel-reply-stream.ts`'s `finish`.
    */
   onPartial?: (accumulated: string) => void;
+  /**
+   * Called when a tool call interrupts the assistant's prose (mt#3711).
+   *
+   * The prose before a tool call is a finished thought, so this is where a
+   * streamed reply closes one message and opens the next — the difference
+   * between a turn that reads like chat and one paragraph that keeps growing.
+   * Advisory in exactly the same way `onPartial` is: an actuator that does not
+   * emit it degrades to one message per turn, which is the previous behaviour.
+   */
+  onBlockEnd?: () => void;
 }
 
 export interface ChannelActuator {
@@ -178,6 +256,27 @@ export type InboundEventType =
  * different channels.
  */
 export type RecordOutcome = "recorded" | "duplicate";
+
+/**
+ * What {@link recordSafely} reports — the recorder's two outcomes plus the one
+ * only it can observe (mt#4252).
+ *
+ * `"unrecorded"` means the durable write did not land. It is a THIRD thing, not
+ * a flavour of `"recorded"`: the recorder deliberately separated "this is a
+ * replay" from "the database failed" (PR #2324 R1), and returning `"recorded"`
+ * for a failure re-collapsed that distinction at the caller — the poller could
+ * not tell a message it had already run from one it had not, so during an
+ * outage it ran every re-served message again, every cycle.
+ *
+ * Kept off {@link RecordOutcome} and {@link InboundEventRecorder} on purpose:
+ * the recorder cannot report this, because it THROWS instead. Only the wrapper
+ * that catches the throw can, so only the wrapper's signature widens.
+ *
+ * Per ADR-035 rule 2, what to DO about it is the consumer's decision — see
+ * {@link runPollCycle}'s handling, which consults the per-process fallback
+ * dedupe rather than assuming either answer.
+ */
+export type SafeRecordOutcome = RecordOutcome | "unrecorded";
 
 /** Append-only audit sink. One row per inbound update, before any side effect. */
 export type InboundEventRecorder = (
@@ -224,9 +323,37 @@ export interface PollCycleDeps {
   markTopicDead?: (chatId: string, messageThreadId: number) => Promise<void>;
   cursor: PollCursor;
   recordEvent: InboundEventRecorder;
+  /**
+   * Per-process fallback dedupe, consulted ONLY when a durable audit write
+   * fails (mt#4252).
+   *
+   * Omitted, the cycle behaves exactly as it did before this existed — a failed
+   * write is treated as new and the message runs — so a caller that does not
+   * wire it is not silently made stricter. The composition root
+   * (`./principal-channel-launch.ts`) supplies it, and also reads its snapshot
+   * for the `principalChannel.dedupe` health substate.
+   */
+  degradedDedupe?: DegradedDedupe;
   longPollSec?: number;
   fetchFn?: FetchFn;
   signal?: AbortSignal;
+  /**
+   * Called each time the cycle demonstrably advanced past an await that could
+   * have parked (mt#4185).
+   *
+   * Wired by {@link startPrincipalChannelPoller} to its sweep-liveness
+   * registration; omitted, the cycle behaves exactly as before. Must not
+   * throw and must not block — it stamps a timestamp.
+   */
+  onProgress?: () => void;
+  /**
+   * Override the wall-clock bounds a cycle applies to its DB steps (mt#4183).
+   *
+   * Present so a test can exercise the deadline branch in milliseconds rather
+   * than waiting out {@link DB_STEP_DEADLINE_MS}. Production never sets it —
+   * the default IS the bound, so omitting this changes nothing.
+   */
+  dbStepDeadlineMs?: number;
 }
 
 export interface PollCycleOutcome {
@@ -264,14 +391,28 @@ export interface PollCycleOutcome {
  * concurrently — no lock, no scheduler, just promise chaining.
  */
 export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcome> {
-  const offset = await deps.cursor.read();
-  const result = await getTelegramUpdates({
-    token: deps.token,
-    ...(offset === undefined ? {} : { offset: offset + 1 }),
-    timeoutSec: deps.longPollSec ?? DEFAULT_LONG_POLL_SEC,
-    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
-    ...(deps.signal ? { signal: deps.signal } : {}),
-  });
+  // Report progress after each await that could park (mt#4185) — never on a
+  // timer of its own. The question the liveness registry is asking is "did
+  // this loop ADVANCE", not "is this process alive", and only a settled await
+  // answers the first one.
+  const noteProgress = deps.onProgress ?? ((): void => {});
+
+  const longPollSec = deps.longPollSec ?? DEFAULT_LONG_POLL_SEC;
+  const dbStepDeadlineMs = deps.dbStepDeadlineMs ?? DB_STEP_DEADLINE_MS;
+
+  const offset = await withDeadline(deps.cursor.read(), dbStepDeadlineMs);
+  noteProgress();
+  const result = await withDeadline(
+    getTelegramUpdates({
+      token: deps.token,
+      ...(offset === undefined ? {} : { offset: offset + 1 }),
+      timeoutSec: longPollSec,
+      ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    }),
+    longPollDeadlineMs(longPollSec)
+  );
+  noteProgress();
 
   if (!result.ok) {
     return emptyCycle({ error: result.detail });
@@ -303,7 +444,13 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
 
     // Audit BEFORE acting. An RCE-adjacent surface must leave a record of what
     // it was asked to do even if carrying it out then fails or hangs.
-    const recorded = await recordSafely(deps, message, route);
+    // Bounded (mt#4183 SC2). A deadline here aborts the whole cycle rather
+    // than skipping one message, which is the safe direction: the throw
+    // happens BEFORE `cursor.write`, so the cursor does not advance and the
+    // next cycle re-fetches the same batch. Anything already recorded comes
+    // back as a duplicate and is skipped, so the retry is idempotent.
+    const recorded = await withDeadline(recordSafely(deps, message, route), dbStepDeadlineMs);
+    noteProgress();
 
     // A replay of an update a previous run already recorded. Skipping is the
     // whole point of the idempotency token: Telegram re-delivers up to 24h of
@@ -315,6 +462,27 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
         updateId: message.updateId,
       });
       continue;
+    }
+
+    // The durable dedupe could not be consulted (mt#4252). Decide here, on the
+    // one question this process CAN still answer — have I already acted on this
+    // token? — rather than assuming either answer. Assuming "new" re-runs the
+    // principal's messages for the length of the outage; assuming "duplicate"
+    // would make the channel go silent, which is the failure both fail-opens
+    // exist to prevent, so criterion 2 rules it out.
+    if (recorded === "unrecorded") {
+      const token = inboundEventToken(message.updateId);
+      const fallback = deps.degradedDedupe?.admitUnrecorded(token) ?? "recorded";
+      if (fallback === "duplicate") {
+        duplicates += 1;
+        log.warn("[principal-channel] skipping a replay while the audit log is unwritable", {
+          updateId: message.updateId,
+        });
+        continue;
+      }
+      log.warn("[principal-channel] acting on a message without a durable audit row", {
+        updateId: message.updateId,
+      });
     }
 
     if (route.kind === "rejected") {
@@ -332,6 +500,10 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
         const succeeded = await handleRoute(deps, message, route);
         if (succeeded) handled += 1;
         else failed += 1;
+        // Per MESSAGE, not per cycle: a cycle carrying several messages would
+        // otherwise report nothing until the last one settled, so the budget
+        // would have to cover N turns instead of one.
+        noteProgress();
       })
     );
   }
@@ -345,7 +517,8 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   // that failed to parse — otherwise an unparseable update is re-fetched
   // forever and the channel wedges behind it.
   if (result.highestUpdateId !== undefined) {
-    await deps.cursor.write(result.highestUpdateId);
+    await withDeadline(deps.cursor.write(result.highestUpdateId), dbStepDeadlineMs);
+    noteProgress();
   }
 
   return { received: result.messages.length, handled, failed, rejected, duplicates };
@@ -405,18 +578,30 @@ async function recordSafely(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
   route: InboundRoute
-): Promise<RecordOutcome> {
+): Promise<SafeRecordOutcome> {
   try {
-    return await deps.recordEvent(
+    const outcome = await deps.recordEvent(
       route.kind === "rejected" ? "principal.message_rejected" : "principal.message_received",
       buildInboundEventPayload(message, route)
     );
+    // The write landed, so the durable dedupe is authoritative again. Stamped
+    // here rather than inferred later: this is the only place that observes the
+    // outcome, and mem#862's lesson is that an instrument placed anywhere else
+    // is blind to the failures that stop it being reached.
+    deps.degradedDedupe?.noteDurableWrite();
+    return outcome;
   } catch (err: unknown) {
     log.error("[principal-channel] failed to record the inbound audit event", {
       updateId: message.updateId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return "recorded";
+    // NOT "recorded" (mt#4252). Reporting a failure as a success is what let a
+    // DB outage re-run the principal's messages once per backoff cycle: the
+    // caller could not distinguish "the dedupe says this is new" from "the
+    // dedupe could not be consulted". Those call for different handling, so
+    // per ADR-035 rule 2 the caller gets to decide rather than being handed a
+    // substituted answer.
+    return "unrecorded";
   }
 }
 
@@ -640,7 +825,11 @@ function createStreamFor(deps: PollCycleDeps, message: InboundTelegramMessage): 
     maxRenderedChars: TELEGRAM_MAX_MESSAGE_CHARS,
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
     transport: {
-      send: (text: string) => sendReply(deps, message, text),
+      // `silent` rides through to Telegram's `disable_notification` (mt#3711),
+      // which is what lets a turn be several messages and still cost the
+      // principal one notification.
+      send: (text: string, opts?: { silent?: boolean }) =>
+        sendReply(deps, message, text, opts?.silent === true ? { silent: true } : {}),
     },
   });
 }
@@ -671,7 +860,12 @@ function runActuator(
       return actuator.converse(withChannelNotes(route.text, notes), {
         ...(route.replyToText === undefined ? {} : { replyToText: route.replyToText }),
         ...(images.length > 0 ? { images } : {}),
-        ...(stream ? { onPartial: (accumulated: string) => stream.push(accumulated) } : {}),
+        ...(stream
+          ? {
+              onPartial: (accumulated: string) => stream.push(accumulated),
+              onBlockEnd: () => stream.sealBlock(),
+            }
+          : {}),
       });
   }
 }
@@ -864,7 +1058,8 @@ async function resolveAttachments(
 async function sendReply(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
-  reply: string
+  reply: string,
+  opts: { silent?: boolean } = {}
 ): Promise<number | undefined> {
   const text = reply.trim().length > 0 ? reply.trim() : "(no output)";
 
@@ -893,6 +1088,11 @@ async function sendReply(
     text: payload.text,
     ...(formatted ? { parseMode: "HTML" as const, plainFallback: plain } : {}),
     replyToMessageId: message.messageId,
+    // Deliver without a notification when the caller asks (mt#3711). Only the
+    // streaming path sets it, and only for the second and later messages of a
+    // turn — an ordinary reply, and the FIRST message of a streamed turn, must
+    // still reach the phone.
+    ...(opts.silent === true ? { disableNotification: true } : {}),
     // Post the reply INTO the topic it answers (mt#3505) — otherwise a reply
     // to a topic-routed conversation would land in General even though the
     // turn itself ran against that topic's conversation.
@@ -965,27 +1165,55 @@ export interface PollerHandle {
  */
 export function startPrincipalChannelPoller(
   deps: Omit<PollCycleDeps, "signal">,
-  opts: { errorBackoffMs?: number } = {}
+  opts: { errorBackoffMs?: number; progressBudgetMs?: number } = {}
 ): PollerHandle {
-  const controller = new AbortController();
   const errorBackoffMs = opts.errorBackoffMs ?? ERROR_BACKOFF_MS;
   let stopped = false;
 
+  // One controller PER CYCLE rather than one for the poller's whole lifetime
+  // (mt#4185). An AbortController aborts once and stays aborted, so a lifetime
+  // controller can express "shut down" and can never express "abandon this
+  // cycle and start another" — which is the only recovery the meta-watchdog is
+  // in a position to ask for.
+  let cycle = new AbortController();
+
+  const liveness = registerSelfSchedulingSweep({
+    name: PRINCIPAL_CHANNEL_SWEEP_NAME,
+    progressBudgetMs: opts.progressBudgetMs ?? PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS,
+    restart: (): void => {
+      // Abandon whatever this cycle is parked on. It only clears a park in an
+      // await that OBSERVES the signal (today: the long poll); a park in the
+      // cursor read or the event write is detected and logged here but settles
+      // only once mt#4183's per-await bounds land.
+      cycle.abort();
+    },
+  });
+
   const loop = async (): Promise<void> => {
     while (!stopped) {
+      cycle = new AbortController();
       let outcome: PollCycleOutcome;
       try {
-        outcome = await runPollCycle({ ...deps, signal: controller.signal });
+        outcome = await runPollCycle({
+          ...deps,
+          signal: cycle.signal,
+          onProgress: liveness.noteProgress,
+        });
       } catch (err: unknown) {
         outcome = emptyCycle({ error: err instanceof Error ? err.message : String(err) });
       }
       if (stopped) return;
       if (outcome.error) {
+        liveness.noteFailure(outcome.error);
         log.warn("[principal-channel] poll failed; backing off", {
           error: outcome.error,
           backoffMs: errorBackoffMs,
         });
-        await sleep(errorBackoffMs, controller.signal);
+        // An aborted signal makes this resolve immediately, so a restart
+        // retries at once instead of serving out a backoff it did not earn.
+        await sleep(errorBackoffMs, cycle.signal);
+      } else {
+        liveness.noteSuccess();
       }
     }
   };
@@ -995,7 +1223,8 @@ export function startPrincipalChannelPoller(
   return {
     stop(): void {
       stopped = true;
-      controller.abort();
+      liveness.stop();
+      cycle.abort();
     },
   };
 }

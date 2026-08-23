@@ -32,6 +32,12 @@ import {
 } from "./shared-persistence";
 import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
 import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
+import {
+  findUndatedLivenessAssertions,
+  auditLivenessAssertions,
+  describeUndatedLivenessAssertions,
+  DECLARED_EXEMPTIONS,
+} from "./health-liveness-invariant";
 /* eslint-disable custom/no-real-fs-in-tests -- the acceptance-test-2 case below writes to an
    explicit tmp path (never the real default cache path) to prove refreshProdStateCache's
    write-then-read round trip through the live /api/health route; mirrors prod-state-cache.test.ts */
@@ -111,6 +117,21 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     }
   });
 
+  test("pid names the process actually SERVING the response (mt#4232)", async () => {
+    // Not just "a number is present": the field's whole value is that it
+    // identifies a process safe to SIGNAL, so it has to be THIS process rather
+    // than anything the handler could have read from elsewhere. Here the server
+    // runs in-process, so the serving pid is knowable independently.
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(body["pid"]).toBe(process.pid);
+    expect(Number.isInteger(body["pid"])).toBe(true);
+  });
+
   test("fixture's rustConsumedFields are a subset of its own fields", async () => {
     // Self-consistency guard on the fixture file itself: the field names the
     // Rust supervisor is documented to depend on must actually be declared
@@ -145,6 +166,30 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     for (const [field, expectedType] of Object.entries(parsed.transcriptWatcherFields)) {
       expect(body.transcriptWatcher).toHaveProperty(field);
       expect(typeOf(body.transcriptWatcher[field])).toBe(expectedType);
+    }
+  });
+
+  test("sweepLiveness's nested field set and types match the fixture (mt#4384)", async () => {
+    // PR #3240 R1: `.fields.sweepLiveness = "object"` pins that the block EXISTS and
+    // is an object; it cannot catch a field added, removed or retyped INSIDE it. That
+    // is the same cannot-see-it shape this whole task is about — a surface that does
+    // not look at the layer holding the answer — so the block gets the same nested
+    // pin `transcriptWatcher` already has.
+    const parsed = healthShapeFixtureJson as unknown as {
+      sweepLivenessFields: Record<string, string>;
+    };
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as { sweepLiveness: Record<string, unknown> };
+
+    expect(Object.keys(body.sweepLiveness).sort()).toEqual(
+      Object.keys(parsed.sweepLivenessFields).sort()
+    );
+    for (const [field, expectedType] of Object.entries(parsed.sweepLivenessFields)) {
+      expect(body.sweepLiveness).toHaveProperty(field);
+      expect(typeOf(body.sweepLiveness[field])).toBe(expectedType);
     }
   });
 
@@ -290,5 +335,203 @@ describe("/api/health while the database is wedged (mt#3563)", () => {
     // signal, so DB truth rides in the body (same split as `schema`).
     expect(res.status).toBe(200);
     expect(body.db).not.toBe("ok");
+  });
+});
+
+// mt#4186. Three fields learned the same lesson independently — `db` (mt#3563),
+// `dbHealth` (mt#3826), `principalChannel` (mt#4183) — and nothing carried it to the
+// next field anyone adds. These tests are what carries it.
+//
+// Note the check PASSES against today's live payload, by construction: mt#4183 dated
+// the last undated field before this shipped. That is not a weak test, it is a
+// forward-looking one — the load-bearing case is the invented-sub-object test, which is
+// what proves the rule is keyed on shape rather than on an allowlist of today's names.
+describe("/api/health liveness-dating invariant (mt#4186)", () => {
+  const closeList: Array<() => Promise<void>> = [];
+
+  // AT2 drives the process-global TranscriptWatcherTracker into `running: true`, so it
+  // must be put back — both directions. This file already carries the scar: mt#3951's
+  // note on the mt#3563 block below records that a process-global left dirty by an
+  // EARLIER file made a later test's premise unreachable, green in isolation and red
+  // only in the pre-push changed-file subset where a different file runs first. An
+  // afterEach alone protects later files but not this block's own starting point, so
+  // the reset runs on both edges.
+  beforeEach(() => {
+    TranscriptWatcherTracker.resetForTest();
+  });
+
+  afterEach(async () => {
+    for (const close of closeList.splice(0)) {
+      await close();
+    }
+    TranscriptWatcherTracker.resetForTest();
+  });
+
+  /** The pre-mt#4183 `principalChannel`, verbatim: a healthy claim nothing can date. */
+  const PRE_MT4183_PRINCIPAL_CHANNEL = { state: "running", chatId: 12345 };
+
+  test("AT2: the live payload carries a dating field on every liveness assertion", async () => {
+    // Drive ONE real subsystem into an affirmative state before probing.
+    //
+    // Without this the test is VACUOUS and silently so: in the test harness every
+    // subsystem sits quiet — `principalChannel` is `disabled` (no Telegram config),
+    // `dbHealth` is not connected, the watcher is not running — so NOTHING asserts
+    // liveness and the check inspects zero sub-objects. Measured, not assumed: the
+    // first version of this test passed with `dated.length === 0`.
+    //
+    // `transcriptWatcher` is the right subsystem to seed precisely because it asserts
+    // liveness in the BOOLEAN form (`running: true`), so this exercises the half of the
+    // rule a discriminator-only implementation would have missed — against the real
+    // payload rather than a fixture.
+    TranscriptWatcherTracker.resetForTest().setRunning(true);
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    const { undated, dated } = auditLivenessAssertions(body);
+
+    // Message names the offender rather than asserting a bare length, so a future
+    // regression reads as "principalChannel asserts state=running but..." not "1 !== 0".
+    expect(describeUndatedLivenessAssertions(undated)).toBe("");
+    expect(undated).toEqual([]);
+
+    // NON-VACUITY (mem#704). `undated === []` is also what a check that examined
+    // NOTHING returns, and every subsystem here could legitimately sit in a quiet
+    // state (`disabled`, `unconfigured`) in which no liveness is asserted at all — so
+    // the empty result above would be indistinguishable from the check being broken.
+    // Asserting something WAS inspected is what gives the test above its meaning.
+    expect(dated.length).toBeGreaterThan(0);
+  });
+
+  test("AT2: a fixture carrying mt#4183's shipped shape passes", () => {
+    const findings = findUndatedLivenessAssertions({
+      principalChannel: {
+        state: "running",
+        chatId: 12345,
+        since: "2026-08-17T00:00:00.000Z",
+        lastProgressAt: null,
+      },
+    });
+    // `lastProgressAt: null` is deliberate — a loop that has reported nothing yet is
+    // still DATABLE via `since`, and requiring non-null would fail every subsystem
+    // during its first seconds.
+    expect(findings).toEqual([]);
+  });
+
+  test("AT1 (negative control): the pre-mt#4183 principalChannel shape FAILS", () => {
+    const findings = findUndatedLivenessAssertions({
+      principalChannel: PRE_MT4183_PRINCIPAL_CHANNEL,
+    });
+
+    expect(findings).toEqual([{ field: "principalChannel", assertion: 'state="running"' }]);
+    expect(describeUndatedLivenessAssertions(findings)).toContain("principalChannel");
+  });
+
+  test("AT3: a newly-invented sub-object is caught by NAME-INDEPENDENT shape", () => {
+    // The point of the whole task. `widgetPump` exists nowhere in the payload, this
+    // module, or the contract fixture — it is caught because of the SHAPE it has. An
+    // allowlist of today's field names would return [] here, which is how the next
+    // field ships exempt by omission.
+    const findings = findUndatedLivenessAssertions({
+      widgetPump: { state: "running", widgetsPumped: 42 },
+    });
+
+    expect(findings).toEqual([{ field: "widgetPump", assertion: 'state="running"' }]);
+  });
+
+  test("AT3: the boolean liveness form is caught too, not just the discriminator", () => {
+    // mt#4186's planning finding: keying only on `state`/`mode`/`status` would have
+    // exempted `transcriptWatcher`, which asserts liveness as `running: true`. That is
+    // the same exempt-by-omission failure one level up — allowlisting a syntactic form
+    // instead of a field name.
+    const findings = findUndatedLivenessAssertions({
+      newWatcher: { running: true, filesWatched: 3 },
+    });
+
+    expect(findings).toEqual([{ field: "newWatcher", assertion: "running=true" }]);
+  });
+
+  test("AT4: every declared exemption is exercised and NOT flagged", () => {
+    // Each exemption gets a payload shaped to trip the check if it were in scope, so
+    // the list is a tested claim rather than a comment.
+    const exemptPayload: Record<string, unknown> = {
+      status: "ok",
+      service: "minsky-cockpit",
+      version: "1.2.3",
+      commit: "abc1234",
+      processStartedAtMs: 1_700_000_000_000,
+      uptimeSec: 42,
+      db: "ok",
+      consecutiveDegraded: 0,
+    };
+
+    // Every key above must be declared — otherwise this test drifts out of sync with
+    // the module's own list and stops proving anything about it.
+    expect(Object.keys(exemptPayload).sort()).toEqual(Object.keys(DECLARED_EXEMPTIONS).sort());
+    expect(findUndatedLivenessAssertions(exemptPayload)).toEqual([]);
+  });
+
+  test("AT4: a non-affirmative state is not a liveness claim and owes no timestamp", () => {
+    // `retrying` and `failed` are faults; `disabled`/`unconfigured` are healthy-quiet.
+    // None claims the subsystem is currently working, so none needs dating to be honest.
+    for (const state of ["retrying", "failed", "disabled", "unconfigured", "starting"]) {
+      expect(findUndatedLivenessAssertions({ someSubsystem: { state } })).toEqual([]);
+    }
+  });
+
+  test("AT4: monotonic counters are out of SCOPE, not exempted (SC1's explicit question)", () => {
+    // SC1 asks whether a counter whose RISE is the signal should be exempt. The answer is
+    // that the question does not arise: neither carries a liveness discriminator, so the
+    // check never asks them for a timestamp. Asserted with their REAL shapes so this
+    // stays true if either grows a field.
+    const survivedExceptions = { lastAt: null, count: 0, distinctSignatures: 0 };
+    const dbRecycle = { lastRecycleAt: null, recycleCount: 0 };
+
+    expect(findUndatedLivenessAssertions({ survivedExceptions, dbRecycle })).toEqual([]);
+    // And they are NOT on the exemption list — being off it is the point, since listing
+    // them would imply a liveness claim was being forgiven.
+    expect(Object.keys(DECLARED_EXEMPTIONS)).not.toContain("survivedExceptions");
+    expect(Object.keys(DECLARED_EXEMPTIONS)).not.toContain("dbRecycle");
+  });
+
+  test("AT4: a non-liveness boolean does not drag a sub-object into scope", () => {
+    // The boolean list is closed on purpose — "any boolean" would demand a timestamp
+    // from flags that assert nothing about liveness.
+    expect(findUndatedLivenessAssertions({ queue: { hasPendingWork: true, depth: 3 } })).toEqual(
+      []
+    );
+  });
+
+  // PR #3080 R1 — the reviewer's two non-blocking findings, pinned so neither reverts.
+  test("R1: `enabled` is configuration, not liveness, and asserts nothing datable", () => {
+    // A subsystem can be enabled and dead — that is this task's failure mode, not an
+    // instance of health. Demanding a timestamp from a config flag would say nothing
+    // about whether the thing runs.
+    expect(findUndatedLivenessAssertions({ feature: { enabled: true, mode2: "x" } })).toEqual([]);
+    // ...while the three real verdicts still fire.
+    for (const key of ["running", "healthy", "ok"]) {
+      expect(findUndatedLivenessAssertions({ sub: { [key]: true } })).toEqual([
+        { field: "sub", assertion: `${key}=true` },
+      ]);
+    }
+  });
+
+  test("R1: an epoch-ms stamp dates an assertion as well as an ISO string", () => {
+    // `processStartedAtMs` is the in-tree precedent for this spelling. Failing an honest
+    // subsystem over its choice of units is the opposite of what the rule is for.
+    expect(
+      findUndatedLivenessAssertions({
+        pump: { state: "running", lastAttemptAtMs: 1_700_000_000_000 },
+      })
+    ).toEqual([]);
+
+    // But a non-finite number dates nothing — a broken computation must not satisfy the
+    // rule just by occupying the field.
+    expect(
+      findUndatedLivenessAssertions({ pump: { state: "running", lastAttemptAtMs: NaN } })
+    ).toEqual([{ field: "pump", assertion: 'state="running"' }]);
   });
 });

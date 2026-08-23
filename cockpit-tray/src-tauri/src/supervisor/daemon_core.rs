@@ -681,11 +681,38 @@ fn bind_error_means_in_use(err: &io::Error) -> bool {
 // Process control.
 // ---------------------------------------------------------------------------
 
-/// Process-group id of the daemon WE spawned (`None` if adopted or not
-/// running). Shared so the quit / `RunEvent::Exit` path can tear it down
+/// Process-group ids of the daemons WE spawned, keyed by a stable per-daemon
+/// token. Shared so the quit / `RunEvent::Exit` path can tear them down
 /// synchronously even if the supervisor thread doesn't get to process a
 /// Shutdown command before the process exits.
-pub(crate) type SpawnedPgid = Arc<Mutex<Option<u32>>>;
+///
+/// Was a single `Option<u32>` until mt#3815, when the tray began supervising a
+/// registry: one slot could only ever remember the last daemon spawned, so
+/// quitting would have left the other one running. A `Vec` of pairs rather than
+/// a map — the registry has two entries, and teardown iterates all of them
+/// anyway.
+///
+/// The key is a `&'static str` rather than the policy layer's `DaemonId`
+/// because this module does not know the registry exists; the caller passes its
+/// own stable token (`DaemonId::slug`).
+pub(crate) type SpawnedPgids = Arc<Mutex<Vec<(&'static str, u32)>>>;
+
+/// Remember the process group of a daemon we just spawned, replacing any prior
+/// entry for the same key (a respawn supersedes the group it replaced).
+pub(crate) fn record_spawned(spawned: &SpawnedPgids, key: &'static str, pgid: u32) {
+    if let Ok(mut g) = spawned.lock() {
+        g.retain(|(k, _)| *k != key);
+        g.push((key, pgid));
+    }
+}
+
+/// Forget and return one daemon's process group — the stop path, which kills it
+/// itself.
+pub(crate) fn take_spawned(spawned: &SpawnedPgids, key: &str) -> Option<u32> {
+    let mut g = spawned.lock().ok()?;
+    let idx = g.iter().position(|(k, _)| *k == key)?;
+    Some(g.remove(idx).1)
+}
 
 pub(crate) fn kill_pid(pid: u32) {
     let _ = Command::new("/bin/kill")
@@ -725,6 +752,13 @@ pub(crate) struct DaemonSpawnSpec<'a> {
     /// Filename within the daemon log directory that the child's stderr is
     /// appended to.
     pub(crate) stderr_log: &'a str,
+    /// Extra environment variables for the child, beyond `PATH` (mt#3815).
+    ///
+    /// Empty for the cockpit. The MCP entry uses it to disable mt#3764's
+    /// never-connected self-exit, which exists to reap an ABANDONED HTTP
+    /// listener — a condition supervision replaces. See
+    /// `registry::mcp_spawn_env` for the full argument.
+    pub(crate) extra_env: &'a [(&'a str, &'a str)],
 }
 
 /// Spawn a supervised daemon as a managed child in its own process group, with
@@ -737,6 +771,7 @@ pub(crate) fn spawn_daemon(spec: &DaemonSpawnSpec) -> io::Result<(Child, u32)> {
     cmd.args(spec.args)
         .current_dir(spec.cwd)
         .env("PATH", spec.path_env)
+        .envs(spec.extra_env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err));
@@ -749,11 +784,18 @@ pub(crate) fn spawn_daemon(spec: &DaemonSpawnSpec) -> io::Result<(Child, u32)> {
     Ok((child, pid))
 }
 
-/// Tear down the daemon we spawned, if any. Idempotent. Called from `main()`'s
-/// `RunEvent::Exit` handler.
-pub(crate) fn teardown(spawned: &SpawnedPgid) {
-    let pgid = spawned.lock().ok().and_then(|mut g| g.take());
-    if let Some(pgid) = pgid {
+/// Tear down EVERY daemon we spawned. Idempotent (the list is drained, so a
+/// second call finds nothing). Called from `main()`'s `RunEvent::Exit` handler.
+///
+/// Iterating all of them is AT5: quitting the tray must stop both registered
+/// daemons, not whichever one was spawned last.
+pub(crate) fn teardown(spawned: &SpawnedPgids) {
+    let groups: Vec<(&'static str, u32)> = match spawned.lock() {
+        Ok(mut g) => std::mem::take(&mut *g),
+        Err(_) => return,
+    };
+    for (key, pgid) in groups {
+        eprintln!("[cockpit-tray] teardown: SIGTERM process group {pgid} ({key})");
         kill_group(pgid);
     }
 }
@@ -801,6 +843,138 @@ pub(crate) fn daemon_start_time(pid: u32) -> Option<SystemTime> {
 }
 
 // ---------------------------------------------------------------------------
+// Swap-inclusive memory ceiling (mt#4105)
+// ---------------------------------------------------------------------------
+
+/// The ceiling a supervised daemon's swap-inclusive memory must stay under.
+///
+/// 2048 MB, matching `DEFAULT_MEMORY_CEILING_MB` (`src/mcp/orphan-exit.ts:339`) —
+/// the in-process watcher's default. Both enforce the SAME quantity at the same
+/// threshold; what differs is WHO runs the check, which is the entire point: a
+/// process that has wedged its own event loop cannot be the thing that notices
+/// it has wedged, so its `setInterval` watcher never fires (mt#4099 measured a
+/// 48.2 GB `mcp start` with all of it armed and zero `kevent` samples).
+pub(crate) const MEMORY_CEILING_BYTES: u64 = 2048 * 1024 * 1024;
+
+/// Parse `phys_footprint: 15517760 B` out of `footprint -f bytes -p <pid>`.
+///
+/// `-f bytes` is what makes this a parser and not a unit converter — without it
+/// `footprint` prints human units and the caller has to interpret `1.4G`.
+/// Pure, so the shape agreement with `footprint(1)` is unit-testable.
+pub(crate) fn parse_footprint_bytes(stdout: &str) -> Option<u64> {
+    for line in stdout.lines() {
+        let Some((label, rest)) = line.split_once(':') else {
+            continue;
+        };
+        // `phys_footprint_peak` is a DIFFERENT quantity printed on an adjacent
+        // line — a `contains` match would take whichever came first.
+        if label.trim() != "phys_footprint" {
+            continue;
+        }
+        let digits: String = rest
+            .trim()
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if digits.is_empty() {
+            continue;
+        }
+        return digits.parse::<u64>().ok();
+    }
+    None
+}
+
+/// Sum `VmRSS` and `VmSwap` (both printed in kB) from `/proc/<pid>/status`.
+///
+/// Per `proc_pid_status(5)`, VmSwap is "Swapped-out virtual memory size by
+/// anonymous private pages". RSS alone is the blind spot this task exists to
+/// close: mt#4099's specimen read ~900 MB RSS against a 48.2 GB footprint.
+///
+/// **`VmRSS` is required; a missing `VmSwap` counts as zero swap, not as a
+/// failed measurement.** This mirrors the TypeScript side verbatim
+/// (`packages/shared/src/process-memory.ts:176-179`: "VmSwap has been present
+/// since Linux 2.6.34; treat its absence as zero swap rather than as a failed
+/// measurement, since VmRSS alone is still a real [measurement]").
+///
+/// Requiring both looks like the conservative choice and is the opposite of one
+/// (PR #3045 R1). A kernel built without `CONFIG_SWAP` emits no `VmSwap` line at
+/// all, so on that host every read would return `None`, every `None` is a
+/// non-breach by [`breaches_ceiling`], and the ceiling would silently never fire
+/// — a guardrail that is off rather than safe. The fail-safe direction is right
+/// for a TRANSIENT failure and wrong for a STRUCTURAL absence.
+pub(crate) fn parse_proc_status_bytes(contents: &str) -> Option<u64> {
+    let mut rss_kb: Option<u64> = None;
+    let mut swap_kb: Option<u64> = None;
+    for line in contents.lines() {
+        let Some((label, rest)) = line.split_once(':') else {
+            continue;
+        };
+        let slot = match label.trim() {
+            "VmRSS" => &mut rss_kb,
+            "VmSwap" => &mut swap_kb,
+            _ => continue,
+        };
+        *slot = rest.split_whitespace().next().and_then(|n| n.parse().ok());
+    }
+    Some((rss_kb? + swap_kb.unwrap_or(0)) * 1024)
+}
+
+/// Swap-inclusive memory for `pid`, or `None` when it could not be measured.
+///
+/// Mirrors [`daemon_start_time`]'s shape — a system binary, a pure parser, an
+/// `Option` — and mirrors the TypeScript primitive's CHOICE of interface rather
+/// than its code. `packages/shared/src/process-memory.ts` reaches the same two
+/// quantities the same two ways, and records why a native call is not an option:
+/// `task_info(TASK_VM_INFO)` "cannot read another process's without
+/// `task_for_pid`, which requires root or the debugger entitlement on modern
+/// macOS." A Rust crate binding the same call hits the same wall, and the crates
+/// that avoid it report RSS — the blind spot. So the subprocess is not a
+/// shortcut here; on macOS it is the only route to `phys_footprint` for a
+/// foreign pid.
+///
+/// Cost measured 2026-08-16: 0.03s per call, against a 5s [`POLL_INTERVAL`].
+pub(crate) fn daemon_memory_bytes(pid: u32) -> Option<u64> {
+    if cfg!(target_os = "macos") {
+        let out = Command::new("/usr/bin/footprint")
+            .args(["-f", "bytes", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        parse_footprint_bytes(&String::from_utf8_lossy(&out.stdout))
+    } else {
+        let contents = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        parse_proc_status_bytes(&contents)
+    }
+}
+
+/// Whether a reading breaches the ceiling.
+///
+/// **An unmeasurable process does NOT breach.** `None` means `footprint` failed,
+/// the pid is gone, or `/proc` was unreadable — none of which is evidence the
+/// daemon is oversized, and treating them as one would let a transient failure
+/// SIGKILL a healthy daemon. The in-process watcher makes the same choice for
+/// the same reason (`process-memory.ts` returns a discriminated union precisely
+/// so "could not measure" is not representable as a number).
+pub(crate) fn breaches_ceiling(measured: Option<u64>, ceiling: u64) -> bool {
+    matches!(measured, Some(bytes) if bytes > ceiling)
+}
+
+/// SIGKILL, for a child that cannot be asked to leave.
+///
+/// [`kill_pid`] sends SIGTERM, which Node/Bun delivers to a JS handler — and
+/// `src/commands/mcp/start-command.ts:2132-2134` registers exactly such a
+/// handler. A wedged event loop never runs it, so SIGTERM on the case this
+/// mechanism exists for is a no-op. SIGKILL is not deliverable to a handler and
+/// needs no cooperation from the target, which is the property required here.
+pub(crate) fn kill_pid_force(pid: u32) {
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", &pid.to_string()])
+        .output();
+}
+
+// ---------------------------------------------------------------------------
 // The supervised-daemon record.
 // ---------------------------------------------------------------------------
 
@@ -827,6 +1001,14 @@ pub(crate) struct SupervisedDaemon {
     /// probe, spawn, adoption decision and label in the loop provably refers to
     /// the same port (mt#3988).
     pub(crate) port: u16,
+    /// Path of its health endpoint — `/api/health` for the cockpit, `/health`
+    /// for the MCP daemon. Per-daemon since mt#3815; before that the whole
+    /// URL was a cockpit constant.
+    pub(crate) health_path: &'static str,
+    /// The `service` value its health body must carry for the supervisor to
+    /// treat it as this daemon (mt#3148). See [`HealthProbe::is_ours`] for why
+    /// a missing field fails rather than passes.
+    pub(crate) expected_service: &'static str,
 
     // --- Supervision state: driven by the poll loop. ---
     /// The managed child, when WE spawned it. `None` for an adopted daemon or
@@ -864,15 +1046,37 @@ pub(crate) struct SupervisedDaemon {
     /// Last time a sustained-HTTP-failure alert was fired; reset when health
     /// returns (condition cleared → next episode re-alerts immediately).
     pub(crate) last_http_alert: Option<Instant>,
+    /// Set when this supervisor SIGKILLed the current child for breaching
+    /// [`MEMORY_CEILING_BYTES`], and read by [`classify_exit`] on the poll that
+    /// observes the exit (mt#4105).
+    ///
+    /// It exists because a SIGKILLed process is indistinguishable from any other
+    /// signalled death at the syscall level — the supervisor's own record is the
+    /// ONLY thing that can tell "we removed it" from "it died". Cleared at spawn,
+    /// so it can never carry across into a later child's exit.
+    pub(crate) killed_for_ceiling: bool,
+    /// Last time a ceiling-kill toast was shown; `None` until the first one
+    /// (PR #3045 R1). Gated on [`ALERT_COOLDOWN`] like every other alert in this
+    /// module: a daemon that balloons, is killed, respawns and balloons again
+    /// would otherwise toast the operator on every cycle, and an alert arriving
+    /// that often stops being read.
+    pub(crate) last_ceiling_alert: Option<Instant>,
 }
 
 impl SupervisedDaemon {
     /// A record for a daemon that is not running yet: identity set, every piece
     /// of supervision state at its "nothing has happened" value.
-    pub(crate) fn new(labels: DaemonLabels, port: u16) -> Self {
+    pub(crate) fn new(
+        labels: DaemonLabels,
+        port: u16,
+        health_path: &'static str,
+        expected_service: &'static str,
+    ) -> Self {
         Self {
             labels,
             port,
+            health_path,
+            expected_service,
             child: None,
             last_spawn: None,
             last_status: None,
@@ -883,6 +1087,8 @@ impl SupervisedDaemon {
             last_process_started_at_ms: None,
             consecutive_http_failed: 0,
             last_http_alert: None,
+            killed_for_ceiling: false,
+            last_ceiling_alert: None,
         }
     }
 }
@@ -910,6 +1116,200 @@ impl NoChildCounters {
         daemon.last_http_alert = self.last_http_alert;
         daemon.restart_timestamps = self.restart_timestamps;
         daemon.last_process_started_at_ms = self.last_process_started_at_ms;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Health probing (mt#3815).
+//
+// Before this, health lived in the cockpit policy layer: `health_ok` and
+// `poll_health_detail` closed over the cockpit's endpoint and parsed the
+// cockpit's `db` field. A registry entry needs the mechanism without the
+// cockpit's body shape, so the transport + identity half lives here and each
+// daemon's body-specific reading stays with its policy.
+// ---------------------------------------------------------------------------
+
+/// What a single health poll observed.
+///
+/// Deliberately carries the raw `body` alongside the two fields every daemon
+/// publishes: the generic half of the supervisor reads `status` and `service`,
+/// and a policy layer reads whatever else its own daemon emits (the cockpit's
+/// `db`) out of `body` without a second request.
+pub(crate) struct HealthProbe {
+    /// HTTP status, or `None` when nothing answered.
+    pub(crate) status: Option<u16>,
+    /// The `service` identity field (mt#3148). `None` when absent or the body
+    /// was not JSON.
+    pub(crate) service: Option<String>,
+    /// `processStartedAtMs`, used to detect a restart of a daemon we did not
+    /// spawn. `None` for a daemon that predates the field.
+    pub(crate) process_started_at_ms: Option<u64>,
+    /// The parsed body, for policy-specific fields.
+    pub(crate) body: Option<serde_json::Value>,
+}
+
+impl HealthProbe {
+    /// Nothing answered.
+    pub(crate) fn unreachable() -> Self {
+        Self {
+            status: None,
+            service: None,
+            process_started_at_ms: None,
+            body: None,
+        }
+    }
+
+    /// The daemon answered 2xx — the "healthy" half.
+    pub(crate) fn http_ok(&self) -> bool {
+        matches!(self.status, Some(s) if (200..300).contains(&s))
+    }
+
+    /// The endpoint ANSWERED and the body identifies the expected service.
+    ///
+    /// This — not the status code — is what the supervision decisions key on
+    /// (mt#3148). Two consequences worth stating, because each is a deliberate
+    /// choice rather than a side effect:
+    ///
+    /// - A **non-2xx** answer still counts as ours. The MCP daemon answers 503
+    ///   when persistence is unhealthy (mt#2949) and mt#3814's own adopt-or-fail
+    ///   treats that as a legitimate Minsky MCP answer. A supervisor that read
+    ///   503 as "not running" would respawn into a port its own daemon holds,
+    ///   and restarting cannot fix what a 503 reports.
+    /// - A **missing** `service` field is NOT ours. That is the fail-closed
+    ///   direction and the whole point of mt#3148: a probe whose output space
+    ///   does not separate the states it cares about carries no information, and
+    ///   an "absent means pass" carve-out reintroduces exactly the mt#3142 shape
+    ///   this assertion exists to catch. The visible consequence is a Conflict
+    ///   status naming the holder — not a silent double-spawn.
+    pub(crate) fn is_ours(&self, expected_service: &str) -> bool {
+        self.status.is_some() && self.service.as_deref() == Some(expected_service)
+    }
+}
+
+/// Extract the generic fields from a health response. Pure, so the identity
+/// assertion is testable without an HTTP hop.
+pub(crate) fn parse_health_body(status: u16, text: &str) -> HealthProbe {
+    let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
+    let service = body
+        .as_ref()
+        .and_then(|v| v.get("service"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let process_started_at_ms = body
+        .as_ref()
+        .and_then(|v| v.get("processStartedAtMs"))
+        .and_then(|v| v.as_u64());
+    HealthProbe {
+        status: Some(status),
+        service,
+        process_started_at_ms,
+        body,
+    }
+}
+
+/// Poll one daemon's health endpoint. Never panics: any transport failure is
+/// reported as [`HealthProbe::unreachable`].
+pub(crate) async fn probe_health(
+    client: &reqwest::Client,
+    port: u16,
+    health_path: &str,
+) -> HealthProbe {
+    let url = format!("http://localhost:{port}{health_path}");
+    let resp = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(_) => return HealthProbe::unreachable(),
+    };
+    let status = resp.status().as_u16();
+    match resp.text().await {
+        Ok(text) => parse_health_body(status, &text),
+        // The status is real even when the body could not be read; without a
+        // body there is no identity, so `is_ours` correctly says no.
+        Err(_) => HealthProbe {
+            status: Some(status),
+            service: None,
+            process_started_at_ms: None,
+            body: None,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Exit classification (mt#3815).
+//
+// mt#3814 gave the local MCP daemon its own identity-asserting adopt-or-fail on
+// `EADDRINUSE`, so a spawned daemon now has THREE intentional non-crash exits,
+// two of them exit-0. A supervisor that reads exit-0 as "it ran and finished"
+// or as "it crashed, respawn" is wrong in both directions.
+// ---------------------------------------------------------------------------
+
+/// Why a spawned daemon's process ended, as far as the supervisor can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExitClass {
+    /// Exit 0 and our health endpoint now answers with the expected identity:
+    /// the child lost a benign bind race and an incumbent holds the port. Adopt
+    /// it — do NOT respawn, and do NOT count it toward the restart throttle.
+    AdoptedIncumbent,
+    /// Exit 0 with nothing serving: mt#3764's ppid-transition self-exit, or a
+    /// clean stop. Not a crash.
+    CleanStop,
+    /// Non-zero exit with a foreign listener holding the port. Surface it;
+    /// respawning into a port that will keep refusing is a spawn-storm.
+    Conflict,
+    /// Anything else — the daemon died and should be respawned (throttled).
+    Crash,
+    /// WE killed it: it breached [`MEMORY_CEILING_BYTES`] and was SIGKILLed by
+    /// this supervisor (mt#4105). Respawn it, but do NOT count it toward the
+    /// restart throttle.
+    ///
+    /// Distinct from [`Crash`] because the exit is INDISTINGUISHABLE from one at
+    /// the syscall level — a SIGKILLed process reports no exit code, exactly like
+    /// a process the kernel killed for its own reasons. The only thing that can
+    /// tell them apart is the supervisor's own record of having fired, which is
+    /// why this is carried in as a flag rather than inferred from the status.
+    ///
+    /// Not counting it is ADR-038 §Question 3's constraint generalized: it
+    /// requires the supervisor not to double-count mt#3764's self-exit as a
+    /// crash, and a kill the supervisor itself ordered has the same property —
+    /// throttling on it would make the ceiling progressively slower to enforce
+    /// the more often it was needed.
+    CeilingKill,
+}
+
+/// Classify a spawned daemon's exit.
+///
+/// The discriminator is a health RE-PROBE, not a match on mt#3814's
+/// `Adopting the incumbent` log line: that string is a contract mt#3814 never
+/// promised the supervisor, and matching it would couple two crates through
+/// prose. The health probe is the authority the rest of this module already
+/// uses, and it answers the question directly.
+///
+/// `reprobe_is_ours` is [`HealthProbe::is_ours`] taken AFTER the exit was
+/// observed; `port_held` is [`port_in_use`] at the same moment.
+///
+/// `we_killed_for_ceiling` is the supervisor's own record that it SIGKILLed this
+/// child for breaching the ceiling (mt#4105). It is checked FIRST and outranks
+/// the health re-probe: a ceiling kill frees the port, so an unrelated incumbent
+/// binding it in the same tick would otherwise read as `AdoptedIncumbent` and
+/// suppress the respawn of a daemon we deliberately removed.
+pub(crate) fn classify_exit(
+    exit_code: Option<i32>,
+    reprobe_is_ours: bool,
+    port_held: bool,
+    we_killed_for_ceiling: bool,
+) -> ExitClass {
+    if we_killed_for_ceiling {
+        return ExitClass::CeilingKill;
+    }
+    if reprobe_is_ours {
+        // Something of ours is serving the port even though our child is gone.
+        // Whatever the code, the correct response is to adopt rather than to
+        // spawn a second one.
+        return ExitClass::AdoptedIncumbent;
+    }
+    match exit_code {
+        Some(0) => ExitClass::CleanStop,
+        _ if port_held => ExitClass::Conflict,
+        _ => ExitClass::Crash,
     }
 }
 
@@ -1460,7 +1860,7 @@ mod tests {
     /// surface, not the syscall.
     #[test]
     fn a_second_daemon_needs_no_change_here() {
-        let mut second = SupervisedDaemon::new(TEST_LABELS, TEST_PORT);
+        let mut second = SupervisedDaemon::new(TEST_LABELS, TEST_PORT, "/health", "testd");
 
         // The record is driven by the same generic logic the cockpit daemon
         // runs on — reaching any of it requires no cockpit-shaped state.
@@ -1497,11 +1897,302 @@ mod tests {
             path_env: "/usr/bin:/bin",
             stdout_log: "testd-stdout.log",
             stderr_log: "testd-stderr.log",
+            extra_env: &[],
         };
         assert_eq!(spec.args, ["--serve", "4317"]);
         assert!(
             !spec.stderr_log.contains("cockpit"),
             "a second daemon writes its own logs"
+        );
+
+        // ...and it carries its own health endpoint and identity, so the
+        // probe below can tell it from a different Minsky app on the same port.
+        assert_eq!(second.health_path, "/health");
+        assert_eq!(second.expected_service, "testd");
+    }
+
+    // -----------------------------------------------------------------------
+    // Health probing + identity assertion (mt#3815).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parses_the_generic_health_fields() {
+        let probe = parse_health_body(
+            200,
+            r#"{"status":"ok","service":"minsky-cockpit","processStartedAtMs":1735689600000,"db":"ok"}"#,
+        );
+        assert_eq!(probe.status, Some(200));
+        assert_eq!(probe.service.as_deref(), Some("minsky-cockpit"));
+        assert_eq!(probe.process_started_at_ms, Some(1_735_689_600_000));
+        // The body is retained so a policy layer reads its OWN fields without
+        // a second request — the cockpit's `db` is the live case.
+        assert_eq!(
+            probe
+                .body
+                .as_ref()
+                .and_then(|b| b.get("db"))
+                .and_then(|v| v.as_str()),
+            Some("ok")
+        );
+    }
+
+    /// AT4's classification half, and the reason this assertion exists at all
+    /// (mt#3148): a status-code-only check reports the WRONG service healthy.
+    #[test]
+    fn identity_assertion_rejects_a_different_minsky_service() {
+        let wrong = parse_health_body(200, r#"{"status":"ok","service":"minsky-reviewer"}"#);
+        assert!(
+            wrong.http_ok(),
+            "the negative control: a status-code-only check passes here"
+        );
+        assert!(
+            !wrong.is_ours("minsky-mcp"),
+            "a different Minsky service answering 200 is NOT our daemon"
+        );
+    }
+
+    #[test]
+    fn identity_assertion_fails_closed_on_a_missing_or_unparseable_body() {
+        let no_field = parse_health_body(200, r#"{"status":"ok"}"#);
+        assert!(
+            !no_field.is_ours("minsky-mcp"),
+            "absent identity fails rather than passes — an 'absent means pass' \
+             carve-out is the mt#3142 shape this check exists to catch"
+        );
+        let not_json = parse_health_body(200, "OK");
+        assert!(!not_json.is_ours("minsky-mcp"));
+        assert!(!HealthProbe::unreachable().is_ours("minsky-mcp"));
+        assert!(!HealthProbe::unreachable().http_ok());
+    }
+
+    /// The MCP daemon answers 503 when persistence is unhealthy (mt#2949), and
+    /// mt#3814's own adopt-or-fail treats that as a legitimate Minsky MCP
+    /// answer. Reading it as "not running" would respawn into a port our own
+    /// daemon holds.
+    #[test]
+    fn a_503_from_the_expected_service_is_still_ours() {
+        let degraded = parse_health_body(503, r#"{"status":"unhealthy","service":"minsky-mcp"}"#);
+        assert!(degraded.is_ours("minsky-mcp"), "answering, and it is ours");
+        assert!(!degraded.http_ok(), "but not healthy");
+    }
+
+    // -----------------------------------------------------------------------
+    // Exit classification (mt#3815).
+    // -----------------------------------------------------------------------
+
+    /// The benign adopt race (AT10): our spawn lost to an incumbent and exited
+    /// 0 having adopted it. Respawning here would spawn a second daemon; the
+    /// negative control is the `Crash` case below, which a supervisor treating
+    /// exit-0 as a crash would produce for this same input.
+    #[test]
+    fn exit_zero_with_our_service_serving_is_an_adopted_incumbent() {
+        assert_eq!(
+            classify_exit(Some(0), true, true, false),
+            ExitClass::AdoptedIncumbent
+        );
+        // The incumbent is what matters, not the code: a daemon killed by a
+        // signal (code None) while a replacement already serves is the same
+        // situation.
+        assert_eq!(
+            classify_exit(None, true, true, false),
+            ExitClass::AdoptedIncumbent,
+            "an incumbent of ours outranks the exit code"
+        );
+    }
+
+    /// mt#3764's ppid-transition self-exit and an operator's clean stop are
+    /// indistinguishable from here, and want the same treatment: not a crash.
+    #[test]
+    fn exit_zero_with_nothing_serving_is_a_clean_stop() {
+        assert_eq!(
+            classify_exit(Some(0), false, false, false),
+            ExitClass::CleanStop
+        );
+    }
+
+    #[test]
+    fn nonzero_exit_against_a_foreign_listener_is_a_conflict() {
+        assert_eq!(
+            classify_exit(Some(1), false, true, false),
+            ExitClass::Conflict
+        );
+    }
+
+    #[test]
+    fn nonzero_exit_with_a_free_port_is_a_crash() {
+        assert_eq!(
+            classify_exit(Some(1), false, false, false),
+            ExitClass::Crash
+        );
+        assert_eq!(classify_exit(None, false, false, false), ExitClass::Crash);
+    }
+
+    // -----------------------------------------------------------------------
+    // Memory ceiling (mt#4105).
+    // -----------------------------------------------------------------------
+
+    /// The discriminating case for SC4. A SIGKILLed child reports the SAME exit
+    /// status as one the kernel killed — `None` — so without the flag these two
+    /// assertions would be the same call, and the first would be counted as a
+    /// crash against the restart throttle.
+    #[test]
+    fn a_ceiling_kill_is_told_from_a_crash_only_by_the_supervisors_own_record() {
+        assert_eq!(
+            classify_exit(None, false, false, true),
+            ExitClass::CeilingKill
+        );
+        assert_eq!(classify_exit(None, false, false, false), ExitClass::Crash);
+    }
+
+    /// The flag outranks the health re-probe: a ceiling kill frees the port, so
+    /// an incumbent binding it in the same tick must not turn a deliberate
+    /// removal into an adoption that suppresses the respawn.
+    #[test]
+    fn a_ceiling_kill_outranks_an_incumbent_taking_the_freed_port() {
+        assert_eq!(
+            classify_exit(None, true, true, true),
+            ExitClass::CeilingKill
+        );
+    }
+
+    #[test]
+    fn parses_the_footprint_bytes_form() {
+        // The shape `footprint -f bytes -p <pid>` actually prints, peak line
+        // included — captured from a live run 2026-08-16.
+        let out = "    phys_footprint: 2605888 B     phys_footprint_peak: 2605888 B\n";
+        assert_eq!(parse_footprint_bytes(out), Some(2605888));
+    }
+
+    /// `phys_footprint_peak` is a different quantity on the same line. A
+    /// `contains("phys_footprint")` match would accept it, and on a process that
+    /// had shrunk since its high-water mark the ceiling would fire on a number
+    /// the process no longer occupies.
+    #[test]
+    fn the_peak_field_is_not_mistaken_for_the_current_footprint() {
+        let peak_first = "phys_footprint_peak: 9999999 B\nphys_footprint: 1024 B\n";
+        assert_eq!(parse_footprint_bytes(peak_first), Some(1024));
+    }
+
+    #[test]
+    fn unusable_footprint_output_is_none_rather_than_a_guess() {
+        assert_eq!(parse_footprint_bytes(""), None);
+        assert_eq!(parse_footprint_bytes("no such process"), None);
+        assert_eq!(
+            parse_footprint_bytes("phys_footprint: B"),
+            None,
+            "a label with no number is not a measurement"
+        );
+    }
+
+    #[test]
+    fn sums_rss_and_swap_from_proc_status() {
+        let status = "Name:\tbun\nVmRSS:\t  900 kB\nVmSwap:\t  100 kB\n";
+        assert_eq!(parse_proc_status_bytes(status), Some(1000 * 1024));
+    }
+
+    /// PR #3045 R1. A kernel without `CONFIG_SWAP` prints no `VmSwap` line, so
+    /// requiring both fields would return `None` on every read on that host —
+    /// and since an unmeasurable process never breaches, the ceiling would be
+    /// silently OFF there rather than safe. Zero swap is the true value on a
+    /// swapless kernel, so RSS alone is a real measurement.
+    #[test]
+    fn a_missing_vmswap_is_zero_swap_rather_than_a_failed_measurement() {
+        assert_eq!(
+            parse_proc_status_bytes("VmRSS:\t900 kB\n"),
+            Some(900 * 1024)
+        );
+    }
+
+    /// `VmRSS` is the other direction and IS required: without it there is no
+    /// measurement to fall back on, and inventing one from VmSwap alone would
+    /// report a number that is not the process's memory.
+    #[test]
+    fn a_proc_status_without_vmrss_is_not_measured() {
+        assert_eq!(parse_proc_status_bytes("VmSwap:\t100 kB\n"), None);
+        assert_eq!(parse_proc_status_bytes(""), None);
+        assert_eq!(parse_proc_status_bytes("Name:\tbun\n"), None);
+    }
+
+    /// Fail-safe direction. An unmeasurable process is not evidence of an
+    /// oversized one, and the consequence of confusing them is SIGKILL on a
+    /// healthy daemon every time `footprint` hiccups.
+    #[test]
+    fn an_unmeasurable_process_never_breaches() {
+        assert!(!breaches_ceiling(None, 10));
+        assert!(
+            !breaches_ceiling(Some(10), 10),
+            "at the ceiling is not over it"
+        );
+        assert!(breaches_ceiling(Some(11), 10));
+    }
+
+    /// The tray and the in-process watcher must enforce the same number, or an
+    /// operator reading one and observing the other has no way to reconcile
+    /// them. Pinned against `DEFAULT_MEMORY_CEILING_MB` in
+    /// `src/mcp/orphan-exit.ts`, which is 2048.
+    #[test]
+    fn the_ceiling_matches_the_in_process_watchers_default() {
+        assert_eq!(MEMORY_CEILING_BYTES, 2048 * 1024 * 1024);
+    }
+
+    // -----------------------------------------------------------------------
+    // Spawned-process-group bookkeeping (mt#3815).
+    //
+    // The two properties AT2 and AT5 rest on. Not a substitute for AT5's live
+    // run — `teardown` sends real signals, so what is pinned here is the
+    // BOOKKEEPING it iterates, not the kill.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stopping_one_daemon_leaves_the_others_group_recorded() {
+        let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
+        record_spawned(&spawned, "cockpit", 111);
+        record_spawned(&spawned, "mcp", 222);
+
+        assert_eq!(take_spawned(&spawned, "mcp"), Some(222));
+        assert_eq!(
+            spawned.lock().expect("lock").as_slice(),
+            [("cockpit", 111)],
+            "stopping one entry must not forget the other's group — that is what \
+             makes killing one daemon leave the other running (AT2)"
+        );
+        assert_eq!(
+            take_spawned(&spawned, "mcp"),
+            None,
+            "taking twice is not an error, it is just gone"
+        );
+    }
+
+    #[test]
+    fn a_respawn_supersedes_the_group_it_replaced() {
+        let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
+        record_spawned(&spawned, "mcp", 222);
+        record_spawned(&spawned, "mcp", 333);
+        assert_eq!(
+            spawned.lock().expect("lock").as_slice(),
+            [("mcp", 333)],
+            "a stale group id would outlive its process and be signalled at quit"
+        );
+    }
+
+    #[test]
+    fn teardown_drains_every_recorded_group() {
+        let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
+        // Our OWN process group: `teardown` signals what it finds, so a test
+        // must not hand it a pgid belonging to anything else. SIGTERM to our
+        // own group would kill the test runner, so this deliberately records
+        // NOTHING killable and checks the drain instead — the half that was
+        // broken before mt#3815, when a single slot could only ever remember
+        // one daemon.
+        teardown(&spawned);
+        assert!(spawned.lock().expect("lock").is_empty());
+
+        record_spawned(&spawned, "cockpit", 111);
+        record_spawned(&spawned, "mcp", 222);
+        assert_eq!(
+            spawned.lock().expect("lock").len(),
+            2,
+            "both entries are recorded, so both are reachable at teardown (AT5)"
         );
     }
 }

@@ -96,6 +96,11 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "negative-existence-claim", guardName: "negative-existence-claim-detector" },
   { stream: "operator-deferral" }, // two guards share this log (operator-deferral-detector + -ask-surface)
   { stream: "operator-instruction-trigger", guardName: "substrate-bypass-detector" },
+  // Producer RETIRED 2026-08-16 (mt#4197): the policy-coverage detector is deleted, so this
+  // stream gains no new records. The row stays because the 1,760-record log is deliberately
+  // retained on disk as the retirement's evidence, and this registry's 1:1 correspondence with
+  // the inventory doc (which marks the same row retired) is the invariant that keeps the two
+  // readable together. Ingest of the historical tail is unaffected.
   { stream: "policy-coverage", guardName: "policy-coverage" },
   { stream: "pre-narration", guardName: "pre-narration" },
   { stream: "retrospective-completeness", guardName: "retrospective-completeness" },
@@ -119,6 +124,7 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
 // ---------------------------------------------------------------------------
 
 const EVALUATION_STREAMS: GuardEventStreamSource[] = [
+  { stream: "causal-premise-evaluations", guardName: "causal-premise" },
   {
     stream: "negative-existence-claim-evaluations",
     guardName: "negative-existence-claim-detector",
@@ -220,7 +226,7 @@ const ADJACENT_STATE_DIR_STREAMS: GuardEventStreamSource[] = [
 
 /**
  * The complete guard/calibration exhaust stream set — every row from
- * inventory §A–§E (40 streams as of the 2026-08-12 snapshot). This IS the
+ * inventory §A–§E (41 streams as of the 2026-08-13 snapshot). This IS the
  * "data, not code" surface constraint #8 requires: a newly-appeared stream
  * is a new entry here, never a change to `parsing.ts` or `ingest-service.ts`.
  */

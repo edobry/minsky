@@ -15,8 +15,18 @@ Top-level fork dispatch from the main agent is unaffected. Non-fork nested dispa
 `general-purpose`, ...) is unaffected — only nested `fork` dispatch carries the full-context risk
 mt#2865/mem#665 identified.
 
-**Hook:** `block-nested-fork-dispatch.ts` (reuses `dispatch-intent-store.ts` +
-`isSubagentContext` / `resolveSessionIdFromInput` from `dispatch-intent-write-gate.ts`).
+**Hook:** `block-nested-fork-dispatch.ts` — a thin binding since mt#4374. It reads
+`subagent_type` off the payload (`isForkDispatch`), reads the override off the environment
+(`isOverrideActive`), and reuses `dispatch-intent-store.ts` plus `isSubagentContext` /
+`resolveSessionIdFromInput` from `dispatch-intent-write-gate.ts` for session resolution.
+
+**Decision:** `decideNestedForkDispatchGate` in
+`packages/domain/src/detectors/nested-fork-dispatch-gate.ts`. It takes the ANSWERS the binding
+established — is this a fork, is it nested, is the override on, which session, which declarations,
+what time — rather than a hook payload and a defaulted `env`. The old signature ended
+`env: NodeJS.ProcessEnv = process.env`, a dependency parameter with a default value, which
+ADR-026 rule 2 forbids; the repair was to remove the parameter, not to make it required, because
+reading an override is fact-gathering and fact-gathering belongs to the binding.
 
 **Override:** `MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only).
 

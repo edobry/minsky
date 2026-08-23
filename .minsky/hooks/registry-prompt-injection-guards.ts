@@ -1,0 +1,492 @@
+// Registry entries for the prompt-context injection family (mt#2687 Phase 2b).
+//
+// ## The family boundary
+//
+// These are the `UserPromptSubmit` guards that read THE WORLD and inject what
+// they find into the turn's context — current time, git state, prod state,
+// resident-memory captures, dispatch watchdogs, memory-search results, and
+// staleness warnings about skills and the MCP daemon. What unites them is the
+// DIRECTION of the read: none of them looks at what the agent said or did.
+// That is the whole of the boundary against their siblings in
+// `registry-prompt-scan-guards.ts`, which read the just-completed turn and
+// report on it.
+//
+// Provenance: this block is the set of UserPromptSubmit hooks that preceded the
+// Phase 2a dispatcher slot in the pre-migration `settings.json` order (mt#2687).
+// The count has grown since — `inject-memory-capture` was added by mt#3997 —
+// so this header deliberately states no number; the array below is the count.
+//
+// ## Order
+//
+// The array order here is the original `registry.ts` order, unchanged. No guard
+// in this family is `denyCapable`, so the first-deny-wins short-circuit cannot
+// fire among them, and the merged `additionalContext` block is ordered by
+// `contextPriority` rather than array position. Order is preserved anyway,
+// because the cheapest way to prove a move changed no behavior is for the
+// dispatch lists to come out byte-identical.
+//
+// ## Why a family module
+//
+// See `registry-task-create-guards.ts`'s header for the `max-lines` history
+// this split resolves (mt#4115).
+
+import { advisoryEffect } from "./registry-effects";
+import type { GuardRegistration } from "./registry";
+
+export const PROMPT_INJECTION_GUARDS: readonly GuardRegistration[] = [
+  {
+    name: "auto-session-title",
+    effects: [advisoryEffect("sessionTitle")],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./auto-session-title").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#2889: scalar sessionTitle output — no denial-message concept, no options.
+    attentionCost: { denialMessageSizeChars: 0, optionCount: 0 },
+    canary: {
+      input: { session_id: "mt2889-canary-autotitle" },
+      expects: "sessionTitle",
+      // Seed the trigger file this guard's run() consumes+deletes (mirrors
+      // session_start's real write path) — /tmp/claude-session-label-<sid>.json.
+      setup: async () => {
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(
+          "/tmp/claude-session-label-mt2889-canary-autotitle.json",
+          JSON.stringify({ taskId: "mt#123", title: "Test task" })
+        );
+      },
+    },
+  },
+  {
+    name: "inject-current-time",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3394: state injectors outrank advisory reminders in the merged block.
+    // Dropping this one does not cost a nudge, it costs a FACT — the agent then
+    // dates its own claims from a stale in-context timestamp. Cheap to keep
+    // (90 chars) and everything else in the turn is written against it.
+    contextPriority: 10,
+    attentionCost: { denialMessageSizeChars: 90, optionCount: 0 },
+    // mt#2889: fires unconditionally on every UserPromptSubmit — the simplest liveness canary in the registry.
+    canary: { input: {}, expects: "warn" },
+  },
+  {
+    name: "inject-git-state",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3394: same class as inject-current-time — branch/ahead-behind/dirty
+    // state is the ground truth the turn's git claims are written against.
+    contextPriority: 10,
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
+    canary: {
+      input: {}, // cwd populated dynamically by setup below
+      expects: "warn",
+      // mt#2889 PR #2012 R1 BLOCKING #3: the guard's run() requires `cwd` to
+      // resolve as a real git repo (buildGitStateSnapshot returns null, and
+      // the guard silently no-ops, otherwise) — relying on the canary
+      // RUNNER's own ambient process.cwd() being a git checkout was flaky
+      // (true only when invoked from within a repo; false in CI contexts or
+      // other invocation cwds). Init a disposable, hermetic throwaway repo in
+      // a fresh temp dir instead — a single commit is enough for
+      // `git symbolic-ref HEAD` / `git log` / `git status` to all resolve
+      // cleanly, giving a deterministic "clean, default-branch-undetectable"
+      // snapshot (no origin configured) regardless of where the canary
+      // runner itself is invoked from.
+      setup: async () => {
+        const { mkdtempSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const cwd = mkdtempSync(join(tmpdir(), "mt2889-git-state-canary-"));
+        const run = (args: string[]): void => {
+          Bun.spawnSync(["git", ...args], { cwd, stdout: "ignore", stderr: "ignore" });
+        };
+        run(["init", "--initial-branch=main"]);
+        run(["config", "user.email", "canary@example.invalid"]);
+        run(["config", "user.name", "mt2889 canary"]);
+        writeFileSync(join(cwd, "canary.txt"), "canary fixture\n");
+        run(["add", "canary.txt"]);
+        run(["commit", "-m", "canary fixture commit"]);
+        return { cwd };
+      },
+    },
+  },
+  {
+    name: "inject-prod-state",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3394: the highest-cost state injector to lose. Its own text tells the
+    // agent to "treat this as ground truth for prod-state claims this turn (do
+    // not assert a different prod state from memory)" — so if it is dropped,
+    // the fallback is exactly the memory-sourced assertion it exists to prevent.
+    contextPriority: 10,
+    attentionCost: { denialMessageSizeChars: 250, optionCount: 0 },
+    // mt#2889: no cache file present in the canary runner's isolated
+    // MINSKY_STATE_DIR -> deterministic UNKNOWN branch fires additionalContext.
+    canary: { input: {}, expects: "warn" },
+  },
+  {
+    name: "inject-memory-capture",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-memory-capture").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3997: fires only when a process has actually crossed a resident-memory
+    // watermark — rare by construction (nothing since 2026-08-08), and when it
+    // does fire it carries the evidence mt#3885 is blocked on. High priority
+    // because being dropped returns it to the state this hook exists to end:
+    // an artifact on disk that nobody is told about.
+    contextPriority: 10,
+    // MEASURED, not estimated (PR #2881 R1). The first declaration said 400
+    // against a 407-char render, which the mt#3479 size-ceiling test caught;
+    // the honest worst case was then 889, which pushed this guard into the
+    // top-five conditional bucket `MERGED_CONTEXT_BUDGET_CHARS` is derived from
+    // and broke the mt#3394 budget test. Rather than grow a shared per-turn
+    // budget for a RARE notice, the guard's own caps came down
+    // (MAX_DESCRIBED_CAPTURES 3 -> 1, tool calls 3 -> 2, footer 3 lines -> 1).
+    // Worst case is now 326 chars, a single capture 292. 400 leaves headroom
+    // without re-entering that bucket.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 0 },
+    // mt#2889: the hook PRIMES a synthetic capture when MINSKY_CANARY_MODE=1
+    // (into the runner's isolated MINSKY_STATE_DIR), so the canary exercises
+    // the FIRING path — read, format, watermark — and not the silent one. A
+    // canary that can only observe silence cannot distinguish a broken guard
+    // from a dormant one, which is what this mechanism exists to detect.
+    canary: { input: {}, expects: "warn" },
+  },
+  {
+    name: "inject-dispatch-watchdog",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3485: 1800 -> 1550, and unlike every other annotation in this file
+    // this one is a genuine WORST-CASE BOUND rather than a canary sample. The
+    // banner caps enumerated dispatches at MAX_ENUMERATED_FLAGS (5, with a
+    // "+N more" elision), so its size no longer scales without limit.
+    //
+    // The bound is STRUCTURAL, not sampled (PR #2499 R1): past the cap the only
+    // remaining variation is per-field width, so saturating every field gives a
+    // true maximum. Measured at 1488 with the widest realistic values — longest
+    // agentType (`claude-code-guide`), a full-UUID sessionId, an `unknown` age
+    // string, the longest activitySource, and a 9-char taskId — flat from 6
+    // flags to 1000. Ordinary render is 866.
+    //
+    // mt#3121: the injected instruction gained a `contested` branch (a fresh
+    // task-grain peer claim / read-failure -> do NOT redispatch), re-measured at
+    // 1714 by the same structural saturation. 1550 -> 1750; optionCount 3 -> 4.
+    // Declared above the measured maximum, because this guard's annotation is the
+    // one the merged budget can least afford to understate.
+    attentionCost: { denialMessageSizeChars: 1750, optionCount: 4 },
+    canary: {
+      input: {},
+      expects: "warn",
+      // Seed a stalled-dispatch flag in the isolated MINSKY_STATE_DIR cache.
+      setup: async () => {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) return;
+        mkdirSync(stateDir, { recursive: true });
+        writeFileSync(
+          join(stateDir, "dispatch-watchdog-cache.json"),
+          JSON.stringify({
+            checkedAt: new Date().toISOString(),
+            staleMs: 1_800_000,
+            flags: [
+              {
+                taskId: "mt#0000",
+                subagentSessionId: "mt2889-canary-session",
+                agentType: "implementer",
+                taskStatus: "IN-PROGRESS",
+                startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+                lastActivityAt: new Date(Date.now() - 1_800_000).toISOString(),
+                staleForMs: 1_800_000,
+              },
+            ],
+          })
+        );
+      },
+    },
+  },
+  {
+    name: "inject-ask-responses",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-ask-responses").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3564: a state injector, not a reminder — the same class as inject-prod-state
+    // and for the same reason. Dropping it does not cost a nudge, it costs a FACT (an
+    // ask this conversation filed has been answered), and the fallback is precisely the
+    // failure the hook exists to end: the agent reporting the ask as open from memory
+    // of having filed it.
+    contextPriority: 10,
+    // STRUCTURAL BOUND, not a canary sample — the distinction mt#4234 was written to
+    // enforce after a sampled annotation moved the shared budget. Every field in the
+    // render is individually capped BY THE HOOK ITSELF (MAX_ENUMERATED_ASKS 2,
+    // MAX_TITLE_CHARS 60, MAX_CHOSEN_RENDER_CHARS 100, both closers under 73), so
+    // saturating all of them at once gives a true maximum rather than a sample.
+    // MEASURED at 586, and asserted by `inject-ask-responses.test.ts`'s saturated case
+    // against the 590 declared here — so this annotation cannot silently drift.
+    //
+    // The caps live in the hook and not only in the producer deliberately: the cache is
+    // a file written by a separate module graph, and the first version of this guard
+    // trusted the producer's truncation and rendered 664 against a declared 590.
+    //
+    // 590 is deliberately just UNDER the 600 held by code-mechanism-assertion, the
+    // fifth slot of the bucket `MERGED_CONTEXT_BUDGET_CHARS` sums. Entering that bucket
+    // would push the shared per-turn budget up for every guard; staying out of it is
+    // why the render caps are set where they are. If a future change raises this past
+    // 600, MERGED_CONTEXT_BUDGET_CHARS must be re-derived in dispatcher.ts.
+    attentionCost: { denialMessageSizeChars: 590, optionCount: 0 },
+    canary: {
+      input: { session_id: "mt3564-canary-conversation" },
+      expects: "warn",
+      // Seed BOTH files the hook joins — an attribution naming the canary conversation,
+      // and a cache in which that ask has been answered. A canary that could only
+      // observe silence cannot distinguish a broken guard from a dormant one, which is
+      // the whole point of exercising the FIRING path.
+      setup: async () => {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) return;
+        mkdirSync(stateDir, { recursive: true });
+        const askId = "00000000-0000-4000-8000-000000003564";
+        writeFileSync(
+          join(stateDir, "ask-conversation-map.json"),
+          JSON.stringify({
+            entries: {
+              [askId]: {
+                conversationId: "mt3564-canary-conversation",
+                shortId: "ask#0000",
+                recordedAt: new Date().toISOString(),
+              },
+            },
+          })
+        );
+        writeFileSync(
+          join(stateDir, "ask-state-cache.json"),
+          JSON.stringify({
+            checkedAt: new Date().toISOString(),
+            asks: {
+              [askId]: {
+                found: true,
+                state: "responded",
+                open: false,
+                shortId: "ask#0000",
+                title: "mt3564 canary ask",
+                respondedAt: new Date().toISOString(),
+                chosen: "canary-option",
+              },
+            },
+          })
+        );
+      },
+    },
+  },
+  {
+    name: "memory-search",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./memory-search").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 1 },
+    // mt#3004 (closes the mt#2889 KNOWN GAP): the live `minsky memory search`
+    // subprocess is not hermetically canary-able, so the guard exposes a
+    // fixture-file stub seam (CANARY_STUB_ENV) that replaces ONLY the
+    // subprocess call — the fixture flows through the real parse/injection
+    // path. The seam is gated on CANARY_MODE_ENV (PR #2145 R1) and this
+    // setup's env mutations are restored by runGuardCanary after the
+    // checked invocation, so nothing leaks to sibling canaries or the host
+    // process.
+    canary: {
+      input: {
+        prompt:
+          "canary: verify the memory-search hook still parses results and injects context for this prompt",
+      },
+      expects: "warn",
+      setup: async () => {
+        const { mkdtempSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const { CANARY_MODE_ENV } = await import("./types");
+        const { CANARY_STUB_ENV } = await import("./memory-search");
+        const dir = mkdtempSync(join(tmpdir(), "mt3004-memory-search-canary-"));
+        const fixturePath = join(dir, "memory-search-fixture.json");
+        writeFileSync(
+          fixturePath,
+          JSON.stringify({
+            results: [
+              {
+                record: {
+                  id: "00000000-0000-0000-0000-mt3004canary",
+                  type: "feedback",
+                  name: "mt3004_canary_fixture_memory",
+                  description: "Synthetic canary fixture record (mt#3004).",
+                  content:
+                    "Synthetic memory content used by the guard-canary suite to prove the " +
+                    "memory-search hook's parse-and-inject plumbing is alive.",
+                },
+                score: 0.11,
+              },
+            ],
+            backend: "embeddings",
+            degraded: false,
+          })
+        );
+        process.env[CANARY_MODE_ENV] = "1";
+        process.env[CANARY_STUB_ENV] = fixturePath;
+        return {};
+      },
+    },
+  },
+  {
+    name: "skill-staleness-detector",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
+    canary: {
+      input: {}, // cwd/session_id populated dynamically by setup below
+      expects: "warn",
+      // Two-invocation stateful guard: first call establishes a baseline
+      // mtime snapshot for a synthetic watched file in an isolated cwd; this
+      // setup then advances that file's mtime so the canary runner's own
+      // (checked) SECOND invocation sees a change and warns.
+      setup: async (mod, ctx) => {
+        const { mkdtempSync, mkdirSync, writeFileSync, utimesSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const cwd = mkdtempSync(join(tmpdir(), "mt2889-skill-staleness-canary-"));
+        const skillDir = join(cwd, ".claude", "skills", "canary-skill");
+        mkdirSync(skillDir, { recursive: true });
+        const skillFile = join(skillDir, "SKILL.md");
+        writeFileSync(skillFile, "# canary skill\n");
+        const sessionId = "mt2889-canary-skillstale";
+        const primeInput = {
+          session_id: sessionId,
+          cwd,
+          hook_event_name: "UserPromptSubmit",
+          tool_name: "",
+          tool_input: {},
+        };
+        await mod.run(primeInput, ctx); // baseline established; no warning expected yet
+        const future = new Date(Date.now() + 5000);
+        utimesSync(skillFile, future, future);
+        return { session_id: sessionId, cwd };
+      },
+    },
+  },
+  {
+    name: "mcp-daemon-staleness-detector",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 1 },
+    // mt#3004 (closes the mt#2889 KNOWN GAP): the "scratch git-repo fixture"
+    // this gap deferred now follows the inject-git-state canary's precedent —
+    // a two-commit repo whose second commit touches src/, plus a daemon state
+    // file (startCommit = first commit) under the canary runner's isolated
+    // MINSKY_STATE_DIR. The session tracker is redirected to a temp HOME via
+    // TRACKER_HOME_ENV (gated on CANARY_MODE_ENV, PR #2145 R1) so nothing
+    // lands under the real ~/.claude (mt#2876 class). Env mutations are
+    // restored by runGuardCanary after the checked invocation. The state
+    // file is read only by this guard, so writing it into the shared
+    // isolated state dir cannot affect sibling canaries.
+    canary: {
+      input: {},
+      expects: "warn",
+      setup: async () => {
+        const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const { spawnSync } = await import("node:child_process");
+        const { CANARY_MODE_ENV } = await import("./types");
+        const { TRACKER_HOME_ENV } = await import("./mcp-daemon-staleness-detector");
+        const repo = mkdtempSync(join(tmpdir(), "mt3004-daemon-staleness-canary-repo-"));
+        const run = (args: string[]) =>
+          spawnSync("git", args, { cwd: repo, stdio: "ignore", timeout: 5000 });
+        // PR #2145 R1: surface git-unavailable clearly instead of a
+        // confusing downstream mismatch; fall back to plain `git init` for
+        // git versions without --initial-branch (< 2.28).
+        const init = run(["init", "--initial-branch=main"]);
+        if (init.error) {
+          throw new Error(
+            `canary setup: git unavailable (${init.error.message}) — the daemon-staleness canary requires git`
+          );
+        }
+        if (init.status !== 0) {
+          const plainInit = run(["init"]);
+          if (plainInit.error || plainInit.status !== 0) {
+            throw new Error("canary setup: git init failed in the scratch repo");
+          }
+        }
+        run(["config", "user.email", "canary@example.invalid"]);
+        run(["config", "user.name", "mt3004 canary"]);
+        mkdirSync(join(repo, "src"), { recursive: true });
+        writeFileSync(join(repo, "src", "canary.ts"), "export const canary = 1;\n");
+        run(["add", "."]);
+        run(["commit", "-m", "canary baseline commit"]);
+        const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
+          cwd: repo,
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        const startCommit = headResult.stdout?.trim();
+        if (headResult.error || !startCommit) {
+          throw new Error(
+            `canary setup: git rev-parse produced no SHA in the scratch repo — ${headResult.error?.message ?? "baseline commit likely failed"}`
+          );
+        }
+        writeFileSync(join(repo, "src", "canary.ts"), "export const canary = 2;\n");
+        run(["add", "."]);
+        run(["commit", "-m", "canary drift commit (touches src/)"]);
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) throw new Error("canary runner did not set MINSKY_STATE_DIR");
+        writeFileSync(
+          join(stateDir, "mcp-daemon-state.json"),
+          JSON.stringify({
+            startCommit,
+            startTimestamp: new Date().toISOString(),
+            pid: process.pid,
+            serverName: "minsky",
+            minskyHomeDir: repo,
+            transport: "stdio",
+          })
+        );
+        process.env[CANARY_MODE_ENV] = "1";
+        process.env[TRACKER_HOME_ENV] = mkdtempSync(
+          join(tmpdir(), "mt3004-daemon-staleness-canary-home-")
+        );
+        return { session_id: "mt3004-canary-daemonstale" };
+      },
+    },
+  },
+];

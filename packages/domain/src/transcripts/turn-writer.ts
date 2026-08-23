@@ -26,7 +26,8 @@
  * @see mt#2381 — this file
  */
 
-import { and, eq, gt, gte, sql } from "drizzle-orm";
+import { and, eq, gt, gte, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -284,6 +285,147 @@ export function isStatementTimeout(err: unknown): boolean {
 }
 
 /**
+ * Single source of truth for the turn upsert's `ON CONFLICT DO UPDATE`
+ * (mt#4345): the columns it writes DIRECTLY from `EXCLUDED` — every SET-block
+ * entry except `embedding`, whose value is a `CASE` DERIVED from `userText`/
+ * `assistantText` rather than a straight passthrough (mt#3883's invalidation
+ * invariant, unrelated to this list).
+ *
+ * Both the SET clause and the skip-if-unchanged `setWhere` predicate below are
+ * BUILT FROM this array (`turnUpsertDirectSet` / `buildTurnUpsertSkipIfUnchangedWhere`)
+ * rather than hand-duplicated — so a column added here and forgotten in the
+ * other place is not a possible bug, and a column added to the real upsert
+ * without going through this array is not possible either, since this is the
+ * only place either function reads from. `turn-writer.test.ts` asserts this
+ * list's shape directly (exact key/column-name set, `IS DISTINCT FROM`
+ * throughout) without needing a live Postgres — the ACTUAL skip behavior
+ * still requires one, and is covered by
+ * `scripts/verify-turn-write-skip-if-unchanged.ts`.
+ */
+/**
+ * The exact key set `TurnUpsertDirectSetFields` (below) declares — a
+ * literal-string union, not `string`, so that a `key` here TypeScript cannot
+ * place in that interface is a COMPILE error, not just a failing test. This
+ * is what makes `turnUpsertDirectSet` below assignment-safe with zero casts:
+ * a `Record<TurnUpsertDirectSetKey, SQL>` indexed access is a normal keyed
+ * property write, not a generic-string index that TypeScript can't verify.
+ */
+type TurnUpsertDirectSetKey =
+  | "userText"
+  | "userOrigin"
+  | "assistantText"
+  | "toolCalls"
+  | "startedAt"
+  | "endedAt"
+  | "isSpawnBoundary";
+
+export const TURN_UPSERT_DIRECT_SET_COLUMNS: ReadonlyArray<{
+  readonly key: TurnUpsertDirectSetKey;
+  readonly column: AnyPgColumn;
+  readonly sqlName: string;
+}> = [
+  { key: "userText", column: agentTranscriptTurnsTable.userText, sqlName: "user_text" },
+  // mt#4289, merged in on rebase (PR #3176): a change in provenance with
+  // identical text does not invalidate a vector, which describes the TEXT —
+  // so `userOrigin` is a direct-set column here (and correctly absent from
+  // the embedding CASE at the call site) but must still participate in the
+  // skip-if-unchanged predicate below, since `extractTurnsForAllTranscripts`
+  // depends on a re-run rewriting `user_origin` on every row even when the
+  // text is unchanged.
+  { key: "userOrigin", column: agentTranscriptTurnsTable.userOrigin, sqlName: "user_origin" },
+  {
+    key: "assistantText",
+    column: agentTranscriptTurnsTable.assistantText,
+    sqlName: "assistant_text",
+  },
+  { key: "toolCalls", column: agentTranscriptTurnsTable.toolCalls, sqlName: "tool_calls" },
+  { key: "startedAt", column: agentTranscriptTurnsTable.startedAt, sqlName: "started_at" },
+  { key: "endedAt", column: agentTranscriptTurnsTable.endedAt, sqlName: "ended_at" },
+  {
+    key: "isSpawnBoundary",
+    column: agentTranscriptTurnsTable.isSpawnBoundary,
+    sqlName: "is_spawn_boundary",
+  },
+];
+
+/**
+ * The subset of `agent_transcript_turns`' insertable columns this upsert's
+ * SET clause writes directly from `EXCLUDED` — i.e. every key
+ * `TURN_UPSERT_DIRECT_SET_COLUMNS` names. A local, narrow mirror of
+ * drizzle's `PgUpdateSetSource<typeof agentTranscriptTurnsTable>` (which is
+ * not itself importable without a deep, non-`exports`-mapped path into
+ * `drizzle-orm/pg-core/query-builders/update`) — structurally compatible
+ * with it because both are optional-`SQL`-valued records over the same
+ * table's column keys, so no cast is needed where this is spread into the
+ * real `set:` object at the call site.
+ */
+type TurnUpsertDirectSetFields = Partial<Record<TurnUpsertDirectSetKey, SQL>>;
+
+/**
+ * The SET clause's direct-from-EXCLUDED entries, built from
+ * `TURN_UPSERT_DIRECT_SET_COLUMNS`. The caller adds the one remaining entry
+ * (`embedding`'s CASE expression) separately — see the call site for why
+ * that column is not part of this list.
+ *
+ * Builds with a plain loop over a `TurnUpsertDirectSetFields`-typed
+ * accumulator — no type assertion anywhere: `key` is typed
+ * `TurnUpsertDirectSetKey`, a literal-string union, so `result[key] = ...` is
+ * an ordinary keyed property write TypeScript can verify directly, not a
+ * generic string index it has to be told to trust.
+ */
+function turnUpsertDirectSet(): TurnUpsertDirectSetFields {
+  const result: TurnUpsertDirectSetFields = {};
+  for (const { key, sqlName } of TURN_UPSERT_DIRECT_SET_COLUMNS) {
+    result[key] = sql.raw(`EXCLUDED.${sqlName}`);
+  }
+  return result;
+}
+
+/**
+ * Skip-if-unchanged predicate (mt#4345) for the turn upsert's `setWhere`:
+ * without it, EVERY conflicting row is rewritten on every re-ingest, even
+ * when nothing about it changed — 19.2M updates against 327k live rows in
+ * prod, ~59 rewrites/row. An UPDATE that writes back identical bytes still
+ * produces a new row version (a dead tuple autovacuum must later reclaim)
+ * and, because the indexed `embedding` column sits in the SET list, cannot
+ * take the HOT-update fast path — so it also churns the GIN `fts_text` index
+ * and the HNSW `embedding` index on every write.
+ *
+ * Compares every column `turnUpsertDirectSet` writes — i.e. NOT `embedding`,
+ * whose SET value is itself derived from `userText`/`assistantText` (see the
+ * CASE at the call site), so comparing those two source columns already
+ * covers whether the derived value would change. If none of the compared
+ * columns differ, `DO UPDATE` fires no-op — Postgres skips the write, and a
+ * WHERE-false row never touches an index.
+ *
+ * MUST be `IS DISTINCT FROM`, never `<>`: every column here is nullable (a
+ * tool-only turn has no `assistant_text`), and SQL's `<>` returns NULL — not
+ * TRUE — when either side is NULL, so `NULL <> NULL` is NULL rather than
+ * "these are not the same." A predicate built from `<>` would therefore never
+ * evaluate the whole OR chain to TRUE on any row carrying a NULL in a changed
+ * column, silently turning this guard into a no-op for the common case. `IS
+ * DISTINCT FROM` treats NULL as a comparable value (`NULL IS DISTINCT FROM
+ * NULL` is FALSE; `NULL IS DISTINCT FROM 'x'` is TRUE) — exactly the "did
+ * this column's value change" semantics wanted here.
+ *
+ * Every SET column is included, not just the text pair the embedding CASE
+ * reads — `is_spawn_boundary` flipping with identical text is a real change
+ * (mt#4345's spec counter-case) that a text-only predicate would silently
+ * drop. Pure and DB-free: `turn-writer.test.ts` renders this via drizzle's
+ * `PgDialect.sqlToQuery` and asserts the rendered text names every column and
+ * uses `IS DISTINCT FROM` throughout — the shape seam the reviewer asked for
+ * on PR #3176. What it cannot assert without a live Postgres is that the
+ * predicate actually SKIPS the write; that is
+ * `scripts/verify-turn-write-skip-if-unchanged.ts`'s job.
+ */
+export function buildTurnUpsertSkipIfUnchangedWhere(): SQL {
+  const clauses = TURN_UPSERT_DIRECT_SET_COLUMNS.map(
+    ({ column, sqlName }) => sql`${column} IS DISTINCT FROM ${sql.raw(`EXCLUDED.${sqlName}`)}`
+  );
+  return sql.join(clauses, sql` OR `);
+}
+
+/**
  * The upsert + orphan-removal body, running inside the caller's transaction
  * with the session's advisory lock already held. Split out so the locking and
  * the write logic are separately readable; not exported — the lock is not
@@ -327,6 +469,11 @@ async function writeTurnsLocked(
       agentSessionId,
       turnIndex: turn.turnIndex,
       userText: turn.userText ?? undefined,
+      // mt#4289: who authored `user_text`. Written on the SAME statement as the
+      // text it describes — a separate pass would let the two disagree, and a
+      // row whose text says one thing and whose provenance says another is
+      // worse than one carrying no provenance at all.
+      userOrigin: turn.userOrigin ?? undefined,
       assistantText: turn.assistantText ?? undefined,
       // Pass the array directly — `tool_calls` is a jsonb column and Drizzle
       // serializes the value. JSON.stringify here would DOUBLE-encode it (store a
@@ -371,14 +518,31 @@ async function writeTurnsLocked(
             // text keeps the vector, changed text nulls it so the embedding
             // backfill refills it on its next pass.
             set: {
-              userText: sql`EXCLUDED.user_text`,
-              assistantText: sql`EXCLUDED.assistant_text`,
-              toolCalls: sql`EXCLUDED.tool_calls`,
-              startedAt: sql`EXCLUDED.started_at`,
-              endedAt: sql`EXCLUDED.ended_at`,
-              isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
+              // Every direct-from-EXCLUDED entry, built from the single source
+              // of truth above — see `turnUpsertDirectSet`'s doc comment. This
+              // now includes `userOrigin` (mt#4289, merged in here on rebase):
+              // listed as a direct-set column and NOT in the embedding CASE
+              // below, because a change in provenance with identical text does
+              // not invalidate a vector, which describes the TEXT. That is also
+              // why `userOrigin` must flow through the skip-if-unchanged
+              // predicate too, not just the SET clause — the existing
+              // `extractTurnsForAllTranscripts` sweep depends on a re-run
+              // rewriting `user_origin` on every row even when the text is
+              // unchanged; a guard that only compared text would have silently
+              // skipped that write once mt#4345 shipped.
+              ...turnUpsertDirectSet(),
+              // `embedding` is the one SET entry NOT in that list: its value is
+              // DERIVED from userText/assistantText rather than a straight
+              // EXCLUDED passthrough — see `buildTurnUpsertSkipIfUnchangedWhere`'s
+              // doc comment for why that derivation means comparing the two
+              // source text columns already covers this one.
               embedding: sql`CASE WHEN ${agentTranscriptTurnsTable.userText} IS DISTINCT FROM EXCLUDED.user_text OR ${agentTranscriptTurnsTable.assistantText} IS DISTINCT FROM EXCLUDED.assistant_text THEN NULL ELSE ${agentTranscriptTurnsTable.embedding} END`,
             },
+            // Skip-if-unchanged guard (mt#4345) — see
+            // `buildTurnUpsertSkipIfUnchangedWhere`'s doc comment for the full
+            // rationale (HOT-update mechanism, the `IS DISTINCT FROM` vs `<>`
+            // trap, and why `is_spawn_boundary` is included alongside text).
+            setWhere: buildTurnUpsertSkipIfUnchangedWhere(),
           });
       });
       written += chunk.length;

@@ -3,6 +3,7 @@ import {
   generatePlist,
   resolveDaemonStatus,
   readUptime,
+  readPid,
   formatUptime,
   LAUNCHD_LABEL,
   DEFAULT_DAEMON_PORT,
@@ -223,5 +224,66 @@ describe("resolveDaemonStatus (mt#3682)", () => {
 
     expect(launchctlCalls).toBe(0);
     expect(status.pid).toBeNull();
+  });
+
+  test("a tray-supervised daemon reports the pid health gave it (mt#4232)", async () => {
+    // The earmark this discharges: launchctl was the only pid source, so
+    // `cockpit status` printed a blank pid for every daemon launchd did not
+    // hold — which is the DEFAULT setup under ADR-014.
+    const status = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({ health: async () => ({ ...HEALTH, pid: 5150 }) })
+    );
+
+    expect(status.pid).toBe(5150);
+    expect(status.supervisor).toBe("external");
+  });
+
+  test("health's pid does NOT make launchd the credited supervisor (mt#4232)", async () => {
+    // `pid` is present under BOTH supervisors, so deciding `supervisor` from the
+    // merged field would credit launchd for every serving daemon. The
+    // discriminator stays launchctl's own record.
+    const status = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({ plistExists: () => true, health: async () => ({ ...HEALTH, pid: 5150 }) })
+    );
+
+    expect(status.pid).toBe(5150);
+    expect(status.supervisor).toBe("external");
+  });
+
+  test("launchctl's pid outranks health's when both are present (mt#4232)", async () => {
+    const status = await resolveDaemonStatus(
+      DEFAULT_DAEMON_PORT,
+      PLIST,
+      probes({
+        plistExists: () => true,
+        launchctlPid: () => 4242,
+        health: async () => ({ ...HEALTH, pid: 5150 }),
+      })
+    );
+
+    expect(status.pid).toBe(4242);
+    expect(status.supervisor).toBe("launchd");
+  });
+
+  test("readPid accepts a real pid and rejects everything that is not one (mt#4232)", () => {
+    expect(readPid({ pid: 5150 })).toBe(5150);
+
+    // A daemon predating the field. Null, not a guess — the caller falls back to
+    // resolving the pid from the port.
+    expect(readPid({ status: "ok" })).toBeNull();
+
+    // Values that are `typeof "number"` and still not pids. `process.kill` on
+    // one of these throws rather than returning something reportable, so they
+    // are rejected here instead.
+    expect(readPid({ pid: Number.NaN })).toBeNull();
+    expect(readPid({ pid: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(readPid({ pid: 12.5 })).toBeNull();
+    expect(readPid({ pid: 0 })).toBeNull();
+    expect(readPid({ pid: -1 })).toBeNull();
+    expect(readPid({ pid: "5150" })).toBeNull();
   });
 });

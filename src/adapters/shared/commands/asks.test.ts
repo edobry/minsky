@@ -133,15 +133,18 @@ describe("createAsk", () => {
       { label: "A", value: "a" },
       { label: "B", value: "b" },
     ]);
-    // direction.decide defaults to serviceStrategy="scheduled" (mt#1488).
-    // createAsk walks the row to "suspended" immediately (mt#1490 R1 B1 fix).
+    // mt#4421: still "suspended", but by a DIFFERENT route than when this was
+    // written. It used to be Phase 3 windowing (scheduled/ask-hours); now the
+    // kind defaults to asap, routes to operator/inbox, and inbox maps to
+    // suspended. Same assertion, different path.
     expect(persisted.state).toBe("suspended");
   });
 
-  test("returns a SuspendedAsk for direction.decide (scheduled default, no policy match)", async () => {
-    // direction.decide defaults to serviceStrategy="scheduled" (mt#1488),
-    // so the router suspends it in Phase 3. The Ask waits for the reaper
-    // to dispatch it when the service window opens (mt#1490).
+  test("returns a SuspendedAsk for direction.decide (operator inbox, no policy match)", async () => {
+    // mt#4421: direction.decide defaults to asap now, so Phase 3 windowing does
+    // NOT fire. It reaches suspended via the operator/inbox binding — for the
+    // inbox transport, "dispatch" IS landing on the operator surface. Nothing
+    // waits for a reaper; that runtime is retired (mt#4410).
     const repo = new FakeAskRepository();
 
     const result = await createAsk(
@@ -154,7 +157,7 @@ describe("createAsk", () => {
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
     );
 
-    // Phase 3 suspends direction.decide (scheduled strategy).
+    // Suspended via the inbox binding, not Phase 3 windowing (mt#4421).
     expect(result.state).toBe("suspended");
     // Transport binding is still computed in Phase 2 before suspension.
     expect(result.routingTarget).toBe("operator");
@@ -411,8 +414,10 @@ describe("createAsk", () => {
   // -------------------------------------------------------------------------
 
   test("dispatches end-to-end through elicitation when an active server is present", async () => {
-    // direction.decide defaults to scheduled; use forceImmediate=true to
-    // bypass windowing and exercise the elicitation transport path.
+    // forceImmediate is retained deliberately. It was needed to bypass Phase 3
+    // windowing when direction.decide defaulted to scheduled; after mt#4421 it
+    // is not, but keeping it holds this test on the elicitation transport
+    // rather than on whichever branch the per-kind default happens to take.
     const repo = new FakeAskRepository();
 
     // Fake server that accepts the elicitation with a chosen value.
@@ -433,8 +438,8 @@ describe("createAsk", () => {
           { label: "X", value: "x" },
           { label: "Y", value: "y" },
         ],
-        // forceImmediate bypasses Phase 3 windowing so the elicitation transport
-        // path is exercised (mt#1490: scheduled strategy would otherwise suspend).
+        // See the note above: no longer load-bearing after mt#4421, retained so
+        // this test does not depend on the per-kind default at all.
         forceImmediate: true,
       },
       {
@@ -453,7 +458,14 @@ describe("createAsk", () => {
     // The repo state matches the return — single coherent producer path.
     const persisted = await repo.getById(result.id);
     expect(persisted?.state).toBe("closed");
+    // mt#4450: the row carries the routing target the router chose, on the
+    // success path as well as the failure path below.
+    expect(persisted?.routingTarget).toBe("operator");
   });
+
+  // The FAILED-dispatch counterpart lives in `asks-elicitation-routing.test.ts`
+  // (mt#4450) — this file is at the 1500-line max-lines ceiling, so the new case
+  // went into its own file rather than pushing this one over.
 
   test("walks Ask to suspended when registry reports elicitation but no active server (strand recovery)", async () => {
     const repo = new FakeAskRepository();
@@ -604,16 +616,32 @@ describe("service-window-defaults module", () => {
     }
   });
 
-  test("direction.decide defaults to scheduled/ask-hours", () => {
+  test("mt#4421: direction.decide defaults to asap with NO window", () => {
+    // Was scheduled/ask-hours. The window runtime is retired (mt#4410), so a
+    // default naming one recorded a batching policy that no longer exists —
+    // on the kind agents file principal escalations as.
     const def = getServiceWindowDefault(KIND_DIRECTION_DECIDE);
-    expect(def.serviceStrategy).toBe("scheduled");
-    expect(def.windowKey).toBe("ask-hours");
+    expect(def.serviceStrategy).toBe("asap");
+    expect(def.windowKey).toBeUndefined();
   });
 
-  test("quality.review defaults to scheduled/ask-hours", () => {
+  test("mt#4421: quality.review defaults to asap with NO window", () => {
     const def = getServiceWindowDefault(KIND_QUALITY_REVIEW);
-    expect(def.serviceStrategy).toBe("scheduled");
-    expect(def.windowKey).toBe("ask-hours");
+    expect(def.serviceStrategy).toBe("asap");
+    expect(def.windowKey).toBeUndefined();
+  });
+
+  test("mt#4421: NO kind default produces a windowKey any more", () => {
+    // The class assertion, not the two instances: a future kind added with a
+    // window default fails here rather than silently reintroducing the retired
+    // concept through a door the two tests above do not watch.
+    for (const [kind, def] of Object.entries(SERVICE_WINDOW_DEFAULTS)) {
+      expect({ kind, windowKey: def.windowKey }).toEqual({ kind, windowKey: undefined });
+      expect({ kind, strategy: def.serviceStrategy }).not.toEqual({
+        kind,
+        strategy: "scheduled",
+      });
+    }
   });
 
   test("authorization.approve defaults to deadline-bound with no windowKey", () => {
@@ -649,7 +677,11 @@ describe("service-window-defaults module", () => {
 // ---------------------------------------------------------------------------
 
 describe("createAsk — service-window defaults and overrides", () => {
-  test("direction.decide with no service-window args gets scheduled/ask-hours", async () => {
+  test("mt#4421: direction.decide with no service-window args gets asap and NO window", async () => {
+    // End-to-end through createAsk, not just the matrix: this is the path that
+    // produced ask#9750 with `windowKey: "ask-hours"` and
+    // `suspendedForWindowKey: "ask-hours"` on 2026-08-22, against a runtime
+    // mt#4410 had already retired.
     const repo = new FakeAskRepository();
 
     await createAsk(
@@ -665,8 +697,13 @@ describe("createAsk — service-window defaults and overrides", () => {
     const persisted = repo.all[0];
     expect(persisted).toBeDefined();
     if (!persisted) return;
-    expect(persisted.serviceStrategy).toBe("scheduled");
-    expect(persisted.windowKey).toBe("ask-hours");
+    expect(persisted.serviceStrategy).toBe("asap");
+    // `suspendedForWindowKey` — the field that made ask#9750's record actively
+    // misleading — is not asserted here because it lives on `SuspendedAsk`, not
+    // the base `Ask` this repository returns. It is derived: the router's
+    // scheduled branch sets it from `ask.windowKey`, and that branch is now
+    // unreachable by default, so `windowKey` being unset above is what closes it.
+    expect(persisted.windowKey).toBeUndefined();
   });
 
   test("stuck.unblock with no service-window args gets asap/null windowKey", async () => {
@@ -692,7 +729,8 @@ describe("createAsk — service-window defaults and overrides", () => {
   test("explicit serviceStrategy overrides per-kind default", async () => {
     const repo = new FakeAskRepository();
 
-    // direction.decide default is "scheduled", but requestor explicitly passes "asap"
+    // mt#4421: the kind default is "asap" too now, so this pins the override
+    // MECHANISM rather than a change of value — an explicit strategy is honoured.
     await createAsk(
       repo,
       {
@@ -792,10 +830,18 @@ describe("createAsk — service-window defaults and overrides", () => {
     expect(persisted.windowKey).toBe("custom-window");
   });
 
-  test("absent serviceStrategy + windowKey for scheduled-default kind persists custom windowKey", async () => {
-    // R4 fix: absent serviceStrategy is legitimate when kind defaults to scheduled.
-    // direction.decide defaults to scheduled/ask-hours; caller may supply a custom windowKey
-    // to override just the window name without specifying the strategy explicitly.
+  test("mt#4421: direction.decide now behaves as an asap-default kind — a bare windowKey is dropped", async () => {
+    // This test used to assert the OPPOSITE, and the change of expectation is
+    // the point rather than a repair. R4's scenario was "absent serviceStrategy
+    // is legitimate when the KIND defaults to scheduled, so a caller may name a
+    // custom window without naming the strategy". After mt#4421 no kind defaults
+    // to scheduled, so that scenario has no kind left to exercise — reaching it
+    // now requires an explicit `serviceStrategy: "scheduled"`, which the test
+    // directly above this one already covers.
+    //
+    // What remains true, and is what this asserts: `direction.decide` now falls
+    // into the same branch as every other asap-default kind, so a windowKey with
+    // no strategy is silently dropped rather than honoured.
     const repo = new FakeAskRepository();
 
     await createAsk(
@@ -804,7 +850,7 @@ describe("createAsk — service-window defaults and overrides", () => {
         kind: KIND_DIRECTION_DECIDE,
         title: "T",
         question: "Q",
-        // serviceStrategy intentionally absent — should resolve to "scheduled" via kind default
+        // serviceStrategy intentionally absent — resolves to "asap" via kind default
         windowKey: "custom-window",
       },
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
@@ -813,10 +859,8 @@ describe("createAsk — service-window defaults and overrides", () => {
     const persisted = repo.all[0];
     expect(persisted).toBeDefined();
     if (!persisted) return;
-    // Kind default resolves strategy to "scheduled"
-    expect(persisted.serviceStrategy).toBe("scheduled");
-    // Caller's windowKey overrides the kind default ("ask-hours")
-    expect(persisted.windowKey).toBe("custom-window");
+    expect(persisted.serviceStrategy).toBe("asap");
+    expect(persisted.windowKey).toBeUndefined();
   });
 
   test("absent serviceStrategy + windowKey for asap-default kind silently drops windowKey", async () => {
@@ -1168,9 +1212,10 @@ describe("validateAuthorizationApproveOptions (mt#3203)", () => {
 describe("createAsk — scheduled ask lands with state=suspended (R1 fix)", () => {
   test("direction.decide with default service-window args lands at state=suspended in the repo", async () => {
     // Production path: no seeded state, no explicit serviceStrategy override.
-    // direction.decide defaults to scheduled/ask-hours via getServiceWindowDefault.
-    // The router (policyFirstRoute) returns a SuspendedAsk in memory; createAsk
-    // must persist state="suspended" on the DB row (R1 B1 fix).
+    // mt#4421: direction.decide defaults to asap. The router still returns a
+    // SuspendedAsk — via the operator/inbox binding rather than Phase 3
+    // windowing — and createAsk must persist state="suspended" on the DB row
+    // (R1 B1 fix). The persistence assertion is what this test is about.
     const repo = new FakeAskRepository();
 
     const result = await createAsk(
@@ -1179,7 +1224,7 @@ describe("createAsk — scheduled ask lands with state=suspended (R1 fix)", () =
         kind: KIND_DIRECTION_DECIDE,
         title: "Which direction should we take?",
         question: "A or B?",
-        // No serviceStrategy — defaults to scheduled via getServiceWindowDefault.
+        // No serviceStrategy — defaults to asap via getServiceWindowDefault (mt#4421).
         // No capabilityRegistry — no elicitation capability available.
       },
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
@@ -1552,9 +1597,10 @@ describe("respondToAsk", () => {
   test("integrates end-to-end with createAsk: produce → suspend → respond → close", async () => {
     const repo = new FakeAskRepository();
 
-    // Producer (mt#1456): createAsk with direction.decide defaults to scheduled/
-    // ask-hours (mt#1488). With mt#1490 R1 fix, createAsk persists state=suspended
-    // immediately — no manual transition walk needed.
+    // Producer (mt#1456): createAsk with direction.decide defaults to asap
+    // (mt#4421, was scheduled/ask-hours). With the mt#1490 R1 fix, createAsk
+    // persists state=suspended immediately — via the inbox binding — so no
+    // manual transition walk is needed.
     const suspended = await createAsk(
       repo,
       {

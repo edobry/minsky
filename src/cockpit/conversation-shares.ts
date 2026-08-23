@@ -29,6 +29,7 @@ import { createHash, randomBytes } from "crypto";
 import { Router, type Request, type Response } from "express";
 
 import { log } from "@minsky/shared/logger";
+import { respondIfDatabaseUnavailable } from "./db-unavailable-response";
 
 // ---------------------------------------------------------------------------
 // Store contract
@@ -191,6 +192,7 @@ export function createConversationShareRoutes(deps: ConversationShareDeps): Rout
         });
         res.status(201).json(toWireShare(share, token));
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "shares")) return;
         log.error("[shares] mint failed:", { originalError: err });
         res.status(500).json({ error: "Could not create the share link" });
       }
@@ -205,6 +207,7 @@ export function createConversationShareRoutes(deps: ConversationShareDeps): Rout
         const shares = await resolved.store.listShares();
         res.json({ shares: shares.map((s) => toWireShare(s)) });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "shares")) return;
         log.error("[shares] list failed:", { originalError: err });
         res.status(500).json({ error: "Could not list share links" });
       }
@@ -223,6 +226,7 @@ export function createConversationShareRoutes(deps: ConversationShareDeps): Rout
         }
         res.json({ revoked: true });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "shares")) return;
         log.error("[shares] revoke failed:", { originalError: err });
         res.status(500).json({ error: "Could not revoke the share link" });
       }
@@ -275,6 +279,7 @@ export function createConversationShareRoutes(deps: ConversationShareDeps): Rout
           blocks: content.blocks,
         });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "shares")) return;
         log.error("[shares] public render failed:", { originalError: err });
         res.status(500).json({ error: "Could not load the shared conversation" });
       }

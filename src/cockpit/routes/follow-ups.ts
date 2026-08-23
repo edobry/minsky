@@ -16,6 +16,7 @@ import type express from "express";
 import type { FollowUpService } from "@minsky/domain/scheduler/follow-up-service";
 import { FOLLOW_UP_STATUS_VALUES } from "@minsky/domain/storage/schemas/scheduled-follow-ups-schema";
 import { getServerFollowUpService, describeServerPersistenceUnavailability } from "../db-providers";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /** Options accepted by {@link mountFollowUpRoutes}. */
 export interface FollowUpRoutesOptions {
@@ -68,6 +69,7 @@ export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOp
 
       res.json({ followUps, total: followUps.length });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "follow-ups")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -163,6 +165,7 @@ export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOp
 
       res.json({ ok: true, id });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "follow-ups")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }

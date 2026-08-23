@@ -65,16 +65,65 @@ export {
   SEARCH_COMMAND_LEADERS,
 } from "./negative-existence-claim";
 
-export type { FlakinessClaim, FlakinessAttributionResult } from "./flakiness-attribution";
+export type {
+  FlakinessClaim,
+  // `FlakinessAttributionResult.claims` is typed as this, so a consumer reading
+  // the result through the barrel needs to be able to name it here too.
+  ResolvedFlakinessClaim,
+  FlakinessAttributionResult,
+} from "./flakiness-attribution";
 export {
   detectFlakinessAttribution,
   extractFlakinessClaims,
   hasIsolationControl,
+  hasLoadControl,
   hasUnverifiedMarkerNearClaim,
   FLAKINESS_ATTRIBUTION_PATTERNS,
   FLAKINESS_DENIAL_PATTERNS,
+  LOAD_CONTROL_LABEL,
   UNVERIFIED_MARKER,
 } from "./flakiness-attribution";
+
+// mt#4374 — the first guard-decision extraction wave. Unlike the detectors
+// above, these are lifted verdicts rather than new matchers: each one's hook
+// module is now a thin binding that parses a payload and relays what these
+// return.
+export type { ToolDenialRule } from "./github-mcp-pr-write-denial";
+export { checkToolDenial, toolDenials } from "./github-mcp-pr-write-denial";
+
+export type { PrConvergenceReminderInput } from "./pr-convergence-reminder";
+export {
+  decidePrConvergenceReminder,
+  DRIVE_TO_CONVERGENCE_REMINDER,
+  PR_CREATE_TOOL_NAME,
+} from "./pr-convergence-reminder";
+
+export type {
+  DispatchIntent,
+  DispatchIntentDeclaration,
+  DispatchIntentMatchContext,
+  DispatchIntentGateDecision,
+} from "./dispatch-intent-gate";
+export {
+  buildDispatchIntentDenialMessage,
+  decideDispatchIntentGate,
+  findLiveReadOnlyDeclaration,
+  hasLiveDeclaration,
+  isDeclarationValid,
+  normalizeSessionId,
+} from "./dispatch-intent-gate";
+
+export type {
+  NestedForkDispatchGateInput,
+  NestedForkDispatchGateDecision,
+} from "./nested-fork-dispatch-gate";
+export {
+  buildNestedForkDenialMessage,
+  decideNestedForkDispatchGate,
+  DENY_REASON_PREFIX,
+  GATED_SUBAGENT_TYPE,
+  OVERRIDE_ENV_VAR,
+} from "./nested-fork-dispatch-gate";
 
 export type {
   AbsenceClaim,

@@ -44,6 +44,11 @@ const EXPECTED_STEPS: string[][] = [
   ["2a", "Verify load-bearing dependency claims"],
   ["2b", 'Record the isolation control before filing a "flaky" task'],
   ["2c", "Cite the emission site before asserting a root cause"],
+  // mt#3855 (R6): a criterion that reserves a decision to the principal must quote the
+  // reserving ACT, or be rephrased so it cannot gate a merge. Appended, not inserted —
+  // the manifest is append-only, and CI is what caught the omission: adding §2d to the
+  // skill without registering it here failed both manifest tests (13,989 pass / 2 fail).
+  ["2d", "A criterion that reserves a decision to the principal needs the reserving ACT"],
 ];
 
 // Headings look like: `### 2c. Cite the emission site before asserting a root cause (mt#3957)`.
@@ -184,6 +189,15 @@ describe("create-task claim-step manifest (mt#3957)", () => {
     const gateBlock = SOURCE.slice(SOURCE.indexOf("**Gate:** before calling"));
     expect(gateBlock).toContain("Step 2c");
     expect(gateBlock).toContain("EMISSION");
+  });
+
+  test("§2d is wired into the pre-tasks_create gate, not merely documented", () => {
+    // Same bar §2c is held to, applied to mt#3855's step at the moment it lands rather
+    // than after a recurrence: §2b shipped unwired and that omission had to be tracked
+    // separately, so a new step registers in the gate list and here in the same change.
+    const gateBlock = SOURCE.slice(SOURCE.indexOf("**Gate:** before calling"));
+    expect(gateBlock).toContain("Step 2d");
+    expect(gateBlock).toContain("reserving ACT");
   });
 
   test("a step heading without an (mt#NNNN) tag is still parsed (PR #2846 R1)", () => {

@@ -85,6 +85,23 @@ export interface TranscriptLine {
    * the logical turn.
    */
   isMeta?: boolean;
+  /**
+   * Auto-compaction-boundary marker (mt#4289). Claude Code stamps
+   * `isCompactSummary: true` on the ~15KB model-written summary it appends as a
+   * `user`-role line when it compacts a conversation.
+   *
+   * It is a SEPARATE marker from `isMeta`, not a special case of it: the
+   * boundary record carries no `isMeta` at all (verified 2026-08-19 — its key
+   * set is `cwd, entrypoint, gitBranch, isCompactSummary, isSidechain,
+   * isVisibleInTranscriptOnly, message, parentUuid, promptId, sessionId,
+   * session_id, slug, timestamp, type, userType, uuid, version`). And its
+   * `message.content` is a plain STRING, so it takes {@link isRealUserPrompt}'s
+   * string branch, which until mt#4289 excluded only interrupt-marker and
+   * skill-body text — meaning every detector downstream read a compaction
+   * boundary as an operator prompt, i.e. as a turn boundary the operator never
+   * created.
+   */
+  isCompactSummary?: boolean;
   /** Line identity stamped by Claude Code; used for stable turn keying (mt#2357). */
   uuid?: string;
 }
@@ -521,6 +538,10 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
   // Harness-synthetic user-role lines (skill bodies, re-invocation notices)
   // are marked isMeta and are never human prompts (mt#2357).
   if (line.isMeta === true) return false;
+  // The auto-compaction summary is harness-written too, and carries its OWN
+  // marker rather than isMeta (mt#4289) — so it needs its own check here, not
+  // a widening of the one above. See TranscriptLine.isCompactSummary.
+  if (line.isCompactSummary === true) return false;
   const content = line.message?.content;
   if (typeof content === "string") {
     const trimmed = content.trim();
@@ -1041,6 +1062,16 @@ const DENIAL_REASON_MARKER = /To tell you how to proceed, the user said:\s*/;
 export interface DeniedToolCall {
   /** Transcript-line index of the DENIAL — callers order against this. */
   index: number;
+  /**
+   * The `tool_use_id` this denial correlated to — the call's IDENTITY.
+   *
+   * Exposed (mt#4111) because a caller that must skip exactly the denied
+   * invocation cannot key on {@link command}: two calls in one turn can carry
+   * byte-identical command text, and a denial followed by a permitted retry is
+   * the ordinary shape. Keying on the text drops the retry too, which inverts
+   * the signal for any caller whose subject is what the turn actually DID.
+   */
+  useId: string;
   toolName: string | undefined;
   input: Record<string, unknown>;
   /** The `command` input, for the shell-running tools; undefined for every other tool. */
@@ -1115,7 +1146,7 @@ export function findDeniedToolCalls(lines: TranscriptLine[]): DeniedToolCall[] {
     const command = typeof input["command"] === "string" ? (input["command"] as string) : undefined;
     const reasonMatch = DENIAL_REASON_MARKER.exec(text);
     const reason = reasonMatch ? text.slice(reasonMatch.index + reasonMatch[0].length).trim() : "";
-    return { index, toolName: call?.name, input, command, reason };
+    return { index, useId, toolName: call?.name, input, command, reason };
   });
 }
 
@@ -1163,6 +1194,11 @@ export function findIndexedToolUses(lines: TranscriptLine[]): IndexedToolUse[] {
 /** A tool call paired with the body of the result it produced. */
 export interface ToolCallWithResult {
   index: number;
+  /**
+   * The call's `tool_use_id`, or undefined when the block carried none — the
+   * identity a caller joins against {@link DeniedToolCall.useId} (mt#4111).
+   */
+  useId: string | undefined;
   toolName: string;
   input: Record<string, unknown>;
   /** The result body, or "" when no correlated result appears in `lines`. */
@@ -1228,6 +1264,7 @@ export function findToolCallsWithResults(lines: TranscriptLine[]): ToolCallWithR
     const hasResult = useId !== undefined && resultsById.has(useId);
     return {
       index,
+      useId,
       toolName,
       input,
       resultText: hasResult ? (resultsById.get(useId as string) ?? "") : "",
@@ -1252,4 +1289,112 @@ export function extractLastUserMessage(lines: TranscriptLine[]): string {
     }
   }
   return "";
+}
+
+/** A full 36-char canonical UUID. */
+const BINDING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** An ADR-029 numeric short id, e.g. `mem#1045`. */
+const BINDING_SHORT_ID_RE = /^(?:ask|mem|ws)#\d+$/i;
+
+/**
+ * Harvest `<short id> -> <UUID>` bindings from the tool results in a transcript
+ * (mt#4160).
+ *
+ * ## Why the transcript rather than the database
+ *
+ * A consumer that needs to resolve a short id the display map does not hold
+ * (`short-id-map-cache.ts`) cannot simply query for it: that file's header
+ * records the measurement — `domain-bootstrap.ts` caps a hook process's
+ * Postgres connect at 2s against a measured cold connect of 4.3-5.5s, so "a DB
+ * read from hook context does not resolve slowly — it resolves to null every
+ * time." A resolver built that way would be inert in production while passing
+ * every injected-dependency test.
+ *
+ * The transcript needs no connection and is already resolved into
+ * `ctx.transcriptLines`. It is also the AUTHORITATIVE source for the population
+ * that matters: an id the map missed is one minted since the last sweep, and
+ * the call that minted it returned both halves of the binding in this very
+ * transcript.
+ *
+ * ## Why the pairing is keyed on VALUE SHAPE, not field names
+ *
+ * The two field names are not stable across tools and are in fact inverted
+ * between them: `memory_create` answers `{ id: <uuid>, shortId: "mem#1045" }`
+ * while `refs_status` answers `{ id: "mem#996", uuid: <uuid> }`. Keying on
+ * names would need a per-tool table that goes stale silently; keying on the
+ * shapes — one value that is a UUID, one that is a short id, in the same object
+ * — reads both, plus any future result object carrying the pair.
+ *
+ * ## Ambiguity fails OPEN, at two levels
+ *
+ * Within one object: a binding is recorded only when the object names EXACTLY
+ * ONE entity — one distinct UUID and one distinct short id among its own string
+ * values. An object carrying a second UUID (a `supersededBy`, a foreign key, a
+ * nested resource id) yields NOTHING rather than a guess, which is what keeps
+ * the pairing from depending on key order (PR #3018 R1).
+ *
+ * Across the transcript: if one short id is nonetheless seen bound to two
+ * different UUIDs, the binding is DROPPED.
+ *
+ * Callers treat an absent binding as "unresolved", so in every ambiguous case
+ * no suppression or rewrite happens for that id — the conservative direction.
+ */
+export function collectShortIdBindings(lines: TranscriptLine[]): Map<string, string> {
+  const bindings = new Map<string, string>();
+  const ambiguous = new Set<string>();
+
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+
+    // An object binds only when it names EXACTLY ONE entity: one distinct UUID
+    // and one distinct short id among its own string values (PR #3018 R1).
+    //
+    // Taking the first of each instead would make the pairing depend on key
+    // ORDER, which is arbitrary — a record carrying both `id` and a second uuid
+    // field like `supersededBy` would bind to whichever the serializer emitted
+    // first. Requiring uniqueness removes the ordering question rather than
+    // answering it, and it is the direction that fails OPEN: a second uuid
+    // yields NO binding, so the caller suppresses nothing.
+    //
+    // Distinctness (not raw count) is what the rule needs, because a legitimate
+    // record can repeat one value across fields — `refs_status` emits the same
+    // short id as both `ref` and `id` on every row.
+    const uuids = new Set<string>();
+    const shortIds = new Set<string>();
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      if (typeof value !== "string") continue;
+      if (BINDING_UUID_RE.test(value)) uuids.add(value.toLowerCase());
+      else if (BINDING_SHORT_ID_RE.test(value)) shortIds.add(value.toLowerCase());
+    }
+    const uuid = uuids.size === 1 ? [...uuids][0] : undefined;
+    const shortId = shortIds.size === 1 ? [...shortIds][0] : undefined;
+    if (uuid !== undefined && shortId !== undefined) {
+      const existing = bindings.get(shortId);
+      if (existing !== undefined && existing !== uuid) {
+        ambiguous.add(shortId);
+      } else {
+        bindings.set(shortId, uuid);
+      }
+    }
+
+    for (const value of Object.values(node as Record<string, unknown>)) visit(value);
+  };
+
+  for (const line of lines) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const parsed = parseResultJson(extractToolResultText(block["content"]));
+      if (parsed !== undefined) visit(parsed);
+    }
+  }
+
+  for (const key of ambiguous) bindings.delete(key);
+  return bindings;
 }

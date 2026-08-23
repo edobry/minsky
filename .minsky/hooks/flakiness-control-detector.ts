@@ -112,10 +112,10 @@ export function buildAdvisory(result: FlakinessAttributionResult): string {
     ...(overflow > 0 ? [`  ... and ${overflow} more`] : []),
     "",
     hasDenial
-      ? "Run the control that would FALSIFY the denial — the file alone, then its directory — and record the command with its observed pass/fail counts. A denial reads as the already-investigated verdict, which is why it is the shape that most needs the check."
+      ? "Run the file under TWO load conditions — alone on a quiet machine, and again under the load you are denying — and record both commands with their observed pass/fail counts under a literal `Load control:` line. Counts from ONE condition cannot reach a denial: it is a claim about how the failure behaves ACROSS conditions. A denial also reads as the already-investigated verdict, which is why it is the shape that most needs the check."
       : "Run the file alone and record the command with its observed pass/fail counts. A control that FAILS in isolation is the useful outcome: it means a real defect wearing a timing costume.",
     "",
-    "If it genuinely cannot be run now, mark the attribution with the literal UNVERIFIED beside it rather than leaving the claim unqualified.",
+    "If it genuinely cannot be run now, mark the claim with the literal UNVERIFIED beside THAT claim rather than leaving it unqualified — a marker elsewhere in the spec excuses only what it sits next to.",
   ];
 
   return lines.join("\n");
@@ -158,11 +158,18 @@ export function run(input: ToolHookInput, _ctx: DispatchContext): GuardOutcome |
         phrase: c.phrase,
         family: c.family,
         excerpt: c.excerpt.slice(0, MAX_EXCERPT_CHARS),
+        // Per-claim resolution (mt#4166). A reviewer classifying this record
+        // needs to know WHICH claim was unexcused, not just that one was: the
+        // document-wide booleans below cannot distinguish "the denial is
+        // uncontrolled" from "an incidental attribution is".
+        markedUnverified: c.markedUnverified,
+        controlled: c.controlled,
       })),
       // Both evidence shapes, so a false-positive review can tell "no evidence
       // at all" from "evidence present but not where the check looked" — the
       // latter is a matcher bug, the former is a true positive.
       hasIsolationControl: result.hasIsolationControl,
+      hasLoadControl: result.hasLoadControl,
       hasUnverifiedMarker: result.hasUnverifiedMarker,
       singleFileAcceptanceTestSuspected: result.singleFileAcceptanceTestSuspected,
       specLength: spec.length,

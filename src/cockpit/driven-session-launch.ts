@@ -11,7 +11,7 @@
  *      `startSessionImpl`; no duplicated clone/branch logic), reusing an
  *      existing non-terminal workspace when one exists (the "binds or
  *      creates" semantics from the mt#2752 spec).
- *   2. {@link createDrivenInitLinkObserver} — the `onHarnessSessionLinked`
+ *   2. {@link createDrivenInitObserver} — the `onHarnessSessionLinked`
  *      observer that performs spawn-time identity registration: a durable
  *      `driven_spawn` row in `minsky_session_links` (plus the
  *      `agent_transcripts` FK stub) the moment the child's `system/init`
@@ -38,7 +38,13 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import type { AttachRefusalReason } from "@minsky/domain/conversation-run-state/attach-admissibility";
 import type { ConversationId } from "@minsky/domain/ids";
-import { killIfIdentityMatches, type ExecFileFn } from "./process-identity";
+import type { AdoptionReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
+import {
+  killIfIdentityMatches,
+  probeProcessIdentity,
+  type ExecFileFn,
+  type ProcessIdentityVerdict,
+} from "./process-identity";
 import {
   CLAUDE_BINARY,
   DEFAULT_PERMISSION_MODE,
@@ -53,6 +59,7 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "./driven-session-host";
+import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import {
   getServerSessionProvider,
@@ -161,14 +168,46 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
 }
 
 /**
- * Test seam for {@link createDrivenInitLinkObserver} — mirrors the
+ * The harness that owns the conversation id space every driven session runs in.
+ *
+ * A literal today because the daemon spawns exactly one binary — see
+ * `driven-session-host.ts`, which builds a `claude` command line. Recorded as a
+ * COLUMN rather than assumed, so a second harness does not silently inherit the
+ * first one's id space (mt#4323).
+ */
+export const DRIVEN_SESSION_HARNESS = "claude_code";
+
+/**
+ * Test seam for {@link createDrivenInitObserver} — mirrors the
  * `overrideToken`/`spawnFn` injection convention used across the cockpit.
  */
-export interface DrivenInitLinkObserverDeps {
+export interface DrivenInitObserverDeps {
+  /**
+   * Why this session is adopting this conversation — REQUIRED, and required
+   * rather than defaulted on purpose (mt#4323).
+   *
+   * A default would be wrong at most call sites and silently so: `"initial"`
+   * would mislabel every resume, `"resumed"` every fresh spawn. The value is
+   * known for certain at construction — a `startDrivenSession` caller is
+   * spawning fresh, a `resumeDrivenSession` caller is resuming, and an entity
+   * thread additionally knows WHICH {@link FreshSpawnReason} applies — so the
+   * type asks each site to say which, and no site has to remember to.
+   */
+  adoptionReason: AdoptionReason;
   /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
    * — that type also requires the production-only `__resetForTests` method,
    * which a plain test fake shouldn't need to implement). */
   getDb?: () => Promise<PostgresJsDatabase | null>;
+  recordAdoption?: (
+    db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+    input: {
+      localId: string;
+      harnessSessionId: string;
+      harness: string;
+      actuatorGeneration?: number;
+      adoptionReason: AdoptionReason;
+    }
+  ) => Promise<unknown>;
   writeLink?: (
     db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
     input: {
@@ -181,27 +220,100 @@ export interface DrivenInitLinkObserverDeps {
 }
 
 /**
- * Build the `onHarnessSessionLinked` observer for a task-bound launch:
- * fire-and-forget the durable `driven_spawn` link write the moment the init
- * event yields the harness session id. Never throws into the host's stdout
- * handler (the async work is detached and every failure path logs instead).
+ * Build the `onHarnessSessionLinked` observer — everything that must be
+ * recorded the moment the child's init event yields a conversation id.
+ *
+ * TWO writes, with DIFFERENT preconditions, and the difference is the whole
+ * reason this function was renamed from `createDrivenInitLinkObserver` in
+ * mt#4323:
+ *
+ * 1. **The conversation adoption** (`driven_session_conversations`) — for
+ *    EVERY driven session, unconditionally. This is the durable record that a
+ *    session adopted this conversation at this instant, and it is what makes a
+ *    session's full span survive the `driven_sessions` upsert that overwrites
+ *    `harness_session_id` on the next spawn.
+ * 2. **The `driven_spawn` link** (`minsky_session_links`) — only when the
+ *    record also carries a `minskySessionId`, because that row links a
+ *    conversation to a WORKSPACE session and there is nothing to link without
+ *    one.
+ *
+ * **Why the rename mattered rather than being cosmetic.** Under the old name
+ * the function was understood as "the link observer", and entity threads
+ * therefore did not wire it — correctly, with a documented reason: the
+ * `minskySessionId` gate made it a permanent no-op for a thread, which is
+ * bound to an entity rather than a workspace. Putting the adoption write
+ * behind that same gate would have silently excluded entity threads, which are
+ * the exact caller ADR-044 is about. Hoisting the adoption above the gate, and
+ * naming the function for both writes, is what lets every driven caller wire
+ * ONE observer and get correct coverage — instead of an enumeration of spawn
+ * sites that a future fifth caller would have to remember to join.
+ *
+ * Never throws into the host's stdout handler: the async work is detached and
+ * every failure path logs instead.
  */
-export function createDrivenInitLinkObserver(
-  deps: DrivenInitLinkObserverDeps = {}
+export function createDrivenInitObserver(
+  deps: DrivenInitObserverDeps
 ): (record: DrivenSessionRecord) => void {
   return (record) => {
     const { harnessSessionId, minskySessionId } = record;
-    if (!harnessSessionId || !minskySessionId) return;
+    if (!harnessSessionId) return;
 
     void (async () => {
+      // Resolving the db is itself a failure path, and it MUST stay inside the
+      // error boundary (mt#4323). Before the adoption write was hoisted above
+      // the `minskySessionId` gate, this call sat inside the link write's own
+      // try; hoisting it left it uncovered, which turns any resolution failure
+      // into an unhandled rejection on a detached promise — on the host's
+      // stdout `init` frame, for every driven session. That is precisely what
+      // this function's contract and the spec's `## Invocation path` forbid:
+      // a spawn must not fail because its recovery-state write could not.
+      //
+      // Not hypothetical: the configured provider throws rather than returning
+      // null whenever persistence failed to initialize at boot (ADR-035's
+      // memoized-failed-initializer class, mt#4383), and under `bun test` it
+      // throws by design (mt#3254).
+      let db: Awaited<ReturnType<typeof getContextInspectorDb>>;
       try {
-        const db = await (deps.getDb ?? getContextInspectorDb)();
-        if (!db) {
-          log.warn(
-            `[driven-session] no SQL persistence available — driven_spawn link for ${record.localId} not recorded`
-          );
-          return;
-        }
+        db = await (deps.getDb ?? getContextInspectorDb)();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] could not resolve SQL persistence for ${record.localId}: ${message} ` +
+            `— neither the conversation adoption nor the driven_spawn link was recorded`
+        );
+        return;
+      }
+      if (!db) {
+        log.warn(
+          `[driven-session] no SQL persistence available — neither the conversation adoption ` +
+            `nor the driven_spawn link for ${record.localId} was recorded`
+        );
+        return;
+      }
+
+      // (1) Adoption — every driven session, no gate.
+      try {
+        const recordAdoption =
+          deps.recordAdoption ??
+          (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+            .recordConversationAdoption;
+        await recordAdoption(db, {
+          localId: record.localId,
+          harnessSessionId,
+          harness: DRIVEN_SESSION_HARNESS,
+          actuatorGeneration: record.actuatorGeneration,
+          adoptionReason: deps.adoptionReason,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] conversation adoption write failed for ${record.localId}: ${message}`
+        );
+      }
+
+      // (2) Link — only when there is a workspace session to link to.
+      if (!minskySessionId) return;
+      try {
         const writeLink =
           deps.writeLink ??
           (await import("@minsky/domain/transcripts/driven-link-writer")).writeDrivenSpawnLink;
@@ -223,7 +335,7 @@ export function createDrivenInitLinkObserver(
 
 /**
  * Test seam for {@link createDrivenResultObserver} — mirrors
- * {@link DrivenInitLinkObserverDeps}.
+ * {@link DrivenInitObserverDeps}.
  */
 export interface DrivenResultObserverDeps {
   /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
@@ -241,8 +353,7 @@ export interface DrivenResultObserverDeps {
  * persist a per-turn cost/usage row the moment a terminal `result` event
  * yields a summary. Wired for EVERY driven session (task-bound, explicit-cwd,
  * AND untasked "scratch" sessions alike — success criterion 1 says "every
- * driven session"; unlike {@link createDrivenInitLinkObserver}, this is not
- * task-bound-only). Never throws into the host's stdout handler — mirrors
+ * driven session"). Never throws into the host's stdout handler — mirrors
  * the init-link observer's error-swallowing convention.
  */
 export function createDrivenResultObserver(
@@ -295,8 +406,9 @@ export function createDrivenResultObserver(
 // Phase 1). Three pieces, all fire-and-forget / never-throw (matching the
 // two observers above): (1) the onStateChange persist observer, wired into
 // EVERY launch shape (task-bound, explicit-cwd, and scratch alike — same
-// "every driven session" scope as createDrivenResultObserver, unlike the
-// task-bound-only createDrivenInitLinkObserver); (2) boot-time
+// "every driven session" scope as createDrivenResultObserver — which since
+// mt#4323 is also createDrivenInitObserver's scope for its adoption half);
+// (2) boot-time
 // reconciliation; (3) the restart-recovery resume orchestration the WS route
 // (./driven-session-ws.ts) calls on a registry miss.
 // ---------------------------------------------------------------------------
@@ -402,6 +514,16 @@ export interface LoadPersistedDrivenSessionsDeps {
    * hung mount.
    */
   probeCwd?: typeof probeSpawnCwdAsync;
+  /**
+   * Probe whether a row's recorded actuator process is still the one we
+   * spawned. Test seam (mt#4255); defaults to `probeProcessIdentity`.
+   *
+   * Injected as a whole rather than exposing `process-identity.ts`'s own two
+   * seams here, so a test drives the VERDICT — which is what this loop
+   * branches on — instead of assembling one out of a fake `ps` and a fake
+   * `kill`.
+   */
+  probeActuator?: (pid: number, expectedCmdSubstring: string) => Promise<ProcessIdentityVerdict>;
   /** Override the whole-run stage bound (mt#4103). Tests pass a small value. */
   stageTimeoutMs?: number;
   /** Override the per-row bound (mt#4103). Tests pass a small value. */
@@ -445,7 +567,115 @@ async function persistUnrecoverableVerdict(
   row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
   reason: string,
   deps: LoadPersistedDrivenSessionsDeps
-): Promise<void> {
+): Promise<boolean> {
+  return persistBootTerminalVerdict(
+    db,
+    row,
+    { status: "unrecoverable", unrecoverableReason: reason, describedAs: "unrecoverable verdict" },
+    deps
+  );
+}
+
+/**
+ * Persist a boot-determined `exited` verdict for a row whose ACTUATOR is gone
+ * (mt#4255).
+ *
+ * This is a strictly narrower claim than {@link persistUnrecoverableVerdict}'s,
+ * and the distinction is the whole point. `unrecoverable` says the
+ * CONVERSATION can never come back; `exited` says only that the PROCESS we
+ * recorded is no longer running — which is the ordinary end state of every
+ * actuator, and says nothing about the conversation. So `unrecoverableReason`
+ * is carried through untouched rather than given a value: that column is the
+ * conversation-layer fact, and writing an actuator-layer reason into it would
+ * make the next reader think this conversation was condemned.
+ *
+ * Retiring a row this way costs NOTHING in resumability, which is what makes it
+ * safe to do without a staleness policy. `orchestrateDrivenSessionResume` reads
+ * the row by `localId` and refuses only on `!harnessSessionId`, `status ===
+ * "unrecoverable"`, and a missing cwd — it never inspects `exited`/`crashed`.
+ * Its three callers all consult it unconditionally rather than requiring the
+ * registry to hold a record first (../cockpit/entity-thread-launch.ts's mt#4093
+ * comment names a terminal-status row as the case it fixes;
+ * ./principal-channel-actuator.ts resumes by its deterministic id and already
+ * treats a terminal record as absent; ./driven-session-ws.ts consults it
+ * whenever the registry has no live record). So `principal-channel-standing`
+ * retired here resumes on the principal's next message exactly as before.
+ *
+ * What the write DOES change is boot: `listNonTerminalDrivenSessions` is the
+ * only reader of the non-terminal predicate, so an `exited` row stops being
+ * registered as `reconnecting` — which is the phantom this exists to end.
+ */
+async function persistActuatorGoneVerdict(
+  db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+  row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
+  verdict: Extract<ProcessIdentityVerdict, "gone" | "not-ours">,
+  deps: LoadPersistedDrivenSessionsDeps
+): Promise<boolean> {
+  const because =
+    verdict === "gone"
+      ? `no process at recorded pid ${row.pid}`
+      : `pid ${row.pid} was reused by an unrelated process`;
+  return persistBootTerminalVerdict(
+    db,
+    row,
+    {
+      status: "exited",
+      unrecoverableReason: row.unrecoverableReason,
+      describedAs: `actuator-gone verdict (${because})`,
+    },
+    deps
+  );
+}
+
+/** The two columns a boot verdict writes, plus how to name it in the log. */
+interface BootTerminalVerdict {
+  status: "unrecoverable" | "exited";
+  unrecoverableReason: string | null;
+  describedAs: string;
+}
+
+/**
+ * Shared write for both boot-determined terminal verdicts (mt#3269, mt#4255).
+ *
+ * Writes back ONLY `status` and `unrecoverableReason`; every other column is
+ * carried through from the row as read. The store upserts with
+ * `onConflictDoUpdate({ set: values })`, so any field omitted or defaulted here
+ * would OVERWRITE the stored one — this function is recording a verdict, not
+ * rewriting the record (PR #2383 R1: an earlier draft passed `model: null` and
+ * silently destroyed it).
+ *
+ * That includes `pid`/`pidCmdline`. An earlier draft cleared them on the theory
+ * that a stale pid could mislead orphan cleanup; that rationale was wrong.
+ * `orchestrateDrivenSessionResume` returns early on both `!harnessSessionId`
+ * and `status === "unrecoverable"` BEFORE it takes the lock or touches the pid,
+ * so an unrecoverable row never reaches orphan cleanup at all. Nulling them
+ * would have destroyed a real record of what ran, for a hazard that cannot occur.
+ * mt#4255 adds a second reason to keep them: the pair is the EVIDENCE for the
+ * `exited` verdict, and a future reader asking "why was this retired?" has
+ * nothing to check if the write erases its own basis.
+ *
+ * Best-effort by design, matching the rest of boot reconciliation: a
+ * persistence hiccup must leave the daemon booting with what it did read, not
+ * abort startup. The cost of a miss is one more re-read next boot — the exact
+ * status quo this fixes — which is strictly better than a daemon that will not
+ * start.
+ *
+ * **Returns whether the write actually LANDED (PR #3126 R1, BLOCKING).**
+ * Non-throwing and best-effort are properties of the CONTROL FLOW; they are not
+ * a licence to keep the outcome from the caller. This used to return `void`
+ * while catching its own failure, so a caller could only assume success — and
+ * `reconcilePersistedDrivenSessions` did exactly that, counting a row as
+ * `retired` and rendering "retired N" in the operator's one boot line when the
+ * upsert had timed out and the row would be re-read on the very next boot. A
+ * swallowed error plus a `void` return is how a report comes to assert
+ * something nobody checked.
+ */
+async function persistBootTerminalVerdict(
+  db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+  row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
+  verdict: BootTerminalVerdict,
+  deps: LoadPersistedDrivenSessionsDeps
+): Promise<boolean> {
   try {
     const upsert =
       deps.persistTerminalVerdict ??
@@ -459,8 +689,8 @@ async function persistUnrecoverableVerdict(
       taskId: row.taskId,
       minskySessionId: row.minskySessionId,
       // The two fields this write exists to change.
-      status: "unrecoverable",
-      unrecoverableReason: reason,
+      status: verdict.status,
+      unrecoverableReason: verdict.unrecoverableReason,
       // Preserved verbatim — see the docblock.
       pid: row.pid,
       pidCmdline: row.pidCmdline,
@@ -469,14 +699,16 @@ async function persistUnrecoverableVerdict(
       startedAt: row.startedAt.toISOString(),
     });
     log.info(
-      `[driven-session] boot reconciliation: persisted unrecoverable verdict for ${row.localId} ` +
+      `[driven-session] boot reconciliation: persisted ${verdict.describedAs} for ${row.localId} ` +
         `(it will no longer be re-read at boot)`
     );
+    return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
-      `[driven-session] could not persist the unrecoverable verdict for ${row.localId}: ${message}`
+      `[driven-session] could not persist the ${verdict.describedAs} for ${row.localId}: ${message}`
     );
+    return false;
   }
 }
 
@@ -488,7 +720,12 @@ async function persistUnrecoverableVerdict(
  * stalled `resolve-db` points at the pool, a stalled `cwd-probe` at a wedged
  * filesystem path. A single "reconciliation timed out" line would say neither.
  */
-export type ReconcileStage = "resolve-db" | "list-rows" | "cwd-probe" | "persist-verdict";
+export type ReconcileStage =
+  | "resolve-db"
+  | "list-rows"
+  | "cwd-probe"
+  | "actuator-probe"
+  | "persist-verdict";
 
 /**
  * What one boot reconciliation actually did (mt#4103).
@@ -499,7 +736,32 @@ export type ReconcileStage = "resolve-db" | "list-rows" | "cwd-probe" | "persist
  * a clock, or a captured logger.
  */
 export type ReconciliationOutcome =
-  | { kind: "loaded"; count: number; degraded: ReconcileStage[] }
+  | {
+      kind: "loaded";
+      /**
+       * Rows REGISTERED — not rows read (mt#4255).
+       *
+       * These differ once retirement exists, and the field keeps the meaning
+       * its name and its log line always had ("loaded N persisted session(s)").
+       * `count + retired` is the number of rows read. A run that reads rows and
+       * retires all of them is `loaded` with `count: 0`, which is deliberately
+       * NOT `empty` — "there was nothing to load" and "there was something and
+       * it is now gone" are different facts, and mt#4103 exists because they
+       * once rendered identically.
+       */
+      count: number;
+      /**
+       * Rows CONFIRMED persisted `exited` because their actuator was gone
+       * (mt#4255).
+       *
+       * Confirmed, not attempted (PR #3126 R1): a row whose write timed out or
+       * failed is counted in neither `retired` nor a silent gap — it is
+       * registered normally and its stage appears in `degraded`, because the
+       * database still holds it non-terminal and the next boot will re-read it.
+       */
+      retired: number;
+      degraded: ReconcileStage[];
+    }
   | { kind: "empty" }
   | { kind: "no-persistence" }
   | { kind: "timed-out"; stage: ReconcileStage; timeoutMs: number }
@@ -526,7 +788,12 @@ export function describeReconciliationOutcome(outcome: ReconciliationOutcome): {
   const prefix = "[driven-session] boot reconciliation:";
   switch (outcome.kind) {
     case "loaded": {
-      const base = `${prefix} loaded ${outcome.count} persisted session(s) (reconnecting/unrecoverable)`;
+      // The retired clause is appended rather than replacing anything, and it
+      // is omitted at zero (mt#4255) — retirement is the exceptional event, so
+      // a run that retires nothing should read exactly as it did before.
+      const retiredClause =
+        outcome.retired > 0 ? `, retired ${outcome.retired} whose recorded actuator was gone` : "";
+      const base = `${prefix} loaded ${outcome.count} persisted session(s) (reconnecting/unrecoverable)${retiredClause}`;
       if (outcome.degraded.length === 0) return { level: "info", message: base };
       // Loaded, but not cleanly — some rows hit a per-row bound. Reported at
       // WARN because the registry is INCOMPLETE in a way the count alone hides.
@@ -688,6 +955,8 @@ export async function reconcilePersistedDrivenSessions(
     // per-row: twenty wedged rows should produce one honest summary line, not
     // twenty lines an operator scrolls past.
     const degraded: ReconcileStage[] = [];
+    /** Rows persisted `exited` and skipped rather than registered (mt#4255). */
+    let retired = 0;
 
     for (const row of rows) {
       // Two independent reasons a persisted row can never be resumed. The
@@ -720,6 +989,82 @@ export async function reconcilePersistedDrivenSessions(
           ? missingCwdReason(row.cwd)
           : null;
       const resumable = unrecoverableReason === null;
+
+      // mt#4255 — the THIRD retirement test, and the only one that can fire on
+      // an ordinary row.
+      //
+      // The two above ask whether the CONVERSATION is recoverable; both are
+      // properties a row either has from birth (no transcript) or acquires once
+      // (deleted workspace), so neither can ever fire on a row whose transcript
+      // and workspace are intact. Measured against prod on 2026-08-18, that was
+      // ALL 23 non-terminal rows — 21 of them in the main repo, a cwd that by
+      // construction never disappears. They were not escaping a sweep; they were
+      // outside the reach of both tests by construction, and no number of
+      // reboots would ever have retired one.
+      //
+      // This test asks a different question — is the ACTUATOR still there? —
+      // and its answer is already recorded on every row: `pid` + `pidCmdline`,
+      // the orphan-cleanup identity pair (RFC "Conversation-first drive" R1
+      // delta #4). Identity, not bare liveness, and the difference is not
+      // academic: of those 23 rows, 22 pids were dead and the 23rd was ALIVE as
+      // an unrelated desktop app that had inherited the number over an 18-day
+      // gap. A `kill(pid, 0)` check alone would have called that row live
+      // forever.
+      //
+      // The same property makes the sanctioned dual-daemon dev loop safe (the
+      // RFC records that running a dev cockpit beside the tray daemon is
+      // routine): a second daemon booting while the first holds live children
+      // finds their pids alive AND matching, and leaves every row alone.
+      //
+      // Fail-open on both no-pid and `unknown`, matching what `probeSpawnCwd`
+      // does one branch up: a row is retired only on a DEFINITIVE answer, never
+      // on the probe's own failure to produce one.
+      let actuatorVerdict: ProcessIdentityVerdict | "not-probed" = "not-probed";
+      if (resumable && row.pid !== null) {
+        // Bounded like its sibling probe (mt#4103): `ps` on a loaded machine is
+        // not guaranteed to be fast, and this runs per row at boot.
+        const probe = await raceAgainstTimeout(
+          (deps.probeActuator ?? probeProcessIdentity)(row.pid, row.pidCmdline ?? CLAUDE_BINARY),
+          rowTimeoutMs,
+          deps.timeoutSignal
+        );
+        if (probe.timedOut) degraded.push("actuator-probe");
+        else actuatorVerdict = probe.value;
+      }
+      // Narrowed by the condition itself rather than via a boolean plus a cast,
+      // so `persistActuatorGoneVerdict`'s two-verdict parameter type stays
+      // checked at the call site.
+      if (actuatorVerdict === "gone" || actuatorVerdict === "not-ours") {
+        // Retired, and deliberately NOT registered — unlike the `unrecoverable`
+        // branch below, which registers so the WS route can render the
+        // transcript read-only with its reason. There is no such thing to show
+        // here: the conversation is fine and simply has no actuator, which is
+        // the same state as the 55 rows already sitting terminal in this table.
+        // Skipping registration is what makes the phantom disappear on THIS
+        // boot rather than the next one.
+        //
+        // BOTH of those depend on the write actually LANDING (PR #3126 R1,
+        // BLOCKING), so neither happens until it is confirmed. An unconfirmed
+        // write leaves the row non-terminal in the database, which means the
+        // next boot re-reads it — so counting it `retired` would put a claim in
+        // the operator's one boot line ("retired N") that the durable state
+        // contradicts, and skipping registration would additionally hide a row
+        // that is still live as far as persistence is concerned. On a failure
+        // this falls through to the ordinary registration below, leaving the
+        // registry consistent with what is actually stored and recording the
+        // stage in `degraded`.
+        const verdict = await raceAgainstTimeout(
+          persistActuatorGoneVerdict(db, row, actuatorVerdict, deps),
+          rowTimeoutMs,
+          deps.timeoutSignal
+        );
+        if (verdict.timedOut || !verdict.value) {
+          degraded.push("persist-verdict");
+        } else {
+          retired += 1;
+          continue;
+        }
+      }
       const record = buildReconnectingDrivenSessionRecord({
         localId: row.localId,
         harnessSessionId: row.harnessSessionId,
@@ -776,7 +1121,10 @@ export async function reconcilePersistedDrivenSessions(
     // used to log nothing at all, which made "nothing to load" and "never
     // finished" the same observation.
     if (rows.length === 0) return { kind: "empty" };
-    return { kind: "loaded", count: rows.length, degraded };
+    // `count` is rows REGISTERED, so a retired row is not counted as loaded
+    // (mt#4255) — see the field's own docblock for why an all-retired run is
+    // still `loaded` with `count: 0` rather than `empty`.
+    return { kind: "loaded", count: rows.length - retired, retired, degraded };
   } catch (err) {
     return { kind: "failed", message: err instanceof Error ? err.message : String(err) };
   }
@@ -926,6 +1274,9 @@ export async function orchestrateDrivenSessionResume(
     }
 
     const { record } = resumeDrivenSession({
+      // mt#4239: a resume must re-resolve the SAME server set a start would, or
+      // the conversation silently loses tools at the first daemon restart.
+      mcpServerNames: drivenSessionMcpServerNames(),
       previous: {
         localId: row.localId,
         cwd: row.cwd,
@@ -937,7 +1288,9 @@ export async function orchestrateDrivenSessionResume(
         actuatorGeneration: row.actuatorGeneration,
         model: row.model,
       },
-      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      // mt#4323: a `resumeDrivenSession` call — by construction the session is
+      // re-adopting a conversation it already had, not spawning a fresh one.
+      onHarnessSessionLinked: createDrivenInitObserver({ adoptionReason: "resumed" }),
       onResultSummary: createDrivenResultObserver(),
       onStateChange: createDrivenSessionPersistObserver(),
       registry,
@@ -1086,6 +1439,9 @@ export async function orchestrateDrivenSessionAttach(
   // the two mutually exclusive rather than each locking its own namespace.
   const lockOutcome = await withResumeLock(db, conversationId, async () => {
     const { record } = resumeDrivenSession({
+      // mt#4239: a resume must re-resolve the SAME server set a start would, or
+      // the conversation silently loses tools at the first daemon restart.
+      mcpServerNames: drivenSessionMcpServerNames(),
       previous: {
         // A fresh actuator id. The conversation id is the durable key; the
         // localId is this process's handle on it, and an attached conversation
@@ -1106,7 +1462,9 @@ export async function orchestrateDrivenSessionAttach(
         actuatorGeneration: 0,
         model: null,
       },
-      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      // mt#4323: a `resumeDrivenSession` call — by construction the session is
+      // re-adopting a conversation it already had, not spawning a fresh one.
+      onHarnessSessionLinked: createDrivenInitObserver({ adoptionReason: "resumed" }),
       onResultSummary: createDrivenResultObserver(),
       onStateChange: createDrivenSessionPersistObserver(),
       registry,

@@ -1,6 +1,6 @@
 # cockpit-tray — Tauri menu-bar app: dev, test, ship
 
-Auto-loads when any file under `cockpit-tray/**` is read. This is the Minsky Cockpit **tray app** (Tauri v2, macOS menu bar): it supervises the cockpit daemon and hosts the in-app cockpit window. The cockpit **web UI** is a different layer — `src/cockpit/**` (see `src/cockpit/CLAUDE.md` + the `cockpit-design` skill).
+Auto-loads when any file under `cockpit-tray/**` is read. This is the Minsky Cockpit **tray app** (Tauri v2, macOS menu bar): it supervises a REGISTRY of local daemons — the cockpit daemon and, since mt#3815, the local MCP daemon (`mcp start --local-daemon`) — and hosts the in-app cockpit window. The cockpit **web UI** is a different layer — `src/cockpit/**` (see `src/cockpit/CLAUDE.md` + the `cockpit-design` skill).
 
 For depth on this app — daemon lifecycle, status labels, auto-rebuild, testing tiers — read `cockpit-tray/README.md`. For the agent dev/test/ship mental model, invoke the **`cockpit-tray-dev`** skill.
 

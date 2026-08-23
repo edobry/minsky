@@ -31,7 +31,8 @@
               "description": "Maximum results to return (1–100, default 30).",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "forge.ci_run_list"
         },
         {
           "name": "ci_run_view_log",
@@ -42,7 +43,8 @@
               "required": true,
               "description": "Numeric workflow run ID (from forge.ci_run_list)."
             }
-          ]
+          ],
+          "commandId": "forge.ci_run_view_log"
         },
         {
           "name": "ci_run_rerun",
@@ -59,7 +61,8 @@
               "required": true,
               "description": "Numeric workflow run ID to re-run (from forge.ci_run_list)."
             }
-          ]
+          ],
+          "commandId": "forge.ci_run_rerun"
         },
         {
           "name": "check_runs_list",
@@ -70,7 +73,8 @@
               "required": true,
               "description": "The full or abbreviated commit SHA to query check-runs for."
             }
-          ]
+          ],
+          "commandId": "forge.check_runs_list"
         },
         {
           "name": "branch_protection_get",
@@ -81,7 +85,8 @@
               "required": true,
               "description": "Branch name (e.g. 'main', 'develop')."
             }
-          ]
+          ],
+          "commandId": "forge.branch_protection_get"
         },
         {
           "name": "branch_protection_set",
@@ -99,7 +104,8 @@
               "required": true,
               "description": "Branch name to protect (e.g. 'main')."
             }
-          ]
+          ],
+          "commandId": "forge.branch_protection_set"
         },
         {
           "name": "label_create",
@@ -122,7 +128,8 @@
               "required": true,
               "description": "Label name (must be unique within the repo)."
             }
-          ]
+          ],
+          "commandId": "forge.label_create"
         },
         {
           "name": "label_list",
@@ -133,7 +140,8 @@
               "description": "Labels per page during pagination (default 100).",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "forge.label_list"
         },
         {
           "name": "label_update",
@@ -161,7 +169,8 @@
               "required": true,
               "description": "Current name of the label to update."
             }
-          ]
+          ],
+          "commandId": "forge.label_update"
         },
         {
           "name": "label_delete",
@@ -172,7 +181,8 @@
               "required": true,
               "description": "Label name to delete."
             }
-          ]
+          ],
+          "commandId": "forge.label_delete"
         }
       ]
     },
@@ -218,7 +228,8 @@
               "required": true,
               "description": "Commit message"
             }
-          ]
+          ],
+          "commandId": "git.commit"
         },
         {
           "name": "push",
@@ -257,7 +268,8 @@
               "description": "Override the remote-ref verification wall-clock bound in milliseconds (only used when the push itself times out). Defaults to 15 seconds.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.push"
         },
         {
           "name": "clone",
@@ -285,7 +297,8 @@
               "required": true,
               "description": "URL of the Git repository to clone"
             }
-          ]
+          ],
+          "commandId": "git.clone"
         },
         {
           "name": "branch",
@@ -311,7 +324,8 @@
               "required": true,
               "description": "Name of the session to use"
             }
-          ]
+          ],
+          "commandId": "git.branch"
         },
         {
           "name": "merge",
@@ -348,7 +362,8 @@
               "required": true,
               "description": "Branch to merge"
             }
-          ]
+          ],
+          "commandId": "git.merge"
         },
         {
           "name": "checkout",
@@ -383,7 +398,8 @@
               "required": true,
               "description": "Branch to checkout"
             }
-          ]
+          ],
+          "commandId": "git.checkout"
         },
         {
           "name": "rebase",
@@ -420,7 +436,8 @@
               "required": true,
               "description": "Base branch to rebase onto"
             }
-          ]
+          ],
+          "commandId": "git.rebase"
         },
         {
           "name": "conflicts",
@@ -442,7 +459,8 @@
               "description": "File pattern to limit conflict scanning (e.g. '*.ts')",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.conflicts"
         },
         {
           "name": "log",
@@ -494,7 +512,8 @@
               "description": "Branch, tag, or ref to start log from",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.log"
         },
         {
           "name": "search",
@@ -537,7 +556,8 @@
               "required": true,
               "description": "Search pattern"
             }
-          ]
+          ],
+          "commandId": "git.search"
         },
         {
           "name": "diff",
@@ -571,7 +591,8 @@
               "flags": ["--name-only"],
               "description": "Show only changed file names (--name-only)"
             }
-          ]
+          ],
+          "commandId": "git.diff"
         },
         {
           "name": "blame",
@@ -604,7 +625,8 @@
               "required": true,
               "description": "File to blame"
             }
-          ]
+          ],
+          "commandId": "git.blame"
         },
         {
           "name": "pull",
@@ -634,7 +656,8 @@
               "flags": ["--repair-lock"],
               "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
-          ]
+          ],
+          "commandId": "git.pull"
         },
         {
           "name": "status",
@@ -654,7 +677,8 @@
               "flags": ["--repair-lock"],
               "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
-          ]
+          ],
+          "commandId": "git.status"
         },
         {
           "name": "stash",
@@ -684,7 +708,8 @@
               "flags": ["--repair-lock"],
               "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
-          ]
+          ],
+          "commandId": "git.stash"
         },
         {
           "name": "stash_pop",
@@ -709,7 +734,8 @@
               "flags": ["--repair-lock"],
               "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
-          ]
+          ],
+          "commandId": "git.stash_pop"
         },
         {
           "name": "stash_list",
@@ -725,7 +751,8 @@
               "description": "Session identifier",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.stash_list"
         },
         {
           "name": "stash_drop",
@@ -754,7 +781,8 @@
               "required": true,
               "description": "Stash ref to drop (required). E.g. stash@{0}."
             }
-          ]
+          ],
+          "commandId": "git.stash_drop"
         },
         {
           "name": "restore",
@@ -781,7 +809,8 @@
               "required": true,
               "description": "Paths to restore (discard unstaged working-tree changes). At least one required."
             }
-          ]
+          ],
+          "commandId": "git.restore"
         },
         {
           "name": "reset",
@@ -819,7 +848,8 @@
               "required": true,
               "description": "Reset mode: soft (HEAD only), mixed (HEAD + index), hard (HEAD + index + working tree, DESTRUCTIVE)."
             }
-          ]
+          ],
+          "commandId": "git.reset"
         },
         {
           "name": "stats",
@@ -864,7 +894,8 @@
               "description": "Cap the number of files returned, sorted by total churn (insertions + deletions) descending",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.stats"
         },
         {
           "name": "repair_lock",
@@ -891,7 +922,8 @@
               "description": "Override the default 10-minute staleness threshold (LOCK_STALE_THRESHOLD_MS) for this call. Use when an environment's legitimate git_* operations routinely run longer or shorter than the incident-grounded default.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.repair_lock"
         },
         {
           "name": "repair_refs",
@@ -928,7 +960,8 @@
               "description": "Remote to re-fetch from after deleting the bad ref (default origin).",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "git.repair_refs"
         }
       ]
     },
@@ -957,7 +990,8 @@
               "required": true,
               "description": "File path relative to workspace root"
             }
-          ]
+          ],
+          "commandId": "repo.read_file"
         },
         {
           "name": "search",
@@ -979,7 +1013,8 @@
               "required": true,
               "description": "Search pattern (regex)"
             }
-          ]
+          ],
+          "commandId": "repo.search"
         },
         {
           "name": "list_directory",
@@ -990,7 +1025,8 @@
               "description": "Directory path relative to workspace root (default: \".\")",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "repo.list_directory"
         },
         {
           "name": "changeset",
@@ -1016,7 +1052,8 @@
                 },
                 {
                   "flags": ["--status"],
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": ["open", "merged", "closed", "draft"]
                 },
                 {
                   "flags": ["--author"],
@@ -1033,7 +1070,8 @@
                 {
                   "flags": ["--include-closed"]
                 }
-              ]
+              ],
+              "commandId": "changeset.list"
             },
             {
               "name": "search",
@@ -1055,7 +1093,8 @@
                 },
                 {
                   "flags": ["--status"],
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": ["open", "merged", "closed", "draft"]
                 },
                 {
                   "flags": ["--author"],
@@ -1083,7 +1122,8 @@
                   "name": "query",
                   "required": true
                 }
-              ]
+              ],
+              "commandId": "changeset.search"
             },
             {
               "name": "get",
@@ -1107,7 +1147,8 @@
                   "name": "id",
                   "required": true
                 }
-              ]
+              ],
+              "commandId": "changeset.get"
             },
             {
               "name": "info",
@@ -1122,7 +1163,8 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
-              ]
+              ],
+              "commandId": "changeset.info"
             }
           ]
         }
@@ -1171,7 +1213,8 @@
                   "required": true,
                   "description": "ID of the task to get status for"
                 }
-              ]
+              ],
+              "commandId": "tasks.status.get"
             },
             {
               "name": "set",
@@ -1213,7 +1256,8 @@
                   "required": false,
                   "description": "New status for the task (optional, will prompt if omitted)"
                 }
-              ]
+              ],
+              "commandId": "tasks.status.set"
             }
           ]
         },
@@ -1261,7 +1305,8 @@
                   "required": true,
                   "description": "ID of the task to retrieve specification content for"
                 }
-              ]
+              ],
+              "commandId": "tasks.spec.get"
             },
             {
               "name": "freshness",
@@ -1298,7 +1343,8 @@
                   "required": true,
                   "description": "Task identifier (supports md#123, gh#456)"
                 }
-              ]
+              ],
+              "commandId": "tasks.spec.freshness"
             }
           ]
         },
@@ -1396,7 +1442,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "tasks.list"
         },
         {
           "name": "get",
@@ -1445,7 +1492,8 @@
               "required": true,
               "description": "Task identifier (supports md#123, gh#456)"
             }
-          ]
+          ],
+          "commandId": "tasks.get"
         },
         {
           "name": "create",
@@ -1515,7 +1563,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "tasks.create"
         },
         {
           "name": "edit",
@@ -1586,7 +1635,8 @@
               "required": true,
               "description": "ID of the task to edit"
             }
-          ]
+          ],
+          "commandId": "tasks.edit"
         },
         {
           "name": "bulk-edit",
@@ -1648,7 +1698,8 @@
               "required": true,
               "description": "Explicit task ids to edit (array, or comma-separated string). Backend-qualified ids (e.g. mt#123, md#456), same format as taskId elsewhere; bare numbers are not accepted."
             }
-          ]
+          ],
+          "commandId": "tasks.bulk-edit"
         },
         {
           "name": "delete",
@@ -1689,7 +1740,8 @@
               "required": true,
               "description": "ID of the task to delete"
             }
-          ]
+          ],
+          "commandId": "tasks.delete"
         },
         {
           "name": "similar",
@@ -1773,7 +1825,8 @@
               "required": true,
               "description": "Task identifier (supports md#123, gh#456)"
             }
-          ]
+          ],
+          "commandId": "tasks.similar"
         },
         {
           "name": "search",
@@ -1857,7 +1910,8 @@
               "required": true,
               "description": "Natural language query"
             }
-          ]
+          ],
+          "commandId": "tasks.search"
         },
         {
           "name": "index-embeddings",
@@ -1911,7 +1965,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "tasks.index-embeddings"
         },
         {
           "name": "embeddings-status",
@@ -1926,7 +1981,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "tasks.embeddings-status"
         },
         {
           "name": "embeddings-repair",
@@ -1945,7 +2001,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "tasks.embeddings-repair"
         },
         {
           "name": "migrate-backend",
@@ -1990,7 +2047,8 @@
               "required": true,
               "description": "Target backend"
             }
-          ]
+          ],
+          "commandId": "tasks.migrate-backend"
         },
         {
           "name": "deps",
@@ -2017,7 +2075,8 @@
                   "required": false,
                   "description": "The dependent task (the task that will depend on another)"
                 }
-              ]
+              ],
+              "commandId": "tasks.deps.add"
             },
             {
               "name": "rm",
@@ -2040,7 +2099,8 @@
                   "required": false,
                   "description": "The dependent task (the task that depends on another)"
                 }
-              ]
+              ],
+              "commandId": "tasks.deps.rm"
             },
             {
               "name": "list",
@@ -2062,7 +2122,8 @@
                   "required": false,
                   "description": "ID of the task to list dependencies for"
                 }
-              ]
+              ],
+              "commandId": "tasks.deps.list"
             },
             {
               "name": "tree",
@@ -2085,7 +2146,8 @@
                   "required": false,
                   "description": "ID of the task to show dependency tree for"
                 }
-              ]
+              ],
+              "commandId": "tasks.deps.tree"
             },
             {
               "name": "graph",
@@ -2139,7 +2201,8 @@
                   "flags": ["--open"],
                   "description": "Automatically open the rendered file in the default application"
                 }
-              ]
+              ],
+              "commandId": "tasks.deps.graph"
             }
           ]
         },
@@ -2157,7 +2220,8 @@
               "description": "Legacy alias for taskId (also accepted; prefer taskId)",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "tasks.children"
         },
         {
           "name": "parent",
@@ -2173,7 +2237,8 @@
               "description": "Legacy alias for taskId (also accepted; prefer taskId)",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "tasks.parent"
         },
         {
           "name": "reparent",
@@ -2191,7 +2256,8 @@
               "required": true,
               "description": "ID of the task to reparent (e.g. mt#123)"
             }
-          ]
+          ],
+          "commandId": "tasks.reparent"
         },
         {
           "name": "available",
@@ -2235,7 +2301,8 @@
               "description": "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "tasks.available"
         },
         {
           "name": "route",
@@ -2258,7 +2325,8 @@
               "required": true,
               "description": "Target task ID to generate route for"
             }
-          ]
+          ],
+          "commandId": "tasks.route"
         },
         {
           "name": "dispatch",
@@ -2331,7 +2399,8 @@
               "description": "Evidence gate (mt#2488): the result of actually running `premiseFalsifier` — not an assertion that you would, the actual outcome.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "tasks.dispatch"
         },
         {
           "name": "dispatch-recover",
@@ -2342,7 +2411,8 @@
               "required": true,
               "description": "Task ID whose most recent subagent dispatch should be probed for recovery (e.g. \"mt#2831\")."
             }
-          ]
+          ],
+          "commandId": "tasks.dispatch-recover"
         },
         {
           "name": "orchestrate",
@@ -2360,7 +2430,8 @@
               "required": true,
               "description": "Parent task ID to find dispatchable subtasks for"
             }
-          ]
+          ],
+          "commandId": "tasks.orchestrate"
         },
         {
           "name": "decompose",
@@ -2378,7 +2449,8 @@
               "required": true,
               "description": "Task ID to gather context for"
             }
-          ]
+          ],
+          "commandId": "tasks.decompose"
         },
         {
           "name": "estimate",
@@ -2396,7 +2468,8 @@
               "required": true,
               "description": "Task ID to gather context for"
             }
-          ]
+          ],
+          "commandId": "tasks.estimate"
         },
         {
           "name": "analyze",
@@ -2414,7 +2487,8 @@
               "required": true,
               "description": "Task ID to gather context for"
             }
-          ]
+          ],
+          "commandId": "tasks.analyze"
         },
         {
           "name": "claims",
@@ -2440,7 +2514,8 @@
                   "required": true,
                   "description": "Task identifier (e.g. \"mt#2562\" or \"2562\")"
                 }
-              ]
+              ],
+              "commandId": "tasks.claims.list"
             }
           ]
         }
@@ -2496,7 +2571,8 @@
               "flags": ["--all-projects"],
               "description": "Return sessions from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
-          ]
+          ],
+          "commandId": "session.list"
         },
         {
           "name": "get",
@@ -2533,7 +2609,8 @@
               "required": false,
               "description": "Session ID (optional, alternative to --task)"
             }
-          ]
+          ],
+          "commandId": "session.get"
         },
         {
           "name": "start",
@@ -2592,7 +2669,8 @@
               "required": false,
               "description": "Session ID (optional, alternative to --task)"
             }
-          ]
+          ],
+          "commandId": "session.start"
         },
         {
           "name": "dir",
@@ -2619,7 +2697,8 @@
               "required": false,
               "description": "Session ID"
             }
-          ]
+          ],
+          "commandId": "session.dir"
         },
         {
           "name": "search",
@@ -2637,7 +2716,8 @@
               "required": true,
               "description": "Search query (searches in session ID, repo name, branch, task ID)"
             }
-          ]
+          ],
+          "commandId": "session.search"
         },
         {
           "name": "exec",
@@ -2670,7 +2750,8 @@
               "required": true,
               "description": "Shell command to execute"
             }
-          ]
+          ],
+          "commandId": "session.exec"
         },
         {
           "name": "ps",
@@ -2694,7 +2775,8 @@
               "flags": ["--reap"],
               "description": "Run the stale-attachment reaper before listing (drops attachment records whose pid is confirmed dead on this host; local-host only, v0 — remote-host attachments are skipped, never reaped by this flag)."
             }
-          ]
+          ],
+          "commandId": "session.ps"
         },
         {
           "name": "attached",
@@ -2718,7 +2800,8 @@
               "flags": ["--reap"],
               "description": "Run the stale-attachment reaper before listing (drops attachment records whose pid is confirmed dead on this host; local-host only, v0 — remote-host attachments are skipped, never reaped by this flag)."
             }
-          ]
+          ],
+          "commandId": "session.attached"
         },
         {
           "name": "focus",
@@ -2743,7 +2826,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "session.focus"
         },
         {
           "name": "goto",
@@ -2768,7 +2852,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "session.goto"
         },
         {
           "name": "bindings",
@@ -2788,7 +2873,8 @@
                     }
                   ]
                 }
-              ]
+              ],
+              "commandId": "session.bindings.refresh"
             }
           ]
         },
@@ -2822,7 +2908,8 @@
               "required": false,
               "description": "Session ID"
             }
-          ]
+          ],
+          "commandId": "session.delete"
         },
         {
           "name": "update",
@@ -2882,7 +2969,8 @@
               "required": false,
               "description": "Session ID"
             }
-          ]
+          ],
+          "commandId": "session.update"
         },
         {
           "name": "migrate-backend",
@@ -2921,7 +3009,8 @@
               "flags": ["--update-remote"],
               "description": "Also update the session workspace git remotes (default: true)"
             }
-          ]
+          ],
+          "commandId": "session.migrate-backend"
         },
         {
           "name": "cleanup",
@@ -2952,7 +3041,8 @@
               "flags": ["--json"],
               "description": "Output as JSON"
             }
-          ]
+          ],
+          "commandId": "session.cleanup"
         },
         {
           "name": "commit",
@@ -3014,7 +3104,8 @@
               "required": true,
               "description": "Commit message"
             }
-          ]
+          ],
+          "commandId": "session.commit"
         },
         {
           "name": "inspect",
@@ -3024,7 +3115,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "session.inspect"
         },
         {
           "name": "review",
@@ -3109,7 +3201,8 @@
               "description": "Maximum tokens for AI response",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "session.review"
         },
         {
           "name": "pr",
@@ -3193,7 +3286,8 @@
                   "description": "Override the push-phase wall-clock bound in milliseconds for the session update this command performs before opening the PR. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). Raise it when pushes from this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.create"
             },
             {
               "name": "edit",
@@ -3252,7 +3346,8 @@
                   "flags": ["--debug"],
                   "description": "Enable debug output"
                 }
-              ]
+              ],
+              "commandId": "session.pr.edit"
             },
             {
               "name": "list",
@@ -3302,7 +3397,8 @@
                   "flags": ["--verbose"],
                   "description": "Show detailed PR information"
                 }
-              ]
+              ],
+              "commandId": "session.pr.list"
             },
             {
               "name": "get",
@@ -3356,7 +3452,8 @@
                   "flags": ["--reviews"],
                   "description": "Include posted GitHub reviews: reviewer login, state, submitted_at, full body text, and per-review inline comments (path, line, body), in submission order (mt#2829). Bodies are included but capped if enormous (truncation stated explicitly); diffs are never included. A confirmed-zero-reviews PR returns `reviews: []` (not an error); a fetch failure returns `reviewsFetchError` instead — the two are never conflated."
                 }
-              ]
+              ],
+              "commandId": "session.pr.get"
             },
             {
               "name": "open",
@@ -3377,7 +3474,8 @@
                   "description": "Repository path",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.open"
             },
             {
               "name": "approve",
@@ -3407,7 +3505,8 @@
                   "description": "Optional review comment posted alongside the approval",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.approve"
             },
             {
               "name": "close",
@@ -3446,7 +3545,8 @@
                   "flags": ["--debug"],
                   "description": "Enable debug output"
                 }
-              ]
+              ],
+              "commandId": "session.pr.close"
             },
             {
               "name": "merge",
@@ -3488,7 +3588,8 @@
                   "description": "Required when forceBypass=true: a non-empty evidence string explaining why the bypass is justified (e.g. which review was a verified false-positive and the verification, or the reviewer convergence-failure class). Used both as the CHANGES_REQUESTED dismissal message and written into the merge-commit body alongside the canonical bypass audit signature.",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.merge"
             },
             {
               "name": "checks",
@@ -3527,7 +3628,8 @@
                   "description": "Polling interval in seconds when --wait is enabled (default: 30)",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.checks"
             },
             {
               "name": "wait-for-review",
@@ -3578,14 +3680,15 @@
                 },
                 {
                   "flags": ["--expected-head-sha"],
-                  "description": "The commit you expect the REMOTE to be serving — pass the commitHash session_commit just returned (mt#3877). While the remote head differs from it, NO review is considered and the wait keeps polling, so arming the watcher before a push lands no longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in that window the superseded commit IS the current head, so it is admitted by exactly the filter meant to exclude it. The window is routine — session_commit regularly exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. On timeout the result carries expectedHeadShaUnreached naming the sha the remote never reached. Ignored on backends without HEAD-sha support, or with requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so session_commit's short commitHash can be passed through verbatim; values under 7 characters, or non-hex values, are rejected with an error rather than silently matching nothing.",
+                  "description": "The commit you expect the REMOTE to be serving — read it off whichever call LAST PUSHED: session_pr_create's headSha for the first wait on a new PR, session_commit's commitHash for every wait after a fix-push (mt#3877, mt#4046). Passing the preceding session_commit's hash on the FIRST wait is wrong and silent: PR creation pushes a head of its own, so the sha you hold is already superseded and the wait burns its whole timeout suppressing a real review. While the remote head differs from it, NO review is considered and the wait keeps polling, so arming the watcher before a push lands no longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in that window the superseded commit IS the current head, so it is admitted by exactly the filter meant to exclude it. The window is routine — session_commit regularly exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. On timeout the result carries expectedHeadShaUnreached naming the sha the remote never reached. Ignored on backends without HEAD-sha support, or with requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so session_commit's short commitHash can be passed through verbatim; values under 7 characters, or non-hex values, are rejected with an error rather than silently matching nothing.",
                   "takesValue": true
                 },
                 {
                   "flags": ["--full-body"],
                   "description": "When true, return the full review (raw markdown body, spec-verification table, embedded provenance JSON comment) instead of the default trimmed payload (mt#2656: state, submittedAt, reviewer, blocking/non-blocking finding counts, and a findings list of severity + file:line + one-sentence summary). Defaults to false."
                 }
-              ]
+              ],
+              "commandId": "session.pr.wait-for-review"
             },
             {
               "name": "drive",
@@ -3676,7 +3779,8 @@
                   "description": "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). Bounds each deployment wait so a deployment predating the merge cannot satisfy it. Omit and the watch accepts whatever deployment is newest — the result then reports deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence this merge deployed (mt#3890).",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.drive"
             },
             {
               "name": "review_context",
@@ -3697,7 +3801,8 @@
                   "description": "Repository path",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "session.pr.review_context"
             },
             {
               "name": "review",
@@ -3754,7 +3859,8 @@
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "commandId": "session.pr.review.submit"
                 },
                 {
                   "name": "dismiss",
@@ -3797,7 +3903,8 @@
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "commandId": "session.pr.review.dismiss"
                 },
                 {
                   "name": "thread",
@@ -3844,7 +3951,8 @@
                             }
                           ]
                         }
-                      ]
+                      ],
+                      "commandId": "session.pr.review.thread.resolve"
                     }
                   ]
                 }
@@ -3895,7 +4003,8 @@
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "commandId": "session.pr.check_run.submit"
                 }
               ]
             }
@@ -3913,7 +4022,8 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
-          ]
+          ],
+          "commandId": "session.migrate"
         },
         {
           "name": "conflicts",
@@ -3945,7 +4055,8 @@
               "description": "File pattern to limit conflict scanning (e.g. '*.ts')",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "session.conflicts"
         },
         {
           "name": "repair",
@@ -3998,7 +4109,8 @@
               "flags": ["--force"],
               "description": "Force the operation"
             }
-          ]
+          ],
+          "commandId": "session.repair"
         },
         {
           "name": "generate_prompt",
@@ -4042,7 +4154,8 @@
               "required": true,
               "description": "Task ID (required)"
             }
-          ]
+          ],
+          "commandId": "session.generate_prompt"
         },
         {
           "name": "apply_post_merge_state_sync",
@@ -4077,7 +4190,8 @@
               "description": "Audit attribution string — which path triggered this sync. One of: 'session_pr_merge' | 'webhook' | 'sweeper' | 'repair_pass'. Defaults to 'unknown'.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "session.apply_post_merge_state_sync"
         },
         {
           "name": "edit-file",
@@ -4132,7 +4246,8 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
-          ]
+          ],
+          "commandId": "session.edit-file"
         }
       ]
     },
@@ -4161,7 +4276,8 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
-          ]
+          ],
+          "commandId": "rules.index-embeddings"
         },
         {
           "name": "list",
@@ -4195,7 +4311,8 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
-          ]
+          ],
+          "commandId": "rules.list"
         },
         {
           "name": "search",
@@ -4239,7 +4356,8 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
-          ]
+          ],
+          "commandId": "rules.search"
         },
         {
           "name": "get",
@@ -4265,7 +4383,8 @@
               "required": true,
               "description": "Rule ID"
             }
-          ]
+          ],
+          "commandId": "rules.get"
         },
         {
           "name": "generate",
@@ -4319,7 +4438,8 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
-          ]
+          ],
+          "commandId": "rules.generate"
         },
         {
           "name": "create",
@@ -4370,7 +4490,8 @@
               "required": true,
               "description": "Rule ID"
             }
-          ]
+          ],
+          "commandId": "rules.create"
         },
         {
           "name": "update",
@@ -4421,7 +4542,8 @@
               "required": true,
               "description": "Rule ID"
             }
-          ]
+          ],
+          "commandId": "rules.update"
         },
         {
           "name": "compile",
@@ -4455,7 +4577,8 @@
               "description": "Override the target's default FAIL size-budget threshold (chars, --check mode only). mt#2802 — only claude.md and agents.md enforce a size budget.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "rules.compile"
         },
         {
           "name": "migrate",
@@ -4469,7 +4592,8 @@
               "flags": ["--force"],
               "description": "Overwrite existing files in destination"
             }
-          ]
+          ],
+          "commandId": "rules.migrate"
         },
         {
           "name": "enable",
@@ -4485,7 +4609,8 @@
               "description": "Legacy alias for id (also accepted; prefer id)",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "rules.enable"
         },
         {
           "name": "disable",
@@ -4501,15 +4626,18 @@
               "description": "Legacy alias for id (also accepted; prefer id)",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "rules.disable"
         },
         {
           "name": "config",
-          "description": "Show current rule selection state (presets, enabled, disabled)"
+          "description": "Show current rule selection state (presets, enabled, disabled)",
+          "commandId": "rules.config"
         },
         {
           "name": "presets",
-          "description": "List available rule presets with their rule counts"
+          "description": "List available rule presets with their rule counts",
+          "commandId": "rules.presets"
         }
       ]
     },
@@ -4543,7 +4671,8 @@
               "flags": ["--show-secrets"],
               "description": "Show actual credential values (SECURITY RISK: use with caution)"
             }
-          ]
+          ],
+          "commandId": "config.list"
         },
         {
           "name": "show",
@@ -4571,7 +4700,8 @@
               "flags": ["--show-secrets"],
               "description": "Show actual credential values (SECURITY RISK: use with caution)"
             }
-          ]
+          ],
+          "commandId": "config.show"
         },
         {
           "name": "get",
@@ -4606,7 +4736,8 @@
               "required": true,
               "description": "Configuration key path"
             }
-          ]
+          ],
+          "commandId": "config.get"
         },
         {
           "name": "set",
@@ -4652,7 +4783,8 @@
               "required": true,
               "description": "Value to set"
             }
-          ]
+          ],
+          "commandId": "config.set"
         },
         {
           "name": "unset",
@@ -4693,7 +4825,8 @@
               "required": true,
               "description": "Configuration key path"
             }
-          ]
+          ],
+          "commandId": "config.unset"
         },
         {
           "name": "validate",
@@ -4721,7 +4854,8 @@
               "flags": ["--verbose"],
               "description": "Show detailed validation results"
             }
-          ]
+          ],
+          "commandId": "config.validate"
         },
         {
           "name": "doctor",
@@ -4753,7 +4887,8 @@
               "flags": ["--fix"],
               "description": "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)"
             }
-          ]
+          ],
+          "commandId": "config.doctor"
         },
         {
           "name": "credentials",
@@ -4785,7 +4920,8 @@
                     }
                   ]
                 }
-              ]
+              ],
+              "commandId": "config.credentials.add"
             },
             {
               "name": "list",
@@ -4801,7 +4937,8 @@
                     }
                   ]
                 }
-              ]
+              ],
+              "commandId": "config.credentials.list"
             },
             {
               "name": "remove",
@@ -4824,7 +4961,8 @@
                     }
                   ]
                 }
-              ]
+              ],
+              "commandId": "config.credentials.remove"
             },
             {
               "name": "recheck",
@@ -4845,7 +4983,8 @@
                     }
                   ]
                 }
-              ]
+              ],
+              "commandId": "config.credentials.recheck"
             },
             {
               "name": "request",
@@ -4878,7 +5017,8 @@
                     }
                   ]
                 }
-              ]
+              ],
+              "commandId": "credentials.request"
             }
           ]
         }
@@ -4890,7 +5030,8 @@
       "subcommands": [
         {
           "name": "listMethods",
-          "description": "List all registered methods for debugging"
+          "description": "List all registered methods for debugging",
+          "commandId": "debug.listMethods"
         },
         {
           "name": "echo",
@@ -4901,11 +5042,13 @@
               "description": "Message to echo back",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "debug.echo"
         },
         {
           "name": "systemInfo",
-          "description": "Get system information for diagnostics"
+          "description": "Get system information for diagnostics",
+          "commandId": "debug.systemInfo"
         }
       ]
     },
@@ -4945,7 +5088,8 @@
               "required": false,
               "description": "Target backend (postgres)"
             }
-          ]
+          ],
+          "commandId": "persistence.migrate"
         },
         {
           "name": "check",
@@ -4965,7 +5109,8 @@
               "flags": ["--report"],
               "description": "Show detailed integrity report"
             }
-          ]
+          ],
+          "commandId": "persistence.check"
         }
       ]
     },
@@ -5018,7 +5163,8 @@
               "required": true,
               "description": "The prompt to complete"
             }
-          ]
+          ],
+          "commandId": "ai.complete"
         },
         {
           "name": "fast-apply",
@@ -5059,7 +5205,8 @@
               "required": true,
               "description": "Path to the file to edit"
             }
-          ]
+          ],
+          "commandId": "ai.fast-apply"
         },
         {
           "name": "chat",
@@ -5080,7 +5227,8 @@
               "description": "System prompt",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "ai.chat"
         },
         {
           "name": "models",
@@ -5104,7 +5252,8 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
-              ]
+              ],
+              "commandId": "ai.models.available"
             },
             {
               "name": "refresh",
@@ -5119,7 +5268,8 @@
                   "flags": ["--force"],
                   "description": "Force refresh even if cache is fresh"
                 }
-              ]
+              ],
+              "commandId": "ai.models.refresh"
             },
             {
               "name": "list",
@@ -5143,7 +5293,8 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
-              ]
+              ],
+              "commandId": "ai.models.list"
             }
           ]
         },
@@ -5164,7 +5315,8 @@
                   "flags": ["--confirm"],
                   "description": "Skip confirmation prompt"
                 }
-              ]
+              ],
+              "commandId": "ai.cache.clear"
             }
           ]
         },
@@ -5181,7 +5333,8 @@
               "flags": ["--json"],
               "description": "Output validation results in JSON format"
             }
-          ]
+          ],
+          "commandId": "ai.validate"
         },
         {
           "name": "providers",
@@ -5200,7 +5353,8 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
-              ]
+              ],
+              "commandId": "ai.providers.list"
             }
           ]
         }
@@ -5231,7 +5385,8 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
-          ]
+          ],
+          "commandId": "tools.index-embeddings"
         },
         {
           "name": "search",
@@ -5265,7 +5420,8 @@
               "name": "query",
               "required": true
             }
-          ]
+          ],
+          "commandId": "tools.search"
         },
         {
           "name": "similar",
@@ -5292,7 +5448,8 @@
               "name": "toolId",
               "required": true
             }
-          ]
+          ],
+          "commandId": "tools.similar"
         },
         {
           "name": "asks",
@@ -5310,12 +5467,31 @@
                 {
                   "flags": ["--state"],
                   "description": "Filter by Ask state (detected | classified | routed | ...)",
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": [
+                    "detected",
+                    "classified",
+                    "routed",
+                    "suspended",
+                    "responded",
+                    "closed",
+                    "cancelled",
+                    "expired"
+                  ]
                 },
                 {
                   "flags": ["--kind"],
                   "description": "Filter by Ask kind (quality.review | direction.decide | ...)",
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": [
+                    "capability.escalate",
+                    "information.retrieve",
+                    "authorization.approve",
+                    "direction.decide",
+                    "coordination.notify",
+                    "quality.review",
+                    "stuck.unblock"
+                  ]
                 },
                 {
                   "flags": ["--limit"],
@@ -5330,7 +5506,8 @@
                   "flags": ["--summary"],
                   "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id. The result echoes `summary` (mt#2748 R1 review) so callers can branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; absent/false means `asks` is the full `Ask[]`."
                 }
-              ]
+              ],
+              "commandId": "asks.list"
             },
             {
               "name": "get",
@@ -5341,11 +5518,13 @@
                   "required": true,
                   "description": "Ask ID to fetch. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965) — resolved via the same generalized resolver asks.list/respond/edit/wait-for-response use."
                 }
-              ]
+              ],
+              "commandId": "asks.get"
             },
             {
               "name": "reconcile",
-              "description": "Run one reconcile pass over open quality.review Asks (polls GitHub for reviews and notifies the operator)"
+              "description": "Run one reconcile pass over open quality.review Asks (polls GitHub for reviews and notifies the operator)",
+              "commandId": "asks.reconcile"
             },
             {
               "name": "respond",
@@ -5368,7 +5547,32 @@
                   "required": true,
                   "description": "Ask ID (UUID) to respond to"
                 }
-              ]
+              ],
+              "commandId": "asks.respond"
+            },
+            {
+              "name": "cancel",
+              "description": "Terminally cancel an Ask that was never dispatched (mt#3353, ADR-008). Covers the pre-suspended states — detected/classified/routed — which `asks.respond` rejects and which neither existing sweep reads: `advancement.ts` sweeps `detected` and `stale-suspended-close.ts` sweeps `suspended`, so `classified` and `routed` debris accumulates unreachable. This command is the terminal PRIMITIVE for those states; whether a RECURRING sweep may safely retire them, and under which rule, is mt#4361 — parent-terminal is not a safe trigger there, because a parent can go terminal by concluding the work is operator-only while that work is still outstanding. Silent to the operator: this is debris cleanup, not a decision. Idempotent — an already-terminal Ask is a no-op. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+              "options": [
+                {
+                  "flags": ["--reason"],
+                  "description": "Why this Ask is being retired — persisted as the cancellation disposition. Required: a cancellation with no reason is indistinguishable from the unattributed cancellations this command exists to replace.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--responder"],
+                  "description": "Who is cancelling — conventionally `system:<event>`. Defaults to `system:agent-cancelled`. The literal `operator` is REJECTED: cancelling is not answering, and recording the principal as the responder is the provenance laundering this command exists to end.",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID to cancel. Accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id."
+                }
+              ],
+              "commandId": "asks.cancel"
             },
             {
               "name": "create",
@@ -5427,7 +5631,8 @@
                 {
                   "flags": ["--service-strategy"],
                   "description": "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. When absent, per-kind defaults apply.",
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": ["asap", "scheduled", "deadline-bound"]
                 },
                 {
                   "flags": ["--window-key"],
@@ -5441,7 +5646,8 @@
                 {
                   "flags": ["--severity"],
                   "description": "Set to 'incident' when a severity trigger fired AND remediation is operator-only (production incident, outage, security finding, blocked-past-threshold). On an operator-routed ask this sends the principal ONE notification on their phone pointing at this ask — you do not need to send a separate notification yourself. Both halves are required: an incident you can fix yourself does not warrant it, and an operator-only chore that is not a severity event belongs in the normal inbox.",
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": ["incident"]
                 },
                 {
                   "flags": ["--acknowledge-form-warnings"],
@@ -5454,7 +5660,8 @@
                   "required": true,
                   "description": "Ask kind (one of the 7 ADR-008 taxonomy values)"
                 }
-              ]
+              ],
+              "commandId": "asks.create"
             },
             {
               "name": "wait-for-response",
@@ -5462,7 +5669,7 @@
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Max seconds to wait (default 600; clamped to [1, 1800])",
+                  "description": "Max seconds to wait (default 600; clamped to [1, 1800]). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
@@ -5477,11 +5684,12 @@
                   "required": true,
                   "description": "Ask ID (UUID) to wait on until it reaches responded/closed"
                 }
-              ]
+              ],
+              "commandId": "asks.wait-for-response"
             },
             {
               "name": "edit",
-              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata, and preserves each content field's PRE-EDIT value once, under metadata.originalContent — so the text an ask was originally escalated with survives a correction (mt#4329). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
                 {
                   "flags": ["--title"],
@@ -5505,7 +5713,7 @@
                 },
                 {
                   "flags": ["--metadata"],
-                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory and originalContent are reserved — provenance and the pre-edit content capture; caller-supplied values for either are ignored)",
                   "takesValue": true
                 },
                 {
@@ -5524,7 +5732,8 @@
                   "required": true,
                   "description": "Ask ID (UUID) to edit"
                 }
-              ]
+              ],
+              "commandId": "asks.edit"
             }
           ]
         },
@@ -5553,7 +5762,8 @@
                     {
                       "flags": ["--event"],
                       "description": "Which PR event to watch for: merged | review-posted | check-status-changed (default: merged)",
-                      "takesValue": true
+                      "takesValue": true,
+                      "values": ["merged", "review-posted", "check-status-changed"]
                     },
                     {
                       "flags": ["--keep"],
@@ -5581,7 +5791,8 @@
                       "required": true,
                       "description": "GitHub repository owner (user or org)"
                     }
-                  ]
+                  ],
+                  "commandId": "pr.watch.create"
                 },
                 {
                   "name": "list",
@@ -5597,7 +5808,8 @@
                       "description": "Alias for session. The first non-empty value of session/sessionId is used.",
                       "takesValue": true
                     }
-                  ]
+                  ],
+                  "commandId": "pr.watch.list"
                 },
                 {
                   "name": "cancel",
@@ -5608,11 +5820,13 @@
                       "required": true,
                       "description": "Watch ID to cancel (from pr.watch.list output)"
                     }
-                  ]
+                  ],
+                  "commandId": "pr.watch.cancel"
                 },
                 {
                   "name": "run",
-                  "description": "Run one watcher pass: poll GitHub for all active watches and fire notifications on matches."
+                  "description": "Run one watcher pass: poll GitHub for all active watches and fire notifications on matches.",
+                  "commandId": "pr.watch.run"
                 }
               ]
             }
@@ -5650,7 +5864,8 @@
                       "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)",
                       "takesValue": true
                     }
-                  ]
+                  ],
+                  "commandId": "reviewer.watch.run"
                 },
                 {
                   "name": "start",
@@ -5681,7 +5896,8 @@
                       "description": "Poll interval in ms (default: $MINSKY_REVIEWER_WATCH_INTERVAL_MS or 600000 = 10 min)",
                       "takesValue": true
                     }
-                  ]
+                  ],
+                  "commandId": "reviewer.watch.start"
                 }
               ]
             },
@@ -5706,7 +5922,8 @@
                   "required": true,
                   "description": "PR number to retrigger review on"
                 }
-              ]
+              ],
+              "commandId": "reviewer.retrigger"
             }
           ]
         },
@@ -5733,7 +5950,8 @@
                   "description": "Session ID whose workspace should be validated",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "validate.lint"
             },
             {
               "name": "typecheck",
@@ -5754,7 +5972,8 @@
                   "description": "Session ID whose workspace should be validated",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "validate.typecheck"
             }
           ]
         },
@@ -5774,9 +5993,19 @@
                 {
                   "flags": ["--kind"],
                   "description": "Ask kind to report on. Returns top 10 most expensive tasks for this kind.",
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": [
+                    "capability.escalate",
+                    "information.retrieve",
+                    "authorization.approve",
+                    "direction.decide",
+                    "coordination.notify",
+                    "quality.review",
+                    "stuck.unblock"
+                  ]
                 }
-              ]
+              ],
+              "commandId": "attention.report"
             }
           ]
         },
@@ -5786,7 +6015,8 @@
           "subcommands": [
             {
               "name": "list",
-              "description": "List all configured attention windows with their state (open/closed) and next scheduled open time"
+              "description": "List all configured attention windows with their state (open/closed) and next scheduled open time",
+              "commandId": "window.list"
             },
             {
               "name": "open",
@@ -5797,7 +6027,8 @@
                   "required": true,
                   "description": "Window key (e.g. ask-hours, weekly-review)"
                 }
-              ]
+              ],
+              "commandId": "window.open"
             },
             {
               "name": "close",
@@ -5808,11 +6039,13 @@
                   "required": true,
                   "description": "Window key to close (e.g. ask-hours)"
                 }
-              ]
+              ],
+              "commandId": "window.close"
             },
             {
               "name": "status",
-              "description": "Show currently-open attention windows with one-line summary per window"
+              "description": "Show currently-open attention windows with one-line summary per window",
+              "commandId": "window.status"
             },
             {
               "name": "service",
@@ -5823,7 +6056,8 @@
                   "required": true,
                   "description": "Window key to service (e.g. ask-hours)"
                 }
-              ]
+              ],
+              "commandId": "window.service"
             }
           ]
         },
@@ -5842,7 +6076,7 @@
                 },
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes).",
+                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout (~225s measured) can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
@@ -5855,7 +6089,8 @@
                   "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "deployment.wait-for-latest"
             },
             {
               "name": "status",
@@ -5866,7 +6101,8 @@
                   "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "deployment.status"
             },
             {
               "name": "logs",
@@ -5875,7 +6111,8 @@
                 {
                   "flags": ["--type"],
                   "description": "Log channel: 'build' (build-phase) or 'deploy' (runtime). Default: 'build'.",
-                  "takesValue": true
+                  "takesValue": true,
+                  "values": ["build", "deploy"]
                 },
                 {
                   "flags": ["--lines"],
@@ -5894,7 +6131,8 @@
                   "required": true,
                   "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
                 }
-              ]
+              ],
+              "commandId": "deployment.logs"
             }
           ]
         }
@@ -5931,7 +6169,8 @@
               "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all review-due logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "observability.calibration-review"
         },
         {
           "name": "guard-events",
@@ -5946,7 +6185,8 @@
                   "description": "Cap on new records read per stream per invocation (bounds tick duration on a large backlog, e.g. a fresh-deploy fire-log with no prior ingest). Default: 20000.",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "guard-events.ingest"
             }
           ]
         },
@@ -5958,7 +6198,8 @@
               "flags": ["--json"],
               "description": "Output as JSON"
             }
-          ]
+          ],
+          "commandId": "observability.smoke-test"
         }
       ]
     },
@@ -5987,7 +6228,8 @@
               "required": true,
               "description": "Search query"
             }
-          ]
+          ],
+          "commandId": "knowledge.search"
         },
         {
           "name": "fetch",
@@ -6005,11 +6247,13 @@
               "required": true,
               "description": "Name of the knowledge source"
             }
-          ]
+          ],
+          "commandId": "knowledge.fetch"
         },
         {
           "name": "sources",
-          "description": "List configured knowledge sources with their sync status."
+          "description": "List configured knowledge sources with their sync status.",
+          "commandId": "knowledge.sources"
         },
         {
           "name": "sync",
@@ -6024,7 +6268,8 @@
               "flags": ["--force"],
               "description": "Force re-index even if content is unchanged"
             }
-          ]
+          ],
+          "commandId": "knowledge.sync"
         }
       ]
     },
@@ -6073,7 +6318,8 @@
               "required": true,
               "description": "Semantic search query"
             }
-          ]
+          ],
+          "commandId": "memory.search"
         },
         {
           "name": "get",
@@ -6084,7 +6330,8 @@
               "required": true,
               "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
             }
-          ]
+          ],
+          "commandId": "memory.get"
         },
         {
           "name": "list",
@@ -6153,7 +6400,8 @@
               "flags": ["--summary"],
               "description": "When true, return compact rows (id, name, type, description, tags, createdAt, updatedAt) with no content body"
             }
-          ]
+          ],
+          "commandId": "memory.list"
         },
         {
           "name": "create",
@@ -6221,7 +6469,8 @@
               "required": true,
               "description": "Memory type"
             }
-          ]
+          ],
+          "commandId": "memory.create"
         },
         {
           "name": "update",
@@ -6291,7 +6540,8 @@
               "required": true,
               "description": "Memory record identifier to update"
             }
-          ]
+          ],
+          "commandId": "memory.update"
         },
         {
           "name": "patch",
@@ -6320,7 +6570,8 @@
               "required": true,
               "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
             }
-          ]
+          ],
+          "commandId": "memory.patch"
         },
         {
           "name": "delete",
@@ -6331,7 +6582,8 @@
               "required": true,
               "description": "Memory record identifier to delete"
             }
-          ]
+          ],
+          "commandId": "memory.delete"
         },
         {
           "name": "similar",
@@ -6358,7 +6610,8 @@
               "required": true,
               "description": "ID of the source memory to find neighbours for"
             }
-          ]
+          ],
+          "commandId": "memory.similar"
         },
         {
           "name": "supersede",
@@ -6428,7 +6681,8 @@
               "required": true,
               "description": "ID of the memory to supersede"
             }
-          ]
+          ],
+          "commandId": "memory.supersede"
         },
         {
           "name": "lineage",
@@ -6439,7 +6693,8 @@
               "required": true,
               "description": "Memory record identifier to trace lineage for"
             }
-          ]
+          ],
+          "commandId": "memory.lineage"
         }
       ]
     },
@@ -6464,7 +6719,8 @@
               "required": true,
               "description": "The artifact identifier (e.g. PR number as string, commit SHA)"
             }
-          ]
+          ],
+          "commandId": "provenance.get"
         },
         {
           "name": "recompute",
@@ -6474,7 +6730,8 @@
               "flags": ["--dry-run"],
               "description": "Show what would change without applying updates (default: false)"
             }
-          ]
+          ],
+          "commandId": "provenance.recompute"
         }
       ]
     },
@@ -6499,7 +6756,8 @@
               "required": true,
               "description": "The artifact identifier (e.g. PR number as string, commit SHA)"
             }
-          ]
+          ],
+          "commandId": "authorship.get"
         },
         {
           "name": "recompute",
@@ -6509,7 +6767,8 @@
               "flags": ["--dry-run"],
               "description": "Show what would change without applying updates (default: false)"
             }
-          ]
+          ],
+          "commandId": "authorship.recompute"
         }
       ]
     },
@@ -6526,7 +6785,8 @@
               "description": "Directory to inspect. Defaults to the server's process.cwd(). Pass an explicit path when calling from a different working directory.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "workspace.info"
         }
       ]
     },
@@ -6561,7 +6821,8 @@
               "flags": ["--ended"],
               "description": "mt#3131 (D2): mark this ingest as carrying positive evidence the session has terminated (the harness's own SessionEnd event) — ONLY the SessionEnd hook should pass this. A routine sweep/poll must omit it, or `endedAt` will falsely assert termination for a still-running conversation. Single-session mode only."
             }
-          ]
+          ],
+          "commandId": "transcripts.ingest"
         },
         {
           "name": "index-embeddings",
@@ -6585,11 +6846,12 @@
               "flags": ["--force"],
               "description": "Force re-generation of summaries even for already-summarized rows"
             }
-          ]
+          ],
+          "commandId": "transcripts.index-embeddings"
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -6601,6 +6863,11 @@
               "description": "Filter to turns by role: 'user' or 'assistant'",
               "takesValue": true,
               "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--origin-kind"],
+              "description": "Filter by who authored the turn's user text: 'human' for operator speech only, or a harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). NOT the same axis as `role`: `role: \"user\"` only means the turn HAS user text, and 43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+              "takesValue": true
             },
             {
               "flags": ["--from"],
@@ -6633,7 +6900,8 @@
               "required": true,
               "description": "Natural-language search query to embed and match against transcript turns"
             }
-          ]
+          ],
+          "commandId": "transcripts.search"
         },
         {
           "name": "similar",
@@ -6663,7 +6931,8 @@
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
-          ]
+          ],
+          "commandId": "transcripts.similar"
         },
         {
           "name": "spawns-extract",
@@ -6683,7 +6952,8 @@
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "transcripts.spawns-extract"
         },
         {
           "name": "search-text",
@@ -6699,6 +6969,11 @@
               "description": "Filter to turns by role: 'user' or 'assistant'",
               "takesValue": true,
               "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--origin-kind"],
+              "description": "Filter by who authored the turn's user text: 'human' for operator speech only, or a harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). NOT the same axis as `role`: `role: \"user\"` only means the turn HAS user text, and 43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+              "takesValue": true
             },
             {
               "flags": ["--from"],
@@ -6737,7 +7012,8 @@
               "required": true,
               "description": "Natural-language search query for full-text matching against transcript turns"
             }
-          ]
+          ],
+          "commandId": "transcripts.search-text"
         },
         {
           "name": "get",
@@ -6770,7 +7046,8 @@
               "takesValue": true,
               "values": ["full", "text"]
             }
-          ]
+          ],
+          "commandId": "transcripts.get"
         },
         {
           "name": "list",
@@ -6785,7 +7062,8 @@
               "flags": ["--check-disk-coverage"],
               "description": "Opt into a live on-disk discovery sweep (reuses the same discovery the ingest sweep uses) to detect conversations that exist on disk but have never been ingested. Off by default — this touches disk (stats every project dir, reads JSONL heads for cwd recovery) and is NOT part of the tool's zero-disk-access default contract."
             }
-          ]
+          ],
+          "commandId": "transcripts.list"
         }
       ]
     },
@@ -6810,7 +7088,8 @@
                   "description": "Restrict to a single session (default: walk all sessions in the findings directory)",
                   "takesValue": true
                 }
-              ]
+              ],
+              "commandId": "unasked-direction.list"
             },
             {
               "name": "mark-real",
@@ -6833,7 +7112,8 @@
                   "required": true,
                   "description": "Session whose finding is being verdicted"
                 }
-              ]
+              ],
+              "commandId": "unasked-direction.mark-real"
             },
             {
               "name": "mark-false-positive",
@@ -6856,7 +7136,8 @@
                   "required": true,
                   "description": "Session whose finding is being verdicted"
                 }
-              ]
+              ],
+              "commandId": "unasked-direction.mark-false-positive"
             }
           ]
         },
@@ -6885,7 +7166,8 @@
                   "required": true,
                   "description": "Epic task ID (e.g., mt#1552) whose children to audit for Sprint-A-superseded TODOs"
                 }
-              ]
+              ],
+              "commandId": "epic-decomposition.audit"
             }
           ]
         }
@@ -6915,7 +7197,8 @@
               "required": true,
               "description": "Natural-language query (semantic search)"
             }
-          ]
+          ],
+          "commandId": "principal_corpus.search"
         },
         {
           "name": "similar",
@@ -6937,7 +7220,8 @@
               "required": true,
               "description": "Tweet ID to find similar tweets for"
             }
-          ]
+          ],
+          "commandId": "principal_corpus.similar"
         },
         {
           "name": "index-embeddings",
@@ -6983,7 +7267,8 @@
               "required": true,
               "description": "Path to the Twitter archive ZIP"
             }
-          ]
+          ],
+          "commandId": "principal_corpus.index-embeddings"
         }
       ]
     },
@@ -6997,7 +7282,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced | cockpit.port_displaced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -7028,7 +7313,8 @@
                 "task.bulk_edit.executed",
                 "guard.overridden",
                 "principal.message_received",
-                "principal.poll_advanced"
+                "principal.poll_advanced",
+                "cockpit.port_displaced"
               ]
             },
             {
@@ -7057,7 +7343,8 @@
               "description": "Maximum number of results (default: 50, max: 500)",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "events.list"
         },
         {
           "name": "emit",
@@ -7088,9 +7375,10 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced, cockpit.port_displaced)"
             }
-          ]
+          ],
+          "commandId": "events.emit"
         }
       ]
     },
@@ -7100,7 +7388,7 @@
       "subcommands": [
         {
           "name": "status",
-          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids or uuids) to their current status in one call, with not-found explicit per ref",
+          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids or uuids) to their current status in one call. Each ref carries an `outcome`: found, absent (it does not exist), unavailable (the lookup did not complete — existence is UNKNOWN, retry), or unparseable (bad ref format — retrying never helps). Read `outcome`, not `found`, before concluding a ref does not exist",
           "options": [
             {
               "flags": ["--repo"],
@@ -7118,7 +7406,8 @@
               "required": true,
               "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), short ids (ask#12 / mem#34 / ws#5), and uuids for asks, memories, and workspaces"
             }
-          ]
+          ],
+          "commandId": "refs.status"
         }
       ]
     },
@@ -7151,7 +7440,8 @@
               "required": true,
               "description": "Message body to deliver to the principal. Plain text."
             }
-          ]
+          ],
+          "commandId": "principal.notify"
         }
       ]
     },
@@ -7172,7 +7462,8 @@
               "flags": ["--quiet"],
               "description": "Suppress this command's own stdout/stderr text on every path (clean, hit, or error); rely on the exit code alone"
             }
-          ]
+          ],
+          "commandId": "security.check-credentials"
         }
       ]
     },
@@ -7328,7 +7619,8 @@
               "flags": ["--overwrite"],
               "description": "Overwrite existing config"
             }
-          ]
+          ],
+          "commandId": "mcp.register"
         },
         {
           "name": "proxy",
@@ -7593,7 +7885,8 @@
           "description": "Host for MCP network transports",
           "takesValue": true
         }
-      ]
+      ],
+      "commandId": "init"
     },
     {
       "name": "setup",
@@ -7669,7 +7962,8 @@
               "description": "GitHub web base URL for the wizard (default: https://github.com; set for GHE)",
               "takesValue": true
             }
-          ]
+          ],
+          "commandId": "setup.github-app"
         },
         {
           "name": "db",
@@ -7684,7 +7978,33 @@
               "flags": ["--yes"],
               "description": "Skip the confirmation prompt before writing config"
             }
-          ]
+          ],
+          "commandId": "setup.db"
+        },
+        {
+          "name": "local-http",
+          "description": "Point Claude Code's Minsky MCP entries at the shared local daemon via the stdio shim (dry-run by default; --revert restores the previous config and stops the daemon)",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Apply the change (without it, the plan is printed only)"
+            },
+            {
+              "flags": ["--revert"],
+              "description": "Restore the most recent backup of each config and stop the local daemon"
+            },
+            {
+              "flags": ["--url"],
+              "description": "Daemon MCP URL for the shim (default http://127.0.0.1:48765/mcp)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Project root whose .mcp.json is scanned (default: cwd)",
+              "takesValue": true
+            }
+          ],
+          "commandId": "setup.local-http"
         }
       ],
       "options": [
@@ -7716,7 +8036,8 @@
           "flags": ["--yes"],
           "description": "Skip the DB-setup confirmation prompt if the interactive wizard runs"
         }
-      ]
+      ],
+      "commandId": "setup"
     },
     {
       "name": "compile",
@@ -7750,7 +8071,8 @@
           "description": "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
           "takesValue": true
         }
-      ]
+      ],
+      "commandId": "compile"
     },
     {
       "name": "cockpit",
@@ -7767,7 +8089,7 @@
             },
             {
               "flags": ["--force"],
-              "description": "If a previous cockpit instance is holding the port, terminate it and retry. Never terminates unrecognized processes."
+              "description": "Terminate a previous cockpit instance holding the port even when it is still answering /api/health. Not needed to clear one that has stopped answering — that is displaced automatically. Never terminates unrecognized processes."
             },
             {
               "flags": ["--open"],
@@ -7825,11 +8147,25 @@
         },
         {
           "name": "stop",
-          "description": "Stop the cockpit daemon (keeps the LaunchAgent plist installed)"
+          "description": "Stop the cockpit daemon (keeps a LaunchAgent plist installed)",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to stop on (default: the `cockpit.port` configuration value, else 3737)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "restart",
-          "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+          "description": "Restart the cockpit daemon under whichever supervisor is running it",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to restart on (default: the `cockpit.port` configuration value, else 3737)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "url",

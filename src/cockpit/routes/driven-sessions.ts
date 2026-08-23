@@ -46,9 +46,10 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "../driven-session-host";
+import { drivenSessionMcpServerNames } from "../driven-session-mcp-servers";
 import {
   resolveTaskWorkspace as prodResolveTaskWorkspace,
-  createDrivenInitLinkObserver,
+  createDrivenInitObserver,
   createDrivenResultObserver,
   createDrivenSessionPersistObserver,
   orchestrateDrivenSessionAttach as prodOrchestrateDrivenSessionAttach,
@@ -58,6 +59,8 @@ import {
 } from "../driven-session-launch";
 import { isDispatchModelId, resolveDispatchModelArg } from "@minsky/domain/ai/dispatch-models";
 import { looksLikeConversationId } from "../conversation-id-space";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 
 /**
  * Options accepted by {@link mountDrivenSessionRoutes}. Every field here is a
@@ -219,13 +222,23 @@ export function mountDrivenSessionRoutes(
       // durable driven_sessions persistence is not task-bound-only.
       const onStateChange = opts.onStateChange ?? createDrivenSessionPersistObserver();
 
+      // mt#4323: wired for EVERY driven session, not only the task-bound ones.
+      // This used to sit inside the `hasTaskId` arm below, because its only job
+      // was the `driven_spawn` link — which genuinely needs a workspace session.
+      // The observer now ALSO records the conversation adoption, which every
+      // driven session has, so a scratch or cwd-launched session would
+      // otherwise have had no record of the conversations it adopted. The link
+      // half still self-gates on `minskySessionId` (null on those paths), so
+      // hoisting it adds the adoption without adding a spurious link.
+      onHarnessSessionLinked =
+        onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: "initial" });
+
       if (hasTaskId) {
         taskId = taskIdRaw as string;
         const resolve = opts.resolveTaskWorkspace ?? prodResolveTaskWorkspace;
         const workspace = await resolve(taskId);
         cwd = workspace.sessionDir;
         minskySessionId = workspace.minskySessionId;
-        onHarnessSessionLinked = onHarnessSessionLinked ?? createDrivenInitLinkObserver();
       } else if (hasCwd) {
         cwd = cwdRaw as string;
       } else {
@@ -233,6 +246,7 @@ export function mountDrivenSessionRoutes(
       }
 
       const { record } = startDrivenSession({
+        mcpServerNames: drivenSessionMcpServerNames(),
         cwd,
         permissionMode,
         model,
@@ -247,8 +261,9 @@ export function mountDrivenSessionRoutes(
       });
       res.status(201).json(toSessionSummary(record));
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "driven-sessions")) return;
       const message = err instanceof Error ? err.message : String(err);
-      log.error(`[driven-session] spawn failed: ${message}`);
+      log.error(`[driven-session] spawn failed: ${getLoggableErrorSummary(err)}`);
       res.status(500).json({ error: `Failed to start driven session: ${message}` });
     }
   });
@@ -323,8 +338,11 @@ export function mountDrivenSessionRoutes(
           return;
       }
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "driven-sessions")) return;
       const message = err instanceof Error ? err.message : String(err);
-      log.error(`[driven-session] attach failed for ${conversationIdRaw}: ${message}`);
+      log.error(
+        `[driven-session] attach failed for ${conversationIdRaw}: ${getLoggableErrorSummary(err)}`
+      );
       res.status(500).json({ error: `Failed to attach driven session: ${message}` });
     }
   });

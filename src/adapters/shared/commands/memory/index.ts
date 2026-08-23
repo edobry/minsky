@@ -575,8 +575,20 @@ async function resolveMemoryService(
 
   const db = connection as MemoryServiceDb;
 
-  const { MemoryService: MemoryServiceClass } = await import("@minsky/domain/memory");
-  return new MemoryServiceClass({ db, vectorStorage, embeddingService });
+  // mt#1709: the tasks table lives in the same Postgres connection, so read-time staleness
+  // annotation costs one extra query per search and no new service dependency. Taken off
+  // the barrel rather than a deep path — that specifier is already proven to resolve at
+  // runtime here, and a deep import's `exports` resolution is exactly the class of thing
+  // that typechecks clean and fails on first execution (mt#2760).
+  const { MemoryService: MemoryServiceClass, createTaskStatusLookup } = await import(
+    "@minsky/domain/memory"
+  );
+  return new MemoryServiceClass({
+    db,
+    vectorStorage,
+    embeddingService,
+    taskStatusLookup: createTaskStatusLookup(db),
+  });
 }
 
 // ─── ADR-021 project scope resolution ────────────────────────────────────────

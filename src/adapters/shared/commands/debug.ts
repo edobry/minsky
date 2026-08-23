@@ -15,6 +15,7 @@ import { GuardHealthTracker } from "../../../mcp/guard-health-tracker";
 import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
 import { getSourceFreshness } from "../../../mcp/source-freshness";
 import { getLastGithubRateLimitSnapshot } from "@minsky/domain/repository/github-rate-limit-state";
+import { getPoolerSaturation } from "@minsky/domain/persistence/raw-sql-pooler-guard";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -271,6 +272,23 @@ export function registerDebugCommands(): void {
            */
           asks: askStateCounts,
           embeddingsHealth: EmbeddingsHealthTracker.getInstance().getSummary(),
+          /**
+           * Pooler saturation (mt#4308).
+           *
+           * The signal that did not exist on 2026-08-19, when an
+           * `ECHECKOUTTIMEOUT` mid-write was the FIRST notice that the Supavisor
+           * client budget (200 for this project's compute tier) had been
+           * exhausted, and nothing aggregated it — so the recurrence read as an
+           * unrelated flake. `everSaturated: true` survives the burst that
+           * caused it, which `inFlight`/`queued` alone do not once things settle.
+           *
+           * COVERAGE BOUND: observes the mt#2773-guarded `.unsafe()` path only.
+           * Drizzle's driver traffic and `sql.begin()` transactions reach the raw
+           * client untouched and contend for the same pool, so `saturated: true`
+           * is sufficient evidence of pressure but its absence is NOT evidence
+           * of headroom. `null` means no pool has been opened in this process.
+           */
+          poolerSaturation: getPoolerSaturation(),
           /**
            * Loaded-source freshness (mt#2335).
            *

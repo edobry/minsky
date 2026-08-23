@@ -36,6 +36,19 @@ export interface ChecksResult {
   allPassed: boolean;
   /** Set to true only when returned from a wait-loop that exceeded its deadline. */
   timedOut?: boolean;
+  /**
+   * Why the observed checks cannot be read as merge-readiness, when they
+   * cannot (mt#4182). Set by {@link applyMergeStateToChecks} at the
+   * composition layer — NOT by the CI fetch, which reports only what it saw.
+   *
+   * The case this exists for: a PR with merge conflicts never gets a
+   * `refs/pull/N/merge` ref, so GitHub dispatches no `pull_request` workflow
+   * and the only check present is one that does not need that ref — the
+   * reviewer bot's own findings run. One passing check clears the
+   * `allChecks.length > 0` floor below, and the result reads green for a PR
+   * whose CI never ran.
+   */
+  mergeBlocked?: string;
   summary: {
     total: number;
     passed: number;

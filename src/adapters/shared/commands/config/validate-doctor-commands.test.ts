@@ -89,20 +89,48 @@ describe("checkGithubAppPermissionDrift (mt#3218)", () => {
     expect(result.message).toContain("No GitHub App service account configured");
   });
 
+  /**
+   * The permission set the live `minsky-ai` App holds, read from `GET /app` on
+   * 2026-08-19 (mt#3264). Using the real set keeps a "pass" case honest: before
+   * mt#3264, `workflows`/`actions` were absent from REQUIRED_APP_PERMISSIONS, so
+   * this check passed on an App that could not push a workflow file at all.
+   */
+  const LIVE_APP_PERMISSIONS: Record<string, string> = {
+    actions: "write",
+    contents: "write",
+    metadata: "read",
+    pull_requests: "write",
+    workflows: "write",
+  };
+
   test("all required permissions present → pass", async () => {
     const result = await checkGithubAppPermissionDrift({
       slug: "minsky-ai",
-      permissions: { pull_requests: "write", contents: "write", metadata: "read" },
+      permissions: { ...LIVE_APP_PERMISSIONS },
     });
 
     expect(result.status).toBe("pass");
     expect(result.message).toContain("minsky-ai");
   });
 
+  test("workflows absent → warning naming the settings URL (mt#3264 case)", async () => {
+    const withoutWorkflows = { ...LIVE_APP_PERMISSIONS };
+    delete withoutWorkflows.workflows;
+
+    const result = await checkGithubAppPermissionDrift({
+      slug: "minsky-ai",
+      permissions: withoutWorkflows,
+    });
+
+    expect(result.status).toBe("warning");
+    expect(result.message).toContain("workflows");
+    expect(result.suggestion).toContain("https://github.com/settings/apps/minsky-ai/permissions");
+  });
+
   test("contents:read instead of contents:write → warning naming the settings URL (mt#3210 case)", async () => {
     const result = await checkGithubAppPermissionDrift({
       slug: "minsky-ai",
-      permissions: { pull_requests: "write", contents: "read", metadata: "read" },
+      permissions: { ...LIVE_APP_PERMISSIONS, contents: "read" },
     });
 
     expect(result.status).toBe("warning");

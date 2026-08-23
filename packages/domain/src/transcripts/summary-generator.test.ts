@@ -20,6 +20,7 @@ import { describe, test, expect } from "bun:test";
 
 import type { CognitionProvider, CognitionResult, CognitionTask } from "../cognition/types";
 import type { ExtractedTurn } from "./turn-extractor";
+import { OPERATOR_ORIGIN } from "./user-line-origin";
 import { SummaryGenerator } from "./summary-generator";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
@@ -37,6 +38,7 @@ function makeTurn(
   return {
     turnIndex,
     userText: opts.userText ?? `user prompt ${turnIndex}`,
+    userOrigin: OPERATOR_ORIGIN,
     assistantText: opts.assistantText ?? `assistant response ${turnIndex}`,
     toolCalls: opts.toolNames ? opts.toolNames.map((name) => ({ type: "tool_use", name })) : null,
     startedAt: null,

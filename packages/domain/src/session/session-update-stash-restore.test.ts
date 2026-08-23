@@ -16,6 +16,7 @@
 import { describe, it, expect } from "bun:test";
 import { updateSessionImpl } from "./session-update-operations";
 import {
+  describeParkedStash,
   restoreSessionStash,
   isGeneratedPath,
   type StashRestoreGitDeps,
@@ -319,5 +320,69 @@ describe("restoreSessionStash", () => {
     expect(outcome.restored).toBe(true);
     expect(outcome.stashRef).toBe("stash@{0}");
     expect(popCalls).toBe(1);
+  });
+});
+
+/**
+ * mt#3660 / PR #3076 R1: a stash ref reaching an executed shell command must be
+ * shell-quoted.
+ *
+ * Scope note, because it is easy to over-claim here: this asserts the command
+ * STRING we build, which is the only part a fake can speak to. Whether git then
+ * ACCEPTS a quoted ref is a different question, answered by the real-git suite
+ * (`session-stash-restore-real-git.test.ts` resolves a buried `stash@{1}` end to
+ * end). The two together cover what neither can alone — see mem#704's eighth
+ * costume, which this module is the origin of.
+ *
+ * The discriminating power is real but bounded: this test fails if the quoting is
+ * removed. It is NOT a reproduction of shell brace-expansion — measured, single-
+ * element braces do not expand in bash or zsh (`stash@{1}` stays literal;
+ * expansion needs a comma-list or range), so the unquoted form happened to work.
+ * Quoting is defense against the class, not a fix for an observed misparse.
+ */
+describe("describeParkedStash — shell-quotes the ref it interpolates (mt#3660)", () => {
+  function makeRecordingGit(stashListOutput: string): {
+    git: StashRestoreGitDeps;
+    commands: string[];
+  } {
+    const commands: string[] = [];
+    return {
+      commands,
+      git: {
+        async popStash() {
+          return { workdir: "/w", stashed: true };
+        },
+        async execInRepository(_workdir: string, command: string) {
+          commands.push(command);
+          if (command.includes("stash list")) return stashListOutput;
+          if (command.includes(STASH_SHOW_CMD)) return "src/work.ts";
+          return "";
+        },
+      },
+    };
+  }
+
+  it("quotes a buried ref (stash@{1}) in the stash-show command", async () => {
+    const { git, commands } = makeRecordingGit(
+      "stash@{0} SHA_OTHER On b: other\nstash@{1} SHA_OURS On b: minsky session update"
+    );
+
+    const described = await describeParkedStash("/w", git, "SHA_OURS");
+
+    expect(described.stashRef).toBe("stash@{1}");
+    const showCmd = commands.find((c) => c.includes(STASH_SHOW_CMD));
+    expect(showCmd).toBeDefined();
+    // The ref must reach the shell inside single quotes, not bare.
+    expect(showCmd).toContain("'stash@{1}'");
+    expect(showCmd).not.toMatch(/--name-only stash@\{1\}$/);
+  });
+
+  it("quotes the positional default too", async () => {
+    const { git, commands } = makeRecordingGit("stash@{0} SHA_OURS On b: minsky session update");
+
+    await describeParkedStash("/w", git, "SHA_OURS");
+
+    const showCmd = commands.find((c) => c.includes(STASH_SHOW_CMD));
+    expect(showCmd).toContain("'stash@{0}'");
   });
 });

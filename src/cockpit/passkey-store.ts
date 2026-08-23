@@ -14,6 +14,11 @@ import {
 } from "@minsky/domain/storage/schemas/cockpit-auth-schema";
 
 import type { PasskeyStore, StoredPasskey } from "./passkey-auth";
+// mt#4398: the cockpit's argument-free wrapper over
+// `describePersistenceUnavailability` — it resolves the provider itself, which
+// is what makes it usable here where only a null `db` is in hand. No cycle:
+// `db-providers` does not import this module.
+import { describeServerPersistenceUnavailability } from "./db-providers";
 
 /**
  * A store that resolves its database connection on first use.
@@ -32,7 +37,14 @@ export function createLazyDrizzlePasskeyStore(
   async function resolveStore(): Promise<PasskeyStore> {
     if (cached) return cached;
     const db = await getDb();
-    if (!db) throw new Error("Cockpit passkey auth: no database connection available");
+    if (!db) {
+      // mt#4398: was a cause-free sentence. `check-sql-capability-messages`
+      // flagged it and nothing surfaced the flag, because that check has never
+      // been wired to run — which this task fixes in the same change.
+      throw new Error(
+        `Cockpit passkey auth: no database connection available. ${await describeServerPersistenceUnavailability()}`
+      );
+    }
     cached = createDrizzlePasskeyStore(db);
     return cached;
   }

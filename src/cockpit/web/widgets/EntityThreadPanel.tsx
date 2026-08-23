@@ -108,6 +108,19 @@ export interface EntityThreadResponse {
    * this field is the honest answer.
    */
   conversationSwap?: ConversationSwapInfo;
+
+  /**
+   * Replies restored from the harness transcript after the in-memory buffer
+   * died with a daemon restart (mt#4073). Absent when nothing was recovered.
+   */
+  recoveredReplies?: RecoveredRepliesInfo;
+}
+
+/** The recovery behind {@link EntityThreadResponse.recoveredReplies} (mt#4073). */
+export interface RecoveredRepliesInfo {
+  count: number;
+  /** ISO instant the oldest recovered reply was originally sent. */
+  oldestOriginallySentAt?: string;
 }
 
 /** The recorded swap behind {@link EntityThreadResponse.conversationSwap}. */
@@ -362,6 +375,28 @@ export function deriveConversationSwapNotice(swap: ConversationSwapInfo | undefi
   return "The earlier conversation couldn't be resumed, so a fresh agent took over — it has not seen the messages above.";
 }
 
+/**
+ * What to say about replies restored from the transcript (mt#4073).
+ *
+ * The notice exists because of WHERE a recovered reply lands, not merely that
+ * one did. `seq` is allocated `MAX(seq)+1` inside the insert, so a recovered
+ * reply appends at the TAIL while carrying its ORIGINAL timestamp — an answer
+ * from an hour ago sitting below messages that came after it. Unexplained, that
+ * reads as the agent repeating itself out of nowhere.
+ *
+ * Says "below" rather than naming a position: the thread renders in `seq` order
+ * and the recovered turns are always at the end, so that is the direction the
+ * operator has to look.
+ */
+export function deriveRecoveredRepliesNotice(
+  info: RecoveredRepliesInfo | undefined
+): string | null {
+  if (!info || info.count < 1) return null;
+  return info.count === 1
+    ? "A reply that failed to save was recovered from the agent's transcript — it's at the end of the thread, with the time it was originally sent."
+    : `${info.count} replies that failed to save were recovered from the agent's transcript — they're at the end of the thread, with the times they were originally sent.`;
+}
+
 export function deriveOriginNotice(originSeeded: boolean | undefined): string | null {
   if (originSeeded === true) return "Grounded in the conversation that filed this.";
   if (originSeeded === false) return "The originating conversation isn't reachable for this one.";
@@ -478,6 +513,7 @@ export function EntityThreadPanel({
   const pendingNotice = derivePendingRepliesNotice(query.data?.pendingReplies);
   const stoppedNotice = deriveAgentStoppedNotice(query.data?.agentStopReason);
   const swapNotice = deriveConversationSwapNotice(query.data?.conversationSwap);
+  const recoveredNotice = deriveRecoveredRepliesNotice(query.data?.recoveredReplies);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -505,6 +541,18 @@ export function EntityThreadPanel({
       {swapNotice ? (
         <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-conversation-swap">
           {swapNotice}
+        </p>
+      ) : null}
+
+      {/* mt#4073: also outside the pending/stopped/stranded chain, and for the
+          same reason the swap notice is. Those answer "why is no reply coming?";
+          this answers "why is an old reply sitting at the bottom?" — and a
+          thread can need both at once, since the restart that recovered one
+          reply is often the restart that stranded another. Placed under the
+          history because that is where the recovered turns are. */}
+      {recoveredNotice ? (
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-recovered-replies">
+          {recoveredNotice}
         </p>
       ) : null}
 

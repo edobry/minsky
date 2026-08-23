@@ -280,10 +280,14 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "chained-verification-commands",
         "truncated-outcome-read",
         "check-guessed-session-path",
+        "cli-mcp-substitution",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
+        "context-fill-gauge",
+        "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
+        "inject-ask-responses",
         "inject-current-time",
         "inject-dispatch-watchdog",
         "inject-git-state",
@@ -293,6 +297,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "mcp-daemon-staleness-detector",
         "negative-existence-claim-detector",
         "memory-search",
+        // mt#4215 — also a `renderProbe` producer, per the note above.
+        "nonexistent-search-path",
         "operator-deferral-ask-surface",
         "operator-deferral-detector",
         "pre-narration-detector",
@@ -300,6 +306,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "retrospective-trigger-scanner",
         "silent-stretch-detector",
         "skill-staleness-detector",
+        "spec-criterion-claim-detector",
         "substrate-bypass-detector",
         "turn-end-bare-ref-scan",
         "turn-end-retro-scan",
@@ -367,7 +374,17 @@ type FeedbackShape =
   | "render-probe-sample";
 
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
-  "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
+  // mt#4234: was `"capped"`, citing `cappedEvidenceLines x2` — which caps the
+  // LINE COUNT (3) and never binds, because `detectDeferralPhrases` breaks after
+  // one match per class. The PHRASE was uncapped: `matchedPhrase` is the regex's
+  // whole matched span and two patterns bound theirs only by the next sentence
+  // terminator, so the render grew 1:1 with the agent's prose. That is precisely
+  // the laundering this receipt's `RENDER_PROBE_SAMPLE` doc warns about — an
+  // annotation reading as a ceiling when it is a sample. Now genuinely bounded on
+  // both axes (`MAX_RENDERED_PHRASE_CHARS` per line, `cappedEvidenceLines` on the
+  // count) AND posed saturated by a `worstCaseCanary`, so it earns the stronger
+  // value rather than the one it used to assert.
+  "ask-routing-deferral-detector": WORST_CASE_CANARY,
   // Fixed body plus at most six PIDs (`pids.slice(0, 6)` then `…`) — the cap is
   // in `buildDenialReason`, so the message cannot grow with the kill's size.
   "block-bulk-process-kill": "capped",
@@ -388,13 +405,35 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // posed by a `worstCaseCanary` that saturates both at once, including the
   // longer (denial) directive branch (mt#3658).
   "flakiness-control-detector": WORST_CASE_CANARY,
+  // mt#4167: MAX_RENDERED_IDS with an `... and N more` line, and each id bounded
+  // by its own form (a two-letter prefix, a separator, digits). Both axes are
+  // saturated by the PRIMARY canary — which supplies `transcriptLines` so it
+  // reaches the injecting path — so no second canary and no `renderProbe`: this
+  // guard injects on real turns and belongs in the budget bucket.
+  "duplicate-check-candidate-read": "capped",
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
+  // mt#4215: capped on BOTH rendered axes — MAX_RENDERED_PATHS with an `…and N
+  // more` line, and MAX_SUGGESTIONS per entry — but the path STRINGS themselves
+  // are unbounded, so the probe is a saturated sample rather than a proved
+  // ceiling. Same classification, and same reason, as its sibling above.
+  "nonexistent-search-path": RENDER_PROBE_SAMPLE,
   // mt#4096: two interpolations, both bounded — the command is the pipeline stage
   // (itself bounded by the shell) and the filter is one of two literal tokens.
   "truncated-outcome-read": "capped",
+  // mt#4144: two interpolations, both a registry command id (a short dotted
+  // string) — the second is a pure transform of the first, so neither grows with
+  // the command being scanned.
+  "cli-mcp-substitution": "capped",
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
+  // mt#4291. Every interpolation is a NUMBER except the model id on the
+  // unknown-model path, which appends `assumed (model <id> not in the window
+  // table)`. No list, no excerpt, no finding enumeration — so the canary's
+  // render is the ceiling for any realistic model id (measured 269 known / 355
+  // fallback against the declared 400), not a sample of an unbounded axis.
+  "context-fill-gauge": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
+  "inject-ask-responses": "capped", // MAX_ENUMERATED_ASKS x (MAX_TITLE_CHARS + MAX_CHOSEN_RENDER_CHARS) (mt#3564)
   "inject-current-time": "fixed",
   "inject-dispatch-watchdog": "capped", // MAX_ENUMERATED_FLAGS (mt#3485)
   "inject-git-state": "fixed",
@@ -406,11 +445,21 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // posed at its bound, but the DONE-task-id axis is not — one id per cited DONE
   // task, no `…and N more`. Sample, not ceiling, until that cap lands.
   "negative-existence-claim-detector": RENDER_PROBE_SAMPLE,
-  "pre-narration-detector": "fixed", // one excerpt, slice(0, 200)
+  // mt#4286: was "fixed", with the comment "one excerpt, slice(0, 200)". That
+  // described the calibration record's `context`, which `buildReminder` never
+  // renders. The render emits one LINE PER MATCHED CATEGORY, so it scales with
+  // the count — bounded by OUTCOME_CATEGORIES.length, which is "capped". Both
+  // axes are genuinely bounded, so `renderWorstCase` is a proved ceiling.
+  "pre-narration-detector": "capped", // one line per category, phrase at 200
   "require-duplicate-check-record": "fixed",
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)
   "silent-stretch-detector": "fixed",
   "skill-staleness-detector": "capped", // MAX_FILES_LISTED
+  // One block per flagged criterion and a spec may carry many, so the
+  // finding-count axis is UNBOUNDED — the criterion EXCERPT is capped (160 chars
+  // in the matcher) but the number of them is not. A saturated sample, not a
+  // proved ceiling; an `…and N more` cap is owed before injection is enabled.
+  "spec-criterion-claim-detector": RENDER_PROBE_SAMPLE,
   "substrate-bypass-detector": "fixed", // excerpts, slice(0, 200)
   // mt#3286: one line per finding, and a closing status report can name many
   // entities — so the ordinary canary measures the floor. The declared

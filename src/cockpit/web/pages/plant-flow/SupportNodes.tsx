@@ -130,10 +130,17 @@ export function LearningLoopNode(props: NodeProps<Node<LearningLoopNodeData>>) {
          * Interlock-history drill-down entry point (mt#2602 acceptance test 2/3).
          * Route renamed from /plant/weld-history (mt#2626, guard vocabulary
          * alignment); the `weld-history-link` test id is kept stable.
+         *
+         * Points at `/interceptors` since mt#4229 absorbed the drill-down there.
+         * The LABEL stays "interlock history": `src/cockpit/CLAUDE.md` fixes
+         * "interlock" as the domain noun for UI copy, and the plant board is UI
+         * copy — only the destination moved. Navigating straight to the target
+         * rather than through the redirect keeps the board off a hop that exists
+         * for bookmarks.
          */}
         <button
           type="button"
-          onClick={() => navigate("/plant/interlock-history")}
+          onClick={() => navigate("/interceptors")}
           className="self-start text-[8px] font-mono text-muted-foreground hover:text-foreground transition-colors underline decoration-dotted"
           data-testid="weld-history-link"
           aria-label="View interlock history — provenance timeline"

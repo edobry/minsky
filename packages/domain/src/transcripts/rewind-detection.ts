@@ -124,11 +124,7 @@ function hasAssistantDescendant(subtree: SessionContextSnapshotBlock[]): boolean
 }
 
 /**
- * Mark blocks belonging to superseded (rewound) operator-prompt branches with
- * `isAbandonedBranch: true`.
- *
- * Returns the SAME array reference when nothing is marked, so a conversation
- * with no rewind is untouched — the common path is not perturbed.
+ * The BLOCK IDS this stream's rewind shapes supersede.
  *
  * ## Live-branch selection rule (deterministic)
  *
@@ -144,10 +140,26 @@ function hasAssistantDescendant(subtree: SessionContextSnapshotBlock[]): boolean
  *    across repeated runs over the same input.
  *
  * Everything not selected is marked, along with its reachable descendants.
+ *
+ * ## Why this is split from the marking step, and returns ids (mt#4263)
+ *
+ * Split out of `markAbandonedRewindBranches` for mt#4263. A windowed snapshot
+ * cannot compute this from the blocks it returns: the rule above picks the live
+ * branch by comparing SIBLING SUBTREES, and a tail window truncates both sides
+ * of that comparison — so the same conversation yields a different verdict
+ * depending on where the window happens to cut, which is a wrong answer rather
+ * than a partial one. The windowed path therefore runs this over a
+ * structure-only projection of the FULL transcript (ids, uuid/parentUuid,
+ * timestamp, type, tool-result-ness — no message content) and applies the
+ * resulting id set to the blocks it actually returns.
+ *
+ * Ids rather than object identity because the set has to survive that crossing:
+ * the projection's block objects are not the objects the window returns. Block
+ * ids are unique per snapshot by construction (`<sessionId>:turn:<index>` /
+ * `<sessionId>:attachment:<index>`), so this is identity-equivalent for the
+ * unwindowed caller below.
  */
-export function markAbandonedRewindBranches(
-  blocks: SessionContextSnapshotBlock[]
-): SessionContextSnapshotBlock[] {
+export function computeAbandonedBlockIds(blocks: SessionContextSnapshotBlock[]): Set<string> {
   const blocksByUuid = new Map<string, SessionContextSnapshotBlock>();
   const childrenByParent = new Map<string, SessionContextSnapshotBlock[]>();
 
@@ -159,7 +171,7 @@ export function markAbandonedRewindBranches(
     else siblings.push(block);
   }
 
-  const abandoned = new Set<SessionContextSnapshotBlock>();
+  const abandoned = new Set<string>();
 
   for (const siblings of childrenByParent.values()) {
     const prompts = siblings.filter(isOperatorPrompt);
@@ -189,13 +201,46 @@ export function markAbandonedRewindBranches(
     for (const prompt of prompts) {
       if (prompt === live) continue;
       for (const block of subtrees.get(prompt) as SessionContextSnapshotBlock[])
-        abandoned.add(block);
+        abandoned.add(block.id);
     }
   }
 
+  return abandoned;
+}
+
+/**
+ * Apply an already-computed abandoned-id set to `blocks`.
+ *
+ * Returns the SAME array reference when nothing in it is marked, preserving the
+ * caller-visible "untouched on the common path" property the unwindowed
+ * assembler relies on.
+ */
+export function applyAbandonedBlockIds(
+  blocks: SessionContextSnapshotBlock[],
+  abandoned: ReadonlySet<string>
+): SessionContextSnapshotBlock[] {
   if (abandoned.size === 0) return blocks;
+  if (!blocks.some((block) => abandoned.has(block.id))) return blocks;
 
   return blocks.map((block) =>
-    abandoned.has(block) ? { ...block, isAbandonedBranch: true } : block
+    abandoned.has(block.id) ? { ...block, isAbandonedBranch: true } : block
   );
+}
+
+/**
+ * Mark blocks belonging to superseded (rewound) operator-prompt branches with
+ * `isAbandonedBranch: true`.
+ *
+ * Whole-stream form: computes the abandoned set from the same blocks it marks.
+ * Correct only when `blocks` IS the whole conversation — which is exactly the
+ * unwindowed assembler's case. A windowed caller composes the two halves
+ * itself, running `computeAbandonedBlockIds` over a full-transcript projection.
+ *
+ * Returns the SAME array reference when nothing is marked, so a conversation
+ * with no rewind is untouched — the common path is not perturbed.
+ */
+export function markAbandonedRewindBranches(
+  blocks: SessionContextSnapshotBlock[]
+): SessionContextSnapshotBlock[] {
+  return applyAbandonedBlockIds(blocks, computeAbandonedBlockIds(blocks));
 }

@@ -415,6 +415,52 @@ describe("PostgresVectorPersistenceProvider", () => {
 
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
+
+  // mt#4298 regression. Vector storage runs EVERY query through `.unsafe()` —
+  // the `<-> $1::vector` search, store, delete — which is precisely the surface
+  // mt#2773's pooler guard bounds. Handing it the raw client left that traffic
+  // as unguarded fan-out at the Supavisor transaction pooler, whose wedge leaves
+  // postgres-js promises permanently unsettled: tasks_search hung with no error
+  // for 81 minutes across three sessions on 2026-08-19.
+  test("getVectorStorageForDomain() hands vector storage the guarded client, not the raw one", async () => {
+    const rawSqlFunction = mock((strings: TemplateStringsArray, ..._values: any[]) => {
+      const queryString = (strings as unknown as string[])[0] ?? "";
+      if (queryString.includes("pg_extension") && queryString.includes("vector")) {
+        return Promise.resolve([{ exists: true }]);
+      }
+      return Promise.resolve([]);
+    });
+    const rawSql = Object.assign(rawSqlFunction, {
+      options: { parsers: {}, serializers: {}, max: 10 },
+      query: mock(() => Promise.resolve([])),
+      end: mock(() => Promise.resolve()),
+      unsafe: mock(() => Promise.resolve([])),
+    });
+
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        connectTimeout: 15,
+        idleTimeout: 60,
+      },
+    };
+    const provider = new PostgresVectorPersistenceProvider(config);
+    await provider.initialize({ sqlClient: rawSql as any });
+
+    const guarded = await provider.getRawSqlConnection();
+    const storage = provider.getVectorStorageForDomain("tasks" as never, 1536);
+    const storageSql = (storage as unknown as { sql: unknown }).sql;
+
+    // The fix: vector storage gets the SAME memoized guarded instance every
+    // other `.unsafe()` consumer gets. Identity matters — the guard's bound is
+    // a shared in-flight counter, so a second wrap would admit `max` again.
+    expect(storageSql).toBe(guarded);
+
+    // Negative control: this is the assertion that fails pre-fix, where
+    // getVectorStorageForDomain passed `this.sql` straight through.
+    expect(storageSql).not.toBe(rawSql);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -899,6 +945,38 @@ describe("createBoundedSocket (mt#3592)", () => {
       for (const socket of chatter) socket.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+});
+
+describe("per-process pool default (mt#4308)", () => {
+  test("with no configured maxConnections, the pool is sized from the measured pooler budget", () => {
+    const prior = process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+    delete process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+    try {
+      const { factory, getCapturedArgs } = makeMockPostgresFactory();
+      buildPostgresClient({ connectionString: TEST_CONNECTION_STRING }, factory as any);
+
+      // floor(POOLER_CLIENT_BUDGET 200 * POOL_BUDGET_FRACTION 0.5 /
+      //       ASSUMED_CONCURRENT_POOL_HOLDERS 12) = 8, above the floor of 4.
+      //
+      // Asserting the NUMBER, not the formula: the point of mt#4308 is that the
+      // value follows from measured inputs, so a future change to any input
+      // should land here and force a reader to re-check the arithmetic rather
+      // than silently re-tune the fleet's connection demand.
+      expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(8);
+    } finally {
+      if (prior === undefined) delete process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+      else process.env.MINSKY_POSTGRES_MAX_CONNECTIONS = prior;
+    }
+  });
+
+  test("an explicit config value still wins over the derived default", () => {
+    const { factory, getCapturedArgs } = makeMockPostgresFactory();
+    buildPostgresClient(
+      { connectionString: TEST_CONNECTION_STRING, maxConnections: 21 },
+      factory as any
+    );
+    expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(21);
   });
 });
 

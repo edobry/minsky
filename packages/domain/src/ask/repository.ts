@@ -20,6 +20,9 @@
  */
 
 import { injectable } from "tsyringe";
+// Value import, and safe from a cycle: `edit.ts`'s only import from this module
+// is `import type`, which is erased at runtime (PR #3162 R1).
+import { stripReservedProvenanceKeys, sanitizeMetadata, CANCELLATION_METADATA_KEY } from "./edit";
 import {
   and,
   count,
@@ -38,7 +41,14 @@ import { asksTable } from "../storage/schemas/ask-schema";
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
-import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
+import {
+  guardTransition,
+  isTerminal,
+  ALL_ASK_STATES,
+  TERMINAL_ASK_STATES,
+  OPEN_ASK_STATES,
+  type OpenAskState,
+} from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 
@@ -130,7 +140,23 @@ export function toAsk(row: AskRecord): Ask {
  *
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
-function toInsert(input: CreateAskInput): AskInsert {
+/**
+ * Build the Drizzle insert row for a create.
+ *
+ * Exported for tests (mt#4331) so the create path's metadata filtering can be
+ * asserted without a live DB, and compared key-for-key against
+ * `FakeAskRepository.create`. Mirrors the existing `toAsk` export, which
+ * `repository.test.ts` already imports for the same reason — a pure mapping
+ * function is the right seam, so no double has to be patched (ADR-036).
+ *
+ * @internal Not part of this module's supported surface: it exists so the row
+ * builder is directly assertable, and callers outside this file and its tests
+ * should go through `DrizzleAskRepository.create`. Kept beside `toAsk` rather
+ * than moved to a test-only module (PR #3197 R1 raised that option) so the two
+ * row-mapping functions stay adjacent to the schema they map — splitting them
+ * would put the insert mapper further from the code it has to track.
+ */
+export function toInsert(input: CreateAskInput): AskInsert {
   // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
   // deferral from mt#2416). The resolved project uuid is threaded in via
   // CreateAskInput.projectId (resolved at the asks.create execute callsite,
@@ -165,7 +191,27 @@ function toInsert(input: CreateAskInput): AskInsert {
     // claim a page it never sent, which is exactly what the marker exists to
     // prevent (mt#3595).
     principalPagedAt: null,
-    metadata: input.metadata ?? {},
+    // editHistory / originalContent are the substrate's record, not a caller's
+    // input — same rule as principalPagedAt above (PR #3162 R1). Stripping here
+    // is what makes the reservation real: a planted "original" would otherwise
+    // survive to the first edit and pre-empt the genuine capture.
+    //
+    // mt#4331: `sanitizeMetadata` runs here too, so a forbidden key is BLOCKED at
+    // the create boundary rather than only scrubbed later on the way through an
+    // edit.
+    //
+    // Ordered to match `editAskContent`'s merge, for comparability. The order is
+    // NOT load-bearing — but only because `defineOwnKey` made the copy safe
+    // (PR #3197 R1). Before that, `stripReservedProvenanceKeys` copied via
+    // `out[key] = value`, which for `__proto__` invokes the prototype setter, so
+    // strip-first built an object whose prototype WAS the payload. That was fixed
+    // at the copy rather than pinned here, because a call-site ordering rule
+    // cannot be enforced by any value-based test: both orders yield an identical
+    // final key set, so a swap would regress silently.
+    //
+    // The two stay separate functions because their requirements at the edit merge
+    // are opposite — provenance keys must SURVIVE it, forbidden keys must not.
+    metadata: stripReservedProvenanceKeys(sanitizeMetadata(input.metadata ?? {})),
   };
 }
 
@@ -354,6 +400,34 @@ export interface AskRepository {
    * @throws    `Error` — Ask not found.
    */
   transition(id: string, to: AskState): Promise<Ask>;
+
+  /**
+   * Merge a cancellation-provenance record into `metadata` ATOMICALLY (mt#3353).
+   *
+   * Exists because `transition(id, "cancelled")` writes `state` and `closedAt`
+   * and nothing else, so a cancelled Ask otherwise carries no record of who
+   * retired it or why — the reason ask#5681 sits terminal and unattributable.
+   *
+   * Deliberately NOT expressed as a read-merge-`updateContent` sequence, which
+   * is what shipped first and what PR #3190's review caught as BLOCKING: that
+   * shape reads `metadata`, merges in memory, and writes the whole object back,
+   * so a concurrent edit landing inside the window is silently clobbered — a
+   * lost update on the exact column whose job is provenance. This merges
+   * server-side with jsonb `||`, so no window exists. `updateContent`'s
+   * whole-object contract is unchanged and remains correct for its own callers,
+   * which compute a merge from a freshly-read Ask under the caller's own
+   * ordering.
+   *
+   * Only touches a NON-TERMINAL row, matching `updateContent`: the caller writes
+   * this immediately before the transition.
+   *
+   * @param id      Primary key of the Ask.
+   * @param record  The provenance object stored under the `cancellation` key.
+   * @returns       true when a row was updated; false when none matched (already
+   *                terminal, or gone) — never throws on a miss, because the
+   *                caller's cancellation must not fail on an audit-write miss.
+   */
+  recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean>;
 
   /**
    * Record a response on an Ask (state → "responded").
@@ -549,6 +623,89 @@ export interface AskRepository {
    * metrics) never need existence checks.
    */
   countByState(): Promise<Record<AskState, number>>;
+
+  /**
+   * Dwell-time statistics for OPEN asks, grouped by state (mt#4361).
+   *
+   * `countByState` above answers "how many are in each state" and is silent on
+   * the only question that distinguishes a healthy `routed` from a stranded
+   * one: how long they have been there. A snapshot count is byte-identical five
+   * minutes and five weeks after an ask routes, which is why 3,195 `detected`
+   * rows (mt#2257) and later five undelivered `routed` asks (mt#3353) were both
+   * found by a manual probe rather than by the signal built to surface them.
+   *
+   * Age is measured from the moment the ask ENTERED its current state, not from
+   * `createdAt` — the question is "how long undelivered", and an ask created
+   * long before it routed would otherwise read as stranded on arrival. Where a
+   * state has no dedicated timestamp column (`detected`, `classified`) the row's
+   * `createdAt` is the entry time.
+   *
+   * Terminal states are excluded rather than zero-filled: a closed ask has no
+   * meaningful dwell time, and a `Record` over all eight states would
+   * manufacture a `0` indistinguishable from a real zero-age ask.
+   *
+   * @param opts.nowMs             Clock, injected so tests need not depend on wall time.
+   * @param opts.stallThresholdMs  Dwell time past which an ask counts as stalled.
+   * @returns Every `OpenAskState` key, present and zeroed when the state is empty.
+   */
+  openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>>;
+}
+
+/**
+ * Dwell-time statistics for one open Ask state (mt#4361).
+ */
+export interface AskAgeStats {
+  /**
+   * Age in ms of the oldest ask in this state, measured from state entry.
+   *
+   * `null` — not `0` — when no ask is in the state. The two are different
+   * findings and only one of them is data: `0` means an ask entered this state
+   * just now.
+   */
+  oldestAgeMs: number | null;
+  /** Asks in this state whose dwell time exceeds the stall threshold. */
+  stalledCount: number;
+}
+
+/**
+ * A complete, empty `openStateAgeStats` result — every `OpenAskState` key
+ * present, `oldestAgeMs: null` (no ask, as distinct from a zero-age one).
+ *
+ * Shared by both repository implementations and by the state-counts provider's
+ * unavailable path, so all three agree on what "nothing to report" looks like.
+ */
+export function emptyOpenStateAgeStats(): Record<OpenAskState, AskAgeStats> {
+  return Object.fromEntries(
+    OPEN_ASK_STATES.map((s) => [s, { oldestAgeMs: null, stalledCount: 0 }])
+  ) as Record<OpenAskState, AskAgeStats>;
+}
+
+/**
+ * When an Ask entered its CURRENT state (mt#4361).
+ *
+ * **This MUST stay equivalent to the `stateSince` COALESCE in
+ * `DrizzleAskRepository.openStateAgeStats`** — the same semantics exist twice,
+ * once in SQL for Postgres and once here for the fake, and a divergence would
+ * make the hermetic tests agree with a production query that behaves
+ * differently. `openStateAgeStats` is covered against both implementations for
+ * that reason.
+ *
+ * `createdAt` is `notNull` in the schema, so the fallback always yields a value.
+ */
+function stateEntryIso(ask: Ask): string {
+  switch (ask.state) {
+    case "routed":
+      return ask.routedAt ?? ask.createdAt;
+    case "suspended":
+      return ask.suspendedAt ?? ask.createdAt;
+    case "responded":
+      return ask.respondedAt ?? ask.createdAt;
+    default:
+      return ask.createdAt;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -972,6 +1129,24 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    // jsonb `||` merges right-into-left server-side, so the read and the write
+    // are one statement and no concurrent edit can be lost. COALESCE covers a
+    // NULL metadata column, where `||` would otherwise yield NULL and erase the
+    // record we are trying to write.
+    const merged = sanitizeForPostgresDeep({ [CANCELLATION_METADATA_KEY]: record }).value;
+    const rows = await this.db
+      .update(asksTable)
+      .set({
+        metadata: sql`COALESCE(${asksTable.metadata}, '{}'::jsonb) || ${JSON.stringify(merged)}::jsonb`,
+      })
+      .where(
+        and(eq(asksTable.id, id), notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[]))
+      )
+      .returning();
+    return rows.length > 0;
+  }
+
   async respond(id: string, rawInput: RespondAskInput): Promise<Ask> {
     // mt#3278 — see `create` above.
     const input: RespondAskInput = sanitizeForPostgresDeep(rawInput).value;
@@ -1270,6 +1445,52 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return counts;
   }
+
+  async openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>> {
+    const nowIso = new Date(opts.nowMs).toISOString();
+
+    // When the row entered its CURRENT state. `routed`/`suspended`/`responded`
+    // each carry their own stamp; `detected` and `classified` have no column, so
+    // creation IS state entry for them. The COALESCE also covers a row whose
+    // stamp is NULL because it predates that column.
+    const stateSince = sql`coalesce(
+      case ${asksTable.state}
+        when 'routed' then ${asksTable.routedAt}
+        when 'suspended' then ${asksTable.suspendedAt}
+        when 'responded' then ${asksTable.respondedAt}
+      end,
+      ${asksTable.createdAt}
+    )`;
+    const ageMs = sql`(extract(epoch from (${nowIso}::timestamptz - ${stateSince})) * 1000)`;
+
+    // `max()` and `count()` come back as strings from postgres-js for the
+    // numeric/bigint result types, hence the Number() coercions below.
+    const rows = await this.db
+      .select({
+        state: asksTable.state,
+        oldestAgeMs: sql<string | null>`max(${ageMs})`,
+        stalledCount: sql<string>`count(*) filter (where ${ageMs} > ${opts.stallThresholdMs})`,
+      })
+      .from(asksTable)
+      .where(inArray(asksTable.state, [...OPEN_ASK_STATES]))
+      .groupBy(asksTable.state);
+
+    const stats = emptyOpenStateAgeStats();
+    for (const row of rows) {
+      if (!(OPEN_ASK_STATES as readonly string[]).includes(row.state)) continue;
+      stats[row.state as OpenAskState] = {
+        // Deliberately NOT clamped at zero: a negative age means this process's
+        // clock is behind the stamp Postgres wrote, and clamping would render
+        // clock skew as a healthy zero.
+        oldestAgeMs: row.oldestAgeMs === null ? null : Math.round(Number(row.oldestAgeMs)),
+        stalledCount: Number(row.stalledCount),
+      };
+    }
+    return stats;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,6 +1527,23 @@ export class FakeAskRepository implements AskRepository {
     this.idCounter = 0;
   }
 
+  /**
+   * Insert a fully-formed Ask directly, bypassing `create` (test seam, mt#4361).
+   *
+   * `create` stamps `createdAt` from the wall clock and `transition` stamps the
+   * per-state columns the same way, so a fixture of asks with DIFFERENT ages —
+   * the entire subject of `openStateAgeStats` — cannot be built through the
+   * normal path. Injecting a clock into the QUERY does not help: one `nowMs`
+   * ages every row written in the same millisecond identically.
+   *
+   * A seam rather than a mutation through the `all` getter, which happens to
+   * return live references today and would silently stop working the day it
+   * returns copies.
+   */
+  seed(ask: Ask): void {
+    this.store.set(ask.id, ask);
+  }
+
   async create(input: CreateAskInput): Promise<Ask> {
     const id = `fake-ask-${++this.idCounter}`;
     // Mirrors DrizzleAskRepository's minting (mt#2965): sequential ask#N,
@@ -1339,7 +1577,15 @@ export class FakeAskRepository implements AskRepository {
       // NOT initialized from input — same rule as the Drizzle backend: only
       // claimPrincipalPage writes it.
       severity: input.severity,
-      metadata: input.metadata ?? {},
+      // Mirrors the Drizzle backend's reservation (PR #3162 R1) — the fake must
+      // not be more permissive than the real thing, or a test would pass against
+      // behaviour production does not have. mt#4331 extends that same parity to
+      // `sanitizeMetadata`: a fake that filtered fewer keys than the Drizzle
+      // backend would let a pollution test pass against behaviour production
+      // does not have — the double becoming the assertion target instead of the
+      // behavior (ADR-036), which is the argument this comment already makes for
+      // the provenance keys.
+      metadata: stripReservedProvenanceKeys(sanitizeMetadata(input.metadata ?? {})),
     };
     this.store.set(id, ask);
     return { ...ask };
@@ -1479,6 +1725,22 @@ export class FakeAskRepository implements AskRepository {
 
     this.store.set(id, updated);
     return { ...updated };
+  }
+
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    const existing = this.store.get(id);
+    // Mirrors the Drizzle `where`: non-terminal rows only, and a miss is a
+    // `false` return rather than a throw.
+    if (!existing || isTerminal(existing.state)) return false;
+
+    // Reads and writes in one synchronous step, which is this fake's equivalent
+    // of the jsonb `||` the Drizzle implementation uses — the merge cannot
+    // interleave with another caller.
+    this.store.set(id, {
+      ...existing,
+      metadata: { ...(existing.metadata ?? {}), [CANCELLATION_METADATA_KEY]: record },
+    });
+    return true;
   }
 
   async respond(id: string, input: RespondAskInput): Promise<Ask> {
@@ -1678,6 +1940,23 @@ export class FakeAskRepository implements AskRepository {
       counts[ask.state] += 1;
     }
     return counts;
+  }
+
+  async openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>> {
+    const stats = emptyOpenStateAgeStats();
+    for (const ask of this.store.values()) {
+      if (!(OPEN_ASK_STATES as readonly string[]).includes(ask.state)) continue;
+      const ageMs = opts.nowMs - Date.parse(stateEntryIso(ask));
+      // An unparseable stamp is malformed fixture data, not a zero-age ask.
+      if (Number.isNaN(ageMs)) continue;
+      const entry = stats[ask.state as OpenAskState];
+      if (entry.oldestAgeMs === null || ageMs > entry.oldestAgeMs) entry.oldestAgeMs = ageMs;
+      if (ageMs > opts.stallThresholdMs) entry.stalledCount += 1;
+    }
+    return stats;
   }
 
   /**

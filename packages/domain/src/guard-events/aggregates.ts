@@ -31,12 +31,25 @@
  */
 import { and, eq, gte, isNotNull, lte, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { guardEventsTable } from "../storage/schemas/guard-events-schema";
+import {
+  guardEventFireLogRollupTable,
+  guardEventsTable,
+} from "../storage/schemas/guard-events-schema";
 
 /** Catalog above-the-fold window (AT1: "denials per guard per week"). */
 export const CATALOG_WINDOW_DAYS = 7;
 
-const FIRE_LOG_STREAM = "fire-log";
+/**
+ * The fire-log stream discriminator.
+ *
+ * Exported so `fire-log-rollup.ts` uses THIS value rather than its own copy
+ * (PR #3191 R1). The rollup's fold and `fireLogWhere` below must select the
+ * same population or the maintained value drifts from the rebuild — the same
+ * hazard the reviewer caught in the guard-name predicate, one constant over.
+ * Two string literals that must stay equal are a latent divergence; one export
+ * is not.
+ */
+export const FIRE_LOG_STREAM = "fire-log";
 
 // ---------------------------------------------------------------------------
 // Fetched row shapes
@@ -82,7 +95,14 @@ function fireLogWhere(since?: Date, guardName?: string, until?: Date): SQL | und
     isNotNull(guardEventsTable.guardName),
     ...(since ? [gte(guardEventsTable.occurredAt, since)] : []),
     ...(until ? [lte(guardEventsTable.occurredAt, until)] : []),
-    ...(guardName ? [eq(guardEventsTable.guardName, guardName)] : [])
+    // `!== undefined`, NOT truthiness (PR #3191 R2). The empty string is a
+    // VALID guard name here — `isNotNull` above admits it — so `guardName ? …`
+    // silently drops the filter for `""` and returns the WHOLE population
+    // where the caller asked for one guard. A missing filter fails open, which
+    // is why this reads as a plausible result rather than an error. The `since`
+    // and `until` guards above are safe under truthiness only because a Date
+    // is never falsy; do not copy their shape for a string.
+    ...(guardName !== undefined ? [eq(guardEventsTable.guardName, guardName)] : [])
   );
 }
 
@@ -137,7 +157,9 @@ export async function fetchFireLogDecisionCounts(
 export async function fetchFireLogDurations(
   db: PostgresJsDatabase,
   since: Date,
-  guardName?: string
+  guardName?: string,
+  /** Optional inclusive upper bound — mirrors the decision-count fetcher, so the verify script can bound a window behind ingest lag (mt#4057 AT4). */
+  until?: Date
 ): Promise<FireLogDurationRow[]> {
   const rows = await db
     .select({
@@ -149,7 +171,7 @@ export async function fetchFireLogDurations(
       measuredFires: sql<number>`count(${guardEventsTable.durationMs})::int`,
     })
     .from(guardEventsTable)
-    .where(and(fireLogWhere(since, guardName), isNotNull(guardEventsTable.durationMs)))
+    .where(and(fireLogWhere(since, guardName, until), isNotNull(guardEventsTable.durationMs)))
     .groupBy(guardEventsTable.guardName);
   return rows.map((r) => ({
     guardName: r.guardName as string,
@@ -163,9 +185,19 @@ export async function fetchFireLogDurations(
 
 /**
  * All-time per-guard totals + first/last fire. This is the POPULATION query
- * (SC3: the population is fire-log-derived distinct `guardName`) — a full
- * fire-log-stream scan, which is why it runs only inside the off-request
- * refresh, never per request.
+ * (SC3: the population is fire-log-derived distinct `guardName`).
+ *
+ * Reads the MAINTAINED rollup (`guard_event_fire_log_rollup`), not
+ * `guard_events` — a primary-key lookup when `guardName` is given, a ~109-row
+ * seq scan when it is not. It used to be a full `GROUP BY` over the whole
+ * corpus, which cost 2,193 ms / ~404 MB per refresh and 10,972 ms for the
+ * single-guard form (mt#4294). Because it is now cheap in BOTH forms, the
+ * "off-request refresh only, never per request" restriction this comment used
+ * to carry no longer applies — the per-guard detail path calls it directly.
+ *
+ * The rollup is maintained at ingest and rebuilt by
+ * `rebuildFireLogLifetimeRollup`; see `guardEventFireLogRollupTable`'s doc
+ * comment for why it cannot drift.
  */
 export async function fetchFireLogLifetime(
   db: PostgresJsDatabase,
@@ -173,16 +205,18 @@ export async function fetchFireLogLifetime(
 ): Promise<FireLogLifetimeRow[]> {
   const rows = await db
     .select({
-      guardName: guardEventsTable.guardName,
-      totalFires: sql<number>`count(*)::int`,
-      firstFireAt: sql<unknown>`min(${guardEventsTable.occurredAt})`,
-      lastFireAt: sql<unknown>`max(${guardEventsTable.occurredAt})`,
+      guardName: guardEventFireLogRollupTable.guardName,
+      totalFires: guardEventFireLogRollupTable.totalFires,
+      firstFireAt: guardEventFireLogRollupTable.firstFireAt,
+      lastFireAt: guardEventFireLogRollupTable.lastFireAt,
     })
-    .from(guardEventsTable)
-    .where(fireLogWhere(undefined, guardName))
-    .groupBy(guardEventsTable.guardName);
+    .from(guardEventFireLogRollupTable)
+    // `!== undefined`, not truthiness — see `fireLogWhere` (PR #3191 R2).
+    .where(
+      guardName !== undefined ? eq(guardEventFireLogRollupTable.guardName, guardName) : undefined
+    );
   return rows.map((r) => ({
-    guardName: r.guardName as string,
+    guardName: r.guardName,
     totalFires: r.totalFires,
     firstFireAt: toIsoOrNull(r.firstFireAt),
     lastFireAt: toIsoOrNull(r.lastFireAt),
@@ -226,11 +260,22 @@ export async function fetchFireLogOverrides(
 // Join shapes — structural types for the sections other modules own.
 // ---------------------------------------------------------------------------
 
-/** Structural mirror of `guard-canary-history.ts`'s GuardCanaryStatus. */
+/**
+ * Structural mirror of `guard-canary-history.ts`'s GuardCanaryStatus.
+ *
+ * The optional fields carry that type's ACTUAL names (mt#4057). They were
+ * `brokenSince` / `lastRunAt` until then — names the real status object never
+ * had, so reading either always yielded `undefined`; the index signature made
+ * that type-check and nothing read them, so the divergence was invisible.
+ */
 export interface CanaryStatusJoin {
   state: string;
-  brokenSince?: string | null;
-  lastRunAt?: string | null;
+  /** Present on `broken`. */
+  brokenSinceAt?: string | null;
+  /** Present on `broken` — the run that observed it still failing. */
+  lastCheckedAt?: string | null;
+  /** Present on `passing`. */
+  lastVerifiedAt?: string | null;
   [key: string]: unknown;
 }
 
@@ -306,6 +351,24 @@ export interface InterceptorAggregatesSnapshot {
   population: number;
   rows: InterceptorAggregateRow[];
   /**
+   * Rows for names the registry catalog DECLARES but the fire log has never
+   * recorded (mt#4057).
+   *
+   * Kept separate from `rows` rather than merged into it, because `population`
+   * above is contractually the fire-log-derived count and folding these in
+   * would silently redefine it. They exist because the health column needs
+   * them: `rows` is built from the fire-log lifetime query, so a declared
+   * interceptor that has NEVER fired appears in no row at all — and that is
+   * exactly the guard mt#3754 AT2 is about (zero fires, passing canary, must
+   * render dormant rather than broken or healthy-by-default). Without this
+   * section the dormant state is unreachable by construction.
+   *
+   * Their fire-log figures are genuinely zero (a measured absence, not a
+   * fabricated one); their canary/health/calibration sections are joined the
+   * same way every other row's are.
+   */
+  declaredOnlyRows: InterceptorAggregateRow[];
+  /**
    * Snapshot-level review-due list (calibration logs, whether or not their
    * mapped guard appears in the fire-log population) — the above-the-fold
    * attention count reads this, so an unmapped log is never silently dropped.
@@ -350,6 +413,14 @@ export interface AssembleInput {
   calibrationByGuard: ReadonlyMap<string, CalibrationLogJoin[]> | null;
   registryByGuard: ReadonlyMap<string, RegistryJoin> | null;
   calibrationReviewDue: InterceptorAggregatesSnapshot["calibrationReviewDue"] | null;
+  /**
+   * Every name the registry catalog declares (mt#4057). Those absent from
+   * `lifetime` become `declaredOnlyRows`. Omit (or pass empty) to keep the
+   * snapshot fire-log-only — a caller that cannot read the catalog artifact
+   * should omit rather than guess, since `registryByGuard: null` already
+   * records that failure.
+   */
+  declaredNames?: readonly string[];
 }
 
 function bucketDecision(decision: string | null): "allow" | "warn" | "deny" | "other" {
@@ -433,6 +504,13 @@ export function assembleInterceptorAggregates(input: AssembleInput): Interceptor
   if (input.calibrationByGuard === null) sourceFailures.push("calibration");
   if (input.registryByGuard === null) sourceFailures.push("registry");
 
+  const joinsFor = (guardName: string) => ({
+    canary: input.canaryByGuard?.get(guardName) ?? null,
+    health: input.healthByGuard?.get(guardName) ?? null,
+    calibration: input.calibrationByGuard?.get(guardName) ?? null,
+    registry: input.registryByGuard?.get(guardName) ?? null,
+  });
+
   const rows: InterceptorAggregateRow[] = [...input.lifetime]
     .sort((a, b) => a.guardName.localeCompare(b.guardName))
     .map((lifetime) => ({
@@ -445,10 +523,22 @@ export function assembleInterceptorAggregates(input: AssembleInput): Interceptor
           lastFireAt: lifetime.lastFireAt,
         },
       },
-      canary: input.canaryByGuard?.get(lifetime.guardName) ?? null,
-      health: input.healthByGuard?.get(lifetime.guardName) ?? null,
-      calibration: input.calibrationByGuard?.get(lifetime.guardName) ?? null,
-      registry: input.registryByGuard?.get(lifetime.guardName) ?? null,
+      ...joinsFor(lifetime.guardName),
+    }));
+
+  const inFireLog = new Set(rows.map((r) => r.guardName));
+  const declaredOnlyRows: InterceptorAggregateRow[] = [...new Set(input.declaredNames ?? [])]
+    .filter((name) => !inFireLog.has(name))
+    .sort((a, b) => a.localeCompare(b))
+    .map((guardName) => ({
+      guardName,
+      fireLog: {
+        // Zero here is MEASURED, not defaulted: the name is declared and the
+        // lifetime query — an all-time scan — returned no row for it.
+        window: windowSection(guardName),
+        lifetime: { totalFires: 0, firstFireAt: null, lastFireAt: null },
+      },
+      ...joinsFor(guardName),
     }));
 
   return {
@@ -456,6 +546,7 @@ export function assembleInterceptorAggregates(input: AssembleInput): Interceptor
     windowDays: input.windowDays,
     population: rows.length,
     rows,
+    declaredOnlyRows,
     calibrationReviewDue: input.calibrationReviewDue ?? [],
     sources: SNAPSHOT_SOURCES,
     sourceFailures,

@@ -59,6 +59,24 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes; preferences that set a durable default (a one-off preference call is yours to make). (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
 
+**Naming a category is necessary and NOT sufficient — cite the reserving ACT (mt#3855).** A
+reservation needs **principal provenance**: a quoted principal message, an ask response, or the LABEL
+of an option the principal explicitly selected. **Agent-authored artifact text is NOT provenance** —
+not a spec criterion, not an option's description or preview, not a PR body, not a memory; citing your
+own prose as a decision record is self-citation (`claim-confidence.mdc §The corpus is
+agent-authored`). Corollary: **selecting an option endorses its LABEL**, not a side-commitment buried
+in the preview text you wrote.
+
+**The first condition is a positive citation test too (mt#3855).** Quote the principal's words AND
+name which step the quote defers — its three examples each name the step outright. **A request to
+EXPLAIN is not a deferral of the work being explained**, so it does not hold and the chain walks.
+
+**A quote must SUPPORT the claim — either condition.** A genuine quote that does not say what the
+citation asserts fails the test; read it back before halting on it.
+
+Worked counter-examples for all three (R6 fabricated the reservation; R8 mis-cited a real quote):
+`/plan-task` Step 4.
+
 **Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
 - "Planning is the skill's scope; implementation is a separate skill."

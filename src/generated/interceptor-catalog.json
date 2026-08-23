@@ -6,7 +6,6 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 96,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -71,6 +70,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -81,7 +81,38 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "ask-permission-bridge",
+      "description": "Emits the harness `allow` decision for a command covered by a live grant whose `authorization.approve` ask verifies server-side as operator-approved, so an approval routed through Asks does not have to be given a second time at the permission prompt. DENIES the inverse — a grant whose ask is absent, unapproved, or not operator-attributed — because that pairing is a fabrication signal, not a miss.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/ask-permission-bridge.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "allow"
+        },
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "ask-permission-bridge"
     },
     {
       "guardName": "ask-routing-deferral-detector",
@@ -99,6 +130,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -114,7 +146,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "ask-routing-deferral-detector"
     },
     {
       "guardName": "auto-session-title",
@@ -130,6 +163,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -141,7 +175,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "auto-session-title"
     },
     {
       "guardName": "bare-prohibition",
@@ -160,6 +195,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -175,7 +211,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-bare-prohibition-dispatch"
     },
     {
       "guardName": "block-bulk-process-kill",
@@ -190,6 +227,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -200,7 +238,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-bulk-process-kill"
     },
     {
       "guardName": "block-concurrent-bulk-mutation",
@@ -218,6 +257,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -228,7 +268,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-concurrent-bulk-mutation"
     },
     {
       "guardName": "block-git-gh-cli",
@@ -243,6 +284,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -253,7 +295,35 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-git-gh-cli"
+    },
+    {
+      "guardName": "block-github-mcp-pr-writes",
+      "description": "Denies the GitHub MCP server's PR-write tools by name, pointing at the Minsky equivalent that routes through TokenProvider and records provenance. Without it a PR write lands under whatever identity the GitHub server holds.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/block-github-mcp-pr-writes.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-github-mcp-pr-writes"
     },
     {
       "guardName": "block-nested-fork-dispatch",
@@ -268,6 +338,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -278,7 +349,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-nested-fork-dispatch"
     },
     {
       "guardName": "block-out-of-band-merge",
@@ -293,6 +365,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -303,7 +376,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-out-of-band-merge"
     },
     {
       "guardName": "block-secret-file-read",
@@ -318,6 +392,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -328,7 +403,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-secret-file-read"
     },
     {
       "guardName": "block-subagent-bypass-merge",
@@ -346,6 +422,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -356,7 +433,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-subagent-bypass-merge"
     },
     {
       "guardName": "block-subagent-merge-without-grant",
@@ -374,6 +452,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -384,7 +463,36 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-subagent-merge-without-grant"
+    },
+    {
+      "guardName": "bridge-memory-retirement",
+      "description": "When a task reaches DONE or its PR merges, names any bridge memory tagged with that task so the retirement decision is made at the moment it becomes answerable. A bridge memory whose structural fix has shipped is stale guidance that still reads as current.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/bridge-memory-retirement.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "bridge-memory-retirement"
     },
     {
       "guardName": "build-claim-injection-detector",
@@ -399,6 +507,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -410,7 +519,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "build-claim-injection-detector"
     },
     {
       "guardName": "bun-build-sync-check",
@@ -425,6 +535,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -435,7 +546,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "calibration-review-cadence-detector",
@@ -454,6 +566,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -465,7 +578,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "calibration-review-cadence-detector"
     },
     {
       "guardName": "causal-premise-detector",
@@ -483,6 +597,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -494,7 +609,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "causal-premise-detector"
     },
     {
       "guardName": "chained-verification-commands",
@@ -512,6 +628,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -523,7 +640,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "chained-verification-commands-detector"
     },
     {
       "guardName": "check-branch-fresh",
@@ -538,6 +656,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -548,7 +667,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-branch-fresh"
     },
     {
       "guardName": "check-generated-file-edit",
@@ -563,6 +683,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -573,7 +694,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-generated-file-edit"
     },
     {
       "guardName": "check-guessed-session-path",
@@ -588,6 +710,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -598,7 +721,35 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-guessed-session-path"
+    },
+    {
+      "guardName": "check-prompt-watermark",
+      "description": "Denies an Agent dispatch whose prompt directs session work — naming a session path or a session-write tool — without the `minsky:prompt:v1` watermark that `session_generate_prompt` stamps. Read-only subagent types are exempt; a malformed payload allows.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [".minsky/hooks/check-prompt-watermark.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-prompt-watermark"
     },
     {
       "guardName": "check-task-spec-read",
@@ -613,6 +764,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -623,7 +775,36 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-task-spec-read"
+    },
+    {
+      "guardName": "claim-provenance-scan",
+      "description": "Records when a task spec asserts a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim (\"unowned\", \"no task covers this\"), and no call in the session could have established it — a `pull_request_read` for the cited PR, a path-filtered `git_log`, or a `tasks_search` preceding the write. Fires at the spec-WRITE seam, where both originating incidents wrote and where no PreToolUse guard existed before. Record-only: measured at one true positive in 16 fires (mt#4190 tunes it).",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/claim-provenance-scan.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "claim-provenance-scan"
     },
     {
       "guardName": "claude-hooks-compile-regen",
@@ -638,6 +819,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -648,7 +830,39 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "cli-mcp-substitution",
+      "description": "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/detect-cli-mcp-substitution.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "detect-cli-mcp-substitution"
     },
     {
       "guardName": "code-formatting",
@@ -663,6 +877,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -673,7 +888,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "code-mechanism-assertion-detector",
@@ -691,6 +907,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -706,7 +923,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "code-mechanism-assertion-detector"
     },
     {
       "guardName": "compile-check",
@@ -721,6 +939,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -731,7 +950,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "completion-manifest-regen",
@@ -746,6 +966,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -756,7 +977,35 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "conflict-marker-check",
+      "description": "Blocks a commit whose staged content carries git conflict markers. Unlike several siblings it does not skip `src/generated/**`, which is where a failed stash pop's corruption went unnoticed until an unrelated test failed to parse the file.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/conflict-marker-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "constructed-identifier-batch-detector",
@@ -774,6 +1023,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -785,7 +1035,36 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "constructed-identifier-batch-detector"
+    },
+    {
+      "guardName": "context-fill-gauge",
+      "description": "Records the session's own context fill against the model's window, every turn, alongside the turn count. The model has no introspective access to its token count, so this is the only channel that can supply one. Display-only: it reports and acts on nothing.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/context-fill-gauge.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "context-fill-gauge"
     },
     {
       "guardName": "denier",
@@ -801,13 +1080,15 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": null
     },
     {
       "guardName": "deploy-domain-check",
@@ -822,6 +1103,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -832,7 +1114,36 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "deploy-verification-after-merge",
+      "description": "After a merge that touched a deploy surface, injects the reminder that the task is not done until the post-merge deploy is verified healthy. It injects rather than blocks because DONE is set atomically at merge and the deploy only exists afterwards.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/deploy-verification-after-merge.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "deploy-verification-after-merge"
     },
     {
       "guardName": "dispatch-intent-write-gate",
@@ -847,6 +1158,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -857,7 +1169,102 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-intent-write-gate"
+    },
+    {
+      "guardName": "dispatch-pretooluse",
+      "description": "The single PreToolUse entry that runs every registry-migrated guard in one process — reading stdin once and resolving shared context once instead of paying a process spawn per guard. Not a check itself: a failure here silently removes every guard it dispatches.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [
+        ".minsky/hooks/dispatch-pretooluse.ts",
+        ".minsky/hooks/dispatcher.ts",
+        ".minsky/hooks/registry.ts"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "filenameNote": "Named for the event, not an intervention — it delegates, and the family filters must read its delegates rather than this entry.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "delegate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-pretooluse"
+    },
+    {
+      "guardName": "dispatch-stop",
+      "description": "The Stop-event sibling of `dispatch-pretooluse`, running the turn-end scans registered on the dispatcher. `typecheck-on-stop` predates the framework and stays a separate Stop registration, so a fault here does not disable the typecheck gate.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [
+        ".minsky/hooks/dispatch-stop.ts",
+        ".minsky/hooks/dispatcher.ts",
+        ".minsky/hooks/registry.ts"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "delegate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-stop"
+    },
+    {
+      "guardName": "dispatch-userpromptsubmit",
+      "description": "The UserPromptSubmit sibling, carrying the largest delegate set — the guidance detectors plus the per-turn injectors. All of their `additionalContext` is merged into ONE injected block here, under a shared character budget, which is why an over-budget turn drops the lowest-priority fragments rather than any one detector deciding to stay quiet.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [
+        ".minsky/hooks/dispatch-userpromptsubmit.ts",
+        ".minsky/hooks/dispatcher.ts",
+        ".minsky/hooks/registry.ts"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "delegate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-userpromptsubmit"
     },
     {
       "guardName": "dockerfile-bun-build-regen",
@@ -872,6 +1279,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -882,7 +1290,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "dockerfile-workspace-copy-regen",
@@ -897,6 +1306,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -907,13 +1317,70 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
-      "guardName": "duplicate-check-search-provenance",
-      "description": "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
+      "guardName": "drive-pr-to-convergence",
+      "description": "On a successful `session_pr_create`, injects the reminder that driving the PR to review and merge is the agent's job — not a hand-off point to close the turn on. Informational; it never blocks.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/drive-pr-to-convergence.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "drive-pr-to-convergence"
+    },
+    {
+      "guardName": "drive-ready-to-implementation",
+      "description": "On a real transition INTO READY, injects the instruction to invoke `/implement-task` now rather than ending the turn asking whether to proceed. Skips `state-ops` tasks, which are walked without a session.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/drive-ready-to-implementation.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "drive-ready-to-implementation"
+    },
+    {
+      "guardName": "duplicate-check-candidate-read",
+      "description": "Records whether the candidate tasks a `Duplicate check:` line names were actually opened in the turn, and injects when a reconciliation was written without reading the task it distinguishes.",
       "failureClasses": ["duplicate-work", "unfounded-claim"],
-      "provenance": [".minsky/hooks/duplicate-check-search-provenance.ts"],
+      "provenance": [".minsky/hooks/duplicate-check-candidate-read.ts"],
       "stratum": "registry",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
@@ -922,6 +1389,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -937,7 +1405,40 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "duplicate-check-candidate-read"
+    },
+    {
+      "guardName": "duplicate-check-search-provenance",
+      "description": "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
+      "failureClasses": ["duplicate-work", "unfounded-claim"],
+      "provenance": [".minsky/hooks/duplicate-check-search-provenance.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "duplicate-check-search-provenance"
     },
     {
       "guardName": "duplicate-generated-content-check",
@@ -955,6 +1456,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -965,7 +1467,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "duplicate-signature-scan",
@@ -980,6 +1483,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -991,7 +1495,39 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "duplicate-signature-scan"
+    },
+    {
+      "guardName": "enumeration-scope-check",
+      "description": "Records when a PR changes a SERIALIZED contract — a `contract/*.json` fixture, a generated manifest, a `-shape.json` — and the session's consumer sweep never reached `docs/`, which gate (h) prescribes for that change type. The strictly stronger sibling of the did-a-search-happen guards: every recorded gate-(h) failure DID sweep and missed a prescribed directory. mt#4252 produced a correct six-row consumer table, ruled the Rust side out by reading `rustConsumedFields` rather than assuming, and grepped `docs/architecture/adr-*.md` — a glob that structurally could not reach `docs/principal-channel.md`, whose own \"exhaustive per variant\" sentence the change made false. Reviewer-confirmed BLOCKING on PR #3101. Record-only: 14 decided of 1134 PR-creates over 589 transcripts, 5 flagged.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/enumeration-scope-check.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "enumeration-scope-check"
     },
     {
       "guardName": "eslint-rule-tests",
@@ -1006,6 +1542,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1016,7 +1553,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "eslint-validation",
@@ -1031,6 +1569,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1041,7 +1580,39 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "evidence-record-provenance",
+      "description": "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/evidence-record-provenance.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "evidence-record-provenance"
     },
     {
       "guardName": "fast-related-tests",
@@ -1056,6 +1627,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1066,7 +1638,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "first-guard",
@@ -1082,13 +1655,15 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": null
     },
     {
       "guardName": "flakiness-control-detector",
@@ -1106,6 +1681,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1121,7 +1697,64 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "flakiness-control-detector"
+    },
+    {
+      "guardName": "gate-walk-provenance",
+      "description": "Records, at the merge seam, whether the bound task was ever gated at all — a `task.status_changed` row with `newStatus: \"READY\"`, which only `/plan-task`'s `tasks.status.set` call produces. The existence half of the gate-(h) pair; `enumeration-scope-check` asks the scope question at `pr` and presupposes the gate was walked, whereas this presupposes nothing and so is the only one that fires on a task that skipped PLANNING (mem#416 enumerates four such paths). Keeps `skipped` strictly apart from `ungated`: emission began ~2026-06 and the emitter swallows its own failures, so a missing row is bounded evidence about the stream, not about the gate. Record-only — never denies, never injects.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [".minsky/hooks/gate-walk-provenance.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "gate-walk-provenance"
+    },
+    {
+      "guardName": "guard-events-ingest-on-session-end",
+      "description": "Runs one guard-events ingest tick at SessionEnd so the guard and calibration exhaust becomes queryable promptly. Latency only — SessionEnd does not fire on `/exit`, `/clear` or a kill, so the cockpit's periodic sweep is the layer that makes ingest complete.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/guard-events-ingest-on-session-end.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "SessionEnd",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "guard-events-ingest-on-session-end"
     },
     {
       "guardName": "guard-health-escalation-detector",
@@ -1140,6 +1773,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1151,7 +1785,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "guard-health-escalation-detector"
     },
     {
       "guardName": "hook-permission-check",
@@ -1166,6 +1801,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1176,7 +1812,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "immutable-migration-check",
@@ -1191,6 +1828,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1201,7 +1839,36 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "inject-ask-responses",
+      "description": "Tells the agent that an ask THIS conversation filed has been answered or otherwise settled, so it stops reporting the ask as open from memory of having filed it. Fires once per response.",
+      "failureClasses": ["stale-context", "lost-signal"],
+      "provenance": [".minsky/hooks/inject-ask-responses.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-ask-responses"
     },
     {
       "guardName": "inject-current-time",
@@ -1216,6 +1883,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1227,7 +1895,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-current-time"
     },
     {
       "guardName": "inject-dispatch-watchdog",
@@ -1242,6 +1911,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1253,7 +1923,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-dispatch-watchdog"
     },
     {
       "guardName": "inject-git-state",
@@ -1268,6 +1939,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1279,7 +1951,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-git-state"
     },
     {
       "guardName": "inject-memory-capture",
@@ -1294,6 +1967,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1305,7 +1979,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-memory-capture"
     },
     {
       "guardName": "inject-prod-state",
@@ -1320,6 +1995,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1331,7 +2007,63 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-prod-state"
+    },
+    {
+      "guardName": "inject-success-criteria",
+      "description": "Emits the bound task's success criteria verbatim as the PR is being created, so they are confronted at ship time rather than recalled from having written them. The create call is already in flight when it fires, so it prompts a follow-up edit rather than shaping the body.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/inject-success-criteria.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-success-criteria"
+    },
+    {
+      "guardName": "interceptor-catalog-regen",
+      "description": "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      "failureClasses": ["broken-main", "blind-enforcement"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/interceptor-catalog-regen.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "knowledge-acquisition-detector",
@@ -1349,6 +2081,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1360,7 +2093,65 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "knowledge-acquisition-detector"
+    },
+    {
+      "guardName": "linkify-message-display",
+      "description": "Rewrites bare task, PR and short-id refs into clickable deeplinks in the message the operator sees, leaving the stored transcript's bare refs untouched. Replaces an authoring ration that measured 31 linked against 232 bare refs in one session; an id its cache cannot resolve is left bare rather than linked wrongly.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/linkify-message-display.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "MessageDisplay",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "linkify-message-display"
+    },
+    {
+      "guardName": "loop-preflight-pr-merge-check",
+      "description": "Blocks `/loop` when a PR or task named in its arguments is already terminal, before the first iteration runs. The originating incident had an agent looping for six hours against a PR merged at the start, pushing an orphan commit to a closed branch.",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [".minsky/hooks/loop-preflight-pr-merge-check.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "loop-preflight-pr-merge-check"
     },
     {
       "guardName": "mcp-daemon-staleness-detector",
@@ -1376,6 +2167,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1387,7 +2179,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "mcp-daemon-staleness-detector"
     },
     {
       "guardName": "memory-search",
@@ -1402,6 +2195,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1413,7 +2207,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "memory-search"
     },
     {
       "guardName": "migration-collision-check",
@@ -1428,6 +2223,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1438,7 +2234,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "migration-guard-and-duplicate-content-check",
@@ -1454,6 +2251,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "authored",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1464,7 +2262,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "migration-guard-check",
@@ -1479,6 +2278,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1489,7 +2289,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "migration-journal-check",
@@ -1504,6 +2305,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1514,7 +2316,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "mt3612-live-rewrite",
@@ -1530,13 +2333,15 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": null
     },
     {
       "guardName": "negative-existence-claim-detector",
@@ -1554,6 +2359,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1565,7 +2371,39 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "negative-existence-claim-detector"
+    },
+    {
+      "guardName": "new-surface-design-pass",
+      "description": "Records when a PR ADDS a user-facing render-path surface and no design skill ran in the conversation that wrote it. The judgment half of mt#2421, whose check asks whether an artifact EXISTS and returns the same answer either way on whether anyone LOOKED: PR #2942 shipped two browser screenshots, a served branch with asserted health identity, and a reproduce recipe, and the pane had no padding. The screenshots were checked against the spec's criteria, and its only aesthetic criterion was conformance-shaped, which is satisfiable by reading class names. Keys on a `Skill` tool_use rather than on self-reported diligence, because the agent authoring the spec is the agent verifying it.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/new-surface-design-pass.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "new-surface-design-pass"
     },
     {
       "guardName": "node-shim-check",
@@ -1580,6 +2418,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1590,7 +2429,39 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "nonexistent-search-path",
+      "description": "Records a Bash or `session_exec` search (`grep`/`rg`/`find`) whose PATH ARGUMENT does not exist. Such a search prints nothing, exactly like one that legitimately found nothing, and `2>/dev/null` deletes the stderr line separating them — so the empty result reads as an answer and the next claim asserts a false absence. The exit code does distinguish the two, but no hook can read it: Claude Code's `Bash` response carries only stdout, stderr, interrupted and isImage. Hence a pre-run stat. Stays silent whenever a path is not statically resolvable — a glob, a variable, a relative path under `session_exec` or behind a `cd` — because guessing is the very error this guard exists to prevent.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/nonexistent-search-path-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "nonexistent-search-path-detector"
     },
     {
       "guardName": "nul-byte-check",
@@ -1605,6 +2476,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1615,7 +2487,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "operator-deferral-ask-surface",
@@ -1630,6 +2503,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1641,7 +2515,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "operator-deferral-detector"
     },
     {
       "guardName": "operator-deferral-detector",
@@ -1659,6 +2534,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1670,7 +2546,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "operator-deferral-detector"
     },
     {
       "guardName": "overridden-guard",
@@ -1686,34 +2563,61 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": null
     },
     {
-      "guardName": "policy-coverage",
-      "description": "Runs before every Edit/Write/NotebookEdit: when a tool call encodes a preference-bound choice that no policy source covers, it emits a `direction.decide` ask and blocks the action with the question surfaced as the denial reason.",
-      "failureClasses": ["lost-signal", "blind-enforcement"],
-      "provenance": [".minsky/hooks/policy-coverage-detector.ts", ".minsky/rules/hook-files.mdc"],
+      "guardName": "parallel-work-guard",
+      "description": "Blocks binding a session to a task when an unmerged open PR already touches the same files. Guards `tasks_dispatch` in existing-task mode too, because that path starts the session in process and would otherwise skip the sweep.",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [".minsky/hooks/parallel-work-guard.ts", ".minsky/rules/hook-files.mdc"],
       "stratum": "standalone",
       "subject": "trajectory",
-      "note": "Ontology amendment (a): its declared type is a capability SET — it selects deny, warn, or allow per fire — so it is legitimately both a guard and a detector.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
-        },
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "parallel-work-guard"
+    },
+    {
+      "guardName": "policy-coverage",
+      "description": "Retired PreToolUse detector (Surface 1 of the System 3* detector) that ran before every Edit/Write and decided whether existing policy prose already authorized a preference-bound choice — a new file, dependency, config default, user-facing string, or top-level export.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "retired",
+      "subject": "trajectory",
+      "note": "Retired 2026-08-16 by mt#4197 (ask#8752). Ran log-only for its entire life and blocked nothing; measured over its 1,760-record log it classified 97.7% of actions 'covered' on incidental keyword matches, and its target problem was postulated from LLM training dynamics rather than observed (mt#1035 cites zero incidents). No source module exists — the oracle's declaration is the only honest pointer. The fire log is append-only history, so its 12,135 records persist under this name permanently.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "authored",
+      "trajectory": null,
+      "interventions": [
         {
-          "type": "allow"
+          "type": "deny"
         },
         {
           "type": "inject",
@@ -1729,11 +2633,99 @@
       "coordinateGaps": [],
       "families": ["guard", "detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "post-merge-pull",
+      "description": "Fast-forwards the main checkout after a merge, stashing and popping around local modifications, and warns when MCP server code changed. The only interceptor here whose effect lands on the repo working tree rather than on the conversation.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/post-merge-pull.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "post-merge-pull"
+    },
+    {
+      "guardName": "post-merge-unasked-direction-scan",
+      "description": "After a session PR merges, runs an AI analyzer over that session's transcript to surface preference-bound decisions the agent made without asking, and writes the findings for weekly operator triage. Observational — the merge has already happened, so it never blocks.",
+      "failureClasses": ["unrecorded-learning"],
+      "provenance": [".minsky/hooks/post-merge-unasked-direction-scan.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "note": "The corpus's only entity with an AI classifier — `mechanism: \"model\"`, ADR-024's rung 3. mt#4038 measured that rung as unexercised across the fire-log population, a population this hook is absent from because it never fire-logs.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "model",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "post-merge-unasked-direction-scan"
+    },
+    {
+      "guardName": "post-session-start",
+      "description": "Labels and colors the iTerm tab for the task a new session is bound to, and writes the session-label state file. Its audience is the operator looking at a row of terminal tabs; it decides nothing about the trajectory.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/post-session-start.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        },
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "post-session-start"
     },
     {
       "guardName": "pre-narration-detector",
-      "description": "Injects when a turn states a tool outcome — created, merged, tests pass — before that result is in hand.",
+      "description": "Records a turn that states a tool outcome — created, merged, tests pass — before that result is in hand. Log-only.",
       "failureClasses": ["unfounded-claim"],
       "provenance": [".minsky/hooks/pre-narration-detector.ts", ".minsky/rules/hook-observers.mdc"],
       "stratum": "registry",
@@ -1744,6 +2736,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1759,7 +2752,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "pre-narration-detector"
     },
     {
       "guardName": "rationalization-review",
@@ -1775,13 +2769,15 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": null
     },
     {
       "guardName": "record-agent-dispatch",
@@ -1796,6 +2792,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -1814,7 +2811,65 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-agent-dispatch"
+    },
+    {
+      "guardName": "record-conversation-run-state",
+      "description": "Forwards one observed harness event to the cockpit daemon over HTTP, so the fleet view knows what each conversation is doing. One script registered under every observed event, branching on the event name; it POSTs rather than writing the DB directly because a cold hook process pays ~695ms for a domain bootstrap against ~20ms for the POST.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/record-conversation-run-state.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "note": "Fail-open is a hard contract: it is git-tracked and reaches every dispatched-subagent workspace, so a conversation whose events do not land degrades to UNKNOWN in the cockpit rather than failing a turn.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostCompact",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-conversation-run-state"
+    },
+    {
+      "guardName": "record-subagent-invocation",
+      "description": "On SubagentStop, classifies the subagent's workspace outcome and writes the Stop-time columns of its dispatch row, closing the record the PreToolUse stamp opened. Without it a dispatch is visible as started and never as finished.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/record-subagent-invocation.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "SubagentStop",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-subagent-invocation"
     },
     {
       "guardName": "record-turn-anchor",
@@ -1830,6 +2885,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1841,7 +2897,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-turn-anchor"
     },
     {
       "guardName": "require-checks-on-bypass-merge",
@@ -1859,6 +2916,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1869,7 +2927,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-checks-on-bypass-merge"
     },
     {
       "guardName": "require-deploy-verification-before-merge",
@@ -1887,6 +2946,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1897,7 +2957,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-deploy-verification-before-merge"
     },
     {
       "guardName": "require-duplicate-check-record",
@@ -1915,6 +2976,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1925,7 +2987,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-duplicate-check-record"
     },
     {
       "guardName": "require-execution-evidence-before-merge",
@@ -1943,6 +3006,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1957,7 +3021,8 @@
       "coordinateGaps": [],
       "families": ["guard", "detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-execution-evidence-before-merge"
     },
     {
       "guardName": "require-growth-justification-before-merge",
@@ -1975,6 +3040,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1985,7 +3051,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-growth-justification-before-merge"
     },
     {
       "guardName": "require-review-before-merge",
@@ -2003,6 +3070,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -2013,7 +3081,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-review-before-merge"
     },
     {
       "guardName": "require-session-for-main-workspace-edits",
@@ -2031,6 +3100,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2041,7 +3111,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-session-for-main-workspace-edits"
     },
     {
       "guardName": "retrospective-completeness-detector",
@@ -2059,6 +3130,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2070,7 +3142,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "retrospective-completeness-detector"
     },
     {
       "guardName": "retrospective-trigger-scanner",
@@ -2088,6 +3161,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2103,7 +3177,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "retrospective-trigger-scanner"
     },
     {
       "guardName": "rules-compile-check",
@@ -2118,6 +3193,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2128,7 +3204,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "second-guard",
@@ -2144,13 +3221,15 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": null
     },
     {
       "guardName": "secret-scanning",
@@ -2165,6 +3244,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2175,7 +3255,39 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "session-start",
+      "description": "Records this conversation's identity as a `<harness pid> -> conversation id` mapping the MCP proxy reads, and bootstraps the remote environment in web sessions. The proxy reads its conversation id once at spawn, so without this every `/clear`, resume and fork leaves it stamping the previous conversation onto tool calls — including presence claims, which then attribute an agent's work to a stranger.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/session-start.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "SessionStart",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        },
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "session-start"
     },
     {
       "guardName": "silent-stretch-detector",
@@ -2193,6 +3305,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2208,7 +3321,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "silent-stretch-detector"
     },
     {
       "guardName": "skill-staleness-detector",
@@ -2227,6 +3341,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2238,7 +3353,182 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "skill-staleness-detector"
+    },
+    {
+      "guardName": "spec-criterion-claim-detector",
+      "description": "Records when a task spec's success criterion or acceptance test asserts something unchecked: that the repo ALREADY contains something (\"remains documented\", \"is registered\") with no verifying command beside it, or that the work is gated on a precondition the task's authorizing ask never contained. A criterion is not a claim that drives a decision — it is the claim the work is measured AGAINST — so a wrong one certifies the wrong thing as done, or blocks work that was already authorized.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/spec-criterion-claim-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "spec-criterion-claim-detector"
+    },
+    {
+      "guardName": "sql-capability-message-check",
+      "description": "Blocks a commit whose persistence-gated error says only that the database is unavailable, without naming which of the two opposite causes it is — never configured, or configured and failed at boot (ADR-035 rule 3). The check itself predates this registration by a long way and had no caller at all until mt#4398, so it sat exiting non-zero against three real sites that nothing surfaced.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "scripts/check-sql-capability-messages.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "stale-signal-sweep",
+      "description": "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      "failureClasses": ["stale-context", "unfounded-claim"],
+      "provenance": [".minsky/hooks/stale-signal-sweep.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stale-signal-sweep"
+    },
+    {
+      "guardName": "stamp-ask-conversation",
+      "description": "Records which CONVERSATION filed an ask — the one place that sees the harness conversation id and the newly-minted ask id together. Without it `inject-ask-responses` can never fire: `Ask.parentSessionId` holds a WORKSPACE session id, and a main-workspace conversation has no workspace session to record.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/stamp-ask-conversation.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stamp-ask-conversation"
+    },
+    {
+      "guardName": "stamp-pr-author-link",
+      "description": "Records which CONVERSATION authored a session PR — the one place that sees the harness conversation id and the workspace id together. It fires at PR-create, not merge, because for dispatched work a subagent writes the code and the main agent merges it.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/stamp-pr-author-link.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stamp-pr-author-link"
+    },
+    {
+      "guardName": "stamp-session-creator-link",
+      "description": "Records which conversation created a workspace at `session_start` — the dominant creation path, which had no link writer while the daemon-spawn and PR-author paths did. Measured before it shipped: 2 of 230 workspaces carried any link row.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/stamp-session-creator-link.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stamp-session-creator-link"
     },
     {
       "guardName": "standalone-duplicate-matcher",
@@ -2257,6 +3547,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "authored",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2268,7 +3559,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "parallel-work-guard-standalone"
     },
     {
       "guardName": "stop-at-decision-scan",
@@ -2283,6 +3575,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2294,7 +3587,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stop-at-decision-scan"
     },
     {
       "guardName": "substrate-bypass-detector",
@@ -2312,6 +3606,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2327,7 +3622,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "substrate-bypass-detector"
     },
     {
       "guardName": "tasks-status-set-guard",
@@ -2342,6 +3638,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2352,7 +3649,36 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "tasks-status-set-guard"
+    },
+    {
+      "guardName": "transcript-ingest-on-session-end",
+      "description": "Ingests the finished conversation's transcript at SessionEnd so it is searchable without waiting for the next server boot sweep. The only ingest caller with positive evidence the conversation ended, so it is the only one permitted to set `ended_at`.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/transcript-ingest-on-session-end.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "SessionEnd",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "transcript-ingest-on-session-end"
     },
     {
       "guardName": "truncated-outcome-read",
@@ -2370,6 +3696,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2381,7 +3708,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "truncated-outcome-read-detector"
     },
     {
       "guardName": "turn-end-bare-ref-scan",
@@ -2400,6 +3728,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2415,7 +3744,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-bare-ref-scan"
     },
     {
       "guardName": "turn-end-retro-scan",
@@ -2430,6 +3760,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2445,7 +3776,39 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-retro-scan"
+    },
+    {
+      "guardName": "turn-end-stale-state-assertion-scan",
+      "description": "Records a closing message that tells the principal an ask or task is awaiting them when the substrate says it is already terminal. Log-only.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/turn-end-stale-state-assertion-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["attentionCost"],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-stale-state-assertion-scan"
     },
     {
       "guardName": "turn-end-unescalated-incident-scan",
@@ -2463,6 +3826,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2478,7 +3842,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-unescalated-incident-scan"
     },
     {
       "guardName": "turn-end-untaken-action-scan",
@@ -2496,6 +3861,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2511,7 +3877,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-untaken-action-scan"
     },
     {
       "guardName": "turn-end-unwalked-task-scan",
@@ -2529,6 +3896,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2544,7 +3912,36 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-unwalked-task-scan"
+    },
+    {
+      "guardName": "two-strikes-record",
+      "description": "Records every tool error and accumulates per-conversation error streaks, feeding the calibration data behind the 2-strikes rule. Runs in observation mode by default: it logs what would have fired without acting, so the discipline itself is still the agent's to keep.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/two-strikes-record.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "two-strikes-record"
     },
     {
       "guardName": "type-check",
@@ -2559,6 +3956,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2569,7 +3967,67 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "typecheck-on-edit",
+      "description": "Runs an incremental typecheck after a TypeScript edit and surfaces filtered errors as context, and records which project root was touched. It never blocks — the root it records is what its Stop-time sibling reads to know what to check.",
+      "failureClasses": ["broken-main"],
+      "provenance": [".minsky/hooks/typecheck-on-edit.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "typecheck-on-edit"
+    },
+    {
+      "guardName": "typecheck-on-stop",
+      "description": "Blocks the end of a turn — main agent or subagent — while any project root edited during it still has type errors. The correctness gate the informational edit-time sibling deliberately is not.",
+      "failureClasses": ["broken-main"],
+      "provenance": [".minsky/hooks/typecheck-on-stop.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "SubagentStop",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "typecheck-on-stop"
     },
     {
       "guardName": "unit-tests",
@@ -2585,6 +4043,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "authored",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2595,7 +4054,67 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "unowned-finding-scan",
+      "description": "On a task's transition to DONE, records each item in the spec's findings section (`Noticed, not actioned` and variants) that declares neither an `[owner: mt#N]` nor a `[no-owner: reason]`. The section is a sanctioned place to write a finding down; without a declared owner it is also where the finding stops being read. Log-only.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/unowned-finding-scan.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "unowned-finding-scan"
+    },
+    {
+      "guardName": "unrendered-result-field-scan",
+      "description": "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/unrendered-result-field-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "unrendered-result-field-scan"
     },
     {
       "guardName": "validate-task-spec",
@@ -2610,6 +4129,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2620,7 +4140,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "validate-task-spec"
     },
     {
       "guardName": "variable-naming-check",
@@ -2635,6 +4156,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2645,7 +4167,36 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "verify-subagent-model",
+      "description": "Compares a dispatched subagent's actual resolved model against the tier that was requested and surfaces any mismatch. It exists because a silent config pin overrode every explicit request for three months, and an investigation reported to the operator as frontier-tier had run entirely on Sonnet — the request is not evidence of the outcome.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/verify-subagent-model.ts"],
+      "stratum": "standalone",
+      "subject": "system",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "verify-subagent-model"
     },
     {
       "guardName": "wall-of-text-detector",
@@ -2660,6 +4211,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2671,7 +4223,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "wall-of-text-detector"
     }
   ]
 }

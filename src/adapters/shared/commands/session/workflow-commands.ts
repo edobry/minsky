@@ -30,6 +30,7 @@ import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors"
 import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { shapeCommitResultForTransport } from "./commit-result-transport";
 
 // mt#2635: bumped from 800 -> 2000. At 800 chars, a real ESLint-warning-
 // threshold failure (mt#2637 R1 diagnosis: 10 warnings) or a TypeScript
@@ -375,61 +376,76 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             persistenceProvider
           );
 
-          return {
-            // mt#3205 (Gap 2): `success` must not read as a pass when the
-            // push is genuinely unconfirmed — `git.push`'s adapter already
-            // overrides `success` to track `pushed` (mt#3177); this mirrors
-            // that, but narrower: `pushUnconfirmed` is the specific
-            // ambiguous-outcome flag (push timed out AND the remote-ref
-            // check could not confirm it landed). A definite `pushError`
-            // (rejected, no upstream, etc.) or a legitimate no-op
-            // (`nothingToCommit` with nothing to push) intentionally keep
-            // `success: true` — those are already distinguishable via the
-            // `pushError`/`nothingToCommit` fields and existing callers
-            // (see workflow-commands-commit-push-outcome.test.ts) rely on
-            // `success: true` alongside a definite `pushError`.
-            success: result.success && !result.pushUnconfirmed,
-            sessionId: resolvedSessionId,
-            commitHash: result.commitHash,
-            shortHash: result.shortHash,
-            subject: result.subject,
-            branch: result.branch,
-            authorName: result.authorName,
-            authorEmail: result.authorEmail,
-            timestamp: result.timestamp,
-            message: result.message,
-            filesChanged: result.filesChanged,
-            insertions: result.insertions,
-            deletions: result.deletions,
-            files: result.files,
-            pushed: result.pushed,
-            credentialPath: result.credentialPath,
-            // mt#3210: set when an App-token push was denied (403) and
-            // pushSessionCommitWithFallback retried via keychain — preserved
-            // for the caller even when the retry succeeded, so a
-            // convergence-driving agent still knows the App-token
-            // permission gap exists and CI-trigger reliability may be
-            // reduced for this push (mt#1477 rationale).
-            appTokenPushError: result.appTokenPushError,
-            // mt#3049: surface the structured partial-outcome fields — without
-            // these, a committed-but-push-failed/timed-out/resumed result
-            // would report success:true, pushed:false to an MCP caller with
-            // NO way to tell WHY, defeating the point of returning a
-            // structured outcome instead of throwing.
-            nothingToCommit: result.nothingToCommit,
-            pushError: result.pushError,
-            pushTimedOut: result.pushTimedOut,
-            // mt#3177: on a pushTimedOut outcome, a remote-ref check now runs
-            // before this result is returned — `pushConfirmedVia` names HOW
-            // `pushed:true` was established when it wasn't the ordinary
-            // fast-success path; `pushUnconfirmed` is the explicit "genuinely
-            // unknown" state (pushed:false) no caller should read as success.
-            pushConfirmedVia: result.pushConfirmedVia,
-            pushUnconfirmed: result.pushUnconfirmed,
-            resumedPush: result.resumedPush,
-            oneline: params.oneline === true,
-            noFiles: params.noFiles === true,
-          };
+          // mt#4417: the object below is the CLI's payload. `shapeCommitResultForTransport`
+          // trims it for MCP only — the harness pastes an MCP result verbatim into a
+          // `<task-notification>` turn, so `message` (which is the caller's own input on
+          // the ordinary path) and an unbounded `files` land in the operator's
+          // conversation and the agent's context. The CLI renders both and is untouched.
+          return shapeCommitResultForTransport(
+            {
+              // mt#3205 (Gap 2): `success` must not read as a pass when the
+              // push is genuinely unconfirmed — `git.push`'s adapter already
+              // overrides `success` to track `pushed` (mt#3177); this mirrors
+              // that, but narrower: `pushUnconfirmed` is the specific
+              // ambiguous-outcome flag (push timed out AND the remote-ref
+              // check could not confirm it landed). A definite `pushError`
+              // (rejected, no upstream, etc.) or a legitimate no-op
+              // (`nothingToCommit` with nothing to push) intentionally keep
+              // `success: true` — those are already distinguishable via the
+              // `pushError`/`nothingToCommit` fields and existing callers
+              // (see workflow-commands-commit-push-outcome.test.ts) rely on
+              // `success: true` alongside a definite `pushError`.
+              success: result.success && !result.pushUnconfirmed,
+              sessionId: resolvedSessionId,
+              commitHash: result.commitHash,
+              shortHash: result.shortHash,
+              subject: result.subject,
+              branch: result.branch,
+              authorName: result.authorName,
+              authorEmail: result.authorEmail,
+              timestamp: result.timestamp,
+              message: result.message,
+              filesChanged: result.filesChanged,
+              insertions: result.insertions,
+              deletions: result.deletions,
+              files: result.files,
+              pushed: result.pushed,
+              credentialPath: result.credentialPath,
+              // mt#3660: work parked by an earlier CONFLICTED session_update. An MCP
+              // caller has no other way to learn this commit does not carry it — the
+              // domain layer's log.cli line is invisible over the wire, which is
+              // exactly how four recurrences produced a commit whose message
+              // described work still sitting in a stash.
+              stashRestore: result.stashRestore,
+              // mt#3210: set when an App-token push was denied (403) and
+              // pushSessionCommitWithFallback retried via keychain — preserved
+              // for the caller even when the retry succeeded, so a
+              // convergence-driving agent still knows the App-token
+              // permission gap exists and CI-trigger reliability may be
+              // reduced for this push (mt#1477 rationale).
+              appTokenPushError: result.appTokenPushError,
+              // mt#3049: surface the structured partial-outcome fields — without
+              // these, a committed-but-push-failed/timed-out/resumed result
+              // would report success:true, pushed:false to an MCP caller with
+              // NO way to tell WHY, defeating the point of returning a
+              // structured outcome instead of throwing.
+              nothingToCommit: result.nothingToCommit,
+              pushError: result.pushError,
+              pushTimedOut: result.pushTimedOut,
+              // mt#3177: on a pushTimedOut outcome, a remote-ref check now runs
+              // before this result is returned — `pushConfirmedVia` names HOW
+              // `pushed:true` was established when it wasn't the ordinary
+              // fast-success path; `pushUnconfirmed` is the explicit "genuinely
+              // unknown" state (pushed:false) no caller should read as success.
+              pushConfirmedVia: result.pushConfirmedVia,
+              pushUnconfirmed: result.pushUnconfirmed,
+              resumedPush: result.resumedPush,
+              oneline: params.oneline === true,
+              noFiles: params.noFiles === true,
+            },
+            params.message,
+            context?.interface
+          );
         } catch (err) {
           const { isHookFailure, hookKind, subprocessOutput } = classifyHookFailure(err);
           if (isHookFailure) {

@@ -12,6 +12,7 @@ import {
 } from "./task-spec-fetch";
 
 const SAMPLE_SPEC_BODY = "## Summary\n\nThe spec body.";
+const REFERENCED_SPEC_BODY = "## Success Criteria\n\n- [ ] scoped package name.";
 const DB_ERROR_MESSAGE = "Database connection failed";
 
 /**
@@ -226,15 +227,22 @@ describe("resolveReferencedTaskSpecs (mt#3919)", () => {
     expect(results[0]?.fetchResult.status).toBe("disabled");
   });
 
-  test("returns `found` with content + updatedAt when the referenced spec fetches successfully", async () => {
-    const updatedAt = new Date("2026-08-10T17:53:58.889Z");
+  test("returns `found` with content + the SPEC-CONTENT updatedAt (mt#4415)", async () => {
+    // Two distinct timestamps, deliberately: the prompt labels this field
+    // "(spec last updated X)", so it must track the spec's TEXT, not the task
+    // row that any status transition bumps. Before mt#4415 this read the row's
+    // value, and a spec untouched for weeks was presented to the reviewer as
+    // edited moments ago.
+    const specUpdatedAt = new Date("2026-08-10T17:53:58.889Z");
+    const taskRowUpdatedAt = new Date("2026-08-21T09:00:00.000Z");
     const taskService = {
       getTaskSpecContent: async (taskId: string) => {
         expect(taskId).toBe("mt#3874");
         return {
-          task: { updatedAt } as never,
+          task: { updatedAt: taskRowUpdatedAt } as never,
           specPath: "/fake/mt-3874.md",
-          content: "## Success Criteria\n\n- [ ] scoped package name.",
+          content: REFERENCED_SPEC_BODY,
+          specUpdatedAt,
         };
       },
     } as unknown as TaskServiceInterface;
@@ -247,8 +255,32 @@ describe("resolveReferencedTaskSpecs (mt#3919)", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]?.taskId).toBe("mt#3874");
-    expect(results[0]?.content).toBe("## Success Criteria\n\n- [ ] scoped package name.");
-    expect(results[0]?.updatedAt).toBe("2026-08-10T17:53:58.889Z");
+    expect(results[0]?.content).toBe(REFERENCED_SPEC_BODY);
+    expect(results[0]?.updatedAt).toBe(specUpdatedAt.toISOString());
+    // The discriminating assertion: the row timestamp must NOT be what surfaces.
+    expect(results[0]?.updatedAt).not.toBe(taskRowUpdatedAt.toISOString());
+    expect(results[0]?.fetchResult.status).toBe("found");
+  });
+
+  test("omits the timestamp rather than substituting the task row's when no spec timestamp exists (mt#4415)", async () => {
+    const taskService = {
+      getTaskSpecContent: async () => ({
+        task: { updatedAt: new Date("2026-08-21T09:00:00.000Z") } as never,
+        specPath: "/fake/mt-3874.md",
+        content: REFERENCED_SPEC_BODY,
+        // No specUpdatedAt: a backend that tracks none.
+      }),
+    } as unknown as TaskServiceInterface;
+
+    const results = await resolveReferencedTaskSpecs({
+      taskSpec: CRITERIA_TEXT,
+      boundTaskId: "mt#3915",
+      taskService,
+    });
+
+    // null drops the "(spec last updated X)" suffix from the prompt entirely,
+    // which is the honest rendering — a wrong date is worse than no date.
+    expect(results[0]?.updatedAt).toBeNull();
     expect(results[0]?.fetchResult.status).toBe("found");
   });
 

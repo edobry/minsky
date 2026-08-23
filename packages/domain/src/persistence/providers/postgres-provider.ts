@@ -30,29 +30,66 @@ import {
   type VectorDomain,
 } from "../../storage/schemas/embeddings-schema-factory";
 
-// Per-process default pool size. Minsky shares a single Supabase/Supavisor
-// transaction-mode pooler (port 6543) across multiple long-lived consumers
-// (laptop MCP, Railway MCP, Railway reviewer, cockpit menu-bar app) plus
-// ephemeral probes. mt#1193 originally set this to 3 to keep the fleet under
-// the SESSION-mode pooler's hard 15-slot ceiling. After the 2026-04-24 swap to
-// the transaction-mode pooler (memory 63fbc195) that global ceiling is
-// effectively gone (practical ceiling in the thousands), so the value no longer
-// rations a scarce global budget. It now sizes per-process query FAN-OUT
-// concurrency: 15 lets a dashboard/handler issue ~15 parallel queries without
-// client-side queueing (the prior 3 produced gratuitous latency and starved
-// widgets that fan out, e.g. the 4-parallel-query path in mt#2183). Retuned to
-// 15 by mt#2224. Override via persistence.postgres.maxConnections in config or
-// the MINSKY_POSTGRES_MAX_CONNECTIONS env var.
+// Per-process pool size, DERIVED from a measured budget rather than picked
+// (mt#4308). Minsky shares a single Supabase/Supavisor transaction-mode pooler
+// (port 6543) across the whole fleet — every Claude Code conversation runs its
+// own MCP process, plus the hosted Railway MCP, the reviewer, the cockpit, and
+// ephemeral probes. What that pooler rations is CLIENT connections, and the
+// budget is an order of magnitude smaller than this comment used to claim.
+//
+// WHAT THE PRIOR COMMENT GOT WRONG. It said the transaction-pooler swap
+// (2026-04-24, memory 63fbc195) left a "practical ceiling in the thousands", so
+// the value "no longer rations a scarce global budget" and could be sized purely
+// for per-process fan-out. That ceiling was never measured — it came from an
+// agent-authored memory, not from the vendor.
+//
+// MEASURED 2026-08-19: this project reports `max_connections = 60`, which
+// Supabase's published compute table maps to the Nano/Micro tier, whose pooler
+// ceiling is 200 CLIENT connections (both tiers are 200, so the tier ambiguity
+// does not change the number). At the old default of 15, FOURTEEN processes
+// saturate the pooler; the fleet was measured at 70-84 processes on 2026-08-18
+// and 33-40 on 2026-08-19. The budget was being oversubscribed several times
+// over.
+//
+// WHY DERIVED. mt#2224 set 15 correctly for the fleet IT measured, and nothing
+// re-examined it when the fleet grew by an order of magnitude, because the
+// assumption lived in prose rather than in code. Naming the three inputs makes
+// the assumption checkable: if any of them changes, the default follows, and a
+// reader can see WHICH one to re-measure.
+const POOLER_CLIENT_BUDGET = 200;
+// Share of that budget this fleet's long-lived local pools may claim. The rest
+// is left for the hosted services (Railway MCP, reviewer, cockpit), ephemeral
+// probes, and burst headroom — all of which contend for the same 200.
+const POOL_BUDGET_FRACTION = 0.5;
+// How many processes are assumed to hold an OPEN pool at once. Grounded in
+// measurement, not process count: on 2026-08-18, 31 established connections came
+// from 8 distinct pids (~4 each) while 70-84 `bun` processes were alive — pools
+// open lazily, so holders are far fewer than processes. 12 carries ~50% headroom
+// over that observation. THIS is the number to re-measure when the fleet changes.
+const ASSUMED_CONCURRENT_POOL_HOLDERS = 12;
+// Floor: below this, a widget that fans out queues on itself. mt#2224 raised the
+// old value of 3 because it "starved widgets that fan out, e.g. the 4-parallel-
+// query path in mt#2183" — so the fan-out latency mt#2224 bought is preserved
+// only while the derived value stays at or above that width.
+const MIN_DERIVED_POOL_SIZE = 4;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS = Math.max(
+  MIN_DERIVED_POOL_SIZE,
+  Math.floor((POOLER_CLIENT_BUDGET * POOL_BUDGET_FRACTION) / ASSUMED_CONCURRENT_POOL_HOLDERS)
+);
+// Override via persistence.postgres.maxConnections in config or the
+// MINSKY_POSTGRES_MAX_CONNECTIONS env var.
 // Note: the transaction-mode pooler is the primary connection used for all
 // normal queries. For LISTEN/NOTIFY, a separate session-mode connection is
 // maintained via `getListenCapableSqlConnection()` (mt#1852).
-const DEFAULT_POSTGRES_MAX_CONNECTIONS = 15;
+
 // Upper bound matching the config schema's .max(100). The env-var path
 // (MINSKY_POSTGRES_MAX_CONNECTIONS) bypasses Zod validation, so this clamp is
-// the only thing bounding it — kept after the mt#2224 audit: even though the
-// transaction pooler is no longer easy to saturate, 100 remains a sane
-// per-process ceiling and keeps the env-var path consistent with the schema's
-// .max(100).
+// the only thing bounding it. NOTE (mt#4308): this ceiling is NOT safe to use
+// fleet-wide — at 100 per process, THREE processes exceed the 200-client pooler
+// budget. It bounds a deliberate single-process override (a migration runner, a
+// one-off backfill), and the mt#2224-era claim that "the transaction pooler is
+// no longer easy to saturate" that previously justified it is false. Kept at 100
+// to stay consistent with the schema's .max(100) rather than because 100 is safe.
 const MAX_POSTGRES_MAX_CONNECTIONS = 100;
 
 /**
@@ -673,8 +710,21 @@ export class PostgresPersistenceProvider
     // connection's promises. See raw-sql-pooler-guard.ts for the experiment
     // matrix and rationale. The underlying `this.sql` (used by drizzle and
     // sql.begin() transactions) is deliberately untouched.
+    return this.getGuardedSql(this.sql);
+  }
+
+  /**
+   * Memoized guarded view of `this.sql` (mt#2773; second consumer wired mt#4298).
+   *
+   * Every `.unsafe()` consumer MUST come through here rather than wrapping
+   * `this.sql` itself. The guard's protection is a SHARED in-flight counter
+   * bounded at the pool's `max`; two independently-constructed guards would
+   * each admit `max` concurrent queries, so wrapping twice doubles the very
+   * bound the cap exists to hold and reinstates the wedge it prevents.
+   */
+  protected getGuardedSql(sql: ReturnType<typeof postgres>): GuardedRawSql {
     if (!this.guardedSql) {
-      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(sql);
     }
     return this.guardedSql;
   }
@@ -935,7 +985,15 @@ export class PostgresVectorPersistenceProvider
     // createEmbeddingsTable() on every embeddings table; pass them through so
     // PostgresVectorStorage actually writes the values it's been given.
     // Pre-mt#1930 these were silently dropped on the floor.
-    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+    // mt#4298: hand vector storage the GUARDED instance. Its queries — the
+    // `<-> $1::vector` search, store, and delete — all go through `.unsafe()`,
+    // which is exactly the surface mt#2773's guard bounds. Passing the raw
+    // `this.sql` here left every tasks_search / *_similar / index write as
+    // unguarded raw fan-out at the Supavisor transaction pooler, whose wedge
+    // leaves postgres-js promises permanently unsettled — hangs with no error.
+    // The mt#2773 carve-out covers drizzle-driver traffic and sql.begin(), not
+    // this consumer.
+    return new PostgresVectorStorage(this.getGuardedSql(this.sql), this.db, dimension, {
       tableName: config.tableName,
       idColumn: config.idColumn,
       embeddingColumn: config.vectorColumn,

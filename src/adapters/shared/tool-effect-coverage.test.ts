@@ -46,6 +46,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "ai.models.refresh",
   "ai.providers.list",
   "ai.validate",
+  "asks.cancel",
   "asks.create",
   "asks.edit",
   "asks.get",
@@ -209,6 +210,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "setup",
   "setup.db",
   "setup.github-app",
+  "setup.local-http",
   "tasks.analyze",
   "tasks.available",
   "tasks.bulk-edit",
@@ -382,6 +384,12 @@ describe("drift-gate refusal set matches the mt#3924 decision", () => {
     "tasks.migrate-backend",
     // mt#3924 — shared-repository setting, full-replace semantics.
     "forge.branch_protection_set",
+    // mt#3816 — rewrites the operator's Claude Code MCP config, a durable
+    // artifact OUTSIDE this repo, and may start a daemon. Backed up before the
+    // first byte is written and reversible via `--revert`, but a stale-state
+    // refusal is still right: the entry it rewrites decides what the operator's
+    // editor spawns.
+    "setup.local-http",
   ];
 
   test("exactly the decided commands carry mutating: true", () => {

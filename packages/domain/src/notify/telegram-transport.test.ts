@@ -27,6 +27,8 @@ const TOKEN = "123456:FAKE-TOKEN-VALUE";
 const CHAT = "42";
 /** Telegram's wire key for a topic thread — shared across many test bodies below. */
 const THREAD_ID_KEY = "message_thread_id";
+/** Telegram's wire key for a send that must not raise a notification (mt#3711). */
+const DISABLE_NOTIFICATION_KEY = "disable_notification";
 /** Telegram's rejection text for markup it cannot parse — shared across the parse-mode cases. */
 const CANT_PARSE_ENTITIES = "can't parse entities";
 /** A representative alert body — shared across the byte-for-byte regression cases. */
@@ -1027,6 +1029,133 @@ describe("sendTelegramMessage — topics (mt#3505)", () => {
         reply_to_message_id: 12,
       })
     );
+  });
+});
+
+/**
+ * Silent sends (mt#3711).
+ *
+ * The reply stream edits ONE message in place because "separate message" was
+ * read as inseparable from "notification". `disable_notification` is what
+ * separates them, so a turn can render as successive chat messages while the
+ * phone still buzzes once.
+ *
+ * These pin the WIRE CONTRACT only. Whether Telegram honours the field is a
+ * property of Telegram, not of this code, and a stubbed fetch cannot observe
+ * it — `scripts/principal-channel/verify-silent-send.ts` exists for that half
+ * and its verdict is the operator's. What is testable here is that the field
+ * reaches the wire on every path that can carry a message, including the two
+ * RETRY paths, where losing it means the message the principal actually
+ * receives is the one that buzzes.
+ */
+describe("sendTelegramMessage — silent sends (mt#3711)", () => {
+  test("forwards disableNotification as disable_notification", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      disableNotification: true,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(sent[DISABLE_NOTIFICATION_KEY]).toBe(true);
+  });
+
+  // An explicit `false` is not the same as omission, and a truthiness check
+  // would collapse them. It survives because the transport tests
+  // `=== undefined`; this pins that choice so a later `if (disableNotification)`
+  // refactor fails here rather than in the chat.
+  test("forwards an explicit false rather than dropping it", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      disableNotification: false,
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(sent[DISABLE_NOTIFICATION_KEY]).toBe(false);
+  });
+
+  test("omits disable_notification when not given", async () => {
+    let sent: Record<string, unknown> = {};
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      fetchFn: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, result: { message_id: 1 } });
+      },
+    });
+    expect(DISABLE_NOTIFICATION_KEY in sent).toBe(false);
+  });
+
+  // The retry is the message that actually lands, so a silenced send whose
+  // markup Telegram rejects would buzz — the failure mode is invisible in the
+  // first request's body, which is why this asserts on the SECOND.
+  test("the plain-text retry after a parse failure stays silent", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body["parse_mode"] !== undefined) {
+        return jsonResponse({ ok: false, description: CANT_PARSE_ENTITIES }, 400);
+      }
+      return jsonResponse({ ok: true, result: { message_id: 9 } });
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>broken",
+      parseMode: "HTML",
+      plainFallback: "**broken",
+      disableNotification: true,
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.[DISABLE_NOTIFICATION_KEY]).toBe(true);
+  });
+
+  // Same argument one layer up: the dead-topic fallback resends via a spread
+  // of the original options, and a spread is exactly the shape a refactor
+  // drops a field from without any type error.
+  test("the dead-topic fallback send stays silent", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body[THREAD_ID_KEY] !== undefined) {
+        return jsonResponse(
+          { ok: false, description: "Bad Request: message thread not found" },
+          400
+        );
+      }
+      return jsonResponse({ ok: true, result: { message_id: 7 } });
+    };
+
+    const result = await sendTelegramMessageWithThreadFallback({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "hi",
+      messageThreadId: 749667,
+      disableNotification: true,
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.[THREAD_ID_KEY]).toBeUndefined();
+    expect(bodies[1]?.[DISABLE_NOTIFICATION_KEY]).toBe(true);
   });
 });
 

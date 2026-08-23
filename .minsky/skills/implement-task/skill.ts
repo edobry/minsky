@@ -71,7 +71,27 @@ Then run both sweeps:
 
 1. **Open-PR sweep** — \`mcp__github__list_pull_requests\` with \`state: "open"\`. Scan titles
    and branches for any PR whose scope plausibly overlaps the spec's \`## Scope\` → \`In scope\`
-   files. Spot-check suspicious matches with \`mcp__github__pull_request_read\` method \`get_diff\`.
+   files. Titles and branches are a CANDIDATE FILTER, not evidence about files: for any
+   candidate you would act on, read its actual changed-file list with
+   \`mcp__github__pull_request_read\` method \`get_files\` before recording a collision.
+
+   **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
+   evidence is \`get_files\`/\`get_diff\` for an open PR, or \`mcp__minsky__git_log\` with the file
+   path filter (\`git_log --path\`) for work that already merged — both sweeps below, and both
+   are file-level reads. A task's title, its \`## Scope\` section, or an inference about where
+   that kind of code lives is not evidence about which files were touched. \`get_files\` is the
+   cheap default — it returns a filename list, which is the whole question here; reserve
+   \`get_diff\` for when the hunks actually matter.
+
+   **When the other work has no PR yet, a file-level claim is UNAVAILABLE.** Do not substitute
+   prose for the missing list. Record "task-level adjacency, files unknown" and decide on that
+   basis — which is a weaker finding than a collision and should not, on its own, halt work.
+
+   Origin (mem#892, 2026-08-05): this step halted on a claimed \`SessionFilmStage.tsx\` collision
+   with mt#3792. That PR changed \`PanZoomSVG.tsx\`, its test, and a verify script — the stage was
+   never in it. The filename came from mt#3792's title plus an inference about where camera code
+   lives. One \`get_files\` call falsified it, and was made only after the principal prompted to
+   resume, by which point a turn was spent and a false blocking gap was written into the spec.
 2. **Recently-merged sweep** — \`mcp__minsky__git_log\` for the last 24 hours; check for any
    merge that touched files this task plans to modify. A fix that landed overnight is just
    as bad as one in flight.
@@ -289,11 +309,15 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
      1. The compile run's per-target report lists every target your change should have touched — it prints \`Target "<name>": N file(s) written\` per target, so a missing target is visible.
      2. \`git status\` shows those generated outputs as modified.
      3. \`grep\` your new section in EACH output the rule feeds, not just one. An \`alwaysApply\` rule lands in \`CLAUDE.md\`, \`AGENTS.md\`, AND \`.cursor/rules/<name>.mdc\`; a path-scoped rule (\`globs\` + \`alwaysApply: false\`) lands in \`.claude/rules/<name>.md\` and \`.cursor/rules/<name>.mdc\` (verified mt#3309). Grepping \`CLAUDE.md\` alone verifies ONE target out of three — it is the spot-check that caught mt#3309, not a sufficient check on its own.
-   - Register any new \`MINSKY_*\` override env var in \`HOOK_ONLY_ENV_VARS\` (mt#1788).
+   - Register any new \`MINSKY_*\` env var in \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (mt#1788, mt#3882), giving it a category: \`operator-override\` (a guard/gate/detector consults it as its own override), \`test-fixture\`, or \`tunable\`. \`HOOK_ONLY_ENV_VARS\` is DERIVED from that record's keys — do not edit it directly. Picking \`operator-override\` obliges you to add the same name to \`.minsky/hooks/known-override-env-vars.ts\`; \`known-override-env-vars.test.ts\` fails naming the entry if you don't.
+   - **Triage any hook you register in \`.claude/settings.json\` in \`packages/domain/src/rules/enforcement-mapping.ts\` (mt#4367)** [tier: pre-commit gate]. Adding the hook to \`settings.json\` is not the last step: \`enforcement-mapping.test.ts\` asserts that EVERY registered hook is either an \`ENFORCEMENT_MAPPINGS\` mechanism or an explicitly-reasoned \`NON_ENFORCEMENT_CLAUDE_HOOKS\` entry, so a hook in neither place fails the build. Which of the two is not a judgment call: a guard that DENIES — or otherwise IS some rule's enforcement mechanism — goes in \`ENFORCEMENT_MAPPINGS\` with its \`configPath\`; a record-only, log-only, or injection-only observer enforces nothing and goes in \`NON_ENFORCEMENT_CLAUDE_HOOKS\` with a reason (the test requires a non-empty one). Reproduce the check with \`bun scripts/run-related-tests.ts .claude/settings.json\`.
+   - **Why that tier, and why this bullet is not the mechanism.** The three registries above are each gated, and this one was not: until mt#4367, \`.claude/settings.json\` appeared in \`enforcement-mapping.test.ts\` only inside comments, so the data-read edge (mt#4224) never formed and the fast related-test gate selected ZERO tests for a settings.json change. \`audit:interceptors\` passes (it checks the interceptor CATALOG, a different registry), and typecheck and lint pass (it is an assertion, not a type or style error) — so the first signal was a full CI run, arriving after the PR had already been APPROVED (mt#1880, two jobs red on one assertion out of 14608 passing tests). mt#4367 named the path as a resolvable literal in that test, which moves the signal to pre-commit. This bullet documents a gate that now fires; it is not prose standing in for one.
 
    Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its \`hook-files.mdc\` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-\`--target\` invocation regenerated \`AGENTS.md\` but not \`CLAUDE.md\` — historical: mt#2803 fixed that specific unreliability, and the current trap is the different one named in the bullets above). See \`feedback_new_guard_needs_source_rule_doc_at_authoring_time\`.
 
 5. **Spec-decision reconciliation.** Re-read the spec's \`Design Decisions\` / \`Success Criteria\`. For each, confirm the implementation reflects it. If you deviated from a stated decision mid-implementation (e.g., on the basis of a local code convention or comment), you MUST either (a) update the spec to record the change + rationale, or (b) revert to the spec — never leave an unreconciled spec-vs-impl divergence for the reviewer to find (a guaranteed extra round). A convention comment in ONE file is a claim about a local choice, not evidence of a global rule: grep for counter-examples across the broader codebase before letting it override a spec decision (see memory \`d624c862\`).
+
+   **Recording is necessary, not sufficient — and this item no longer carries the enforcement (mt#3587).** Option (a) above says to record the change plus a rationale; it never said the rationale has to be RIGHT, and a confidently-argued wrong one ships looking reconciled. A silent divergence invites checking; a documented one reads as decided, so the remedy makes the failure harder to catch — a plausible contributor to this item's 14x recurrence. The reviewer's spec-verification pass now treats a recorded deviation as a claim to VERIFY rather than a resolution, checked against the diff's actual behavior. Write the rationale so it can be checked: name the mechanism it rests on. Do NOT read this pointer as permission to skip (b) — reverting to the spec is still the right move whenever the deviation was not deliberate. The PLACEMENT half — amending the criterion's own text rather than explaining it elsewhere — is mem#986's rule, and is enforced separately (mt#4213).
 
    Origin: mt#2415 / PR #1711 R1 (2026-06-16) — the spec's Design Decision said \`project_id\` was a \`uuid FK -> projects.id\`; mid-implementation the decision was overridden to a no-FK plain ref after reading one file's "no FK constraints — plain text refs per project convention" comment, without checking that the agent-transcripts cluster DOES use uuid FKs and without re-reading the spec. The reviewer-bot's Spec-verification table caught the divergence (2 BLOCKING findings), costing a round. This step shifts that catch left to author time. Deciding-time recurrence of memory \`d624c862\`; see \`488d4796\`.
 
@@ -478,13 +502,26 @@ what's next), just without stopping there.
 
 **Default mechanism: \`session_pr_wait-for-review\` with \`reviewer: "minsky-reviewer[bot]"\`.**
 
+**Arming a watch instead, because you will do other work meanwhile? Pass \`session\` (mt#1593).** The default above BLOCKS, which is right when you intend to act on the review immediately. For the do-other-work case the mechanism is \`pr_watch_create\` — and it is deliverable ONLY if the create call carries \`session:\` (or \`sessionId:\`). \`extractSessionId\` (\`src/adapters/shared/commands/pr-watch.ts\`) reads exactly those two parameter names off the call itself; with neither present the watch stores a null \`parentSessionId\` and can never wake you. The miss IS recorded server-side — registration logs \`pr_watch.no_session_id\`, and an allowlisted drain that fails session resolution logs \`wake.enrichment.no_session_id\` — but neither reaches your tool results, so nothing tells YOU at the time. (The case that emits no telemetry at all is a next call OUTSIDE the allowlist, where \`shouldEnrichWake\`'s early return precedes the log.) (\`watcherId\` is a DIFFERENT field with its own \`operator:local:default\` fallback — a default \`watcherId\` is not what makes a wake undeliverable.) You are session-bound here, so unlike \`/plan-task\` the delivery conjunction IS satisfiable: \`session.pr.get\` and \`session.pr.list\` both sit on \`WAKE_ENRICHMENT_ALLOWLIST\` and both take a session argument. **Do NOT import \`/plan-task\`'s belt-and-braces poll mandate into this step** — it exists for a context where the first-party mechanism cannot deliver, and this is not that context. mt#1594 will return deliverability as a create-time fact, retiring this paragraph.
+
+**One rule for \`expectedHeadSha\` (mt#4046): it is the head of whichever call LAST PUSHED.** Not "the sha \`session_commit\` returned" — that is the same thing only when \`session_commit\` was the last thing to push. TWO calls push, and each returns its own head:
+
+| Wait | \`expectedHeadSha\` comes from |
+| --- | --- |
+| The FIRST, right after \`session_pr_create\` | that call's returned \`headSha\` |
+| Every wait after a fix-and-push | that \`session_commit\`'s returned \`commitHash\` |
+
 First wait (no \`since\` — picks up the first review on the PR):
 
 \`\`\`
-mcp__minsky__session_pr_wait-for-review(task: "mt#<id>", reviewer: "minsky-reviewer[bot]")
+mcp__minsky__session_pr_wait-for-review(
+  task: "mt#<id>",
+  reviewer: "minsky-reviewer[bot]",
+  expectedHeadSha: "<session_pr_create's headSha>"
+)
 \`\`\`
 
-Subsequent waits (after pushing a fix) pass TWO things — \`since\`, so the call returns the NEW review rather than the stale CHANGES_REQUESTED one, and \`expectedHeadSha\`, so it does not return a review of a tree the remote has not received yet:
+Subsequent waits (after pushing a fix) add \`since\`, so the call returns the NEW review rather than the stale CHANGES_REQUESTED one:
 
 \`\`\`
 mcp__minsky__session_pr_wait-for-review(
@@ -497,9 +534,15 @@ mcp__minsky__session_pr_wait-for-review(
 
 **Why \`expectedHeadSha\` (mt#3877).** \`session_commit\` runs the full suite in pre-commit and routinely exceeds the 120s MCP tool timeout, at which point the harness BACKGROUNDS it — the call returns, and the push completes up to a minute later. Arming the watcher in that window gets you a review of the PREVIOUS head, re-reporting the findings your unpushed commit already fixed: one wasted round of reviewer tokens, ~9 minutes, and an agent turn spent deciding whether the bot self-reversed (observed on PR #2730, 2026-08-09, with 44 seconds between the review and the push).
 
-\`requireCurrentHead: true\` does NOT protect you here, and the reason is worth internalizing rather than memorizing: at the moment you arm the watcher, the stale commit genuinely IS the remote's current head. The flag compares a review against the remote, never against your local intent, so it is satisfied by exactly the wrong thing. \`expectedHeadSha\` supplies the missing half — the commit you MEANT to be reviewed — and the wait polls on until the remote reaches it. Take the sha from \`session_commit\`'s returned \`commitHash\`; do not construct or recall it.
+\`requireCurrentHead: true\` does NOT protect you here, and the reason is worth internalizing rather than memorizing: at the moment you arm the watcher, the stale commit genuinely IS the remote's current head. The flag compares a review against the remote, never against your local intent, so it is satisfied by exactly the wrong thing. \`expectedHeadSha\` supplies the missing half — the commit you MEANT to be reviewed — and the wait polls on until the remote reaches it. Read the sha off the call that pushed it, per the table above; never construct or recall it.
 
-**Do NOT block on \`pushed: true\` before arming the watcher — that is what \`expectedHeadSha\` is for.** Arm it immediately after \`session_commit\` returns, passing the sha; the wait absorbs the push lag by polling. \`pushed: true\` (or \`pushConfirmedVia\`) in the backgrounded commit's eventual notification is a DIAGNOSTIC you consult when something goes wrong, not a precondition you wait on first. Precedence, in one line: pass \`expectedHeadSha\` always; read \`pushed\` only if the wait times out with \`expectedHeadShaUnreached\`, which says the push is stuck rather than the reviewer being silent — go check the commit rather than waiting longer or bypassing.
+**Why the table, and not just "\`session_commit\`'s \`commitHash\`" (mt#4046).** That was this section's wording for months, and it is correct for the round it describes and WRONG for the first wait, because \`session_pr_create\` runs a pre-PR session update and pushes a head of its own. Five sessions in five days armed the first watcher with the pre-creation sha, and each waited out its FULL timeout — 10 to 15 minutes — while a real review sat suppressed as \`push-not-landed\` (PR #2920, #2966, #2980, #3000, #3013). The failure is silent and reads exactly like reviewer silence, which is the documented lead-in to the bypass ladder, so the natural next move is bypassing an already-reviewed PR. Note the shape: those agents were following this text, not ignoring it — an instruction that is right in one case and wrong in another does not fail loudly, it fails as time. \`session_pr_create\` now returns \`headSha\` so the rule can be one sentence instead of a carve-out.
+
+**When CI or the reviewer appears absent, read the PR's \`mergeable\` FIRST — ahead of any delivery-side probe (mt#4182).** Zero check-runs has two causes with OPPOSITE recoveries, and the PR object names which in one field: \`mergeable === false\` means conflicts, so GitHub never built \`refs/pull/N/merge\` and dispatched no \`pull_request\` workflow. The fix there is \`session_update\` + resolve; an empty-commit nudge does nothing except change HEAD and invalidate an existing approval. Only when merge state is clean is it a webhook miss. Probing the Actions API, GitHub's status page, or a comparison PR first narrows the DELIVERY side while the answer sits in the PR — see mem#537, whose R2 is exactly that mistake on PR #3031.
+
+**Diagnosing it if you hit it anyway.** \`matched: false\` with a populated \`lastSeenReviews\` is this, not silence — read \`expectedHeadShaUnreached.lastObservedHeadSha\` and re-wait against THAT sha rather than waiting longer. When the wait outran the 120s tool cap and was backgrounded, its payload may never have been read; then the tell is \`forge_check_runs_list\` with the FULL sha — zero check runs on your sha and a normal count on the observed head means the remote never received yours.
+
+**Do NOT block on \`pushed: true\` before arming the watcher — that is what \`expectedHeadSha\` is for.** Arm it immediately after \`session_commit\` returns, passing the sha; the wait absorbs the push lag by polling. \`pushed: true\` (or \`pushConfirmedVia\`) in the backgrounded commit's eventual notification is a DIAGNOSTIC you consult when something goes wrong, not a precondition you wait on first. Precedence, in one line: pass \`expectedHeadSha\` always; read \`pushed\` only if the wait times out with \`expectedHeadShaUnreached\`, which says the remote never served the sha you named rather than the reviewer being silent — and that has two causes with opposite remedies (a stuck push, which waiting fixes; a stale sha, which waiting never fixes). Check the commit and the observed head rather than waiting longer or bypassing.
 
 **Diagnostic (mt#3877).** When a review re-reports findings you believe you just fixed, compare its \`commitId\` against your local HEAD BEFORE concluding the reviewer self-reversed. A stale-head review and a genuine self-reversal are indistinguishable from the findings alone, and only one of them is a bypass condition — mistaking the first for the second is how a wasted round turns into an unjustified bypass.
 
@@ -531,15 +574,29 @@ If the named condition, once checked against its definition, does not actually h
 
 **Exactly once** — a second identical finding is the signal to escalate, not to retrigger again. This does NOT weaken \`merge-coordination\` §7b (which forbids a *blind* retrigger that discards an unread verdict's prose): this rung fires strictly after the review has been read and the finding verified false, so nothing diagnostic is thrown away. Full rationale, worked counter-example (mt#2921, where the re-fire made escalation correct), and the originating incident (PR #2640 — a false "generated file edited directly" finding paged the principal at 21:50; a retrigger returned APPROVED ~2 minutes later): \`merge-coordination\` §8a and memory \`8b40f396\` CORRECTION 3.
 
-- **Preferred audited bypass (in-band, mt#2215):** \`session_pr_merge(task: "mt#<id>", forceBypass: true, bypassReason: "<evidence>")\`. This is the in-band replacement for the raw \`gh api PUT\` below — no hand-run CLI. It requires a non-empty \`bypassReason\` and a present (non-DISMISSED) \`CHANGES_REQUESTED\` review (the false-positive / self-reversal / leakage-stale case; for reviewer ABSENCE use \`acceptStaleReviewerSilence\` instead), refuses on failing status checks or other merge blockers, auto-dismisses the blocking review using \`bypassReason\`, writes the canonical audit signature into the merge-commit body, always uses \`merge_method=merge\`, and triggers Minsky session cleanup. Use this when the conditions in the next bullet hold.
+- **Preferred audited bypass (in-band, mt#2215):** \`session_pr_merge(task: "mt#<id>", forceBypass: true, bypassReason: "<evidence>")\`. This is the in-band replacement for the raw \`gh api PUT\` below — no hand-run CLI. It requires a non-empty \`bypassReason\` and a present (non-DISMISSED) \`CHANGES_REQUESTED\` review (the false-positive / self-reversal / leakage-stale case; for a review that EXISTS but is stale against HEAD, \`acceptStaleReviewerSilence\`), refuses on failing status checks or other merge blockers, auto-dismisses the blocking review using \`bypassReason\`, writes the canonical audit signature into the merge-commit body, always uses \`merge_method=merge\`, and triggers Minsky session cleanup. Use this when the conditions in the next bullet hold.
 - **Fallback — raw bypass via \`gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge\`** (only when the in-band \`forceBypass\` path is unavailable) when ALL of these hold:
-  - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once).
+  - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once). **This is a hard floor on BOTH bypass paths, and at R = 0 there is no bypass at all — see the zero-review case below. It is not an oversight to widen.**
   - AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD (per \`feedback_reviewer_bot_cot_leakage_forces_bypass\`); OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix (per \`feedback_reviewer_bot_self_reversal_is_bypass_signal\`); OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per \`feedback_self_authored_pr_merge_constraints\` step 5 (service health / webhook miss / CoT-leakage stall).
   - AND \`merge_method=merge\` (not squash — \`.claude/hooks/block-git-gh-cli.ts\` enforces this; \`docs/pr-workflow.md §Merge method policy\`).
 - **Pre-bypass discipline:** verify CI fired and passed on the current HEAD before invoking the bypass (per \`feedback_verify_ci_fired_before_bypass_merge\`). A green commit that never triggered CI is a webhook-miss waiting to land broken.
 - Both bypass paths' merge-commit body MUST contain the canonical audit-trail signature \`"Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"\` plus the diagnostic context (which rounds, the error class, CI status, scope summary, fix-commit references). The in-band \`forceBypass\` path writes this automatically from \`bypassReason\`; the raw \`gh api PUT\` path requires it in the \`commit_message\`. The \`/verify-task\` skill's bypass-merge closeout depends on this signature.
 
 **On any escape-valve activation, surface the merge to the user with a one-line note naming the condition that fired**, then proceed with the bypass — do not stop and wait for permission. The user has pre-authorized the bypass for the documented conditions.
+
+**ZERO reviews is not a bypass case — it is where the ladder ENDS (mt#4266).** If the reviewer never posted anything, every bypass above is unavailable, and that is by design rather than by omission:
+
+- \`session_pr_merge(acceptStaleReviewerSilence: true)\` refuses with \`"No review on PR #<n>. Ensure the reviewer bot posts a review before merging."\` — that flag covers a review that EXISTS but predates HEAD, not an absent one.
+- The raw \`gh api PUT\` fallback fails its own stated floor: R ≥ 1 substantive rounds.
+
+**Do not read this as a gap to route around.** Per the position paper *"The reviewer is a control loop, not an approver"*: the bypass closes a **deadlock** — the loop ran, produced findings, and cannot reach APPROVE because of the platform's self-approval block. It is explicitly *"a mistake to read the bypass as a workaround for the bot's flakiness"*, and a reviewer that errored before posting is exactly that flakiness. At R = 0 there is no Chinese-wall check at all, and you authored the PR.
+
+**So when you reach here with zero reviews, the ladder is finished. Do this, in order, and then STOP:**
+
+1. **Confirm it is genuinely zero** — a direct \`get_reviews\` read on the current HEAD, not an inference from a wait timing out.
+2. **Retrigger once** (\`reviewer_retrigger\`), and if the bot's own status comment names a retry (e.g. \`Use /review to retry\`), post that too — it is a different delivery path than the direct endpoint.
+3. **Diagnose the reviewer, not the merge.** Read its \`/health\` body and \`inflightCount\`; a saturated service is queue-shaped and needs waiting, a failed one is not. Record the occurrence on **mt#1697**, and check **mt#1897** — the \`openai.chat.completions.create.toolloop\` 120s timeout is a known recurring cause with confirmed log evidence.
+4. **Leave the PR unmerged and say so.** This is the correct terminal state, and it is precedent, not improvisation: on 2026-08-18 five PRs hit this in one day (#3095, #3098, #3100, #3103, #3108) and every one was left unmerged. Report the PR, the diagnosis, and that it is waiting on the reviewer — do not spend further turns re-waiting.
 
 **Subagent carve-out.** Subagents STOP at §8 (Create PR). Convergence-driving is the **main agent's** responsibility. \`.claude/hooks/block-subagent-bypass-merge.ts\` structurally enforces this for the \`gh api PUT /merge\` sub-case by detecting non-empty \`agent_id\` on the tool input and denying the call. Subagents must report the PR URL + bot-review status back to the parent and exit; the main agent then drives convergence per this step.
 
@@ -567,16 +624,46 @@ When §9/§10 touches shared/prod state, the claim-confidence rule's risk-and-ev
 ### 10. Post-merge deploy verification (when the task touches a deployed service)
 
 When the merged PR changes anything that affects WHAT gets deployed or HOW, do
-NOT stop at merge. This covers both deployed SOURCE (anything under
-\`services/<svc>/\` that has a \`deploy.config.ts\`, or source the deploy image
-bundles via the project Dockerfile) AND deploy/infra CONFIG-as-code — the
-**deploy surface** the mt#2353 hooks fire on: \`infra/**\`,
-\`services/*/Dockerfile\`, \`services/*/railway.json\`, \`services/*/deploy.config.ts\`,
-\`services/*/railway.config.ts\`, \`.github/workflows/deploy-*.yml\`. The merge
-triggers an auto-deploy on Railway (or whatever platform the service declares);
-that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
-missing env var, config-as-code resolution error, schema migration error,
-container crash on start.
+NOT stop at merge. The merge triggers an auto-deploy on Railway (or whatever
+platform the service declares); that deploy can fail in ways no pre-merge check
+catches — Dockerfile breakage, missing env var, config-as-code resolution
+error, schema migration error, container crash on start.
+
+**Which changes those are is not something to recall — run the predicate
+(mt#4269).** The deploy surface is defined in exactly one place,
+\`packages/domain/src/deployment/deploy-surface.ts\`, and it is WIDER than deploy
+config: it covers application SOURCE and the manifests whose merge actually
+triggers a service deploy, not just the platform's own config files. The
+mt#2353 hooks, the post-merge deploy watch, and this step all read that module,
+so it is the only thing your claim has to agree with. Ask it directly, over the
+files this PR actually changed:
+
+\`\`\`
+bun -e 'import { isDeploySurfaceFile } from "./packages/domain/src/deployment/deploy-surface.ts";
+for (const f of process.argv.slice(1)) console.log(isDeploySurfaceFile(f), f);' src/cockpit/routes/context-inspector.ts packages/domain/src/deployment/deploy-surface.ts
+\`\`\`
+
+Swap the two example paths for this PR's actual changed files, passed as plain
+arguments. Do NOT substitute a \`<placeholder>\` for them: the shell reads \`<\` as
+input redirection, so the line dies as a syntax error before bun ever runs. Get
+the file list from \`git_diff\` or \`session_pr_get\` — \`block-git-gh-cli.ts\` denies
+the \`git\` CLI, so a \`git diff --name-only\` substitution is not available here.
+
+The slice is \`1\`, not \`2\`, and that is worth not "correcting": \`bun -e\` passes
+no script path, so \`process.argv\` is \`[<bun>, ...yourFiles]\` — measured, not
+assumed. Slicing at \`2\` drops the FIRST file silently, which for this particular
+check is the worst available failure: a deploy-surface file vanishes from the
+output and \`[no-deploy-impact]\` looks confirmed.
+
+**This binds hardest on \`[no-deploy-impact]\`.** That tag asserts the predicate
+returns false for EVERY changed file, so run it over the diff before you write
+the tag — in the PR body and in each commit message, since a pushed commit
+message cannot be edited afterward. A pattern list you remember is not evidence
+about the pattern set that ships: this paragraph replaced one, and that list had
+been stale through two successive widenings while reading as authoritative.
+Two PRs wrote a false \`[no-deploy-impact]\` by applying it faithfully (#3104,
+#3148) — in the second, the claim reached four commit messages and is permanent
+in history there.
 
 **Verifying the post-merge deploy is MANDATORY before you report the task done**
 — not a discretionary follow-up. Two hooks enforce it (mt#2353): the PreToolUse

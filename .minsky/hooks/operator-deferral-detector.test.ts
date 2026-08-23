@@ -20,7 +20,12 @@ import {
   detectActPathWorkaround,
   isDestructiveCommand,
   hasCapabilitySearch,
+  findReportableKill,
+  buildKillContext,
+  REPORTABLE_KILL_MIN_TARGETS,
 } from "./operator-deferral-detector";
+import { findKillVerb } from "./block-bulk-process-kill";
+import { findOfferShape } from "./ask-routing-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -39,6 +44,8 @@ const PROBE_DIRECTIVE = "Run the capability probe";
 const ASK_OPTION_LABEL = "ask-option-label";
 const CAPABILITY_PROSE = "capability-deferral-prose";
 const R5_LABEL = "You recover the reviewer service";
+/** Shared `test.each` title for every suppression corpus below. */
+const STAYS_SILENT = "stays silent: %s";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -166,6 +173,95 @@ describe("Surface C — permission-deferral prose (mt#3463)", () => {
     const prose = "The daemon needs a restart. Say the word and I'll do it.";
     expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
     expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3801 — the structural offer shape reaches this surface too.
+//
+// `PERMISSION_DEFERRAL_PATTERNS` is entirely interrogative or imperative
+// ("shall I", "want me to", "say the word"). A NEGATED DEFAULT — a declarative
+// next step with a trailing `unless` — matched none of the eight and this
+// surface stayed silent on it. The trigger is the shared `findOfferShape`
+// conjunction, and the point of these cases is that it lands on the SAME
+// suppression chain the literal corpus already passes through.
+// ---------------------------------------------------------------------------
+
+/** Verbatim from the 2026-08-05 incident turn (R9 of the family, mem#831). */
+const OFFER_SHAPE_PROSE =
+  "Next step is /plan-task mt#3799 unless you'd rather I go straight at it.";
+
+describe("Surface C — the offer shape (mt#3801)", () => {
+  test("AT3: the originating sentence now fires permission-deferral-prose", () => {
+    const matches = detectPermissionDeferral([assistantText(OFFER_SHAPE_PROSE)]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(PERMISSION_PROSE);
+  });
+
+  test("AT4: a factual `unless` with no actor stays quiet", () => {
+    const prose = "The migration ran cleanly unless a row was locked, in which case it retried.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  // AT5. The exclusions are the load-bearing half of this surface: the shape of
+  // a permission-ask is identical whether the action is in-authority or
+  // genuinely reserved, and only the ACTION discriminates. A new way to MATCH
+  // must not become a new way to bypass them — which is why both paths call one
+  // suppression chain rather than each carrying a copy.
+  test("AT5: a destructive offer is excluded, exactly as the literal corpus is", () => {
+    const prose = "I can force-push it, unless you'd rather review first.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("a principal-reserved offer is excluded", () => {
+    const prose =
+      "That is a naming call for the product surface. I can pick one unless you'd rather decide.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("a standing-instruction offer is excluded (the mt#3865 Cause C conjunction)", () => {
+    const prose = "You said file only. I can take it to READY unless you'd rather I hold.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("a settled-decision offer is excluded", () => {
+    const prose =
+      "I picked the second one, since this turn has run long — unless you'd rather I redo it.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  // The negative control for the exclusion tests above: without it they pass
+  // whenever the trigger simply fails to match, which is how AT5 passed
+  // VACUOUSLY before this change — no `unless`-shaped entry existed in the
+  // corpus at all, so nothing reached the exclusions to be excluded by them.
+  test("the exclusion cases DO carry an offer shape — they are excluded, not unmatched", () => {
+    expect(findOfferShape("I can force-push it, unless you'd rather review first.")).not.toBeNull();
+    expect(
+      findOfferShape("You said file only. I can take it to READY unless you'd rather I hold.")
+    ).not.toBeNull();
+  });
+
+  test("a quoted offer shape does not fire (elision parity with the literal corpus)", () => {
+    const prose = 'The detector matches shapes like "X unless you\'d rather I do Y" in prose.';
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("probe evidence suppresses the offer shape too", () => {
+    const lines = [
+      assistantToolUse("Bash", { command: "which railway" }),
+      toolResult("/opt/homebrew/bin/railway"),
+      assistantText("Probed: railway CLI present. I'll redeploy unless you'd rather hold."),
+    ];
+    expect(detectPermissionDeferral(lines)).toEqual([]);
+  });
+
+  // Additive: a turn matching a literal pattern keeps that pattern's phrase, so
+  // no pre-existing calibration record changes shape.
+  test("a literal match still reports its literal phrase", () => {
+    const prose =
+      "The daemon needs a restart. Say the word and I'll do it unless you'd rather not.";
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches[0]?.matchedPhrase).toBe("Say the word and I'll");
   });
 });
 
@@ -1307,7 +1403,7 @@ const TUNE_REAL_POSITIVES: ReadonlyArray<readonly [string, string]> = [
 ];
 
 describe("mt#3865 — false positives the tune removes (AT1)", () => {
-  test.each(TUNE_FALSE_POSITIVES)("stays silent: %s", (_label, prose) => {
+  test.each(TUNE_FALSE_POSITIVES)(STAYS_SILENT, (_label, prose) => {
     expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
     expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
   });
@@ -1505,5 +1601,231 @@ describe("surface F — parse robustness (PR #2954 R1)", () => {
     expect(isDestructiveCommand("kill 111 222 333")).toBe(true);
     expect(isDestructiveCommand("/bin/kill 111")).toBe(true);
     expect(isDestructiveCommand("echo done && killall node")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4111 — surface F precision: the five live fires, and what the record says
+// ---------------------------------------------------------------------------
+
+/** A turn that runs `command` and nothing else — no capability search, no denial. */
+const killTurn = (command: string): TranscriptLine[] => [
+  bashCall("toolu_k", command),
+  toolResult(""),
+];
+
+/**
+ * The four NON-denied `act-path-workaround` fires in
+ * `.minsky/operator-deferral-calibration.jsonl` between 2026-08-14 and
+ * 2026-08-17, verbatim where the record preserved the command and completed
+ * (`kill $SRV`) where the 240-char context truncated it. Every one is a
+ * single-target kill of a process the same session was managing.
+ */
+const RECORDED_SINGLE_TARGET_CLEANUPS: ReadonlyArray<readonly [string, string]> = [
+  [
+    "2026-08-14T02:21 — a port allocator, then the server it started",
+    `PORT=$(bun -e 'const s=Bun.listen({hostname:"127.0.0.1",port:0,socket:{data(){}}});console.log(s.port)'); echo "port=$PORT"; kill $SRV`,
+  ],
+  [
+    "2026-08-14T03:36 — a scratch MCP server the same session spawned",
+    `kill 56286 && echo "scratch MCP server stopped"; sleep 1; lsof -ti :3798 2>/dev/null | head -1`,
+  ],
+  [
+    "2026-08-16T21:05 — a backgrounded dev server, killed by job variable",
+    `nohup bun run src/cli.ts mcp start --http --port=39322 > /tmp/boot2.log 2>&1 & SRV=$!; sleep 2; kill $SRV`,
+  ],
+  [
+    "2026-08-17T00:39 — a port-holder located by lsof in the same command",
+    `PID=$(lsof -nP -iTCP:3737 -sTCP:LISTEN -t 2>/dev/null | head -1); echo "killing $PID"; kill "$PID" 2>&1; sleep 12`,
+  ],
+];
+
+describe("mt#4111 — a denied invocation is the guard working, not a workaround (SC1)", () => {
+  const BULK = "kill 999991 999992 999993";
+
+  test("AT1: the 2026-08-13 guard-verification exercise no longer records", () => {
+    expect(
+      detectActPathWorkaround([bashCall("toolu_bulk", BULK), denialResult("toolu_bulk")])
+    ).toHaveLength(0);
+  });
+
+  test("AT2: the SAME command, not denied, still records", () => {
+    const matches = detectActPathWorkaround(killTurn(BULK));
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("PR #3051 R1: a denial followed by an identical PERMITTED retry still records", () => {
+    // The ordinary override shape. A text-keyed filter drops the retry too,
+    // which suppresses the one execution this surface exists to see.
+    const matches = detectActPathWorkaround([
+      bashCall("toolu_denied", BULK),
+      denialResult("toolu_denied"),
+      bashCall("toolu_retry", BULK),
+      toolResult(""),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("PR #3051 R1: a LATER denial does not retire an EARLIER identical execution", () => {
+    const matches = detectActPathWorkaround([
+      bashCall("toolu_ran", BULK),
+      toolResult(""),
+      bashCall("toolu_denied", BULK),
+      denialResult("toolu_denied"),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+});
+
+describe("mt#4111 — single-target cleanup is not a workaround (SC9)", () => {
+  test.each(RECORDED_SINGLE_TARGET_CLEANUPS)(STAYS_SILENT, (_label, command) => {
+    expect(detectActPathWorkaround(killTurn(command))).toHaveLength(0);
+    expect(findReportableKill(command)).toBeNull();
+  });
+
+  test("the residue the bulk guard lets through still fires", () => {
+    // Two PIDs sit below `block-bulk-process-kill`'s BULK_PID_THRESHOLD of 3,
+    // so nothing denies this — which is exactly the population this surface
+    // owns after the tune.
+    expect(detectActPathWorkaround(killTurn("kill 4821 4822"))).toHaveLength(1);
+    // `pkill`/`killall` are mass by construction; `minsky-mcp` is not on the
+    // guard's interactive-class list, so it is not denied either.
+    expect(detectActPathWorkaround(killTurn("pkill -f minsky-mcp"))).toHaveLength(1);
+    expect(REPORTABLE_KILL_MIN_TARGETS).toBe(2);
+  });
+
+  test("a liveness probe is not a kill", () => {
+    expect(detectActPathWorkaround(killTurn("kill -0 4821 4822"))).toHaveLength(0);
+  });
+
+  test.each([
+    ["separated, stdout", "kill 4821 > /dev/null"],
+    ["separated, stderr", "kill 4821 2> /dev/null"],
+    ["attached", "kill 4821 >/dev/null 2>&1"],
+  ])("mt#4193: a redirect does not make a one-PID cleanup reportable: %s", (_label, command) => {
+    // The over-count half of mt#4193's tokenization defect: the redirect PATH was read as a
+    // second target, so the cardinality leg saw a multi-target kill.
+    expect(detectActPathWorkaround(killTurn(command))).toHaveLength(0);
+  });
+});
+
+describe("mt#4111 — the record names its own cause (SC6, SC7)", () => {
+  /** Compound commands whose FIRST token is not the verb — the three misrecorded fires. */
+  const COMPOUND_FIRES: ReadonlyArray<readonly [string, string]> = [
+    ["leading token `-nP`", `PID=$(lsof -nP -iTCP:3737 -t | head -1); kill "$PID" "$OTHER"`],
+    ["leading token `-e`", `PORT=$(bun -e 'x'); kill 4821 4822`],
+    ["leading token `nohup`", `nohup bun run serve & SRV=$!; kill 4821 4822`],
+  ];
+
+  test.each(COMPOUND_FIRES)("SC6: the phrase is the verb, not the command's %s", (_l, command) => {
+    const matches = detectActPathWorkaround(killTurn(command));
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test.each(COMPOUND_FIRES)("SC7: the context replays to the same verb (%s)", (_l, command) => {
+    const match = detectActPathWorkaround(killTurn(command))[0];
+    expect(match).toBeDefined();
+    expect(findKillVerb(match?.context ?? "")).toBe(match?.matchedPhrase ?? null);
+  });
+
+  test("the diversity axis counts one pattern once across all three", () => {
+    const phrases = COMPOUND_FIRES.map(
+      ([, command]) => detectActPathWorkaround(killTurn(command))[0]?.matchedPhrase
+    );
+    expect(new Set(phrases).size).toBe(1);
+  });
+
+  test("the context leads with the matching segment, then the command it sat in", () => {
+    const context = buildKillContext(`echo hi; kill 1 2`, `kill 1 2`);
+    expect(context.startsWith("kill 1 2")).toBe(true);
+    expect(context).toContain("echo hi");
+  });
+
+  test("a single-segment command is not annotated with itself", () => {
+    expect(buildKillContext("kill 1 2", "kill 1 2")).toBe("kill 1 2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4111 — prose suppressions (SC2, SC3, SC8) and the new peer-collision class
+// ---------------------------------------------------------------------------
+
+/** Each entry is a rated FALSE POSITIVE from mt#4111's three review windows. */
+const WINDOW_FALSE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  [
+    "shape 1 / SC3 — the principal already instructed the stop, and the ask accompanies it",
+    "Filed only, not planned — you said file. mt#4028 is small enough to plan in one pass; " +
+      "say the word and I'll take it to READY.",
+  ],
+  [
+    "shape 2 / SC2 — the deferred item is a durable default, stated as a consequence",
+    "Say the word and I'll write the setting so it's ready for your next restart.",
+  ],
+  [
+    "window 3 — surfacing an actor collision, which the corpus requires",
+    "There's a second agent on this task. Answer that ask rather than a new one from me; " +
+      "want me to reconcile the two threads first?",
+  ],
+];
+
+describe("mt#4111 — prose false positives the tune removes", () => {
+  test.each(WINDOW_FALSE_POSITIVES)(STAYS_SILENT, (_label, prose) => {
+    expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(0);
+  });
+
+  test("SC8: a copular denial of a deferral does not read as one", () => {
+    const prose =
+      "mt#4124 isn't deferred to you; I just can't walk two at once — I'll take it after.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toHaveLength(0);
+  });
+});
+
+describe("mt#4111 — the negative control: neighbouring real positives still fire", () => {
+  test("SC8: a bare `not` still does not swallow a capability deferral", () => {
+    const matches = detectCapabilityDeferral([
+      assistantText("I will not be able to provide the token myself."),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(CAPABILITY_PROSE);
+  });
+
+  test("a deferral whose `not available` is the match itself still fires", () => {
+    expect(
+      detectCapabilityDeferral([assistantText("That is not available from agent context.")])
+    ).toHaveLength(1);
+  });
+
+  test("SC2: a one-off setting change is the agent's, and still fires", () => {
+    expect(
+      detectPermissionDeferral([
+        assistantText("Say the word and I'll flip the flag for this run only."),
+      ])
+    ).toHaveLength(1);
+  });
+
+  test("SC4: reporting what the principal asked ABOUT is not a standing instruction", () => {
+    // Caught by the replay over the live log during implementation: the first
+    // draft of the direct-reference pattern matched `you asked` bare and
+    // suppressed this rated REAL positive from window 3.
+    expect(
+      detectPermissionDeferral([
+        assistantText(
+          "That's the spot where a second opinion would actually bite. Say the word and I'll " +
+            "dispatch one against the draft; I haven't, since you asked whether it was " +
+            "worthwhile rather than for it."
+        ),
+      ])
+    ).toHaveLength(1);
+  });
+
+  test("SC3: citing the principal does NOT suppress without an instruction reference", () => {
+    expect(
+      detectPermissionDeferral([
+        assistantText("The spec is thin on the migration path. Want me to fill it in?"),
+      ])
+    ).toHaveLength(1);
   });
 });

@@ -133,7 +133,16 @@ export class DefaultAICompletionService implements AICompletionService {
         prompt: request.prompt,
         system: request.systemPrompt,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-        maxTokens: request.maxTokens,
+        // Conditional, matching `temperature` above and `generateObject` below (mt#4314
+        // PR #3156 R1). This path always SET the key, so an unset cap reached the SDK as
+        // `maxTokens: undefined` — the same shape mt#2733 recorded as being read downstream
+        // as a value rather than an absence.
+        //
+        // `system`, `tools` and `maxSteps` below are still unconditional. Same shape, and
+        // deliberately NOT changed here: mt#2733 converged `temperature` on evidence and
+        // this converges `maxTokens` on evidence, whereas flipping the rest would be an
+        // unmeasured behaviour change to fields nothing in this task exercises.
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
         tools,
         maxSteps: request.maxSteps,
       });
@@ -213,7 +222,16 @@ export class DefaultAICompletionService implements AICompletionService {
         prompt: request.prompt,
         system: request.systemPrompt,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-        maxTokens: request.maxTokens,
+        // Conditional, matching `temperature` above and `generateObject` below (mt#4314
+        // PR #3156 R1). This path always SET the key, so an unset cap reached the SDK as
+        // `maxTokens: undefined` — the same shape mt#2733 recorded as being read downstream
+        // as a value rather than an absence.
+        //
+        // `system`, `tools` and `maxSteps` below are still unconditional. Same shape, and
+        // deliberately NOT changed here: mt#2733 converged `temperature` on evidence and
+        // this converges `maxTokens` on evidence, whereas flipping the rest would be an
+        // unmeasured behaviour change to fields nothing in this task exercises.
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
         tools,
         maxSteps: request.maxSteps,
       });
@@ -279,6 +297,22 @@ export class DefaultAICompletionService implements AICompletionService {
         messages: request.messages as import("ai").CoreMessage[],
         schema: jsonSchema(schemaJson as Record<string, unknown>),
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+        // mt#4314: this line was missing. `maxTokens` is declared on
+        // `AIObjectGenerationRequest` and forwarded by `generateText` and `streamText`
+        // above — only this path dropped it, so a caller's cap typechecked, looked
+        // honored, and never reached the provider. Two production callers had been
+        // passing one since they were written.
+        //
+        // Conditional-spread rather than the siblings' unconditional `maxTokens:
+        // request.maxTokens`, matching the `temperature` treatment one line up: mt#2733
+        // is this file's record of an unset field forwarded as `undefined` being read
+        // downstream as a value. Omitting the key when unset cannot reproduce that class.
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+        // mt#4317: the structured-output strategy. Conditional for the same reason as the two
+        // fields above — omitted means the SDK's own default ("auto"), which is what every
+        // caller got before this existed, so adding the field changes nothing for a caller
+        // that does not set it.
+        ...(request.mode !== undefined ? { mode: request.mode } : {}),
       });
 
       // Post-parse validation: the AI may return a shape the JSON Schema

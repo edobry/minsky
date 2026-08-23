@@ -41,12 +41,99 @@ export const RETRY_WINDOW_MS = 15_000;
 /** Delay between connection-refused retries. */
 export const RETRY_INTERVAL_MS = 250;
 
+/**
+ * The largest `timeoutSeconds` any MCP tool's schema accepts (mt#4455).
+ *
+ * `session_pr_wait-for-review` and `session_pr_drive` both declare
+ * `z.number().int().min(1).max(1800)` in
+ * `src/adapters/shared/commands/session/session-parameters.ts`. That ceiling —
+ * not any observed typical — is what `REQUEST_TIMEOUT_MS` below must clear,
+ * because it is the longest a CALLER is permitted to ask the daemon to work.
+ *
+ * `client.test.ts` probes the real schema behaviorally rather than trusting
+ * this copy, so raising the schema's `.max()` without raising the bound below
+ * fails loudly instead of silently clipping legitimate waits.
+ */
+export const MAX_TOOL_WAIT_SECONDS = 1800;
+
+/**
+ * Margin between the longest legitimate server-side wait and the transport
+ * bound: enough for the request/response round trip, the daemon's own final
+ * authoritative re-check (`FINAL_CHECK_DEADLINE_MS`, 10s), and scheduling
+ * slack, without being so wide that the bound stops meaning anything.
+ */
+export const REQUEST_TIMEOUT_MARGIN_SECONDS = 120;
+
+/**
+ * Hard bound on a single in-flight POST to the daemon (mt#4450, resized mt#4455).
+ *
+ * Distinct from `RETRY_WINDOW_MS` above, which bounds how long `send()` keeps
+ * RETRYING a refused connection and does nothing about a request that has
+ * already been accepted and never answers. Before mt#4450 such a request rode
+ * whatever default the runtime happened to apply — a value we neither chose,
+ * documented, nor could reason about, and which surfaced to the agent as the
+ * bare string "The operation timed out."
+ *
+ * ## Why it is derived rather than picked
+ *
+ * mt#4450 set this to a flat 600_000 (ten minutes), sized against mem#1120's
+ * measured 150-315s band for `session_commit`. That number was real and the
+ * reference class was wrong: `session_commit` is a long-RUNNING call, and what
+ * this bound must not clip is a long-WAITING call whose budget the CALLER
+ * chooses. `session_pr_wait-for-review` accepts up to 1800s, so a 600s bound
+ * killed a legitimate 30-minute review wait at ten minutes — and reported it as
+ * a transport failure, which reads exactly like reviewer silence and is the
+ * documented lead-in to the bypass-merge ladder.
+ *
+ * Worse, `AbortSignal.timeout()` is an ABSOLUTE deadline. `onProgress`
+ * (mt#2677) exists so a long wait emits transport activity instead of silence —
+ * measured: a 300ms `AbortSignal.timeout()` fires at ~301ms with continuous
+ * activity in the window — so an absolute bound does not merely under-budget
+ * the inner layer, it defeats a keepalive the system already had.
+ *
+ * So the value is a stated function of the inner budget's declared ceiling
+ * rather than an independent guess. This is `decision-defaults §Thresholds`'s
+ * ceiling case: when a threshold bounds work whose own budget is
+ * caller-specified, the binding constraint is that budget's declared MAXIMUM.
+ *
+ * ## Known residue
+ *
+ * `session_pr_checks` and `deployment_wait-for-latest` declare no `.max()` on
+ * `timeoutSeconds`, so a caller can still request a budget above this bound.
+ * Accepted knowingly: the durable fix is deriving the bound per-request from
+ * the caller's own `timeoutSeconds`, which would make the shim read into tool
+ * ARGUMENTS and couple a deliberately transport-only component to the
+ * application schema (ADR-038's thin-shim posture argues against it). Revisit
+ * if a caller is observed clipped here.
+ *
+ * This is a backstop, NOT the fix for the mt#4450 deadlock — that is the
+ * capability narrowing in `capabilities.ts`. A backstop that fires is still a
+ * defect worth chasing; it just fails in a way that names itself.
+ */
+export const REQUEST_TIMEOUT_MS = (MAX_TOOL_WAIT_SECONDS + REQUEST_TIMEOUT_MARGIN_SECONDS) * 1000;
+
 export class ConnectionRefusedError extends Error {}
 export class SessionNotFoundError extends Error {}
 export class DaemonRequestError extends Error {}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Whether a `fetch()` throw is OUR request timeout firing (mt#4450).
+ *
+ * `AbortSignal.timeout()` rejects with a `DOMException` named `TimeoutError`.
+ * Matched by `name`, not by `instanceof DOMException` — that constructor is not
+ * uniformly available across the runtimes this file is exercised in, and the
+ * name is the part the platform actually specifies. `AbortError` is accepted
+ * too: it is what an abort surfaces as in runtimes that predate the distinct
+ * timeout name, and the shim passes no other signal, so an abort here can only
+ * be this one.
+ */
+function isRequestTimeout(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name;
+  return name === "TimeoutError" || name === "AbortError";
 }
 
 export interface DaemonClientOptions {
@@ -64,6 +151,8 @@ export interface DaemonClientOptions {
   retryWindowMs?: number;
   /** Injected for tests. Defaults to RETRY_INTERVAL_MS. */
   retryIntervalMs?: number;
+  /** Injected for tests. Defaults to REQUEST_TIMEOUT_MS. */
+  requestTimeoutMs?: number;
   /**
    * Classifies a network-level `fetch()` throw as connection-refused-class
    * (retryable within the cold-start window) or not. Defaults to
@@ -108,6 +197,7 @@ export class DaemonClient {
   private readonly log: (line: string) => void;
   private readonly retryWindowMs: number;
   private readonly retryIntervalMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly isConnectionRefused: (err: unknown) => boolean;
 
   constructor(private readonly opts: DaemonClientOptions) {
@@ -116,6 +206,7 @@ export class DaemonClient {
     this.log = opts.onLog ?? ((line) => process.stderr.write(`${line}\n`));
     this.retryWindowMs = opts.retryWindowMs ?? RETRY_WINDOW_MS;
     this.retryIntervalMs = opts.retryIntervalMs ?? RETRY_INTERVAL_MS;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     this.isConnectionRefused = opts.isConnectionRefused ?? DEFAULT_IS_CONNECTION_REFUSED;
   }
 
@@ -125,9 +216,24 @@ export class DaemonClient {
   }
 
   /**
-   * Record an inbound (client → shim) frame the shim may need to replay
-   * against the daemon after a session loss. Call this for EVERY inbound
-   * frame before forwarding it — it never mutates the message.
+   * Record a frame the shim may need to REPLAY against the daemon after a
+   * session loss. It never mutates the message.
+   *
+   * **Pass the frame exactly as it will be SENT, not as it arrived** (mt#4450).
+   * Whatever is stored here is what `reinitialize()` re-sends verbatim, so this
+   * is not a diagnostic record of client input — it is the recovery copy, and
+   * it has to be byte-identical to what the daemon negotiated the first time.
+   * `handleLine` transforms `initialize` before sending (`capabilities.ts`
+   * removes capabilities this transport cannot service), so observing the raw
+   * inbound frame instead would re-advertise a capability the connection cannot
+   * honor on the first reconnect, silently undoing that fix at the moment
+   * nobody is watching.
+   *
+   * This docstring previously said "call this for EVERY inbound frame before
+   * forwarding it." That was accurate while the shim forwarded everything
+   * untouched; it is the sentence a reader would have followed straight into
+   * the bug, which is why it is corrected here rather than merely amended at
+   * the call site.
    */
   observeInbound(msg: JsonRpcMessage): void {
     if (msg.method === "initialize") {
@@ -266,6 +372,7 @@ export class DaemonClient {
         method: "POST",
         headers,
         body: JSON.stringify(msg),
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
     } catch (err) {
       // fetch() throws for any network-level failure (connection refused,
@@ -274,6 +381,21 @@ export class DaemonClient {
       // DEFAULT_IS_CONNECTION_REFUSED's docstring for the default's
       // rationale, and DaemonClientOptions.isConnectionRefused for how to
       // narrow it.
+      // mt#4450: our own timeout is checked BEFORE the connection-refused
+      // classifier, and the order matters. `DEFAULT_IS_CONNECTION_REFUSED`
+      // returns true for every network-level throw, so without this branch a
+      // timeout would be classified retryable and re-thrown as
+      // `ConnectionRefusedError` — which `sendWithRetry` then reports as
+      // "daemon unreachable after 15000ms retry window" for a request the
+      // daemon accepted and held for ten minutes. Two opposite conditions
+      // under one message is exactly the diagnosis cost this task was filed
+      // over, so the timeout keeps its own error and says what it means.
+      if (isRequestTimeout(err)) {
+        throw new DaemonRequestError(
+          `daemon did not respond within ${this.requestTimeoutMs}ms (request was accepted, ` +
+            `then never answered — not a connection failure)`
+        );
+      }
       if (!this.isConnectionRefused(err)) {
         throw new DaemonRequestError(`daemon request failed: ${errorMessage(err)}`);
       }

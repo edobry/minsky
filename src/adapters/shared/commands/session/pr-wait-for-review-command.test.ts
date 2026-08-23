@@ -195,11 +195,16 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     expect(msg).toContain('Reviewer check-run "minsky-reviewer/findings": in_progress');
   });
 
-  // mt#3877 (PR #2907 R1): the push-not-landed diagnostic changes the REMEDY —
-  // check the stuck push rather than waiting longer or citing reviewer silence
-  // as a bypass condition. A diagnostic only present in --json is not present
-  // for the text-mode reader who hit it.
-  test("renders the push-not-landed diagnostic when expectedHeadSha was never reached", () => {
+  // mt#3877 (PR #2907 R1): this diagnostic changes the REMEDY — so it must not
+  // be --json-only, and it must not name the WRONG remedy.
+  //
+  // mt#4046: it used to say "PUSH NOT LANDED", asserting one of the two causes.
+  // The other — the head moved and the caller's sha is stale — never resolves by
+  // waiting, so an agent told to check the push and wait burns the full timeout
+  // and then reads its own silence as a bypass condition. Five sessions in five
+  // days did exactly that. The line now names both causes and prints the head
+  // actually observed, which is the sha to re-wait against.
+  test("names BOTH causes when expectedHeadSha was never reached, not just a stuck push", () => {
     const result: SessionPrWaitForReviewTimeout = {
       matched: false,
       elapsedMs: 600_000,
@@ -214,10 +219,21 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
-    expect(msg).toContain("PUSH NOT LANDED");
+    expect(msg).toContain("EXPECTED HEAD NEVER REACHED");
     expect(msg).toContain("6303291ad0000000000000000000000000000000");
     expect(msg).toContain("9a3a8ca4b0000000000000000000000000000000");
     expect(msg).toContain("NOT reviewer silence");
+    // Both causes present, each with its own remedy. Phrased without naming
+    // specific commands or result fields (PR #3021 R1): this line renders for
+    // any backend with HEAD-sha support, and the rule it points at — take the
+    // sha from whichever call last pushed — holds regardless of which one that
+    // was.
+    expect(msg).toContain("push has not landed");
+    expect(msg).toContain("whichever call last pushed");
+    // The load-bearing half: waiting is NOT a universal remedy here.
+    expect(msg).toContain("never resolves by waiting");
+    // The old wording asserted one cause as fact; it must not survive.
+    expect(msg).not.toContain("PUSH NOT LANDED");
   });
 
   test("an ordinary timeout carries no push-not-landed line", () => {

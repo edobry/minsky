@@ -83,3 +83,58 @@ describe("scanCommand — does NOT fire on the shapes that surround it", () => {
     expect(scanCommand("cat /var/log/x | tail -100").matched).toBe(false);
   });
 });
+
+describe("truncated-outcome-read — the enumeration arm (mt#4176)", () => {
+  test("the originating incident: a --help listing truncated by head", () => {
+    // `minsky mcp --help | head -15` cut the subcommand list mid-entry (descriptions wrap), and
+    // `proxy`/`shim` were below the cut. The conclusion drawn was that neither was registered.
+    const result = scanCommand("minsky mcp --help | head -15");
+    expect(result.matched).toBe(true);
+    expect(result.kind).toBe("enumeration");
+    expect(result.filter).toBe("head");
+  });
+
+  test("any CLI's --help counts — the arm is not Minsky-specific", () => {
+    expect(scanCommand("some-cli --help | tail -5").kind).toBe("enumeration");
+  });
+
+  test("SAMPLING a read is still ordinary — the original carve-out is preserved", () => {
+    // The distinction the arm draws is sample-vs-enumerate, NOT read-vs-mutate. These are the
+    // cases the read-only exclusion exists to protect, and they must stay silent.
+    expect(scanCommand("git log | head -20").matched).toBe(false);
+    expect(scanCommand("cat file | head").matched).toBe(false);
+  });
+
+  test("a bare -h is NOT a help flag — it is widely human-readable", () => {
+    // `ls -h`, `du -h`, `sort -h` all mean human-readable, so keying on `-h` would fire on
+    // exactly the samples above. This is why the arm requires the long form.
+    expect(scanCommand("ls -lh | head -20").matched).toBe(false);
+    expect(scanCommand("du -h /tmp | head").matched).toBe(false);
+  });
+
+  test("a targeted read of the listing is the remedy, not the defect", () => {
+    expect(scanCommand("minsky mcp --help | grep proxy").matched).toBe(false);
+    expect(scanCommand("minsky mcp --help | grep -c shim").matched).toBe(false);
+  });
+
+  test("--help with no pipeline at all", () => {
+    expect(scanCommand("minsky mcp --help").matched).toBe(false);
+  });
+
+  test("--help must be its own token, not a substring", () => {
+    expect(scanCommand("minsky run --help-text-only | head -5").matched).toBe(false);
+  });
+
+  test("the outcome arm is unchanged by the addition", () => {
+    const commit = scanCommand("minsky session commit --task mt#1 'm' | tail -6");
+    expect(commit.matched).toBe(true);
+    expect(commit.kind).toBe("outcome");
+    expect(scanCommand("git push | tail -3").kind).toBe("outcome");
+  });
+
+  test("outcome wins when a command could match both arms", () => {
+    // Not a real invocation, but the precedence is asserted rather than left to branch order:
+    // discarded confirmation fields are the costlier of the two warnings.
+    expect(scanCommand("minsky session commit --help | tail -6").kind).toBe("outcome");
+  });
+});

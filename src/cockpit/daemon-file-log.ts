@@ -62,7 +62,7 @@
 import * as winston from "winston";
 import fs from "fs";
 import path from "path";
-import { log, reinitializeDefaultLoggerFromEnv } from "@minsky/shared/logger";
+import { log, reinitializeDefaultLoggerFromEnv, setProcessRole } from "@minsky/shared/logger";
 import { getStateDir } from "./lifecycle";
 
 /** Per-file size cap before winston rotates (built-in File transport `maxsize`). */
@@ -95,6 +95,14 @@ export function installDaemonFileLogging(): void {
   // mode (the CLI default) makes log.warn/info/debug complete no-ops, and
   // log.error routes through the unstructured, untimestamped programLogger.
   process.env.ENABLE_AGENT_LOGS = "true";
+  // mt#2464: the daemon is a long-running service, not the one-shot command
+  // `src/cli.ts` declares every invocation to be on the way in. `cockpit start`
+  // is a CLI subcommand, so without this it would inherit that declaration.
+  // Belt-and-braces today — ENABLE_AGENT_LOGS above already routes these calls
+  // to the structured logger, which outranks the role — but it states the fact
+  // in the one place that owns this process's logging setup, so the daemon does
+  // not depend on that ordering staying true.
+  setProcessRole("long-running-service");
   // mt#2894 PR #2019 R1 BLOCKING #3: the env var alone is NOT sufficient —
   // `enableAgentLogs` is captured once into the logger singleton's closures
   // at first use. Force a rebuild so THIS process's log calls (including

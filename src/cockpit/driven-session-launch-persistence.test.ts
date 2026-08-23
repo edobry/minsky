@@ -180,43 +180,82 @@ describe("createDrivenSessionPersistObserver", () => {
  * The function is fire-and-forget, so an await that never settles does not
  * fail — it just never finishes, and every log line stays unwritten.
  */
+/** An operation that never settles — the stall being simulated. */
+const neverSettles = <T>(): Promise<T> => new Promise<T>(() => {});
+
+/**
+ * A timeout signal that trips the Nth race and NEVER trips any other.
+ *
+ * A signal that fires immediately on every race is useless here: the stages
+ * run in sequence against one shared seam, so it would always trip
+ * `resolve-db` and no later stage could ever be reached. Counting races
+ * instead lets a test name the exact await it is stalling — race 1 is
+ * `resolve-db`, race 2 is `list-rows`, then PER ROW: the cwd probe, then the
+ * actuator probe when the row is resumable and carries a pid (mt#4255), then a
+ * verdict write when one is owed.
+ *
+ * Deterministic and instant in both directions: the tripped race resolves on
+ * a microtask, and the others never resolve, so the real operation wins them
+ * without any wall-clock wait.
+ *
+ * Module-scoped (mt#4255) rather than local to the mt#4103 block: the
+ * actuator-retirement tests below stall the same seam, and a second copy would
+ * be a second thing to keep in step with the race ordering above.
+ */
+function tripRace(n: number): (ms: number) => Promise<{ timedOut: true }> {
+  let races = 0;
+  return () => {
+    races += 1;
+    return races === n
+      ? Promise.resolve({ timedOut: true } as const)
+      : neverSettles<{ timedOut: true }>();
+  };
+}
+
 describe("boot reconciliation observability + bounds (mt#4103)", () => {
-  /** An operation that never settles — the stall being simulated. */
-  const neverSettles = <T>(): Promise<T> => new Promise<T>(() => {});
-
-  /**
-   * A timeout signal that trips the Nth race and NEVER trips any other.
-   *
-   * A signal that fires immediately on every race is useless here: the stages
-   * run in sequence against one shared seam, so it would always trip
-   * `resolve-db` and no later stage could ever be reached. Counting races
-   * instead lets a test name the exact await it is stalling — race 1 is
-   * `resolve-db`, race 2 is `list-rows`, then two per row (cwd probe, then a
-   * verdict write for an unrecoverable row).
-   *
-   * Deterministic and instant in both directions: the tripped race resolves on
-   * a microtask, and the others never resolve, so the real operation wins them
-   * without any wall-clock wait.
-   */
-  function tripRace(n: number): (ms: number) => Promise<{ timedOut: true }> {
-    let races = 0;
-    return () => {
-      races += 1;
-      return races === n
-        ? Promise.resolve({ timedOut: true } as const)
-        : neverSettles<{ timedOut: true }>();
-    };
-  }
-
   describe("describeReconciliationOutcome", () => {
     test("a clean load reports the count at info", () => {
       const { level, message } = describeReconciliationOutcome({
         kind: "loaded",
         count: 20,
+        retired: 0,
         degraded: [],
       });
       expect(level).toBe("info");
       expect(message).toContain("loaded 20 persisted session(s)");
+      // Retiring nothing is the ordinary case, so the line must read exactly as
+      // it did before mt#4255 added the clause.
+      expect(message).not.toContain("retired");
+    });
+
+    test("SC7 — a load that retired rows says so in the same line", () => {
+      // The counter is only worth having if an operator sees it. A boot that
+      // silently retires rows and reports a shrinking `count` looks like rows
+      // going missing.
+      const { level, message } = describeReconciliationOutcome({
+        kind: "loaded",
+        count: 2,
+        retired: 23,
+        degraded: [],
+      });
+      expect(level).toBe("info");
+      expect(message).toContain("loaded 2 persisted session(s)");
+      expect(message).toContain("retired 23 whose recorded actuator was gone");
+    });
+
+    test("SC7 — retiring EVERY row is a loaded line, not the empty line", () => {
+      // `count: 0` here means "there were rows and they are all retired", which
+      // is a different fact from `empty`'s "there were no rows". Collapsing them
+      // is the mt#4103 defect, one layer down.
+      const { message } = describeReconciliationOutcome({
+        kind: "loaded",
+        count: 0,
+        retired: 4,
+        degraded: [],
+      });
+      expect(message).toContain("loaded 0 persisted session(s)");
+      expect(message).toContain("retired 4");
+      expect(message).not.toContain("no non-terminal sessions to load");
     });
 
     test("ZERO rows is its own line, not silence", () => {
@@ -234,6 +273,7 @@ describe("boot reconciliation observability + bounds (mt#4103)", () => {
       const { level, message } = describeReconciliationOutcome({
         kind: "loaded",
         count: 5,
+        retired: 0,
         degraded: ["cwd-probe", "cwd-probe", "persist-verdict"],
       });
       // WARN, not info: the count alone would read as a clean load while the
@@ -264,7 +304,11 @@ describe("boot reconciliation observability + bounds (mt#4103)", () => {
       // unconditionally, so a kind that produced an empty message would be a
       // silent boot again.
       const everyKind: ReconciliationOutcome[] = [
-        { kind: "loaded", count: 1, degraded: [] },
+        { kind: "loaded", count: 1, retired: 0, degraded: [] },
+        // The retiring variant is its own entry: it takes a different branch
+        // inside the `loaded` case, so the no-silent-kind guarantee has to
+        // cover it too (mt#4255).
+        { kind: "loaded", count: 0, retired: 1, degraded: ["actuator-probe"] },
         { kind: "empty" },
         { kind: "no-persistence" },
         { kind: "timed-out", stage: "list-rows", timeoutMs: 15000 },
@@ -1002,6 +1046,355 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
       },
     });
     expect(keys).toEqual([CONVERSATION]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4255 — actuator-gone retirement at boot
+// ---------------------------------------------------------------------------
+
+describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", () => {
+  /**
+   * A row that reaches the new third test: transcript intact, real cwd, and a
+   * recorded pid/cmdline pair. `BASE_ROW` has `pid: null` on purpose, which is
+   * why every pre-existing test above is untouched by this branch.
+   */
+  const LIVE_SHAPED_ROW: DrivenSessionRow = {
+    ...BASE_ROW,
+    status: "running",
+    pid: 4242,
+    pidCmdline: "claude -p --input-format stream-json --output-format stream-json",
+  };
+
+  /** Collects what was written back, so a verdict can be asserted on columns. */
+  function captureWrites() {
+    const writes: Record<string, unknown>[] = [];
+    return {
+      writes,
+      persistTerminalVerdict: (async (_db, input) => {
+        writes.push(input as unknown as Record<string, unknown>);
+        return "written";
+      }) as NonNullable<
+        Parameters<typeof reconcilePersistedDrivenSessions>[0]["persistTerminalVerdict"]
+      >,
+    };
+  }
+
+  test("AT1 — a dead pid is persisted `exited`, not registered, and counted", async () => {
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => "gone",
+    });
+
+    expect(outcome.kind).toBe("loaded");
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(1);
+    // Not registered — this is what makes the phantom disappear on THIS boot
+    // rather than the next one.
+    expect(outcome.count).toBe(0);
+    expect(registry.get("local-1")).toBeUndefined();
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.status).toBe("exited");
+  });
+
+  test("AT2 — a live actuator that still MATCHES is left alone (the dual-daemon case)", async () => {
+    // The test that a sweep marking everything terminal would fail. The
+    // sanctioned dev loop runs a second daemon beside the tray one; its boot
+    // reads the first daemon's rows and must not retire live children.
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => "ours",
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(0);
+    expect(outcome.count).toBe(1);
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+    expect(writes).toHaveLength(0);
+  });
+
+  test("AT3 — a pid ALIVE but reused by an unrelated process is retired", async () => {
+    // Observed on prod 2026-08-18: of 23 non-terminal rows, 22 pids were dead
+    // and one was alive as an unrelated desktop app that had inherited the
+    // number over an 18-day gap. A bare liveness check calls that row live
+    // forever; only the recorded command line separates the two.
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => "not-ours",
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(1);
+    expect(registry.get("local-1")).toBeUndefined();
+    expect(writes[0]?.status).toBe("exited");
+  });
+
+  test("AT4 — a row with no recorded pid is never probed and never retired", async () => {
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+    let probed = 0;
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, pid: null }],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => {
+        probed += 1;
+        return "gone";
+      },
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(probed).toBe(0);
+    expect(outcome.retired).toBe(0);
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+    expect(writes).toHaveLength(0);
+  });
+
+  test("AT5a — an `unknown` verdict fails OPEN: the row stays reconnecting", async () => {
+    // The distinction the pre-existing `verifyProcessIdentity` cannot express.
+    // It returns `false` for BOTH "no such process" and "`ps` could not
+    // answer", so a sweep built on it would retire the whole table the first
+    // time `ps` misbehaved.
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => "unknown",
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(0);
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+    expect(writes).toHaveLength(0);
+  });
+
+  test("AT5b — a probe that exceeds its bound fails OPEN and names the stage", async () => {
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: () => neverSettles<"gone">(),
+      rowTimeoutMs: 5_000,
+      // Race 4, per `tripRace`'s ordering: 1 `resolve-db`, 2 `list-rows`, 3 the
+      // row's cwd probe, 4 its actuator probe. Tripping 3 instead stalls the
+      // cwd probe, which fails open to "not missing" and leaves the row
+      // resumable — so the actuator probe still runs, against a signal that
+      // will now never trip and an operation that never settles. The test then
+      // hangs rather than failing, which is how this index was found.
+      timeoutSignal: tripRace(4),
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(0);
+    expect(outcome.degraded).toContain("actuator-probe");
+    // Degraded is not retired: a probe that could not answer leaves the row
+    // exactly as it was.
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+    expect(writes).toHaveLength(0);
+  });
+
+  test("AT6 — the second run over the same table retires nothing", async () => {
+    // Idempotence, asserted through the mechanism that provides it rather than
+    // by re-running against a mutable fake: the write sets a terminal status,
+    // and `listNonTerminalDrivenSessions` excludes terminal rows in SQL — so
+    // the retired row is not in the next boot's read at all.
+    const table = new Map<string, DrivenSessionRow>([["local-1", LIVE_SHAPED_ROW]]);
+    const deps = {
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () =>
+        [...table.values()].filter(
+          (r) => !["exited", "crashed", "unrecoverable"].includes(r.status)
+        ),
+      persistTerminalVerdict: (async (_db, input) => {
+        const existing = table.get(input.localId as string);
+        if (existing) table.set(input.localId as string, { ...existing, status: input.status });
+        return "written";
+      }) as NonNullable<
+        Parameters<typeof reconcilePersistedDrivenSessions>[0]["persistTerminalVerdict"]
+      >,
+      probeActuator: async () => "gone" as const,
+    };
+
+    const first = await reconcilePersistedDrivenSessions({
+      ...deps,
+      registry: new DrivenSessionRegistry(),
+    });
+    if (first.kind !== "loaded") throw new Error("unreachable");
+    expect(first.retired).toBe(1);
+
+    const second = await reconcilePersistedDrivenSessions({
+      ...deps,
+      registry: new DrivenSessionRegistry(),
+    });
+    // No rows left to read at all — the strongest form of "changes nothing".
+    expect(second.kind).toBe("empty");
+  });
+
+  test("R1 — a persist that FAILS is not counted retired, and the row is registered", async () => {
+    // PR #3126 R1 (BLOCKING). The write is best-effort and swallows its own
+    // error, so before this the loop counted the row `retired` and skipped
+    // registering it regardless — putting "retired N" in the operator's one
+    // boot line for a row the database still held non-terminal and would re-read
+    // on the very next boot. Both halves are now gated on a confirmed write.
+    const registry = new DrivenSessionRegistry();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict: async () => {
+        throw new Error("simulated upsert failure");
+      },
+      probeActuator: async () => "gone",
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    // The claim the operator reads must match what is durably true.
+    expect(outcome.retired).toBe(0);
+    expect(outcome.degraded).toContain("persist-verdict");
+    // Registered, because persistence still holds it non-terminal — hiding it
+    // would desynchronize the registry from the row set the next boot reads.
+    expect(outcome.count).toBe(1);
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+  });
+
+  test("R1 — a persist that TIMES OUT is not counted retired either", async () => {
+    const registry = new DrivenSessionRegistry();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict: () => neverSettles<"written">(),
+      probeActuator: async () => "gone",
+      rowTimeoutMs: 5_000,
+      // Race 5: 1 resolve-db, 2 list-rows, 3 cwd probe, 4 actuator probe,
+      // 5 the verdict write.
+      timeoutSignal: tripRace(5),
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(0);
+    expect(outcome.degraded).toContain("persist-verdict");
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+  });
+
+  test("a MIXED batch splits correctly between count and retired", async () => {
+    // Every other test here runs one row, where `count = rows.length - retired`
+    // is right for either value and an off-by-one is invisible. This is the
+    // member of the class those cannot reach: three rows, one retired, and both
+    // halves of the arithmetic asserted against the registry that actually
+    // holds them.
+    const registry = new DrivenSessionRegistry();
+    const { persistTerminalVerdict } = captureWrites();
+    const rows: DrivenSessionRow[] = [
+      { ...LIVE_SHAPED_ROW, localId: "alive-1", pid: 1 },
+      { ...LIVE_SHAPED_ROW, localId: "dead-1", pid: 2 },
+      { ...LIVE_SHAPED_ROW, localId: "alive-2", pid: 3, status: "spawned" },
+    ];
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => rows,
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async (pid) => (pid === 2 ? "gone" : "ours"),
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(1);
+    expect(outcome.count).toBe(2);
+    // The count is a claim about the registry — check the registry, not just
+    // the number that claims to describe it.
+    expect(registry.list()).toHaveLength(2);
+    expect(registry.get("dead-1")).toBeUndefined();
+    expect(registry.get("alive-1")?.status).toBe("reconnecting");
+    // `spawned` and `running` are both non-terminal and take the identical
+    // path — the branch never reads `status`.
+    expect(registry.get("alive-2")?.status).toBe("reconnecting");
+  });
+
+  test("the write records a verdict, not a rewrite — and preserves its own evidence", async () => {
+    // Same PR #2383 R1 constraint the unrecoverable write is held to: the store
+    // upserts with `onConflictDoUpdate({ set: values })`, so a defaulted field
+    // OVERWRITES the stored one. `pid`/`pidCmdline` matter twice over here —
+    // they are the EVIDENCE for this verdict, so erasing them would leave a
+    // future reader nothing to check.
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+
+    await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, model: "fable", actuatorGeneration: 3 }],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => "gone",
+    });
+
+    const write = writes[0];
+    expect(write?.model).toBe("fable");
+    expect(write?.actuatorGeneration).toBe(3);
+    expect(write?.pid).toBe(4242);
+    expect(write?.pidCmdline).toContain("claude");
+    expect(write?.harnessSessionId).toBe("harness-1");
+    // `unrecoverableReason` is an assertion about the CONVERSATION, and this
+    // verdict makes none — the conversation stays resumable. Writing an
+    // actuator-layer reason into that column would tell the next reader it was
+    // condemned.
+    expect(write?.unrecoverableReason).toBeNull();
+  });
+
+  test("an unrecoverable row is still unrecoverable — the actuator probe never runs for it", async () => {
+    // Ordering guard: the conversation-layer verdict wins, and a row with no
+    // transcript must not be downgraded to a mere `exited` just because its pid
+    // also happens to be dead.
+    const registry = new DrivenSessionRegistry();
+    const { writes, persistTerminalVerdict } = captureWrites();
+    let probed = 0;
+
+    await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, harnessSessionId: null }],
+      registry,
+      persistTerminalVerdict,
+      probeActuator: async () => {
+        probed += 1;
+        return "gone";
+      },
+    });
+
+    expect(probed).toBe(0);
+    expect(writes[0]?.status).toBe("unrecoverable");
+    expect(registry.get("local-1")?.status).toBe("unrecoverable");
   });
 });
 

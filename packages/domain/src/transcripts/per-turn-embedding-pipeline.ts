@@ -46,7 +46,32 @@ export interface PerTurnEmbeddingPipelineOptions {
    * Default: 20. Reduces latency jitter on large transcripts.
    */
   batchSize?: number;
+
+  /**
+   * Maximum candidate turns loaded per run. Default:
+   * {@link DEFAULT_MAX_CANDIDATES_PER_RUN}.
+   */
+  maxCandidatesPerRun?: number;
 }
+
+/**
+ * Upper bound on candidate turns loaded per run (mt#4212).
+ *
+ * The candidate SELECT was unbounded, so it loaded EVERY unembedded turn's full
+ * `user_text` + `assistant_text` in one query. On 2026-08-17 that was 208,715
+ * rows / ~159 MB, and the query stopped completing at all — the pooler dropped
+ * the connection (`write CONNECTION_ENDED`) and every run failed at the load
+ * step before embedding anything. Backfill throughput went to zero precisely
+ * because the backlog was large, which is the wrong way round.
+ *
+ * 2,000 is derived from the work a run should do, not chosen as a round number:
+ * at `batchSize` 20 it is 100 provider calls, and the slowest batch latency
+ * measured against the live endpoint is 449ms (`request-resilience.ts`), so a
+ * full run is ~45s of provider time. The sweeper's cadence is minutes, so a run
+ * finishes well inside its interval. Each run shrinks the candidate set, so a
+ * backlog drains across runs rather than being attempted all at once.
+ */
+export const DEFAULT_MAX_CANDIDATES_PER_RUN = 2_000;
 
 /** Per-run options for {@link PerTurnEmbeddingPipeline.run}. */
 export interface PerTurnEmbeddingRunOptions {
@@ -58,6 +83,7 @@ export interface PerTurnEmbeddingRunOptions {
 
 export class PerTurnEmbeddingPipeline {
   private readonly batchSize: number;
+  private readonly maxCandidatesPerRun: number;
 
   constructor(
     private readonly db: PostgresJsDatabase,
@@ -65,6 +91,7 @@ export class PerTurnEmbeddingPipeline {
     options: PerTurnEmbeddingPipelineOptions = {}
   ) {
     this.batchSize = options.batchSize ?? 20;
+    this.maxCandidatesPerRun = options.maxCandidatesPerRun ?? DEFAULT_MAX_CANDIDATES_PER_RUN;
   }
 
   /**
@@ -109,7 +136,14 @@ export class PerTurnEmbeddingPipeline {
           assistantText: agentTranscriptTurnsTable.assistantText,
         })
         .from(agentTranscriptTurnsTable)
-        .where(and(...conditions));
+        .where(and(...conditions))
+        // Bounded per run (mt#4212). Deliberately unordered: the ORDER BY that
+        // would make the selection deterministic forces a sort over the whole
+        // filtered set before the limit applies, which is the cost this bound
+        // exists to avoid. Progress is guaranteed without it — every embedded
+        // turn leaves the candidate set permanently, so successive runs drain
+        // the backlog regardless of which rows any one run happens to draw.
+        .limit(this.maxCandidatesPerRun);
     } catch (err) {
       log.error("PerTurnEmbeddingPipeline: failed to load candidate turns", {
         error: getLoggableErrorSummary(err),

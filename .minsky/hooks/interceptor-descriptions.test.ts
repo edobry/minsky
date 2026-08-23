@@ -41,19 +41,44 @@ import {
   type RegistryFacts,
   type ResolveCatalogInput,
 } from "./interceptor-descriptions";
+// The settings-derived half of the population (mt#4129). Imported from
+// `scripts/` because that is where the derivation lives and duplicating it here
+// would recreate the two-oracles problem this union exists to close; a test file
+// never runs as a hook, so the hook tree's self-containment target is unaffected.
+import { readSettingsHookNames } from "../../scripts/interceptor-coordinate-input";
 
 /** Sample entities, named once so a rename breaks the test rather than narrowing it. */
 const SAMPLE_REGISTRY_GUARD = "check-guessed-session-path";
 const SAMPLE_STANDALONE_HOOK = "block-git-gh-cli";
 const SAMPLE_PRECOMMIT_STEP = "type-check";
 
-/** The declared population: every name any enumeration in the repo claims exists. */
+/**
+ * The declared population: every name any enumeration in the repo claims exists.
+ *
+ * `readSettingsHookNames()` is unioned in as of mt#4198, and it is the piece
+ * that makes this the CATALOG's population rather than a second, older one.
+ * mt#4129 moved the standalone population's definition from
+ * `STANDALONE_GUARD_NAMES` to `.claude/settings.json` — that constant's own
+ * docblock now says so and asks not to be grown — but this list was not
+ * updated with it, so it kept composing the pre-mt#4129 oracle. The 28 hooks
+ * mt#4129 admitted were absent from it, and authoring their descriptions in
+ * mt#4198 surfaced all 28 as "orphans" against a population that no longer
+ * matches what the catalog builds.
+ *
+ * Two tests below depend on this being the real population, not a subset: the
+ * orphan check is meaningless against a stale oracle, and the majority-dropped
+ * assertion sat exactly ON its boundary (53 of 106) because the missing names
+ * are precisely the non-registry ones it counts.
+ */
 const DECLARED_POPULATION: readonly string[] = [
-  ...GUARD_REGISTRY.map((r) => r.name),
-  ...PRECOMMIT_STEP_NAMES,
-  ...STANDALONE_GUARD_NAMES,
-  ...RETIRED_GUARD_NAMES.keys(),
-  ...FIXTURE_GUARD_NAMES.keys(),
+  ...new Set([
+    ...GUARD_REGISTRY.map((r) => r.name),
+    ...PRECOMMIT_STEP_NAMES,
+    ...STANDALONE_GUARD_NAMES,
+    ...(readSettingsHookNames() ?? []),
+    ...RETIRED_GUARD_NAMES.keys(),
+    ...FIXTURE_GUARD_NAMES.keys(),
+  ]),
 ];
 
 interface RegistryEntryShape {

@@ -19,6 +19,7 @@ import {
   derivePendingRepliesNotice,
   deriveAgentStoppedNotice,
   deriveConversationSwapNotice,
+  deriveRecoveredRepliesNotice,
   derivePollInterval,
   fetchEntityThread,
   isThreadStranded,
@@ -519,6 +520,38 @@ describe("deriveConversationSwapNotice (mt#4093)", () => {
 
     const notice = await screen.findByTestId("entity-thread-conversation-swap");
     expect(notice.textContent).toMatch(/has not seen the messages above/i);
+  });
+
+  test("a recovered reply is disclosed, and coexists with the swap notice", async () => {
+    // mt#4073. The recovered turn lands at the END of the thread carrying its
+    // ORIGINAL timestamp, so without this the operator sees an hour-old answer
+    // below newer messages and no reason for it. Asserted alongside the swap
+    // notice because the restart that recovers one reply is frequently the same
+    // restart that swapped the conversation — both must show.
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [block({ id: "t#1", type: "user-prompt" })],
+      live: false,
+      recoveredReplies: { count: 1, oldestOriginallySentAt: "2026-08-12T21:01:32.000Z" },
+      conversationSwap: { replacedConversationId: "1b355295-0000-4000-8000-000000000000" },
+    });
+    renderPanel();
+
+    const notice = await screen.findByTestId("entity-thread-recovered-replies");
+    expect(notice.textContent).toMatch(/recovered from the agent's transcript/i);
+    expect(await screen.findByTestId("entity-thread-conversation-swap")).toBeDefined();
+  });
+
+  test("a thread with nothing recovered renders no recovery notice", async () => {
+    // No reassuring zero — absent means "nothing to report", the same
+    // discipline `shouldReportPendingReplies` and `originSeeded` follow.
+    expect(deriveRecoveredRepliesNotice(undefined)).toBeNull();
+    expect(deriveRecoveredRepliesNotice({ count: 0 })).toBeNull();
+  });
+
+  test("the recovery notice is pluralized on its count", async () => {
+    expect(deriveRecoveredRepliesNotice({ count: 1 })).toMatch(/^A reply that failed to save/);
+    expect(deriveRecoveredRepliesNotice({ count: 3 })).toMatch(/^3 replies that failed to save/);
   });
 
   test("a swapped-in agent that is ALSO stranded shows both notices, not one", async () => {

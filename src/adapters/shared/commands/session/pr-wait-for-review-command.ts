@@ -114,9 +114,14 @@ export function formatTimeoutMessage(result: SessionPrWaitForReviewTimeout): str
   if (expectedHeadShaUnreached) {
     const { expected, lastObservedHeadSha } = expectedHeadShaUnreached;
     lines.push(
-      `  PUSH NOT LANDED: remote head ${lastObservedHeadSha ?? "<unresolved>"} never reached ` +
-        `expected ${expected}. No review was considered. Check the commit that was pushing ` +
-        `(pushed / pushConfirmedVia) rather than waiting longer — this is NOT reviewer silence.`
+      `  EXPECTED HEAD NEVER REACHED: remote head ${lastObservedHeadSha ?? "<unresolved>"} ` +
+        `never became expected ${expected}. No review was considered — this is NOT reviewer ` +
+        `silence.`,
+      `  Two causes, opposite remedies. (1) The push has not landed — confirm it and wait; ` +
+        `that one resolves. (2) The head moved after you captured your sha, so yours is ` +
+        `stale — that one never resolves by waiting. Take the expected sha from whichever ` +
+        `call last pushed, and re-wait against ` +
+        `${lastObservedHeadSha ?? "the observed head"} (mt#4046).`
     );
   }
   lines.push(

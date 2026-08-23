@@ -42,7 +42,15 @@ export type InterceptorStratum = "registry" | "standalone" | "precommit" | "reti
 
 export type InterceptorCoverageGap = "tuningOwnership" | "attentionCost" | "canary";
 
-/** Axis 1 — where in the trajectory an interceptor sits (ontology §2). */
+/**
+ * Axis 1 — where in the trajectory an interceptor sits (ontology §2).
+ *
+ * The six events below `MessageDisplay` were added by mt#4129, additively. Hooks
+ * were registered at each of them in `.claude/settings.json` while the model had
+ * no value to represent them, so the point resolver dropped them and the catalog
+ * carried neither the hook nor a gap — the corpus under-reported itself in a way
+ * its own divergence check could not see.
+ */
 export type InterceptionPoint =
   | "PreToolUse"
   | "PostToolUse"
@@ -51,6 +59,12 @@ export type InterceptionPoint =
   | "UserPromptSubmit"
   | "SessionEnd"
   | "MessageDisplay"
+  | "SessionStart"
+  | "StopFailure"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
   | "pre-commit"
   | "merge-time";
 
@@ -110,11 +124,26 @@ export interface InterceptorEntry {
   registered: boolean;
   /** True when no authored description exists — the explicit gap marker. */
   undescribed: boolean;
+  /**
+   * The implementing hook file's basename, or null when the entry has none BY
+   * CONSTRUCTION (a pre-commit step, a retired or fixture name). The join key to
+   * the file-keyed install provenance the detail view renders (mt#4229).
+   *
+   * Derived by the generator from `provenance[0]`, because neither this module
+   * nor the web bundle may import `.minsky/hooks/**` to resolve it themselves —
+   * see `tests/unit/hook-tree-import-boundary.test.ts`.
+   */
+  sourceFile: string | null;
 
   // --- The three axes + computed families (mt#4056 slice 1b) ---
   /** Null exactly when `coordinateGaps` contains `"point"`. */
   point: InterceptionPoint | null;
   pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (mt#4011): `"delivery"` for the merge
+   * gates, null where the stratum derives from point/subject.
+   */
+  trajectory: "delivery" | null;
   interventions: Intervention[];
   mechanism: DecisionMechanism | null;
   role: InterceptorRole | null;
@@ -171,6 +200,15 @@ const VALID_STRATA: readonly string[] = [
 
 const VALID_PROVENANCE_STATUS: readonly string[] = ["implementation", "declaration-only", "none"];
 
+/**
+ * Runtime validation list for `InterceptionPoint` — a FIFTH site carrying these
+ * names, and the one that rejects a catalog entry outright.
+ *
+ * `parseCatalog` throws on a point absent here, so this list going stale does
+ * not degrade quietly: it fails the whole parse. mt#4129 added six points to the
+ * type union and this list was missed; the pre-commit related-test gate caught
+ * it. `tests/unit/interceptor-points.test.ts` now pins it with the rest.
+ */
 const VALID_POINTS: readonly string[] = [
   "PreToolUse",
   "PostToolUse",
@@ -179,6 +217,12 @@ const VALID_POINTS: readonly string[] = [
   "UserPromptSubmit",
   "SessionEnd",
   "MessageDisplay",
+  "SessionStart",
+  "StopFailure",
+  "Notification",
+  "PermissionRequest",
+  "PreCompact",
+  "PostCompact",
   "pre-commit",
   "merge-time",
 ];
@@ -246,6 +290,9 @@ function validateEntryCoordinates(
   }
   if (!VALID_POINT_SOURCES.includes(e.pointSource as string)) {
     throw new Error(where(`unknown pointSource "${String(e.pointSource)}"`));
+  }
+  if (e.trajectory !== null && e.trajectory !== "delivery") {
+    throw new Error(where(`unknown trajectory "${String(e.trajectory)}"`));
   }
   if (!Array.isArray(e.coordinateGaps)) {
     throw new Error(where("`coordinateGaps` is not an array"));
@@ -363,6 +410,13 @@ function validateEntry(entry: unknown, index: number): InterceptorEntry {
   if (typeof e.registered !== "boolean") {
     throw new Error(where("missing `registered`"));
   }
+  // Validated rather than trusted, for the same reason as the fields above: a
+  // silently-absent `sourceFile` would render every entry's install provenance
+  // as "unknown" — indistinguishable from a hook that genuinely has none.
+  if (e.sourceFile !== null && typeof e.sourceFile !== "string") {
+    throw new Error(where("`sourceFile` is neither a string nor null"));
+  }
+
   if (e.stratum !== null && !VALID_STRATA.includes(e.stratum as string)) {
     throw new Error(where(`unknown stratum "${String(e.stratum)}"`));
   }
@@ -371,6 +425,27 @@ function validateEntry(entry: unknown, index: number): InterceptorEntry {
   }
   if (!VALID_PROVENANCE_STATUS.includes(e.provenanceStatus as string)) {
     throw new Error(where(`unknown provenanceStatus "${String(e.provenanceStatus)}"`));
+  }
+  // The invariant the join's honesty rests on, and the one the generator got
+  // wrong first (PR #3087 R1): only an entry whose provenance points at an
+  // IMPLEMENTATION may name a source file. A `declaration-only` entry's first
+  // pointer is the oracle that declares it — a real path under `.minsky/hooks/`
+  // — so a prefix test alone derives the oracle's own basename and the detail
+  // view then renders that file's install date as the entry's.
+  //
+  // Ordered AFTER the status check above, deliberately: this constrains
+  // `sourceFile` USING `provenanceStatus`, so validating the status first is
+  // what keeps a bad status reported as a bad status. Placed before it, this
+  // check shadowed the status error for any row carrying both problems — caught
+  // by the pre-commit related-test gate, not by review.
+  if (e.provenanceStatus !== "implementation" && e.sourceFile !== null) {
+    throw new Error(
+      where(
+        `\`sourceFile\` is "${String(e.sourceFile)}" on a ${String(
+          e.provenanceStatus
+        )} entry — only an implementation-backed entry may name a source file`
+      )
+    );
   }
 
   validateEntryCoordinates(e, where);
@@ -386,11 +461,25 @@ export function parseCatalog(raw: unknown): InterceptorsPayload {
   if (!Array.isArray(c.entries)) {
     throw new Error("interceptor catalog has no `entries` array");
   }
-  if (typeof c.population !== "number" || c.population !== c.entries.length) {
-    throw new Error(
-      `interceptor catalog population (${String(c.population)}) does not match its ${c.entries.length} entries`
-    );
-  }
+  // `population` is DERIVED below, never read from the file (mt#4208).
+  //
+  // It used to be stored beside `entries` and checked for equality here, and
+  // that check broke main twice — 133-vs-134 on 2026-08-17, 139-vs-140 on
+  // 2026-08-20. Neither was an authoring mistake. Two branches each append an
+  // entry and each bump the count; git unions the `entries` array (the
+  // additions sit at different offsets) and resolves the single `population`
+  // line without a conflict, because both sides wrote the same number. The
+  // result is a file that was individually consistent on every branch and
+  // inconsistent after the merge — and the regen hook keys on SOURCE changes,
+  // so it does not re-fire on the merge commit that breaks the invariant.
+  //
+  // A stored duplicate of a derivable value cannot be merged correctly by a
+  // line-based merge. Deriving it removes the class rather than the symptom:
+  // there is no longer a second copy for a merge to disagree with.
+  //
+  // The field stays on the returned payload because it has a real consumer —
+  // `InterceptorsPage.tsx` renders it as "N declared" — so this changes where
+  // the number comes from, not whether callers can read it.
   if (typeof c.failureClasses !== "object" || c.failureClasses === null) {
     throw new Error("interceptor catalog has no `failureClasses` map");
   }
@@ -402,11 +491,13 @@ export function parseCatalog(raw: unknown): InterceptorsPayload {
   ) {
     throw new Error("interceptor catalog has no `divergence` report");
   }
+  const entries = c.entries.map(validateEntry);
   return {
-    population: c.population,
+    // Derived from the array it counts, so the two cannot disagree (mt#4208).
+    population: entries.length,
     divergence: c.divergence,
     failureClasses: c.failureClasses,
-    entries: c.entries.map(validateEntry),
+    entries,
   };
 }
 

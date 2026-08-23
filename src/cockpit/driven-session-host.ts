@@ -52,10 +52,44 @@ import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 import { INTERRUPTION_NOTICE_TEXT } from "@minsky/shared/minsky-notices";
 import {
-  buildDrivenSessionMcpConfig,
   mcpConfigArgs,
   redactMcpConfigForLog,
+  resolveDrivenSessionMcpConfig,
 } from "./driven-session-mcp-config";
+
+/**
+ * Resolve the `--mcp-config` payload for a spawn, reporting what was refused.
+ *
+ * The resolver deliberately returns its rejections rather than logging them
+ * (see its module docblock's invariant); this is the one place that turns them
+ * into operator-visible output. Both the start and the resume path go through
+ * here so a resume cannot silently provision a different server set than the
+ * start did — the mt#3377 defect class, one level up.
+ *
+ * Every failure here is a WARNING, never a throw. A driven session with fewer
+ * tools than intended is degraded; a driven session that will not spawn is
+ * broken, and the second is much worse on a surface the principal drives from a
+ * phone.
+ */
+function resolveMcpConfigForSpawn(
+  repoPath: string,
+  names: readonly string[] | undefined,
+  context: string
+): string {
+  const resolution = resolveDrivenSessionMcpConfig(repoPath, names === undefined ? {} : { names });
+
+  if (resolution.sourceError !== null) {
+    log.warn(
+      `[driven-session] ${context}: could not read the operator's MCP servers — ` +
+        `provisioning only \`minsky\`. ${resolution.sourceError}`
+    );
+  }
+  for (const { name, reason } of resolution.rejected) {
+    log.warn(`[driven-session] ${context}: not provisioning MCP server \`${name}\` — ${reason}`);
+  }
+
+  return resolution.config;
+}
 
 // ---------------------------------------------------------------------------
 // Injectable process abstraction (mirrors mt#2749's fsMod/TailerLike pattern
@@ -880,6 +914,17 @@ export interface StartDrivenSessionOptions {
    */
   mcpConfig?: string | null;
   /**
+   * Which MCP servers to provision, by name (mt#4239). Omitted → the
+   * `DEFAULT_DRIVEN_SESSION_MCP_SERVERS` set.
+   *
+   * Ignored when `mcpConfig` is given: an explicit payload already IS the
+   * answer, so honoring both would be two sources of truth for one question.
+   * The cockpit layer reads `cockpit.drivenSession.mcpServers` from
+   * configuration and passes it here — this module cannot, per its
+   * no-domain-imports invariant.
+   */
+  mcpServerNames?: readonly string[];
+  /**
    * Use THIS id instead of generating one (mt#3243).
    *
    * `localId` is the persisted row's primary key and the registry's handle, so
@@ -942,7 +987,9 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   // mt#3377: `undefined` means "production default"; an explicit `null` means
   // "no MCP config" — so the two are deliberately NOT collapsed with `??`.
   const mcpConfig =
-    opts.mcpConfig === undefined ? buildDrivenSessionMcpConfig(opts.cwd) : opts.mcpConfig;
+    opts.mcpConfig === undefined
+      ? resolveMcpConfigForSpawn(opts.cwd, opts.mcpServerNames, "start")
+      : opts.mcpConfig;
   const argv = buildDrivenSessionArgs(permissionMode, opts.model, mcpConfig);
   const installOpts = { replacePrevious: opts.replacePrevious ?? false };
 
@@ -1187,6 +1234,13 @@ export interface ResumeDrivenSessionOptions {
   registry?: DrivenSessionRegistry;
   /** See `StartDrivenSessionOptions.mcpConfig` — same contract for the respawn (mt#3377). */
   mcpConfig?: string | null;
+  /**
+   * See `StartDrivenSessionOptions.mcpServerNames` — same contract for the
+   * respawn (mt#4239). A resume that resolved a DIFFERENT set than the start
+   * would silently change the conversation's tool surface mid-conversation,
+   * which is the mt#3377 defect class one level up.
+   */
+  mcpServerNames?: readonly string[];
   /** Skip the interruption-notice injection (test seam only — production always injects). */
   skipInterruptionNotice?: boolean;
 }
@@ -1219,7 +1273,9 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   // must re-provision the servers, or the conversation would silently lose its
   // whole MCP tool surface at the first daemon restart.
   const mcpConfig =
-    opts.mcpConfig === undefined ? buildDrivenSessionMcpConfig(previous.cwd) : opts.mcpConfig;
+    opts.mcpConfig === undefined
+      ? resolveMcpConfigForSpawn(previous.cwd, opts.mcpServerNames, `resume ${previous.localId}`)
+      : opts.mcpConfig;
   const argv = buildResumeSessionArgs(
     previous.permissionMode,
     previous.harnessSessionId,

@@ -48,9 +48,36 @@
  * `event: "PreCommit"`.
  *
  * HAND-MAINTAINED FALLBACK ONLY — see the staleness note in the module header.
- * `scripts/audit-fire-log.ts` derives the live set by parsing
- * `src/hooks/pre-commit.ts` and uses this snapshot only when that parse fails.
- * Snapshot taken 2026-08-05 (24 entries).
+ * `scripts/precommit-step-names.ts` derives the live set by parsing
+ * `src/hooks/pre-commit.ts`, and both readers — `scripts/audit-fire-log.ts`
+ * and `scripts/build-interceptor-catalog.ts` — use this snapshot only when
+ * that parse fails.
+ *
+ * Snapshot refreshed 2026-08-13 (25 entries). It was one entry stale for eight
+ * days: `interceptor-catalog-regen` shipped with mt#4010 and never reached
+ * this list, and because the catalog generator read the snapshot rather than
+ * deriving, the step was absent from the interceptor catalog entirely rather
+ * than reported as a gap (mt#4071). The generator now derives; this list is
+ * the parse-failure fallback it is documented to be, which is why it still has
+ * to be correct.
+ *
+ * MAINTENANCE CONTRACT — stated here rather than left implicit in a test
+ * (PR #3002 R1). Adding or removing a `this.instrumented()` step in
+ * `src/hooks/pre-commit.ts` means editing this list in the SAME change, and
+ * `scripts/precommit-step-names.test.ts` fails in each direction with the
+ * one-line fix named:
+ *
+ *   - a name here that `pre-commit.ts` no longer has is a stale leftover —
+ *     delete it, and record it in `RETIRED_GUARD_NAMES` if it has fire-log
+ *     history, so a rename does not stay "known" forever;
+ *   - a name in `pre-commit.ts` missing from here leaves the FALLBACK
+ *     incomplete. That is not cosmetic: `resolvePrecommitStepNames` returns
+ *     this list whenever the parse fails — including the partial-parse case —
+ *     so a lagging entry reproduces mt#4071 on the fallback path, where the
+ *     catalog omits a real enforcement point and nothing reports it.
+ *
+ * Deriving is what removed the day-to-day dependency on this list; it did not
+ * make the list optional, because it is what the derivation falls back TO.
  */
 export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "adr-numbering-collision-check",
@@ -59,6 +86,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "code-formatting",
   "compile-check",
   "completion-manifest-regen",
+  "conflict-marker-check",
   "deploy-domain-check",
   "dockerfile-bun-build-regen",
   "dockerfile-workspace-copy-regen",
@@ -68,6 +96,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "fast-related-tests",
   "hook-permission-check",
   "immutable-migration-check",
+  "interceptor-catalog-regen",
   "migration-collision-check",
   "migration-guard-check",
   "migration-journal-check",
@@ -75,21 +104,36 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "nul-byte-check",
   "rules-compile-check",
   "secret-scanning",
+  "sql-capability-message-check",
   "type-check",
   "variable-naming-check",
 ];
 
 /**
- * Guards that fire-log but are NOT in `GUARD_REGISTRY` — the standalone
- * `.claude/settings.json` hooks (including the `session_pr_merge` merge-gate
- * family instrumented by mt#3084) plus the rationalization-review pass.
+ * Standalone `.claude/settings.json` hooks that are NOT in `GUARD_REGISTRY` —
+ * including the `session_pr_merge` merge-gate family instrumented by mt#3084 —
+ * plus the rationalization-review pass.
  *
- * Unlike the pre-commit names above these are NOT cheaply derivable: each is a
- * string literal inside its own hook file, reached through a different call
- * shape. They become derivable for free as ADR-028 Phases 3-5 migrate these
- * hooks onto the dispatcher — at which point each name moves into
- * `GUARD_REGISTRY` and should be DELETED from this list rather than
- * duplicated. Snapshot taken 2026-08-05 from 20 days of live fire-log records.
+ * **This list is no longer what defines the standalone population (mt#4129).**
+ * It was, and its definition was "guards that FIRE-LOG but are not in
+ * `GUARD_REGISTRY`" — which made emitting a fire-log record the qualifying
+ * property of an enforcement point. It is not one. Absence from the fire log is
+ * a fact about a hook's WRITE PATH; whether something intercepts is decided by
+ * its REGISTRATION. Thirty registered hooks wrote no records, so they were in
+ * neither source the catalog's divergence check compares and the check reported
+ * zero discrepancies while the catalog omitted every one of them.
+ *
+ * The population is now derived from `.claude/settings.json` itself, by
+ * `readSettingsHookNames` in `scripts/interceptor-coordinate-input.ts`. What
+ * remains here is a snapshot of the fire-logging subset, still unioned in so a
+ * name that fire-logs under a guard name DIFFERENT from its script basename
+ * (the two `STANDALONE_SCRIPT_ALIASES` pairs) keeps resolving.
+ *
+ * ADR-028's retirement path is unchanged: as Phases 3-5 migrate these hooks onto
+ * the dispatcher each name moves into `GUARD_REGISTRY` and should be DELETED
+ * from this list rather than duplicated. mt#4129 changed only what gets a name
+ * INTO the population, not how one leaves. Snapshot taken 2026-08-05 from 20
+ * days of live fire-log records.
  */
 export const STANDALONE_GUARD_NAMES: readonly string[] = [
   "bare-prohibition",
@@ -102,7 +146,6 @@ export const STANDALONE_GUARD_NAMES: readonly string[] = [
   "check-generated-file-edit",
   "check-task-spec-read",
   "dispatch-intent-write-gate",
-  "policy-coverage",
   "rationalization-review",
   "require-checks-on-bypass-merge",
   "require-deploy-verification-before-merge",
@@ -117,6 +160,7 @@ export const STANDALONE_GUARD_NAMES: readonly string[] = [
   // false-positive failure mode this module's staleness note warns against.
   "standalone-duplicate-matcher",
   "tasks-status-set-guard",
+  "unowned-finding-scan",
   "validate-task-spec",
 ];
 
@@ -146,6 +190,13 @@ export const RETIRED_GUARD_NAMES: ReadonlyMap<string, { lastSeen: string; note: 
       {
         lastSeen: "2026-07-29",
         note: "pre-commit step, split into migration-guard-check + duplicate-generated-content-check",
+      },
+    ],
+    [
+      "policy-coverage",
+      {
+        lastSeen: "2026-08-17",
+        note: "`lastSeen` is the last date records APPEAR IN THE LOG, which is one day after the 2026-08-16 retirement decision and is not a contradiction: the detector kept firing from the main workspace's settings.json until this change merged, and the final observed record was 2026-08-17T03:05Z. Read this field as an observation of the log, never as an inactivity watermark or a decision date. Surface 1 policy-coverage detector, retired by mt#4197 (hook + module deleted). 12,135 fire-log records under this name — RETIRED rather than deleted from KNOWN_GUARD_NAMES precisely so that history does not read as an anomaly.",
       },
     ],
   ]

@@ -26,6 +26,7 @@ import {
   isValidDestructiveOverride,
   recordDestructiveOverride,
 } from "../safety/destructive-override";
+import { restoreUpdateStashAfterCommit, type StashRestoreOutcome } from "./session-stash-restore";
 
 /**
  * Error thrown when the branch-freshness CAS check (mt#1522) detects that
@@ -328,6 +329,33 @@ export async function pushSessionCommitWithFallback(
     isPermissionDeniedPushError(pushOutcome.pushError);
 
   if (!appTokenWasDenied) {
+    // mt#3264: an App-token push that FAILED but did not match the denial
+    // signature above is a case the fallback deliberately declines to handle —
+    // and until now it declined silently, indistinguishable in the logs from a
+    // fallback that never ran at all. The canonical instance is a server-side
+    // rejection (`! [remote rejected] ... without 'workflows' permission`),
+    // which carries neither a 403 nor the word "denied".
+    //
+    // The remedy is legibility, NOT a wider trigger. Swapping to keychain
+    // credentials on any rejection would convert a deliberate server-side block
+    // into a successful push under a DIFFERENT IDENTITY — which is what the
+    // narrowness exists to prevent (mem#721), and what the accepted
+    // dual-identity decision record forbids: "don't conflate dimensions just
+    // because a fallback is convenient." So name the reason and stop; the
+    // caller already receives it as `pushError`.
+    if (pushCredential.credentialPath === "app-token" && pushOutcome.pushError) {
+      warn(
+        "[session.commit] App-token push failed without a permission-denial signature; " +
+          "keychain fallback deliberately NOT attempted (mt#3264) — pushing under a different " +
+          "identity could mask a server-side block. Git's reason is in `pushError`.",
+        {
+          event: "session.commit.push_fallback_declined",
+          session: config.session,
+          stage: "push-failed",
+          reason: pushOutcome.pushError,
+        }
+      );
+    }
     return { ...pushOutcome, credentialPath: pushCredential.credentialPath };
   }
 
@@ -455,6 +483,16 @@ export interface SessionCommitResult {
   files?: Array<{ path: string; status: string }>;
   pushed: boolean;
   credentialPath?: PushCredentialPath;
+  /**
+   * mt#3660: present only when this commit found work parked by an earlier
+   * CONFLICTED `session_update` and acted on it. `restored: true` means the work
+   * is back in the working tree — UNCOMMITTED, and deliberately not part of this
+   * commit. `restored: false` means it is still parked, and `stashRef` /
+   * `parkedFiles` name where; a caller must not read this commit as carrying it.
+   *
+   * Absent is the normal case (nothing was parked).
+   */
+  stashRestore?: StashRestoreOutcome;
   /**
    * mt#3049: set (with `pushed: false`) when the commit itself succeeded but
    * the push phase failed with a thrown error — the underlying error's
@@ -967,6 +1005,85 @@ export async function sessionCommit(
         log.debug("Failed to update session activity state", { error: e });
       }
 
+      // mt#3660: a CONFLICTED `session_update` parks the operator's uncommitted
+      // work in a stash and cannot restore it — a pop during an active merge is
+      // refused, because `git stash pop` requires the working directory to match
+      // the index. The merge commit has just landed, so MERGE_HEAD is gone and the
+      // tree is clean: this is the first moment the pop is legal, and the last one
+      // before the push below would publish a commit that silently lacks the work.
+      //
+      // Restoring here deliberately leaves the recovered work UNCOMMITTED. It
+      // belongs in its own commit, not folded into a merge resolution — and the
+      // report below says so, because a caller that assumed otherwise is how this
+      // failed four times.
+      //
+      // A failed pop is non-destructive by git's own guarantee ("Applying the state
+      // can fail with conflicts; in this case, it is not removed from the stash
+      // list"), so the worst case is work still parked WITH a named report.
+      let stashRestore: StashRestoreOutcome | undefined;
+      try {
+        stashRestore = await restoreUpdateStashAfterCommit(workdir, gitService);
+        if (stashRestore && !stashRestore.restored) {
+          const parked = (stashRestore.parkedFiles ?? []).map((f) => `\n     - ${f}`).join("");
+          // mt#4307: say whether the pop CONFLICTED, and what became of the
+          // markers. The push below runs the pre-push gated suite against this
+          // very working tree, so "markers are present" is the single most
+          // load-bearing fact the operator can be told at this moment — it is
+          // the difference between "my change broke twenty tests" and "the pop
+          // corrupted a file my change never touched".
+          const conflicted = stashRestore.conflictedFiles ?? [];
+          const conflictNotice =
+            conflicted.length > 0
+              ? `\n   The pop CONFLICTED on: ${conflicted.join(", ")}.\n   ${
+                  stashRestore.rolledBack
+                    ? `It was ROLLED BACK — the working tree is clean and carries no conflict markers.`
+                    : `It could NOT be rolled back — conflict markers ARE in the working tree; any ` +
+                      `check that runs next will fail on them, not on this commit.`
+                }`
+              : "";
+          log.cli(
+            `⚠️  Work stashed by an earlier session_update was NOT restored and remains ` +
+              `parked in ${stashRestore.stashRef}. This commit does NOT contain it.${parked}` +
+              `${conflictNotice}\n` +
+              `   ${stashRestore.recovery ?? ""}`
+          );
+        } else if (stashRestore?.restored) {
+          // One line, not three (PR #3076 R1). This is NOT the ordinary success
+          // path — `stashRestore` is undefined unless an update-parked stash was
+          // actually found, so an ordinary commit prints nothing here. When it
+          // does fire, the operator has uncommitted work they did not put back
+          // themselves, and saying so is the entire point of the task.
+          log.cli(
+            `   (Restored work parked by an earlier session_update from ${stashRestore.stashRef} — ` +
+              `now uncommitted in the working tree, NOT in this commit.)`
+          );
+        }
+      } catch (restoreError) {
+        // Never fail a landed commit over the stash check, but never hide it either.
+        log.warn("Failed to restore update-parked stash after commit", {
+          session: params.session,
+          error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+        });
+      }
+
+      // mt#4307 SC2: a failed pop is the PRIMARY outcome of this call, not a
+      // secondary field beside a downstream error. The originating incident is
+      // exactly this ordering: `pushError` carried twenty cockpit-test failures
+      // while the cause sat in `stashRestore.error` on the same payload, and the
+      // natural reading of the result was "my change broke twenty tests".
+      //
+      // The commit itself still succeeded, so `success` stays true and the hash
+      // is still returned — what changes is which fact the message LEADS with.
+      const reportedMessage =
+        stashRestore && !stashRestore.restored
+          ? `${`Committed ${commitResult.commitHash ?? ""}`.trim()} — but restoring work parked by an earlier session_update FAILED${
+              (stashRestore.conflictedFiles ?? []).length > 0
+                ? ` (the pop conflicted on ${(stashRestore.conflictedFiles ?? []).join(", ")}` +
+                  `${stashRestore.rolledBack ? " and was rolled back" : " and could NOT be rolled back"})`
+                : ` (${stashRestore.error ?? "unknown error"})`
+            }. That work is still parked in ${stashRestore.stashRef} and is NOT in this commit.`
+          : commitResult.message;
+
       // Always push changes in session context - commit and push should be atomic
       // mt#1477: when a token provider is available, use the App installation
       // token for push authentication so pull_request workflows trigger.
@@ -1033,8 +1150,9 @@ export async function sessionCommit(
           success: true,
           commitHash: commitResult.commitHash,
           ...metadata,
-          message: commitResult.message,
+          message: reportedMessage,
           pushed: false,
+          ...(stashRestore ? { stashRestore } : {}),
           ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
           ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
           ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
@@ -1060,8 +1178,9 @@ export async function sessionCommit(
         success: true,
         commitHash: commitResult.commitHash,
         ...metadata,
-        message: commitResult.message,
+        message: reportedMessage,
         pushed: true,
+        ...(stashRestore ? { stashRestore } : {}),
         ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
         ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
         ...(pushOutcome.appTokenPushError !== undefined

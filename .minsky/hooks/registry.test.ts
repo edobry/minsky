@@ -13,6 +13,13 @@ import {
   type LifecycleEvent,
 } from "./registry";
 import { deriveDispatchTimeoutMs, DISPATCH_TIMEOUT_MARGIN_MS } from "./dispatch-timeout-budget";
+import { TASK_CREATE_GUARDS } from "./registry-task-create-guards";
+import { PR_CREATE_GUARDS } from "./registry-pr-create-guards";
+import { COMMAND_STRING_GUARDS } from "./registry-command-string-guards";
+import { DELEGATION_GUARDS } from "./registry-delegation-guards";
+import { PROMPT_INJECTION_GUARDS } from "./registry-prompt-injection-guards";
+import { PROMPT_SCAN_GUARDS } from "./registry-prompt-scan-guards";
+import { TURN_END_GUARDS } from "./registry-turn-end-guards";
 
 /** Representative non-tool-scoped event, used across the matcher-less-registration tests. */
 const NON_TOOL_EVENT: LifecycleEvent = "UserPromptSubmit";
@@ -615,5 +622,121 @@ describe("registry <-> .claude/settings.json parity (mt#3823)", () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Family-composition order invariants (mt#4115)
+// ---------------------------------------------------------------------------
+//
+// mt#4115 moved every registry entry into a per-family module and left
+// `GUARD_REGISTRY` a composition of spreads. That move's correctness argument is
+// entirely about ORDER — `getGuardsForEvent` filters by event then matcher, and
+// the dispatcher runs the FILTERED list with first-deny-wins — and it was
+// initially carried only by comments in `registry.ts` plus a diff of
+// `scripts/dump-guard-registry.ts` output taken by hand at review time. PR #3027
+// R1 pointed out that nothing would FAIL if a later edit broke it.
+//
+// These tests are that failure. They encode the argument itself, not a snapshot:
+// each one is self-maintaining, so adding a guard to a family updates both sides
+// at once and none of them needs touching.
+//
+// **What they do NOT cover, stated so nobody reads more into a green run.**
+// Being self-maintaining is exactly why they cannot see a guard REORDERED WITHIN
+// its own family module: that edit moves the family array and `GUARD_REGISTRY`
+// together, so every comparison below still balances. The uncovered consequence
+// is narrow — for two guards that would both deny the same tool call,
+// first-deny-wins decides which denial message the operator sees — and it is
+// bounded to `COMMAND_STRING_GUARDS`, the only family with more than one
+// `denyCapable` member. `scripts/dump-guard-registry.ts` is what catches that:
+// it renders the per-(event, tool) dispatch lists from the real
+// `getGuardsForEvent`, so diffing its output across a change sees intra-family
+// order. Run it before and after any deliberate registry reorganization.
+
+describe("GUARD_REGISTRY family composition (mt#4115)", () => {
+  const FAMILIES: ReadonlyArray<readonly [string, readonly GuardRegistration[]]> = [
+    ["TASK_CREATE_GUARDS", TASK_CREATE_GUARDS],
+    ["PR_CREATE_GUARDS", PR_CREATE_GUARDS],
+    ["COMMAND_STRING_GUARDS", COMMAND_STRING_GUARDS],
+    ["DELEGATION_GUARDS", DELEGATION_GUARDS],
+    ["PROMPT_INJECTION_GUARDS", PROMPT_INJECTION_GUARDS],
+    ["PROMPT_SCAN_GUARDS", PROMPT_SCAN_GUARDS],
+    ["TURN_END_GUARDS", TURN_END_GUARDS],
+  ];
+
+  /**
+   * The one entry deliberately left inline in `registry.ts`, because its
+   * position IS its contract — see
+   * docs/architecture/hooks/calibration-review-cadence-detector.md.
+   */
+  const INLINE_LAST_ENTRY = "calibration-review-cadence-detector";
+
+  const names = (regs: readonly GuardRegistration[]): string[] => regs.map((r) => r.name);
+
+  test("every family spreads into GUARD_REGISTRY as one contiguous run, in its own order", () => {
+    const registryNames = names(GUARD_REGISTRY);
+    for (const [label, family] of FAMILIES) {
+      const positions = family.map((g) => registryNames.indexOf(g.name));
+      expect(`${label}: ${positions.filter((p) => p < 0).length} members missing`).toBe(
+        `${label}: 0 members missing`
+      );
+      // A single spread necessarily yields consecutive indices. Anything else
+      // means the family was split, reordered, or had an entry inlined into the
+      // middle of it — each of which can change a co-matching dispatch order.
+      const consecutive = positions.every(
+        (p, i) => i === 0 || p === (positions[i - 1] as number) + 1
+      );
+      expect(`${label} contiguous: ${consecutive}`).toBe(`${label} contiguous: true`);
+    }
+  });
+
+  test("the two UserPromptSubmit families are adjacent, and the inline entry is last in that event", () => {
+    // This event's guards are all matcher-less, so every one of them co-fires on
+    // every prompt: the whole sequence is a single co-matching set. Asserting the
+    // exact sequence is therefore asserting the dispatch order directly.
+    expect(names(GUARD_REGISTRY.filter((r) => r.event === "UserPromptSubmit"))).toEqual([
+      ...names(PROMPT_INJECTION_GUARDS),
+      ...names(PROMPT_SCAN_GUARDS),
+      INLINE_LAST_ENTRY,
+    ]);
+  });
+
+  test("calibration-review-cadence-detector is the LAST entry in the array", () => {
+    expect(GUARD_REGISTRY.at(-1)?.name).toBe(INLINE_LAST_ENTRY);
+  });
+
+  test("no entry is inlined into registry.ts outside the one documented exception", () => {
+    // The split is only worth having if entries stay in family modules; an entry
+    // written back into `registry.ts` would rebuild the max-lines pressure
+    // mt#4115 removed, one guard at a time.
+    const filed = new Set(FAMILIES.flatMap(([, family]) => names(family)));
+    const strays = names(GUARD_REGISTRY).filter((n) => !filed.has(n) && n !== INLINE_LAST_ENTRY);
+    expect(strays).toEqual([]);
+  });
+
+  test("PreToolUse families share no matcher token, so their order relative to each other is inert", () => {
+    // This is the premise that licenses arranging families freely. It held when
+    // mt#4115 measured it; a guard added to the "wrong" family could break it
+    // silently, at which point cross-family order WOULD be load-bearing and the
+    // contiguity test above would no longer be sufficient on its own.
+    const tokensOf = (family: readonly GuardRegistration[]): Set<string> =>
+      new Set(
+        family
+          .filter((g) => g.event === "PreToolUse")
+          .flatMap((g) => (g.matcher ?? "").split("|").filter(Boolean))
+      );
+
+    const preToolUse = FAMILIES.filter(([, f]) => f.some((g) => g.event === "PreToolUse"));
+    const overlaps: string[] = [];
+    for (let i = 0; i < preToolUse.length; i++) {
+      for (let j = i + 1; j < preToolUse.length; j++) {
+        const [labelA, famA] = preToolUse[i] as readonly [string, readonly GuardRegistration[]];
+        const [labelB, famB] = preToolUse[j] as readonly [string, readonly GuardRegistration[]];
+        const tokensB = tokensOf(famB);
+        const shared = [...tokensOf(famA)].filter((t) => tokensB.has(t));
+        if (shared.length) overlaps.push(`${labelA} x ${labelB}: ${shared.join(",")}`);
+      }
+    }
+    expect(overlaps).toEqual([]);
   });
 });

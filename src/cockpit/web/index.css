@@ -95,6 +95,15 @@
  * --------------------------------------------------------------------------- */
 
 :root {
+  /* Tell the ENGINE which scheme this document is painted in (mt#4355).
+     `<html class="dark">` drives Tailwind's `dark:` variant and says nothing to
+     the browser, so without this every control the PLATFORM draws itself —
+     scrollbars, <select> popups, date pickers, form controls, spellcheck
+     underlines, the canvas before first paint — is rendered light-appearance.
+     This block is the light-theme placeholder (see `.dark` below for the scheme
+     the cockpit actually ships). */
+  color-scheme: light;
+
   /* Light theme — placeholders; cockpit ships dark-first via <html class="dark"> */
   --background: 1 0 0;
   --foreground: 0.078 0 0;
@@ -204,6 +213,13 @@
 }
 
 .dark {
+  /* The scheme the cockpit actually ships in (mt#4355) — see `:root` above for
+     why the class alone is not enough. Measured before this landed: the running
+     cockpit computed `color-scheme: normal`, so the tray's WebKit window drew
+     the macOS light-appearance scrollbar (track ~#f8f8f8, thumb ~#c1c1c1)
+     inside a near-black surface. */
+  color-scheme: dark;
+
   --background: 0.078 0 0;
   --foreground: 0.946 0 0;
   --card: 0.155 0 0;
@@ -258,67 +274,97 @@
   }
 
   /* ---------------------------------------------------------------------------
-   * Scrollbars (mt#3701; docs/design-system.md §4)
+   * Scrollbars (mt#3701, rescoped mt#4355; docs/design-system.md §4)
    *
-   * Native scrollbars were the one piece of cockpit chrome rendered by the
-   * platform rather than by the design system — a light-gray OS bar sitting
-   * inside a near-black rail. Styled here, once, from semantic tokens: at rest
-   * a thumb the same lightness as a border, brightening to `--muted-foreground`
-   * under the pointer. Same at-rest-neutral / on-approach-legible register the
-   * rest of the interactive chrome uses.
+   * TWO mechanisms, doing DIFFERENT jobs. mt#3701 shipped only the second, and
+   * the first is what the tray was actually missing:
    *
-   * BOTH mechanisms are declared because different engines honor different
-   * ones, and the pair below is deliberately tuned to the same result either
-   * way. Measured, not assumed (mt#3701, via scripts/verify-session-film-panes.ts
-   * against the dev canary): current Chromium resolves the STANDARD properties
-   * — a scroll container there computes `scrollbar-width: thin` and a
-   * `scrollbar-color` of `oklch(0.27 0 0) rgba(0, 0, 0, 0)`, i.e. our token —
-   * so the `::-webkit-scrollbar` block is what serves older WebKit, including
-   * the engine the tray's macOS window renders in. Firefox has only ever had
-   * the standard properties.
+   * 1. `color-scheme` (declared on `:root` / `.dark` above) tells the engine
+   *    which scheme the document is painted in, so the platform draws its OWN
+   *    chrome — scrollbars included — to match. It reaches every engine.
+   * 2. `.scrollbar-readout` (below) REPLACES the native bar with a token-built
+   *    one that is always visible. Opt-IN, and Chromium-only in practice.
    *
-   * The thumb is deliberately ALWAYS visible rather than fading in on hover.
-   * On a long virtualized surface — the film ribbon runs to hundreds of rows —
-   * the scrollbar is a position-and-extent readout, not just a drag target, and
-   * a readout that appears only once you have already reached for it isn't one.
-   * The cost is that styling `::-webkit-scrollbar` opts out of macOS overlay
-   * scrollbars, so the gutter takes 10px of layout width; that is the trade
-   * accepted here, and it also means content no longer reflows when a
-   * scrollbar appears.
+   * Styled from semantic tokens: at rest a thumb the same lightness as a
+   * border, brightening to `--muted-foreground` under the pointer — the same
+   * at-rest-neutral / on-approach-legible register the rest of the interactive
+   * chrome uses.
    *
-   * `.scrollbar-none` (see @layer utilities below) still fully suppresses this
-   * — a class selector out-specifies the bare pseudo-element rules here, so the
-   * TabBar's deliberate opt-out is unaffected.
+   * WHY OPT-IN. The thumb here is deliberately ALWAYS visible rather than
+   * fading in on hover: on a long virtualized surface — the film ribbon runs to
+   * hundreds of rows — the scrollbar is a position-and-extent readout, not just
+   * a drag target, and a readout that appears only once you have already
+   * reached for it isn't one. The cost is that styling a scrollbar opts out of
+   * macOS overlay scrollbars, so the gutter takes 10px of layout width. That
+   * trade is right for a long scroller and wrong for everything else: mt#3701
+   * applied it through a bare `*`, which put a permanent gutter on all 31
+   * scroll containers across 21 files — every markdown code block, every table
+   * wrapper, every small pane. Apply this class to long scrollers only.
+   *
+   * BOTH property sets are declared because different engines honor different
+   * ones. Measured (mt#4355): Chromium resolves the STANDARD properties — a
+   * scroll container computes `scrollbar-width: thin` and a `scrollbar-color`
+   * of `oklch(0.27 0 0) rgba(0, 0, 0, 0)`, i.e. our token. Firefox has only
+   * ever had the standard properties.
+   *
+   * Do NOT assume `::-webkit-scrollbar` covers WebKit. mt#3701's comment said
+   * this block served "the engine the tray's macOS window renders in"; that was
+   * asserted, never exercised — its acceptance test ran against the Chromium
+   * dev canary. It is measurably INERT in WebKit 17.4 (Playwright): a probe's
+   * gutter is 12px with this block present and 12px without it, so the declared
+   * 10px never applies. The block is kept for engines that DO honor it, but
+   * mechanism 1 above is the only one that reaches the tray.
+   *
+   * `.scrollbar-none` (see @layer utilities below) still fully suppresses
+   * chrome — it is in the utilities layer, which outranks this one, so an
+   * element carrying both resolves to suppressed.
    * ------------------------------------------------------------------------ */
-  * {
+  .scrollbar-readout {
     scrollbar-width: thin;
     scrollbar-color: oklch(var(--border)) transparent;
   }
-  ::-webkit-scrollbar {
+  .scrollbar-readout::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
-  ::-webkit-scrollbar-track,
-  ::-webkit-scrollbar-corner {
+  .scrollbar-readout::-webkit-scrollbar-track,
+  .scrollbar-readout::-webkit-scrollbar-corner {
     background: transparent;
   }
   /* The transparent border + `background-clip: content-box` is what yields a
      4px-wide thumb inside a 10px track: padding, without a padding property to
      set on a scrollbar part. */
-  ::-webkit-scrollbar-thumb {
+  .scrollbar-readout::-webkit-scrollbar-thumb {
     background-color: oklch(var(--border));
     background-clip: content-box;
     border: 3px solid transparent;
     border-radius: 9999px;
   }
-  ::-webkit-scrollbar-thumb:hover,
-  ::-webkit-scrollbar-thumb:active {
+  .scrollbar-readout::-webkit-scrollbar-thumb:hover,
+  .scrollbar-readout::-webkit-scrollbar-thumb:active {
     background-color: oklch(var(--muted-foreground));
   }
   /* Chromium draws stepper buttons at each end when any scrollbar part is
      styled; there is no design-system element for them, so remove them. */
-  ::-webkit-scrollbar-button {
+  .scrollbar-readout::-webkit-scrollbar-button {
     display: none;
+  }
+
+  /* `scrollbar-color` INHERITS. `scrollbar-width` does not, and the
+     `::-webkit-scrollbar` pseudo-elements are matched per element, so this one
+     property is the whole problem — without the reset below, opting a long
+     scroller in propagates our thumb color to every scroll container nested
+     inside it, which is the app-wide reach this task exists to remove, arriving
+     through inheritance instead of through a `*` selector.
+     Measured before the reset (mt#4355): a `pre` inside
+     `<main class="scrollbar-readout">` computed `scrollbar-width: auto` (not
+     inherited, as expected) and `scrollbar-color: oklch(0.27 0 0) transparent`
+     (inherited, not expected).
+     `:where()` contributes ZERO specificity, so a nested surface that opts in
+     explicitly — the film ribbon lives inside `<main>` — still wins at (0,1,0)
+     and keeps its readout. */
+  :where(.scrollbar-readout *) {
+    scrollbar-color: auto;
   }
 }
 

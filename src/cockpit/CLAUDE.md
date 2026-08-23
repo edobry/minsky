@@ -91,7 +91,9 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 ### Guard/interlock vocabulary (mt#2626)
 
-"Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, the `/plant/interlock-history` page); "weld" survives at most as a verb ("welding an interlock").
+"Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, its "interlock history →" drill-down link); "weld" survives at most as a verb ("welding an interlock").
+
+The `/plant/interlock-history` PAGE was this rule's other standing example until mt#4229 absorbed it into `/interceptors`. The rule is unchanged by that move, and the move is a worked example of it: the destination became an `/interceptors` route while the plant board's link kept saying "interlock history", because the link is plant UI copy and the genus noun below governs the catalog, not the board.
 
 **The genus noun is `interceptor` (ask#7119, closed 2026-08-11).** The ~90-entity enforcement corpus — merge gates, PreToolUse denials, Stop scanners, per-turn injections, calibration recorders, pre-commit checks — is named **interceptors**; **guard**, **detector**, and **injector** are COMPUTED family words (filters over intervention type: deny/allow, calibration-first record, and inject respectively), not assigned labels. The activity noun is "interception"; the catalog route is `/interceptors`, and a catalog deeplink type follows the same noun. Describe an individual entity by its coordinates — `<interception point> + <intervention type(s)> + <decision mechanism>` — when precision matters.
 
@@ -157,15 +159,39 @@ restart needed.
   and confirm the changed field is present/absent. Killing a healthy daemon before reading its served
   state destroys the evidence of whether the restart was even needed. (Premise-verification family:
   memory `da2b73ea`; merged≠usable altitude: `427cdf15`.)
-- **Residual gap — `packages/domain`-only changes.** `watcher_backend` watches `src/cockpit` only. A
-  change confined to `packages/domain` (which the daemon imports at runtime) with NO `src/cockpit`
-  edit will NOT trigger an auto-restart. The running daemon holds the module cached in memory — Bun
-  caches ES modules, so even a dynamically-`import()`ed domain module is not re-read from disk on
-  change (eager-vs-lazy import makes no difference) — so a restart is required to pick up ANY
-  domain-only change. It stays stale until the next `src/cockpit` change or a manual restart. Probe
-  to distinguish; that is the one case a manual restart is genuinely warranted.
-- When a restart IS needed, prefer the clean primitive `restartDaemon()` (`src/cockpit/launchd.ts`)
-  over a hand `kill`/respawn.
+- **`packages/**` changes auto-restart too, as of mt#4230.** The daemon spawns from source
+  (`bun run src/cli.ts`), so its import closure is `src/**` plus `packages/**`. `watcher_backend`
+  watched `src/cockpit` alone until mt#4230, which made a `packages/domain`-only change invisible to
+  all three mechanisms that read that root — the auto-restart, the adoption-staleness check, and the
+  `(src @ …)` uptime hint — so the daemon served stale code while the hint read as current. Bun
+  caches ES modules, so a domain change genuinely needs a process restart (eager-vs-lazy import makes
+  no difference); what changed is that the restart now fires on its own.
+  `cockpit_backend_roots()` (`cockpit-tray/src-tauri/src/watcher_backend.rs`) is the single list all
+  three read — add a root there, not at a call site. **Remember the tray binary is NOT auto-rebuilt**
+  (`cockpit-tray-dev`): a checkout that predates mt#4230's tray release still has the old
+  single-root watcher, so probe before assuming this applies to the tray you are running.
+- **When a restart IS needed, run `minsky cockpit restart` (mt#4232).** It works under the
+  tray-supervised default, under launchd, and from an agent shell — no GUI click, no hand
+  `kill`/respawn. It resolves the serving pid (from `/api/health`'s `pid`, falling back to the port
+  holder for a daemon whose build predates that field), verifies the process's live command line
+  before signalling it, and does not report success until `processStartedAtMs` actually changes.
+  `--port` follows the same `cockpit.port` precedence as the other cockpit subcommands.
+  - Until mt#4232 this bullet recommended `restartDaemon()` in `src/cockpit/launchd.ts`. That
+    function is GONE: it required a launchd plist, so it threw "No cockpit daemon installed" under
+    the default setup — the defect mt#4232 fixed. Do not reintroduce a launchd-gated restart.
+  - **The tray records a signalled restart as a crash-class exit.** A SIGTERMed process reports no
+    exit code, which `classify_exit` cannot distinguish from a real crash. It respawns normally, but
+    four restarts inside ten minutes trip the restart-storm alert and two inside five seconds hit the
+    respawn throttle. Both are the supervisor behaving correctly; pace accordingly.
+  - **`minsky cockpit stop` is NOT the mirror of restart.** A signal cannot stop a supervised daemon
+    — respawning is the supervisor's job. Under launchd it runs `launchctl unload` (the only stop
+    launchd honours); under the tray it signals, observes the respawn, and reports that plainly with
+    a non-zero exit rather than claiming a stop. To actually stop a tray-supervised daemon, use the
+    tray menu's Stop item.
+  - **Check for a mid-turn driven session first** when the restart is discretionary:
+    `curl http://127.0.0.1:<port>/api/driven-session/turn-active`. The daemon has no shutdown handler
+    (mt#4040), so a mid-turn kill leaves no record that the turn was never checkpointed. This is the
+    same gate the tray consults before auto-restarting.
 
 **Dev mode (recommended for active UI work):**
 

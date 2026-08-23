@@ -79,6 +79,18 @@ export type InterceptionPoint =
   | "UserPromptSubmit"
   | "SessionEnd"
   | "MessageDisplay"
+  // Added by mt#4129 — hooks were registered at each of these in
+  // `.claude/settings.json` while the model had no value for them, so
+  // `derivePoint`'s `POINTS` gate dropped them and the catalog carried neither
+  // the hook nor a gap. One of THREE copies of this union; see the header on
+  // `src/cockpit/web/hooks/useInterceptors.ts` for why the duplication is forced
+  // and which test pins the three together.
+  | "SessionStart"
+  | "StopFailure"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
   | "pre-commit"
   | "merge-time";
 
@@ -172,6 +184,20 @@ export interface InterceptorCoordinates {
    * `resolveCoordinates` would otherwise report `undeclared`.
    */
   readonly point?: InterceptionPoint;
+  /**
+   * Entity-strata DIMENSION 1 (ontology §5) — authored ONLY where it is not
+   * derivable. Every other stratum derives: a harness-event point is the agent
+   * conversation, `pre-commit` is repo/VCS, `subject: "system"` is the
+   * interception system itself. The one underivable case is `"delivery"`: the
+   * merge gates' SUBJECT is the delivery trajectory while their declared point
+   * stays `PreToolUse` (mechanism truth — mechanism decides who is bound), so
+   * nothing in a declared source separates them from the other PreToolUse
+   * denials. mt#4011's lifecycle spine places them at the merge station from
+   * this field; the `point` field is deliberately NOT re-authored to
+   * `merge-time` for them, which would overwrite mechanism truth with subject
+   * truth.
+   */
+  readonly trajectory?: "delivery";
   /** Anything a catalog reader needs that the coordinates cannot carry. */
   readonly note?: string;
 }
@@ -251,7 +277,6 @@ export const DELIBERATELY_UNAUTHORED_NAMES: readonly string[] = [
  */
 export const STANDALONE_SCRIPT_ALIASES: Readonly<Record<string, string>> = {
   "bare-prohibition": "warn-bare-prohibition-dispatch",
-  "policy-coverage": "policy-coverage-detector",
 };
 
 // ---------------------------------------------------------------------------
@@ -259,18 +284,34 @@ export const STANDALONE_SCRIPT_ALIASES: Readonly<Record<string, string>> = {
 // ---------------------------------------------------------------------------
 
 const deny: Intervention = { type: "deny" };
+// Re-added 2026-08-17 (mt#4198) on the terms the removal note set: `allow` lost
+// its last author when `policy-coverage` was retired (mt#4197), and
+// `ask-permission-bridge` declares one — it emits `permissionDecision: "allow"`
+// for a command covered by a verified operator-approved ask.
 const allow: Intervention = { type: "allow" };
 const mutate: Intervention = { type: "mutate" };
 const injectAgent: Intervention = { type: "inject", audience: "agent" };
 const recordReview: Intervention = { type: "record", audience: "review" };
 const recordFramework: Intervention = { type: "record", audience: "framework" };
 const recordOperator: Intervention = { type: "record", audience: "operator" };
+/** The three ADR-028 dispatcher entrypoints: they run other guards, not a check. */
+const delegate: Intervention = { type: "delegate" };
 
 /** A deny gate deciding on structured state — the corpus's most common shape. */
 const structuralGate: InterceptorCoordinates = {
   interventions: [deny],
   mechanism: "structural",
   role: "judge",
+};
+
+/**
+ * A structural deny gate whose SUBJECT is the delivery trajectory — the merge
+ * gates. Same shape as `structuralGate` plus the one authored stratum marker;
+ * see the `trajectory` field doc for why the point is not re-authored instead.
+ */
+const deliveryGate: InterceptorCoordinates = {
+  ...structuralGate,
+  trajectory: "delivery",
 };
 
 /** A pre-commit step that regenerates an artifact and re-stages it. */
@@ -372,6 +413,24 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "nonexistent-search-path",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same quote-aware command-string split as its siblings, and the closest kin is `check-guessed-session-path` rather than the other recorders: both extract paths and decide with an `existsSync`. Two differences make it a separate coordinate. It extracts by ARGUMENT POSITION — walking each search binary's own grammar to tell a path from a pattern, a flag, and a `--include` filter value — where the session-path gate matches a literal substring anywhere in the command. And it records rather than denies, because that grammar walk is the false-positive surface, and its precision is a claim the calibration log has to settle. No prose and no paraphrase axis in either leg; the only judgment is which tokens are paths.",
+    },
+  ],
+  [
+    "cli-mcp-substitution",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Third guard on the same quote-aware command-string split, and the first whose decision is not about the command alone: it pairs a lookup against a GENERATED oracle (`commandId` on each CLI leaf of the completion manifest) with a fact about the session (no `mcp__minsky__*` tool use in the transcript). Both legs are structural — no prose, no paraphrase axis — which is why ADR-024's ladder does not govern it. The oracle being generated is what keeps coverage from drifting as commands are added, and what keeps the hook off the domain bootstrap a registry import would owe on every Bash call.",
+    },
+  ],
+  [
     "check-guessed-session-path",
     {
       ...structuralGate,
@@ -380,9 +439,41 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["code-mechanism-assertion-detector", lexicalDetector],
   ["constructed-identifier-batch-detector", structuralRecorder],
+  // A numeric threshold comparison over transcript state — no prose is read, so
+  // there is no paraphrase exposure to flag. Records only while log-only; when
+  // it graduates, its interventions gain `injectAgent` alongside `recordReview`
+  // (the silent-stretch-detector shape).
+  ["context-fill-gauge", structuralRecorder],
   [
     "duplicate-check-search-provenance",
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
+  ],
+  [
+    "duplicate-check-candidate-read",
+    {
+      interventions: [injectAgent, recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same session-state question as `duplicate-check-search-provenance`, one step further along: that one asks whether ANY search ran (a membership test over tool NAMES), this asks whether a SPECIFIC candidate's spec was surfaced (tool ARGUMENTS, via `specWasSurfaced`). Scoped to candidates the record NAMES, so it is defeated by omission — that axis is `duplicate-signature-scan`'s, which reaches tasks the record never mentions.",
+    },
+  ],
+  [
+    "claim-provenance-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same claim shape as `duplicate-check-search-provenance`, at the spec-WRITE seam rather than only at task creation. `structural` because the discriminating half is a join against session tool-call state — a PR number against a `pull_request_read` for THAT PR, a `tasks_search` against the transcript prefix — with no paraphrase axis. `recordReview` only, like `evidence-record-provenance` and for the same measured reason: a 40-transcript replay put it at 16 fires over 70 claims with one true positive, the dominant false class being prose that DISCUSSES a collision (gate reports, reconciliations) rather than asserting one. The join is exact; the RECOGNITION half is what is unsized, and injecting on it would fire hardest at the most careful gate-(g) work. mt#4190 owns the tune and the graduation.",
+    },
+  ],
+  [
+    "evidence-record-provenance",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same claim shape as `duplicate-check-search-provenance`, at the commit and PR-body seams. `recordReview` only — no `injectAgent`, unlike that sibling: a pre-ship replay over 40 transcripts measured the negative-control half's fires as mostly false, so the stream is armed and nothing injects until mt#4067 tunes it.",
+    },
   ],
   [
     "duplicate-signature-scan",
@@ -394,6 +485,54 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["flakiness-control-detector", lexicalDetector],
+  // Same shape as the sibling above: a lexical pass over the spec prose an agent
+  // just authored. Class B adds an exact-substring lookup against the authorizing
+  // ask, which sharpens the verdict without changing the mechanism class.
+  ["spec-criterion-claim-detector", lexicalDetector],
+  [
+    "stale-signal-sweep",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Exact substring over three corpora — active task specs, live memories, accepted ADRs — for a label lifted verbatim from the PR's own diff. No similarity metric: the token is not paraphrasable.",
+    },
+  ],
+  [
+    "unrendered-result-field-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Diff-only, no corpus and no DB. Positional rather than pattern-based: a field counts as rendered when its name appears in a literal OUTSIDE a logger call, which is the distinction the originating incident turned on.",
+    },
+  ],
+  [
+    "new-surface-design-pass",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads with no paraphrase axis: git status `A` on a render-path path, and a `Skill` tool_use name against a fixed six-skill list. Neither half is a matcher over prose, which is why it ships without ADR-024's ladder above rung 1. The transcript half is what makes it a judge rather than a diff scanner — and why an absent transcript records `skipped` rather than a fire.",
+    },
+  ],
+  [
+    "enumeration-scope-check",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads over the same PR window with no paraphrase axis: the session's own edit-call paths against a fixed serialized-surface list, and its search-call command strings against a fixed directory list. The strictly stronger sibling of the did-a-search-happen shape — it asks whether the sweep that RAN reached the prescribed directory, which is what every recorded gate-(h) failure missed. A subtree does not count as its directory (mt#4215), which is the discrimination that lets it see mt#4252.",
+    },
+  ],
+  [
+    "gate-walk-provenance",
+    {
+      ...structuralRecorder,
+      trajectory: "delivery",
+      note: "The merge-seam half of the gate-(h) pair. Reads THREE indexed rows — the stream's earliest task.status_changed, the bound task's created_at, and a → READY row for that task — and asks only whether the task was ever gated, never whether it was gated well (that is enumeration-scope-check's question at `pr`). Structural rather than lexical: no prose is parsed on any path. Its `skipped` outcome is a first-class verdict, not a fallthrough — a pre-horizon task and an unreadable stream both produce one, because absence in this stream is bounded evidence about the stream and not about the gate.",
+    },
+  ],
   [
     "guard-health-escalation-detector",
     {
@@ -404,6 +543,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["inject-current-time", constantFeeder],
+  ["inject-ask-responses", conditionalFeeder],
   ["inject-dispatch-watchdog", conditionalFeeder],
   ["inject-git-state", constantFeeder],
   ["inject-memory-capture", conditionalFeeder],
@@ -453,6 +593,13 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["substrate-bypass-detector", lexicalDetector],
   ["turn-end-bare-ref-scan", lexicalDetector],
   ["turn-end-retro-scan", lexicalDetector],
+  // Hybrid, and classified by the half that can be WRONG. The decision is
+  // structural (an entity's live state contradicts the message, or it does
+  // not — that half cannot false-positive), but the trigger is a prose gate,
+  // so the paraphrase exposure this coordinate is meant to flag lives on the
+  // lexical side. Same call as `turn-end-unescalated-incident-scan`, the
+  // family's other hybrid.
+  ["turn-end-stale-state-assertion-scan", lexicalRecorder],
   ["turn-end-unescalated-incident-scan", lexicalDetector],
   ["turn-end-untaken-action-scan", lexicalDetector],
   [
@@ -469,8 +616,26 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // -------------------------------------------------------------------------
   // Standalone stratum — registered directly in .claude/settings.json
   // -------------------------------------------------------------------------
+  [
+    "ask-permission-bridge",
+    {
+      interventions: [allow, deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "The corpus's only `allow` author: it emits the harness allow decision when a pending command matches a live grant whose ask verifies server-side as operator-approved. It DENIES on the inverse — a grant whose ask is absent, unapproved, or not operator-attributed — because that combination is a fabrication signal rather than a miss. Every unmatched path defers silently, which is why an `allow`-emitting hook is not a blanket permission widener.",
+    },
+  ],
   ["bare-prohibition", lexicalDetector],
   ["block-git-gh-cli", structuralGate],
+  [
+    "block-github-mcp-pr-writes",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Decides on the tool NAME against a fixed denial table, not on the call's content.",
+    },
+  ],
   ["block-nested-fork-dispatch", structuralGate],
   [
     "block-out-of-band-merge",
@@ -478,11 +643,13 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [deny],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Reads the PR body for a documented coupled step. Its `elideMarkdownNonProse` quotation-aware pass is the shipped pattern ADR-024 rung 1 generalizes from.",
     },
   ],
-  ["block-subagent-bypass-merge", structuralGate],
-  ["block-subagent-merge-without-grant", structuralGate],
+  ["block-subagent-bypass-merge", deliveryGate],
+  ["block-subagent-merge-without-grant", deliveryGate],
+  ["bridge-memory-retirement", structuralInjector],
   ["check-branch-fresh", structuralGate],
   [
     "check-generated-file-edit",
@@ -493,24 +660,144 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Matches generated-file banner markers in the target's content.",
     },
   ],
-  ["check-task-spec-read", structuralGate],
-  ["dispatch-intent-write-gate", structuralGate],
   [
-    "policy-coverage",
+    "check-prompt-watermark",
     {
-      interventions: [deny, allow, injectAgent, recordReview],
+      interventions: [deny],
       mechanism: "structural",
       role: "judge",
-      note: "Ontology amendment (a)'s worked example: it selects deny, warn, or allow PER FIRE at runtime, so its declaration names a repertoire rather than an outcome. Decides on a covered-tool set plus path predicates, not on prose.",
+      note: "Decides on the ABSENCE of the `minsky:prompt:v1` watermark in a prompt that also references a session path or a session-write tool. Fail-open: a malformed payload allows the dispatch.",
     },
   ],
-  ["require-checks-on-bypass-merge", structuralGate],
+  ["check-task-spec-read", structuralGate],
+  ["deploy-verification-after-merge", structuralInjector],
+  ["dispatch-intent-write-gate", structuralGate],
+  [
+    "dispatch-pretooluse",
+    {
+      interventions: [delegate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Not a guard: the sole `.claude/settings.json` PreToolUse entry for every registry-migrated guard (ADR-028 D1). It reads stdin once, resolves shared context once, and runs each matched guard's pure function in process. Its own interventions are whatever its delegates emit — which is why the family filters must read the delegates, not this entry.",
+    },
+  ],
+  [
+    "dispatch-stop",
+    {
+      interventions: [delegate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The Stop-event sibling of `dispatch-pretooluse`. `typecheck-on-stop` is a deliberately-standalone Stop entry that predates the framework and is NOT delegated through here.",
+    },
+  ],
+  [
+    "dispatch-userpromptsubmit",
+    {
+      interventions: [delegate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The UserPromptSubmit sibling. Carries the largest delegate set — the guidance detectors plus the per-turn injectors — which is why the merged-context budget in `dispatcher.ts` is a property of THIS entrypoint rather than of any one detector.",
+    },
+  ],
+  ["drive-pr-to-convergence", conditionalFeeder],
+  ["drive-ready-to-implementation", conditionalFeeder],
+  ["unowned-finding-scan", structuralRecorder],
+  [
+    "guard-events-ingest-on-session-end",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "A LATENCY optimization, not a correctness layer: SessionEnd does not fire on `/exit`, `/clear`, or an async kill (ADR-017, mt#2313), so completeness comes from the cockpit's periodic sweep calling the same command. Dedupe keys make the double-run a no-op.",
+    },
+  ],
+  [
+    "inject-success-criteria",
+    {
+      ...conditionalFeeder,
+      note: "Fires with the `session_pr_create` call ALREADY IN FLIGHT, so it cannot shape the body being submitted — it prompts a follow-up `session_pr_edit`. The merge-time coverage cross-reference is the backstop that makes that acceptable.",
+    },
+  ],
+  [
+    "linkify-message-display",
+    {
+      interventions: [mutate],
+      mechanism: "lexical",
+      role: "infrastructure",
+      note: "The corpus's only `MessageDisplay` entity, and its only DISPLAY-surface mutation: it rewrites bare entity refs into deeplinks in what the operator sees while the stored transcript keeps the bare ref. Every failure path is a no-op because the client falls back to the original delta.",
+    },
+  ],
+  [
+    "loop-preflight-pr-merge-check",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Reads live PR and task state before the first `/loop` iteration. Fail-open on a partial coverage failure — an unreadable ref permits rather than blocks.",
+    },
+  ],
+  [
+    "parallel-work-guard",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Guards `session_start` AND `tasks_dispatch` in existing-task mode, because that path calls `SessionService.start()` in process and would otherwise bypass the sweep entirely. Hosts the advisory `standalone-duplicate-matcher` decision path, which has no registration of its own.",
+    },
+  ],
+  [
+    "post-merge-pull",
+    {
+      interventions: [mutate],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "Mutates the MAIN working tree rather than the agent's trajectory: it stashes, fast-forwards main, and pops. The only entity here whose intervention lands on the repo checkout.",
+    },
+  ],
+  [
+    "post-merge-unasked-direction-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "model",
+      role: "judge",
+      note: "The corpus's ONLY `model`-mechanism entity — it builds a completion service and runs `UnaskedDirectionAnalyzer` over the merged session's transcript. mt#4038 measured `model: 0` across the fire-log population and read the rung-3 end of ADR-024's ladder as unexercised; that measurement was bounded to the population this hook is absent from, because it never fire-logs. Findings are observational and never block — the merge has already happened.",
+    },
+  ],
+  [
+    "post-session-start",
+    {
+      interventions: [mutate, recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Labels and colors the iTerm tab for the bound task and writes the session-label state file. The mutation's audience is the operator's terminal, not the agent — the only entity in the corpus whose effect is outside both the conversation and the repo.",
+    },
+  ],
+  [
+    "record-conversation-run-state",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "ONE script registered under every observed harness event, branching on `hook_event_name`. Fail-open is non-negotiable here (mt#3130): it is git-tracked and reaches every dispatched-subagent workspace, so a conversation whose events do not land degrades to UNKNOWN rather than failing a turn.",
+    },
+  ],
+  [
+    "record-subagent-invocation",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "Closes the dispatch row the PreToolUse `agent-dispatch-stamp` opened, recovering the parent key from the agent transcript path.",
+    },
+  ],
+  ["require-checks-on-bypass-merge", deliveryGate],
   [
     "require-deploy-verification-before-merge",
     {
       interventions: [deny],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Scans the PR body for a `Deploy verification:` commitment.",
     },
   ],
@@ -520,12 +807,49 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [deny, recordReview],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Blocks on a missing `Execution evidence:` marker and writes two calibration streams of its own (per-AT coverage, test-first evidence) — the many-to-many case the registry's list-valued `calibrationLog` exists for.",
     },
   ],
-  ["require-growth-justification-before-merge", structuralGate],
-  ["require-review-before-merge", structuralGate],
+  ["require-growth-justification-before-merge", deliveryGate],
+  ["require-review-before-merge", deliveryGate],
   ["require-session-for-main-workspace-edits", structuralGate],
+  [
+    "session-start",
+    {
+      interventions: [recordFramework, mutate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Writes the `<harness pid> -> conversation id` mapping the MCP stdio proxy reads to attribute calls to the CURRENT conversation — without it, `/clear`, resume and fork leave the proxy stamping the pre-switch conversation onto every call, so an agent's presence claims land under a stranger's id (ADR-006 Layer 3). Also bootstraps the remote environment, but only in remote/web conversations.",
+    },
+  ],
+  [
+    "stamp-ask-conversation",
+    {
+      interventions: [recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The ask-side twin of the two `minsky_session_links` writers below, and the same shape for the same reason: only a PostToolUse hook sees the harness conversation id and the record's own id together. It writes a LOCAL file rather than a column — the consumer is a per-turn hook that must not touch the DB (ADR-028 D7(5)), and a DB-writing hook dies silently at bootstrap (mem#672).",
+    },
+  ],
+  [
+    "stamp-pr-author-link",
+    {
+      interventions: [recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Fires at PR-CREATE rather than merge, because the authorship-relevant conversation is the one that WROTE the code — for dispatched work an implementer subagent creates the PR and the main agent merges it.",
+    },
+  ],
+  [
+    "stamp-session-creator-link",
+    {
+      interventions: [recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The `session_start` writer of `minsky_session_links` — the dominant creation path, which had no writer while the daemon-spawn and PR-author cases did.",
+    },
+  ],
   [
     "standalone-duplicate-matcher",
     {
@@ -537,7 +861,50 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["tasks-status-set-guard", structuralGate],
+  [
+    "transcript-ingest-on-session-end",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "The ONE ingest caller with positive evidence the conversation has terminated (the harness's own SessionEnd event), so it is the only one that may set `ended_at`. Same two-layer shape as its guard-events sibling: this is latency, the sweep is completeness.",
+    },
+  ],
+  [
+    "two-strikes-record",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Records every tool error and accumulates per-conversation streaks. Default mode is `observation`: it logs would-have-fired events without invoking the second-strike handler, so the corpus rule's 2-strikes discipline is still agent-enforced and this entity is its calibration source.",
+    },
+  ],
+  [
+    "typecheck-on-edit",
+    {
+      interventions: [injectAgent, recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Two effects, and the second is why the role is infrastructure rather than judge: besides surfacing filtered errors it writes the edited-project-root state file that `typecheck-on-stop` consumes at turn end. It never blocks.",
+    },
+  ],
+  [
+    "typecheck-on-stop",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Registered on BOTH Stop and SubagentStop; exit 2 forces the turn to continue until the roots its `typecheck-on-edit` sibling recorded typecheck clean. Role is `judge` rather than the `infrastructure` mt#4129's planning pass grouped the dev-loop hooks under: it classifies (are there type errors in the tracked roots?) and then denies on the answer, which is the role vocabulary's definition of a judge. Its sibling keeps `infrastructure` because it writes the state and never intervenes.",
+    },
+  ],
   ["validate-task-spec", structuralGate],
+  [
+    "verify-subagent-model",
+    {
+      ...structuralInjector,
+      note: "Compares the dispatched subagent's `resolvedModel` against the requested tier and surfaces a mismatch. Its subject is the interception system's own provenance rather than the trajectory: it exists because trusting the REQUEST as evidence of the OUTCOME reported an entire Sonnet investigation to the operator as frontier-tier.",
+    },
+  ],
 
   // -------------------------------------------------------------------------
   // Pre-commit stratum — husky steps; bind ANY committer, agent or human
@@ -565,10 +932,12 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["fast-related-tests", structuralGate],
   ["hook-permission-check", structuralGate],
   ["immutable-migration-check", structuralGate],
+  ["interceptor-catalog-regen", regenStep],
   ["migration-collision-check", structuralGate],
   ["migration-guard-check", structuralGate],
   ["migration-journal-check", structuralGate],
   ["node-shim-check", structuralGate],
+  ["conflict-marker-check", structuralGate],
   ["nul-byte-check", structuralGate],
   ["rules-compile-check", structuralGate],
   [
@@ -578,6 +947,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       mechanism: "lexical",
       role: "judge",
       note: "The classifier is EXTERNAL: the step shells out to gitleaks, whose detection is pattern/entropy matching over staged content, and fails closed when gitleaks is not installed. `lexical` describes gitleaks' mechanism — this is the one entity in the corpus whose classifier does not live in this repo.",
+    },
+  ],
+  [
+    "sql-capability-message-check",
+    {
+      interventions: [deny],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Same coordinates as `variable-naming-check` and for the same reasons: it denies, it matches phrases in staged source, and the verdict is its own. mt#4398 — the check it runs (`scripts/check-sql-capability-messages.ts`, mt#3661) had no caller at all until then, so it had no coordinates either.",
     },
   ],
   ["type-check", structuralGate],
@@ -601,6 +979,16 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       ...structuralGate,
       point: "pre-commit",
       note: "RETIRED. Superseded by `fast-related-tests`, which scopes the run to staged files.",
+    },
+  ],
+  [
+    "policy-coverage",
+    {
+      interventions: [deny, injectAgent, recordReview],
+      mechanism: "structural",
+      point: "PreToolUse",
+      role: "judge",
+      note: "RETIRED 2026-08-16 (mt#4197). Was ontology amendment (a)'s worked example: it selected deny, warn, or allow PER FIRE, so its declaration named a repertoire rather than an outcome. The `allow` member is dropped here because it was the corpus's only use of that constant; the repertoire's point — a capability SET rather than a primary — is unchanged and the amendment it motivated stands on its own.",
     },
   ],
 ]);
@@ -636,6 +1024,11 @@ export interface ResolvedCoordinates {
   readonly role: Role | null;
   /** How `point` was established, so a reader can tell derived from authored. */
   readonly pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker; null for every entity whose stratum
+   * derives from its point or subject. See `InterceptorCoordinates.trajectory`.
+   */
+  readonly trajectory: "delivery" | null;
   readonly note?: string | undefined;
   /**
    * ALWAYS enumerated, never defaulted (SC5). A name with no authored entry
@@ -644,6 +1037,16 @@ export interface ResolvedCoordinates {
   readonly gaps: readonly CoordinateGap[];
 }
 
+/**
+ * The representable interception points — kept in lockstep with the
+ * `InterceptionPoint` union in `src/cockpit/widgets/interceptors.ts`, which
+ * `interceptor-points.test.ts` pins.
+ *
+ * This set is a GATE, not a filter: `derivePoint` drops a settings-registered
+ * event that is absent here, so a missing value renders as no point at all
+ * rather than as an unrepresentable one. Six events sat outside it until
+ * mt#4129 — the hooks registered at them were dropped silently.
+ */
 const POINTS = new Set<string>([
   "PreToolUse",
   "PostToolUse",
@@ -652,6 +1055,12 @@ const POINTS = new Set<string>([
   "UserPromptSubmit",
   "SessionEnd",
   "MessageDisplay",
+  "SessionStart",
+  "StopFailure",
+  "Notification",
+  "PermissionRequest",
+  "PreCompact",
+  "PostCompact",
   "pre-commit",
   "merge-time",
 ]);
@@ -702,6 +1111,7 @@ export function resolveCoordinates(
     mechanism: authored?.mechanism ?? null,
     role: authored?.role ?? null,
     pointSource: source,
+    trajectory: authored?.trajectory ?? null,
     note: authored?.note,
     gaps,
   };
@@ -778,16 +1188,26 @@ export function classifyFamilies(resolved: {
  *
  * Ontology §4 defines exactly three family words, all filters over axis 2:
  * guard (deny/allow), detector (record for review), injector (inject). Nothing
- * filters `mutate` or `record(framework)`. Every name below is a `mutate`-only
- * regen step or a framework-state writer — precisely the "feeders and
- * infrastructure" §5 names as the entities that surfaced as falsifiers because
- * they do not judge.
+ * filters `mutate`, `record(framework)`, or `delegate`. Every name below is a
+ * `mutate`-only regen step, a framework-state writer, or a dispatcher
+ * entrypoint — precisely the "feeders and infrastructure" §5 names as the
+ * entities that surfaced as falsifiers because they do not judge.
  *
  * So this is not a coverage gap to fill by widening a capability set until
  * something matches. It is the corpus reporting that three family words do not
  * partition it. Minting a fourth is a NAMING decision and therefore
  * principal-reserved; until one is made, the catalog should render these as
  * explicitly outside the family filters rather than as blanks.
+ *
+ * mt#4198 changed the SIZE of that finding without changing its shape: the
+ * settings-registered cohort added 13, taking this class from 9 of 106 to
+ * **22 of 134** — one entry in six. It also added a THIRD unfiltered
+ * intervention type, `delegate`, which had no author at all until the three
+ * ADR-028 dispatcher entrypoints were described. The population that was
+ * missing from the catalog was disproportionately made of exactly the entities
+ * the three family words do not cover, which is what made the gap look smaller
+ * than it is: an operator filtering by guard / detector / injector still sees
+ * nothing for one entry in six.
  *
  * Asserted as an exact set by the test suite, so a future entity joining or
  * leaving this class is a visible diff rather than a silent drift.
@@ -797,10 +1217,25 @@ export const OUT_OF_MODEL_NAMES: readonly string[] = [
   "claude-hooks-compile-regen",
   "code-formatting",
   "completion-manifest-regen",
+  "dispatch-pretooluse",
+  "dispatch-stop",
+  "dispatch-userpromptsubmit",
   "dockerfile-bun-build-regen",
   "dockerfile-workspace-copy-regen",
+  "guard-events-ingest-on-session-end",
+  "interceptor-catalog-regen",
+  "linkify-message-display",
+  "post-merge-pull",
+  "post-session-start",
   "record-agent-dispatch",
+  "record-conversation-run-state",
+  "record-subagent-invocation",
   "record-turn-anchor",
+  "session-start",
+  "stamp-ask-conversation",
+  "stamp-pr-author-link",
+  "stamp-session-creator-link",
+  "transcript-ingest-on-session-end",
 ];
 
 /** Authored names landing in no family — recomputed, for drift against the constant above. */

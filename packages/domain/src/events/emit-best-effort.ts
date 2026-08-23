@@ -25,28 +25,56 @@
 import { log } from "@minsky/shared/logger";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
 import type { SystemEventInput } from "../storage/schemas/system-events-schema";
+// Type-only: erased at runtime, so this does NOT make the emitter module a
+// static dependency — the value import below stays dynamic, as it was.
+import type { EventEmitterWithTryEmit } from "./emitter";
+
+/**
+ * Build an emitter from a directly-held provider, or `null` when persistence is
+ * absent or non-SQL (mt#4218).
+ *
+ * Extracted from {@link emitSystemEventFromProvider}, whose body this was, so a
+ * caller that needs the EMITTER rather than a single emission can reach the same
+ * construction instead of re-deriving it. `EmbeddingsHealthTracker` is that
+ * caller: its `registerEventEmitterBuilder` seam (mt#2568) takes a builder, not
+ * an event, because it decides at emit time whether to emit at all.
+ *
+ * Before this extraction there were two independent copies of these four steps —
+ * this function's body and `buildEmbeddingsEventEmitter` in the MCP
+ * start-command — and adding the cockpit and CLI hosts would have made a third
+ * and fourth. Never throws; a failure resolves to `null` and is logged by the
+ * caller that has the event context.
+ */
+export async function buildEventEmitterFromProvider(
+  persistenceProvider: PersistenceProvider | undefined
+): Promise<EventEmitterWithTryEmit | null> {
+  if (!persistenceProvider) return null;
+
+  // Duck-type the SQL capability rather than `instanceof PersistenceProvider`
+  // — mirrors emitSystemEventBestEffort's rationale (brittle across DI/test
+  // bindings that structurally, not nominally, implement the interface).
+  const candidate = persistenceProvider as SqlCapablePersistenceProvider;
+  if (typeof candidate.getDatabaseConnection !== "function") return null;
+
+  const db = await candidate.getDatabaseConnection();
+  if (!db) return null;
+
+  const { DrizzleEventEmitter } = await import("./emitter");
+  return new DrizzleEventEmitter(db);
+}
 
 export async function emitSystemEventFromProvider(
   persistenceProvider: PersistenceProvider | undefined,
   event: SystemEventInput
 ): Promise<boolean> {
   try {
-    if (!persistenceProvider) return false;
-
-    // Duck-type the SQL capability rather than `instanceof PersistenceProvider`
-    // — mirrors emitSystemEventBestEffort's rationale (brittle across DI/test
-    // bindings that structurally, not nominally, implement the interface).
-    const candidate = persistenceProvider as SqlCapablePersistenceProvider;
-    if (typeof candidate.getDatabaseConnection !== "function") return false;
-
-    const db = await candidate.getDatabaseConnection();
-    if (!db) return false;
+    const emitter = await buildEventEmitterFromProvider(persistenceProvider);
+    if (!emitter) return false;
 
     // tryEmit, not emit: DrizzleEventEmitter.emit swallows insert failures
     // internally, and postgres.js connects lazily — a down DB surfaces at the
     // INSERT, so only the insert's own success signal is trustworthy here.
-    const { DrizzleEventEmitter } = await import("./emitter");
-    return await new DrizzleEventEmitter(db).tryEmit(event);
+    return await emitter.tryEmit(event);
   } catch (err: unknown) {
     log.warn(`${event.eventType}: system-event emission failed (best-effort, swallowed)`, {
       error: err instanceof Error ? err.message : String(err),

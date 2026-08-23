@@ -39,6 +39,9 @@ import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
 import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
 import { ServerTimingRecorder } from "../server-timing";
+import { OverviewCache } from "../snapshot-cache";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 
 /**
  * Bound for the `/overview` transcript lookup (mt#3131 D3) — see the sibling
@@ -47,6 +50,73 @@ import { ServerTimingRecorder } from "../server-timing";
  * contention must not leave this response pending indefinitely.
  */
 const OVERVIEW_QUERY_TIMEOUT_MS = 15_000;
+
+/**
+ * The `/overview` response body, cached whole (mt#4429).
+ *
+ * Declared as a type rather than left inferred so `overviewCache` below can be
+ * parameterized by it — a cache typed `unknown` would let a shape change on the
+ * write side pass unnoticed on the read side, which for a route whose only job
+ * is to hand this object to `res.json` is exactly the mistake worth preventing.
+ */
+type ConversationOverviewResponse = {
+  agentSessionId: string;
+  label: string;
+  conversationMeta: {
+    cwd: string | null;
+    harness: string | null;
+    startedAt: string | null;
+    endedAt: string | null;
+    turnCount: number;
+    relatedTaskIds: string[];
+    // `string[]`, not `number[]` — the column stores PR refs as text. Asserted
+    // here because assuming otherwise is exactly what this type caught.
+    relatedPrNumbers: string[];
+    lastActivityAt: string | null;
+    writerDivergence: { checked: boolean; divergentTips: string[] };
+  };
+  workspace: Awaited<
+    ReturnType<typeof import("../workspace-overview").buildWorkspaceOverview>
+  > | null;
+};
+
+/**
+ * Process-local cache for `/overview` payloads (mt#4429).
+ *
+ * Module-level, so it is shared across requests and survives for the daemon's
+ * life — the same placement `routes/context-inspector.ts` uses for
+ * `snapshotCache` / `structureCache`. See `OverviewCache`'s docblock for why a
+ * hit requires BOTH a token match and a freshness ceiling.
+ */
+const overviewCache = new OverviewCache<ConversationOverviewResponse>();
+
+/**
+ * Cache-validity token for one conversation's overview.
+ *
+ * Built from columns the `/overview` handler ALREADY selects, so validating a
+ * cache entry costs no extra round trip — the point of putting the check after
+ * the transcript read rather than before it.
+ *
+ * `lastIngestedJsonlTimestamp` is the incremental-ingest high-water-mark, so it
+ * advances whenever new turns land; `endedAt` and `divergenceCheckedAt` cover
+ * the two other row mutations the payload renders. A live conversation's token
+ * therefore changes as it grows, which is what keeps a running conversation's
+ * turn count from going stale — see `OverviewCache` for the half of validity
+ * this token deliberately cannot cover.
+ */
+function overviewVersionToken(row: {
+  endedAt: Date | string | null;
+  lastIngestedJsonlTimestamp: Date | string | null;
+  divergenceCheckedAt: Date | string | null;
+}): string {
+  const stamp = (value: Date | string | null): string =>
+    value instanceof Date ? value.toISOString() : (value ?? "-");
+  return [
+    stamp(row.lastIngestedJsonlTimestamp),
+    stamp(row.endedAt),
+    stamp(row.divergenceCheckedAt),
+  ].join("|");
+}
 
 /**
  * Task-title cache for the overview route's label computation (mt#3343).
@@ -237,9 +307,9 @@ export function mountConversationRoutes(
         stopTail();
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await respondIfDatabaseUnavailable(res, err, "conversations")) return;
       log.error(
-        `[conversation] GET /api/conversation/:agentSessionId/live-tail — internal error: ${message}`
+        `[conversation] GET /api/conversation/:agentSessionId/live-tail — internal error: ${getLoggableErrorSummary(err)}`
       );
       if (!res.headersSent) {
         res.status(500).json({ error: "An internal error occurred while starting live tail." });
@@ -351,6 +421,24 @@ export function mountConversationRoutes(
       const transcript = transcriptRows[0];
       if (!transcript) {
         res.status(404).json({ error: `Conversation ${agentSessionId} not found` });
+        return;
+      }
+
+      // mt#4429 — the cache check sits HERE, after the transcript read and
+      // before the three expensive legs below, because the validity token is
+      // built from columns that read already returned. Checking earlier would
+      // need its own round trip to fetch them, which on a remote database costs
+      // about as much as one of the legs it is trying to skip.
+      //
+      // What a hit skips is the whole rest of the handler: `enrichment`
+      // (measured 370-667ms), `turns+workspace` (436-455ms), and the label
+      // computation. What it still pays is the one `transcript` round trip
+      // (~145ms) — so a hit is bounded by DB latency, not by the payload.
+      const cacheToken = overviewVersionToken(transcript);
+      const cachedOverview = overviewCache.get(agentSessionId, cacheToken, Date.now());
+      if (cachedOverview !== undefined) {
+        timing.record("cache", 0, "hit");
+        res.json(cachedOverview);
         return;
       }
 
@@ -488,7 +576,7 @@ export function mountConversationRoutes(
         }
       });
 
-      res.json({
+      const payload: ConversationOverviewResponse = {
         agentSessionId,
         label,
         conversationMeta: {
@@ -515,11 +603,21 @@ export function mountConversationRoutes(
           },
         },
         workspace,
-      });
+      };
+
+      // Stored under the token computed BEFORE the expensive legs ran, not a
+      // freshly-read one: re-reading here could pick up a row that changed
+      // mid-handler and stamp this payload with a version it does not actually
+      // represent, which would then be served as current until the ceiling
+      // expired. Mirrors the snapshot route's "cache under the version the
+      // response was built from" discipline.
+      overviewCache.set(agentSessionId, cacheToken, payload, Date.now());
+
+      res.json(payload);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await respondIfDatabaseUnavailable(res, err, "conversations")) return;
       log.error(
-        `[conversation] GET /api/conversation/:agentSessionId/overview — internal error: ${message}`
+        `[conversation] GET /api/conversation/:agentSessionId/overview — internal error: ${getLoggableErrorSummary(err)}`
       );
       res
         .status(500)

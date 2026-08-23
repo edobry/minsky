@@ -24,6 +24,17 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # mt#4300: without this, GitHub's 6-hour default applies, and a hung network
+    # step holds a REQUIRED check `in_progress` — indistinguishable from a slow
+    # build at the check-list level — for up to 6 hours. Measured healthy run
+    # 2026-08-19: 9m28s (run 32284790015).
+    #
+    # Sizing rule for every job cap in this file (PR #3164 R1): observed healthy
+    # duration + the LARGEST single step-level cap in the job. A job cap tighter
+    # than that fires before the step cap does, which loses the whole benefit of
+    # the step caps — the job-level error says only "job timed out" while the step
+    # cap names the step that hung. Here: 9.5 + 15 = 24.5, so 30.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +51,13 @@ jobs:
           restore-keys: |
             bun-install-${{ runner.os }}-
 
+      # mt#4300 (PR #3164 R1): the mt#3623 loop retries but never bounded an
+      # attempt, so a hung registry connection held this step open on the job's
+      # budget alone. No per-attempt `timeout` here — `bun install` is resumable and
+      # cache-warm, so killing it mid-fetch is worse than letting it finish; the
+      # step-level backstop is the right granularity for this one.
       - name: Install dependencies
+        timeout-minutes: 15
         run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # ripgrep is a RUNTIME dependency of session.grep_search (mt#3163), which
@@ -49,8 +66,37 @@ jobs:
       # mt#3163 added tests that surfaced the gap by failing loudly instead of
       # skipping. Installed from the distro repo rather than fetching a release
       # binary, so no new download origin enters the CI supply chain.
+      #
+      # mt#4300: bounded + retried. The per-attempt bound is `timeout` INSIDE the
+      # loop, not the step-level `timeout-minutes` — the latter kills the step, it
+      # does not retry it. 90s is ~9x the measured healthy duration (10s for
+      # update+install, run 32284790015 2026-08-19T18:00:09→18:00:19Z), so it
+      # cannot fire on a merely slow mirror. Bounding is what makes the retry
+      # meaningful: an unbounded retry against a hung mirror just hangs three times.
+      #
+      # `sudo timeout`, NOT `timeout sudo`, and the two commands are bounded
+      # SEPARATELY rather than grouped under one `timeout`. Both choices are about
+      # signal delivery: `timeout` signals its DIRECT child, so it has to be the
+      # parent of the apt-get that actually hangs. `timeout sudo apt-get` makes sudo
+      # the child, and `sudo timeout 180 sh -c '... && ...'` makes sh the child —
+      # in both cases SIGTERM can stop at the intermediary and the hung apt-get
+      # keeps running. Separate bounds cost a longer worst case and are the form
+      # that actually kills the process.
+      #
+      # The step-level backstop MUST exceed the loop's worst case or it truncates
+      # the retries it exists to protect: 3 attempts x (90s + 90s) + 2 x 10s sleep
+      # = 560s = 9.3 min, so 12. (PR #3164 R1 caught this at 5 — the third attempt
+      # could never have run. Observed on this PR's own CI: a degraded mirror took
+      # the step to 2m53s, so the margin is not hypothetical.) It is a true backstop
+      # — it only fires if a process escapes its inner `timeout`.
       - name: Install ripgrep (required by session.grep_search)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        timeout-minutes: 12
+        run: |
+          for i in 1 2 3; do
+            if sudo timeout 90 apt-get update && sudo timeout 90 apt-get install -y ripgrep; then break; fi
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "ripgrep install failed or hung (mt#4300) - retry $i"; sleep 10
+          done
 
       - name: Check formatting
         run: bun run format:check
@@ -102,7 +148,10 @@ jobs:
       # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
       # ("step always runs regardless of which paths changed or which
       # earlier checks fail") hold structurally, not just by step ordering.
+      # mt#4300 (PR #3164 R1): step-level backstop, same reasoning as the other
+      # `bun install` steps — retry without a bound left it on the job budget alone.
       - name: Type check (services/reviewer)
+        timeout-minutes: 15
         if: ${{ always() }}
         working-directory: services/reviewer
         run: |
@@ -130,7 +179,10 @@ jobs:
       # /retrigger tests). if: always() + a self-contained install mirror the
       # reviewer typecheck step so the gate holds regardless of step ordering
       # or earlier-step failures.
+      # mt#4300 (PR #3164 R1): step-level backstop, same reasoning as the other
+      # `bun install` steps.
       - name: Test (services/reviewer)
+        timeout-minutes: 15
         if: ${{ always() }}
         run: |
           for i in 1 2 3; do if bun install --cwd services/reviewer --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
@@ -254,6 +306,27 @@ jobs:
         if: ${{ always() }}
         run: bun run test:eslint-rules
 
+      # mt#4129: a completeness check nothing invokes reproduces the outcome it
+      # exists to prevent — mt#4071 is the demonstration, where the coordinate
+      # audit reported `UNAUTHORED: interceptor-catalog-regen` from the moment
+      # mt#4010 shipped that step and it persisted until a human ran the script
+      # by hand.
+      #
+      # ONLY the settings-coverage audit runs here, deliberately. Its inputs are
+      # `.claude/settings.json` and the committed catalog, both in the repo, so it
+      # is deterministic. The two older audits
+      # (`bun run audit:interceptors:corpus`) read the LIVE fire log, whose
+      # contents change whenever any guard anywhere starts firing — wiring those
+      # into CI makes a red build a fact about runtime history rather than about
+      # the commit. That is very likely why they were never wired, and shipping
+      # them into CI would have turned this PR red on `claim-provenance-scan`,
+      # a guard name from unrelated in-flight work.
+      #
+      # if: always() matches the other independent gates above.
+      - name: Audit (interceptor settings coverage)
+        if: ${{ always() }}
+        run: bun run audit:interceptors
+
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun
 
@@ -276,6 +349,13 @@ jobs:
   # could not see.
   typecheck-infra:
     runs-on: ubuntu-latest
+    # mt#4300: see the `build` job's note, including the sizing rule. Measured
+    # healthy run 2026-08-19: 49s (run 32284790015). This job carries THREE bounded
+    # network steps (bun install, Pulumi CLI, provider SDK), the largest capped at
+    # 15, so 1 + 15 = 16 → 25. Raised from 15 in PR #3164 R1: at 15 the job cap
+    # equalled the largest step cap, so the job would have died first and reported
+    # only "job timed out".
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -292,23 +372,62 @@ jobs:
           restore-keys: |
             bun-install-${{ runner.os }}-
 
+      # mt#4300 (PR #3164 R1): the mt#3623 loop retries but never bounded an
+      # attempt, so a hung registry connection held this step open on the job's
+      # budget alone. No per-attempt `timeout` here — `bun install` is resumable and
+      # cache-warm, so killing it mid-fetch is worse than letting it finish; the
+      # step-level backstop is the right granularity for this one.
       - name: Install dependencies
+        timeout-minutes: 15
         run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
+      # mt#4300: the third unprotected raw-network step in this file, bounded and
+      # retried like the two ripgrep installs above.
+      #
+      # `set -o pipefail` is load-bearing and NOT incidental hygiene. GitHub's
+      # default shell is `bash -e` WITHOUT pipefail, so a pipeline's status is the
+      # LAST command's: if curl failed, `sh` read empty stdin and exited 0, the step
+      # went green, and Pulumi was simply absent — surfacing later as a confusing
+      # failure in a step that looks unrelated. `--max-time` bounds the fetch the
+      # way `timeout` bounds apt above.
+      #
+      # Backstop arithmetic, same rule as the ripgrep steps: 3 x 120s + 2 x 10s
+      # sleep = 380s = 6.3 min, so 8.
       - name: Install Pulumi CLI
+        timeout-minutes: 8
         run: |
-          curl -fsSL https://get.pulumi.com | sh
+          set -o pipefail
+          for i in 1 2 3; do
+            if curl -fsSL --max-time 120 https://get.pulumi.com | sh; then break; fi
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "pulumi install failed or hung (mt#4300) - retry $i"; sleep 10
+          done
           echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
 
       # Regenerates the gitignored Railway terraform-bridge provider SDK and
       # installs infra's npm deps — without them, @pulumi/* does not resolve.
+      #
+      # mt#4300 (PR #3164 R1): this is a FOURTH network-fetching step, and the
+      # first pass missed it. It downloads the provider SDK and npm deps, so it can
+      # hang exactly like the others — but it is spelled `pulumi install`, which
+      # matches none of the patterns (`apt-get`, `curl`, `npm install`,
+      # `bun install`) the enumeration searched for. Named-tool-plus-bare-`install`
+      # is the shape that slipped through; the reviewer caught it.
+      # 120s is ~12x the measured healthy duration (10s, run 32287929281
+      # 2026-08-19T18:33:34→18:33:44Z). Backstop: 3 x 120s + 2 x 10s = 380s, so 8.
       - name: Install infra dependencies + provider SDK
         working-directory: infra
-        run: pulumi install
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            if timeout 120 pulumi install; then break; fi
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "pulumi install failed or hung (mt#4300) - retry $i"; sleep 10
+          done
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
@@ -328,6 +447,12 @@ jobs:
   # critical path.
   test-forced-tz:
     runs-on: ubuntu-latest
+    # mt#4300: see the `build` job's note, including the sizing rule. This job
+    # carries the SECOND copy of the ripgrep install, so it can hang exactly the
+    # same way. Measured healthy run 2026-08-19: 3m58s (run 32284790015). Largest
+    # step cap here is 15 (bun install), so 4 + 15 = 19 → 25. Raised from 20 in
+    # PR #3164 R1, which left only 1 minute of headroom over the rule.
+    timeout-minutes: 25
     env:
       TZ: Pacific/Kiritimati
     steps:
@@ -346,13 +471,27 @@ jobs:
           restore-keys: |
             bun-install-${{ runner.os }}-
 
+      # mt#4300 (PR #3164 R1): the mt#3623 loop retries but never bounded an
+      # attempt, so a hung registry connection held this step open on the job's
+      # budget alone. No per-attempt `timeout` here — `bun install` is resumable and
+      # cache-warm, so killing it mid-fetch is worse than letting it finish; the
+      # step-level backstop is the right granularity for this one.
       - name: Install dependencies
+        timeout-minutes: 15
         run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # ripgrep is a runtime dependency of session.grep_search (mt#3163); see
-      # the identical step in the `build` job above for rationale.
+      # the identical step in the `build` job above for rationale, including the
+      # mt#4300 bound-and-retry note and the 12-minute backstop arithmetic. Kept
+      # identical to that step on purpose.
       - name: Install ripgrep (required by session.grep_search)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        timeout-minutes: 12
+        run: |
+          for i in 1 2 3; do
+            if sudo timeout 90 apt-get update && sudo timeout 90 apt-get install -y ripgrep; then break; fi
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "ripgrep install failed or hung (mt#4300) - retry $i"; sleep 10
+          done
 
       - name: Test (forced TZ=Pacific/Kiritimati)
         run: bun run test

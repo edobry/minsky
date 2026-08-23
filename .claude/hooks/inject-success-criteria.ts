@@ -47,8 +47,11 @@ const SPEC_FETCH_TIMEOUT_MS = 15000;
 /**
  * Fetches the bound task's spec markdown via the `minsky` CLI.
  *
- * Shells the CLI rather than importing `packages/domain` directly, per
- * `.minsky/hooks/SPEC.md`'s self-containment invariant — the same pattern
+ * Shells the CLI rather than importing `packages/domain` directly. (The reason
+ * recorded here was `.minsky/hooks/SPEC.md`'s self-containment invariant, retired
+ * by mt#4373; the independent reason immediately below — not dragging the merge
+ * gate's module graph into a hook that fires on every `session_pr_create` — is
+ * the one that still holds.) The same pattern
  * `fetchTaskSpecForAtCoverage` uses in the evidence gate. Deliberately NOT imported from that
  * module: this hook runs on every `session_pr_create`, and importing the merge gate would drag
  * its whole dependency tree (`pr-context`, the fire log, the guard registry) into a hot path

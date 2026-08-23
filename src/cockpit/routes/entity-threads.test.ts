@@ -19,12 +19,15 @@ import {
   isPgRetryableConnectionError,
 } from "@minsky/domain/persistence/postgres-retry";
 import {
+  armEntityThreadBootWork,
   deriveAgentStopReason,
   deriveAgentStopReasonWithPersisted,
+  describeEntityThreadArmOutcome,
   mountEntityThreadRoutes,
   parseEntityType,
   parseMessageBody,
   supportsOriginSeeding,
+  type EntityThreadArmOutcome,
 } from "./entity-threads";
 
 describe("parseEntityType", () => {
@@ -529,9 +532,22 @@ describe("DB-unavailable status classification on the routes", () => {
     // Accepted — names the STORE and the DATABASE cause, claims nothing about
     // the thread. This is the message the routes now emit, and the string the
     // original /fail/i proxy rejected.
+    //
+    // Kept in sync with `describeFailedPersistenceInit` (mt#4383 dropped the
+    // "The database is unreachable" / "restart" / "reports the same failure"
+    // clauses). The sample matters because this test's whole point is that the
+    // narrowed guard still fires on real claims while accepting the real
+    // message — a sample that has drifted from what the routes emit tests the
+    // guard against a message nobody sends. Note the current wording carries
+    // MORE failure vocabulary than the old one ("may well PASS while this
+    // fails", "the initialization attempt that just failed"), so it is a
+    // stricter exercise of a regex anchored on `thread\s+failed`.
     expect(
       "entity-thread store unavailable — Postgres IS configured, but persistence " +
-        "failed to initialize: getaddrinfo ENOTFOUND. The database is unreachable."
+        "failed to initialize: getaddrinfo ENOTFOUND. This is a degraded provider, " +
+        "not a missing configuration. Note `minsky persistence check` may well PASS " +
+        "while this fails: it probes the live connection, whereas this reports the " +
+        "initialization attempt that just failed."
     ).not.toMatch(CLAIMS_THREAD_FAILED);
   });
 
@@ -561,5 +577,94 @@ describe("DB-unavailable status classification on the routes", () => {
       body: JSON.stringify({ text: "what is this?" }),
     });
     expect(res.status).toBe(500);
+  });
+});
+
+/**
+ * Boot-work arming (mt#4133).
+ *
+ * Three of the four outcomes below used to produce NO operator-visible line. The `catch` logged
+ * at `debug`, under the default level; and a db handle that never settled reached neither the
+ * `if (db)` nor the catch, because the `await` had no bound at all — the daemon skipped its
+ * pending-reply drain and transcript reconcile in silence. That is the shape mt#4103 found next
+ * door, where an unsettled await left the driven-session registry empty for a daemon's whole life.
+ *
+ * These drive the real `armEntityThreadBootWork` on every branch that does NOT reach the db, so
+ * no fake handle is passed to `schedulePendingDrain` or the reconcile. The `armed` branch is
+ * covered at the describer, where the decision that matters (no second line) actually lives.
+ */
+describe("armEntityThreadBootWork (mt#4133)", () => {
+  test("bounds a handle that never settles instead of hanging silently", async () => {
+    const outcome = await armEntityThreadBootWork({
+      // Never settles — the case with no bound before this change.
+      getDb: () => new Promise<never>(() => {}),
+      timeoutMs: 15_000,
+      // Resolves immediately, so the timeout branch is exercised deterministically rather than
+      // by waiting out a real 15 seconds.
+      timeoutSignal: async () => ({ timedOut: true }) as const,
+    });
+
+    expect(outcome).toEqual({ kind: "timed-out", timeoutMs: 15_000 });
+  });
+
+  test("reports a rejected handle as an outcome rather than throwing out of the mount path", async () => {
+    const outcome = await armEntityThreadBootWork({
+      getDb: () => Promise.reject(new Error("pool exhausted")),
+    });
+
+    expect(outcome.kind).toBe("failed");
+    // The cause survives into the line an operator reads — a bare "could not arm" would send
+    // them back to the code to guess.
+    expect(outcome.kind === "failed" && outcome.error).toContain("pool exhausted");
+  });
+
+  test("distinguishes no-persistence from a failure", async () => {
+    const outcome = await armEntityThreadBootWork({ getDb: async () => null });
+
+    expect(outcome).toEqual({ kind: "no-persistence" });
+  });
+});
+
+describe("describeEntityThreadArmOutcome (mt#4133)", () => {
+  test("says nothing for the armed case, because the reconcile logs its own line", () => {
+    // Pins the no-double-logging decision. Without this, a later change that "helpfully" adds a
+    // success line here would report one healthy boot twice and nothing would catch it.
+    expect(describeEntityThreadArmOutcome({ kind: "armed" })).toBeNull();
+  });
+
+  test("warns — not debugs — on every outcome that skipped the boot work", () => {
+    const outcomes: EntityThreadArmOutcome[] = [
+      { kind: "no-persistence" },
+      { kind: "timed-out", timeoutMs: 15_000 },
+      { kind: "failed", error: "pool exhausted" },
+    ];
+
+    for (const outcome of outcomes) {
+      const described = describeEntityThreadArmOutcome(outcome);
+      // `warn` is the whole point: `debug` sits below the default level, which is why these were
+      // invisible on a real boot.
+      expect(described?.level).toBe("warn");
+      expect(described?.message).toContain("entity-thread boot:");
+    }
+  });
+
+  test("names the bound it exceeded, so the line is actionable on its own", () => {
+    const described = describeEntityThreadArmOutcome({ kind: "timed-out", timeoutMs: 15_000 });
+
+    expect(described?.message).toContain("15000ms");
+  });
+
+  // PR #2990 R1. The `never` check is compile-time only; a value from an older or newer build of
+  // a caller still reaches the default branch at runtime. This previously returned that value
+  // unchanged, so the mount site would have called `log[undefined](undefined)` and thrown inside
+  // a fire-and-forget IIFE — the boot-time crash the mount-site comment promises cannot happen.
+  // The cast is the point of the test: it constructs exactly the input the type system forbids.
+  test("returns a usable line for an unrecognized outcome instead of the raw object", () => {
+    const described = describeEntityThreadArmOutcome({
+      kind: "from-a-future-build",
+    } as unknown as EntityThreadArmOutcome);
+
+    expect(described?.level).toBe("warn");
+    expect(described?.message).toContain("from-a-future-build");
   });
 });

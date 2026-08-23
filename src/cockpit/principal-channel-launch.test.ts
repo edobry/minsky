@@ -5,8 +5,9 @@
  * much authority an inbound Telegram message carries on this machine.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
+  _setPrincipalChannelStatusForTest,
   bindTelegramChannelTopicToTask,
   CREDENTIAL_RETRY_DELAYS_MS,
   CREDENTIAL_RETRY_MIN_DELAY_MS,
@@ -25,6 +26,7 @@ import {
   type PrincipalChannelStatus,
 } from "./principal-channel-launch";
 import type { ChannelActuator } from "./principal-channel-poller";
+import type { SweepLivenessSnapshot } from "./sweepers";
 import type { TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
 // The checked-in golden fixture both the bun and Rust sides pin (mt#2629).
 // Imported (not read from disk) for the same reason health-contract.test.ts
@@ -828,5 +830,132 @@ describe("logTopicModeCapability (mt#3505)", () => {
       detail: "network error",
     });
     await expect(logTopicModeCapability("tok", getMe)).resolves.toBeUndefined();
+  });
+});
+
+describe("running-status projection over the liveness registry (mt#4183)", () => {
+  const CHAT = "167346572";
+  const SINCE = "2026-08-17T00:00:00.000Z";
+  /** mt#4185 registers the poller under this name; the projection looks it up. */
+  const SWEEP = "principal-channel poll";
+  /** Budget 420s → the registry's stall threshold is 2x = 840s. */
+  const BUDGET_MS = 420_000;
+
+  afterEach(() => {
+    resetPrincipalChannelStatus();
+  });
+
+  /** A registry snapshot carrying the poller entry with a chosen progress stamp. */
+  function snapshotWith(lastAttemptAt: string | null): () => SweepLivenessSnapshot[] {
+    return () => [
+      {
+        name: SWEEP,
+        intervalMs: BUDGET_MS,
+        lastAttemptAt,
+        lastSuccessAt: lastAttemptAt,
+        lastErrorAt: null,
+        consecutiveFailures: 0,
+        reinits: 0,
+        metaRestarts: 0,
+        lastDomainSuccessAt: null,
+        lastDomainFailureAt: null,
+        consecutiveDomainFailures: 0,
+        reportsDomainOutcome: false,
+        // mt#4412: the self-scheduling path DECLARES an outcome (its handle's
+        // noteSuccess/noteFailure record one), even in a fixture that has not
+        // reported one yet.
+        declaresDomainOutcome: true,
+        abandonedTicks: 0,
+        abandonedTicksOutstanding: 0,
+        abandonedTickHardReleases: 0,
+        selfScheduled: true,
+        registeredAt: SINCE,
+      },
+    ];
+  }
+
+  function seedRunning(): void {
+    _setPrincipalChannelStatusForTest({
+      state: "running",
+      chatId: CHAT,
+      since: SINCE,
+      lastProgressAt: null,
+    });
+  }
+
+  test("AT1: reports running right after a cycle, and stalled once progress goes stale", () => {
+    seedRunning();
+    const progressAt = "2026-08-17T01:00:00.000Z";
+    const progressMs = Date.parse(progressAt);
+
+    // Just after the cycle: inside the budget.
+    const fresh = getPrincipalChannelStatus({
+      now: () => progressMs + 1_000,
+      snapshot: snapshotWith(progressAt),
+    });
+    expect(fresh.state).toBe("running");
+    expect(fresh).toMatchObject({ lastProgressAt: progressAt });
+
+    // Past 2x the budget: the state the 44-hour incident had no way to report.
+    const stale = getPrincipalChannelStatus({
+      now: () => progressMs + BUDGET_MS * 2 + 1_000,
+      snapshot: snapshotWith(progressAt),
+    });
+    expect(stale.state).toBe("stalled");
+    expect(stale).toMatchObject({
+      chatId: CHAT,
+      lastProgressAt: progressAt,
+      thresholdMs: BUDGET_MS * 2,
+    });
+    // The staleness is carried, so "stalled 4 minutes" reads differently from
+    // "stalled 4 days" without the reader doing arithmetic.
+    if (stale.state === "stalled") {
+      expect(stale.staleForMs).toBeGreaterThan(BUDGET_MS * 2);
+    }
+  });
+
+  test("AT2: a loop reporting at the normal cadence never flaps to stalled", () => {
+    seedRunning();
+    const progressMs = Date.parse("2026-08-17T01:00:00.000Z");
+    // A healthy long poll returns every ~25s against an 840s threshold. Sample
+    // the whole span up to the boundary; none of it may report stalled.
+    for (const elapsed of [0, 25_000, 60_000, 300_000, BUDGET_MS, BUDGET_MS * 2]) {
+      const status = getPrincipalChannelStatus({
+        now: () => progressMs + elapsed,
+        snapshot: snapshotWith(new Date(progressMs).toISOString()),
+      });
+      expect(status.state).toBe("running");
+    }
+  });
+
+  test("a park BEFORE the first progress call is stalled, measured from launch", () => {
+    // The first-cycle case: `lastAttemptAt` is null forever, so anything keying
+    // on it alone stays silent. Measuring against `since` is what makes it
+    // visible here. (The registry-side half of the same gap is mt#4206.)
+    seedRunning();
+    const status = getPrincipalChannelStatus({
+      now: () => Date.parse(SINCE) + BUDGET_MS * 2 + 1_000,
+      snapshot: snapshotWith(null),
+    });
+    expect(status.state).toBe("stalled");
+    expect(status).toMatchObject({ lastProgressAt: null });
+  });
+
+  test("a non-running state is returned untouched — only the latch needs projecting", () => {
+    _setPrincipalChannelStatusForTest({ state: "unconfigured", reason: "no token" });
+    const status = getPrincipalChannelStatus({
+      now: () => Date.now(),
+      snapshot: snapshotWith(null),
+    });
+    expect(status).toEqual({ state: "unconfigured", reason: "no token" });
+  });
+
+  test("no registrant in the snapshot leaves running alone rather than inventing a stall", () => {
+    seedRunning();
+    const status = getPrincipalChannelStatus({
+      now: () => Date.parse(SINCE) + BUDGET_MS * 10,
+      snapshot: () => [],
+    });
+    expect(status.state).toBe("running");
   });
 });

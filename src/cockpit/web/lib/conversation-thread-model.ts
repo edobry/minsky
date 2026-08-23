@@ -69,7 +69,18 @@ export interface ConversationThreadModel {
  */
 export function buildConversationThread(
   allBlocks: SessionContextSnapshotBlock[],
-  spawnChildrenByToolUseId?: SessionContextSnapshot["spawnChildrenByToolUseId"]
+  spawnChildrenByToolUseId?: SessionContextSnapshot["spawnChildrenByToolUseId"],
+  /**
+   * Tool names for the WHOLE conversation, when the caller is holding only part
+   * of it (mt#4263).
+   *
+   * `allBlocks` used to BE the whole transcript, which is what made the
+   * name map below correct. Under a server-side window it no longer is, and a
+   * tool-result whose call sits outside the fetched pages would lose its name —
+   * the exact case the map exists to cover. The server sends the full mapping
+   * on a windowed response; this seeds from it.
+   */
+  toolNamesByUseId?: SessionContextSnapshot["toolNamesByUseId"]
 ): ConversationThreadModel {
   const kept: SessionContextSnapshotBlock[] = [];
   const groups: SupersededGroup[] = [];
@@ -122,7 +133,12 @@ export function buildConversationThread(
   // Map every tool_use id → tool name so a tool-result can name the call it
   // answers. Computed over ALL turns (not a window): a windowed tool-result may
   // answer a call that is currently outside the window.
-  const callNameByToolUseId = new Map<string, string>();
+  // Seeded from the server's whole-conversation mapping when there is one, then
+  // overlaid with what these blocks show. The overlay order is deliberate: a
+  // call present in `turns` is the fresher fact, and on an unwindowed response
+  // there is no seed at all, so this is byte-identical to the previous
+  // behaviour.
+  const callNameByToolUseId = new Map<string, string>(Object.entries(toolNamesByUseId ?? {}));
   for (const turn of turns) {
     for (const el of turn.elements) {
       if (el.kind === "tool-call" && el.id) callNameByToolUseId.set(el.id, el.name);

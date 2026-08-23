@@ -3,7 +3,7 @@
  * Live verification for the interceptor-aggregates query surface (mt#4009,
  * §7a structural-change artifact).
  *
- * Three checks against the REAL database and the REAL on-disk fire-log:
+ * Five checks against the REAL database and the REAL on-disk fire-log:
  *
  *  1. CATALOG ROLLUP — runs the four fire-log fetchers the off-request
  *     refresh runs, timed (the AT3 refresh-side figure).
@@ -16,6 +16,19 @@
  *     30 minutes in the past so ingest lag (5-minute sweep cadence) cannot
  *     produce a spurious mismatch; byte-identical duplicate lines are
  *     collapsed exactly the way `dedupe_key` collapses them on ingest.
+ *  4. AT4 COST EQUALITY (mt#4057) — the same comparison for the COST figure the
+ *     catalog renders. Kept as its own check rather than folded into (3),
+ *     because it has a DIFFERENT denominator: only records carrying a
+ *     `duration_ms` reach the aggregate, so a guard with thousands of fires can
+ *     have a handful of measured ones, and a total computed over the wrong
+ *     subset would still look entirely plausible.
+ *
+ *  5. ROLLUP DRIFT (mt#4294) — the maintained `guard_event_fire_log_rollup`
+ *     against a DIRECT `GROUP BY` recompute from `guard_events`. Every other
+ *     check reads the rollup through `fetchFireLogLifetime`, so all of them
+ *     would agree with a drifted rollup; this is the only one that can
+ *     disagree. Runs the expensive full aggregate ONCE, on purpose — it is the
+ *     thing being verified against.
  *
  * Exit 0 = all checks pass (or SKIP: no DB configured / no fire-log file).
  * Exit 1 = a check failed (mismatch or query error), with detail on stdout.
@@ -29,6 +42,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   fetchFireLogDecisionCounts,
@@ -38,6 +52,7 @@ import {
   CATALOG_WINDOW_DAYS,
 } from "@minsky/domain/guard-events/aggregates";
 import { extractPromotedFields } from "@minsky/domain/guard-events/parsing";
+import { guardEventsTable } from "@minsky/domain/storage/schemas/guard-events-schema";
 
 /** Mirrors scripts/backfill-guard-events.ts's bootstrapDb precedent. */
 async function bootstrapDb(): Promise<PostgresJsDatabase | null> {
@@ -78,13 +93,23 @@ function stateDir(): string {
  * growing ~4MB/day, so a whole-file read doubles as a memory spike the
  * streaming read avoids.
  */
+interface DiskRecompute {
+  /** Fire counts bucketed by decision (AT2). */
+  counts: Record<string, number>;
+  /** The cost figure recomputed the same way (mt#4057 AT4). */
+  cost: { totalMs: number; measuredFires: number; maxMs: number | null };
+}
+
 async function recomputeFromDisk(
   fireLogPath: string,
   guardName: string,
   since: Date,
   until: Date
-): Promise<Record<string, number>> {
+): Promise<DiskRecompute> {
   const counts: Record<string, number> = {};
+  let totalMs = 0;
+  let measuredFires = 0;
+  let maxMs: number | null = null;
   const seen = new Set<string>();
   const rl = createInterface({
     input: fs.createReadStream(fireLogPath, { encoding: "utf-8" }),
@@ -108,8 +133,16 @@ async function recomputeFromDisk(
     seen.add(dedupeKey);
     const bucket = promoted.decision ?? "null";
     counts[bucket] = (counts[bucket] ?? 0) + 1;
+    // Only records CARRYING a duration reach the aggregate — the SQL side
+    // filters on `duration_ms is not null` and counts that column, so the
+    // denominator here has to be the same subset or the totals cannot match.
+    if (typeof promoted.durationMs === "number" && Number.isFinite(promoted.durationMs)) {
+      totalMs += promoted.durationMs;
+      measuredFires += 1;
+      maxMs = maxMs === null ? promoted.durationMs : Math.max(maxMs, promoted.durationMs);
+    }
   }
-  return counts;
+  return { counts, cost: { totalMs, measuredFires, maxMs } };
 }
 
 async function main(): Promise<number> {
@@ -178,7 +211,12 @@ async function main(): Promise<number> {
     const bucket = row.decision ?? "null";
     dbCounts[bucket] = (dbCounts[bucket] ?? 0) + row.fires;
   }
-  const diskCounts = await recomputeFromDisk(fireLogPath, sampledGuard, since, until);
+  const { counts: diskCounts, cost: diskCost } = await recomputeFromDisk(
+    fireLogPath,
+    sampledGuard,
+    since,
+    until
+  );
 
   const buckets = new Set([...Object.keys(dbCounts), ...Object.keys(diskCounts)]);
   const mismatches: string[] = [];
@@ -202,7 +240,103 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  console.log("PASS: rollup + detail + AT2 equality all verified against the live corpus.");
+  // 4. mt#4057 AT4 — the COST figure the catalog renders, recomputed from the
+  //    same stream over the same bounded window. Compared separately from AT2
+  //    because it has a different denominator: only records carrying a
+  //    `duration_ms` reach it, so a guard can have thousands of fires and a
+  //    handful of measured ones, and a total that silently covered the wrong
+  //    subset would still look plausible.
+  const dbDurationRows = await fetchFireLogDurations(db, since, sampledGuard, until);
+  const dbCost = dbDurationRows[0] ?? { totalMs: 0, measuredFires: 0, maxMs: null };
+  const costMismatches: string[] = [];
+  if (dbCost.measuredFires !== diskCost.measuredFires) {
+    costMismatches.push(`measuredFires: db=${dbCost.measuredFires} disk=${diskCost.measuredFires}`);
+  }
+  // Float sums over the same values in a different order can differ in the last
+  // bits; a sub-millisecond gap over a 7-day total is float arithmetic, not a
+  // wrong subset. Anything larger is a real disagreement.
+  if (Math.abs(dbCost.totalMs - diskCost.totalMs) > 1) {
+    costMismatches.push(`totalMs: db=${dbCost.totalMs} disk=${diskCost.totalMs}`);
+  }
+  if ((dbCost.maxMs ?? null) !== (diskCost.maxMs ?? null)) {
+    costMismatches.push(`maxMs: db=${String(dbCost.maxMs)} disk=${String(diskCost.maxMs)}`);
+  }
+  console.log(
+    JSON.stringify({
+      check: "at4-cost-equality",
+      guard: sampledGuard,
+      window: { since: since.toISOString(), until: until.toISOString() },
+      db: { totalMs: dbCost.totalMs, measuredFires: dbCost.measuredFires, maxMs: dbCost.maxMs },
+      disk: diskCost,
+      match: costMismatches.length === 0,
+    })
+  );
+  if (costMismatches.length > 0) {
+    console.log(`FAIL: AT4 cost mismatch for ${sampledGuard}: ${costMismatches.join("; ")}`);
+    return 1;
+  }
+
+  // 5. ROLLUP DRIFT (mt#4294) — the maintained lifetime rollup vs a DIRECT
+  //    recompute from `guard_events`.
+  //
+  //    This is the check that keeps the rollup honest. Every other check above
+  //    reads it through `fetchFireLogLifetime`, so they would agree with a
+  //    drifted rollup just as readily as with a correct one — a rollup that
+  //    silently under-counts produces no error anywhere, only smaller numbers.
+  //    Recomputing from the corpus is the only thing here that can disagree.
+  //
+  //    Deliberately the ONE place the expensive full `GROUP BY` still runs on
+  //    purpose: it is the thing being verified against, and it runs once per
+  //    invocation of a script an operator ran, not on a five-minute timer.
+  const driftStart = Date.now();
+  const recomputedRows = await db
+    .select({
+      guardName: guardEventsTable.guardName,
+      totalFires: sql<number>`count(*)::int`,
+    })
+    .from(guardEventsTable)
+    .where(and(eq(guardEventsTable.stream, "fire-log"), isNotNull(guardEventsTable.guardName)))
+    .groupBy(guardEventsTable.guardName);
+  const driftMs = Date.now() - driftStart;
+
+  const truth = new Map(recomputedRows.map((r) => [r.guardName as string, r.totalFires]));
+  const stored = new Map(lifetime.map((r) => [r.guardName, r.totalFires]));
+
+  const driftEntries: string[] = [];
+  for (const [guardName, expected] of truth) {
+    const actual = stored.get(guardName);
+    if (actual === undefined) {
+      driftEntries.push(`${guardName}: missing from rollup (corpus has ${expected})`);
+    } else if (actual !== expected) {
+      driftEntries.push(`${guardName}: rollup ${actual} vs corpus ${expected}`);
+    }
+  }
+  for (const guardName of stored.keys()) {
+    if (!truth.has(guardName)) {
+      driftEntries.push(`${guardName}: in rollup but absent from the corpus`);
+    }
+  }
+
+  console.log(
+    JSON.stringify({
+      check: "rollup-drift",
+      driftMs,
+      corpusGuards: truth.size,
+      rollupGuards: stored.size,
+      match: driftEntries.length === 0,
+    })
+  );
+  if (driftEntries.length > 0) {
+    const more = driftEntries.length > 10 ? ` (+${driftEntries.length - 10} more)` : "";
+    console.log(
+      `FAIL: lifetime rollup has drifted from the corpus: ${driftEntries.slice(0, 10).join("; ")}${more}`
+    );
+    return 1;
+  }
+
+  console.log(
+    "PASS: rollup + detail + AT2 count equality + AT4 cost equality + rollup-drift verified against the live corpus."
+  );
   return 0;
 }
 

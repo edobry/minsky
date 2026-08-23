@@ -121,15 +121,21 @@ async function main(): Promise<void> {
   const { agentTranscriptsTable } = await import(
     "@minsky/domain/storage/schemas/agent-transcripts-schema"
   );
-  const { TitleGenerator } = await import("@minsky/domain/transcripts/title-generator");
-  const { extractTurns } = await import("@minsky/domain/transcripts/turn-extractor");
-  const { and, sql, isNull, isNotNull, desc } = await import("drizzle-orm");
+  const { agentTranscriptTurnsTable } = await import(
+    "@minsky/domain/storage/schemas/agent-transcript-turns-schema"
+  );
+  const { TitleGenerator, selectTitleTurns, TURN_SCAN_LIMIT } = await import(
+    "@minsky/domain/transcripts/title-generator"
+  );
+  const { titleCandidateConditions } = await import("@minsky/domain/transcripts/title-pipeline");
+  const { and, asc, eq, or, sql, isNotNull, desc } = await import("drizzle-orm");
 
+  // mt#4179 / PR #3040 R1 — the candidate filter is IMPORTED, never restated.
+  // This preview drifted from the pipeline twice in one task while it carried
+  // its own copy, and an acceptance instrument that previews a different query
+  // than the one it exists to check is worse than no instrument.
   const rows = await db
-    .select({
-      agentSessionId: agentTranscriptsTable.agentSessionId,
-      transcript: agentTranscriptsTable.transcript,
-    })
+    .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
     .from(agentTranscriptsTable)
     .where(
       SESSION
@@ -137,7 +143,7 @@ async function main(): Promise<void> {
           // string argument does not satisfy `eq`'s type; the sql template
           // binds it as a parameter the same way TitlePipeline does.
           sql`${agentTranscriptsTable.agentSessionId} = ${SESSION}`
-        : and(isNotNull(agentTranscriptsTable.transcript), isNull(agentTranscriptsTable.title))
+        : and(...titleCandidateConditions())
     )
     .orderBy(desc(agentTranscriptsTable.startedAt))
     .limit(LIMIT);
@@ -150,15 +156,51 @@ async function main(): Promise<void> {
   const generated: Array<Record<string, unknown>> = [];
 
   for (const row of rows) {
-    const transcript = row.transcript;
-    if (!Array.isArray(transcript) || transcript.length === 0) {
-      generated.push({ agentSessionId: row.agentSessionId, skipped: "empty transcript" });
+    // Same source and same bound as TitlePipeline.loadTurns — the whole point
+    // of the smoke is that it exercises the path that actually runs.
+    const turns = await db
+      .select({
+        userText: agentTranscriptTurnsTable.userText,
+        assistantText: agentTranscriptTurnsTable.assistantText,
+      })
+      .from(agentTranscriptTurnsTable)
+      .where(
+        and(
+          eq(agentTranscriptTurnsTable.agentSessionId, row.agentSessionId),
+          or(
+            isNotNull(agentTranscriptTurnsTable.userText),
+            isNotNull(agentTranscriptTurnsTable.assistantText)
+          )
+        )
+      )
+      .orderBy(asc(agentTranscriptTurnsTable.turnIndex))
+      .limit(TURN_SCAN_LIMIT);
+
+    if (turns.length === 0) {
+      generated.push({ agentSessionId: row.agentSessionId, skipped: "no-turns" });
       continue;
     }
-    const turns = extractTurns(transcript as never);
-    const opening = turns[0]?.userText?.slice(0, 90) ?? null;
-    const title = await generator.generateTitle(row.agentSessionId, turns);
-    generated.push({ agentSessionId: row.agentSessionId, opening, title });
+
+    const visible = selectTitleTurns(turns);
+    if (visible.length === 0) {
+      generated.push({ agentSessionId: row.agentSessionId, skipped: "no-content" });
+      continue;
+    }
+
+    // Report BOTH openings: the raw first text-bearing turn and the first one
+    // the window actually keeps. When they differ, that difference IS the
+    // mt#4179 window fix, and printing only the raw one would hide it.
+    const rawOpening = turns[0]?.userText?.slice(0, 90) ?? null;
+    const windowOpening = visible[0]?.userText?.slice(0, 90) ?? null;
+    const title = await generator.generateTitle(row.agentSessionId, visible);
+    generated.push({
+      agentSessionId: row.agentSessionId,
+      turnsScanned: turns.length,
+      turnsSent: visible.length,
+      rawOpening,
+      windowOpening,
+      title,
+    });
   }
 
   const anyTitled = generated.some((g) => typeof g.title === "string" && g.title.length > 0);

@@ -15,6 +15,8 @@
  *   query          Required. The natural-language search query.
  *   limit          Optional. Max results to return (default 10).
  *   role           Optional. Filter to 'user' or 'assistant' turns.
+ *   originKind     Optional. Filter by who authored the user text ('human' for
+ *                  operator speech only). A separate axis from `role` (mt#4289).
  *   from           Optional. ISO date string — include only turns whose own timestamp is on/after this date.
  *   to             Optional. ISO date string — include only turns whose own timestamp is on/before this date.
  *   session        Optional. Restrict results to a single agent session UUID.
@@ -100,6 +102,15 @@ export function registerTranscriptSearchTextCommand(
         description: "Filter to turns by role: 'user' or 'assistant'",
         required: false,
       },
+      originKind: {
+        schema: z.string(),
+        description:
+          "Filter by who authored the turn's user text: 'human' for operator speech only, or a " +
+          "harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). " +
+          'NOT the same axis as `role`: `role: "user"` only means the turn HAS user text, and ' +
+          "43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+        required: false,
+      },
       from: {
         schema: z.string(),
         description:
@@ -137,6 +148,7 @@ export function registerTranscriptSearchTextCommand(
       const query = params.query as string;
       const limit = (params.limit as number | undefined) ?? 10;
       const role = params.role as "user" | "assistant" | undefined;
+      const originKind = params.originKind as string | undefined;
       const from = params.from as string | undefined;
       const to = params.to as string | undefined;
       const sessionId = resolveConversationId(params);
@@ -195,6 +207,7 @@ export function registerTranscriptSearchTextCommand(
       const results = await svc.searchText(query, {
         limit,
         role,
+        originKind,
         dateRange: windowed,
         sessionId,
         mode,

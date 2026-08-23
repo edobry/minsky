@@ -290,6 +290,8 @@ Each question from the mt#1034 spec, mapped to the decisions above.
 
 **9. Policy-coverage semantics.** Starting position in §Router: explicit action-name AND authority-citation required. Category-match needs explicit enumeration. Name-match alone insufficient. **This is the most contested semantics in the subsystem and is a candidate for refinement after the detector (mt#1035) produces false-positive data.**
 
+**RESOLVED-BY-RETIREMENT 2026-08-16 (mt#4197).** The false-positive data arrived and the answer was not refinement. Measured over the detector's 1,760-record log: **97.7% "covered"** (1,658), with the two largest match groups — 971 records between them — citing CLAUDE.md paragraphs unrelated to the writes they green-lit (the out-of-band-merge override; git's transient-operation markers), and 137 records whose two required signals were the SAME word. The implementation checked only that an authority token appeared _somewhere in the same statement_, never that it governed the action, so §Router's "names the authority **under which it resolves**" was never actually implemented. Surface 1 is retired rather than repaired, for reasons that outlive the implementation: mt#1035 postulated its target problem from training dynamics and cited zero incidents, and the two failure families that named the detector as their backstop (mem#278, mem#367) are read-side and justification-side failures a write-time coverage check cannot observe. **These §Router semantics remain the record for the policy-first close path**, which is unaffected; what is retired is the one consumer that tried to mechanize them at PreToolUse.
+
 ## Consequences
 
 ### Benefits

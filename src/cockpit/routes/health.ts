@@ -24,6 +24,8 @@ import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
+import { getSweepLivenessSnapshot } from "../sweepers";
+import { deriveHealthSweepLiveness } from "../health-sweep-liveness";
 import {
   getDbCheck,
   getDbHealth,
@@ -210,6 +212,26 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // processStartedAtMs: monotonic epoch-ms of when THIS process started.
       // A change between successive polls means the daemon restarted.
       processStartedAtMs: serverStartTime,
+      // mt#4232: the pid of the process ANSWERING this request. Discharges the
+      // earmark `src/cockpit/launchd.ts` has carried since mt#3682 ("Reporting a
+      // PID for the tray-supervised case needs a new health field"), which is
+      // why `cockpit status` printed a null pid for every non-launchd daemon:
+      // launchctl was the only pid source, and it knows nothing about a daemon
+      // the tray spawned.
+      //
+      // Self-reported rather than inferred, and that is the point. Resolving the
+      // pid from the outside means `lsof` on the port, which answers "who holds
+      // this socket" — a question whose answer has already been wrong here (see
+      // `port-recovery.ts`'s `findPortHolder`, where a naive `lsof -i :3737`
+      // returned Tailscale's pid). `process.pid` read inside the handler is the
+      // process that actually served the response, so a caller pairing it with
+      // this payload's `service` field has an identity chain rather than a guess
+      // — which is what makes it safe to SIGNAL (mt#4232's `cockpit restart`).
+      //
+      // A plain top-level number, deliberately: mt#4186's liveness-dating
+      // invariant governs sub-objects that assert an operational state, and a
+      // pid asserts none, so this owes no `lastAttemptAt` sibling.
+      pid: process.pid,
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
@@ -240,6 +262,29 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       transcriptSweep: sweepTracker.getSummary(),
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),
+      // mt#4384: the three sweep fields above are DOMAIN trackers, and a domain
+      // tracker records the outcome of work. An ABANDONED tick never completes, so
+      // it produces no outcome ever — which is why on 2026-08-21 `prodStateSweep`
+      // read `lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0`
+      // (indistinguishable from "in flight, fine") while `/api/sweeps` showed nine
+      // sweeps wedged with guards held.
+      //
+      // Until now this endpoint never read the liveness registry at all, so that
+      // state could not appear here BY CONSTRUCTION. This field is the aggregate
+      // projection; `/api/sweeps` remains the per-sweep authority.
+      //
+      // Deliberately does NOT change the top-level `status`. The tray restarts the
+      // daemon on an unhealthy status, and a restart is not a reliable remedy for
+      // this class — mem#1178 records an occurrence that self-cleared with no
+      // restart, and mt#4335's hard release means recovery can legitimately take 15
+      // minutes. Flipping `status` would trade a silent wedge for a restart loop
+      // against a condition that often heals itself. ADR-035 rule 5 asks for surface
+      // HONESTY, which the body carries; recovery is a separate obligation and is
+      // not this task's.
+      sweepLiveness: deriveHealthSweepLiveness(
+        getSweepLivenessSnapshot(),
+        new Date().toISOString()
+      ),
     });
   });
 

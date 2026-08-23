@@ -26,6 +26,103 @@ packaging an enforcement-posture change as an Ask (Step 4's split, mt#3769).
 
 ## Step 1 — Run the sweep (read-only)
 
+### Probe first — another pass may already be running (mt#4119)
+
+Calibration logs are a SHARED resource across concurrent sessions, and a second
+pass over the same log is pure waste: both agents classify the same records, and
+only one ack can survive. **Both checks below run before Step 2's
+classification** — that is the expensive and unrecoverable work. The sweep
+itself is read-only and cheap, which is why one check sits on each side of it.
+
+Two checks, both cheap:
+
+1. **Before the sweep — search for a tune task or disposition ask already filed**
+   against the detectors you are about to review: `mcp__minsky__tasks_search` on
+   the detector name, and `mcp__minsky__asks_list` with
+   `kind: "direction.decide"` for the ask side. One created in the last few
+   minutes, naming one of your logs, is the visible signature of a pass in
+   flight. That is exactly how R2 below was caught, and it is the cheapest of the
+   two — it needs nothing but the detector names.
+2. **After the sweep, before you classify — re-read the watermark.** This one
+   consumes the sweep's own output, so it cannot run any earlier: if a log's
+   `watermarkCount` moved between your read-only sweep and the moment you start
+   classifying it, another pass acked it underneath you and those records are no
+   longer yours to review.
+
+**If the probe HITS: stand down on that log.** Do not classify it in parallel
+and reconcile afterwards — the other pass owns it. Read what they filed, and if
+your reading genuinely adds something (a resolved uncertainty, a differing
+verdict), **fold it into their artifact** rather than filing a near-duplicate.
+Do NOT ack: their token reflects the records they actually read, and yours does
+not.
+
+This is the PREVENTION half. Step 5a's `driftedPaths` is the DETECTION half, and
+it necessarily fires after the work is already done — the two are not
+substitutes for each other.
+
+**Recurrences.** R1 (2026-08-10): two agents classified the same 42
+`bare-entity-ref` fires within four minutes and filed overlapping findings;
+neither probed. R2 (2026-08-13): two agents classified the same 10
+`untaken-action` fires; the second found the collision only by reading ahead to
+Step 5a, and by then had a finished classification to throw away. R1's fix was
+to WRITE this guidance — into Step 5a, where it is reached only after the work it
+exists to prevent. **If a THIRD collision occurs after this relocation, the fix
+is mechanical rather than textual** — a sweep-time claim on the log, the way
+`tasks_claims_list` works for tasks — per mt#4119's planning audit.
+
+**R3 happened (2026-08-16), and the mechanical fix shipped (mt#4164).** Two
+passes classified the same `bare-entity-ref` window one minute apart. The probe
+below had been read and had returned nothing — correctly, because the other pass
+had not filed an artifact yet. **The probe searches for ARTIFACTS, and
+classification is entirely upstream of any artifact**, so no position in this
+skill could have caught it.
+
+So the sweep now takes a CLAIM on each review-due log before you classify
+anything, and a log another pass is holding is dropped from your `reviewDue`
+set and named in `claimedByOthers`. You do not have to run the artifact probe to
+detect a live pass — the command does it. What the probe below is still for is
+the case the claim cannot see: a pass that already FINISHED and filed, whose
+claim was released. Read `claimedByOthers` in the sweep result, and if
+`claimsUnavailable` is true the runtime could not name your pass, so you are
+running with the pre-mt#4164 collision risk and the prose probe is all you have.
+
+**That flag used to be true on EVERY MCP-invoked pass, which is to say almost
+all of them (mt#4408).** `resolveActorId` read harness environment variables the
+long-lived MCP server process does not have, so the claim was inert on the
+default invocation path while the CLI path worked — measured 2026-08-21, the
+same sweep returning `claimsUnavailable` `true` over MCP and `false` over the
+CLI minutes apart. The server now injects the caller's resolved agentId
+(ADR-006), so a true value here is once again the rare case the flag was written
+for. Two consequences for reading a sweep: `claimedByOthers` is now populated
+even when identity resolution fails (an unidentifiable pass no longer skips the
+READ, so its `[]` means "checked, nobody" rather than "never looked"), and a
+`claimsUnavailable: true` now also prints a WARNING line in text output rather
+than sitting only in the JSON.
+
+**Verify it yourself in one call, and know what a stale server looks like.** The
+injection happens in the MCP SERVER process, so it only takes effect once the
+server is running a build that contains it — a fix merged but not yet picked up
+looks exactly like the defect:
+
+```
+mcp__minsky__observability_calibration-review   # no arguments
+```
+
+`claimsUnavailable: false` — working. `claimsUnavailable: true` — either your
+server predates the fix (reconnect with `/mcp`, or restart the daemon) or
+identity genuinely could not be resolved; the WARNING line says which is being
+reported. To confirm the distinction rather than guess, run the CLI form
+(`minsky observability calibration-review --json`) in the same repo: it resolves
+identity from the harness environment on a completely different path, so
+**CLI false + MCP true is the stale-server signature**, and both true means
+identity is unavailable on both paths.
+
+**Run the probe per LOG, not per PASS.** A log that becomes review-due partway
+through a pass — a cadence detector firing mid-turn is the common way — has not
+been probed by the search you ran at the start for different detectors. R3's
+secondary aggravator was exactly this: the probe had been run, for the previous
+pass's detectors, two days earlier.
+
 Call the command read-only (do NOT pass `--ack` yet). **Keep the `reviewToken`
 it returns** — Step 5's ack is refused without it, and the token from THIS call
 is the one that binds the records you are about to classify (mt#3906):
@@ -527,6 +624,62 @@ reviewing — loses the most.
   token), so the watermark was left where it was rather than moved backwards.
 - **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
   NOT advanced. Re-run read-only and ack again with the fresh token.
+- **`newlyDuePaths`** (mt#4391) — logs that crossed a threshold DURING your pass,
+  so they were review-due at ack time and were never in the set you classified
+  against. NOT advanced. This is expected rather than an error — they are in the
+  next sweep, in full — but report the names, because the whole class was
+  invisible before this field existed.
+- **`claimHeldPaths`** (mt#4391) — logs that WERE due when your token was issued
+  but were held by another pass's claim, so Step 1 told you to stand down on
+  them. Also NOT advanced. Same disposition as `newlyDuePaths`, different reason:
+  these did not cross a threshold, they were simply someone else's to review.
+- **`ackedByAnotherPass`** (mt#4408) — logs your token DID present as due that
+  another pass advanced while you were classifying them. **This is the
+  lost-ack case, and it means your review of those logs was duplicated.** Do NOT
+  re-ack to force it through: the other pass's watermark reflects a review that
+  actually happened. Read what they filed and fold your findings into it, exactly
+  as Step 5a prescribes for `driftedPaths`.
+
+  Read this field before concluding an ack did nothing. `driftedPaths` cannot
+  cover this case — drift is detected per attempted WRITE, and a fully-lost ack
+  attempts none, so every other diagnostic array comes back empty beside a bare
+  `watermarkAdvanced: false`. Originating incident: mt#4408 R4 (2026-08-21), two
+  passes over the same four logs ~15 minutes apart, found only by reading
+  id-adjacent task numbers.
+
+**Why the ack can decline to advance a log that is review-due at ack time.** The
+token now records BOTH what each log counted at sweep time and WHICH logs the
+sweep presented to you. `computeReviewDueLogs` runs again at ack time against
+live state, so its set is not the set you read — a log can enter it after you
+started. The count bounds how far a path advances; the set bounds which paths
+advance at all. Measured before the fix: `wall-of-text` sat one injected fire
+below the bar at sweep time, one record arrived mid-pass, and the ack advanced
+its watermark 359 → 373, marking 14 records reviewed by nobody.
+
+**A token minted before mt#4391 is REFUSED**, with a message naming the missing
+`reviewDue` field. There is no safe reading of its absence — permissive would
+restore the defect silently, on the path you believe is guarded. The remedy is
+the one Step 5 already prescribes for a lost token: re-run the command read-only
+and ack with the fresh one.
+
+**`reviewDue` in that same payload is the PRE-ack set — it is not a post-ack
+status field (mt#4334).** It names the logs the ack ACTED ON, not what is still
+outstanding: the `computeReviewDueLogs(results, watermarks, …)` call in
+`src/adapters/shared/commands/calibration.ts` runs against the watermarks as
+read at the START of the call, and `--ack` then advances exactly that set —
+which the comment directly above that call says outright. So a SUCCESSFUL ack
+returns `watermarkAdvanced: true` beside a
+pre-ack `reviewDue` byte-identical to the read-only sweep's, and that pair reads
+exactly like an ack that did nothing.
+
+**To confirm the outcome, re-run the command read-only.** Do not re-read the ack
+payload, and do not re-ack — the ack is not in doubt, only its rendering.
+Observed 2026-08-19 on a `silent-stretch` pass: the ack returned
+`watermarkAdvanced: true` with `reviewDue` unchanged at 10 fires; an independent
+read-only sweep a minute later returned `reviewDue: []`. This is the same
+verify-the-outcome-not-the-action discipline the three fields above serve — the
+difference is that here the misleading signal is a field that is CORRECT about a
+question you were not asking.
 
 **If you lost the token** (a `/clear`, a context switch, a resumed pass), do not
 work around it: re-run the command read-only, re-read what it shows, and ack with
@@ -641,13 +794,14 @@ path.** Treat it as a real finding, not noise:
 when EVERY target of that operation drifted, so a pass that accomplished nothing
 no longer reports success.
 
-**Prevention is cheap and worth doing.** This is a shared resource across
-concurrent sessions, so before starting a pass, run the presence probe from
-`user-preferences.mdc §Probe before claiming a shared resource` over the
-calibration surface — a recent task or ask filed against a log you are about to
-review is the visible signature of a pass in flight. The originating incident
-(2026-08-10) had two agents classify the same 42 fires on `bare-entity-ref`
-inside four minutes and file overlapping findings; neither probed.
+**Prevention lives in Step 1, not here (mt#4119).** `driftedPaths` is the
+DETECTION half of this problem, and it can only fire after a pass has already
+done its classification. The PREVENTION half — probe for a pass already in
+flight, before you CLASSIFY — is stated at the top of **Step 1**, because that is
+the only place it can be read in time to act on. It is deliberately NOT restated
+here: this paragraph exists to point at it. (This relocation IS mt#4119; the
+guidance previously sat in this section, where an agent following the skill in
+order reached it only after the duplicated work was complete.)
 
 ## Cross-references
 

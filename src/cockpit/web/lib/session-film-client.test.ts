@@ -6,12 +6,15 @@ import {
   SessionFilmError,
   fetchSessionFilmContent,
   fetchSessionFilmEvents,
-  fetchSessionFilmSessions,
   resolveEventContent,
   sessionFilmRetry,
 } from "./session-film-client";
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+
+/** The reachable server-refusal code both fetchers surface (see ADR-040 — the
+ *  422 `unscrubbed` refusal these tests used to exercise no longer exists). */
+const NOT_FOUND_CODE = "session_not_found";
 
 const originalFetch = globalThis.fetch;
 
@@ -35,47 +38,32 @@ describe("fetchSessionFilmEvents", () => {
     expect(result.ingestedAt).toBe("2026-07-20T00:00:00.000Z");
   });
 
-  test("throws SessionFilmError carrying status + code on a scrub-gate refusal", async () => {
-    mockFetch(422, { error: { code: "unscrubbed", message: "Export refused" } });
+  test("throws SessionFilmError carrying status + code on a server refusal", async () => {
+    mockFetch(404, { error: { code: NOT_FOUND_CODE, message: "No transcript found" } });
     await expect(fetchSessionFilmEvents("abc")).rejects.toThrow(SessionFilmError);
     try {
       await fetchSessionFilmEvents("abc");
       throw new Error("expected rejection");
     } catch (err) {
       expect(err).toBeInstanceOf(SessionFilmError);
-      expect((err as SessionFilmError).status).toBe(422);
-      expect((err as SessionFilmError).code).toBe("unscrubbed");
+      expect((err as SessionFilmError).status).toBe(404);
+      expect((err as SessionFilmError).code).toBe(NOT_FOUND_CODE);
     }
   });
 
-  test("passes verifiedRescrubbed=true as a query param when asserted", async () => {
+  // This used to assert the `verifiedRescrubbed` param, which went away with
+  // the gate (mt#3268 / ADR-040). What still matters is that the fetch
+  // carries the conversation id and nothing else.
+  test("requests the events endpoint with conversationId as the only param", async () => {
     let capturedUrl = "";
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       capturedUrl = String(input);
       return new Response(JSON.stringify({ events: [], ingestedAt: null }), { status: 200 });
     }) as unknown as typeof fetch;
-    await fetchSessionFilmEvents("abc", true);
-    expect(capturedUrl).toContain("verifiedRescrubbed=true");
-  });
-});
-
-describe("fetchSessionFilmSessions", () => {
-  test("returns the sessions array", async () => {
-    mockFetch(200, {
-      sessions: [
-        {
-          agentSessionId: "abc",
-          label: "test",
-          startedAt: null,
-          cwd: null,
-          ingestedAt: null,
-          scrubGateOk: false,
-        },
-      ],
-    });
-    const rows = await fetchSessionFilmSessions();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.scrubGateOk).toBe(false);
+    await fetchSessionFilmEvents("abc");
+    expect(capturedUrl).toContain("/api/cockpit/session-film/events");
+    expect(new URL(capturedUrl, "http://localhost").searchParams.get("conversationId")).toBe("abc");
+    expect(capturedUrl).not.toContain("verifiedRescrubbed");
   });
 });
 
@@ -90,28 +78,30 @@ describe("fetchSessionFilmContent (mt#3262)", () => {
     expect(result.ingestedAt).toBe("2026-07-20T00:00:00.000Z");
   });
 
-  test("throws SessionFilmError carrying status + code on a scrub-gate refusal (AT5)", async () => {
-    mockFetch(422, { error: { code: "unscrubbed", message: "Export refused" } });
+  test("throws SessionFilmError carrying status + code on a server refusal", async () => {
+    mockFetch(404, { error: { code: NOT_FOUND_CODE, message: "No transcript found" } });
     await expect(fetchSessionFilmContent("abc")).rejects.toThrow(SessionFilmError);
     try {
       await fetchSessionFilmContent("abc");
       throw new Error("expected rejection");
     } catch (err) {
       expect(err).toBeInstanceOf(SessionFilmError);
-      expect((err as SessionFilmError).status).toBe(422);
-      expect((err as SessionFilmError).code).toBe("unscrubbed");
+      expect((err as SessionFilmError).status).toBe(404);
+      expect((err as SessionFilmError).code).toBe(NOT_FOUND_CODE);
     }
   });
 
-  test("passes verifiedRescrubbed=true as a query param when asserted", async () => {
+  // See the events counterpart above — same removal, same reason (ADR-040).
+  test("requests the content endpoint with conversationId as the only param", async () => {
     let capturedUrl = "";
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       capturedUrl = String(input);
       return new Response(JSON.stringify({ blocks: [], ingestedAt: null }), { status: 200 });
     }) as unknown as typeof fetch;
-    await fetchSessionFilmContent("abc", true);
-    expect(capturedUrl).toContain("verifiedRescrubbed=true");
+    await fetchSessionFilmContent("abc");
     expect(capturedUrl).toContain("/api/cockpit/session-film/content");
+    expect(new URL(capturedUrl, "http://localhost").searchParams.get("conversationId")).toBe("abc");
+    expect(capturedUrl).not.toContain("verifiedRescrubbed");
   });
 });
 

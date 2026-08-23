@@ -877,8 +877,12 @@ export const sessionPrWaitForReviewCommandParams = {
   expectedHeadSha: {
     schema: z.string(),
     description:
-      "The commit you expect the REMOTE to be serving — pass the commitHash session_commit " +
-      "just returned (mt#3877). While the remote head differs from it, NO review is " +
+      "The commit you expect the REMOTE to be serving — read it off whichever call LAST " +
+      "PUSHED: session_pr_create's headSha for the first wait on a new PR, session_commit's " +
+      "commitHash for every wait after a fix-push (mt#3877, mt#4046). Passing the preceding " +
+      "session_commit's hash on the FIRST wait is wrong and silent: PR creation pushes a head " +
+      "of its own, so the sha you hold is already superseded and the wait burns its whole " +
+      "timeout suppressing a real review. While the remote head differs from it, NO review is " +
       "considered and the wait keeps polling, so arming the watcher before a push lands no " +
       "longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in " +
       "that window the superseded commit IS the current head, so it is admitted by exactly " +
@@ -1106,7 +1110,13 @@ export const sessionPrReviewDismissCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   reviewId: {
-    schema: z.coerce.number().int().positive(),
+    // Plain `z.number()`, matching every other numeric param in the registry.
+    // mt#1170 needed `z.coerce.number()` here because a CLI positional arrived
+    // as a string and nothing coerced it; mt#1173 moved that coercion to the
+    // CLI adapter (`normalizeCliParameters`), so the per-schema workaround —
+    // which also applied `Number()`'s `true`->1 / `null`->0 semantics to the
+    // MCP boundary — is no longer needed.
+    schema: z.number().int().positive(),
     description: "GitHub review ID to dismiss (numeric — see PR review URLs)",
     required: true,
   },

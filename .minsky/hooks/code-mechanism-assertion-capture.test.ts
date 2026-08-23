@@ -48,8 +48,8 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
 const CLAIM_TEXT = "The 1MB default `maxBuffer` is at its limit, and `executeCommand` clamps it.";
 
 describe("judged-input capture (mt#3649)", () => {
-  test("AT1: the record's captured input is recoverable and matches what was judged", () => {
-    const outcome = run(
+  test("AT1: the record's captured input is recoverable and matches what was judged", async () => {
+    const outcome = await run(
       RUN_HOOK_INPUT,
       makeCtx([userLine(), assistantLine(CLAIM_TEXT), userLine()]),
       ALWAYS_INJECT_DEPS
@@ -73,11 +73,11 @@ describe("judged-input capture (mt#3649)", () => {
     expect(captured.hash).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  test("PR #2926 R1: the capture is the ELIDED copy, not the raw turn text", () => {
+  test("PR #2926 R1: the capture is the ELIDED copy, not the raw turn text", async () => {
     // SC4 — a fenced block is where pasted tool output, and any secret in it,
     // would reach the log.
     const secretish = "sk-live-DO-NOT-LOG-abcdefghijklmnop";
-    const outcome = run(
+    const outcome = await run(
       RUN_HOOK_INPUT,
       makeCtx([
         userLine(),
@@ -95,11 +95,11 @@ describe("judged-input capture (mt#3649)", () => {
     expect(captured.excerpt).toContain("maxBuffer");
   });
 
-  test("the capture is written even when the chat surface extracts NO claims", () => {
+  test("the capture is written even when the chat surface extracts NO claims", async () => {
     // Capture must not be conditional on a match, or the near-misses that most
     // need re-classification are the ones with no input to replay. PR #2926 R1:
     // this used matching text, so it asserted nothing about the empty case.
-    const outcome = run(
+    const outcome = await run(
       RUN_HOOK_INPUT,
       makeCtx([
         userLine(),

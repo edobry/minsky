@@ -770,11 +770,6 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
     reason:
       "Calibration-first observer (mt#3162); graduation to blocking is tracked separately at mt#3167 per hook-observers.mdc",
   },
-  {
-    configPath: ".claude/hooks/policy-coverage-detector.ts",
-    reason:
-      "DetectorMode defaults to log-only (mt#2755); records calibration data for a future flip to block mode, not yet live",
-  },
 
   // ── Pure observers/recorders: no permission decision, fail-open ──
   {
@@ -827,9 +822,24 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Reminds the agent to walk READY -> /implement-task — advisory, no permission decision (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/gate-walk-provenance.ts",
+    reason:
+      'Merge-seam recorder (mt#1880): reads whether the bound task has a task.status_changed → READY row and writes one calibration record. Record-only by ADR-042 §Posture — never denies, never injects, and its fire-log decision is the literal type "allow" — so it is not any rule\'s enforcement mechanism. Registered at BOTH merge surfaces (session_pr_merge and the gh-api bypass) because the bypass is where an ungated task most plausibly reaches main; a posture flip is operator-reserved, and this entry moves to ENFORCEMENT_MAPPINGS if that ever happens',
+  },
+  {
+    configPath: ".claude/hooks/unowned-finding-scan.ts",
+    reason:
+      "Records findings-section items with no declared owner at the DONE transition — log-only calibration, no permission decision (mt#4246, hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/stamp-pr-author-link.ts",
     reason:
       "Stamps the workspace<->conversation link at session_pr_create — recording, not enforcement (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/stamp-ask-conversation.ts",
+    reason:
+      "Stamps the ask<->conversation attribution at asks_create (mt#3564) — recording, not enforcement; writes one local JSON file and denies nothing (hook-observers.mdc)",
   },
   {
     configPath: ".claude/hooks/bridge-memory-retirement.ts",

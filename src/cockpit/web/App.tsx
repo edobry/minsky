@@ -80,15 +80,15 @@ const MemoryPage = lazy(() =>
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
 );
-const WeldHistoryPage = lazy(() =>
-  import("./pages/WeldHistoryPage").then((m) => ({ default: m.WeldHistoryPage }))
-);
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
 // Interceptor catalog + detail (mt#4010). Route noun fixed by ask#7119.
 const InterceptorsPage = lazy(() =>
   import("./pages/InterceptorsPage").then((m) => ({ default: m.InterceptorsPage }))
+);
+const ProtectionPage = lazy(() =>
+  import("./pages/ProtectionPage").then((m) => ({ default: m.ProtectionPage }))
 );
 const InterceptorDetailPage = lazy(() =>
   import("./pages/InterceptorDetailPage").then((m) => ({ default: m.InterceptorDetailPage }))
@@ -145,20 +145,19 @@ export const plantRoutes = (
     <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
     <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
     {/*
-     * Interlock-history drill-down (mt#2602): interlock provenance timeline.
-     * Route renamed from `/plant/weld-history` (mt#2626, guard vocabulary
-     * alignment — "interlock" is the domain noun; "weld" survives only as a
-     * verb). Accepted as a breaking rename — local-only cockpit, no external
-     * consumers/bookmarks to preserve, so no redirect route was added.
+     * Interlock-history drill-down (mt#2602, renamed from `/plant/weld-history`
+     * by mt#2626) — ABSORBED into `/interceptors` by mt#4229, and redirected
+     * rather than removed, matching how ADR-020 §Routes retired `/plant-grid`
+     * and `/plant-flow` two lines above.
+     *
+     * Why it went: two pages listed the same enforcement corpus with different
+     * memberships (160 file-walk rows against the catalog's 134), which is the
+     * conflation mt#3754 exists to end. Its git-derived install provenance —
+     * install date, commit link, originating retrospective — now renders on the
+     * interceptor detail view, joined on the catalog's `sourceFile`. The
+     * operator's answer to "when did this land" did not move; the page did.
      */}
-    <Route
-      path="/plant/interlock-history"
-      element={
-        <ErrorBoundary id="interlock-history-page">
-          <WeldHistoryPage />
-        </ErrorBoundary>
-      }
-    />
+    <Route path="/plant/interlock-history" element={<Navigate to="/interceptors" replace />} />
   </>
 );
 
@@ -642,6 +641,22 @@ export function App() {
             element={
               <ErrorBoundary id="interceptor-detail-page">
                 <InterceptorDetailPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* The OPERATOR rendering of the same corpus (mt#4287, phase 6 of
+              mt#3754) — mem#802's two-audience split. Deliberately NOT nested
+              under `/interceptors`: nesting would make the operator surface a
+              subordinate view of the maintainer one, and the split's whole
+              claim is that they are peers over one substrate. The path is a
+              PLACEHOLDER pending the naming ask (SC7); it is a list-shaped
+              destination with no entity id, so `matchEntityRoute` is not
+              involved and no deeplink type is added. */}
+          <Route
+            path="/protection"
+            element={
+              <ErrorBoundary id="protection-page">
+                <ProtectionPage />
               </ErrorBoundary>
             }
           />

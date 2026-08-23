@@ -19,6 +19,43 @@ const RX_LS_REMOTE = /^git -C '\/tmp\/work' ls-remote /;
  * "push timed out" / "verification timed out" branches deterministically, no real wait). */
 const HANG = Symbol("hang");
 
+/**
+ * The error shape Node's `exec` actually throws on a failed git command, as
+ * `gitErrorSchema` models it: `message`, plus optional `stderr` / `stdout` /
+ * `code` / `signal`, with `cmd` among the string extras exec attaches.
+ *
+ * Shared rather than redeclared per test (PR #3174 R1): several tests below
+ * declare their own local `class GitExecError extends Error { stderr = "..." }`
+ * carrying only the one field the assertion happens to read, which cannot catch
+ * a regression in how the OTHER fields survive. Tests asserting field
+ * preservation need an error that actually has fields to preserve.
+ */
+class GitExecError extends Error {
+  override readonly name = "GitExecError";
+  stderr: string;
+  stdout: string;
+  code: number;
+  cmd: string;
+
+  constructor(opts: { stderr: string; stdout?: string; code?: number; cmd?: string }) {
+    // exec's own message is `Command failed: <cmd>` — the shape mt#3219's
+    // redaction exists for, since the cmd carries the injected auth header.
+    const cmd = opts.cmd ?? `git -C '${WORKDIR}' push 'origin' 'task/mt-3264'`;
+    super(`Command failed: ${cmd}`);
+    this.stderr = opts.stderr;
+    this.stdout = opts.stdout ?? "";
+    this.code = opts.code ?? 128;
+    this.cmd = cmd;
+  }
+}
+
+function makeGitExecError(
+  stderr: string,
+  opts: { cmd?: string; code?: number } = {}
+): GitExecError {
+  return new GitExecError({ stderr, ...opts });
+}
+
 type ExecCall = { command: string };
 type Handler = { stdout: string; stderr?: string } | Error | typeof HANG;
 type HandlerKey = string | RegExp;
@@ -178,6 +215,109 @@ describe("pushImpl", () => {
     await expect(pushImpl({ repoPath: WORKDIR }, deps)).rejects.toThrow(
       /No upstream branch is set/
     );
+  });
+
+  // mt#3264: both rewrites above used to REPLACE git's stderr. Two rejections
+  // with different causes and different fixes produced one identical sentence,
+  // so the surfaced error could not distinguish them — the reporting half of the
+  // incident this task was filed for.
+  test("keeps git's own reason alongside the '[rejected]' guidance (mt#3264)", async () => {
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3264\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [
+        RX_PUSH,
+        makeGitExecError(
+          "! [rejected]   task/mt-3264 -> task/mt-3264 (cannot lock ref 'refs/heads/task/mt-3264': is at 2e5c5d427 but expected dd17eaf22)"
+        ),
+      ],
+    ]);
+
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+
+    const message = (caught as Error).message;
+    expect(message).toMatch(/Push was rejected by the remote/);
+    // The part that used to be discarded: a ref-lock conflict is NOT fixed by
+    // pulling or force-pushing, and this is the only text that says so.
+    expect(message).toContain("cannot lock ref");
+    expect(message).toContain("expected dd17eaf22");
+
+    // PR #3174 R1: the rewrite must not re-wrap. A fresh `new Error(...)` drops
+    // the prototype, `name`, and the exec extras — the same loss
+    // `redactPushError` documents refusing. Consumers branch on these.
+    expect(caught).toBeInstanceOf(GitExecError);
+    expect((caught as GitExecError).name).toBe("GitExecError");
+    expect((caught as GitExecError).stderr).toContain("cannot lock ref");
+    expect((caught as GitExecError).code).toBe(128);
+    expect((caught as GitExecError).cmd).toContain("push");
+  });
+
+  test("keeps git's own reason alongside the 'no upstream' guidance (mt#3264)", async () => {
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3264\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [
+        RX_PUSH,
+        makeGitExecError(
+          "fatal: The current branch task/mt-3264 has no upstream branch.\nTo push the current branch and set the remote as upstream, use\n\n    git push --set-upstream origin task/mt-3264"
+        ),
+      ],
+    ]);
+
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+
+    const message = (caught as Error).message;
+    expect(message).toMatch(/No upstream branch is set/);
+    expect(message).toContain("git push --set-upstream origin task/mt-3264");
+  });
+
+  test("redacts the injected credential when lifting stderr into the message (mt#3264)", async () => {
+    // The stderr is being copied into a NEW Error, which `redactPushError` never
+    // sees — so the redaction has to happen here or mt#3219's leak reopens on
+    // this path.
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3264\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [
+        RX_PUSH,
+        makeGitExecError("! [rejected] task/mt-3264 -> task/mt-3264", {
+          cmd: "git -c http.https://github.com/.extraheader='AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hzX3NlY3JldA==' push origin task/mt-3264",
+        }),
+      ],
+    ]);
+
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+
+    const err = caught as GitExecError;
+    const SECRET = "eC1hY2Nlc3MtdG9rZW46Z2hzX3NlY3JldA==";
+
+    // The credential rides on `cmd` (mt#3219's actual leak path), and these two
+    // paths build their own message, so they bypass the fall-through redaction
+    // unless they redact themselves. Assert every string channel, not just the
+    // one the guidance is written to.
+    expect(err.message).not.toContain(SECRET);
+    expect(err.cmd).not.toContain(SECRET);
+    expect(err.stack ?? "").not.toContain(SECRET);
+    expect(err.cmd).toMatch(/AUTHORIZATION: basic/); // redacted, not deleted
+
+    // Still diagnostic after redaction.
+    expect(err.message).toContain("task/mt-3264 -> task/mt-3264");
+    expect(err.message).toMatch(/Push was rejected by the remote/);
   });
 
   test("succeeds for normal attached HEAD on a fresh branch", async () => {

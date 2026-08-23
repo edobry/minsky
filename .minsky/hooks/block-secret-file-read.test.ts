@@ -23,6 +23,11 @@ import {
   run,
   OVERRIDE_ENV_VAR,
   SECRET_EMITTING_SCRIPT_PATTERNS,
+  findProcessListingReads,
+  splitPipelines,
+  psRequestsArgv,
+  isArgvBearingProcessListing,
+  isNonEmittingSink,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -35,6 +40,180 @@ const CTX = {} as DispatchContext;
 
 /** The canonical emitting read of Minsky's own config — used by several suites. */
 const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
+
+// ── Process listings (mt#3850) ──────────────────────────────────────────────
+
+/**
+ * The originating incident command, verbatim (2026-08-08, session ws#438): an
+ * agent looking for a stuck git process. It names no secret and no path, and
+ * it printed a live GitHub token carried by an unrelated `docker run` row.
+ */
+const PS_INCIDENT_COMMAND = "ps -eo pid,etime,command | grep -iE 'git|credential'";
+
+describe("mt#3850 — process listings that print argv", () => {
+  test("denies the verbatim incident command", () => {
+    const hits = findProcessListingReads(PS_INCIDENT_COMMAND);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.kind).toBe("process-listing");
+    expect(hits[0]?.reader).toBe("ps");
+  });
+
+  test("fires on every argv-bearing form named in the spec", () => {
+    for (const cmd of [
+      "ps -eo command",
+      "ps aux",
+      "ps -ef",
+      "ps",
+      "ps -eo pid,command",
+      "ps -eo args",
+    ]) {
+      expect(findProcessListingReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("does not fire on column-restricted forms", () => {
+    for (const cmd of [
+      "ps -eo pid,comm",
+      "ps -eo pid,etime,comm",
+      "ps -o comm=",
+      "ps -eo pid,ucomm",
+    ]) {
+      expect(findProcessListingReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  // PR #2996 R1 (BLOCKING): `ps` field entries carry a WIDTH (`command:80`)
+  // and/or a HEADER (`command=CMD`), and both are still the argv column.
+  // Stripping only `=` let `command:80` through as an unknown field name — a
+  // false negative in the very check this suite exists for. Both modifier
+  // forms are covered here, not just the one the reviewer cited.
+  test("fires on argv fields carrying a width or header modifier", () => {
+    for (const cmd of [
+      "ps -eo command:80",
+      "ps -eo pid,command:120",
+      "ps -eo command=CMD",
+      "ps -eo args:200=COMMAND",
+      "ps -eo cmd:50",
+    ]) {
+      expect(findProcessListingReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("a modifier on a SAFE field stays safe", () => {
+    for (const cmd of ["ps -eo comm:20", "ps -eo pid,comm:40=NAME"]) {
+      expect(findProcessListingReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  // PR #2996 R1 (non-blocking): once a stage reduces its input to a count, no
+  // later stage can resurrect the argv, so the sink need not be LAST.
+  test("permits a counting sink that is not the final stage", () => {
+    for (const cmd of [
+      "ps aux | grep -c docker | tee out",
+      "ps -eo command | wc -l | cat",
+      "ps -eo command | grep -q gho_ && echo found",
+    ]) {
+      expect(findProcessListingReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("still denies when nothing downstream reduces the output", () => {
+    expect(findProcessListingReads("ps aux | grep docker | tee out").length).toBeGreaterThan(0);
+  });
+
+  // The guard must not deny the form its own rule recommends. A counting sink
+  // renders no row, so the argv never reaches the transcript.
+  test("permits an argv listing whose pipeline ends in a counting sink", () => {
+    for (const cmd of [
+      "ps -eo command | grep -c gho_",
+      "ps -eo command | grep -q GITHUB_PERSONAL_ACCESS_TOKEN",
+      "ps -eo command | wc -l",
+      "ps aux | grep -c docker",
+    ]) {
+      expect(findProcessListingReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("still denies when the pipeline ends in an EMITTING consumer", () => {
+    for (const cmd of ["ps -eo command | grep gho_", "ps aux | head -5", "ps -ef | sort"]) {
+      expect(findProcessListingReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("top and pgrep fire only in their argv-printing forms", () => {
+    expect(findProcessListingReads("top -c").length).toBeGreaterThan(0);
+    expect(findProcessListingReads("top")).toEqual([]);
+    expect(findProcessListingReads("pgrep -a docker").length).toBeGreaterThan(0);
+    expect(findProcessListingReads("pgrep -af docker").length).toBeGreaterThan(0);
+    expect(findProcessListingReads("pgrep docker")).toEqual([]);
+    expect(findProcessListingReads("pgrep -l docker")).toEqual([]);
+  });
+
+  test("psRequestsArgv fails CLOSED when no format is given", () => {
+    // A bare `ps`/`ps aux`/`ps -ef` prints the command line by default, so the
+    // ABSENCE of an explicit field list must read as argv-bearing.
+    expect(psRequestsArgv(tokenize("ps aux"))).toBe(true);
+    expect(psRequestsArgv(tokenize("ps -eo pid,comm"))).toBe(false);
+    expect(psRequestsArgv(tokenize("ps -eopid,command"))).toBe(true);
+    expect(psRequestsArgv(tokenize("ps --format=pid,comm"))).toBe(false);
+    expect(psRequestsArgv(tokenize("ps --format=pid,args"))).toBe(true);
+  });
+
+  test("isArgvBearingProcessListing ignores unrelated programs", () => {
+    expect(isArgvBearingProcessListing("cat", tokenize("cat file"))).toBe(false);
+    expect(isArgvBearingProcessListing("psql", tokenize("psql -c 'select 1'"))).toBe(false);
+  });
+
+  test("isNonEmittingSink recognises counting forms only", () => {
+    expect(isNonEmittingSink("grep", tokenize("grep -c x"))).toBe(true);
+    expect(isNonEmittingSink("grep", tokenize("grep x"))).toBe(false);
+    expect(isNonEmittingSink("wc", tokenize("wc -l"))).toBe(true);
+    expect(isNonEmittingSink("head", tokenize("head -5"))).toBe(false);
+  });
+
+  test("splitPipelines separates pipes from sequence operators", () => {
+    expect(splitPipelines("a | b")).toEqual([["a", "b"]]);
+    expect(splitPipelines("a && b")).toEqual([["a"], ["b"]]);
+    // `||` must not be read as two pipes — that would merge separate pipelines.
+    expect(splitPipelines("a || b")).toEqual([["a"], ["b"]]);
+    expect(splitPipelines("a | b ; c")).toEqual([["a", "b"], ["c"]]);
+    // A `|` inside quotes is data, not structure.
+    expect(splitPipelines("grep -E 'git|cred' f")).toEqual([["grep -E 'git|cred' f"]]);
+  });
+
+  test("a sequence does not let one pipeline's sink excuse another", () => {
+    // The counting sink belongs to the SECOND pipeline; the first still emits.
+    const hits = findProcessListingReads("ps -eo command ; ps -eo command | grep -c x");
+    expect(hits).toHaveLength(1);
+  });
+
+  test("the denial message names argv and teaches both safe forms", () => {
+    const reason = buildDenialReason(findProcessListingReads("ps aux"));
+    expect(reason).toContain("ARGV");
+    expect(reason).toContain("ps -eo pid,etime,comm");
+    expect(reason).toContain("grep -c");
+    // It must NOT offer the file-read remedies for a process listing.
+    expect(reason).not.toContain("test -f <file>");
+  });
+
+  test("run() denies an argv listing through the real tool-input path", () => {
+    const input = {
+      tool_name: "Bash",
+      tool_input: { command: PS_INCIDENT_COMMAND },
+    } as unknown as ToolHookInput;
+    const outcome = run(input, CTX);
+    expect(outcome?.deny).toBeDefined();
+    expect(outcome?.deny?.reason).toContain("ARGV");
+  });
+
+  test("run() allows the counting form through the real tool-input path", () => {
+    const input = {
+      tool_name: "Bash",
+      tool_input: { command: "ps -eo command | grep -c gho_" },
+    } as unknown as ToolHookInput;
+    expect(run(input, CTX)).toBeNull();
+  });
+});
 
 describe("R3 — the command that actually leaked", () => {
   test("denies the verbatim incident command", () => {
@@ -71,6 +250,9 @@ describe("emitting readers on secret paths (denied)", () => {
     "cat server.pem",
     "sed -n '1,5p' .env.local",
     "cut -d= -f2 .env",
+    // mt#4159 — the read that printed a live bearer token into a transcript.
+    "cat .mcp.json",
+    "jq '.mcpServers' /Users/x/Projects/minsky/.mcp.json",
   ];
   for (const cmd of denied) {
     test(`denies: ${cmd}`, () => {
@@ -118,6 +300,11 @@ describe("path classification", () => {
     expect(isSecretPath("certs/server.pem")).toBe(true);
     expect(isSecretPath("my-credentials.json")).toBe(true);
     expect(isSecretPath("app-secrets.yaml")).toBe(true);
+    // mt#4159. Matched by the EXPLICIT list, so the `.json` extension never
+    // reaches `hasSourceCodeExtension` — the generic name pattern, which is
+    // what that carve-out guards, does not fire on this name at all.
+    expect(isSecretPath(".mcp.json")).toBe(true);
+    expect(isSecretPath("/Users/x/Projects/minsky/.mcp.json")).toBe(true);
   });
 
   test("does not claim ordinary files", () => {
@@ -125,6 +312,10 @@ describe("path classification", () => {
     expect(isSecretPath("src/index.ts")).toBe(false);
     expect(isSecretPath("README.md")).toBe(false);
     expect(isSecretPath("tsconfig.json")).toBe(false);
+    // The `.mcp.json` entry is anchored at a path separator, so a file that
+    // merely ENDS in that name is not claimed.
+    expect(isSecretPath("foo.mcp.json")).toBe(false);
+    expect(isSecretPath("mcp.json")).toBe(false);
     // `.env.example` is a template of NAMES, not values — but it still matches
     // the `.env.*` family. Documented as an accepted over-fire: the cost is one
     // override on a file nobody needs to cat, and carving it out would invite

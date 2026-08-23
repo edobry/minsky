@@ -59,8 +59,8 @@ export interface WindowNotifier {
 // Postgres implementation
 // ---------------------------------------------------------------------------
 
-const CHANNEL_OPENED = "minsky.attention_window_opened";
-const CHANNEL_CLOSED = "minsky.attention_window_closed";
+export const CHANNEL_OPENED = "minsky.attention_window_opened";
+export const CHANNEL_CLOSED = "minsky.attention_window_closed";
 
 /**
  * Emit `pg_notify` via the raw postgres connection.
@@ -78,9 +78,37 @@ async function pgNotify(
     return;
   }
 
+  await pgNotifyViaProvider(
+    container.get("persistence") as SqlCapablePersistenceProvider,
+    channel,
+    payload
+  );
+}
+
+/**
+ * Emit `pg_notify` given a persistence provider directly.
+ *
+ * The container-based path above exists for command execution contexts, which
+ * carry a DI container. Some hosts do not: the cockpit daemon resolves a
+ * provider and never builds a container, so it needs this entry point (mt#4364).
+ *
+ * Splitting it out is what makes that host expressible without a cast — the
+ * original mt#4313 wiring passed a PROVIDER where the container-shaped
+ * parameter was expected, silenced the resulting type error with `as never`,
+ * and every emit then failed on `container?.has is not a function`.
+ */
+async function pgNotifyViaProvider(
+  provider: SqlCapablePersistenceProvider | undefined,
+  channel: string,
+  payload: unknown
+): Promise<void> {
+  if (!provider) {
+    log.warn(`window notify: no persistence provider — skipping NOTIFY on ${channel}`);
+    return;
+  }
+
   let sql: unknown;
   try {
-    const provider = container.get("persistence") as SqlCapablePersistenceProvider;
     if (!provider.getRawSqlConnection) {
       log.warn(
         `window notify: provider has no getRawSqlConnection — skipping NOTIFY on ${channel}`
@@ -131,6 +159,28 @@ export function createPostgresWindowNotifier(
     },
     async notifyClosed(payload: WindowClosedPayload): Promise<void> {
       await pgNotify(container, CHANNEL_CLOSED, payload);
+    },
+  };
+}
+
+/**
+ * Create a `WindowNotifier` backed by a persistence provider directly.
+ *
+ * For hosts that resolve a provider but never build a DI container — the
+ * cockpit daemon is the one in-tree (mt#4364). Prefer
+ * {@link createPostgresWindowNotifier} anywhere a container IS available;
+ * passing a provider to that function is a type error, and casting past it is
+ * the defect this exists to make unnecessary.
+ */
+export function createProviderWindowNotifier(
+  provider: SqlCapablePersistenceProvider | undefined
+): WindowNotifier {
+  return {
+    async notifyOpened(payload: WindowOpenedPayload): Promise<void> {
+      await pgNotifyViaProvider(provider, CHANNEL_OPENED, payload);
+    },
+    async notifyClosed(payload: WindowClosedPayload): Promise<void> {
+      await pgNotifyViaProvider(provider, CHANNEL_CLOSED, payload);
     },
   };
 }

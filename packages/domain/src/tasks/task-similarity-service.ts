@@ -9,7 +9,6 @@ import { SimilaritySearchService } from "../similarity/similarity-search-service
 import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "@minsky/shared/array-safety";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "../project/scope";
 
 /**
@@ -420,7 +419,7 @@ export class TaskSimilarityService {
     }
 
     // Get the full task content (title + spec content)
-    let content = await this.extractTaskContent(task);
+    const content = await this.extractTaskContent(task);
     const contentHash = createHash("sha256").update(content).digest("hex");
 
     // Skip if up-to-date — unless a forced re-embed was requested
@@ -448,73 +447,12 @@ export class TaskSimilarityService {
     } catch {
       // ignore metadata read errors
     }
-    // Apply model-aware token cap if configured
-    try {
-      const { getConfiguration } = await import("../configuration");
-      const cfg = (await getConfiguration()) as Record<string, unknown>;
-      const embeddings = cfg?.["embeddings"] as Record<string, unknown> | undefined;
-      const model =
-        this.config.model || (embeddings?.["model"] as string) || "text-embedding-3-small";
-      const ai = cfg?.["ai"] as Record<string, unknown> | undefined;
-      const provider =
-        (embeddings?.["provider"] as string) || (ai?.["defaultProvider"] as string) || "openai";
-      const embeddingModels = embeddings?.["models"] as
-        | Record<string, Record<string, unknown>>
-        | undefined;
-      const caps = (embeddingModels && embeddingModels[model]) || {};
-      // Built-in defaults by model pattern; can be overridden by config
-      const defaultMaxByModel: Record<string, number> = {
-        "text-embedding-3-small": 8192,
-        "text-embedding-3-large": 8192,
-      };
-      const maxTokens: number | undefined =
-        typeof caps.maxTokens === "number"
-          ? caps.maxTokens
-          : defaultMaxByModel[model] || (model.includes("embedding") ? 8192 : undefined);
-      const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
-      if (typeof maxTokens === "number" && maxTokens > 0) {
-        const effective = Math.max(1, maxTokens - buffer);
-        const { DefaultTokenizerService } = await import("../ai/tokenizer-service");
-        const tokenizerService = new DefaultTokenizerService();
-        const tokens = await tokenizerService.tokenize(content, model, provider);
-        if (tokens.length > effective) {
-          const trimmed = tokens.slice(0, effective);
-          content = await tokenizerService.detokenize(trimmed, model, provider);
-        }
-      }
-    } catch {
-      // If tokenization or config fails, apply a conservative char-based trim fallback
-      try {
-        const { getConfiguration } = await import("../configuration");
-        const cfg = (await getConfiguration()) as Record<string, unknown>;
-        const embeddingsCfg = cfg?.["embeddings"] as Record<string, unknown> | undefined;
-        const model =
-          this.config.model || (embeddingsCfg?.["model"] as string) || "text-embedding-3-small";
-        const embeddingModelsCfg = embeddingsCfg?.["models"] as
-          | Record<string, Record<string, unknown>>
-          | undefined;
-        const caps = (embeddingModelsCfg && embeddingModelsCfg[model]) || {};
-        const defaultMaxByModel: Record<string, number> = {
-          "text-embedding-3-small": 8192,
-          "text-embedding-3-large": 8192,
-        };
-        const maxTokens: number | undefined =
-          typeof caps.maxTokens === "number"
-            ? caps.maxTokens
-            : defaultMaxByModel[model] || (model.includes("embedding") ? 8192 : undefined);
-        const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
-        if (typeof maxTokens === "number" && maxTokens > 0) {
-          const effective = Math.max(1, maxTokens - buffer);
-          // Heuristic: ~4 chars per token
-          const maxChars = effective * 4;
-          if (content.length > maxChars) {
-            content = safeTruncate(content, maxChars, "head");
-          }
-        }
-      } catch {
-        // ignore and keep original content
-      }
-    }
+    // Token-cap enforcement moved to the embedding-service boundary (mt#4212).
+    // The ~65 lines that used to sit here were the ONLY truncation in the
+    // codebase, protecting this one call site while transcripts, memories, tools
+    // and knowledge sync sent unbounded input — which is how the 2026-08-17
+    // embeddings outage happened. `truncateEmbeddingInput`, applied inside the
+    // OpenAI and Gemini services, now covers every consumer including this one.
     const vector = await this.embeddingService.generateEmbedding(content);
     const metadata: Record<string, unknown> = {
       taskId,

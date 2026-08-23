@@ -1,17 +1,32 @@
 /**
- * Stream a turn into an edited placeholder instead of one blob at the end
- * (mt#3542).
+ * Stream a turn into the chat as successive messages (mt#3542, mt#3711).
  *
- * The principal's complaint: a 90-second turn was 90 seconds of nothing
- * followed by a wall of text, with no sign anything was happening.
+ * The principal's first complaint (mt#3542): a 90-second turn was 90 seconds
+ * of nothing followed by a wall of text, with no sign anything was happening.
+ * That was answered by editing ONE placeholder message in place.
  *
- * The mechanism is edit-in-place. Forwarding partial output as separate
- * MESSAGES would notify the principal's phone on every chunk — the objection
- * that kept `awaitTurnResult` discarding intermediate events in the first
- * place. Telegram does not notify on an edit, so one message can be revised
- * many times while the phone stays quiet.
+ * The second complaint (mt#3711) was about that answer: *"that's how chat
+ * works: just a bunch of small messages instead of editing previous ones to
+ * make them longer."* A single message that grows for 90 seconds gives the
+ * reader no sense of what is new and moves the text under their eyes while
+ * they read it.
  *
- * Three properties this module exists to guarantee:
+ * **The constraint that forced one message no longer binds.** The original
+ * rationale was that separate MESSAGES notify the phone on every chunk — the
+ * objection that kept `awaitTurnResult` discarding intermediate events at all
+ * — and that only an EDIT is silent. That treated "separate message" and
+ * "notification" as inseparable, and Telegram's `disable_notification` is
+ * exactly what separates them. Verified live on this channel 2026-08-16 (probe
+ * run `002529`, `scripts/principal-channel/verify-silent-send.ts`): a silenced
+ * send raised no notification, a plain send between two silenced ones raised
+ * one, so the channel was demonstrably live throughout.
+ *
+ * So the unit is now a **semantic block** — a run of prose between tool calls —
+ * rather than a char-budget overflow. Each block is its own message; the first
+ * message of a turn notifies and every later one is silenced, which keeps the
+ * one-buzz-per-turn behaviour the edit-in-place design was protecting.
+ *
+ * Four properties this module exists to guarantee:
  *
  * 1. **Every intermediate state is valid on its own.** Each edit is converted
  *    from the accumulated MARKDOWN; rendered HTML is never sliced. The
@@ -22,6 +37,10 @@
  *    path. If any edit fails, the final text is still delivered — a half-drawn
  *    reply that never settles is worse than the blob it replaced.
  * 3. **The cadence stays under Telegram's ceiling.** See {@link EDIT_THROTTLE_MS}.
+ *    Sends and edits now share that budget, where edits used to have it alone.
+ * 4. **Nothing the reader has already read is taken away.** The settle may
+ *    extend what is on screen; it may never replace it with something shorter.
+ *    See {@link ReplyStream.finish}.
  */
 
 import { log } from "@minsky/shared/logger";
@@ -51,9 +70,15 @@ export const EDIT_THROTTLE_MS = 1_500;
 export interface ReplyStreamTransport {
   /**
    * Send a NEW message and resolve with its id, or `undefined` if it did not
-   * land. Used for the placeholder and for each message after a chunk split.
+   * land. Used for the placeholder, for each semantic block after the first,
+   * and for each message after a chunk split.
+   *
+   * `silent` asks the transport to deliver without raising a notification. It
+   * is what makes per-block messages possible at all: without it, a turn with
+   * five blocks would buzz five times. The FIRST message of a turn is never
+   * silent — the principal must still learn the turn happened.
    */
-  send(text: string): Promise<number | undefined>;
+  send(text: string, opts?: { silent?: boolean }): Promise<number | undefined>;
 }
 
 export interface ReplyStreamOptions {
@@ -77,6 +102,19 @@ export interface ReplyStream {
    * on a network round-trip.
    */
   push(accumulated: string): void;
+  /**
+   * Close the current semantic block, so the next text opens a NEW message.
+   *
+   * Called when a tool call starts: the prose before it is a complete thought
+   * and the prose after it is a new one. Same contract as {@link push} — never
+   * throws, never blocks. The boundary is recorded at the accumulated length
+   * SEEN NOW, so text arriving before the next flush still lands on the correct
+   * side of it.
+   *
+   * A block with no text in it opens no message: back-to-back tool calls with
+   * nothing said between them produce one boundary, not several empty ones.
+   */
+  sealBlock(): void;
   /**
    * Settle on the turn's authoritative text and resolve with the id of the
    * message carrying its tail.
@@ -158,29 +196,59 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
   let offset = 0;
   /** The message currently being edited; `undefined` before the placeholder exists. */
   let currentMessageId: number | undefined;
+  /**
+   * The last message this stream successfully put text into.
+   *
+   * Distinct from {@link currentMessageId}, which a block seal clears: after a
+   * turn that ends on a tool call there IS no current message, and reporting
+   * `undefined` from `finish` would tell the caller nothing was delivered and
+   * send the whole reply a second time.
+   */
+  let lastDeliveredId: number | undefined;
   /** What the current message was last written with, so a no-op edit is skipped entirely. */
   let lastWritten = "";
   /** Set once editing has failed in a way that makes further streaming pointless. */
   let degraded = false;
+  /**
+   * Accumulated-text offsets where a semantic block ends, oldest first.
+   *
+   * A queue rather than a single value because two tool calls can land between
+   * flushes, and collapsing them would merge blocks that the reader saw as
+   * separate thoughts.
+   */
+  const sealPoints: number[] = [];
+  /** How many messages this stream has SENT — only the first may notify. */
+  let sentCount = 0;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight: Promise<void> = Promise.resolve();
   let lastFlushAt = 0;
   let finished = false;
 
+  /** Detach from the current message, so the next write opens a new one. */
+  function closeCurrentMessage(): void {
+    currentMessageId = undefined;
+    lastWritten = "";
+  }
+
   /** Put `text` into the current message, opening one if needed. */
   async function write(text: string): Promise<void> {
     if (text.length === 0 || text === lastWritten) return;
 
     if (currentMessageId === undefined) {
-      const id = await transport.send(text);
+      // Every message after the first is silenced. This is the whole
+      // mechanism: it is what lets a turn be many messages and still cost the
+      // principal exactly one notification.
+      const id = await transport.send(text, sentCount === 0 ? {} : { silent: true });
+      sentCount += 1;
       if (id === undefined) {
-        // The placeholder never landed. Nothing to edit into, so stop
-        // streaming; `finish` falls back to an ordinary send.
+        // The message never landed. Nothing to edit into, so stop streaming;
+        // `finish` falls back to an ordinary send.
         degraded = true;
         return;
       }
       currentMessageId = id;
+      lastDeliveredId = id;
       lastWritten = text;
       return;
     }
@@ -198,6 +266,7 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
 
     if (result.ok) {
       lastWritten = text;
+      lastDeliveredId = currentMessageId;
       return;
     }
 
@@ -213,29 +282,68 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
   }
 
   /**
-   * Write everything currently pending, splitting into additional messages
-   * whenever the current one would exceed the per-message budget.
+   * Write everything currently pending, closing a message at each semantic
+   * block boundary and splitting into additional messages whenever one would
+   * exceed the per-message budget.
+   *
+   * The two reasons to close a message are deliberately handled in the same
+   * loop but kept distinct: a SEAL is a boundary the turn declared, and a
+   * SPLIT is one the char budget forced. Only the first is a block.
+   *
+   * **`paced` is invariant 3 (SC4), and it is new pressure.** Under
+   * edit-in-place a flush produced ONE write, so the throttle alone kept the
+   * cadence legal. Now a flush can find several blocks waiting and would emit a
+   * SEND for each, back to back, inside one window — and a send is far more
+   * likely than an edit to count against Telegram's ~1/sec ceiling. So a paced
+   * pass opens at most one NEW message and re-arms for the rest, which spreads
+   * queued blocks across throttle windows instead of bursting them.
+   *
+   * `finish` drains UNPACED: invariant 2 outranks invariant 3, and deferring
+   * there would mean returning from a settle with text still undelivered.
    */
-  async function drain(): Promise<void> {
+  async function drain(paced = false): Promise<void> {
     if (degraded) return;
 
+    let opened = 0;
+
     // Loop rather than split once: a burst can push past the budget by more
-    // than one message's worth between flushes.
+    // than one message's worth between flushes, and several blocks can be
+    // waiting at the same time.
     for (;;) {
-      const remainder = pending.slice(offset);
-      if (remainder.length <= maxChars) {
-        await write(remainder);
+      // A boundary at or behind what is already committed describes an empty
+      // block — a tool call with nothing said since the last one. Drop it
+      // rather than opening a message for it.
+      while (sealPoints.length > 0 && (sealPoints[0] ?? 0) <= offset) sealPoints.shift();
+
+      const blockEnd = sealPoints[0] ?? pending.length;
+      const remainder = pending.slice(offset, blockEnd);
+
+      // About to open a NEW message, and this pass already opened one: hand the
+      // rest to the next window rather than sending twice in a row.
+      if (paced && opened > 0 && currentMessageId === undefined && remainder.length > 0) {
+        schedule();
         return;
       }
+      if (currentMessageId === undefined && remainder.length > 0) opened += 1;
 
-      const cut = findChunkBreak(remainder, maxChars);
-      await write(remainder.slice(0, cut));
+      if (remainder.length > maxChars) {
+        const cut = findChunkBreak(remainder, maxChars);
+        await write(remainder.slice(0, cut));
+        if (degraded) return;
+        offset += cut;
+        closeCurrentMessage();
+        continue;
+      }
+
+      await write(remainder);
       if (degraded) return;
 
-      // Close the current message and start a fresh one for what follows.
-      offset += cut;
-      currentMessageId = undefined;
-      lastWritten = "";
+      // Nothing declared a boundary here, so the message stays open for the
+      // next chunk of the same block.
+      if (sealPoints.length === 0) return;
+
+      offset = sealPoints.shift() ?? offset;
+      closeCurrentMessage();
     }
   }
 
@@ -256,13 +364,15 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
     timer = setTimeout(() => {
       timer = null;
       lastFlushAt = now();
-      inFlight = inFlight.then(drain).catch((err: unknown) => {
-        // Never let a streaming failure escape into the turn.
-        degraded = true;
-        log.warn("[principal-channel] streaming flush threw; settling with a plain send", {
-          error: err instanceof Error ? err.message : String(err),
+      inFlight = inFlight
+        .then(() => drain(true))
+        .catch((err: unknown) => {
+          // Never let a streaming failure escape into the turn.
+          degraded = true;
+          log.warn("[principal-channel] streaming flush threw; settling with a plain send", {
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
-      });
     }, wait);
   }
 
@@ -271,6 +381,18 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
       if (finished || degraded) return;
       if (accumulated.length <= pending.length) return;
       pending = accumulated;
+      schedule();
+    },
+
+    sealBlock(): void {
+      if (finished || degraded) return;
+      // Record the boundary at the length seen NOW. Deferring it to flush time
+      // would put text that arrived after the tool call into the block before
+      // it — the reader would see the next thought appended to the previous
+      // message and then a new message start mid-sentence.
+      const at = pending.length;
+      if ((sealPoints[sealPoints.length - 1] ?? -1) === at) return;
+      sealPoints.push(at);
       schedule();
     },
 
@@ -300,25 +422,105 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
       // Nothing was ever put in the chat — the caller sends normally.
       if (currentMessageId === undefined && offset === 0) return undefined;
 
-      // The resolved text is authoritative and can differ from what streamed
-      // (a turn with tool-use rounds streams text around each round). Settle on
-      // it rather than leaving the accumulation in place.
+      // FLUSH WHAT THE STREAM STILL OWES, FIRST.
       //
-      // Only the tail is rewritten: earlier messages were closed at chunk
-      // boundaries and editing them back into agreement would cost an edit each
-      // and rewrite history the principal has already read.
-      pending = finalText;
-      if (finalText.length <= offset) {
-        // The final text is shorter than what has already been committed to
-        // closed messages — nothing coherent to rewrite, so leave the chat as
-        // it stands rather than emit a contradicting tail.
-        return currentMessageId;
+      // The settle below reasons about "what is on screen", and pacing means
+      // that is not the same as "what was streamed": a paced flush defers
+      // queued blocks to the next window, and `finished` above just cancelled
+      // that window. Reasoning about the settle before this ran would compare
+      // the resolved text against text the reader never received, and the
+      // append branch — which advances `offset` to `pending.length` — would
+      // then skip straight past it. Unpaced, because invariant 2 (delivery
+      // never regresses) outranks invariant 3 (cadence).
+      await drain();
+      if (degraded) return undefined;
+
+      // THE SETTLE MAY ONLY ADD (SC5; the principal's second report, mt#3711
+      // R2: *"when you were done you overwrote everything you previously wrote
+      // and the message shrank back down"*).
+      //
+      // The resolved text is authoritative and can differ from what streamed —
+      // a turn with tool-use rounds streams interstitial prose around each
+      // round while `result` carries only the final answer. The old behaviour
+      // was to overwrite the open message with it, which on exactly those
+      // turns made the message visibly collapse and took back text the
+      // principal had already read. Content already in the chat is not a
+      // draft; it is something they have seen.
+      //
+      // So: extend when the resolved text extends what streamed, do nothing
+      // when it is already on screen, and otherwise deliver it as a NEW
+      // message rather than in place of anything.
+      // BOTH COMPARISONS BELOW ARE AGAINST `pending`, NEVER AGAINST `offset`
+      // (mt#4240). The `drain` above has just written everything `pending`
+      // holds, so at this point the chat shows exactly `pending`: the closed
+      // messages carry `[0, offset)` and the open one carries the rest. That
+      // makes `pending` the record of what was DELIVERED, and `offset` only
+      // the record of where messages were CUT.
+      //
+      // Reasoning about delivery from `offset` conflated the two, and was
+      // wrong in exactly the cases where a message had just been closed.
+      // `pending.slice(offset)` is EMPTY when a block seal ended the turn, and
+      // it is only the trailing CHUNK when a long answer was split across
+      // messages. Both left the already-on-screen check unable to see text
+      // that was plainly on screen, so the settle fell through to the
+      // new-message branch and sent the whole answer a second time — the
+      // principal's report of the channel answering twice with identical text,
+      // on 12 of 41 measured turns.
+      //
+      // Compared with trailing whitespace trimmed on both sides. The deltas
+      // and the resolved text come from different fields of the same turn and
+      // drift by a trailing newline often enough that an exact compare would
+      // re-open the duplicate path for the most ordinary reason there is.
+      const delivered = pending.trimEnd();
+      const resolved = finalText.trimEnd();
+
+      // EXTENDS what streamed — deliver only the part they have not seen.
+      //
+      // APPENDS to `pending`; never ASSIGNS over it (PR #3091 R1 BLOCKING).
+      // Assigning `pending = finalText` looks equivalent and is not, because
+      // the guard above compares TRIMMED copies: when the two differ only by
+      // trailing whitespace the branch still fires, and the assignment then
+      // hands `drain` a value SHORTER than what is on screen, which edits the
+      // message down and takes back a character the reader was given. That is
+      // invariant 4 — the one this whole settle exists to protect — broken by
+      // the fix for invariant 2.
+      //
+      // Appending the delta makes the branch structurally unable to shrink
+      // rather than merely unlikely to: `pending` only ever grows here, so the
+      // equal-after-trim case computes an empty delta and `write` short-circuits
+      // on `text === lastWritten` with no edit issued at all. A length guard
+      // would fix the reported case; this fixes the class.
+      if (resolved.startsWith(delivered)) {
+        pending += resolved.slice(delivered.length);
+        await drain();
+        return degraded ? undefined : (currentMessageId ?? lastDeliveredId);
       }
 
+      // ALREADY READ — the deltas carried it, so leave every message as it
+      // stands.
+      //
+      // Anchored at the END rather than searched for anywhere in `pending`,
+      // which keeps PR #3039's protection intact: a short resolved answer —
+      // "Done.", "Yes." — can appear in some earlier block by coincidence, and
+      // a bare `includes` would suppress the final answer entirely on the
+      // reasoning that the reader "has seen it". `endsWith` cannot make that
+      // mistake, because the final answer is the LAST thing streamed or it was
+      // never delivered at all; a coincidental earlier occurrence never matches.
+      //
+      // So PR #3039 narrowed the right check on the wrong axis. WHERE the text
+      // sits is what separates the two failure directions; WHICH MESSAGE it
+      // happened to land in never did, and scoping by message is what made the
+      // check blind to a closed one.
+      if (delivered.endsWith(resolved)) return lastDeliveredId;
+
+      // Genuinely new text that does not continue what is on screen: the
+      // timeout notice, the mid-turn-swap notice, or a `result` that diverged.
+      // It belongs in the chat, and it belongs in its OWN message.
+      closeCurrentMessage();
+      offset = pending.length;
+      pending += finalText;
       await drain();
-      // The settle itself can fail — same rule as above: an unsettled message
-      // is not a delivered reply.
-      return degraded ? undefined : currentMessageId;
+      return degraded ? undefined : (currentMessageId ?? lastDeliveredId);
     },
   };
 }

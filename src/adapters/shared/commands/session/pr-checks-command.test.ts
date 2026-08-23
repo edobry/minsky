@@ -8,7 +8,7 @@
  * `sessionPrChecks` module import.
  */
 import { describe, expect, test } from "bun:test";
-import { createSessionPrChecksCommand } from "./pr-checks-command";
+import { createSessionPrChecksCommand, formatChecksStatusLine } from "./pr-checks-command";
 import { ResourceNotFoundError, ValidationError } from "@minsky/domain/errors/index";
 
 describe("createSessionPrChecksCommand — error-classification ordering (mt#2888)", () => {
@@ -53,5 +53,44 @@ describe("createSessionPrChecksCommand — error-classification ordering (mt#288
     await expect(command.execute({ sessionId: "my-session" }, CTX)).rejects.toThrow(
       "Failed to get session PR checks: network cable unplugged"
     );
+  });
+});
+
+describe("formatChecksStatusLine — the mergeBlocked branch exists (mt#4182, PR #3042 R1)", () => {
+  test("REGRESSION: a merge-blocked result renders the REASON, not '0 check(s) pending'", () => {
+    // The exact shape mt#4182 produces: allPassed false, no timeout, and both
+    // counts zero because CI never dispatched. Before R1 no branch matched it,
+    // so it landed on the fallthrough and rendered "⏳ 0 check(s) pending" —
+    // "CI is still starting" for a PR whose CI can never start.
+    //
+    // What this pins is the branch's EXISTENCE, not its position: a control
+    // that demoted it to just above the fallthrough left every test green, and
+    // only removing it entirely turns this red.
+    const line = formatChecksStatusLine({
+      allPassed: false,
+      mergeBlocked: "PR has merge conflicts, so GitHub could not build the merge ref",
+      summary: { failed: 0, pending: 0 },
+    });
+    expect(line).toContain("merge conflicts");
+    expect(line).not.toContain("pending");
+  });
+
+  test("the other branches are unchanged when mergeBlocked is absent", () => {
+    expect(
+      formatChecksStatusLine({ allPassed: true, summary: { failed: 0, pending: 0 } })
+    ).toContain("All checks passed");
+    expect(
+      formatChecksStatusLine({
+        allPassed: false,
+        timedOut: true,
+        summary: { failed: 0, pending: 2 },
+      })
+    ).toContain("Timed out");
+    expect(
+      formatChecksStatusLine({ allPassed: false, summary: { failed: 3, pending: 0 } })
+    ).toContain("3 check(s) failed");
+    expect(
+      formatChecksStatusLine({ allPassed: false, summary: { failed: 0, pending: 1 } })
+    ).toContain("1 check(s) pending");
   });
 });

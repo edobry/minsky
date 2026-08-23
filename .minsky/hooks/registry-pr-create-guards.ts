@@ -1,0 +1,322 @@
+// Registry entries for the PR/commit write-path guard family (mt#3959, mt#3913,
+// mt#4044).
+//
+// Boundary widened 2026-08-16: the first two members register on
+// `mcp__minsky__session_pr_create` alone, and mt#4044's `evidence-record-provenance`
+// registers on `session_commit` / `session_pr_create` / `session_pr_edit`. The
+// shared property is the SEAM — a guard that fires when the agent writes its work
+// out — not the single tool name the first two happened to share. The export
+// keeps the name `PR_CREATE_GUARDS`, which is narrower than its contents.
+//
+// **Revisited under mt#4115 and kept** (2026-08-16), since that split is where
+// this note said the question would be settled. Settling it: the name is the one
+// thing here a reader could be misled by, and this paragraph removes that risk
+// at no cost. Renaming would move the module file too (a half-rename reads worse
+// than either end state), which means a git rename plus deleting the stale
+// generated `.claude/hooks/` mirror — real churn, in a change whose entire claim
+// is that it moved 2019 lines without altering behavior. The naming accuracy is
+// worth less than keeping that claim easy to audit. Whoever next widens this
+// family's boundary should rename then, when the file is being edited anyway.
+//
+// ## Why a family module, and why it is not just a workaround
+//
+// `registry.ts` is AT the 1500-line `max-lines` ERROR ceiling, and the rule sets
+// `skipComments`/`skipBlankLines`, so comments cannot buy room. mt#3959 shipped
+// its entry in a one-entry module because an inline entry did not fit; adding
+// mt#3913's second guard the same way put the file at 1501 and broke the build
+// outright. That is the recurrence mt#4115 predicted when the first one shipped.
+//
+// So this module is the per-family split mt#4115 asks for, done for the one
+// family that forced it: both guards here register on
+// `mcp__minsky__session_pr_create`, and exporting them as an ARRAY means
+// `registry.ts` pays ONE import and ONE spread for the pair instead of two of
+// each. Measured: 1501 counted lines with two one-entry modules, 1499 with this
+// one — so the SECOND guard costs `registry.ts` zero additional lines, and every
+// further `session_pr_create` guard costs zero too.
+//
+// It did NOT buy headroom back for other families, and this header used to end
+// by saying so: at 1499 of 1500, the next guard on any other matcher still broke
+// the build, and mt#4115 owned that general split. **mt#4115 has since landed**
+// (2026-08-16). Every family now has a module of this shape, `registry.ts` holds
+// the schema plus a composition of spreads and is far below the ceiling again,
+// and the prediction above was confirmed twice more before the fix — by mt#4144 and by
+// PR #2941 — for four extractions in total. The "down payment, not a substitute"
+// framing is resolved, not merely aged. Layout and authoring guidance:
+// `docs/architecture/hooks/guard-dispatcher-framework.md §Where registry entries
+// live`.
+//
+// ## What the two guards share, and where they diverge
+//
+// Both read the same branch diff and both concern operator-facing output, which
+// is why they are declared an intentional co-registration in
+// `./registry-matcher-pairs.ts`. They ask opposite questions:
+//
+//   - `stale-signal-sweep` — a label the diff STOPPED emitting; looks OUTWARD
+//     at durable artifacts still quoting the old meaning.
+//   - `unrendered-result-field-scan` — a field the diff ADDED; looks INWARD at
+//     whether anything prints it at all.
+//
+// Rationale, posture and measured FP shape for each live in that guard's own
+// module doc comment; the entries here stay terse per `hook-observers.mdc`.
+//
+// The imports are safe in both directions: `recorderEffect` lives in
+// `./registry-effects`, and `GuardRegistration` is imported as a TYPE, which
+// TypeScript erases — so `registry.ts` importing this module back is not a
+// runtime cycle.
+
+import { recorderEffect } from "./registry-effects";
+import type { GuardRegistration } from "./registry";
+
+export const PR_CREATE_GUARDS: GuardRegistration[] = [
+  {
+    // mt#3959 — artifacts still quoting an output label this PR stopped emitting.
+    name: "stale-signal-sweep",
+    effects: [recorderEffect()],
+    // `advisory`: whether a quoted reading is actually STALE is a judgment, and
+    // the planning measurement found correct usages among the originating
+    // token's own matches.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./stale-signal-sweep").then((m) => ({ run: m.run })),
+    // MUST stay above the module's SWEEP_TIMEOUT_MS (15s) so the guard's OWN
+    // deadline fires: that path records a `skipped` outcome, whereas a
+    // dispatcher kill records nothing and an infra outage reads as a clean pass.
+    timeoutMs: 18000,
+    calibrationLog: "stale-signal-sweep",
+    // NEVER denies — a stale reading is a conclusion to re-check, not a defect.
+    denyCapable: false,
+    // MAX_REPORTED_MATCHES (5) x a 200-char excerpt plus a ~420-char frame.
+    attentionCost: { denialMessageSizeChars: 2000, optionCount: 1 },
+    // Needs a live DB and a git tree, so the healthy canary outcome is a
+    // RECORDED skip, short-circuited before any DB is touched (mt#3824 R2).
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary stale-signal sweep", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
+  {
+    // mt#3913 — a counter/flag added to a `*Result` type that nothing renders.
+    name: "unrendered-result-field-scan",
+    effects: [recorderEffect()],
+    // `advisory`: the mechanical proxy ("does anything print it?") stands in for
+    // an undecidable question ("was this meant to be visible?"), so it errs
+    // toward flagging internal-only fields and needs measurement before any
+    // tightening.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./unrendered-result-field-scan").then((m) => ({ run: m.run })),
+    // Diff-only: one `git diff main...HEAD` (itself capped at 10s) plus pure
+    // string work, with no database round trip — which is why this sits well
+    // below its sibling's 18s rather than matching it.
+    timeoutMs: 12000,
+    calibrationLog: "unrendered-result-field-scan",
+    // NEVER denies — an unrendered field is a question for the author.
+    denyCapable: false,
+    // MAX_REPORTED_FIELDS (6) x a short `Owner.field (path)` line plus a frame.
+    attentionCost: { denialMessageSizeChars: 1200, optionCount: 1 },
+    // Needs a git working tree the canary process is not guaranteed, so the
+    // healthy canary outcome is a RECORDED skip (mt#3824 R2).
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary unrendered-result-field scan", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4044 — the same claim shape, on the two record types the sibling above
+  // cannot see, at the two seams it does not watch.
+  //
+  // mem#966 point 4 said to generalize past duplicate checks the day mt#4004
+  // shipped; the next instance landed the following day (mt#4024, commit
+  // 98e2ac5fd — a `Negative control —` block written before the control ran, and
+  // wrong). This registration adds the FIRST dispatcher wiring for
+  // `session_commit` / `session_pr_create` / `session_pr_edit`: settings.json
+  // carried those tool names already, but only on standalone hooks
+  // (`check-branch-fresh`, `dispatch-intent-write-gate`), never on the
+  // dispatcher — so no registry guard could reach a commit message until now.
+  //
+  // The two record types get DIFFERENT discharge rules, settled by replay rather
+  // than symmetry: "did a test run?" is discharged five times over in any real
+  // implementation session, so the negative-control half joins on the record's
+  // own SUBJECT against FAILING runs. Full argument in the module header.
+  //
+  // Lives HERE rather than inline in `registry.ts` (mt#4115): with main's guards
+  // as of 2026-08-16, an inline entry puts that file at 1503 counted lines
+  // against the 1500 ERROR ceiling — measured with `bunx eslint`, not estimated.
+  // In this module it costs `registry.ts` zero lines, because the import and the
+  // spread already exist.
+  // -------------------------------------------------------------------------
+  {
+    name: "evidence-record-provenance",
+    // RECORDER ONLY — no advisory, unlike the mt#4004 sibling, and the
+    // difference is measured rather than stylistic. Replaying the finished
+    // detector over 40 recent transcripts (`scripts/replay-evidence-provenance.ts
+    // <t> --all`) put the negative-control half at 20 fires in 80 records, and
+    // sampling those fires found them dominated by two false-positive classes
+    // neither join reaches: a prose record naming what was REVERTED rather than
+    // the test that went red, and a PR body edited in a later conversation than
+    // the run it reports. Injecting at that rate is the mem#719 failure mode —
+    // noise that trains the reader to discount the true positives. So this lands
+    // as an armed evidence stream and nothing else; the tune and the graduation
+    // to advisory are mt#4067, driven by the calibration data rather than by a
+    // second guess.
+    effects: [recorderEffect()],
+    // `advisory`: which prose counts as a record, and which call counts as its
+    // run, are both heuristics the calibration log exists to size. The join
+    // between them is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher:
+      "mcp__minsky__session_commit|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
+    module: () => import("./evidence-record-provenance").then((m) => ({ run: m.run })),
+    // Higher than the sibling's 5s because this one walks every tool RESULT body
+    // in the transcript, not just the tool-name list — the failing-run join needs
+    // what the calls returned. Still in-memory over lines the dispatcher already
+    // parsed; no IO of its own.
+    timeoutMs: 8000,
+    calibrationLog: "evidence-record-provenance",
+    // LOAD-BEARING, exactly as on the sibling (PR #2886 R1): `ctx.transcriptLines`
+    // is populated ONLY for a registration that declares this (D6), and the
+    // session's calls are this guard's entire discriminating half. Without it the
+    // guard records `skipped` on every live run — present, tested, green, inert.
+    needsTranscript: true,
+    // Calibration-first per ADR-024 and ask#6982; asserted in a test, not intended.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
+    // The canary carries a record claiming a control, in a canary process whose
+    // transcript is empty — so the healthy outcome is a RECORDED skip, this
+    // guard's honest answer to a claim it cannot adjudicate. Asserting `matched`
+    // would bake in the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_commit",
+        tool_input: {
+          message:
+            "fix(mt#0): canary\n\nNegative control — `canaryProbeSubject`: reverted, observed failing.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4124 — the OTHER half of mt#2421's question.
+  //
+  // `render-path-evidence` (at merge) asks whether an artifact EXISTS. This asks
+  // whether anyone JUDGED the surface, because those come apart: PR #2942 shipped
+  // two screenshots of a pane with no padding, and the artifact check passed on
+  // it. The discriminator is a `Skill` tool_use in the authoring conversation,
+  // which is a thing the agent cannot satisfy by writing prose about itself.
+  //
+  // Registers HERE and at THIS seam for a reason worth stating (the planning
+  // pass's resolution 1): the input is a skill call in the conversation that WROTE
+  // the code, and at merge time that conversation is not at hand — the merge gate
+  // holds only the merging conversation's `transcript_path`, and reaching the
+  // authoring one would need the `pr_author` link plus DB access from a merge
+  // gate, which no merge gate performs. At `session_pr_create` the hook's own
+  // transcript IS the authoring conversation.
+  // -------------------------------------------------------------------------
+  {
+    name: "new-surface-design-pass",
+    // RECORDER ONLY. The fire rate against real render-path PRs has not been
+    // measured yet, and the narrowing that makes it plausible — ADDED files only —
+    // is itself the thing calibration has to size. Injecting before that is the
+    // mem#719 failure mode.
+    effects: [recorderEffect()],
+    // `advisory`: "does adding this file mean designing a new surface?" is a
+    // judgment the mechanical proxy (git status `A` on a render-path path) stands
+    // in for, and the proxy will flag additions that render nothing of their own.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./new-surface-design-pass").then((m) => ({ run: m.run })),
+    // One `git diff --name-status` (itself capped at 10s) plus a pass over
+    // transcript lines the dispatcher already parsed. No DB round trip, which is
+    // why this matches its diff-only sibling's 12s rather than the sweep's 18s.
+    timeoutMs: 12000,
+    calibrationLog: "new-surface-design-pass",
+    // NEVER denies — an unjudged surface is a prompt to go look, not a defect.
+    denyCapable: false,
+    // MAX_REPORTED_SURFACES (6) short path lines plus a ~700-char frame.
+    attentionCost: { denialMessageSizeChars: 1400, optionCount: 1 },
+    // LOAD-BEARING (PR #2886 R1 on the sibling): `ctx.transcriptLines` is
+    // populated ONLY for a registration that declares this (D6), and the session's
+    // skill calls are this guard's ENTIRE discriminating half. Without it the
+    // guard records `skipped` on every live run — present, tested, green, inert.
+    needsTranscript: true,
+    // Needs both a git working tree and a transcript, neither guaranteed to the
+    // canary process, so the healthy canary outcome is a RECORDED skip
+    // (mt#3824 R2) short-circuited before either is read.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary new-surface design pass", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4171 — gate (h)'s enumeration-scope backstop.
+  //
+  // ADR-042's table assigns this row to the READY seam. It is here instead,
+  // because the ADR's own DISCRIMINATOR — "place each mechanizable one at the
+  // seam where its evidence first exists" — points here once two of that
+  // assignment's premises are measured rather than assumed: the sweep's
+  // directories are a shell command string (~98% of searches), and the change
+  // type is not inferable at READY because the spec does not yet name the
+  // artifact. mt#4252's spec at its own READY transition contains zero route
+  // paths, zero `contract/` references and zero `docs/` paths. The guard's module
+  // header carries the full measurement; mt#4293 owns amending the ADR text and
+  // re-pricing mt#4172, which was to inherit the `tasks_status_set` wiring this
+  // row no longer pays for.
+  //
+  // This is the same move §Sibling reconciliation already made for gate (n):
+  // "No diff exists at plan time. It moves to the `pr` seam."
+  // -------------------------------------------------------------------------
+  {
+    name: "enumeration-scope-check",
+    // RECORDER ONLY. ADR-042 §Posture puts every new row at calibration-first,
+    // and this is a provenance check: a missed sweep-call shape is a false
+    // positive fired at an author who did the work (mem#719). Measured over 589
+    // transcripts: 14 decided of 1134 PR-creates, 5 flagged — one of them
+    // reviewer-confirmed (mt#4252 / PR #3101 BLOCKING), the rest unclassified
+    // pending live calibration.
+    effects: [recorderEffect()],
+    // `advisory`: "which consumer directories does THIS change prescribe?" is a
+    // judgment the serialized-surface path proxy stands in for.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./enumeration-scope-check").then((m) => ({ run: m.run })),
+    // A pass over transcript lines the dispatcher already parsed, with no git
+    // subprocess and no DB round trip — cheaper than its diff-reading siblings.
+    timeoutMs: 10000,
+    calibrationLog: "enumeration-scope",
+    // NEVER denies — a missed consumer class is a prompt to go look.
+    denyCapable: false,
+    // Record-only: no injected text today, so the frame is the calibration
+    // record rather than a rendered message.
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // LOAD-BEARING (PR #2886 R1 on the sibling): `ctx.transcriptLines` is
+    // populated ONLY for a registration that declares this (D6), and the
+    // session's edit and sweep calls are this guard's ENTIRE input. Without it
+    // the guard records `skipped` on every live run — present, tested, green,
+    // inert.
+    needsTranscript: true,
+    // The canary process gets no transcript, so the healthy outcome is a
+    // RECORDED skip (mt#3824 R2), short-circuited before any call is read.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary enumeration scope check", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
+];

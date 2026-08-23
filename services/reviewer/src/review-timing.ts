@@ -41,6 +41,68 @@ export interface ReviewTimingInput {
   costUsd?: number | null;
 }
 
+/**
+ * Everything the failure path knows at the moment the model call throws.
+ *
+ * Deliberately NOT `ReviewRunContext`: that context is built AFTER the model
+ * call returns, so the path this covers can never have one.
+ */
+export interface UnrecoveredTimingInput {
+  db: ReviewerDb | undefined;
+  timingRecorder?: (db: ReviewerDb, input: ReviewTimingInput) => Promise<void>;
+  prOwner: string;
+  prRepo: string;
+  prNumber: number;
+  headSha: string;
+  iterationIndex: number;
+  totalWallClockMs: number;
+  /** Partial timing salvaged off the thrown error; absent when the error carried none. */
+  partialTiming?: {
+    roundLatenciesMs: number[];
+    timeoutCount: number;
+    retryOutcomes: string[];
+  };
+  scopeClassification: string | null;
+  toolUseActive: boolean;
+  provider: string;
+  model: string;
+}
+
+/**
+ * Persist one `review_timing` row for a review that THREW before producing
+ * output (mt#4281) — the third timing shape, alongside the two pre-model skip
+ * writes in `runReview` and the post-model `writeMainPathTiming`.
+ *
+ * Token fields are omitted rather than zeroed: a review that never returned
+ * usage has UNKNOWN token spend, and zeroes would understate cost in exactly
+ * the aggregate the July 2026 audit reads. NULL is the honest value.
+ *
+ * Like `recordReviewTiming`, this must never affect the review path — the
+ * caller rethrows the original error immediately after. Failures here are
+ * swallowed by `recordReviewTiming` itself.
+ */
+export async function recordUnrecoveredReviewTiming(input: UnrecoveredTimingInput): Promise<void> {
+  if (input.db === undefined) return;
+  await (input.timingRecorder ?? recordReviewTiming)(input.db, {
+    prOwner: input.prOwner,
+    prRepo: input.prRepo,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    iterationIndex: input.iterationIndex,
+    totalWallClockMs: input.totalWallClockMs,
+    perRoundLatenciesMs: input.partialTiming?.roundLatenciesMs ?? [],
+    timeoutCount: input.partialTiming?.timeoutCount ?? 0,
+    // The mt#1969 in-round retry is accounted for inside `retryOutcomes`; this
+    // path never completed the whole-review retry that `retryCount` counts.
+    retryCount: 0,
+    retryOutcomes: input.partialTiming?.retryOutcomes ?? [],
+    scopeClassification: input.scopeClassification,
+    toolUseActive: input.toolUseActive,
+    provider: input.provider,
+    model: input.model,
+  });
+}
+
 export async function recordReviewTiming(db: ReviewerDb, input: ReviewTimingInput): Promise<void> {
   // mt#2723: emit per-review cost to Braintrust (fire-and-forget; no-op on the
   // pre-model skip paths where inputTokens is null; independent of the Postgres

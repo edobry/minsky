@@ -18,9 +18,10 @@
  */
 
 import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
+import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
 import { DaemonClient } from "./client";
-import { makeErrorResponse, type JsonRpcMessage } from "./protocol";
+import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:48765/mcp";
@@ -134,17 +135,71 @@ export async function handleLine(
     return;
   }
 
-  ctx.client.observeInbound(msg);
-
   let outgoing = msg;
   if (ctx.conversationAgentId) {
     const injected = injectAgentIdMeta(msg, ctx.conversationAgentId);
     if (injected) outgoing = injected;
   }
 
+  // mt#4450: a client capability is a claim about this CONNECTION, and this
+  // connection cannot carry a server-initiated request (see capabilities.ts).
+  // Applied to `outgoing`, not `msg`, so the two transforms compose — they
+  // never both fire today (one matches `initialize`, the other `tools/call`),
+  // but chaining them is what makes that a fact about the methods rather than
+  // a dependency on the order this function happens to run them in.
+  const narrowed = stripUnsupportedCapabilities(outgoing);
+  if (narrowed) outgoing = narrowed;
+
+  // Observe the OUTGOING message, not the original — and this ordering is
+  // load-bearing rather than tidy. `observeInbound` stores the `initialize`
+  // request for REPLAY: `reinitialize()` re-sends it verbatim when the daemon
+  // reports the transport session gone (`SessionNotFoundError`). Observing
+  // `msg` here would stash the un-narrowed declaration and re-advertise
+  // `elicitation` on every session recovery, so the fix above would hold only
+  // until the first reconnect — the kind of regression that reappears under
+  // exactly the conditions nobody reproduces on purpose.
+  ctx.client.observeInbound(outgoing);
+
   try {
     const responses = await ctx.client.send(outgoing);
     for (const resp of responses) {
+      // mt#4128: record the tool list this conversation was actually served.
+      //
+      // The condition this exists for: a conversation can hold ZERO
+      // `mcp__minsky__*` tools for its entire life while every process stays
+      // healthy and `claude mcp list` reports the server Connected. The client
+      // caches whatever `tools/list` it first receives and does not refresh on
+      // `notifications/tools/list_changed` (mt#2030,
+      // anthropics/claude-code#4118), so one bad list is permanent for that
+      // conversation. Without this line there is no record, anywhere, of
+      // whether a list was served or how big it was — which is why the
+      // 2026-08-13 occurrence could not be diagnosed after the fact.
+      //
+      // stderr, NOT `log.*`, and that is the point rather than a style choice:
+      // `resolveDiagnosticSink` returns the `agent` sink — structured JSON on
+      // STDOUT — whenever `MINSKY_LOG_MODE=STRUCTURED` or
+      // `ENABLE_AGENT_LOGS=true` is set (packages/shared/src/logger.ts:136).
+      // stdout here IS the JSON-RPC channel, so routing this record through the
+      // logger would let a diagnostic for channel corruption become a cause of
+      // it. The shim already writes its other diagnostics to stderr for the
+      // same reason.
+      // Guarded, and the guard is the load-bearing part (PR #3038 R1). This
+      // write sits INSIDE the same `try` that converts a throw into a
+      // "daemon request failed" JSON-RPC error frame below. Unguarded, an
+      // EPIPE on stderr — a closed diagnostic stream, which says nothing about
+      // the daemon — would be reported to the client as a daemon failure AND
+      // would skip forwarding a response that actually succeeded. A diagnostic
+      // must never be able to change what the client receives.
+      try {
+        const servedCount = toolsListCount(resp);
+        if (servedCount !== null) {
+          ctx.stderr.write(`[shim] tools/list served: ${servedCount} tool(s)\n`);
+        }
+      } catch {
+        // intentional-swallow: the served-count record is diagnostic only, and
+        // there is nowhere to report a failure to write a diagnostic except the
+        // stream that just failed.
+      }
       ctx.stdout.write(`${JSON.stringify(resp)}\n`);
     }
   } catch (err) {

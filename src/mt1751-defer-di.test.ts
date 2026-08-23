@@ -21,10 +21,13 @@ import { isMcpStartStdio } from "./cli-discriminators";
 
 // --- isMcpStartStdio discriminator ---
 
-function buildMcpStartCommand(opts: { http?: boolean } = {}): Command {
+function buildMcpStartCommand(opts: { http?: boolean; localDaemon?: boolean } = {}): Command {
   const root = new Command("minsky");
   const mcp = new Command("mcp");
-  const start = new Command("start").option("--http", "HTTP transport").option("--port <port>");
+  const start = new Command("start")
+    .option("--http", "HTTP transport")
+    .option("--port <port>")
+    .option("--local-daemon", "shared local daemon mode (implies --http)");
   mcp.addCommand(start);
   root.addCommand(mcp);
 
@@ -34,6 +37,9 @@ function buildMcpStartCommand(opts: { http?: boolean } = {}): Command {
   // Commander does internally after parsing.
   if (opts.http) {
     start.setOptionValueWithSource("http", true, "cli");
+  }
+  if (opts.localDaemon) {
+    start.setOptionValueWithSource("localDaemon", true, "cli");
   }
 
   return start;
@@ -94,6 +100,32 @@ describe("isMcpStartStdio — mt#1751 preAction discriminator", () => {
     // With no opts(), we treat it as "no --http set" — return true (stdio).
     // This matches the production default: most invocations are stdio.
     expect(isMcpStartStdio(malformed)).toBe(true);
+  });
+});
+
+describe("isMcpStartStdio — mt#4297: --local-daemon is a MODE that implies HTTP", () => {
+  // mt#4297. `--local-daemon` supplies the transport itself (start-command.ts
+  // sets `options.http = true` in the action body, and registry.rs spawns the
+  // tray's daemon WITHOUT `--http`). preAction runs BEFORE that action body, so
+  // inferring stdio from the absence of `--http` classified the daemon as stdio
+  // and skipped `container.initialize()`. The stdio background-init site then
+  // also skipped, because by then `transportType` was "http" — each path
+  // assuming the other had run. Result: a daemon with no persistence provider,
+  // observed live serving `/health` 200 with `mode:"unconfigured"` for 31h.
+
+  test("returns false for `mcp start --local-daemon` (the tray's exact argv)", () => {
+    const cmd = buildMcpStartCommand({ localDaemon: true });
+    expect(isMcpStartStdio(cmd)).toBe(false);
+  });
+
+  test("returns false for `mcp start --http --local-daemon` (setup local-http's argv)", () => {
+    const cmd = buildMcpStartCommand({ http: true, localDaemon: true });
+    expect(isMcpStartStdio(cmd)).toBe(false);
+  });
+
+  test("still returns true for bare `mcp start` — the genuine stdio case mt#1751 defers", () => {
+    const cmd = buildMcpStartCommand();
+    expect(isMcpStartStdio(cmd)).toBe(true);
   });
 });
 

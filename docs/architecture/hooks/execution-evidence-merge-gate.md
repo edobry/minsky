@@ -113,6 +113,47 @@ criterion, so a single marker would excuse an entire list. That is precisely the
 explaining the skip reads as coverage to a human and as nothing to the gate" failure the marker
 convention exists to prevent.
 
+### Being addressed is not the same as agreeing (mt#4214)
+
+The four tests above answer whether a criterion was REFERENCED. They compare nothing, so a PR
+that names the criterion AND pastes the command's real output clears every one of them while the
+output says the opposite of what the criterion asks for. mt#4214 adds the agreement half.
+
+**Both sides read counts through ONE shared list.** `extractAssertedCount` reads the count a
+criterion states; `extractReportedCount` reuses it for the evidence and adds the shape a
+criterion never has — a lone bare integer on its own line, which is what `wc -l` and `grep -c`
+print. Two hand-mirrored matchers would drift on every widening (mt#4070's shape).
+
+**The capture list is a strict SUBSET of the classifier's expected-result patterns** —
+`returns zero|no|N <unit>`, `the count is N`, `zero|0 <unit>`. It adds none: widening the
+classifier changes which criteria the surface considers executable, and therefore the population
+every calibration record is drawn from. `exit code 0` and `is empty` ARE classifier shapes and
+are not counts, so they land as `not-comparable`.
+
+**Attribution is bounded, and keyword association is not a basis for it.** The region whose
+number belongs to a criterion is (1) a dedicated `SC<N>` heading section, else (2) the evidence
+lines referencing it by number plus the block beneath, stopping at a blank line or a different
+criterion's number, else null. Keyword overlap — the loosest of the four presence tests — is
+excluded deliberately: it is where a wrong pairing would come from, and a confident false
+disagreement costs more than no check (mem#719). More than one bare integer in a region reads as
+null for the same reason. The terminator recognizes ALL FOUR written reference forms (`SC2`,
+`success criterion 2`, `criterion 2`, `sc-2`) from the same list the region STARTER uses; PR
+#3082 R1 caught them as two hand-mirrored lists, where an adjacent `Criterion 2:` line with no
+blank line before it bled into the previous criterion's region.
+
+**What it emits.** A disagreement produces a WARN naming `asks for N, evidence reports M`, and a
+calibration record; agreement produces nothing at all. The record carries `findingClasses`
+(`unreferenced` / `disagrees`), `disagreeingCriteria` (number, text, expected, actual) and
+`notComparableCriterionCount`. The classes are separated so `/calibration-review` can rate them
+independently — their remedies differ ("run the command" versus "the output contradicts the
+criterion"), so a shared FP rate over both would be uninterpretable. Posture is unchanged:
+log-only, never a merge block.
+
+**The limit, measured.** mt#4076 / PR #3047 motivated the change and is not caught by it. Its
+criterion — `returns one hit per subcommand action` — matches no expected-result pattern at all,
+so it is not classified executable and the surface reports `applicable: false`. The instance sits
+outside this check's POPULATION, not merely outside its comparable subset; a test pins that.
+
 ### `SC<N>` heading recognition is this task's half of FP-4
 
 mt#3339 owns the general FP-4 fix (evidence under non-canonical headings such as `## Testing`

@@ -29,7 +29,10 @@
  */
 
 import { pagePrincipalForAsk, type PrincipalPageDeps } from "@minsky/domain/ask/principal-page";
-import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import {
+  notifyPrincipal,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import type { Ask } from "@minsky/domain/ask/types";
 
 /** A severity-marked, operator-routed ask — the only shape that notifies. */
@@ -81,6 +84,7 @@ async function main(): Promise<number> {
       const result = await notifyPrincipal({
         message: message.message,
         title: message.title,
+        deps: createRealPrincipalChannelDeps(),
       });
       return result.delivered
         ? { delivered: true }

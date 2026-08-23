@@ -1,0 +1,592 @@
+/**
+ * Nonexistent-search-path detector (mt#4215).
+ *
+ * A search command whose TARGET PATH does not exist prints nothing, and `2>/dev/null` deletes the
+ * one signal that tells that apart from "searched, found nothing." The empty result then reads as
+ * an answer, and the next sentence is a false claim of absence.
+ *
+ * ## Why stderr is the only channel that matters
+ *
+ * The exit code DOES distinguish the two cases — a missing path exits 2, a genuine no-match exits 1
+ * (measured 2026-08-17 across ugrep 7.5.0, system BSD grep, and ripgrep; `find` is 1 vs 0). That
+ * makes a post-hoc `PostToolUse` observer reading the exit code look strictly better than this
+ * guard: no argument parsing, hence no false-positive surface, and it would cover the cases
+ * §Resolution base leaves this guard silent on.
+ *
+ * It cannot be built. Claude Code's hooks reference states that `Bash` returns an object with
+ * `stdout`, `stderr`, `interrupted`, and `isImage` — there is no exit-code field, so a hook sees
+ * only the two streams. stderr is therefore not one of two redundant signals; it is the ONLY one
+ * that reaches a reader, and `2>/dev/null` destroys it completely. The pre-run `stat` below is what
+ * is left. Full record: mt#4215 §Alternative mechanism considered and retired.
+ *
+ * ## What it does NOT catch, stated so nobody reads a fire as containment
+ *
+ * "Search" conflates locating a target, filtering within it, and matching content. This guard
+ * checks the FIRST only. The originating incident had causes in the first two: two nonexistent
+ * paths AND a real directory (`cockpit-tray/src`) whose `--include='*.ts'` excluded every file in
+ * it. So this guard fires on that command and still does not fully explain it. The filter-mismatch
+ * slice needs a directory scan rather than a stat and is deliberately out of scope.
+ *
+ * ## Silence is the safe direction, and it is load-bearing
+ *
+ * A path argument is only checked when it is statically resolvable. Unresolvable means: it carries
+ * a variable or a command substitution, it is a glob (which may legitimately match nothing), or its
+ * base directory is unknown to us — which is the case for a relative path under
+ * `mcp__minsky__session_exec` (whose cwd is the session workspace, resolved through an async domain
+ * call) and for any relative path in a command that contains a `cd`. Absolute paths are checked on
+ * every surface, because they mean the same thing from any cwd.
+ *
+ * ## Not governed by ADR-024
+ *
+ * ADR-024's ladder scopes itself to `UserPromptSubmit` guidance hooks matching behavioral trigger
+ * phrases in the agent's own prose. A command string has no paraphrase axis, so neither of its
+ * rungs applies — the same reasoning `registry-command-string-guards.ts`'s header records for this
+ * whole family. Shipping calibration-first here follows the repo-wide observer convention, not that
+ * ADR.
+ */
+
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, resolve, sep } from "node:path";
+import { CANARY_MODE_ENV } from "./types";
+import type { ToolHookInput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import {
+  nonFlagOperands,
+  splitOutsideQuotes,
+  splitPipeline,
+  splitTopLevel,
+  suppliesPattern,
+} from "./command-shape";
+
+/**
+ * Re-exported so this module's tests and any future consumer keep addressing it
+ * here, while the DEFINITION lives in one place (mt#4328).
+ *
+ * The private copy this replaces carried a measured defect. Its scan was bounded
+ * by a grep-only letter set, so a ripgrep short flag the set never knew about
+ * made it return false: `suppliesPattern("-Se")` was `false` (`-S` is ripgrep's
+ * `--smart-case`), which made `pathArgs` treat the real pattern as the path and
+ * return NO paths at all — `rg -Se foo src` passed through this guard checking
+ * nothing. `command-shape.ts` fixed it structurally by deciding the DETACHED form
+ * before consulting any letter set; widening the set was rejected there with the
+ * measurement that ugrep's and ripgrep's short flags union to 51 of 52 letters,
+ * so the bound would guard nothing.
+ */
+export { suppliesPattern };
+
+const OVERRIDE_ENV = "MINSKY_SKIP_NONEXISTENT_SEARCH_PATH";
+
+const SESSION_EXEC_TOOL = "mcp__minsky__session_exec";
+
+/**
+ * Cap on rendered paths, so one command with many bad arguments cannot grow the injection.
+ *
+ * Three, not more: the whole point is made by the first entry, and the sibling command-string
+ * observers declare 700 chars. A fourth entry bought nothing and pushed the measured worst case
+ * past 1300, which would have widened `MERGED_CONTEXT_BUDGET_CHARS` for every turn.
+ */
+const MAX_RENDERED_PATHS = 3;
+
+/** Cap on "did you mean" entries offered per missing path. */
+const MAX_SUGGESTIONS = 2;
+
+/**
+ * Binaries whose empty output is dangerous. The shared property is that a missing path and a
+ * genuine no-match both render as nothing.
+ *
+ * `cat`/`ls`/`sed` are deliberately absent: they fail loudly and self-evidently, and their empty
+ * output is not mistaken for a search result.
+ */
+const SEARCH_BINARIES = new Set(["grep", "egrep", "fgrep", "rg", "ripgrep", "find"]);
+
+// The search-command ARGUMENT grammar — the value-taking long/short option tables,
+// `suppliesPattern`, and the operand walker — lives in `./command-shape` (mt#4320).
+// This file held the first copy; mt#4328 retired it. The tables were verified
+// identical before deletion: 43 long options and 14 short options, with an empty
+// diff in both directions.
+
+/** A single path argument that does not exist, with how far it did resolve. */
+export interface MissingSearchPath {
+  /** The path exactly as it appeared in the command. */
+  raw: string;
+  /** Deepest ancestor that DOES exist, as written; null when even the first segment is absent. */
+  deepestExistingAncestor: string | null;
+  /** The first segment that failed to resolve. */
+  failedSegment: string;
+  /** Entries of the deepest existing ancestor that resemble `failedSegment`; may be empty. */
+  suggestions: readonly string[];
+}
+
+export interface NonexistentSearchPathScanResult {
+  matched: boolean;
+  /** Which search binary was invoked; null when clean. */
+  binary: string | null;
+  missing: readonly MissingSearchPath[];
+  /**
+   * Path arguments that were present but deliberately not checked, and why. Recorded rather than
+   * discarded: the miss rate of the silence rules is otherwise unmeasurable, and this guard's whole
+   * design rests on those rules being conservative in the right direction.
+   */
+  unresolvedCount: number;
+}
+
+const CLEAN: NonexistentSearchPathScanResult = {
+  matched: false,
+  binary: null,
+  missing: [],
+  unresolvedCount: 0,
+};
+
+/** Filesystem surface, injectable so tests never touch the real disk (`no-real-fs-in-tests`). */
+export interface SearchPathFs {
+  existsSync: (p: string) => boolean;
+  readdirSync: (p: string) => string[];
+  isDirectory: (p: string) => boolean;
+}
+
+export const DEFAULT_SEARCH_PATH_FS: SearchPathFs = {
+  existsSync,
+  readdirSync: (p) => readdirSync(p),
+  isDirectory: (p) => {
+    try {
+      return statSync(p).isDirectory();
+    } catch {
+      // A path we cannot stat is treated as not-a-directory; the caller only uses this to decide
+      // whether listing it for suggestions is worthwhile, so failing closed costs a suggestion.
+      return false;
+    }
+  },
+};
+
+/** Split a command stage into quote-aware whitespace tokens, then strip one layer of quoting. */
+export function tokenize(stage: string): string[] {
+  return splitOutsideQuotes(stage, (ch) => (/\s/.test(ch) ? 1 : 0)).map(stripQuotes);
+}
+
+function stripQuotes(token: string): string {
+  if (token.length >= 2) {
+    const first = token[0];
+    const last = token[token.length - 1];
+    if ((first === '"' || first === "'") && first === last) return token.slice(1, -1);
+  }
+  return token;
+}
+
+/** A shell redirection token (`2>/dev/null`, `>out`, `<in`), which is never a search target. */
+function isRedirection(token: string): boolean {
+  return /^\d*[<>]/.test(token);
+}
+
+/** A bare redirection operator whose target is the NEXT token (`> /dev/null`). */
+function isDanglingRedirection(token: string): boolean {
+  return /^\d*[<>]{1,2}$/.test(token);
+}
+
+/**
+ * Positional arguments of a search invocation, in order, with flags and their values removed.
+ *
+ * Always returns an array (PR #3203 R1). It used to be typed `string[] | null` with a docblock
+ * promising null "when the grammar cannot be walked confidently" — but no code path ever produced
+ * one, in this version or the copy it replaced, so the null arm was a dead branch two call sites
+ * carried guards for. The say-nothing-on-an-unknown-shape principle it was reaching for is real and
+ * still enforced, one layer out: `isUnresolvable` and `resolveTarget` decline to stat anything whose
+ * meaning depends on runtime state, which is where an unknown shape actually becomes silence.
+ */
+export function positionalArgs(tokens: readonly string[]): string[] {
+  if (tokens.length === 0) return [];
+
+  // Strip redirections FIRST, then hand the rest to the shared walker (mt#4328).
+  //
+  // This split is the whole reason a wrapper survives rather than the call sites
+  // moving to `nonFlagOperands` directly. That function does NOT skip redirection
+  // tokens, because its other consumer (`evidence-provenance-table.ts`) splits
+  // pipelines upstream and never sees one. This guard does see them, and the
+  // divergence is not cosmetic — measured before the migration:
+  //
+  //   ["grep","-rn","foo","src/",">","/tmp/out"]
+  //     positionalArgs   -> ["foo","src/"]
+  //     nonFlagOperands  -> ["foo","src/",">","/tmp/out"]
+  //
+  // Delegating without this pre-filter would hand `/tmp/out` to the stat path, so
+  // the guard would report a redirect TARGET as a missing search path — a false
+  // positive manufactured from a correct command, which is the one failure this
+  // detector's design goes out of its way to avoid. Moving the skip INTO
+  // `command-shape.ts` was considered and rejected: it changes behaviour for a
+  // consumer that does not need it, and a consolidation is the wrong change to
+  // carry that risk.
+  //
+  // The pre-pass also fixes an edge the interleaved version got wrong: in
+  // `grep -e > out foo` the shell removes `> out` before grep sees anything, so
+  // `-e` takes `foo`. Filtering first reproduces that; the old single pass let
+  // `-e` consume the `>` and then read `out` as a positional.
+  const withoutRedirections: string[] = [tokens[0] as string];
+  for (let i = 1; i < tokens.length; i++) {
+    const token = tokens[i] as string;
+    if (isDanglingRedirection(token)) {
+      i++; // its target is the next token
+      continue;
+    }
+    if (isRedirection(token)) continue;
+    withoutRedirections.push(token);
+  }
+
+  // `findStyle: false` — this walker is only ever reached for grep/rg. `find` has
+  // its own operand extraction below, and deliberately does not share this path;
+  // see `findPathOperands`.
+  return nonFlagOperands(withoutRedirections, { findStyle: false });
+}
+
+/**
+ * Options that precede `find`'s path operands (`find -L src -name '*.ts'`).
+ */
+const FIND_LEADING_OPTS = new Set(["-H", "-L", "-P", "-E", "-s", "-x", "-d"]);
+
+/**
+ * `find`'s path operands: everything between the leading options and the start of the EXPRESSION.
+ *
+ * Walked separately from `positionalArgs` because find's grammar is not getopt. Its expression is a
+ * sequence of primaries, many of which take an operand that is a filename but NOT a search target —
+ * `-newer foo.txt`, `-samefile x`, `-fprint out`. Running the flag-skipping walk over it would turn
+ * every primary operand whose primary is not in a value-taking list into an apparent path argument,
+ * which is the one way this guard could manufacture a false positive from a correct command.
+ *
+ * So: stop dead at the first token that begins an expression (`-`, `(`, `)`, `!`, `,`). Everything
+ * after it is invisible to this guard, which loses nothing — find's path operands can only appear
+ * before the expression.
+ */
+function findPathOperands(tokens: readonly string[]): string[] {
+  const paths: string[] = [];
+  let i = 1;
+  while (i < tokens.length && FIND_LEADING_OPTS.has(tokens[i] as string)) i++;
+
+  for (; i < tokens.length; i++) {
+    const token = tokens[i] as string;
+    if (isDanglingRedirection(token)) {
+      i++;
+      continue;
+    }
+    if (isRedirection(token)) continue;
+    if (token.startsWith("-") || token === "(" || token === ")" || token === "!" || token === ",") {
+      break;
+    }
+    paths.push(token);
+  }
+  return paths;
+}
+
+/**
+ * Which positionals are PATH arguments, per binary.
+ *
+ * `grep`/`rg` take `PATTERN [PATH...]`, so the first positional is the pattern — unless `-e`/`-f`
+ * already supplied one, in which case every positional is a path. `find` takes `[PATH...]
+ * [EXPRESSION]` and is walked by {@link findPathOperands}.
+ */
+export function pathArgs(binary: string, tokens: readonly string[]): string[] {
+  if (binary === "find") return findPathOperands(tokens);
+
+  // Narrowed from `string[] | null` alongside `positionalArgs` (PR #3203 R1):
+  // neither branch here could produce null, so the guard this replaced was dead
+  // and so was the one at its own call site in `scanCommand`.
+  const positionals = positionalArgs(tokens);
+
+  const patternSuppliedByFlag = tokens.some((t, i) => i > 0 && suppliesPattern(t));
+
+  return patternSuppliedByFlag ? positionals : positionals.slice(1);
+}
+
+/** Whether a token's meaning depends on runtime state this guard cannot see. */
+export function isUnresolvable(token: string): boolean {
+  if (token.length === 0) return true;
+  if (token.includes("$") || token.includes("`")) return true; // variable / command substitution
+  if (/[*?[\]{}]/.test(token)) return true; // a glob may legitimately match nothing
+  return false;
+}
+
+/**
+ * Resolve a path token against `cwd`, or return null when the base is unknown.
+ *
+ * The one asymmetry that makes this guard safe on every surface: an absolute path means the same
+ * thing from any working directory, so it is checked even when the cwd is not.
+ */
+export function resolveTarget(
+  token: string,
+  cwd: string | null,
+  relativeBaseKnown: boolean
+): string | null {
+  if (token.startsWith("~")) {
+    return resolve(homedir(), token.slice(1).replace(/^[/\\]/, ""));
+  }
+  if (isAbsolute(token)) return token;
+  if (!relativeBaseKnown || !cwd) return null;
+  return resolve(cwd, token);
+}
+
+/**
+ * Walk `token`'s segments against the filesystem and report how far it got.
+ *
+ * The point is not to report the typo — grep's own stderr does that — but to give the reader the
+ * boundary between what exists and what does not, which is what turns "path missing" into "look
+ * here instead".
+ */
+export function describeMissing(
+  token: string,
+  absolute: string,
+  fs: SearchPathFs
+): MissingSearchPath {
+  const rawSegments = token.split(/[/\\]/).filter((s) => s.length > 0 && s !== ".");
+  const absSegments = absolute.split(sep).filter((s) => s.length > 0);
+
+  let deepestExistingAncestor: string | null = null;
+  let deepestExistingAbsolute: string | null = null;
+  let failedSegment = rawSegments[rawSegments.length - 1] ?? token;
+
+  // Walk from the left; the first segment that does not exist is the boundary.
+  for (let depth = 1; depth <= absSegments.length; depth++) {
+    const candidateAbs = (isAbsolute(absolute) ? sep : "") + absSegments.slice(0, depth).join(sep);
+    if (fs.existsSync(candidateAbs)) {
+      deepestExistingAbsolute = candidateAbs;
+      const rawDepth = rawSegments.length - (absSegments.length - depth);
+      deepestExistingAncestor = rawDepth > 0 ? rawSegments.slice(0, rawDepth).join("/") : null;
+      continue;
+    }
+    const rawIndex = rawSegments.length - (absSegments.length - depth) - 1;
+    failedSegment = rawSegments[rawIndex] ?? (absSegments[depth - 1] as string);
+    break;
+  }
+
+  return {
+    raw: token,
+    deepestExistingAncestor,
+    failedSegment,
+    suggestions: suggestSiblings(deepestExistingAbsolute, failedSegment, fs),
+  };
+}
+
+/**
+ * Entries of the deepest existing ancestor that resemble the failed segment.
+ *
+ * Deliberately quiet: containment or a small edit distance, nothing looser. A guard in this family
+ * inventing a plausible-looking path would be committing the error it exists to prevent, so when
+ * nothing resembles the failed segment it says nothing rather than reaching further afield.
+ */
+export function suggestSiblings(
+  ancestorAbsolute: string | null,
+  failedSegment: string,
+  fs: SearchPathFs
+): string[] {
+  if (!ancestorAbsolute || !fs.isDirectory(ancestorAbsolute)) return [];
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(ancestorAbsolute);
+  } catch {
+    // An unreadable directory yields no suggestions; the missing-path finding itself is unaffected.
+    return [];
+  }
+
+  const needle = failedSegment.toLowerCase();
+  return entries
+    .filter((entry) => {
+      const candidate = entry.toLowerCase();
+      if (candidate === needle) return false;
+      return (
+        candidate.includes(needle) ||
+        needle.includes(candidate) ||
+        editDistance(candidate, needle) <= 2
+      );
+    })
+    .slice(0, MAX_SUGGESTIONS);
+}
+
+/** Levenshtein distance, bounded use only (comparing single path segments). */
+export function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 3; // any answer >2 is equivalent for our purposes
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const substitution = (previous[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1);
+      current[j] = Math.min(
+        substitution,
+        (previous[j] as number) + 1,
+        (current[j - 1] as number) + 1
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length] as number;
+}
+
+export interface ScanOptions {
+  cwd: string | null;
+  /** False when relative paths cannot be resolved: a `session_exec` call, or a command with `cd`. */
+  relativeBaseKnown: boolean;
+  fs?: SearchPathFs;
+}
+
+/**
+ * A stage carrying an unquoted command substitution cannot be tokenized on whitespace.
+ *
+ * `$(git rev-parse --show-toplevel)/nope` splits into `$(git`, `rev-parse`, and
+ * `--show-toplevel)/nope` — and `rev-parse` then looks exactly like a relative path argument, which
+ * is a false positive manufactured entirely by our own tokenizer. Tokenizing shell syntax properly
+ * is out of scope for a guard whose value is being cheap and certain, so a stage that contains one
+ * is skipped whole.
+ */
+function hasCommandSubstitution(stage: string): boolean {
+  return stage.includes("$(") || stage.includes("`");
+}
+
+export function scanCommand(
+  command: string,
+  options: ScanOptions
+): NonexistentSearchPathScanResult {
+  const fs = options.fs ?? DEFAULT_SEARCH_PATH_FS;
+  const segments = splitTopLevel(command);
+
+  // A `cd` anywhere re-bases every relative path that follows it, and we do not track where to.
+  const hasCd = segments.some((segment) => tokenize(splitPipeline(segment)[0] ?? "")[0] === "cd");
+  const relativeBaseKnown = options.relativeBaseKnown && !hasCd;
+
+  // Accumulated across every stage, INCLUDING the clean ones. This is the only measurement of what
+  // the silence rules above cost, so returning a shared zero-valued CLEAN constant would discard it
+  // on precisely the runs where it is the whole signal.
+  let unresolvedCount = 0;
+
+  for (const segment of segments) {
+    for (const stage of splitPipeline(segment)) {
+      const tokens = tokenize(stage);
+      const binary = tokens[0];
+      if (!binary || !SEARCH_BINARIES.has(binary)) continue;
+
+      const paths = pathArgs(binary, tokens);
+
+      if (hasCommandSubstitution(stage)) {
+        unresolvedCount += paths.length;
+        continue;
+      }
+
+      const missing: MissingSearchPath[] = [];
+
+      for (const token of paths) {
+        if (isUnresolvable(token)) {
+          unresolvedCount++;
+          continue;
+        }
+        const absolute = resolveTarget(token, options.cwd, relativeBaseKnown);
+        if (absolute === null) {
+          unresolvedCount++;
+          continue;
+        }
+        if (fs.existsSync(absolute)) continue;
+        missing.push(describeMissing(token, absolute, fs));
+      }
+
+      if (missing.length > 0) {
+        return { matched: true, binary, missing, unresolvedCount };
+      }
+    }
+  }
+
+  return { ...CLEAN, unresolvedCount };
+}
+
+function renderMissing(entry: MissingSearchPath): string {
+  const where = entry.deepestExistingAncestor
+    ? `\`${entry.deepestExistingAncestor}\` exists, \`${entry.failedSegment}\` does not`
+    : `\`${entry.failedSegment}\` does not exist`;
+  const hint =
+    entry.suggestions.length > 0 ? ` — did you mean ${entry.suggestions.join(", ")}?` : "";
+  return `  - ${entry.raw} — ${where}${hint}`;
+}
+
+export function buildWarning(result: NonexistentSearchPathScanResult): string {
+  const shown = result.missing.slice(0, MAX_RENDERED_PATHS);
+  const overflow = result.missing.length - shown.length;
+  const lines = shown.map(renderMissing);
+  if (overflow > 0) lines.push(`  - …and ${overflow} more`);
+
+  return (
+    `[nonexistent-search-path] \`${result.binary}\` targets ${result.missing.length} path(s) that ` +
+    `do not exist:\n\n${lines.join("\n")}\n\n` +
+    `An empty result here is NOT evidence of absence, and a suppressed stderr leaves no error to ` +
+    `notice. Fix the path and re-run before concluding anything from this output. If you meant to ` +
+    `search only the paths that do exist, keep the caveat — the result is bounded to those.`
+  );
+}
+
+function isOverridden(): boolean {
+  return process.env[OVERRIDE_ENV] === "1";
+}
+
+export async function run(
+  input: ToolHookInput,
+  _ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  if (isOverridden()) return null;
+
+  const toolInput = input.tool_input ?? {};
+  const command = typeof toolInput["command"] === "string" ? (toolInput["command"] as string) : "";
+  if (!command) return null;
+
+  // `session_exec` runs in the session workspace, resolved through an async domain call this guard
+  // deliberately does not make. Its ABSOLUTE path arguments are still checked.
+  const relativeBaseKnown = input.tool_name !== SESSION_EXEC_TOOL;
+
+  const result = scanCommand(command, {
+    cwd: typeof input.cwd === "string" ? input.cwd : null,
+    relativeBaseKnown,
+  });
+
+  const base = {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+    toolName: input.tool_name ?? null,
+    binary: result.binary,
+    missingCount: result.missing.length,
+    unresolvedCount: result.unresolvedCount,
+    // The sweep's diversity axis is the SHAPE — which binary, and how far the paths got — not the
+    // raw command, which is near-unique and would satisfy a distinct-phrase gate by construction
+    // (the mt#3781 defect).
+    phrase: result.matched
+      ? `${result.binary}: ${result.missing.map((m) => m.failedSegment).join(",")}`
+      : null,
+  };
+
+  // The scan reads the filesystem but takes no other dependency, so canary mode runs it unchanged.
+  if (process.env[CANARY_MODE_ENV] === "1" && !result.matched) {
+    return { calibration: { ...base, outcome: "clean" } };
+  }
+
+  if (!result.matched) {
+    return { calibration: { ...base, outcome: "clean" } };
+  }
+
+  return {
+    additionalContext: buildWarning(result),
+    calibration: { ...base, outcome: "matched" },
+  };
+}
+
+/**
+ * Worst-case rendering for the registry's `attentionCost` probe (mt#4002).
+ *
+ * Saturated on every axis at once: `MAX_RENDERED_PATHS` entries plus the overflow line, each with a
+ * long path, a long failed segment, and a full `MAX_SUGGESTIONS` hint list. The path strings
+ * themselves are unbounded, which is why `guard-feedback-shape.test.ts` classifies this a saturated
+ * SAMPLE rather than a proved ceiling.
+ */
+export function renderWorstCase(): string {
+  const entry = (n: number): MissingSearchPath => ({
+    raw: `packages/domain/src/subsystem-${n}/very/deeply/nested/directory-name`,
+    deepestExistingAncestor: `packages/domain/src/subsystem-${n}/very/deeply/nested`,
+    failedSegment: "directory-name",
+    suggestions: ["directory-names", "directory-name-v2"],
+  });
+  return buildWarning({
+    matched: true,
+    binary: "ripgrep",
+    missing: [entry(1), entry(2), entry(3), entry(4), entry(5)],
+    unresolvedCount: 0,
+  });
+}

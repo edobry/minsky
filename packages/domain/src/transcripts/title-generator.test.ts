@@ -12,7 +12,14 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { TitleGenerator, normalizeTitle, TITLE_MODEL_HINT, TITLE_MAX_LEN } from "./title-generator";
+import {
+  TitleGenerator,
+  normalizeTitle,
+  selectTitleTurns,
+  TITLE_MODEL_HINT,
+  TITLE_MAX_LEN,
+  TURN_SCAN_LIMIT,
+} from "./title-generator";
 import type { CognitionProvider, CognitionTask, CognitionResult } from "../cognition/types";
 import type { ExtractedTurn } from "./turn-extractor";
 
@@ -160,5 +167,93 @@ describe("TitleGenerator.generateTitle", () => {
     await expect(new TitleGenerator(provider).generateTitle(SESSION, [turn("hi")])).rejects.toThrow(
       /packaged/i
     );
+  });
+});
+
+/**
+ * mt#4179 — the window is measured in turns-with-content, not turns.
+ *
+ * The defect these pin: `turns.slice(0, 12)` counted TURNS, and a turn is not a
+ * unit of content. Measured on `bb0650ed-…` (a 177-turn session) turns 1-6 have
+ * `userText` and `assistantText` BOTH NULL — an agent working through
+ * Read/Grep/Bash emits them continuously — so the model was shown one four-word
+ * exchange and correctly answered "Untitled" about a conversation full of
+ * subject matter.
+ */
+describe("selectTitleTurns", () => {
+  /** A tool-call-only turn: the row exists, both text columns are NULL. */
+  const silent = (): ExtractedTurn => turn(null, null);
+
+  test("skips text-free turns and reaches the prose behind them", () => {
+    const turns = [
+      turn("whats going on here?"),
+      ...Array.from({ length: 6 }, silent),
+      turn("the cockpit conversation list shows a uuid instead of a name"),
+    ];
+    const selected = selectTitleTurns(turns);
+
+    expect(selected).toHaveLength(2);
+    // The load-bearing assertion: the turn BEHIND the silent run is included.
+    // Under the old first-12-outright window it fell outside a window that had
+    // already been spent on empty turns.
+    expect(selected[1]?.userText).toContain("cockpit conversation list");
+  });
+
+  test("an attachment placeholder is not content", () => {
+    const placeholder = turn("[Image: source: /Users/e/.claude/image-cache/abc/1.png]");
+    expect(selectTitleTurns([placeholder])).toEqual([]);
+    // ...but a placeholder alongside real prose keeps the turn.
+    const mixed = turn("[Image: source: /tmp/1.png] why does this render as a uuid");
+    expect(selectTitleTurns([mixed])).toHaveLength(1);
+  });
+
+  test("a harness-markup-only turn is not content", () => {
+    expect(selectTitleTurns([turn("<command-message>error-handling</command-message>")])).toEqual(
+      []
+    );
+  });
+
+  test("an assistant-only turn counts — content is not user-only", () => {
+    expect(
+      selectTitleTurns([turn(null, "I'll look at the retry path in session start.")])
+    ).toHaveLength(1);
+  });
+
+  test("caps at the model's turn budget even when more content is available", () => {
+    const turns = Array.from({ length: 40 }, (_, i) => turn(`substantive prompt number ${i}`));
+    // 12 is the model-facing budget; the cap must bind before TURN_SCAN_LIMIT.
+    expect(selectTitleTurns(turns)).toHaveLength(12);
+  });
+
+  test("stops scanning at TURN_SCAN_LIMIT rather than walking a whole transcript", () => {
+    const turns = [
+      ...Array.from({ length: TURN_SCAN_LIMIT }, silent),
+      turn("prose that sits just past the scan bound"),
+    ];
+    // Deliberately empty: an unbounded scan would find that last turn, and a
+    // 283-turn conversation would then pay for a full walk on every tick.
+    expect(selectTitleTurns(turns)).toEqual([]);
+  });
+
+  test("generateTitle sends the prose from behind a silent run, not the thin opening", async () => {
+    const provider = makeProvider(completed("Cockpit conversation labels"));
+    const turns = [
+      turn("whats going on here?"),
+      ...Array.from({ length: 6 }, silent),
+      turn("the conversation list shows a uuid instead of a name"),
+    ];
+    const title = await new TitleGenerator(provider).generateTitle(SESSION, turns);
+
+    expect(title).toBe("Cockpit conversation labels");
+    const prompt = provider.lastTask?.userPrompt ?? "";
+    expect(prompt).toContain("shows a uuid instead of a name");
+  });
+
+  test("generateTitle makes NO model call when every scanned turn is content-free", async () => {
+    const provider = makeProvider(completed("should not be used"));
+    const title = await new TitleGenerator(provider).generateTitle(SESSION, [silent(), silent()]);
+
+    expect(title).toBeNull();
+    expect(provider.lastTask).toBeNull();
   });
 });

@@ -43,6 +43,11 @@ describe("event category classification", () => {
           // operator's attention has failed to get it — classifying its own
           // failure as informational would mean nobody is reading.
           "ask.page_failed",
+          // mt#4205: `cockpit start` terminated a previous cockpit instance to
+          // reclaim the port. Actionable for the same reason as
+          // `guard.overridden` — a process was force-terminated, and a RISING
+          // count means the daemon keeps wedging badly enough to need it.
+          "cockpit.port_displaced",
         ] satisfies SystemEventType[]
       ).sort()
     );

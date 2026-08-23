@@ -221,6 +221,7 @@ describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
   process.env.MINSKY_STATE_DIR = "/fake-minsky-state-dir";
   const LOG_PATH = "/fake-minsky-state-dir/mcp-disconnect-log.json";
   const HWM_PATH = "/fake-minsky-state-dir/mcp-disconnect-sweep-hwm.json";
+  const SERVER_NAME = "Minsky MCP Server";
 
   it("returns early (no-op) when persistence lacks sql capability", async () => {
     const getDatabaseConnection = mock(() => Promise.resolve({}));
@@ -259,7 +260,7 @@ describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
     const logContent = `${[
       JSON.stringify({
         timestamp: "2026-01-01T00:00:00Z",
-        serverName: "Minsky MCP Server",
+        serverName: SERVER_NAME,
         kind: "disconnect",
         cause: "stdin_close",
         uptimeMs: 12345,
@@ -267,7 +268,7 @@ describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
       }),
       JSON.stringify({
         timestamp: "2026-01-01T00:01:00Z",
-        serverName: "Minsky MCP Server",
+        serverName: SERVER_NAME,
         kind: "disconnect",
         cause: "stdin_close",
       }),
@@ -291,6 +292,81 @@ describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
     // A second sweep with no new lines should not re-emit.
     await triggerMcpDisconnectEventSweep(provider, fakeFs);
     expect(insertValues).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the HWM at the last PERSISTED event when an emit fails mid-backlog", async () => {
+    // Four disconnects; the third insert fails, as it does when SIGTERM closes
+    // persistence under this fire-and-forget sweep mid-backlog (mt#4131).
+    const timestamps = [
+      "2026-01-01T00:00:00Z",
+      "2026-01-01T00:01:00Z",
+      "2026-01-01T00:02:00Z",
+      "2026-01-01T00:03:00Z",
+    ];
+    const logContent = `${timestamps
+      .map((timestamp) =>
+        JSON.stringify({
+          timestamp,
+          serverName: SERVER_NAME,
+          kind: "disconnect",
+          cause: "staleness_exit",
+        })
+      )
+      .join("\n")}\n`;
+    const fakeFs = createFakeFs({ [LOG_PATH]: logContent });
+
+    let attempts = 0;
+    const insertValues = mock(() => {
+      attempts++;
+      if (attempts >= 3) {
+        const err = new Error('Failed query: insert into "system_events" ...');
+        err.cause = Object.assign(new Error("write CONNECTION_ENDED host:6543"), {
+          code: "CONNECTION_ENDED",
+        });
+        return Promise.reject(err);
+      }
+      return Promise.resolve();
+    });
+    const fakeDb = { insert: () => ({ values: insertValues }) };
+    const provider = {
+      capabilities: { sql: true },
+      getDatabaseConnection: () => Promise.resolve(fakeDb),
+    } as unknown as BasePersistenceProvider;
+
+    const warnCalls: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const logDeps = {
+      warn: (message: string, meta?: Record<string, unknown>) =>
+        void warnCalls.push({ message, meta }),
+    };
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs, logDeps);
+
+    // Halted at the first failure rather than attempting (and losing) the rest:
+    // 2 successes + 1 failure = 3 attempts, NOT 4.
+    expect(insertValues).toHaveBeenCalledTimes(3);
+
+    // Exactly ONE warning for the halt, not one per dropped event — and it
+    // carries BOTH halves: the driver cause captured from the emitter, and the
+    // count left unswept. The emitter's own warn is routed into the sweep
+    // rather than logged separately, so a single failure is a single line.
+    expect(warnCalls).toHaveLength(1);
+    const halt = warnCalls.at(0);
+    expect(halt?.meta?.causeCode).toBe("CONNECTION_ENDED");
+    expect(halt?.meta?.persisted).toBe(2);
+    expect(halt?.meta?.unswept).toBe(2);
+
+    // The HWM must not pass an event that was never written — otherwise the
+    // unwritten events are marked swept and are gone for good.
+    const hwm = JSON.parse(fakeFs.readFileSync(HWM_PATH));
+    expect(hwm.lastSweptTimestamp).toBe("2026-01-01T00:01:00Z");
+
+    // Next boot re-sweeps from there: the two unpersisted events are retried.
+    attempts = 0;
+    await triggerMcpDisconnectEventSweep(provider, fakeFs);
+    expect(insertValues).toHaveBeenCalledTimes(5);
+    expect(JSON.parse(fakeFs.readFileSync(HWM_PATH)).lastSweptTimestamp).toBe(
+      "2026-01-01T00:03:00Z"
+    );
   });
 
   it("never throws even if getDatabaseConnection rejects (best-effort contract)", async () => {

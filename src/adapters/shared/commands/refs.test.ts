@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { classifyRef, resolveRefs, type RefResolvers } from "./refs";
+import {
+  classifyRef,
+  resolveRefs,
+  renderOutcomeLabel,
+  type RefResolvers,
+  type RefStatusResult,
+} from "./refs";
 
 const ASK_UUID = "38b1c0de-1234-4abc-8def-000000000001";
 const MEMORY_UUID = "87181969-2d58-4a41-bc5e-a0d328b36a2e";
@@ -78,23 +84,25 @@ const byEitherForm =
       : { found: false };
   };
 
-describe("resolveRefs", () => {
-  const resolvers: RefResolvers = {
-    getTaskStatus: async (id) =>
-      id === "mt#404" ? { found: false } : { found: true, status: "DONE", title: `Task ${id}` },
-    getChangesetStatus: async (n) =>
-      n === "404" ? { found: false } : { found: true, status: "open", title: `PR ${n}` },
-    getAskState: byEitherForm(ASK_UUID, "ask#6448", { status: "closed", title: "An ask" }),
-    getMemoryState: byEitherForm(MEMORY_UUID, "mem#775", {
-      status: "project",
-      title: "A memory",
-    }),
-    getWorkspaceState: byEitherForm(WORKSPACE_UUID, "ws#1", {
-      status: "active",
-      title: "mt#3354",
-    }),
-  };
+// Module-scoped so the outcome-discrimination block below reuses this one
+// fixture rather than declaring a second, divergent copy of the same contract.
+const resolvers: RefResolvers = {
+  getTaskStatus: async (id) =>
+    id === "mt#404" ? { found: false } : { found: true, status: "DONE", title: `Task ${id}` },
+  getChangesetStatus: async (n) =>
+    n === "404" ? { found: false } : { found: true, status: "open", title: `PR ${n}` },
+  getAskState: byEitherForm(ASK_UUID, "ask#6448", { status: "closed", title: "An ask" }),
+  getMemoryState: byEitherForm(MEMORY_UUID, "mem#775", {
+    status: "project",
+    title: "A memory",
+  }),
+  getWorkspaceState: byEitherForm(WORKSPACE_UUID, "ws#1", {
+    status: "active",
+    title: "mt#3354",
+  }),
+};
 
+describe("resolveRefs", () => {
   test("resolves 6 mixed refs (3 tasks, 2 PRs, 1 ask) in one call", async () => {
     const results = await resolveRefs(
       ["mt#1", "mt#2", "mt#3", "100", "PR #200", ASK_UUID],
@@ -130,7 +138,9 @@ describe("resolveRefs", () => {
       },
     };
     const results = await resolveRefs(["123", "mt#1"], throwing);
-    expect(results[0]).toMatchObject({ found: false, error: "GitHub unreachable" });
+    expect(results[0]).toMatchObject({ found: false, outcome: "unavailable" });
+    // The raw cause is logged, never returned (mt#4142) — see the leak test below.
+    expect(results[0]?.error).not.toMatch(/GitHub unreachable/);
     expect(results[1]?.found).toBe(true);
   });
 
@@ -242,10 +252,14 @@ describe("resolveRefs", () => {
       },
     };
     const [result] = await resolveRefs([MEMORY_UUID], allDown);
-    expect(result?.found).toBe(false);
-    expect(result?.error).toMatch(/asks down/);
-    expect(result?.error).toMatch(/memories down/);
-    expect(result?.error).toMatch(/workspaces down/);
+    expect(result).toMatchObject({ found: false, outcome: "unavailable" });
+    // This used to splice every store's raw message into `error`. mt#4142 moved
+    // the causes to the log and kept the COUNT, which is the part a caller can
+    // act on: 3 of 3 down is an outage, 1 of 3 is a partial degradation.
+    expect(result?.error).toMatch(/3 of 3/);
+    for (const cause of ["asks down", "memories down", "workspaces down"]) {
+      expect(result?.error).not.toMatch(cause);
+    }
   });
 
   test("one shared cause across every store is reported once, not three times", async () => {
@@ -265,7 +279,102 @@ describe("resolveRefs", () => {
       },
     };
     const [result] = await resolveRefs([MEMORY_UUID], dbDown);
-    expect(result?.error).toBe("uuid lookup failed — DB unavailable");
+    // The dedup this test was written for is retired: no cause is returned at
+    // all now, so a repeated one cannot be repeated. What replaced it is the
+    // property asserted here — one bounded sentence, whatever the stores said.
+    expect(result?.error).toBe(
+      "the uuid lookup did not complete against 3 of 3 stores — " +
+        "this ref's existence is unknown, not disproven"
+    );
+    expect(result?.error).not.toMatch(/DB unavailable/);
+  });
+});
+
+// mt#4142. `found: false` answered two questions at once — did the lookup
+// COMPLETE, and did it MATCH — so an unreachable backend was indistinguishable
+// from a ref that does not exist. ADR-035 rule 5 names that obligation
+// (data-plane honesty); rule 4 supplies the word `unavailable`.
+describe("outcome discriminates the three non-found cases", () => {
+  const DRIZZLE_SHAPED =
+    'Failed query: select "id", "short_id", "state" from "asks" ' +
+    'where "asks"."short_id" = $1 limit $2\nparams: ask#8520,1';
+
+  test("a driver message never reaches the result", async () => {
+    const leaky: RefResolvers = {
+      ...resolvers,
+      getAskState: async () => {
+        throw new Error(DRIZZLE_SHAPED);
+      },
+    };
+    const [result] = await resolveRefs(["ask#8520"], leaky);
+
+    expect(result?.outcome).toBe("unavailable");
+    // Each fragment separately: a filter that dropped only one of them would
+    // still be leaking, and asserting the whole string would not say which.
+    for (const fragment of ["Failed query:", "params:", "select ", '"asks"', "$1"]) {
+      expect(result?.error).not.toContain(fragment);
+    }
+    expect(result?.error).toMatch(/existence is unknown/);
+  });
+
+  test("absent, unavailable and unparseable are told apart in ONE call", async () => {
+    const askDown: RefResolvers = {
+      ...resolvers,
+      getTaskStatus: async (id: string) => {
+        if (id === "mt#500") throw new Error(DRIZZLE_SHAPED);
+        return { found: false };
+      },
+    };
+    const [absent, unavailable, unparseable, found] = await resolveRefs(
+      ["mt#404", "mt#500", "garbage!", "ask#6448"],
+      askDown
+    );
+
+    expect(absent).toMatchObject({ found: false, outcome: "absent" });
+    expect(absent?.error).toBeUndefined();
+    expect(unavailable).toMatchObject({ found: false, outcome: "unavailable" });
+    expect(unparseable).toMatchObject({ found: false, outcome: "unparseable" });
+    expect(found).toMatchObject({ found: true, outcome: "found" });
+
+    // The point of the discriminator: `found` alone collapses the first three.
+    expect(new Set([absent, unavailable, unparseable].map((r) => r?.found))).toEqual(
+      new Set([false])
+    );
+    expect([absent, unavailable, unparseable].map((r) => r?.outcome)).toEqual([
+      "absent",
+      "unavailable",
+      "unparseable",
+    ]);
+  });
+
+  test("the rendered label distinguishes them too, not just the JSON", () => {
+    const base = { ref: "x", kind: "task" as const, id: "x" };
+    const label = (r: Partial<RefStatusResult>) =>
+      renderOutcomeLabel({ ...base, found: false, outcome: "absent", ...r } as RefStatusResult);
+
+    expect(label({ outcome: "absent" })).toBe("NOT FOUND");
+    expect(label({ outcome: "unavailable", error: "backend down" })).toMatch(/^UNKNOWN/);
+    expect(label({ outcome: "unparseable", error: "bad shape" })).toMatch(/^BAD REF/);
+    expect(label({ found: true, outcome: "found", status: "TODO", title: "T" })).toBe("TODO  T");
+
+    // The specific regression: an unreachable backend must not render the words
+    // that assert the ref does not exist.
+    expect(label({ outcome: "unavailable", error: "backend down" })).not.toMatch(/NOT FOUND/);
+  });
+
+  // PR #3041 R1: `status` is optional on ResolvedRef, so a hit without one used
+  // to interpolate the literal string "undefined" into the status column.
+  test("a found ref with no status does not render the word undefined", () => {
+    const label = renderOutcomeLabel({
+      ref: "mt#1",
+      kind: "task",
+      id: "mt#1",
+      found: true,
+      outcome: "found",
+      title: "A task",
+    });
+    expect(label).not.toMatch(/undefined/);
+    expect(label).toBe("FOUND  A task");
   });
 });
 

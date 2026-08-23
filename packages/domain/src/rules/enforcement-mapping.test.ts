@@ -300,18 +300,39 @@ describe("MCP tool-logic enforcement coverage", () => {
 //     task found and removed for require-acceptance-tests-before-done.ts.
 // These tests close both gaps.
 
+/**
+ * The subject this parity check reads, named as a RESOLVABLE string literal (mt#4367).
+ *
+ * The declaration is the load-bearing part, not the value. `scripts/find-related-tests.ts`
+ * builds a DATA-READ edge (mt#4224) only from a quoted literal that resolves to a file which
+ * exists, and this test used to assemble its subject fragment-by-fragment —
+ * `path.join(dir, ".claude", "settings.json")` — which mt#4224's SC5 bounds out by
+ * construction. The contiguous string did appear in this file, but only in comments and an
+ * error message, neither of which the extractor can turn into an edge. So
+ * `findRelatedTestFiles([".claude/settings.json"])` returned `[]`, and a hook registered in
+ * settings.json without an `enforcement-mapping.ts` entry was invisible to the pre-commit
+ * gate — first surfaced by a full CI run, after the PR had already been approved (mt#1880).
+ *
+ * Naming it is the affordance mt#4224's own docblock documents: a `join(REPO_ROOT, relPath)`
+ * whose `relPath` is a named constant works, because the CONSTANT's declaration carries the
+ * literal and the extractor scans the whole file rather than the call site. No selector
+ * change and no widening of mt#4224's deliberate bound is needed — the shipped mechanism
+ * already handles this shape once the test names its subject.
+ */
+const SETTINGS_JSON_RELATIVE_PATH = ".claude/settings.json";
+
 /** Locate the repo's .claude/settings.json by walking up from a starting directory. */
 function findSettingsJsonPath(startDir: string): string {
   let dir = startDir;
   for (let i = 0; i < 10; i++) {
-    const candidate = path.join(dir, ".claude", "settings.json");
+    const candidate = path.join(dir, SETTINGS_JSON_RELATIVE_PATH);
     // eslint-disable-next-line custom/no-real-fs-in-tests -- locating the real settings.json is the point of this parity check, not test-state faking (mt#975)
     if (fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  throw new Error(`Could not locate .claude/settings.json above ${startDir}`);
+  throw new Error(`Could not locate ${SETTINGS_JSON_RELATIVE_PATH} above ${startDir}`);
 }
 
 /** Extract every unique ".claude/hooks/*.ts" path referenced by a "command" field in settings.json. */

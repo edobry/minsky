@@ -235,14 +235,18 @@ export interface InterceptorDescription {
   readonly note?: string;
 }
 
-const REGISTRY = ".minsky/hooks/registry.ts";
-const HOOK_FILES_RULE = ".minsky/rules/hook-files.mdc";
-const HOOK_OBSERVERS_RULE = ".minsky/rules/hook-observers.mdc";
-const PRECOMMIT = "src/hooks/pre-commit.ts";
-const KNOWN_NAMES = ".minsky/hooks/known-guard-names.ts";
-
-/** `.minsky/hooks/<name>.ts` — the SOURCE tree; `.claude/hooks/*` is generated. */
-const hook = (file: string): string => `.minsky/hooks/${file}.ts`;
+// The provenance paths live in their own leaf (mt#4198) so the settings-registered
+// cohort below can cite the same values without importing them back out of this
+// module mid-initialization.
+import {
+  HOOK_FILES_RULE,
+  HOOK_OBSERVERS_RULE,
+  KNOWN_NAMES,
+  PRECOMMIT,
+  REGISTRY,
+  hook,
+} from "./interceptor-provenance-paths";
+import { SETTINGS_REGISTERED_DESCRIPTIONS } from "./interceptor-descriptions-settings";
 
 export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescription> = new Map<
   string,
@@ -292,12 +296,92 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "spec-criterion-claim-detector",
+    {
+      description:
+        'Records when a task spec\'s success criterion or acceptance test asserts something unchecked: that the repo ALREADY contains something ("remains documented", "is registered") with no verifying command beside it, or that the work is gated on a precondition the task\'s authorizing ask never contained. A criterion is not a claim that drives a decision — it is the claim the work is measured AGAINST — so a wrong one certifies the wrong thing as done, or blocks work that was already authorized.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("spec-criterion-claim-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "stale-signal-sweep",
+    {
+      description:
+        "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      failureClasses: ["stale-context", "unfounded-claim"],
+      provenance: [hook("stale-signal-sweep"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "unrendered-result-field-scan",
+    {
+      description:
+        "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("unrendered-result-field-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "new-surface-design-pass",
+    {
+      description:
+        "Records when a PR ADDS a user-facing render-path surface and no design skill ran in the conversation that wrote it. The judgment half of mt#2421, whose check asks whether an artifact EXISTS and returns the same answer either way on whether anyone LOOKED: PR #2942 shipped two browser screenshots, a served branch with asserted health identity, and a reproduce recipe, and the pane had no padding. The screenshots were checked against the spec's criteria, and its only aesthetic criterion was conformance-shaped, which is satisfiable by reading class names. Keys on a `Skill` tool_use rather than on self-reported diligence, because the agent authoring the spec is the agent verifying it.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("new-surface-design-pass"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "enumeration-scope-check",
+    {
+      description:
+        'Records when a PR changes a SERIALIZED contract — a `contract/*.json` fixture, a generated manifest, a `-shape.json` — and the session\'s consumer sweep never reached `docs/`, which gate (h) prescribes for that change type. The strictly stronger sibling of the did-a-search-happen guards: every recorded gate-(h) failure DID sweep and missed a prescribed directory. mt#4252 produced a correct six-row consumer table, ruled the Rust side out by reading `rustConsumedFields` rather than assuming, and grepped `docs/architecture/adr-*.md` — a glob that structurally could not reach `docs/principal-channel.md`, whose own "exhaustive per variant" sentence the change made false. Reviewer-confirmed BLOCKING on PR #3101. Record-only: 14 decided of 1134 PR-creates over 589 transcripts, 5 flagged.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("enumeration-scope-check"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "claim-provenance-scan",
+    {
+      description:
+        'Records when a task spec asserts a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim ("unowned", "no task covers this"), and no call in the session could have established it — a `pull_request_read` for the cited PR, a path-filtered `git_log`, or a `tasks_search` preceding the write. Fires at the spec-WRITE seam, where both originating incidents wrote and where no PreToolUse guard existed before. Record-only: measured at one true positive in 16 fires (mt#4190 tunes it).',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("claim-provenance-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
         "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
       failureClasses: ["duplicate-work", "unfounded-claim"],
       provenance: [hook("duplicate-check-search-provenance")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "duplicate-check-candidate-read",
+    {
+      description:
+        "Records whether the candidate tasks a `Duplicate check:` line names were actually opened in the turn, and injects when a reconciliation was written without reading the task it distinguishes.",
+      failureClasses: ["duplicate-work", "unfounded-claim"],
+      provenance: [hook("duplicate-check-candidate-read")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "evidence-record-provenance",
+    {
+      description:
+        "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("evidence-record-provenance"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -318,6 +402,26 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("truncated-outcome-read-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "nonexistent-search-path",
+    {
+      description:
+        "Records a Bash or `session_exec` search (`grep`/`rg`/`find`) whose PATH ARGUMENT does not exist. Such a search prints nothing, exactly like one that legitimately found nothing, and `2>/dev/null` deletes the stderr line separating them — so the empty result reads as an answer and the next claim asserts a false absence. The exit code does distinguish the two, but no hook can read it: Claude Code's `Bash` response carries only stdout, stderr, interrupted and isImage. Hence a pre-run stat. Stays silent whenever a path is not statically resolvable — a glob, a variable, a relative path under `session_exec` or behind a `cd` — because guessing is the very error this guard exists to prevent.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("nonexistent-search-path-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "cli-mcp-substitution",
+    {
+      description:
+        "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("detect-cli-mcp-substitution"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -424,6 +528,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "inject-ask-responses",
+    {
+      description:
+        "Tells the agent that an ask THIS conversation filed has been answered or otherwise settled, so it stops reporting the ask as open from memory of having filed it. Fires once per response.",
+      failureClasses: ["stale-context", "lost-signal"],
+      provenance: [hook("inject-ask-responses")],
+      stratum: "registry",
+    },
+  ],
+  [
     "memory-search",
     {
       description:
@@ -491,7 +605,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "pre-narration-detector",
     {
       description:
-        "Injects when a turn states a tool outcome — created, merged, tests pass — before that result is in hand.",
+        "Records a turn that states a tool outcome — created, merged, tests pass — before that result is in hand. Log-only.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("pre-narration-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
@@ -601,6 +715,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "context-fill-gauge",
+    {
+      description:
+        "Records the session's own context fill against the model's window, every turn, alongside the turn count. The model has no introspective access to its token count, so this is the only channel that can supply one. Display-only: it reports and acts on nothing.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("context-fill-gauge"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "build-claim-injection-detector",
     {
       description:
@@ -686,6 +810,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "turn-end-stale-state-assertion-scan",
+    {
+      description:
+        "Records a closing message that tells the principal an ask or task is awaiting them when the substrate says it is already terminal. Log-only.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("turn-end-stale-state-assertion-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "knowledge-acquisition-detector",
     {
       description:
@@ -710,7 +844,15 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
   ],
 
   // -------------------------------------------------------------------------
-  // Standalone stratum (21) — `.claude/settings.json` hooks, no registry entry
+  // Standalone stratum (49) — `.claude/settings.json` hooks, no registry entry
+  //
+  // The 28 authored by mt#4198 sit in their own block at the end of this
+  // section. They are the population mt#4129 admitted: registered in
+  // `.claude/settings.json`, but absent from the fire log, so the pre-mt#4129
+  // oracle could not see them at all. Their provenance is the source module
+  // ALONE for all but three — `hook-files.mdc` and `hook-observers.mdc`
+  // describe most of them under prose labels rather than by module name, so a
+  // rule pointer would be a claim the grep does not support.
   // -------------------------------------------------------------------------
   [
     "block-git-gh-cli",
@@ -719,6 +861,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Denies git and gh CLI invocations for which a purpose-built MCP tool exists, so operations go through the audited tool surface. Carves out the recommended escape hatches (`git stash`/`reset`/`restore`/`status`) inside a session.",
       failureClasses: ["wrong-workspace"],
       provenance: [hook("block-git-gh-cli"), HOOK_FILES_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
+    "gate-walk-provenance",
+    {
+      description:
+        'Records, at the merge seam, whether the bound task was ever gated at all — a `task.status_changed` row with `newStatus: "READY"`, which only `/plan-task`\'s `tasks.status.set` call produces. The existence half of the gate-(h) pair; `enumeration-scope-check` asks the scope question at `pr` and presupposes the gate was walked, whereas this presupposes nothing and so is the only one that fires on a task that skipped PLANNING (mem#416 enumerates four such paths). Keeps `skipped` strictly apart from `ungated`: emission began ~2026-06 and the emitter swallows its own failures, so a missing row is bounded evidence about the stream, not about the gate. Record-only — never denies, never injects.',
+      failureClasses: ["unreviewed-merge"],
+      provenance: [hook("gate-walk-provenance"), HOOK_OBSERVERS_RULE],
       stratum: "standalone",
     },
   ],
@@ -800,17 +952,6 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       failureClasses: ["wrong-workspace"],
       provenance: [hook("dispatch-intent-write-gate"), HOOK_FILES_RULE],
       stratum: "standalone",
-    },
-  ],
-  [
-    "policy-coverage",
-    {
-      description:
-        "Runs before every Edit/Write/NotebookEdit: when a tool call encodes a preference-bound choice that no policy source covers, it emits a `direction.decide` ask and blocks the action with the question surfaced as the denial reason.",
-      failureClasses: ["lost-signal", "blind-enforcement"],
-      provenance: [hook("policy-coverage-detector"), HOOK_FILES_RULE],
-      stratum: "standalone",
-      note: "Ontology amendment (a): its declared type is a capability SET — it selects deny, warn, or allow per fire — so it is legitimately both a guard and a detector.",
     },
   ],
   [
@@ -972,6 +1113,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "sql-capability-message-check",
+    {
+      description:
+        "Blocks a commit whose persistence-gated error says only that the database is unavailable, without naming which of the two opposite causes it is — never configured, or configured and failed at boot (ADR-035 rule 3). The check itself predates this registration by a long way and had no caller at all until mt#4398, so it sat exiting non-zero against three real sites that nothing surfaced.",
+      failureClasses: ["broken-main"],
+      provenance: [PRECOMMIT, "scripts/check-sql-capability-messages.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
     "node-shim-check",
     {
       description:
@@ -988,6 +1139,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Blocks a commit whose staged content contains NUL bytes, which corrupt the file for every downstream text tool.",
       failureClasses: ["broken-main"],
       provenance: [PRECOMMIT, "src/hooks/nul-byte-detector.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
+    "conflict-marker-check",
+    {
+      description:
+        "Blocks a commit whose staged content carries git conflict markers. Unlike several siblings it does not skip `src/generated/**`, which is where a failed stash pop's corruption went unnoticed until an unrelated test failed to parse the file.",
+      failureClasses: ["broken-main"],
+      provenance: [PRECOMMIT, "src/hooks/conflict-marker-detector.ts"],
       stratum: "precommit",
     },
   ],
@@ -1028,6 +1189,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Recompiles `.claude/hooks/*` from their `.minsky/hooks/*` sources and re-stages them, so the hooks that actually run are never older than the sources under review.",
       failureClasses: ["broken-main", "blind-enforcement"],
       provenance: [PRECOMMIT, "src/hooks/claude-hooks-compile-regen.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
+    "interceptor-catalog-regen",
+    {
+      description:
+        "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      failureClasses: ["broken-main", "blind-enforcement"],
+      provenance: [PRECOMMIT, "src/hooks/interceptor-catalog-regen.ts"],
       stratum: "precommit",
     },
   ],
@@ -1174,6 +1345,18 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
   // Retired stratum (2) — no longer exist in source; their records are history
   // -------------------------------------------------------------------------
   [
+    "policy-coverage",
+    {
+      description:
+        "Retired PreToolUse detector (Surface 1 of the System 3* detector) that ran before every Edit/Write and decided whether existing policy prose already authorized a preference-bound choice — a new file, dependency, config default, user-facing string, or top-level export.",
+      failureClasses: ["lost-signal"],
+      provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
+      stratum: "retired",
+      note: "Retired 2026-08-16 by mt#4197 (ask#8752). Ran log-only for its entire life and blocked nothing; measured over its 1,760-record log it classified 97.7% of actions 'covered' on incidental keyword matches, and its target problem was postulated from LLM training dynamics rather than observed (mt#1035 cites zero incidents). No source module exists — the oracle's declaration is the only honest pointer. The fire log is append-only history, so its 12,135 records persist under this name permanently.",
+    },
+  ],
+  [
     "unit-tests",
     {
       description:
@@ -1220,6 +1403,11 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       note: "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
     },
   ]),
+
+  // The settings-registered cohort, authored in mt#4198 and held in a sibling
+  // module so this file stays under the `max-lines` ceiling. Spread here so
+  // there is still ONE map: every consumer keeps a single lookup.
+  ...SETTINGS_REGISTERED_DESCRIPTIONS,
 ]);
 
 // ---------------------------------------------------------------------------

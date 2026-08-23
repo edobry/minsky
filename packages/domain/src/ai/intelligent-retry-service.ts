@@ -6,6 +6,7 @@
 import { injectable } from "tsyringe";
 import { log } from "@minsky/shared/logger";
 import { RateLimitError } from "./enhanced-error-types";
+import { isProviderHealthSignal } from "./request-resilience";
 
 interface CircuitBreakerState {
   failureCount: number;
@@ -76,8 +77,16 @@ export class IntelligentRetryService {
       } catch (error) {
         lastError = error as Error;
 
-        // Record failure
-        this.recordFailure(provider);
+        // Count against the breaker only if this error says something about the
+        // PROVIDER (mt#4212). A rejected request body is a defect in what we
+        // sent — it will fail identically forever and tells us nothing about
+        // whether the provider can serve the next, different call. Counting it
+        // let 76 over-length embedding inputs open the shared
+        // `openai-embeddings` breaker on 2026-08-17 and black out every other
+        // embedding consumer in the process for the breaker's whole timeout.
+        if (isProviderHealthSignal(lastError)) {
+          this.recordFailure(provider);
+        }
 
         // Check if we should retry
         if (attempt < this.maxRetries && shouldRetry(lastError)) {

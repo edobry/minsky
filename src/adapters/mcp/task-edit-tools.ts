@@ -11,6 +11,7 @@
 import { z } from "zod";
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { countOccurrences } from "./session-edit-tools";
 import { formatLineCount } from "@minsky/domain/ai/edit-pattern-utils";
 
@@ -80,6 +81,63 @@ export function decideSpecPatchOutcome(args: {
     }
   }
   return args.dryRun ? { kind: "preview" } : { kind: "write" };
+}
+
+/**
+ * What a spec READ result permits, before any merge or write (mt#4108).
+ *
+ * Sibling of {@link decideSpecPatchOutcome}, same pure-decision-core pattern
+ * (mt#3629), one phase earlier: that one decides what to do with a merge RESULT,
+ * this one decides whether the read is a basis for doing anything at all.
+ *
+ * **The distinction it exists to make.** A read that THREW and a spec that is
+ * ABSENT both used to land as `specExists === false`, so a transient failure was
+ * reported as "task spec is empty or task doesn't exist" — two claims that are
+ * both false on that path. An agent told its task does not exist stops trusting
+ * the id it was handed.
+ *
+ * **Why a failed read aborts even with no markers.** The obvious fix is to gate
+ * this on `hasMarkers`, matching the branch that raised the misleading error.
+ * That leaves a worse hole open. With a failed read AND marker-less content,
+ * `specExists` is false, so the mt#2400 fail-closed guard (which fires on
+ * `specExists && !hasMarkers`) does NOT fire, and control reaches the direct-write
+ * branch for a brand-new spec — replacing a populated spec with the payload.
+ * The mt#3674 collapse guard cannot catch it either: it compares against
+ * `originalContent`, which is `""` after a failed read, so there is no shrink to
+ * detect. A read that threw is not evidence of anything, least of all a licence
+ * to overwrite; it aborts unconditionally.
+ *
+ * Precedence: `read-failed` outranks `absent`, because a read that threw tells
+ * us nothing about whether the spec exists.
+ */
+export type SpecReadOutcome =
+  | { kind: "read-failed"; message: string }
+  | { kind: "absent-with-markers"; message: string }
+  | { kind: "proceed" };
+
+export function decideSpecReadOutcome(args: {
+  taskId: string;
+  specExists: boolean;
+  specReadError: unknown;
+  hasMarkers: boolean;
+  describeError: (err: unknown) => string;
+}): SpecReadOutcome {
+  if (args.specReadError) {
+    return {
+      kind: "read-failed",
+      message:
+        `Cannot patch task ${args.taskId}: reading its current spec FAILED, so it is unknown ` +
+        `whether the spec exists — this is NOT a claim that the task is missing. The spec was ` +
+        `NOT modified; retry. Cause: ${args.describeError(args.specReadError)}`,
+    };
+  }
+  if (!args.specExists && args.hasMarkers) {
+    return {
+      kind: "absent-with-markers",
+      message: `Cannot apply edits with existing code markers to task ${args.taskId} - task spec is empty or task doesn't exist`,
+    };
+  }
+  return { kind: "proceed" };
 }
 
 export function assertNoSuspiciousSpecCollapse(
@@ -240,6 +298,10 @@ COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the r
           // Load current task spec content
           let originalContent = "";
           let specExists = false;
+          // Distinct from `!specExists` (mt#4108): "the read threw" and "there
+          // is no spec" are different facts, and only one of them says anything
+          // about whether the task exists.
+          let specReadError: unknown = null;
 
           try {
             const specResult = await getTaskSpecContentFromParams(
@@ -256,18 +318,41 @@ COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the r
               originalContent = specResult.content;
               specExists = true;
             }
-          } catch (_error) {
-            // Spec doesn't exist or task doesn't exist - handle below
-            log.debug("Task spec not found or empty", { taskId: typedArgs.taskId });
+          } catch (error) {
+            // A THROW here is not the same condition as a spec that is absent
+            // (mt#4108). Both used to collapse into `specExists === false`, so a
+            // transient read failure — a pool blip, a timeout — was reported to
+            // the caller as "task spec is empty or task doesn't exist": two
+            // claims that are both FALSE on this path, about a task that exists
+            // and a spec that is populated. An agent reading that concludes its
+            // id is wrong and goes looking for a task that was there all along.
+            //
+            // Kept separate so the message below can be, and carried rather than
+            // discarded — `getLoggableErrorSummary` keeps the Postgres cause,
+            // which on a Drizzle failure sits on `.cause` while `.message` is
+            // the query text (mt#3398).
+            specReadError = error;
+            log.warn(`Task spec read failed for ${typedArgs.taskId}`, {
+              error: getLoggableErrorSummary(error),
+            });
           }
 
           const hasMarkers = hasExistingCodeMarkers(typedArgs.content);
 
-          // If spec doesn't exist and we have existing code markers, that's an error
-          if (!specExists && hasMarkers) {
-            throw new Error(
-              `Cannot apply edits with existing code markers to task ${typedArgs.taskId} - task spec is empty or task doesn't exist`
-            );
+          // Read-phase decision as DATA (mt#4108), mirroring
+          // `decideSpecPatchOutcome`'s treatment of the merge phase. A failed
+          // read outranks the absent-spec branch and aborts regardless of
+          // markers — see `decideSpecReadOutcome`'s docblock for why gating it
+          // on markers would leave a spec-overwrite path open.
+          const readOutcome = decideSpecReadOutcome({
+            taskId: typedArgs.taskId,
+            specExists,
+            specReadError,
+            hasMarkers,
+            describeError: getLoggableErrorSummary,
+          });
+          if (readOutcome.kind !== "proceed") {
+            throw new Error(readOutcome.message);
           }
 
           // mt#2400 fail-closed guard: patching an EXISTING spec with marker-less

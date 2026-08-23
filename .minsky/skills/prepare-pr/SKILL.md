@@ -224,6 +224,8 @@ After PR creation, do NOT continue **implementing new scope** on the session bra
 
 **Next steps once the PR is open:** the `minsky-reviewer[bot]` fires automatically; drive the PR via `session_pr_wait-for-review`. For webhook-miss diagnosis and bypass-merge procedure, consult `/merge-coordination` §7a and §8. For in-flight branch-divergence checks during multi-round iteration, consult `/orchestrate` Error recovery.
 
+**Doing other work before the review lands? Pass `session` when you arm the watch (mt#1593).** `session_pr_wait-for-review` blocks, which is right when you intend to act on the review immediately. For the do-other-work case the mechanism is `pr_watch_create` — and it is deliverable ONLY if the create call carries `session:` (or `sessionId:`). `extractSessionId` (`src/adapters/shared/commands/pr-watch.ts`) reads exactly those two parameter names off the call itself; with neither present the watch stores a null `parentSessionId` and can never wake you. The miss IS recorded server-side (registration logs `pr_watch.no_session_id`), but it never reaches your tool results — so nothing tells YOU at the time. You are session-bound here, so unlike `/plan-task` the delivery conjunction is satisfiable — `session.pr.get` and `session.pr.list` are both on `WAKE_ENRICHMENT_ALLOWLIST` and both take a session argument — so no paired background poll is needed. mt#1594 will return deliverability as a create-time fact, retiring this paragraph.
+
 ## PR types
 
 The accepted set is the commit-msg hook's allowlist (`src/hooks/commit-msg.ts`,

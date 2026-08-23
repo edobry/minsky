@@ -201,6 +201,15 @@ queryable signal is now owned by `mt#2897`: the fallback emits a structured warn
 `credentialPath` field (`app-token` / `keychain-unconfigured` / `keychain-fallback`), so a future
 recurrence can be confirmed directly from the tool result rather than inferred from code-reading.
 
+`mt#3264` closed the other half of that signal. The fallback is deliberately narrow — it fires only
+on a permission-denial phrase co-occurring with a 403, so that a deliberate server-side block is
+never converted into a successful push under a different identity — and an App-token push that
+fails outside that signature used to be declined SILENTLY, which in the logs is indistinguishable
+from a fallback that never ran. That case now emits
+`session.commit.push_fallback_declined` carrying git's reason. So when diagnosing this class, the
+absence of `session.commit.push_credential_fallback` no longer means "the fallback logic did not
+run": check for the declined event too, and read its `reason`.
+
 ## Cross-references
 
 - `mt#2800` — this task (investigation + this playbook).

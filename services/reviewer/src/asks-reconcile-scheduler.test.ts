@@ -28,7 +28,13 @@ import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 const BASE_REVIEWER_CONFIG: ReviewerConfig = {
   appId: 1,
-  privateKey: "",
+  // mt#4435: a non-empty key is now required for the scheduler to start. This
+  // fixture previously carried `privateKey: ""` and passed, because the
+  // scheduler never used the credentials it was handed — which is precisely the
+  // production defect: unauthenticated GitHub calls that looked like a working
+  // poll loop. A booted service always has this (`requireEnv` in config.ts), so
+  // the empty value was never a realistic state, only an unexercised one.
+  privateKey: "-----BEGIN RSA PRIVATE KEY-----\ntest-fixture\n-----END RSA PRIVATE KEY-----",
   installationId: 1,
   webhookSecret: "test-secret",
   provider: "openai",

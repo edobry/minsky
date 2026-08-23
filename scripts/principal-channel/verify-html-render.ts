@@ -26,7 +26,10 @@
  * Exit codes: 0 = Telegram accepted it (or dry-run), 1 = rejected/unconfigured.
  */
 
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
 import { sendTelegramMessage } from "@minsky/domain/notify/telegram-transport";
 
@@ -67,7 +70,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   if (!resolution.configured) {
     // Not a failure of the code under test — say so distinctly.
     console.log(`SKIP: principal channel not configured (${resolution.reason})`);

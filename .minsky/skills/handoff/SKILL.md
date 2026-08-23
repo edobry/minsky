@@ -72,6 +72,26 @@ Tasks filed but not implemented in this conversation:
 
 For each, name the task ID, status, and one-sentence scope. Do NOT exhaustively list pre-existing tasks unrelated to this conversation.
 
+**Every item in this section MUST carry a real task id. If you have identified work and there is
+no task for it, FILE IT — with `/create-task` — BEFORE writing the handoff.** The handoff RECORDS
+the queue; it does not substitute for it. A memory is read only by whoever dereferences that one
+pointer; a task is in the queue, routable, and surfaced by `tasks_list` and the cockpit. There is
+no such thing as a queued item that is "noted here for now" — that is an unfiled item wearing a
+filed item's clothes, and this section is where it becomes invisible, because the section looks
+like it already accounts for everything.
+
+Originating incident (2026-08-18): this section accepted the line _"Run-folding — NOT YET FILED.
+This is the top next action."_ — the principal's own request, self-labelled as unfiled, sitting in
+a list of filed items and named as the highest priority. The same handoff DID file two
+lower-priority tasks, so this was not running out of time; the format simply permitted prose where
+a task belonged. The principal caught it: _"why did you leave that one task unfiled...? how are we
+supposed to work on it exactly..?"_
+
+**Status values in this section are a WRITE-TIME SNAPSHOT, not live state.** Say so, with a
+timestamp, rather than writing them as present-tense fact — the receiving side re-derives them
+with `refs_status` (see `## Continuation guidance`) and needs a baseline to diff against. This is
+the ref-shaped case of the general rule in step 5.
+
 ### 5. Identify open threads
 
 What's mid-flight or unresolved?
@@ -92,6 +112,55 @@ cockpit `/ask` surface. (For a non-principal next-step a lookup or standing defa
 that's a normal "Suggested next sessions" entry, not an ask.) This is the handoff enforcement
 of the escalation-packaging family (memory `3e3f29d8`; R4 2026-06-12 was an end-of-session
 handoff that named the mt#2372 lens decision in prose with no ask).
+
+**A thread that names concrete actionable work needs a task id too.** Step 4's requirement is not
+escaped by moving the item down here. Distinguish the two shapes: a genuinely OPEN QUESTION
+("should the rail axis be time or task?") belongs in this section as prose, and a decision the
+principal owns routes to an ask per the paragraph above; but "the merged work caused a UI
+regression" is WORK, and work carries an id. If you cannot tell which you are writing, ask whether
+someone could be assigned it — if yes, file it.
+
+**Claims about substrate state that are NOT task/PR/ask refs must be re-derived or timestamped.**
+`refs_status` re-validates ref-shaped claims, and the receiving side is instructed to run it — so
+those are covered. Nothing covers the rest: a backlog count, a queue depth, a review or deploy
+state, a service's health, "N items are unprocessed", "nobody has looked at X". Before writing one,
+either **re-derive it at write time** (run the sweep, read the endpoint, query the count) or
+**write it as an explicitly timestamped snapshot that names what settles it** — "as of 2026-08-18
+19:36Z, four logs were past threshold (settle: `observability_calibration-review`)" — never as
+present-tense fact. **Include the DATE, not just the time:** a handoff is often
+read hours or days later, and a bare `19:36Z` is ambiguous across a midnight boundary — which defeats
+the baseline it exists to provide. Staleness cannot be detected against a baseline that was never
+recorded.
+
+**A snapshot with no settler is an authoring defect, because a timestamp gives the reader nothing to
+RUN.** A date says WHEN the claim was true; it cannot say whether it is true NOW, and the receiving
+side is instructed to check before repeating it (`## Continuation guidance` step 3). Naming the
+command is what makes that instruction executable — without it the successor's only honest label is
+`unknown` per `claim-confidence.mdc`, which wastes the snapshot you took the trouble to record.
+
+**Characterizations need the ARTIFACT to read, not a command to run.** A sentence asserting what a
+state MEANS — "that ask is a real unanswered question, not debris"; "this task is still blocking X" —
+is an agent-authored judgment (`claim-confidence.mdc §The corpus is agent-authored`), and **no status
+command can falsify a judgment.** The tell is a judgment word — _real, genuine, still, merely,
+debris, blocking, actually, worth_ are the common ones, not the whole set, so match on the SHAPE (a
+verdict about the state rather than a reading of it) rather than on this list. Record **where the judgment came from** — the ask's body, the PR's diff,
+the spec section — so the successor can re-form it instead of inheriting it.
+
+**Originating incident — the characterization half** (2026-08-20, mem#1166): a handoff called ask#9278 _"a real unanswered question,
+not debris"_; the next session re-derived the ask's STATE correctly with `refs_status`, reported
+"Still yours," and the principal answered _"looks like it was resolved...?"_ They were right — the
+ask's own title began _"RESOLVED — reviewer restored…"_ and its question opened **"RESOLVED. No
+action needed from you."** The state check passed and the
+wrong claim rode straight through it, because the inherited sentence was never a claim about the
+state column at all.
+
+**This is the failure that survives doing the ref check correctly**, which is what makes it worth
+its own instruction. **Originating incident — the state-claim half** (2026-08-18, mem#1089): a handoff re-derived all six of
+its task refs with `refs_status`, said so in its own header, and then asserted in a narrative
+section that a calibration backlog was _"the genuinely unactioned item from that session … none was
+reviewed."_ A pass had cleared that backlog 49 minutes before the handoff was written. Every
+pointer in the record resolved; the false claim was in the prose, where there was no pointer to
+validate. The next agent acted on it and found the work already done.
 
 ### 6. Recommend next sessions
 
@@ -122,7 +191,12 @@ chat prose is advisory only, per the Plan decision recorded in mt#2827.
 - `content`: the full payload from steps 1-7 above (motivation, shipped work, process
   artifacts, queued work with task ids + statuses + next actions, open threads, recommended
   next sessions, resume recommendation) as plain markdown — same no-tables discipline as chat
-  output (see step 9)
+  output (see step 9). **Every queued item in the payload carries its task id**, without
+  exception: the continuation guidance below tells the receiving agent to re-validate the whole
+  queue with one `refs_status` call, and that call has nothing to pass for a prose item. An
+  un-ref'd bullet is silently dropped from the re-validation — it does not error, it simply is
+  not checked, so the successor inherits it as if it had been verified. Any non-ref state claim
+  in the payload carries its as-of timestamp per step 5, for the same reason.
 - `scope`: `"project"` — a handoff is project-grain state. Do NOT pass `projectId` explicitly:
   `memory_create` resolves the current project from the working directory (the same
   ADR-021 resolution the read side uses), and a hand-supplied id risks mis-scoping the
@@ -174,10 +248,19 @@ Handoff recorded: [<short cluster description>](minsky://memory/<uuid>)
 
 ### Queued (filed, not implemented)
 
+<!-- The task id is MANDATORY on every line here, not illustrative. A bullet with no id does
+     not belong in this section — file the task first (step 4). Statuses are a write-time
+     snapshot; state the as-of time once, above the list. -->
+
+Statuses as of YYYY-MM-DD HH:MMZ:
+
 - **mt#X** — READY — <one-sentence scope>
 - **mt#Y** — TODO — <one-sentence scope>
 
 ### Open threads
+
+<!-- Open QUESTIONS and waits go here as prose. Anything that is actionable WORK carries a task
+     id exactly as above (step 5); a decision the principal owns routes to an ask instead. -->
 
 - ...
 
@@ -240,7 +323,21 @@ uuid-keyed records` below) to fetch the full structured payload written in step 
    second per-entity lookup; use it, especially in a closing message handing the principal
    pending decisions (mem#623 R4).
 
-3. **Proceed from the live-verified queue**, not from the memory payload's status snapshot or
+3. **Re-check the two claim classes `refs_status` cannot reach — before repeating either to the
+   principal.** Step 2 covers ref-shaped claims and nothing else, so a payload can pass it
+   completely and still carry a false sentence in the prose between its pointers:
+
+   - **A non-ref state claim** (a backlog count, a queue depth, a deploy or service state) carries
+     the command that settles it, per step 5 of `## Process`. **Run that command.** If none was
+     recorded, the claim is `unknown` per `claim-confidence.mdc` — say so rather than repeating it,
+     and do not upgrade it by re-deriving something adjacent.
+   - **A characterization** — what a state MEANS, marked by a judgment word (e.g. _real, genuine,
+     still, merely, debris, blocking_; the list in step 5 is illustrative, so match on the shape) —
+     is settled by **opening the artifact**, never by
+     a status call. Read the ask's body, the PR's diff, the spec section. A status call returning
+     exactly what the handoff predicted is not corroboration here: it is silent on the question.
+
+4. **Proceed from the live-verified queue**, not from the memory payload's status snapshot or
    any pasted-prose summary.
 
 This makes a corrupted or partial paste recoverable by construction: the pointer alone —
@@ -258,6 +355,25 @@ independent of whatever text actually survived into the chat.
   Unicode box-drawing a terminal UI may render one as) wraps unpredictably and can truncate
   cells mid-word with no visible integrity signal (see `## Output format`'s "Why no tables").
   Use `-` bullet lists for every section, including the queued-work list.
+- **Don't record unfiled work in the queued section.** `NOT YET FILED` in a list of filed items is
+  the failure this format must not accept — file it, then list it. The same applies to actionable
+  work hidden in `Open threads`: if someone could be assigned it, it has an id.
+- **Don't assert un-derived substrate state.** Re-deriving task refs does not verify a backlog
+  count, an ask state, or a deploy state — those carry no ref for `refs_status` to check. Re-derive
+  it at write time, or write it with an as-of timestamp AND the command that settles it. A record
+  can pass every pointer check it has and still be wrong in the prose between them.
+- **Don't repeat a handoff's claim to the principal at verified altitude without probing it.** This
+  is the READ-side twin of the bullet above, and the two fail independently: that one is about what
+  you WRITE into a handoff, this one about what you SAY after reading one. A handoff is a durable,
+  authoritative-looking artifact, so its sentences arrive already sounding checked — you have less
+  reason to doubt a claim you inherited than one you formed yourself, which is exactly backwards.
+  Before a handoff's claim enters a principal-facing message, run its settler (state claim) or open
+  its artifact (characterization) per `## Continuation guidance` step 3, or label it `unknown`.
+  Originating incident (2026-07-22, mem#676): mem#673 recorded _"`hook-files.mdc` exceeds the 15K
+  ceiling → EVERY commit currently needs `MINSKY_SKIP_SIZE_BUDGET=1`"_. It was **already false when
+  written** — the rule had been split and verified under the ceiling ~23h earlier — and the next
+  session repeated it to the principal verbatim, inside a planning report, at verified altitude. One
+  ~10s command falsified it.
 - **Don't end with a question.** The handoff is a state document. If a question is needed, it goes in a separate turn.
 
 ## Key principles

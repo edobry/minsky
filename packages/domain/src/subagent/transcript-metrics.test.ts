@@ -1,16 +1,20 @@
 /**
- * Tests for `extractActualModel` (mt#2796).
+ * Tests for `extractActualModel` (mt#2796) and `readTranscriptMetrics` (mt#4122).
  *
- * `readTranscriptMetrics`'s existing toolUseCount/totalTokens/durationMs logic
- * already has coverage via `.minsky/hooks/record-subagent-invocation.test.ts`
- * (through the resolveMetricsTranscriptPath + readTranscriptMetrics pair); this
- * file covers only the new `extractActualModel` reader, which — unlike
- * `readTranscriptMetrics`'s flat-shape assumption — reads the REAL Claude Code
- * transcript shape verified against real on-disk transcripts 2026-07-15:
- * `{"type":"assistant","message":{"model":"...", ...}, ...}` (nested under
- * `message`, not top-level).
+ * Both readers now read the REAL Claude Code transcript shape, verified against
+ * real on-disk transcripts (2026-07-15 for `model`, 2026-08-13 for `content` and
+ * `usage`): `{"type":"assistant","message":{"model":..., "content":[...],
+ * "usage":{...}}, "timestamp":..., "agentId":...}` — the payload is nested under
+ * `message`; only `timestamp`, `type` and `agentId` are genuinely top-level.
  *
- * @see mt#2796 — this task
+ * This header previously described `readTranscriptMetrics`'s "flat-shape
+ * assumption" as a settled difference between the two readers rather than as a
+ * defect in one of them, and said this file covered `extractActualModel` only.
+ * It covered the divergence in prose while the divergence silently emptied two
+ * columns for the corpus's entire lifetime — see mt#4122.
+ *
+ * @see mt#2796 — extractActualModel
+ * @see mt#4122 — the `message`-envelope fix for readTranscriptMetrics
  * @see packages/domain/src/subagent/transcript-metrics.ts — implementation
  */
 
@@ -20,17 +24,17 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  extractActualModel,
-  readTranscriptMetrics,
-  SYNTHETIC_MODEL_SENTINEL,
-} from "./transcript-metrics";
+import { extractActualModel, readTranscriptMetrics } from "./transcript-metrics";
+import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
 
 // ---------------------------------------------------------------------------
 // Fixture builders
 // ---------------------------------------------------------------------------
 
 const fixtureRoots: string[] = [];
+
+/** An agent id that never matches the id under test — the negative-attribution case. */
+const OTHER_AGENT_ID = "some-other-agent";
 
 afterAll(() => {
   for (const root of fixtureRoots) {
@@ -136,7 +140,7 @@ describe("extractActualModel", () => {
 
   test("filters by agentId — skips lines from a different agent", async () => {
     const path = writeTranscript([
-      assistantLine({ model: "claude-opus-4-8", agentId: "some-other-agent" }),
+      assistantLine({ model: "claude-opus-4-8", agentId: OTHER_AGENT_ID }),
       assistantLine({ model: "claude-sonnet-5", agentId: "abc123" }),
     ]);
 
@@ -204,7 +208,7 @@ describe("mt#3256 — attribution requires a positive id match", () => {
 
   test("a mismatching agentId is still skipped (unchanged behavior)", () => {
     const path = writeTranscript([
-      assistantLine({ model: "claude-opus-4-8", agentId: "some-other-agent" }),
+      assistantLine({ model: "claude-opus-4-8", agentId: OTHER_AGENT_ID }),
       assistantLine({ model: "claude-sonnet-5", agentId: "abc123" }),
     ]);
 
@@ -223,12 +227,18 @@ describe("mt#3256 — attribution requires a positive id match", () => {
     // the old filter counted the PARENT's tool-uses and tokens into the
     // subagent's row. `agent_session_id` was never even present on real lines
     // (they carry `agentId`), so nothing was ever excluded.
+    // mt#4122: fixture corrected to the REAL harness shape (payload nested under
+    // `message`). It previously placed `content`/`usage` at the top level, which
+    // no producer emits — so the nulls below passed for the wrong reason.
     const path = writeTranscript([
       {
         type: "assistant",
         timestamp: "2026-07-26T00:00:00Z",
-        content: [{ type: "tool_use" }, { type: "tool_use" }],
-        usage: { input_tokens: 100, output_tokens: 50 },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use" }, { type: "tool_use" }],
+          usage: { input_tokens: 100, output_tokens: 50 },
+        },
       },
     ]);
 
@@ -239,20 +249,29 @@ describe("mt#3256 — attribution requires a positive id match", () => {
   });
 
   test("SC3: readTranscriptMetrics still counts lines that ARE attributed", async () => {
+    // mt#4122: same fixture correction as above. Before the fix this test passed
+    // against a top-level fixture the harness never emits — the assertion was
+    // real but the input was not, which is what kept the defect invisible.
     const path = writeTranscript([
       {
         type: "assistant",
         agentId: "abc123",
         timestamp: "2026-07-26T00:00:00Z",
-        content: [{ type: "tool_use" }, { type: "tool_use" }],
-        usage: { input_tokens: 100, output_tokens: 50 },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use" }, { type: "tool_use" }],
+          usage: { input_tokens: 100, output_tokens: 50 },
+        },
       },
       {
         type: "assistant",
         agentId: "abc123",
         timestamp: "2026-07-26T00:00:05Z",
-        content: [{ type: "tool_use" }],
-        usage: { input_tokens: 10, output_tokens: 5 },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use" }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        },
       },
     ]);
 
@@ -272,5 +291,166 @@ describe("mt#3256 — attribution requires a positive id match", () => {
     expect(extractActualModel(path, "")).toBeNull();
     // ...and the genuinely-not-provided case is unaffected.
     expect(extractActualModel(path, undefined)).toBe("claude-opus-4-8");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4122 — the payload is nested under `message`, not top-level
+// ---------------------------------------------------------------------------
+
+describe("mt#4122 — readTranscriptMetrics reads the `message` envelope", () => {
+  /**
+   * Structure captured from a real per-agent transcript
+   * (`<conv>/subagents/agent-af4c7bcfdc311d929.jsonl`, 2026-08-13). Field names,
+   * nesting and value types are verbatim; the content-block payloads and the
+   * token counts are trimmed/rounded, since only the SHAPE is under test and a
+   * real transcript's block bodies are arbitrary conversation text.
+   *
+   * The observed top-level key set was: agentId, attributionAgent,
+   * attributionSkill, cwd, entrypoint, gitBranch, isSidechain, message,
+   * parentUuid, requestId, sessionId, timestamp, type, userType, uuid, version.
+   * Note what is NOT in it: `content` and `usage`.
+   */
+  function realShapeLine(over: {
+    agentId?: string;
+    timestamp: string;
+    toolUses: number;
+    inputTokens: number;
+    outputTokens: number;
+  }): Record<string, unknown> {
+    return {
+      type: "assistant",
+      agentId: over.agentId ?? "abc123",
+      timestamp: over.timestamp,
+      isSidechain: true,
+      userType: "external",
+      cwd: "/Users/someone/Projects/minsky",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-5",
+        content: [
+          { type: "text" },
+          ...Array.from({ length: over.toolUses }, () => ({ type: "tool_use" })),
+        ],
+        usage: { input_tokens: over.inputTokens, output_tokens: over.outputTokens },
+      },
+    };
+  }
+
+  test("counts tool_use blocks and sums tokens from a real-shaped line", async () => {
+    const path = writeTranscript([
+      realShapeLine({
+        timestamp: "2026-08-04T00:14:36.000Z",
+        toolUses: 2,
+        inputTokens: 2,
+        outputTokens: 342,
+      }),
+      realShapeLine({
+        timestamp: "2026-08-04T00:14:46.000Z",
+        toolUses: 1,
+        inputTokens: 10,
+        outputTokens: 5,
+      }),
+    ]);
+
+    const metrics = await readTranscriptMetrics(path, "abc123");
+
+    // Pre-fix these two were null on 112 of 112 closed subagent_invocations rows.
+    expect(metrics.toolUseCount).toBe(3);
+    expect(metrics.totalTokens).toBe(359);
+    // durationMs read `timestamp`, which IS genuinely top-level, so it always
+    // worked — pinned here to prove the fix did not disturb it.
+    expect(metrics.durationMs).toBe(10_000);
+  });
+
+  test("a non-tool_use content block is not counted", async () => {
+    const path = writeTranscript([
+      realShapeLine({
+        timestamp: "2026-08-04T00:14:36.000Z",
+        toolUses: 0,
+        inputTokens: 7,
+        outputTokens: 3,
+      }),
+    ]);
+
+    const metrics = await readTranscriptMetrics(path, "abc123");
+    expect(metrics.toolUseCount).toBeNull();
+    expect(metrics.totalTokens).toBe(10);
+  });
+
+  test("attribution still applies to the nested shape", async () => {
+    const path = writeTranscript([
+      realShapeLine({
+        agentId: OTHER_AGENT_ID,
+        timestamp: "2026-08-04T00:14:36.000Z",
+        toolUses: 5,
+        inputTokens: 900,
+        outputTokens: 900,
+      }),
+    ]);
+
+    const metrics = await readTranscriptMetrics(path, "abc123");
+    expect(metrics.toolUseCount).toBeNull();
+    expect(metrics.totalTokens).toBeNull();
+  });
+
+  test("back-compat: a top-level-shaped line still reads", async () => {
+    // No current producer emits this, but the fallback is deliberate — a
+    // differently-shaped or older transcript must not silently read as empty.
+    const path = writeTranscript([
+      {
+        type: "assistant",
+        agentId: "abc123",
+        timestamp: "2026-08-04T00:14:36.000Z",
+        content: [{ type: "tool_use" }, { type: "tool_use" }],
+        usage: { input_tokens: 100, output_tokens: 50 },
+      },
+      {
+        type: "assistant",
+        agentId: "abc123",
+        timestamp: "2026-08-04T00:14:46.000Z",
+        content: [{ type: "tool_use" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      },
+    ]);
+
+    const metrics = await readTranscriptMetrics(path, "abc123");
+    expect(metrics.toolUseCount).toBe(3);
+    expect(metrics.totalTokens).toBe(165);
+    expect(metrics.durationMs).toBe(10_000);
+  });
+
+  test("the nested envelope wins when a line somehow carries both", async () => {
+    const path = writeTranscript([
+      {
+        type: "assistant",
+        agentId: "abc123",
+        timestamp: "2026-08-04T00:14:36.000Z",
+        content: [{ type: "tool_use" }, { type: "tool_use" }, { type: "tool_use" }],
+        usage: { input_tokens: 999, output_tokens: 999 },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use" }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        },
+      },
+    ]);
+
+    const metrics = await readTranscriptMetrics(path, "abc123");
+    expect(metrics.toolUseCount).toBe(1);
+    expect(metrics.totalTokens).toBe(15);
+  });
+
+  test("extractActualModel is unchanged by the interface collapse", async () => {
+    const path = writeTranscript([
+      realShapeLine({
+        timestamp: "2026-08-04T00:14:36.000Z",
+        toolUses: 1,
+        inputTokens: 1,
+        outputTokens: 1,
+      }),
+    ]);
+
+    expect(extractActualModel(path, "abc123")).toBe("claude-sonnet-5");
   });
 });

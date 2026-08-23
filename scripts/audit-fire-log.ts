@@ -30,9 +30,6 @@
  * @see .minsky/hooks/fire-log.ts — the log's schema and reader
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { readFireLogEntries, getFireLogPath } from "../.minsky/hooks/fire-log";
 import {
   FIXTURE_GUARD_NAMES,
@@ -44,31 +41,7 @@ import {
   type UnknownGuardName,
 } from "../.minsky/hooks/known-guard-names";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
-
-/**
- * Re-derive the pre-commit step names from source rather than trusting the
- * snapshot in `known-guard-names.ts`.
- *
- * A renamed or newly-added step would otherwise read as an anomaly on every
- * run until someone remembered to update the snapshot — and a checker that
- * reports false positives gets discounted, taking its true positives with it
- * (mem#719). Returns null when the parse finds nothing, so the caller can fall
- * back rather than silently auditing against an empty set (which would flag
- * every legitimate pre-commit step at once).
- */
-function derivePrecommitStepNames(repoRoot: string): string[] | null {
-  try {
-    const source = readFileSync(join(repoRoot, "src", "hooks", "pre-commit.ts"), "utf-8");
-    const names = new Set<string>();
-    for (const match of source.matchAll(/this\.instrumented\(\s*"([a-z0-9-]+)"/g)) {
-      const name = match[1];
-      if (name) names.add(name);
-    }
-    return names.size > 0 ? [...names].sort() : null;
-  } catch {
-    return null;
-  }
-}
+import { derivePrecommitStepNames } from "./precommit-step-names";
 
 function classify(unknown: UnknownGuardName): string {
   if (unknown.retiredButRecent) return "RETIRED-BUT-RESUMED";
@@ -85,6 +58,10 @@ function main(): void {
     logFlagIndex >= 0 && argv[logFlagIndex + 1] ? argv[logFlagIndex + 1] : getFireLogPath();
 
   const repoRoot = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
+  // Kept as the NULLABLE derive rather than `resolvePrecommitStepNames`, which
+  // folds the fallback in: this script REPORTS which branch it took
+  // (`precommitSource` below, and the "FELL BACK to snapshot" line), so it
+  // needs to distinguish them.
   const derived = derivePrecommitStepNames(repoRoot);
 
   const entries = readFireLogEntries({ logPath });
@@ -95,6 +72,11 @@ function main(): void {
   // point: a step DELETED from pre-commit.ts must stop being "known", and a
   // union would keep it known forever. The snapshot is a fallback for when the
   // parse fails, not a floor under the derivation.
+  //
+  // The parse itself moved to `scripts/precommit-step-names.ts` (mt#4071) so
+  // the catalog generator resolves against the same source this does; it
+  // previously read the snapshot and omitted a step that had been firing for
+  // days.
   //
   // Verified by execution, not by reading: with a synthetic pre-commit.ts
   // declaring only `fake-derived-step`, that name resolves and the

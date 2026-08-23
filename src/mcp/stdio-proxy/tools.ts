@@ -128,6 +128,21 @@ function isToolsListResponse(
 }
 
 /**
+ * The number of tools carried by a `tools/list` response, or `null` when `msg`
+ * is not one (mt#4128).
+ *
+ * Reuses `isToolsListResponse` rather than re-deriving the shape, so the
+ * predicate stays the single owner of what counts as a `tools/list` response
+ * here. The count is read BEFORE augmentation at the proxy's call site — it
+ * reports what the inner server served, not what the client will receive after
+ * `__proxy_restart_server` is appended.
+ */
+export function toolsListCount(msg: JsonRpcMessage): number | null {
+  if (!isToolsListResponse(msg)) return null;
+  return msg.result.tools.length;
+}
+
+/**
  * Augment a `tools/list` response with the `__proxy_restart_server` tool.
  *
  * Returns the original object unchanged when:

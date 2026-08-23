@@ -36,10 +36,15 @@ describe("transcripts.search command", () => {
       expect(command.category).toBe(CommandCategory.TRANSCRIPTS);
     });
 
-    test("description mentions semantic similarity and cosine distance", () => {
+    test("description mentions semantic similarity and vector distance", () => {
       const command = getCommand();
       expect(command.description).toContain("semantic similarity");
-      expect(command.description).toContain("cosine distance");
+      // mt#4344: the ranking metric is L2 (`<->`), matching the table's
+      // vector_l2_ops index — it was described as "cosine distance" while the
+      // query used `<=>` against an L2 index, which is exactly the drift this
+      // wording change (and operator-class-alignment.ts) exists to stop.
+      expect(command.description).toContain("vector distance");
+      expect(command.description).not.toContain("cosine distance");
     });
 
     test("declares query, limit, role, from, to, session, and allProjects parameters", () => {

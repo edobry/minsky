@@ -130,10 +130,36 @@ satisfy ONE of:
   timing symptom.
 - **`UNVERIFIED`** — if the control was not actually run this turn, mark the attribution
   with the literal word `UNVERIFIED` (e.g. "UNVERIFIED as load-dependent — isolation
-  control not run") rather than asserting flakiness as settled.
+  control not run") rather than asserting flakiness as settled. **Put it beside the claim
+  it qualifies** — a marker excuses only the claim it sits next to (mt#4166), so one
+  `UNVERIFIED` on a side note does not cover a diagnosis three sections away.
 
-Checkable from the spec text alone: either a command plus its observed pass/fail counts is
-present, or the literal marker `UNVERIFIED` is. Note the asymmetry with §2a — there, the
+**A DENIAL takes different evidence, and counts are not it (mt#4166).** Denying the mode —
+_not flaky_, _not load-dependent_, _fails deterministically_ — is a claim about how the
+failure behaves **across** load conditions, so a measurement from ONE condition cannot
+reach it, however carefully the counts were recorded. Discharge a denial with a literal
+`Load control:` record naming both runs:
+
+```
+Load control:
+`bun test <file>` alone on an idle machine → 67 pass / 0 fail
+`bun test <file>` with the gated suite running → 55 pass / 12 fail
+```
+
+**The label is a heading for the record, not the record.** Both runs must actually be there:
+the check requires two test invocations and observed counts within the lines under the label,
+so `Load control: was never run` and a bare `## Load control` heading do NOT silence anything —
+they carry the label and assert the opposite of compliance.
+
+Counts alone silence an ATTRIBUTION (they at least show the failure is real) and no longer
+silence a denial. If you cannot run both conditions now, mark the denial `UNVERIFIED`
+beside itself rather than recording one run and calling the question settled — that is
+exactly what mt#4158 did, and the 52-second figure it rested on was the author's own
+background test suite.
+
+Checkable from the spec text alone: for an attribution, a command plus its observed
+pass/fail counts, or the literal marker `UNVERIFIED`; for a denial, the literal
+`Load control:` label, or `UNVERIFIED` beside the denial. Note the asymmetry with §2a — there, the
 cheap check is a file read; here it is running one command, which is why "it failed under
 load, so it's flaky" is so easy to file without ever testing it.
 
@@ -236,6 +262,53 @@ presence check has neither." Calibration-first is **mechanism-scoped, not surfac
 The remaining question is enforcement POSTURE, which is the operator's call per mt#3769 —
 routed as an ask rather than decided here.
 
+### 2d. A criterion that reserves a decision to the principal needs the reserving ACT (mt#3855)
+
+If the drafted spec contains a criterion shaped like **"the principal approves X before merge"** —
+_principal approves_, _principal decides_, _pending principal sign-off_, _gated on principal
+review_, _<name> to choose_ — that criterion is a claim about who owns a decision, and it is the
+most consequential kind a spec can carry: a later turn will read it as authorization to HALT
+finished work. Before Step 3 finalizes the spec, each such criterion must satisfy ONE of:
+
+- **Provenance cited** — quote the **principal act** that reserved it: a principal message, an ask
+  response, or the LABEL of an option the principal explicitly selected. Name which.
+- **Phrased as input-welcome instead** — "offer X for principal input; do not block merge on it."
+  This is the right default when nobody actually reserved anything and you simply want their eyes
+  on it.
+
+Checkable from the spec text alone: a quoted act with its source named, or the criterion is
+phrased so it cannot gate a merge.
+
+**Your own option previews are not provenance.** The trap is specific and worth naming: you write
+an `AskUserQuestion` option whose preview says a decision is "yours to write", the principal
+selects that option for the STRUCTURE it labels, and the embedded clause reads afterward like a
+reservation they made. **Selecting an option endorses its LABEL, not side-commitments buried in
+agent-authored description or preview text** — those need their own explicit confirmation first.
+
+**Incident this closes (R6, mt#3838, 2026-08-08).** Exactly that chain: option-preview clause →
+selection read as endorsement → spec criterion ("Principal approves the final hero headline before
+merge", added as an amendment) → a halt on a reviewer-APPROVED, checks-green PR citing that
+criterion plus the reserved category "naming". mt#3596's positive-citation test passed, because
+"naming" IS a reserved category — the fabrication had moved upstream from the halt RATIONALE into
+the RESERVATION, where no gate was looking. Principal: _"it was you who decided that, i didnt 'keep
+it for [myself]'."_
+
+**Scope limit, stated plainly.** This step runs at `tasks_create`. R6's criterion arrived by
+**amendment**, not at creation, so this check would not have caught that instance — it is
+defense-in-depth for the cheapest moment, not the whole fix. The load-bearing half is on the
+CONSUMPTION side, where a halt must now cite the reserving act and agent-authored text is named
+non-provenance: `key-workflows.mdc §Skill-chain semantics` and `/plan-task` Step 4, pinned by
+`tests/domain/plan-task-halt-citation.test.ts`. A bad criterion that gets written can no longer be
+cited to hold a merge.
+
+**Enforcement tier: prompt-time prose (this step).** Same shape as §2a–§2c — a presence check on
+agent-authored spec text — and mechanizable on the same argument, but the trigger vocabulary here
+is looser than theirs ("X to choose" has no fixed form), so a deterministic sibling would need its
+own calibration rather than riding on the duplicate-check-record precedent. Not filed as a task
+until this prose has a recurrence to justify one.
+
+**Proportionality (cf. mt#2309):** most specs reserve nothing and pay nothing for this step.
+
 ### 3. Generate the structured spec
 
 Write a spec with ALL required sections:
@@ -302,6 +375,10 @@ If `--parent`, `--tags`, or `--backend` were specified, include those parameters
    site cited as `path:line` plus a reachability sentence, or marked `UNVERIFIED`.
    Citing the code you believe is at fault does not satisfy this; the cited line
    must be the one that produces the observed symptom.
+5. Every criterion reserving a decision to the principal passes Step 2d — the
+   reserving ACT quoted with its source named (principal message, ask response, or
+   an option LABEL they selected), or the criterion rephrased as input-welcome so it
+   cannot gate a merge. Your own option-preview text is not provenance.
 
 ### 5. Confirm
 

@@ -38,8 +38,49 @@ describe("extractDistinctPhrases — truncated-outcome-read (mt#4096, PR #2960 R
 
     const distinct = extractDistinctPhrases(records);
     expect(distinct.size).toBe(2);
-    expect(distinct.has("minsky session commit --task mt#1|tail")).toBe(true);
-    expect(distinct.has("minsky git push --session a|head")).toBe(true);
+    // mt#4176 prefixed the axis with the arm. These records predate it and carry no `kind`, so
+    // they default to `outcome` — historical records stay ON the axis rather than dropping off it.
+    expect(distinct.has("outcome|minsky session commit --task mt#1|tail")).toBe(true);
+    expect(distinct.has("outcome|minsky git push --session a|head")).toBe(true);
+  });
+
+  test("the two arms are separable on the axis (mt#4176, AT7)", () => {
+    // The whole point of carrying `kind` through `detectorFields`: the arms have different
+    // false-positive profiles, so a review that cannot separate them reads one blended rate.
+    // Identical command and filter — only the arm differs.
+    const records = [
+      {
+        timestamp: "t",
+        matches: [],
+        detectorFields: { kind: "outcome", mutatingCommand: "some-cli x", filter: "head" },
+      },
+      {
+        timestamp: "t",
+        matches: [],
+        detectorFields: { kind: "enumeration", mutatingCommand: "some-cli x", filter: "head" },
+      },
+    ] as unknown as CalibrationRecord[];
+
+    const distinct = extractDistinctPhrases(records);
+    expect(distinct.size).toBe(2);
+    expect(distinct.has("outcome|some-cli x|head")).toBe(true);
+    expect(distinct.has("enumeration|some-cli x|head")).toBe(true);
+  });
+
+  test("a real enumeration record lands on the axis under its own arm", () => {
+    const records = [
+      {
+        timestamp: "t",
+        matches: [],
+        detectorFields: {
+          kind: "enumeration",
+          mutatingCommand: "minsky mcp --help",
+          filter: "head",
+        },
+      },
+    ] as unknown as CalibrationRecord[];
+
+    expect([...extractDistinctPhrases(records)]).toEqual(["enumeration|minsky mcp --help|head"]);
   });
 
   test("without the clause these records contribute NOTHING — the mt#3781 inert-sweep defect", () => {

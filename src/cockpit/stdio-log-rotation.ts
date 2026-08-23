@@ -33,7 +33,7 @@ import fs from "fs";
 import path from "path";
 import { log } from "@minsky/shared/logger";
 import { getDaemonLogDir } from "./daemon-file-log";
-import { createIntervalSweeper } from "./sweepers";
+import { createIntervalSweeper, type SweepTickResult } from "./sweepers";
 
 /**
  * Per-file size cap before rotation. Grounding (mt#3298 spec §Plan decision):
@@ -164,8 +164,14 @@ export function startStdioLogRotationSweeper(
   return createIntervalSweeper({
     name: "stdio-log rotation",
     intervalMs: intervalMs ?? STDIO_LOG_ROTATION_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       const logDir = opts?.logDir ?? getDaemonLogDir();
+      // mt#4412: the per-file fail-open below is deliberate and stays — one
+      // unrotatable file must not stop the others. But it also meant a sweep
+      // that failed on EVERY file returned exactly like one that rotated
+      // nothing because nothing was oversized, which is this sweep's normal
+      // and healthy result. Counting the failures is what separates them.
+      let failed = 0;
       for (const name of STDIO_LOG_FILE_NAMES) {
         const filePath = path.join(logDir, name);
         try {
@@ -175,8 +181,10 @@ export function startStdioLogRotationSweeper(
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log.warn("cockpit: stdio log rotation failed", { filePath, message });
+          failed++;
         }
       }
+      return { ok: failed === 0 };
     },
   });
 }

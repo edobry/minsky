@@ -28,6 +28,10 @@ import {
   extractScDeferralMarker,
   runScCoverageCalibration,
   SC_COVERAGE_SKIP_ENV_VAR,
+  extractAssertedCount,
+  extractReportedCount,
+  resolveEvidenceRegion,
+  extractReferencedCriterionNumbers,
 } from "./success-criteria-coverage";
 import { buildSuccessCriteriaContext } from "./inject-success-criteria";
 
@@ -444,5 +448,211 @@ describe("AT6: the injection hook FIRES as a real process", () => {
     });
     expect(result.stdout.toString().trim()).toBe("");
     expect(result.exitCode).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4214 — the AGREEMENT pass: referenced-with-output is not the same as correct
+// ---------------------------------------------------------------------------
+
+/**
+ * The shape that motivated this: mt#4076 / PR #3047's criterion asked a grep to return "one hit
+ * per subcommand action"; the implementation centralized the accessor, so it returned one hit
+ * TOTAL. The PR body named the criterion AND pasted the real output, so all four presence tests
+ * cleared and the check saw coverage. `minsky-reviewer[bot]` marked it Not Met one round later.
+ */
+const DISTRIBUTIVE_CRITERION =
+  "A `grep optsWithGlobals src/commands/setup/index.ts` returns one hit per subcommand action.";
+
+const SPEC_ZERO_HITS = `## Success Criteria
+
+- [ ] ${GREP_CRITERION}
+
+## Scope
+
+In scope: things.
+`;
+
+describe("mt#4214: count extraction is one shared matcher for both sides", () => {
+  test("the criterion side reads zero / no / a literal number", () => {
+    expect(extractAssertedCount(GREP_CRITERION)).toBe(0);
+    expect(extractAssertedCount(COUNT_CRITERION)).toBe(0);
+    expect(extractAssertedCount("the sweep returns 5 matches")).toBe(5);
+    expect(extractAssertedCount("`rg foo` returns no results")).toBe(0);
+  });
+
+  test("a DISTRIBUTIVE expected result is null, not a guess", () => {
+    // Resolving "one hit per subcommand action" needs the cardinality of "subcommand action",
+    // which is not in the text. Guessing 1 would produce a confident false disagreement on the
+    // exact instance that motivated this task.
+    expect(extractAssertedCount(DISTRIBUTIVE_CRITERION)).toBeNull();
+  });
+
+  test("shapes that are not counts are null — exit status and emptiness", () => {
+    // Both ARE recognized by the executable-criterion classifier; neither is a count, so they
+    // land as not-comparable rather than being coerced to 0.
+    expect(extractAssertedCount("`bun test` exits code 0")).toBeNull();
+    expect(extractAssertedCount("the output is empty")).toBeNull();
+  });
+
+  test("the evidence side additionally reads a lone bare integer — what wc -l actually prints", () => {
+    expect(extractReportedCount("$ grep -rn '<select' src | wc -l\n0")).toBe(0);
+    expect(extractReportedCount("$ rg foo | wc -l\n3")).toBe(3);
+    expect(extractReportedCount("the run returns 7 matches")).toBe(7);
+  });
+
+  test("two bare integers is null, not the first one", () => {
+    // Pasted output routinely carries several numbers; picking one manufactures a confident
+    // wrong pairing, which is the failure this surface exists to avoid.
+    expect(extractReportedCount("12 pass\n3\n0")).toBeNull();
+    expect(extractReportedCount("no numbers here at all")).toBeNull();
+  });
+});
+
+describe("mt#4214: attribution is bounded, and keyword association is not a basis", () => {
+  const criterion = { number: 1, text: GREP_CRITERION } as ReturnType<
+    typeof parseSuccessCriteria
+  >[number];
+
+  test("a dedicated SC<N> section is the region", () => {
+    const prBody = `## Summary\n\nDid it.\n\n## SC1 — the grep\n\n\`\`\`\n$ grep -rn '<select' src | wc -l\n4\n\`\`\`\n\n## Other\n\nunrelated 9`;
+    const region = resolveEvidenceRegion(criterion, prBody, "");
+    expect(region).not.toBeNull();
+    expect(extractReportedCount(region ?? "")).toBe(4);
+  });
+
+  test("otherwise the numbered evidence lines and the block beneath them", () => {
+    const evidence = `SC1: the repo-wide grep\n$ grep -rn '<select' src | wc -l\n4\n\nSC2: something else\n99`;
+    const region = resolveEvidenceRegion(criterion, "## Summary\n\nno sections", evidence);
+    expect(region).not.toBeNull();
+    expect(region).toContain("SC1");
+    // The blank line ends the region, so SC2's 99 is not attributed to SC1.
+    expect(region).not.toContain("99");
+    expect(extractReportedCount(region ?? "")).toBe(4);
+  });
+
+  test("a different criterion's number ends the region even with no blank line", () => {
+    const evidence = `SC1: first\n4\nSC2: second\n99`;
+    const region = resolveEvidenceRegion(criterion, "", evidence);
+    expect(region).not.toContain("99");
+    expect(extractReportedCount(region ?? "")).toBe(4);
+  });
+
+  // PR #3082 R1 (BLOCKING), and the finding was correct: the region STARTER accepted all four
+  // reference forms while the TERMINATOR matched only `SC<N>`. An adjacent line written in any
+  // of the other three, with no blank line before it, bled into the previous criterion's region
+  // — mis-attributing evidence and risking exactly the false `disagrees` this surface exists to
+  // avoid. Both sides now derive from one list, and every form is pinned here rather than the
+  // single form that happened to be reported.
+  test.each([
+    ["SC<N>", "SC2: second"],
+    ["success criterion <N>", "success criterion 2: second"],
+    ["criterion <N>", "Criterion 2: second"],
+    ["sc-<N>", "sc-2: second"],
+  ])("a following %s reference terminates the region", (_form, followingLine) => {
+    const evidence = `SC1: first\n4\n${followingLine}\n99`;
+    const region = resolveEvidenceRegion(criterion, "", evidence);
+    expect(region).not.toContain("99");
+    expect(extractReportedCount(region ?? "")).toBe(4);
+  });
+
+  test("every accepted form is readable by the shared number extractor", () => {
+    // The symmetry the R1 defect broke, asserted directly rather than only through its effect.
+    expect(extractReferencedCriterionNumbers("SC2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("success criterion 2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("Criterion 2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("sc-2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("no reference here")).toEqual([]);
+  });
+
+  test("keyword-only association yields NO region — the loosest presence test is not attribution", () => {
+    // This is what keeps the pre-existing AT2 fixture (evidence with the command and its zero
+    // output, never naming SC1) out of the comparison entirely.
+    const evidence = "$ grep -rn '<select' src/cockpit/web | wc -l\n0";
+    expect(resolveEvidenceRegion(criterion, "## Summary\n\nnothing", evidence)).toBeNull();
+  });
+});
+
+describe("mt#4214: a disagreement is a distinct finding class from unreferenced", () => {
+  test("evidence that names the criterion and reports a different count warns and records", () => {
+    const prBody = `## Summary\n\nDid it.\n\n${EVIDENCE_HEADING}\n\nSC1: the repo-wide grep\n$ grep -rn '<select' src/cockpit/web | wc -l\n3`;
+    const result = runScCoverageCalibration(TASK_ID, PR_NUMBER, SPEC_ZERO_HITS, prBody, prBody);
+
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toContain("DISAGREES");
+    expect(result.warning).toContain("asks for 0, evidence reports 3");
+    expect(result.warning).toContain("Merge is NOT blocked");
+
+    const record = result.calibrationRecord;
+    expect(record?.findingClasses).toEqual(["disagrees"]);
+    const disagreements = record?.disagreeingCriteria as Array<{
+      number: number;
+      text: string;
+      expected: number;
+      actual: number;
+    }>;
+    expect(disagreements).toEqual([{ number: 1, text: GREP_CRITERION, expected: 0, actual: 3 }]);
+    // The criterion WAS addressed, so it must not also be reported as unreferenced.
+    expect(record?.unaddressedCriteria).toEqual([]);
+  });
+
+  test("agreement produces no warning at all", () => {
+    const prBody = `${EVIDENCE_HEADING}\n\nSC1: the repo-wide grep\n$ grep -rn '<select' src/cockpit/web | wc -l\n0`;
+    const result = runScCoverageCalibration(TASK_ID, PR_NUMBER, SPEC_ZERO_HITS, prBody, prBody);
+
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeUndefined();
+    expect(result.calibrationRecord).toBeUndefined();
+  });
+
+  test("the mt#4076 distributive shape is excluded one level EARLIER than not-comparable", () => {
+    // Measured, not assumed. The distributive criterion never reaches the agreement pass at all:
+    // `returns one hit per subcommand action` matches no EXPECTED_RESULT_PATTERN ("one" is
+    // neither `zero`, `no`, nor a digit), so `isExecutableSuccessCriterion` is false and the
+    // whole surface reports `applicable: false`. The task's motivating instance is therefore
+    // outside this check's POPULATION, not merely outside its comparable subset — a sharper
+    // statement than the spec originally made, and the reason the spec was amended.
+    expect(isExecutableSuccessCriterion(DISTRIBUTIVE_CRITERION)).toBe(false);
+
+    const spec = `## Success Criteria\n\n- [ ] ${DISTRIBUTIVE_CRITERION}\n`;
+    const prBody = `${EVIDENCE_HEADING}\n\nSC1: the accessor grep\n$ grep optsWithGlobals src/commands/setup/index.ts | wc -l\n1`;
+    const coverage = checkSuccessCriteriaCoverage(spec, prBody, prBody);
+
+    expect(coverage.applicable).toBe(false);
+    expect(coverage.disagreeingCriteria).toEqual([]);
+    expect(coverage.notComparableCriteria).toEqual([]);
+
+    const result = runScCoverageCalibration(TASK_ID, PR_NUMBER, spec, prBody, prBody);
+    expect(result.warning).toBeUndefined();
+  });
+
+  test("not-comparable is for an EXECUTABLE criterion whose expected result is not a count", () => {
+    // This is the population `notComparableCriteria` actually holds: the criterion clears the
+    // classifier (a command plus a recognized expected-result shape) but asserts a process
+    // status rather than a number, so there is nothing to compare against the evidence.
+    // Note the phrasing: the shipped pattern is /exit(?:s|\s+code)?\s+0/, so "exits 0" and
+    // "exit code 0" match while the equally natural "exits code 0" does not. Left alone —
+    // widening the classifier changes the population this surface measures, which is a
+    // different change with a different blast radius (recorded in mt#4214's Out of scope).
+    const exitCriterion =
+      "The check `grep -q optsWithGlobals src/commands/setup/index.ts` exits 0.";
+    expect(isExecutableSuccessCriterion(exitCriterion)).toBe(true);
+
+    const spec = `## Success Criteria\n\n- [ ] ${exitCriterion}\n`;
+    const prBody = `${EVIDENCE_HEADING}\n\nSC1: the accessor grep\n$ grep -q optsWithGlobals src/commands/setup/index.ts\n0`;
+    const coverage = checkSuccessCriteriaCoverage(spec, prBody, prBody);
+
+    expect(coverage.applicable).toBe(true);
+    expect(coverage.disagreeingCriteria).toEqual([]);
+    expect(coverage.notComparableCriteria.map((c) => c.number)).toEqual([1]);
+  });
+
+  test("an unaddressed criterion is not also run through the comparison", () => {
+    const prBody = `${EVIDENCE_HEADING}\n\n\`\`\`\n$ bun test\n12 pass\n\`\`\``;
+    const coverage = checkSuccessCriteriaCoverage(SPEC_ZERO_HITS, prBody, prBody);
+
+    expect(coverage.unaddressedCriteria.map((c) => c.number)).toEqual([1]);
+    expect(coverage.disagreeingCriteria).toEqual([]);
+    expect(coverage.notComparableCriteria).toEqual([]);
   });
 });

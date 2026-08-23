@@ -21,9 +21,11 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
+  getCachedPersistenceProvider,
   getServerAskRepository,
   getServerFollowUpService,
   getServerTaskService,
@@ -38,7 +40,7 @@ import {
 import { createPresenceSweepState } from "./conversation-presence-sweep";
 // mt#3744: the ask-state sweeper's two cheap, pure-fs halves are imported
 // statically (the DB half stays a dynamic import, like every sibling sweeper's).
-import { readWatermarkAskIds } from "./ask-state-cache";
+import { collectAllTrackedAskIds } from "./ask-state-cache";
 import { findRepoRoot } from "./web-dist";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +73,40 @@ export function unrefSweeperTimer(id: ReturnType<typeof setInterval>): void {
 
 /** Default per-tick abandonment timeout when a caller doesn't supply one. */
 export const DEFAULT_TICK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * How much longer than `tickTimeoutMs` an ABANDONED tick may hold the guard
+ * before the watchdog force-releases it anyway (mt#4335).
+ *
+ * The two deadlines answer different questions and both are needed:
+ *
+ * - `tickTimeoutMs` is when we stop WAITING on a tick — it is marked failed,
+ *   its `AbortSignal` fires, and the sweep stops treating it as live work.
+ * - `tickTimeoutMs * this` is when we stop letting it hold the guard, whether
+ *   or not it ever settles.
+ *
+ * Between the two, the guard stays held. That is the whole fix: releasing the
+ * guard at `tickTimeoutMs` (the pre-mt#4335 behaviour) let the next tick start
+ * BESIDE an abandoned predecessor that was still holding a database
+ * connection, so a persistently-slow tick leaked roughly one connection per
+ * cycle until the pool was exhausted.
+ *
+ * Why a ceiling at all, rather than waiting forever: mt#2625's guarantee is
+ * that one hung tick can never starve every later tick permanently, and its
+ * regression tests assert exactly that with a tick that NEVER settles. Waiting
+ * unconditionally would reintroduce that bug. So a never-settling tick still
+ * gets force-released — just after 3 tick-timeouts instead of 1, which is a
+ * bounded delay rather than a lost guarantee.
+ *
+ * 3 is chosen as the smallest multiplier that leaves room for a tick to finish
+ * shortly after its deadline (the common case for a slow query — the
+ * interceptor rollup measured 2.73s cold against a 120s budget) without
+ * meaningfully extending mt#2625's recovery window. It is deliberately a
+ * multiplier rather than a fixed duration: sweeps run at cadences from
+ * milliseconds (tests) to minutes (production), so any absolute number would
+ * be wrong at one end.
+ */
+export const ABANDONED_TICK_HARD_RELEASE_MULTIPLIER = 3;
 
 // ---------------------------------------------------------------------------
 // Sweep-liveness registry (mt#2894)
@@ -121,8 +157,86 @@ export interface SweepLivenessSnapshot {
   lastDomainFailureAt: string | null;
   /** Consecutive reported domain failures since the last reported domain success. */
   consecutiveDomainFailures: number;
+  /**
+   * Cumulative count of ticks abandoned for exceeding `tickTimeoutMs` (mt#4335).
+   *
+   * A non-zero and RISING value is the signal that this sweep's work no longer
+   * fits its budget — which is what preceded the 2026-08-19 pool exhaustion.
+   * Surfaced here rather than only logged because the incident was diagnosed by
+   * reading `pg_stat_activity` by hand; the point of the counter is that a
+   * recurrence is visible from `/api/sweeps` without doing that.
+   */
+  abandonedTicks: number;
+  /**
+   * Abandoned ticks that have STILL not settled (mt#4335).
+   *
+   * This is the one to alert on. It is normally 0 — a tick that overruns and
+   * then finishes decrements it. A value that stays above 0, or grows, means
+   * work is accumulating with resources still held, which is the shape that
+   * exhausted the connection pool.
+   */
+  abandonedTicksOutstanding: number;
+  /**
+   * Count of abandoned ticks that outlived even the hard-release ceiling and
+   * had their guard force-released by the watchdog anyway (mt#4335).
+   *
+   * Distinct from {@link abandonedTicks}: those settled late, these never
+   * settled at all. A non-zero value here means the mt#2625 escape hatch fired
+   * and a resource may still be held with nothing left to release it — the
+   * residual leak this design accepts in exchange for not starving the sweep.
+   */
+  abandonedTickHardReleases: number;
   /** False when this sweep has never reported a domain outcome — the three fields above are then meaningless rather than healthy. */
   reportsDomainOutcome: boolean;
+  /**
+   * Whether this registrant's contract REQUIRES it to state a domain outcome
+   * (mt#4412) — static, fixed at registration, and the sibling
+   * {@link reportsDomainOutcome} is deliberately NOT.
+   *
+   * The two answer different questions and conflating them is what made the
+   * invariant uncheckable. `reportsDomainOutcome` is a runtime OBSERVATION: it
+   * starts false and flips the first time a tick actually returns a result, so
+   * a registrant that has not completed a tick yet reads false however it is
+   * typed — as does one whose tick never settles at all (mt#4384's wedge).
+   * Neither is a defect, and no type change can pre-satisfy either.
+   *
+   * This field is the DECLARATION, so "every registrant is obliged to speak"
+   * is assertable the moment the registry is populated, without waiting out
+   * the slowest cadence (60m) to find out.
+   *
+   * Both registration paths set it true, which is the point rather than a
+   * tautology: it is a required field, so a THIRD registration path cannot be
+   * added without deciding, and the registry-level test fails if one decides
+   * wrong. mem#1060 — the class lives in the enumeration, not the member.
+   */
+  declaresDomainOutcome: boolean;
+  /**
+   * True when this participant drives its own cadence (mt#4185) rather than
+   * having its tick fired by {@link createIntervalSweeper}'s `setInterval`.
+   *
+   * This is the discriminator for reading `intervalMs`. For an interval sweep
+   * it is a CADENCE — how often the timer fires. For a self-scheduling
+   * participant it is a PROGRESS BUDGET — the longest legitimate gap between
+   * two `noteProgress()` calls. The stall predicate is the same either way
+   * (`lastAttemptAt` staler than `intervalMs` × {@link
+   * META_WATCHDOG_STALL_MULTIPLIER}), which is why one field carries both;
+   * this flag is what lets a reader say which one it is looking at.
+   */
+  selfScheduled: boolean;
+  /**
+   * ISO timestamp of when this sweep joined the registry (mt#4206).
+   *
+   * Present so "registered, never reported" is a DATEABLE reading rather than
+   * an inference from `lastAttemptAt: null`. The two are different states with
+   * different responses — one is a sweep that has not started yet, the other is
+   * one that started and never got anywhere — and a null alone cannot say which
+   * without knowing how long it has been null.
+   *
+   * It is also the meta-watchdog's staleness reference for a self-scheduling
+   * participant that has reported nothing, which is what makes a first-cycle
+   * park visible instead of permanently skipped.
+   */
+  registeredAt: string;
 }
 
 interface SweepLivenessEntry {
@@ -138,6 +252,18 @@ interface SweepLivenessEntry {
   lastDomainFailureAtMs: number | null;
   consecutiveDomainFailures: number;
   reportsDomainOutcome: boolean;
+  /** See {@link SweepLivenessSnapshot.declaresDomainOutcome} (mt#4412). */
+  declaresDomainOutcome: boolean;
+  /** See {@link SweepLivenessSnapshot.abandonedTicks} (mt#4335). */
+  abandonedTicks: number;
+  /** See {@link SweepLivenessSnapshot.abandonedTicksOutstanding} (mt#4335). */
+  abandonedTicksOutstanding: number;
+  /** See {@link SweepLivenessSnapshot.abandonedTickHardReleases} (mt#4335). */
+  abandonedTickHardReleases: number;
+  /** See {@link SweepLivenessSnapshot.selfScheduled} (mt#4185). */
+  selfScheduled: boolean;
+  /** See {@link SweepLivenessSnapshot.registeredAt} (mt#4206). */
+  registeredAtMs: number;
   /**
    * True once this sweep's `stop()` has been called (PR #2019 R1 BLOCKING
    * #1). The entry is deliberately kept in {@link sweepLivenessRegistry}
@@ -200,7 +326,13 @@ export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
       lastDomainFailureAt:
         e.lastDomainFailureAtMs === null ? null : new Date(e.lastDomainFailureAtMs).toISOString(),
       consecutiveDomainFailures: e.consecutiveDomainFailures,
+      abandonedTicks: e.abandonedTicks,
+      abandonedTicksOutstanding: e.abandonedTicksOutstanding,
+      abandonedTickHardReleases: e.abandonedTickHardReleases,
       reportsDomainOutcome: e.reportsDomainOutcome,
+      declaresDomainOutcome: e.declaresDomainOutcome,
+      selfScheduled: e.selfScheduled,
+      registeredAt: new Date(e.registeredAtMs).toISOString(),
     }));
 }
 
@@ -248,22 +380,55 @@ export interface IntervalSweeperOptions {
    *
    * Because of that contract a tick that handled its own failure still
    * RETURNS NORMALLY, which the scheduling bookkeeping below correctly reads
-   * as "the timer fired and the callback returned". To also report whether the
-   * WORK succeeded, return a {@link SweepTickResult} (mt#3684). Returning
-   * nothing is unchanged behavior and reports no domain outcome at all —
-   * which is why adding this did not require touching the other sweeps.
+   * as "the timer fired and the callback returned". Reporting whether the
+   * WORK succeeded is what {@link SweepTickResult} is for (mt#3684), and as of
+   * mt#4412 it is MANDATORY: `void` is no longer assignable.
+   *
+   * It was optional from mt#3684 until mt#4412, and the docblock here used to
+   * say why — "returning nothing is unchanged behavior ... which is why adding
+   * this did not require touching the other sweeps." That convenience is
+   * exactly what this type change retires: 15 of 17 registrants took the
+   * default, so for 88% of them `/api/sweeps` could not distinguish a working
+   * sweep from one whose tick caught its own error and returned. The compiler,
+   * not a convention, is now what asks each sweep to state an outcome.
+   *
+   * **Report the sweep's OWN result, never a blanket `{ ok: true }`.** A
+   * uniform `ok: true` reproduces the defect in a shape that reads as covered,
+   * which is worse than the honest `void` this replaced. Where "did the work
+   * succeed?" is genuinely not decidable at the tick boundary, say so in the
+   * sweep's own docblock with the reason.
+   *
+   * Receives an {@link AbortSignal} that fires when the tick exceeds
+   * `tickTimeoutMs` (mt#4335). Using it is OPTIONAL and existing ticks that
+   * take no arguments remain assignable to this type unchanged — but a tick
+   * holding a cancellable resource SHOULD honour it, because the framework
+   * cannot reach inside the tick to release what it opened. For a
+   * `postgres-js` query that means calling `.cancel()`, which sends a
+   * protocol-level CancelRequest (`src/query.js:52` → `src/index.js:350` →
+   * `Connection.cancel`, protocol code 80877102 — the wire equivalent of
+   * `pg_cancel_backend`).
    */
-  tick: () => Promise<SweepTickResult | void>;
+  tick: (signal: AbortSignal) => Promise<SweepTickResult>;
   /**
-   * Per-tick abandonment timeout in milliseconds (mt#2625). A tick that
-   * hasn't settled within this window is abandoned: the `running` guard is
-   * force-released (via `Promise.race` against an internal timer) so the
-   * NEXT scheduled tick can proceed, and a warning is logged. The abandoned
-   * tick's underlying promise is NOT cancelled (no AbortSignal threading
-   * here) — it may still complete and log its own outcome later; releasing
-   * the guard early is what prevents PERMANENT starvation of every future
-   * tick, which is the mt#2625 failure mode. Defaults to
-   * {@link DEFAULT_TICK_TIMEOUT_MS}.
+   * Per-tick abandonment timeout in milliseconds (mt#2625, amended mt#4335).
+   * A tick that hasn't settled within this window is abandoned: it is marked
+   * failed, a warning is logged, and its {@link AbortSignal} fires so a tick
+   * that opted in can cancel its own work.
+   *
+   * **The guard is NOT released at this deadline (changed in mt#4335).** It is
+   * released when the abandoned tick actually settles, or at
+   * `tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER`, whichever comes
+   * first. Until mt#4335 the guard WAS released here, and this docblock
+   * described that as the fix for mt#2625's permanent-starvation bug — which
+   * it was, at the cost of a second bug: the next tick started beside an
+   * abandoned predecessor still holding a database connection, and each
+   * overlapping tick opened another. Measured 2026-08-19: 16 backends stranded
+   * in `state='active', wait_event='ClientRead'` from a single ~40s burst,
+   * which exhausted the pooler and took the substrate down for ~25 minutes.
+   *
+   * mt#2625's guarantee is preserved by the hard-release ceiling rather than
+   * by this deadline — see {@link ABANDONED_TICK_HARD_RELEASE_MULTIPLIER}.
+   * Defaults to {@link DEFAULT_TICK_TIMEOUT_MS}.
    *
    * The SAME value also serves as the watchdog invariant threshold: if a
    * scheduled tick attempt finds the guard already held for longer than
@@ -275,6 +440,31 @@ export interface IntervalSweeperOptions {
    * overlap-skip guard indistinguishable from a hang.
    */
   tickTimeoutMs?: number;
+  /**
+   * Opt-in backoff after repeated DOMAIN failures (mt#4294).
+   *
+   * Distinct from the bounded re-init above, which reacts to SCHEDULING
+   * failures (a timeout, an unexpected throw) by restarting the interval. This
+   * reacts to a tick that ran to completion and reported `ok: false` — the
+   * work failed, the scheduler is fine, and re-running it on the very next
+   * tick just reproduces the failure at full cadence.
+   *
+   * Opt-in rather than default because most sweeps are cheap and idempotent,
+   * and retrying one promptly is the right behaviour; backing every sweeper
+   * off on a transient blip would slow recovery across the board. A sweeper
+   * asks for this when its failing tick is EXPENSIVE or when the failure
+   * class it hits is typically persistent rather than momentary.
+   *
+   * Only meaningful for a tick that actually returns a {@link SweepTickResult}
+   * — a tick returning `void` reports no domain outcome, so its failures are
+   * invisible here and no backoff can ever engage.
+   */
+  domainFailureBackoff?: {
+    /** Consecutive `ok: false` ticks before any skipping begins. */
+    afterFailures: number;
+    /** Ceiling on consecutively skipped ticks, so backoff never becomes a stop. */
+    maxSkippedTicks: number;
+  };
 }
 
 /**
@@ -287,9 +477,22 @@ export interface IntervalSweeperOptions {
 export function createIntervalSweeper(options: IntervalSweeperOptions): () => void {
   const { name, intervalMs, tick } = options;
   const tickTimeoutMs = options.tickTimeoutMs ?? DEFAULT_TICK_TIMEOUT_MS;
+  const domainFailureBackoff = options.domainFailureBackoff ?? null;
 
   let running = false;
   let runningSinceMs: number | null = null;
+  /**
+   * Ticks still to be skipped by the domain-failure backoff (mt#4294). Zero
+   * whenever the backoff is disengaged, which is also its state for every
+   * sweeper that did not opt in.
+   */
+  let backoffTicksRemaining = 0;
+  /**
+   * When the in-flight tick was ABANDONED (exceeded `tickTimeoutMs`) but is
+   * still holding the guard, mt#4335. Null whenever the current tick is still
+   * within its budget. Read by the watchdog to pick which deadline applies.
+   */
+  let abandonedSinceMs: number | null = null;
   let id: ReturnType<typeof setInterval> | null = null;
   // Authoritative "this sweep has been stopped" flag (PR #2019 R1 BLOCKING
   // #1). Mirrored onto `entry.stopped` below, but also held here in the
@@ -334,7 +537,15 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     lastDomainSuccessAtMs: null,
     lastDomainFailureAtMs: null,
     consecutiveDomainFailures: 0,
+    abandonedTicks: 0,
+    abandonedTicksOutstanding: 0,
+    abandonedTickHardReleases: 0,
     reportsDomainOutcome: false,
+    // Compiler-guaranteed (mt#4412): `IntervalSweeperOptions.tick` returns
+    // `Promise<SweepTickResult>`, so every interval sweep states an outcome.
+    declaresDomainOutcome: true,
+    selfScheduled: false,
+    registeredAtMs: Date.now(),
     stopped: false,
     restart: () => {},
     clearUnderlyingTimer: () => {
@@ -364,20 +575,55 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     // loudly so the stall is observable instead of silent.
     if (running && runningSinceMs !== null) {
       const heldForMs = Date.now() - runningSinceMs;
-      if (heldForMs > tickTimeoutMs) {
+      // mt#4335: two deadlines, and which one applies depends on whether the
+      // in-flight tick has already been abandoned.
+      //
+      // NOT abandoned -> `tickTimeoutMs`, the pre-existing fail-safe for the
+      // case where the primary `Promise.race` somehow did not fire at all.
+      //
+      // Abandoned -> the hard-release ceiling. The tick is deliberately still
+      // holding the guard so its successor cannot open a second connection
+      // beside it; force-releasing at `tickTimeoutMs` here would undo exactly
+      // the fix and is the bug a naive implementation reintroduces.
+      const releaseAfterMs =
+        abandonedSinceMs !== null
+          ? tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER
+          : tickTimeoutMs;
+      if (heldForMs > releaseAfterMs) {
         log.warn(
-          `cockpit: ${name} sweep watchdog — guard held ${heldForMs}ms (> ${tickTimeoutMs}ms); force-releasing`,
+          `cockpit: ${name} sweep watchdog — guard held ${heldForMs}ms (> ${releaseAfterMs}ms); force-releasing`,
           {
             heldForMs,
             tickTimeoutMs,
+            releaseAfterMs,
+            abandoned: abandonedSinceMs !== null,
           }
         );
+        // An abandoned tick force-released here is the case mt#2625 exists for
+        // (a tick that never settles at all). Count it separately from the
+        // ordinary abandonment: it means the tick outlived even the ceiling,
+        // so its resources are still held with nothing left to release them.
+        if (abandonedSinceMs !== null) entry.abandonedTickHardReleases++;
         running = false;
         runningSinceMs = null;
+        abandonedSinceMs = null;
       }
     }
 
     if (running) return; // Overlapping tick — skip (pre-existing behavior).
+
+    // Domain-failure backoff (mt#4294). Checked AFTER the overlap guard and
+    // the watchdog above, so a wedged tick is still force-released on
+    // schedule — backing off must not also postpone the fail-safe that
+    // unwedges.
+    if (backoffTicksRemaining > 0) {
+      backoffTicksRemaining--;
+      log.debug(`cockpit: ${name} sweep tick skipped by domain-failure backoff`, {
+        backoffTicksRemaining,
+      });
+      return;
+    }
+
     running = true;
     runningSinceMs = Date.now();
 
@@ -389,26 +635,74 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       timeoutHandle = setTimeout(() => resolve("timed-out"), tickTimeoutMs);
     });
 
+    // mt#4335: fires at `tickTimeoutMs` so a tick holding a cancellable
+    // resource can release it. The framework cannot do this on the tick's
+    // behalf — it never sees the query — so this is the only channel by which
+    // an abandoned tick's own work can actually be cancelled rather than
+    // merely un-awaited.
+    const abortController = new AbortController();
+
     let failed = false;
+    // mt#4335: true once this tick has been abandoned, so the `finally` below
+    // knows not to release a guard that is now owned by the settle handler.
+    let abandoned = false;
     // null = this tick reported no domain outcome (the pre-mt#3684 behavior of
     // every sweep, and still the behavior of any tick returning nothing).
     let domainOk: boolean | null = null;
+
+    // Held in a variable rather than inlined into the race (mt#4335): the
+    // timeout path needs a handle on the abandoned promise so it can release
+    // the guard when it eventually settles.
+    const tickPromise = tick(abortController.signal).then((result) => {
+      if (result && typeof result.ok === "boolean") domainOk = result.ok;
+      return "completed" as const;
+    });
+
     try {
-      const outcome = await Promise.race([
-        tick().then((result) => {
-          if (result && typeof result.ok === "boolean") domainOk = result.ok;
-          return "completed" as const;
-        }),
-        timedOut,
-      ]);
+      const outcome = await Promise.race([tickPromise, timedOut]);
       if (outcome === "timed-out") {
+        abandoned = true;
+        failed = true;
+        abandonedSinceMs = Date.now();
+        entry.abandonedTicks++;
+        entry.abandonedTicksOutstanding++;
+        abortController.abort(new Error(`${name} sweep tick exceeded ${tickTimeoutMs}ms`));
         log.warn(
-          `cockpit: ${name} sweep tick timed out after ${tickTimeoutMs}ms — releasing guard for next tick`,
+          `cockpit: ${name} sweep tick timed out after ${tickTimeoutMs}ms — abandoned; HOLDING guard until it settles`,
           {
             tickTimeoutMs,
+            hardReleaseAfterMs: tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER,
           }
         );
-        failed = true;
+
+        const abandonedAtMs = abandonedSinceMs;
+        // The abandoned tick is no longer awaited by anyone, so its rejection
+        // must be absorbed here or it surfaces as an unhandled rejection —
+        // which in the cockpit's supervisor is a process-level crash, i.e.
+        // exactly the restart loop this incident already produced by another
+        // route.
+        void tickPromise
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            log.warn(`cockpit: ${name} abandoned sweep tick rejected after abandonment`, {
+              message,
+            });
+          })
+          .finally(() => {
+            entry.abandonedTicksOutstanding--;
+            // Only release if THIS tick is still the one holding the guard.
+            // The watchdog's hard-release may have already handed the guard to
+            // a successor, and releasing again here would free that
+            // successor's guard from under it.
+            if (abandonedSinceMs === abandonedAtMs) {
+              running = false;
+              runningSinceMs = null;
+              abandonedSinceMs = null;
+            }
+            log.warn(`cockpit: ${name} abandoned sweep tick settled; guard released`, {
+              heldAfterAbandonmentMs: Date.now() - abandonedAtMs,
+            });
+          });
       }
     } catch (err) {
       // Last-resort safety net — the tick callback is expected to apply its
@@ -419,8 +713,14 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       failed = true;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
-      running = false;
-      runningSinceMs = null;
+      // mt#4335: an ABANDONED tick keeps the guard — its settle handler above
+      // (or the watchdog's ceiling) owns the release. Releasing here is the
+      // pre-mt#4335 behaviour and is precisely what let the next tick open a
+      // second connection beside a predecessor that still held one.
+      if (!abandoned) {
+        running = false;
+        runningSinceMs = null;
+      }
     }
 
     // mt#2894 R1 BLOCKING #1: re-check after the await — stop() may have
@@ -447,9 +747,32 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       if (domainOk) {
         entry.lastDomainSuccessAtMs = Date.now();
         entry.consecutiveDomainFailures = 0;
+        // A success disengages the backoff immediately, so recovery costs one
+        // tick rather than draining whatever skip budget was outstanding. This
+        // is the "until a recovery probe succeeds" half — the first tick that
+        // is NOT skipped IS the probe.
+        backoffTicksRemaining = 0;
       } else {
         entry.lastDomainFailureAtMs = Date.now();
         entry.consecutiveDomainFailures++;
+        if (
+          domainFailureBackoff !== null &&
+          entry.consecutiveDomainFailures >= domainFailureBackoff.afterFailures
+        ) {
+          // Skip-count doubles per failure past the threshold and is clamped,
+          // so a persistent failure decays toward a floor cadence instead of
+          // stopping outright — a sweeper that stops never discovers that it
+          // recovered.
+          const over = entry.consecutiveDomainFailures - domainFailureBackoff.afterFailures;
+          backoffTicksRemaining = Math.min(2 ** over, domainFailureBackoff.maxSkippedTicks);
+          log.warn(
+            `cockpit: ${name} sweep — ${entry.consecutiveDomainFailures} consecutive domain failures; skipping ${backoffTicksRemaining} tick(s)`,
+            {
+              consecutiveDomainFailures: entry.consecutiveDomainFailures,
+              backoffTicksRemaining,
+            }
+          );
+        }
       }
     }
 
@@ -554,6 +877,200 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
 }
 
 // ---------------------------------------------------------------------------
+// Self-scheduling participants (mt#4185)
+// ---------------------------------------------------------------------------
+
+/** Options accepted by {@link registerSelfSchedulingSweep}. */
+export interface SelfSchedulingSweepOptions {
+  /**
+   * Human-readable name, unique among ACTIVE registrants — the same rule
+   * {@link createIntervalSweeper} enforces, for the same reason.
+   */
+  name: string;
+  /**
+   * The longest legitimate gap between two
+   * {@link SelfSchedulingSweepHandle.noteProgress} calls.
+   *
+   * This occupies `intervalMs` in the registry, so the meta-watchdog's stall
+   * predicate applies unchanged: a participant is stalled once it has not
+   * reported progress in {@link META_WATCHDOG_STALL_MULTIPLIER} times this
+   * value. Derive it from a bound the system actually enforces rather than
+   * picking a round number — a budget shorter than a legitimate work unit
+   * produces a restart loop, and one much longer just delays detection.
+   */
+  progressBudgetMs: number;
+  /**
+   * Called when progress has stalled past the budget above.
+   *
+   * The registry cannot restart a loop it does not schedule, so the
+   * participant supplies the recovery itself. It should return promptly —
+   * abandoning or interrupting the stuck work — rather than awaiting it.
+   */
+  restart: () => void;
+}
+
+/** Returned by {@link registerSelfSchedulingSweep}. */
+export interface SelfSchedulingSweepHandle {
+  /**
+   * Report that the loop advanced. Stamps `lastAttemptAt` — the SAME field,
+   * with the same meaning, that a timer fire stamps for an interval sweep.
+   *
+   * Call it where the loop demonstrably moved, not on a timer of its own: a
+   * signal that keeps firing while the work is wedged reports health through
+   * the exact failure it exists to detect.
+   */
+  noteProgress(): void;
+  /**
+   * Report that a unit of work completed successfully — a DOMAIN outcome
+   * (mt#4412), and also progress.
+   *
+   * This and {@link noteFailure} are the self-scheduling path's equivalent of
+   * an interval tick returning a {@link SweepTickResult}, and they are how a
+   * participant discharges the obligation
+   * {@link SweepLivenessSnapshot.declaresDomainOutcome} records.
+   * {@link noteProgress} does NOT: it says the loop advanced, which is exactly
+   * the scheduling-only signal that cannot distinguish working from wedged.
+   */
+  noteSuccess(): void;
+  /** Report that a unit of work failed — a DOMAIN outcome (mt#4412), and also progress (the loop is still cycling). */
+  noteFailure(error?: unknown): void;
+  /** Deregister. Idempotent; the meta-watchdog refuses to act on a stopped entry. */
+  stop(): void;
+}
+
+/**
+ * Register a loop that schedules ITSELF with the sweep-liveness registry
+ * (mt#4185).
+ *
+ * {@link createIntervalSweeper} owns both halves of a sweep — it fires the
+ * tick AND records that the tick fired — so registration is a side effect of
+ * using it, and a loop that schedules itself had no way in. That gap is not
+ * theoretical: `startPrincipalChannelPoller` parked on an unsettled await for
+ * ~44 hours while `/api/sweeps` listed 16 healthy sweeps and never mentioned
+ * it, because it was not a registrant (mt#4183).
+ *
+ * The split here is deliberate. The participant keeps its own scheduling — the
+ * reason it is hand-rolled usually survives, as it does for a long poll that
+ * must not overlap itself — and gives up only the RECORDING half, which is the
+ * half the meta-watchdog needs. `startSweepMetaWatchdog` requires no knowledge
+ * of this: it reads `stopped`, `lastAttemptAtMs`, `intervalMs` and `restart`,
+ * none of which is specific to a `setInterval`.
+ */
+export function registerSelfSchedulingSweep(
+  options: SelfSchedulingSweepOptions
+): SelfSchedulingSweepHandle {
+  const { name, progressBudgetMs, restart } = options;
+
+  // Same duplicate-registration guard as createIntervalSweeper, and for the
+  // same reason: a second ACTIVE entry under one name would overwrite the
+  // registry's reference to the first, leaving it running with no
+  // `/api/sweeps` visibility and no meta-watchdog reach.
+  const existingActive = sweepLivenessRegistry.get(name);
+  if (existingActive && !existingActive.stopped) {
+    throw new Error(
+      `cockpit: duplicate active sweep registration for "${name}" — a sweep with this name is ` +
+        "already registered and running. Sweep names must be unique among active sweeps " +
+        "(call the existing sweep's stop() first if this is an intentional restart)."
+    );
+  }
+
+  let stopped = false;
+
+  const entry: SweepLivenessEntry = {
+    name,
+    intervalMs: progressBudgetMs,
+    lastAttemptAtMs: null,
+    lastSuccessAtMs: null,
+    lastErrorAtMs: null,
+    consecutiveFailures: 0,
+    reinits: 0,
+    metaRestarts: 0,
+    lastDomainSuccessAtMs: null,
+    lastDomainFailureAtMs: null,
+    consecutiveDomainFailures: 0,
+    abandonedTicks: 0,
+    abandonedTicksOutstanding: 0,
+    abandonedTickHardReleases: 0,
+    reportsDomainOutcome: false,
+    // mt#4412: the handle's outcome methods (`noteSuccess`/`noteFailure`)
+    // record a DOMAIN outcome, so a self-scheduling participant is obliged to
+    // state one exactly as an interval sweep is. `noteProgress` remains
+    // scheduling-only and deliberately does not satisfy the obligation.
+    declaresDomainOutcome: true,
+    selfScheduled: true,
+    registeredAtMs: Date.now(),
+    stopped: false,
+    restart: (reason: SweepRestartReason): void => {
+      if (stopped) return;
+      if (reason === "meta-watchdog") {
+        entry.metaRestarts++;
+      } else {
+        entry.reinits++;
+      }
+      // mt#3060: a restart that does not itself reset staleness cannot outrun
+      // a watchdog scanning faster than the budget — the participant would be
+      // restarted again on the very next scan, and every scan after it, before
+      // its first post-restart progress call had a chance to land.
+      entry.lastAttemptAtMs = Date.now();
+      restart();
+    },
+    // Nothing to clear: the participant owns its own scheduling primitive, so
+    // there is no handle here to drop. The TEST-ONLY dropped-timer simulation
+    // this backs is meaningless for a self-scheduling participant — stopping
+    // its progress calls is the equivalent, and needs no hook.
+    clearUnderlyingTimer: () => {},
+  };
+  sweepLivenessRegistry.set(name, entry);
+
+  const noteProgress = (): void => {
+    if (stopped) return;
+    entry.lastAttemptAtMs = Date.now();
+  };
+
+  return {
+    noteProgress,
+    noteSuccess(): void {
+      if (stopped) return;
+      const now = Date.now();
+      entry.lastAttemptAtMs = now;
+      entry.lastSuccessAtMs = now;
+      entry.consecutiveFailures = 0;
+      // mt#4412: ALSO a domain outcome. Until now this stamped only the
+      // SCHEDULING fields, which is the same scheduling-vs-domain conflation
+      // the interval path had — "a unit of work completed successfully" is a
+      // statement about the WORK, so it belongs in both columns.
+      entry.reportsDomainOutcome = true;
+      entry.lastDomainSuccessAtMs = now;
+      entry.consecutiveDomainFailures = 0;
+    },
+    noteFailure(error?: unknown): void {
+      if (stopped) return;
+      const now = Date.now();
+      // A failure is still PROGRESS: the loop ran, failed, and will cycle
+      // again. Conflating the two would make an erroring-but-alive loop
+      // indistinguishable from a wedged one, which is the distinction the
+      // meta-watchdog exists to draw.
+      entry.lastAttemptAtMs = now;
+      entry.lastErrorAtMs = now;
+      entry.consecutiveFailures++;
+      // mt#4412: ALSO a domain outcome — see `noteSuccess` above for why.
+      entry.reportsDomainOutcome = true;
+      entry.lastDomainFailureAtMs = now;
+      entry.consecutiveDomainFailures++;
+      log.warn(`cockpit: self-scheduling sweep "${name}" reported a failed cycle`, {
+        name,
+        consecutiveFailures: entry.consecutiveFailures,
+        error: error instanceof Error ? error.message : String(error ?? "unknown"),
+      });
+    },
+    stop(): void {
+      stopped = true;
+      entry.stopped = true;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Sweep meta-watchdog ("sweep of sweeps") — mt#2894
 // ---------------------------------------------------------------------------
 
@@ -605,18 +1122,36 @@ export function startSweepMetaWatchdog(
       // also refuses once stopped; this explicit skip keeps the intent
       // legible at the call site the finding named.
       if (entry.stopped) continue;
-      // No tick has fired yet (e.g. the sweep just registered and its boot
-      // tick's microtask hasn't run) — nothing to evaluate yet.
-      if (entry.lastAttemptAtMs === null) continue;
+      // Nothing reported yet. For an INTERVAL sweep that is a millisecond-scale
+      // window — the registry drives the tick, so a stamp is imminent by
+      // construction — and skipping is correct. For a SELF-SCHEDULING
+      // participant nothing guarantees the stamp ever arrives: the registry does
+      // not drive its loop, so a park before the first `noteProgress()` would
+      // leave this null forever and the entry permanently unevaluated (mt#4206).
+      // Measuring from REGISTRATION is what closes that, and it is the same
+      // fallback mt#4183's health projection uses (`lastProgressAt ?? since`).
+      if (entry.lastAttemptAtMs === null && !entry.selfScheduled) continue;
       const threshold = entry.intervalMs * META_WATCHDOG_STALL_MULTIPLIER;
-      const staleMs = now - entry.lastAttemptAtMs;
+      const referenceMs = entry.lastAttemptAtMs ?? entry.registeredAtMs;
+      const staleMs = now - referenceMs;
       if (staleMs > threshold) {
-        log.warn(
-          `cockpit: meta-watchdog — sweep "${entry.name}" has not attempted a tick in ${staleMs}ms ` +
-            `(> ${threshold}ms, ${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms cadence); ` +
-            "force-restarting",
-          { name: entry.name, staleMs, threshold, intervalMs: entry.intervalMs }
-        );
+        // A self-scheduling participant (mt#4185) has no timer of ours to
+        // have stopped firing and no cadence to be a multiple of — the same
+        // two numbers mean "progress" and "budget" there. Say which, so an
+        // operator reading the line is not told about a tick that does not
+        // exist.
+        const stalled = entry.selfScheduled
+          ? `has not reported progress in ${staleMs}ms (> ${threshold}ms, ` +
+            `${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms progress budget)`
+          : `has not attempted a tick in ${staleMs}ms (> ${threshold}ms, ` +
+            `${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms cadence)`;
+        log.warn(`cockpit: meta-watchdog — sweep "${entry.name}" ${stalled}; force-restarting`, {
+          name: entry.name,
+          staleMs,
+          threshold,
+          intervalMs: entry.intervalMs,
+          selfScheduled: entry.selfScheduled,
+        });
         entry.restart("meta-watchdog");
       }
     }
@@ -653,15 +1188,24 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "ask advancement",
     intervalMs: intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const repo = await getServerAskRepository();
-        if (!repo) return;
+        if (!repo) {
+          // Not a quiet no-op (mt#4412): with no ask repository the
+          // advancement pass cannot run, so the WORK did not happen. Same
+          // treatment `runProdStateRefreshTick` already gives a provider that
+          // exposes no raw SQL.
+          log.warn("cockpit: ask advancement sweep skipped — no ask repository available");
+          return { ok: false };
+        }
         const { runAskAdvancementSweep } = await import("@minsky/domain/ask/advancement");
         await runAskAdvancementSweep(repo);
+        return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: ask advancement sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -700,13 +1244,21 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "stale-ask close",
     intervalMs: intervalMs ?? STALE_ASK_CLOSE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const repo = await getServerAskRepository();
-        if (!repo) return;
+        if (!repo) {
+          // Not a quiet no-op (mt#4412) — see `startAskAdvancementSweeper`.
+          log.warn("cockpit: stale-ask close sweep skipped — no ask repository available");
+          return { ok: false };
+        }
         const { runStaleSuspendedAskCloseSweep } = await import(
           "@minsky/domain/ask/stale-suspended-close"
         );
+        // NOTE: a failed task-status map is deliberately NOT a domain failure
+        // below — the sweep degrades to skipping only its parent-terminal
+        // pass, and its supersession and TTL passes still run. That partial
+        // degradation is logged where it happens.
         let taskStatusById: ReadonlyMap<string, string> = new Map();
         try {
           const taskService = await getServerTaskService();
@@ -724,37 +1276,461 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
         await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
 
         // Credential-request resolution (mt#4030) rides this tick rather than
-        // its own timer: same repository, same cadence, and the same job —
-        // reconciling pending asks against what is actually true now. Its own
-        // try/catch so a failure here cannot mask the sweep above, or vice
-        // versa.
-        //
-        // This is the resolver's production invocation path. Presence is the
-        // resolution signal, so this pass is what makes a credential entered in
-        // a terminal (`config credentials add`) close the request the same as
-        // one entered in the cockpit — with no second place to confirm it.
-        try {
-          const { createCredentialRequestResolverDeps, resolveSatisfiedCredentialRequests } =
-            await import("@minsky/domain/credentials/request-resolver");
-          const outcome = await resolveSatisfiedCredentialRequests(
-            createCredentialRequestResolverDeps(repo)
-          );
-          if (outcome.satisfied.length > 0 || outcome.raced.length > 0) {
-            log.info("cockpit: credential requests resolved", {
-              satisfied: outcome.satisfied.length,
-              raced: outcome.raced.length,
-            });
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.warn("cockpit: credential-request resolution failed", { message });
-        }
+        // its own timer: same repository, same cadence, and the same job of
+        // reconciling pending asks against what is true now. It swallows its own
+        // failures, so neither pass can mask the other's.
+        await runCredentialRequestResolutionTick(repo);
+
+        return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: stale-ask close sweep failed", { message });
+        return { ok: false };
       }
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Service-window sweeper (mt#4313)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tick cadence for the service-window sweep.
+ *
+ * 60s matches `ServiceWindowReaper`'s own default `pollIntervalMs`. This sweep
+ * drives that poll DIRECTLY rather than calling `reaper.startDeadlinePoll()`,
+ * which would spin a second `setInterval` invisible to
+ * {@link getSweepLivenessSnapshot} and to {@link startSweepMetaWatchdog} —
+ * i.e. exactly the un-observable background loop mt#4313 exists to stop
+ * shipping.
+ */
+const SERVICE_WINDOW_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * RETIRED — deliberately has no caller (mt#4410, 2026-08-21).
+ *
+ * The principal retired the attention-window concept: *"Forget about the
+ * windows. I don't think it's an important concept anymore."* The daemon no
+ * longer starts this; `src/commands/cockpit/start-command.ts` carries the
+ * matching note where the call used to be.
+ *
+ * **This being uncalled is intentional, not the bug it looks like.** That
+ * distinction is load-bearing here, because an exported-but-uncalled entry
+ * point in exactly this subsystem is what mt#4313 existed to fix: mt#1490
+ * shipped a reaper nothing constructed and mt#1489 shipped a cron firer
+ * nothing called, both for months. Do not "restore" this wiring on the
+ * strength of that resemblance — revive mt#1411 (the service-window design,
+ * CLOSED) first, and confirm the concept is wanted again.
+ *
+ * Worth knowing if it is ever revived: the cron half fired correctly on
+ * 2026-08-21 at 20:00:09Z (`service window: opened on schedule`) and the 25
+ * asks bound to `ask-hours` were still `suspended` afterward. The wake path
+ * was never verified end-to-end, so this code is retired UNPROVEN rather than
+ * working-but-unwanted.
+ *
+ * ---
+ *
+ * Drive the service-window runtime: open windows on their cron schedule, close
+ * them when their duration elapses, and run the reaper that awakens the asks
+ * suspended against them.
+ *
+ * ## Why this exists (mt#4313)
+ *
+ * mt#1411's design shipped as four children on 2026-05-01 and TWO of them
+ * closed DONE with their invocation path undelivered:
+ *
+ *   - mt#1489 owed "Cron-scheduled windows auto-open at the right time".
+ *     `checkAndFireCronWindows` was written and exported; nothing called it.
+ *   - mt#1490 owed "Reaper service runs as a long-lived process or job".
+ *     `ServiceWindowReaper` was written and tested; nothing constructed it.
+ *
+ * A third piece was never written at all: nothing closed a window when its
+ * `durationMin` elapsed, so `onWindowClosed` — miss-counting and escalation —
+ * could only ever fire from a manual `window close`.
+ *
+ * All three are one tick's worth of work and are wired here together, because
+ * any one of them alone delivers nothing observable: a reaper with no window
+ * opening is idle, and a window opening with no reaper wakes nothing.
+ *
+ * ## Escalation is deliberately OFF in v1
+ *
+ * `windowConfigs` is intentionally NOT passed to the reaper. Per its own
+ * contract that disables missed-window escalation while leaving miss-COUNTING
+ * intact, so an unanswered cohort still accrues `window_missed_count` and is
+ * still re-batched — it just never reaches `escalateAsk`, which would set
+ * `forceImmediate` on every member and dispatch via an "escalation transport"
+ * that does not exist yet (mt#1545 owns the real dispatch contract). Turning
+ * escalation on before there is somewhere for it to escalate TO would mutate
+ * shared ask state on a schedule to no effect.
+ *
+ * The dispatch callback is likewise log-only for the same reason. That is not
+ * a no-op in practice: the transition to `routed` is what the window surfaces
+ * read (`pendingAsksForWindow` covers `routed` and `suspended` alike), so a
+ * woken cohort is visible in the Attention widget, `window status` and
+ * `window service` without any transport at all.
+ *
+ * Fail-open throughout, per the sibling sweepers: no repository, no
+ * LISTEN-capable connection, or a failing pass logs and waits for the next
+ * tick.
+ *
+ * @returns stop function (clears the interval and tears down subscriptions).
+ */
+export function startServiceWindowSweeper(intervalMs?: number): () => void {
+  // Per-window last-auto-open timestamps. `checkAndFireCronWindows` requires
+  // the CALLER to hold this across ticks — it is what keeps a window whose
+  // cron minute is still current from re-firing on the very next tick.
+  const lastFiredAt = new Map<string, Date>();
+
+  // The reaper is REBUILT every tick around a freshly-resolved repository, and
+  // this box is what the NOTIFY handlers read (mt#4364).
+  //
+  // The original mt#4313 wiring built it once and let it hold its repository
+  // for the process lifetime. Every sibling sweeper in this file re-resolves
+  // `getServerAskRepository()` per tick, and that is not incidental: the pool
+  // recycles (`/api/health` reported `recycleCount: 10` within four hours), and
+  // a handle captured before a recycle raises for the rest of the process. The
+  // shipped sweep succeeded for six minutes and then failed on every one of its
+  // next ~390 ticks, all on `listByState("suspended")`.
+  //
+  // Rebuilding is cheap — the reaper holds references, not connections — but
+  // the miss counter must NOT be rebuilt with it, hence the hoisted store.
+  const reaperRef: { current: ServiceWindowReaperInstance | null } = { current: null };
+  let counterStore: unknown = null;
+  let unsubscribe: (() => Promise<void>) | null = null;
+  let subscribed = false;
+
+  const stopInterval = createIntervalSweeper({
+    name: "service window",
+    intervalMs: intervalMs ?? SERVICE_WINDOW_SWEEP_INTERVAL_MS,
+    tick: async (): Promise<SweepTickResult> => {
+      try {
+        const repo = await getServerAskRepository();
+        // No repository yet is "nothing to do", not a failure — the daemon
+        // starts sweepers before persistence is guaranteed up.
+        if (!repo) return { ok: true };
+
+        const [
+          { ServiceWindowReaper },
+          { createProviderWindowNotifier },
+          { InMemoryForceImmediateCounterStore },
+          { loadAttentionWindowsOrThrow },
+          windowCommands,
+        ] = await Promise.all([
+          import("@minsky/domain/ask/service-window-reaper"),
+          import("@minsky/domain/ask/attention-windows/notify"),
+          import("@minsky/domain/ask/force-immediate-counters"),
+          import("@minsky/domain/ask/attention-windows/loader"),
+          import("../adapters/shared/commands/window/index"),
+        ]);
+
+        // Survives the per-tick rebuild so `window_missed_count` bookkeeping is
+        // not reset every 60 seconds.
+        counterStore ??= new InMemoryForceImmediateCounterStore();
+
+        // Bound to a local const, then published to the ref. Reading it back
+        // off `reaperRef.current` typechecked only through assignment
+        // narrowing, which any statement inserted between would silently break
+        // (PR #3198 R1 BLOCKING #1).
+        const reaper = new ServiceWindowReaper(
+          repo,
+          async (ask, reason) => {
+            // Log-only dispatch (see docblock). The state transition IS the
+            // delivery for the window surfaces; a transport belongs to mt#1545.
+            log.info("service window: ask awakened", {
+              askId: ask.id,
+              kind: ask.kind,
+              windowKey: ask.windowKey,
+              reason,
+            });
+          },
+          {},
+          counterStore as ConstructorParameters<typeof ServiceWindowReaper>[3]
+        );
+        reaperRef.current = reaper;
+
+        // Subscribe ONCE. The handlers read `reaperRef.current`, so they keep
+        // working across the per-tick rebuild above without re-registering
+        // LISTEN on every tick.
+        if (!subscribed) {
+          subscribed = true;
+          await subscribeReaperToWindowEvents(reaperRef).then(
+            (unsub) => {
+              unsubscribe = unsub;
+            },
+            (err) => {
+              // Retry on a later tick rather than latching: a subscription that
+              // failed because persistence was still coming up must not leave
+              // window-open awakening off for the process lifetime.
+              subscribed = false;
+              const message = err instanceof Error ? err.message : String(err);
+              log.warn("service window: NOTIFY subscription failed; window-open wake is inactive", {
+                message,
+              });
+            }
+          );
+        }
+
+        const provider = await getCachedPersistenceProvider().catch(() => null);
+        const notifier = createProviderWindowNotifier(
+          // A null provider degrades to a logged no-op inside the notifier
+          // rather than throwing.
+          (provider ?? undefined) as Parameters<typeof createProviderWindowNotifier>[0]
+        );
+        const registry = windowCommands.globalRegistry;
+
+        return await runServiceWindowTick({
+          now: () => new Date(),
+          fireCronWindows: (now) =>
+            windowCommands.checkAndFireCronWindows(notifier, registry, lastFiredAt, now),
+          listOpenWindows: () =>
+            registry.getAllOpen().map((o) => ({
+              windowKey: o.windowKey,
+              expectedCloseAt: o.expectedCloseAt,
+            })),
+          closeWindow: async (windowKey) => {
+            await windowCommands.closeWindow(windowKey, loadAttentionWindowsOrThrow(), notifier);
+          },
+          pollDeadlineBound: (nowMs) => reaper.pollDeadlineBoundAsks(nowMs),
+        });
+      } catch (err) {
+        // Report the DOMAIN failure, do not just log it (mt#4364).
+        //
+        // This catch previously returned normally, so `createIntervalSweeper`
+        // recorded a successful tick and `/api/sweeps` showed
+        // `consecutiveFailures: 0, lastErrorAt: null` while 100% of ticks were
+        // failing. mt#4313 shipped this sweep to stop unobservable background
+        // loops and then made itself one — the liveness entry was the evidence
+        // offered for its own health criterion.
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("service window sweep failed", { message });
+        return { ok: false };
+      }
+    },
+  });
+
+  return () => {
+    stopInterval();
+    void unsubscribe?.().catch(() => {
+      // intentional-swallow: the process is shutting down and the LISTEN
+      // connection is torn down with the provider regardless.
+    });
+  };
+}
+
+/** The reaper instance type, named once so the ref box below stays readable. */
+type ServiceWindowReaperInstance =
+  import("@minsky/domain/ask/service-window-reaper").ServiceWindowReaper;
+
+/** What one service-window tick did. */
+export interface ServiceWindowTickOutcome extends SweepTickResult {
+  /** Window keys opened because their cron schedule came due. */
+  opened: string[];
+  /** Window keys closed because their duration elapsed. */
+  closed: string[];
+  /** Windows whose auto-close threw; the tick continues past each. */
+  closeFailures: number;
+  /** Deadline-bound asks the reaper dispatched this tick. */
+  dispatched: number;
+}
+
+/**
+ * RETIRED with the service-window concept (mt#4410) — reachable only from
+ * {@link startServiceWindowSweeper}, which the daemon no longer calls. Read that
+ * function's header before reviving anything here. Its tests still run.
+ *
+ * The service-window tick's decisions, with its IO injected (mt#4313).
+ *
+ * Extracted from the sweeper above for the same reason
+ * {@link runProdStateRefreshTick} was: the sweeper reaches its collaborators
+ * through dynamic imports and a module-level `globalRegistry` singleton, so
+ * there is no other seam, and patching those in place is what ADR-036 bans.
+ *
+ * A failing auto-close is contained per-window rather than aborting the tick:
+ * one window whose config went missing must not stop the others from closing,
+ * and must not stop the deadline poll from running at all.
+ */
+export async function runServiceWindowTick(deps: {
+  /** Current time, injected so a test can drive a schedule without waiting. */
+  now: () => Date;
+  /** Open any window whose cron schedule is due; returns the keys opened. */
+  fireCronWindows: (now: Date) => Promise<string[]>;
+  /** Currently-open windows and when each is due to close. */
+  listOpenWindows: () => { windowKey: string; expectedCloseAt: Date }[];
+  /** Close one window — this is what emits the NOTIFY miss-counting reads. */
+  closeWindow: (windowKey: string) => Promise<void>;
+  /** Run the reaper's deadline-bound poll; returns how many it dispatched. */
+  pollDeadlineBound: (nowMs: number) => Promise<number>;
+}): Promise<ServiceWindowTickOutcome> {
+  const now = deps.now();
+  const outcome: ServiceWindowTickOutcome = {
+    ok: true,
+    opened: [],
+    closed: [],
+    closeFailures: 0,
+    dispatched: 0,
+  };
+
+  // Every dependency call below is contained, so ONE failing step degrades this
+  // tick's outcome without cancelling the others and without discarding the
+  // counts already collected (PR #3198 R2 BLOCKING).
+  //
+  // Containing only the auto-close, as the first cut did, left the contract
+  // inconsistent: a throwing `pollDeadlineBound` escaped to the caller's outer
+  // catch, which reports `ok: false` correctly but loses `opened`/`closed`, and
+  // a direct caller of this exported function got a throw where the return type
+  // promises an outcome.
+
+  // 1. Open any window whose cron schedule is due (mt#1489's criterion).
+  try {
+    outcome.opened = await deps.fireCronWindows(now);
+    if (outcome.opened.length > 0) {
+      log.info("service window: opened on schedule", { windows: outcome.opened });
+    }
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: cron open failed", { message });
+  }
+
+  // 2. Close any open window past its expected close time. Nothing did this
+  //    before, so `onWindowClosed` never fired without an operator typing it.
+  let openWindows: { windowKey: string; expectedCloseAt: Date }[] = [];
+  try {
+    openWindows = deps.listOpenWindows();
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: could not enumerate open windows", { message });
+  }
+
+  for (const open of openWindows) {
+    if (open.expectedCloseAt.getTime() > now.getTime()) continue;
+    try {
+      await deps.closeWindow(open.windowKey);
+      outcome.closed.push(open.windowKey);
+      log.info("service window: closed on duration elapse", { windowKey: open.windowKey });
+    } catch (err) {
+      outcome.closeFailures++;
+      // A window that should have closed and did not is a domain failure, even
+      // though the tick continues past it to the other windows and the poll.
+      outcome.ok = false;
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("service window: auto-close failed", { windowKey: open.windowKey, message });
+    }
+  }
+
+  // 3. Deadline-bound poll. Driven here rather than by the reaper's own timer
+  //    so this sweep's liveness entry covers it (see the sweeper's docblock).
+  try {
+    outcome.dispatched = await deps.pollDeadlineBound(now.getTime());
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: deadline poll failed", { message });
+  }
+
+  return outcome;
+}
+
+/**
+ * RETIRED with the service-window concept (mt#4410) — reachable only from
+ * {@link startServiceWindowSweeper}, which the daemon no longer calls. Nothing
+ * subscribes to the window channels now; read that function's header first.
+ *
+ * Subscribe a reaper to the two window NOTIFY channels.
+ *
+ * Uses the provider's MEMOIZED listen-capable connection
+ * (`getListenCapableSqlConnection`, `max: 1`, `idle_timeout: 0`), so this adds
+ * two LISTEN registrations to the connection the SSE broker already holds
+ * rather than opening a second one — which matters because per-process
+ * connection budget is a measured constraint here (mt#4308).
+ *
+ * @returns an unsubscribe function.
+ * @throws when the provider is not Postgres-backed or the LISTEN connection
+ *   cannot be obtained — the caller degrades rather than failing the tick.
+ */
+async function subscribeReaperToWindowEvents(reaperRef: {
+  current: ServiceWindowReaperInstance | null;
+}): Promise<() => Promise<void>> {
+  const [{ PostgresChannelListener }, { CHANNEL_OPENED, CHANNEL_CLOSED }] = await Promise.all([
+    import("@minsky/domain/mesh/postgres-channel-listener"),
+    import("@minsky/domain/ask/attention-windows/notify"),
+  ]);
+
+  const provider = await getCachedPersistenceProvider();
+  if (
+    typeof provider !== "object" ||
+    provider === null ||
+    !("getListenCapableSqlConnection" in provider) ||
+    typeof (provider as { getListenCapableSqlConnection?: unknown })
+      .getListenCapableSqlConnection !== "function"
+  ) {
+    throw new Error("persistence provider has no LISTEN-capable connection");
+  }
+
+  const sqlProvider = provider as {
+    getListenCapableSqlConnection: () => Promise<ReturnType<typeof import("postgres")>>;
+  };
+  const listener = new PostgresChannelListener(await sqlProvider.getListenCapableSqlConnection());
+
+  // Both handlers discard their return value: `onWindowClosed` resolves to a
+  // summary the listener contract has no channel for, and `ChannelListenerFn`
+  // is `void | Promise<void>`.
+  //
+  // They read `reaperRef.current` at CALL time rather than closing over one
+  // instance, so the per-tick rebuild (mt#4364) does not leave this
+  // subscription pointed at a reaper holding a dead repository handle.
+  const onOpened = async (_channel: string, payload: unknown): Promise<void> => {
+    const reaper = reaperRef.current;
+    if (!reaper) return;
+    await reaper.onWindowOpened(payload as Parameters<typeof reaper.onWindowOpened>[0]);
+  };
+  const onClosed = async (_channel: string, payload: unknown): Promise<void> => {
+    const reaper = reaperRef.current;
+    if (!reaper) return;
+    await reaper.onWindowClosed(payload as Parameters<typeof reaper.onWindowClosed>[0]);
+  };
+
+  // Roll back a PARTIAL subscription (PR #3198 R1 BLOCKING #2).
+  //
+  // These are two separate `subscribe` calls. If the second throws, the first
+  // stays registered on the listener and the caller never receives an
+  // unsubscribe handle for it — so the registration leaks, and the caller's
+  // retry-on-failure path would then register it a SECOND time, delivering
+  // every window-open event twice.
+  const registered: string[] = [];
+  try {
+    await listener.subscribe(CHANNEL_OPENED, onOpened);
+    registered.push(CHANNEL_OPENED);
+    await listener.subscribe(CHANNEL_CLOSED, onClosed);
+    registered.push(CHANNEL_CLOSED);
+  } catch (err) {
+    for (const channel of registered) {
+      await listener
+        .unsubscribe(channel, channel === CHANNEL_OPENED ? onOpened : onClosed)
+        .catch((cleanupErr: unknown) => {
+          // Report, never mask the original failure that is about to rethrow.
+          const message = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+          log.warn("service window: rollback of partial NOTIFY subscription failed", {
+            channel,
+            message,
+          });
+        });
+    }
+    throw err;
+  }
+
+  let torn = false;
+  return async () => {
+    // Idempotent: the caller may invoke this on stop after having already
+    // dropped the handle, and double-unsubscribing is not a no-op on every
+    // listener implementation.
+    if (torn) return;
+    torn = true;
+    await listener.unsubscribe(CHANNEL_OPENED, onOpened);
+    await listener.unsubscribe(CHANNEL_CLOSED, onClosed);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -920,22 +1896,33 @@ export function startShortIdMapSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "short-id map refresh",
     intervalMs: intervalMs ?? SHORT_ID_MAP_REFRESH_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
       const hasRawSql =
         "getRawSqlConnection" in provider &&
         typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
-      if (!hasRawSql) return;
+      if (!hasRawSql) {
+        // Not a quiet no-op (mt#4412) — a provider without raw SQL cannot
+        // refresh the map, which is the same condition
+        // `runProdStateRefreshTick` already reports as a failure.
+        log.warn("cockpit: short-id map refresh skipped — provider exposes no raw SQL connection");
+        return { ok: false };
+      }
       const sql = await (
         provider as { getRawSqlConnection: () => Promise<unknown> }
       ).getRawSqlConnection();
       const { refreshShortIdMapCache } = await import("./short-id-map-cache");
-      await refreshShortIdMapCache(
-        sql as import("./short-id-map-cache").UnsafeSql | null | undefined,
-        Date.now()
-      );
+      // `refreshShortIdMapCache` has ALWAYS returned its own boolean outcome;
+      // the tick simply discarded it (mt#4412). No new signal is invented
+      // here — an existing one is stopped from being thrown away.
+      return {
+        ok: await refreshShortIdMapCache(
+          sql as import("./short-id-map-cache").UnsafeSql | null | undefined,
+          Date.now()
+        ),
+      };
     },
   });
 }
@@ -1039,7 +2026,11 @@ export function startAskStateRefreshSweeper(intervalMs?: number): () => void {
     tick: () =>
       runAskStateRefreshTick({
         resolveRepoRoot: () => findRepoRoot([process.cwd()]) ?? process.cwd(),
-        readAskIds: (repoRoot) => readWatermarkAskIds(repoRoot),
+        // mt#3564: two id sources, not one — the calibration watermarks PLUS the asks
+        // attributed to a conversation by `stamp-ask-conversation.ts`. Unioned inside
+        // `collectAllTrackedAskIds` so both consumers read a single snapshot and an ask
+        // present in both sources is still looked up once.
+        readAskIds: (repoRoot) => collectAllTrackedAskIds(repoRoot),
         resolveRawSql: async () => {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const svc = await getSharedPersistenceService();
@@ -1099,13 +2090,16 @@ export function startDispatchWatchdogSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "dispatch watchdog",
     intervalMs: intervalMs ?? DISPATCH_WATCHDOG_REFRESH_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { refreshDispatchWatchdogCache } = await import("./dispatch-watchdog");
-        await refreshDispatchWatchdogCache();
+        // Already returns its own boolean outcome (false on no SQL-capable
+        // DB); the tick discarded it until mt#4412.
+        return { ok: await refreshDispatchWatchdogCache() };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: dispatch watchdog sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1141,13 +2135,16 @@ export function startTopologySweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "topology",
     intervalMs: intervalMs ?? TOPOLOGY_REFRESH_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { refreshTopologyCache } = await import("./topology-cache");
-        await refreshTopologyCache(new Date().toISOString());
+        // Already returns its own boolean outcome; the tick discarded it until
+        // mt#4412.
+        return { ok: await refreshTopologyCache(new Date().toISOString()) };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: topology sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1330,7 +2327,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
     name: "transcript sweep backstop",
     intervalMs: resolvedInterval,
     tickTimeoutMs: TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         // Resolve deps: injected (for tests) or real (for production).
         let sweepDeps: TranscriptSweepDeps | null;
@@ -1341,9 +2338,9 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         }
 
         if (!sweepDeps) {
-          // Non-SQL provider: nothing to sweep.
+          // mt#4412 — cannot sweep, so not a healthy no-op.
           log.debug("cockpit: transcript sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
 
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
@@ -1369,7 +2366,14 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             log.debug("cockpit: transcript sweep skipped — schema behind", {
               pending: getSchemaReadiness().pending,
             });
-            return;
+            // mt#4412: a domain failure, even though the pause is DELIBERATE
+            // and correct. The sweep is not doing its work, and a daemon left
+            // schema-behind indefinitely is exactly the standing inertness
+            // this field exists to expose. Self-clearing — the next tick after
+            // the migration lands reports ok again — and harmless, because
+            // domain failures are reported, never acted on (no re-init, no
+            // restart; see the domain-outcome block in createIntervalSweeper).
+            return { ok: false };
           }
         }
 
@@ -1385,7 +2389,8 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
           const message = err instanceof Error ? err.message : String(err);
           log.warn("cockpit: transcript sweep: ingest failed", { message });
           sweepDeps.tracker.recordSweepError();
-          return; // Can't meaningfully record a completed sweep if ingest threw.
+          // Can't meaningfully record a completed sweep if ingest threw.
+          return { ok: false };
         }
 
         // Record ingest counters (includes error count — surfaced, not dropped).
@@ -1413,6 +2418,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         // SC2: default semantic-embedding backfill, run off the critical path.
         // A missing embedding provider, API error, or DB timeout must NOT crash
         // the sweep or prevent the ingest counters from being recorded.
+        let embeddingsOk = true;
         try {
           await runEmbeddings();
           tracker.recordEmbedRunCompleted();
@@ -1422,8 +2428,18 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             message,
           });
           tracker.recordSweepError();
+          embeddingsOk = false;
           // No return: the ingest phase already completed successfully.
         }
+
+        // mt#4412: this sweep has TWO phases, so one boolean has to say
+        // something honest about both. Non-fatal to the tick is not the same
+        // as fine — a permanently failing embedding backfill already called
+        // `recordSweepError()` on every pass, and reporting `ok: true` beside
+        // that would be the contradiction this task exists to remove.
+        // `sessionsErrored` is included for the same reason: a sweep that
+        // processes every session and errors on all of them did not succeed.
+        return { ok: embeddingsOk && ingestResult.sessionsErrored === 0 };
       } catch (err) {
         // Outermost safety net — unexpected throw escaping either phase.
         const message = err instanceof Error ? err.message : String(err);
@@ -1434,6 +2450,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         } else {
           TranscriptSweepTracker.getInstance().recordSweepError();
         }
+        return { ok: false };
       }
     },
   });
@@ -1471,15 +2488,22 @@ export function startDeploySmokeSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "deploy.smoke",
     intervalMs: intervalMs ?? DEPLOY_SMOKE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { getSharedProvider } = await import("./shared-persistence");
         const { triggerDeploySmokeSweep } = await import("./deploy-smoke-sweep");
         const provider = await getSharedProvider();
-        await triggerDeploySmokeSweep(provider);
+        // mt#4412 widened `triggerDeploySmokeSweep` from `void` to a boolean
+        // rather than letting this sweep take the documented "not decidable at
+        // the tick boundary" exception. It IS decidable — the function's
+        // several do-nothing paths are healthy and its two attempted-but-
+        // failed paths are not — and a blanket `ok: true` here would have
+        // reported a permanently no-oping emit as healthy.
+        return { ok: await triggerDeploySmokeSweep(provider) };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: deploy.smoke sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1553,13 +2577,17 @@ export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void 
   return createIntervalSweeper({
     name: "scheduled follow-ups",
     intervalMs: opts?.intervalMs ?? FOLLOW_UP_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const service: FollowUpSweepDeps | null = opts?.deps ?? (await getServerFollowUpService());
         if (!service) {
-          // Non-SQL provider: nothing to sweep.
+          // mt#4412: a provider that cannot serve follow-ups means the work
+          // did not happen. Reported as a domain failure for the same reason
+          // `runProdStateRefreshTick` reports a missing raw-SQL provider —
+          // "cannot do the work" is not the same as "nothing to do", and only
+          // the second is healthy.
           log.debug("cockpit: follow-up sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
         const { fired, errored } = await service.fireDue();
         if (fired.length > 0) {
@@ -1572,9 +2600,15 @@ export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void 
             errored,
           });
         }
+        // The sweep's OWN result: a tick that fired nothing because nothing
+        // was due is healthy; a tick where a due follow-up failed to fire is
+        // not. `errored` is the discriminator and it was already computed —
+        // it just never left the tick (mt#4412).
+        return { ok: errored.length === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: follow-up sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1622,7 +2656,7 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
   return createIntervalSweeper({
     name: "conversation presence",
     intervalMs: intervalMs ?? CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const { getSharedPersistenceService } = await import("./shared-persistence");
         const svc = await getSharedPersistenceService();
@@ -1639,11 +2673,15 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
               ).getDatabaseConnection.bind(provider)
             : null;
         if (!getDb) {
+          // mt#4412: cannot do the work, so not a healthy no-op.
           log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
         const db = await getDb();
-        if (!db) return;
+        if (!db) {
+          log.debug("cockpit: presence sweep: database connection unavailable, skipping tick");
+          return { ok: false };
+        }
 
         const getRawSql =
           "getRawSqlConnection" in provider &&
@@ -1676,9 +2714,15 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
             transitions: transitions.map((t) => `${t.conversationId}: ${t.from ?? "-"}->${t.to}`),
           });
         }
+        // A tick that found no transitions is genuinely healthy here — unlike
+        // the sweeps above, "nothing changed" is this sweep's normal result
+        // rather than a sign it could not run, and the cannot-run cases are
+        // already reported as failures above.
+        return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation presence sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1702,6 +2746,10 @@ export interface ConversationTitleSweepDeps {
     candidates: number;
     titled: number;
     skipped: number;
+    /** mt#4179 — why the skips happened; `skipped` alone cannot say. */
+    skippedNoTurns?: number;
+    skippedNoContent?: number;
+    skippedNoSubject?: number;
     errored: number;
   }>;
 }
@@ -1776,15 +2824,20 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
   return createIntervalSweeper({
     name: "conversation title",
     intervalMs: options?.intervalMs ?? CONVERSATION_TITLE_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const deps = options?.deps ?? (await buildRealTitleSweepDeps());
         if (!deps) {
-          // Not an error — a non-SQL provider simply has nothing to title. Logged
-          // so a permanently-idle sweeper is distinguishable from a working one
-          // with no backlog (PR #2408 R1).
+          // This comment previously read "Not an error — a non-SQL provider
+          // simply has nothing to title", logged so a permanently-idle
+          // sweeper stayed distinguishable from a working one with no backlog
+          // (PR #2408 R1). mt#4412 changes the ANSWER without disputing the
+          // reasoning: that distinction now has a field of its own, and it is
+          // exactly what the field is for. A provider that cannot title
+          // anything is inert, not idle — "nothing to title" would be
+          // `candidates: 0` from a real run.
           log.debug("cockpit: conversation title sweep skipped (no SQL persistence)");
-          return;
+          return { ok: false };
         }
         const result = await deps.runTitling();
         // Per-run counters at the sweeper level, not only inside the pipeline:
@@ -1795,12 +2848,23 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
             candidates: result.candidates,
             titled: result.titled,
             skipped: result.skipped,
+            // mt#4179 — a full batch of skips is the head-of-line signature, and
+            // `skipped` alone reads identically to a healthy quiet tick. The
+            // breakdown says which kind of nothing happened.
+            skippedNoTurns: result.skippedNoTurns ?? 0,
+            skippedNoContent: result.skippedNoContent ?? 0,
+            skippedNoSubject: result.skippedNoSubject ?? 0,
             errored: result.errored,
           });
         }
+        // `errored > 0` was already named above as "the signal that titling is
+        // failing while the sweeper itself looks healthy" — mt#4412 is what
+        // finally routes that signal somewhere a reader sees it.
+        return { ok: result.errored === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation title sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1912,12 +2976,13 @@ export function startConversationSummarySweeper(
   return createIntervalSweeper({
     name: "conversation summary",
     intervalMs: options?.intervalMs ?? CONVERSATION_SUMMARY_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const deps = options?.deps ?? (await buildRealSummarySweepDeps());
         if (!deps) {
+          // mt#4412 — inert, not idle. See the title sweep above.
           log.debug("cockpit: conversation summary sweep skipped (no SQL persistence)");
-          return;
+          return { ok: false };
         }
         const result = await deps.runSummarizing();
         // `transcriptsErrored > 0` is the signal that summarizing is failing
@@ -1932,9 +2997,15 @@ export function startConversationSummarySweeper(
             embeddingCalls: result.embeddingCallsMade,
           });
         }
+        // `transcriptsErrored > 0` is named above as the signal that
+        // summarizing is failing while the sweeper looks healthy — "the shape
+        // that let the original no-caller gap sit unnoticed". mt#4412 gives it
+        // a reader.
+        return { ok: result.transcriptsErrored === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation summary sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -2052,12 +3123,13 @@ export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions)
     name: "guard-events sweep backstop",
     intervalMs: resolvedInterval,
     tickTimeoutMs: GUARD_EVENTS_SWEEP_TICK_TIMEOUT_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const deps = options?.deps ?? (await buildRealGuardEventsSweepDeps());
         if (!deps) {
+          // mt#4412 — cannot sweep, so not a healthy no-op.
           log.debug("cockpit: guard-events sweep: no SQL-capable DB, skipping tick");
-          return;
+          return { ok: false };
         }
         const result = await deps.runSweep();
         // SC2: a per-stream error is already logged inside runSweep above;
@@ -2073,9 +3145,15 @@ export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions)
           totalInserted: result.totalInserted,
           totalErrors: result.totalErrors,
         });
+        // Per-stream errors are logged inside `runSweep`; `totalErrors` is the
+        // aggregate that decides whether this tick's WORK succeeded. Reading
+        // it here is what stops a sweep erroring on every stream from
+        // presenting as a healthy run (mt#4412).
+        return { ok: result.totalErrors === 0 };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: guard-events sweep: unexpected error in tick", { message });
+        return { ok: false };
       }
     },
   });
@@ -2111,13 +3189,31 @@ export function startInterceptorAggregatesSweeper(intervalMs?: number): () => vo
     name: "interceptor-aggregates",
     intervalMs: intervalMs ?? INTERCEPTOR_AGGREGATES_INTERVAL_MS,
     tickTimeoutMs: INTERCEPTOR_AGGREGATES_TICK_TIMEOUT_MS,
+    // Both numbers are sized against THIS sweep's 5-minute cadence and the two
+    // measured outages, not picked round (`decision-defaults §Thresholds`).
+    //
+    // afterFailures: 2 -> ~10 minutes of continuous failure before any tick is
+    // skipped, which is past a transient pooler blip (seconds) and well inside
+    // the 15-25 minute window both recorded outages actually lasted.
+    //
+    // maxSkippedTicks: 6 -> a 30-minute floor cadence, deliberately just past
+    // the longest observed outage (25 min) so a database that recovered is
+    // re-probed within roughly one cadence of recovering, never abandoned.
+    domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 6 },
     tick: async () => {
       try {
         const { refreshInterceptorAggregates } = await import("./interceptor-aggregates-cache");
-        await refreshInterceptorAggregates();
+        // Report the refresh's OWN outcome, not merely "the tick did not
+        // throw" (mt#4294). The fail-open try/catch below and the refresh's
+        // internal source guards both convert a failure into a normal return,
+        // so without this the scheduler counted a permanently-failing refresh
+        // as a run of successful ticks — and `consecutiveDomainFailures`, the
+        // counter a backoff would read, never moved off zero.
+        return await refreshInterceptorAggregates();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: interceptor-aggregates sweep failed", { message });
+        return { ok: false };
       }
     },
   });

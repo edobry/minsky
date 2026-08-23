@@ -62,16 +62,44 @@ export async function registerSessionCommands(
 ): Promise<void> {
   // Lazy resolver: defers persistence initialization and domain module loading
   // to first command execution. CLI bootstrap only registers metadata.
-  let cachedDeps: SessionCommandDependencies | null = null;
+  //
+  // Resolved PER CALL, never memoized (mt#4379). This closure outlives every
+  // command — `registerSessionCommands` runs once at bootstrap — so caching the
+  // bundle here pinned it for the life of the process. When `sessionDeps` was
+  // built during a transient Postgres outage it carried a zero-backend
+  // `taskService`, and `session_start` then served that frozen bundle for 20+
+  // hours while every per-call resolver in the same process healed normally.
+  //
+  // Two reasons the cache cannot come back as an optimization:
+  //
+  //   1. `container.get()` is the ACTUATION path for recovery, not merely a
+  //      lookup. It calls `retryDeferred()` on any placeholder-backed key, and
+  //      `PersistenceService.getProviderWithRetry` is explicitly "usage-gated,
+  //      not time-gated: nothing runs unless something calls this" — there is no
+  //      background poller by design (mt#3751). Caching the result therefore
+  //      does not just risk staleness; it starves the self-heal of its only
+  //      trigger.
+  //   2. The cost it saves is noise: a tsyringe resolve is sub-microsecond
+  //      against a command that does file and network I/O.
+  //
+  // This matches how the same bundle is already consumed elsewhere —
+  // `buildSessionDirResolver` (src/adapters/shared/commands/validate.ts)
+  // resolves `sessionDeps` fresh inside its returned closure — and how every
+  // task command resolves its dependencies
+  // (src/adapters/shared/commands/tasks/registry-setup.ts).
+  //
+  // If a cache is ever genuinely needed here, it must be keyed to a container
+  // lifecycle epoch with a stable-across-construction check (the shape of
+  // `createEpochKeyedCache` in src/cockpit/shared-persistence.ts), NOT a bare
+  // memo: a bare re-read still has a torn window, and this repo has already had
+  // eight module-level caches hold provider-derived handles with no epoch check.
   const getDeps: LazySessionDeps = async () => {
-    if (cachedDeps) return cachedDeps;
     if (!container?.has("sessionDeps")) {
       throw new Error(
         "DI container missing 'sessionDeps'. Ensure container.initialize() was called before command execution."
       );
     }
-    cachedDeps = container.get("sessionDeps");
-    return cachedDeps;
+    return container.get("sessionDeps");
   };
 
   // Optional (non-throwing) persistence provider for best-effort event emission

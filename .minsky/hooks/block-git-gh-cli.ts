@@ -6,11 +6,18 @@
 // This hook intercepts both `Bash` AND `mcp__minsky__session_exec` tool calls
 // (both accept a `command` parameter) and denies known-equivalent operations.
 //
-// Three rules (`git status`, `git stash`, `git reset`) have denial messages
-// that explicitly redirect to `session_exec` as the allowed path. Those rules
-// are tagged `allowedInSessionExec: true` and skipped when the invocation is
-// already via session_exec — otherwise the hook would contradict its own
-// guidance.
+// Four rules (`git status`, `git reset`, `git stash`, `git restore`) are tagged
+// `allowedInSessionExec: true` and skipped when the invocation is already via
+// session_exec — otherwise the hook would deny the very fallback its own denial
+// text offers.
+//
+// Their denial text names the MCP tool FIRST (mt#4226). All four of those MCP
+// tools accept a `session` parameter, so `session_exec` is the fallback for what
+// the tools do NOT cover — not "the path for sessions", which is what this text
+// said until 2026-08-18 and which named no real capability boundary. When you
+// ship an MCP tool that covers a carved-out command, update the matching `reason`
+// string in the same PR: a denial string is an instruction carrying hook
+// authority, and it ages independently of the tool surface it names (mem#1078).
 //
 // `git -C` is NOT carved out: the -C rule previously had allowedInSessionExec,
 // but minsky-reviewer (mt#1196 review 4167154239) correctly identified that
@@ -438,7 +445,11 @@ export const gitDenials: DenialRule[] = [
       // every caller whose grant deliberately omits it — the reviewer and
       // auditor agents omit it precisely because it can mutate, so telling them
       // to use it is advice they cannot take and must not be given.
-      "Use `mcp__minsky__git_status` (read-only), or `mcp__minsky__session_exec(task, 'git status')` inside a session, or avoid the call if context is available from diff/log tools.",
+      // mt#4226: `git_status` takes a `session`, so it serves sessions too — the
+      // old "or session_exec inside a session" phrasing implied a boundary that
+      // does not exist. session_exec stays as the fallback for porcelain output
+      // this tool does not model.
+      "Use `mcp__minsky__git_status({ session })` — read-only, and it accepts a `session`, so it covers session workspaces as well as main. Fallback: `mcp__minsky__session_exec(task, 'git status ...')` for raw/porcelain output the tool does not model. Or skip the call entirely if diff/log tools already give you the context.",
     // On session_exec itself, `git status` is the recommended path — don't block.
     allowedInSessionExec: true,
   },
@@ -487,21 +498,26 @@ export const gitDenials: DenialRule[] = [
   {
     match: (args) => args[0] === "reset",
     reason:
-      "Use `mcp__minsky__git_reset` for main-workspace (requires `mode` and `confirmHard: true` for hard mode), or `mcp__minsky__session_exec(task, 'git reset ...')` in a session. This is destructive — consider a revert alternative first.",
+      "Use `mcp__minsky__git_reset({ session, mode })` — it accepts a `session`, so it covers session workspaces as well as main (`mode` is required; `confirmHard: true` additionally required for hard mode). Fallback: `mcp__minsky__session_exec(task, 'git reset ...')` for forms the tool does not model, such as a pathspec reset. This is destructive — consider a revert alternative first.",
     // On session_exec itself, `git reset` is the recommended escape hatch — don't block.
     allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "stash",
     reason:
-      "For main workspace, use `mcp__minsky__git_stash` / `git_stash_pop` / `git_stash_list` / `git_stash_drop`. For sessions, use `session_exec(task, 'git stash')`.",
+      "Use `mcp__minsky__git_stash({ session, message, paths })` / `git_stash_pop` / `git_stash_list` / `git_stash_drop` — these accept a `session`, so they cover session workspaces as well as main. Fallback: `mcp__minsky__session_exec(task, 'git stash ...')` for the subcommands there is no tool for, such as `git stash apply` or `git stash show`.",
     // On session_exec itself, `git stash` is the recommended escape hatch — don't block.
     allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "restore",
     reason:
-      "Use `mcp__minsky__git_restore <paths>` for main-workspace single-file discard. For sessions, use `session_exec(task, 'git restore ...')`.",
+      // mt#4226: this is the one carve-out with a REAL capability boundary, so
+      // the message names it rather than a workspace split. `git_restore` has no
+      // `source` parameter (mt#1297 SC1), and the legacy `git checkout <ref> --
+      // <path>` spelling is denied even on session_exec by the `checkout` rule
+      // above — which has no carve-out — so `--source=` is the only working path.
+      "Use `mcp__minsky__git_restore({ session, paths })` to discard uncommitted changes — it accepts a `session`, so it covers session workspaces as well as main. The one case it CANNOT do is materialise a file from another revision: it has no `source` parameter (tracked as mt#1297). For that, use `mcp__minsky__session_exec(task, 'git restore --source=<ref> -- <path>')` — and use that `--source=` spelling specifically, because the older `git checkout <ref> -- <path>` form is denied even via session_exec.",
     // On session_exec itself, `git restore` is the recommended escape hatch — don't block.
     allowedInSessionExec: true,
   },

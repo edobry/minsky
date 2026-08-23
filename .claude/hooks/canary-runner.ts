@@ -43,6 +43,9 @@ import type {
 import { deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Canary evaluation (pure — no I/O)
@@ -154,10 +157,16 @@ export interface CanaryResult {
  * resolves a concrete array, empty or not, before invoking any guard), so
  * typing this parameter as that non-optional field type — while every call
  * site actually passes a possibly-`undefined` value — was a type hole the
- * root tsconfig's typecheck can't catch (`.minsky/hooks/` is outside its
- * `include` set, per SPEC.md's dependency-free-tree invariant); only a
- * runtime crash on an unguarded `.length`/`.map` access downstream would have
- * surfaced it. The `?? []` fallback below was already runtime-safe; the fix
+ * ROOT tsconfig's typecheck can't catch (`.minsky/hooks/` is outside its
+ * `include` set); only a runtime crash on an unguarded `.length`/`.map` access
+ * downstream would have surfaced it.
+ *
+ * Two corrections, mt#4373: this attributed the exclusion to SPEC.md's
+ * "dependency-free-tree invariant", which is retired and was never the reason
+ * for a tsconfig `include` set anyway. And the implication no longer holds —
+ * `tsconfig.hooks.json` covers `.minsky/hooks/**` (mt#2900), and a default
+ * `validate_typecheck` runs it, so this tree IS typechecked today. Only the
+ * root project skips it. The `?? []` fallback below was already runtime-safe; the fix
  * is making the signature honest about what it actually accepts.
  */
 function buildCanaryContext(
@@ -173,15 +182,117 @@ function buildCanaryContext(
   };
 }
 
+/**
+ * The `session_id` every canary invocation carries.
+ *
+ * Load-bearing beyond identification: a canary drives the guard's REAL `run()`,
+ * so a guard that writes a per-turn record writes one for the canary too. This
+ * literal is what lets a reader subtract those synthetic rows from a
+ * denominator — see {@link isCanaryRecord}. Exported rather than inlined so a
+ * consumer filters on the same constant the producer stamps, instead of
+ * re-typing the string (mt#4127).
+ */
+export const CANARY_SESSION_ID = "mt2889-canary-session";
+
+/**
+ * True when `record` was produced by a canary invocation rather than a real
+ * turn.
+ *
+ * For any rate computed over a guard's evaluation stream — ADR-024 §(b)'s
+ * false-negative bar is the live consumer — canary rows belong in neither the
+ * numerator nor the denominator: they are synthetic inputs chosen to make the
+ * guard fire, so counting them measures the canary, not the traffic.
+ *
+ * Keyed on `session_id` and NOT on a substring search for "canary": measured
+ * 2026-08-13, `grep -c canary` over `operator-deferral-evaluations.jsonl`
+ * returned 31 where the true count was 25, because six real turns discussed
+ * canaries in their captured text. The field is the authority; a rendering of
+ * the whole line is not.
+ */
+export function isCanaryRecord(record: { session_id?: unknown }): boolean {
+  return record.session_id === CANARY_SESSION_ID;
+}
+
 /** Minimal base ClaudeHookInput every canary's declared `input` fragment is merged onto. */
-function baseCanaryInput(event: GuardRegistration["event"]): ToolHookInput {
+function baseCanaryInput(event: GuardRegistration["event"], cwd: string): ToolHookInput {
   return {
-    session_id: "mt2889-canary-session",
-    cwd: process.cwd(),
+    session_id: CANARY_SESSION_ID,
+    cwd,
     hook_event_name: event,
     tool_name: "",
     tool_input: {},
   };
+}
+
+/**
+ * A throwaway repo root for ONE canary invocation, so a guard that writes a log
+ * writes it here instead of into the developer's checkout.
+ *
+ * **Why this lives in the runner rather than in each caller.** A canary drives
+ * the guard's real `run()`, and several guards append a per-turn evaluation
+ * record as a side effect. `scripts/run-guard-canaries.ts` has isolated itself
+ * since 2026-07-17 by pointing `CLAUDE_PROJECT_DIR` at a temp dir (`:93-95`) —
+ * but that is a CALLER-side convention, and `canary-runner.test.ts` invokes
+ * `runGuardCanary` directly without it. Reproduced 2026-08-14: running that one
+ * test file appended a row bearing {@link CANARY_SESSION_ID} to the real
+ * `.minsky/negative-existence-claim-evaluations.jsonl`. Isolating HERE covers
+ * every caller, including ones not written yet.
+ *
+ * Both knobs are set because the two writer conventions read different ones. A
+ * writer routed through `evaluationLogPath` resolves `CLAUDE_PROJECT_DIR` first;
+ * a hand-rolled writer roots on `input.cwd`. Setting only one leaves the other
+ * class writing to the checkout — which is exactly the asymmetry that made
+ * `operator-deferral` (shared helper) and `negative-existence-claim`
+ * (hand-rolled) contaminate under different conditions.
+ *
+ * The `.git` marker is not decoration: every one of these paths calls
+ * `findRepoRoot`, which walks upward for it. Without a marker the walk escapes
+ * the temp dir and resolves somewhere unintended.
+ */
+function createCanarySandbox(): string {
+  const dir = mkdtempSync(join(tmpdir(), "mt4127-canary-sandbox-"));
+  mkdirSync(join(dir, ".git"), { recursive: true });
+  return dir;
+}
+
+/**
+ * Tail of the chain of in-flight canary invocations, so overlapping calls run
+ * one at a time.
+ *
+ * `runGuardCanary` communicates the sandbox to guards through `process.env`,
+ * which is process-global: two concurrent invocations would each set
+ * `CLAUDE_PROJECT_DIR`, and the first to finish would restore the pre-canary
+ * value out from under the second, un-sandboxing it mid-run.
+ *
+ * The env channel is not a choice — `evaluationLogPath` reads the variable from
+ * the environment, so there is no parameter to thread instead. Serializing is
+ * what makes a global-by-contract channel safe.
+ *
+ * **This hazard predates the sandbox** (PR #2995 R1). The function has always
+ * snapshotted and restored env around a canary's `setup`, which is free to
+ * mutate it (the mt#3004 fixture-path and tracker-home seams do exactly that);
+ * concurrent callers would have trampled those too. The sandbox made the
+ * exposure load-bearing rather than introducing it, so the fix is scoped to the
+ * whole function rather than to the two lines that prompted the finding.
+ *
+ * Sequential callers pay one already-resolved `await` and are otherwise
+ * unaffected — `runAllRegistryCanaries` awaits each canary in turn today.
+ */
+let canaryInvocationChain: Promise<void> = Promise.resolve();
+
+/**
+ * Wait for any in-flight canary to finish, then claim the slot. The returned
+ * function releases it and MUST be called in a `finally`, or every later canary
+ * waits forever.
+ */
+async function acquireCanarySlot(): Promise<() => void> {
+  const priorInFlight = canaryInvocationChain;
+  let release!: () => void;
+  canaryInvocationChain = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await priorInFlight;
+  return release;
 }
 
 /**
@@ -221,28 +332,70 @@ export async function runGuardCanary(
   if (!canary) {
     return { guardName: reg.name, source: "registry", passed: undefined };
   }
-  const envSnapshot: Record<string, string | undefined> = { ...process.env };
+  // Claimed before the env snapshot: the snapshot must capture the environment
+  // with no other canary's mutations in it.
+  const releaseSlot = await acquireCanarySlot();
+  // This outer try exists ONLY to make the release unconditional (PR #2995 R2).
+  // Everything between the claim and the inner `try` can throw —
+  // `createCanarySandbox()` does real filesystem work and fails on a full or
+  // unwritable tmpdir — and such a throw would escape past `releaseSlot()`,
+  // leaving `canaryInvocationChain` pending forever. Every later canary then
+  // awaits a promise nothing resolves, so the suite HANGS rather than failing:
+  // strictly worse than the contamination this sandbox exists to prevent, and
+  // silent in a way a failure would not be.
   try {
-    const mod = await (moduleLoader ?? reg.module)();
-    const ctx = buildCanaryContext(reg.event, canary.transcriptLines);
-    let inputPatch: Record<string, unknown> = {};
-    if (canary.setup) {
-      inputPatch = (await canary.setup(mod, ctx)) ?? {};
+    const envSnapshot: Record<string, string | undefined> = { ...process.env };
+    const sandbox = createCanarySandbox();
+    try {
+      // Set BEFORE the module loads: a guard may resolve its log path at import
+      // time, in which case setting this after the import would be too late.
+      process.env["CLAUDE_PROJECT_DIR"] = sandbox;
+      const mod = await (moduleLoader ?? reg.module)();
+      const ctx = buildCanaryContext(reg.event, canary.transcriptLines);
+      let inputPatch: Record<string, unknown> = {};
+      if (canary.setup) {
+        inputPatch = (await canary.setup(mod, ctx)) ?? {};
+      }
+      // Declaration order is deliberate: a canary that needs a REAL path (e.g.
+      // `check-guessed-session-path`, whose whole decision is about a path on
+      // disk) still overrides `cwd`, and `CLAUDE_PROJECT_DIR` keeps the
+      // shared-helper writers sandboxed even then.
+      const input: ToolHookInput = {
+        ...baseCanaryInput(reg.event, sandbox),
+        ...canary.input,
+        ...inputPatch,
+      } as ToolHookInput;
+      const outcome = await mod.run(input, ctx);
+      return {
+        guardName: reg.name,
+        source: "registry",
+        expects: canary.expects,
+        passed: evaluateCanaryOutcome(outcome, canary.expects),
+        outcome,
+      };
+    } catch (err) {
+      return {
+        guardName: reg.name,
+        source: "registry",
+        expects: canary.expects,
+        passed: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      restoreEnvSnapshot(envSnapshot);
+      // `force` so a canary that never wrote anything does not turn cleanup
+      // into a failure, and `recursive` because a guard may have created
+      // `.minsky/` beneath the sandbox — the whole point of it existing.
+      rmSync(sandbox, { recursive: true, force: true });
     }
-    const input: ToolHookInput = {
-      ...baseCanaryInput(reg.event),
-      ...canary.input,
-      ...inputPatch,
-    } as ToolHookInput;
-    const outcome = await mod.run(input, ctx);
-    return {
-      guardName: reg.name,
-      source: "registry",
-      expects: canary.expects,
-      passed: evaluateCanaryOutcome(outcome, canary.expects),
-      outcome,
-    };
   } catch (err) {
+    // Reached only when something OUTSIDE the inner try throws — in practice
+    // `createCanarySandbox()`, the one call here that touches the filesystem.
+    // Returned as a structured failure rather than rethrown (PR #2995 R3):
+    // `runAllRegistryCanaries` awaits each canary in a bare loop, so an escaping
+    // throw aborts the whole sweep and every LATER guard silently goes
+    // unchecked — one unrunnable canary reported as a failure is strictly
+    // better than N canaries reported as nothing.
     return {
       guardName: reg.name,
       source: "registry",
@@ -251,7 +404,9 @@ export async function runGuardCanary(
       error: err instanceof Error ? err.message : String(err),
     };
   } finally {
-    restoreEnvSnapshot(envSnapshot);
+    // LAST, and outside everything: the next canary may start the moment this
+    // resolves, and it must not observe this one's env or sandbox.
+    releaseSlot();
   }
 }
 

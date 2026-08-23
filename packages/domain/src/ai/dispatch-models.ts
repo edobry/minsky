@@ -86,3 +86,64 @@ export function resolveDispatchModelArg(id: string): string | undefined {
 export function dispatchModelLabelForCanonicalId(canonicalId: string): string | undefined {
   return DISPATCH_MODELS.find((m) => m.canonicalId === canonicalId)?.label;
 }
+
+/**
+ * The harness-generated retry sentinel Claude Code records in place of a real
+ * model (mt#3260). Never a tier, and never rendered as one.
+ *
+ * **This is the one declaration of the literal (mt#4237).** It was hand-copied
+ * into three modules until then, with nothing checking they agreed — and the
+ * drift would have been silent in both directions: a module still holding the
+ * old spelling does not throw, it just stops recognizing retry turns, so
+ * {@link modelTierLabel} would hand a harness retry a tier and the cockpit
+ * would render it as though a model spoke.
+ *
+ * It lives HERE rather than in `packages/shared` — where cross-boundary facts
+ * normally go — because this module's "no imports" property (see the file
+ * docblock) is load-bearing, and consuming the constant from anywhere else
+ * would force an import and break it. Everything else imports from here:
+ * `../subagent/transcript-metrics.ts`, `../transcripts/agent-transcript-ingest-service.ts`,
+ * and the cockpit web tree, which may because `@minsky/domain/ai/dispatch-models`
+ * is on `eslint.config.js`'s cockpit import allowlist.
+ */
+export const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
+
+/**
+ * TIER label for an arbitrary recorded model id — `"claude-opus-5"` → `"Opus"`.
+ *
+ * Distinct from {@link dispatchModelLabelForCanonicalId}, which matches
+ * `canonicalId` EXACTLY and is right for "which registry row is this", and
+ * wrong for "what should a reader see". The registry pins one dated id per
+ * tier, so its exact match answers `undefined` for every id that is not the
+ * currently-pinned build — including, as of 2026-08-17, every model in the
+ * local transcript corpus: all 15,304 sampled assistant blocks record
+ * `claude-opus-5` while the registry's opus row pins `claude-opus-4-8`.
+ *
+ * A display path that resolves through exact match therefore renders a raw
+ * dated id, and goes stale again at the next model bump — which is why this
+ * reads the TIER out of the id instead of enumerating builds. The registry is
+ * still consulted first, so an id it pins keeps its curated label.
+ *
+ * Returns `undefined` for an unrecognized id, a missing one, and for the
+ * synthetic-retry sentinel. Callers render NOTHING in that case — never a
+ * guessed default, per the honest-degradation requirement in mt#3845 SC1
+ * (ask#7348, principal-selected 2026-08-08).
+ */
+export function modelTierLabel(model: string | null | undefined): string | undefined {
+  if (typeof model !== "string") return undefined;
+  const id = model.trim();
+  if (id.length === 0 || id === SYNTHETIC_MODEL_SENTINEL) return undefined;
+
+  const pinned = dispatchModelLabelForCanonicalId(id);
+  if (pinned !== undefined) return pinned;
+
+  // Tier extraction. Anchored at a segment boundary rather than a bare
+  // substring so a future id that merely CONTAINS a tier word (a fine-tune
+  // slug, a vendor prefix like `us.anthropic.claude-…`) still resolves on its
+  // real tier segment and nothing else can smuggle one in.
+  const match = /(?:^|[./-])claude[./-](opus|sonnet|haiku|fable)(?:$|[./-])/i.exec(id);
+  const tier = match?.[1]?.toLowerCase();
+  if (tier === undefined) return undefined;
+
+  return DISPATCH_MODELS.find((m) => m.id === tier)?.label;
+}

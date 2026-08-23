@@ -18,6 +18,7 @@
  */
 
 import type { RawTurnLine } from "./transcript-source";
+import { classifyUserLineOrigin, type UserTextOrigin } from "./user-line-origin";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,13 @@ interface ContentBlock {
 export interface ExtractedTurn {
   turnIndex: number;
   userText: string | null;
+  /**
+   * Who authored `userText` (mt#4289) — `"human"` for genuine operator speech,
+   * a harness kind (`compact_summary`, `harness_meta`, `task_notification`, …)
+   * otherwise. Null exactly when `userText` is null. See `user-line-origin.ts`
+   * for the predicate and why it reads the line's FIELDS rather than its text.
+   */
+  userOrigin: UserTextOrigin | null;
   assistantText: string | null;
   toolCalls: ContentBlock[] | null;
   startedAt: Date | null;
@@ -311,6 +319,14 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
 
   // Pending state for the current turn being assembled.
   let pendingUserText: string | null = null;
+  /**
+   * Who authored `pendingUserText` (mt#4289). Carried alongside the text rather
+   * than recomputed at flush time, because the LINE is gone by then — the
+   * markers live on the raw line, not in the extracted blocks, and the
+   * supersession rule below means the line that supplied the surviving text is
+   * not necessarily the last one seen.
+   */
+  let pendingUserOrigin: UserTextOrigin | null = null;
   let pendingUserStartedAt: Date | null = null;
   let pendingAssistantBlocks: ContentBlock[] = [];
   let pendingAssistantEndedAt: Date | null = null;
@@ -336,6 +352,7 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
     turns.push({
       turnIndex,
       userText: pendingUserText,
+      userOrigin: pendingUserOrigin,
       assistantText,
       toolCalls: toolCalls.length > 0 ? toolCalls : null,
       startedAt: pendingUserStartedAt,
@@ -347,6 +364,7 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
 
     // Reset pending state.
     pendingUserText = null;
+    pendingUserOrigin = null;
     pendingUserStartedAt = null;
     pendingAssistantBlocks = [];
     pendingAssistantEndedAt = null;
@@ -381,6 +399,14 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
       const text = extractUserText(blocks);
 
       pendingUserText = text;
+      // mt#4289: the origin describes the TEXT, so it is null exactly when the
+      // text is. A `tool_result`-only user line still opens a pending turn (see
+      // the pairing notes above) but contributes no text, and stamping it
+      // `human` would put an operator-speech marker on a row that carries none
+      // — inverting the very question the column exists to answer. This keeps
+      // the invariant `user_origin IS NOT NULL` ⟺ `user_text IS NOT NULL`,
+      // which is what lets a consumer filter on one and reason about the other.
+      pendingUserOrigin = text === null ? null : classifyUserLineOrigin(line);
       pendingUserStartedAt = parseTimestamp(line.timestamp);
       hasPendingUser = true;
     } else if (line.type === "assistant") {

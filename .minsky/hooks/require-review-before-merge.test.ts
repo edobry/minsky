@@ -17,6 +17,7 @@ import {
   pickLatestRunByName,
   validateProvenance,
   validateReviewContent,
+  type MergeState,
   type ReviewProvenance,
 } from "./require-review-before-merge";
 
@@ -152,53 +153,73 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
   const headSha = "3f1b048c486e1f49f26db71836b86b3ee4eb026d";
   const okWith = (count: number) => ({ ok: true as const, count });
   const failWith = (error: string) => ({ ok: false as const, error });
+  // mt#2312: the zero path now consults merge state. A mergeable PR is what
+  // produces the webhook-miss message these mt#1309 assertions were written
+  // against, so that is the thunk they get.
+  const mergeableThunk = () =>
+    ({ known: true, mergeable: true, mergeableState: "clean" }) satisfies MergeState;
 
   it("allows merge when at least one check_run fired", () => {
-    const result = evaluateCheckRunsPresence(okWith(2), pr, headSha);
+    const result = evaluateCheckRunsPresence(okWith(2), pr, headSha, mergeableThunk);
     expect(result.deny).toBe(false);
     expect(result.reason).toBeUndefined();
   });
 
   it("allows merge with a single check_run", () => {
-    expect(evaluateCheckRunsPresence(okWith(1), pr, headSha).deny).toBe(false);
+    expect(evaluateCheckRunsPresence(okWith(1), pr, headSha, mergeableThunk).deny).toBe(false);
+  });
+
+  it("does not read merge state at all when checks are present (mt#2312)", () => {
+    // The read is a network call on a path that is about to ALLOW the merge;
+    // taking it there would be pure cost. A thunk that throws proves it is
+    // never called, which a spy could only assert after the fact.
+    const exploding = (): MergeState => {
+      throw new Error("merge state must not be read when check_runs are present");
+    };
+    expect(evaluateCheckRunsPresence(okWith(2), pr, headSha, exploding).deny).toBe(false);
   });
 
   it("denies merge when zero check_runs fired (the webhook-miss class)", () => {
-    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha);
+    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha, mergeableThunk);
     expect(result.deny).toBe(true);
     expect(result.reason).toBeDefined();
   });
 
   it("webhook-miss denial reason names mt#1309 and PR #763 lineage", () => {
-    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha);
+    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha, mergeableThunk);
     expect(result.reason).toContain("mt#1309");
     expect(result.reason).toContain("PR #763");
   });
 
   it("webhook-miss denial reason points at the empty-commit recovery path", () => {
-    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha);
+    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha, mergeableThunk);
     expect(result.reason).toContain("empty commit");
     expect(result.reason).toContain("noFiles");
     expect(result.reason).toContain("noStage");
   });
 
   it("webhook-miss denial reason references /merge-coordination step 7a as the bypass-merge fallback", () => {
-    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha);
+    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha, mergeableThunk);
     expect(result.reason).toContain("/merge-coordination step 7a");
   });
 
   it("webhook-miss denial reason includes the short HEAD sha for triage", () => {
-    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha);
+    const result = evaluateCheckRunsPresence(okWith(0), pr, headSha, mergeableThunk);
     expect(result.reason).toContain(headSha.slice(0, 7));
   });
 
   it("webhook-miss denial reason includes the PR number", () => {
-    const result = evaluateCheckRunsPresence(okWith(0), "9999", headSha);
+    const result = evaluateCheckRunsPresence(okWith(0), "9999", headSha, mergeableThunk);
     expect(result.reason).toContain("#9999");
   });
 
   it("denies merge with a distinct reason on API failure (not the webhook-miss text)", () => {
-    const result = evaluateCheckRunsPresence(failWith(GH_API_502_ERROR), pr, headSha);
+    const result = evaluateCheckRunsPresence(
+      failWith(GH_API_502_ERROR),
+      pr,
+      headSha,
+      mergeableThunk
+    );
     expect(result.deny).toBe(true);
     expect(result.reason).toContain("Unable to query CI check_runs");
     expect(result.reason).toContain("gh api transport/parse failure");
@@ -207,7 +228,12 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
   });
 
   it("API-failure denial reason embeds the parser error verbatim", () => {
-    const result = evaluateCheckRunsPresence(failWith(EMPTY_RESPONSE_ERR), pr, headSha);
+    const result = evaluateCheckRunsPresence(
+      failWith(EMPTY_RESPONSE_ERR),
+      pr,
+      headSha,
+      mergeableThunk
+    );
     expect(result.reason).toContain(EMPTY_RESPONSE_ERR);
   });
 
@@ -215,7 +241,8 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
     const result = evaluateCheckRunsPresence(
       failWith("gh api exited 401: bad credentials"),
       pr,
-      headSha
+      headSha,
+      mergeableThunk
     );
     expect(result.reason).toContain("/merge-coordination step 7a");
   });
@@ -224,7 +251,8 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
     const result = evaluateCheckRunsPresence(
       failWith("gh api exited 1: connection refused"),
       "9999",
-      headSha
+      headSha,
+      mergeableThunk
     );
     expect(result.reason).toContain("#9999");
     expect(result.reason).toContain(headSha.slice(0, 7));

@@ -31,7 +31,7 @@ import type {
   SpawnSyncCallOptions,
   SpawnSyncImpl,
 } from "./types";
-import { decideReminder } from "./drive-pr-to-convergence";
+import { decideReminderFromPayload } from "./drive-pr-to-convergence";
 import { isDoneTransition } from "./bridge-memory-retirement";
 
 // ---------------------------------------------------------------------------
@@ -572,10 +572,10 @@ describe("normalizeToolResult heals previously-dead hooks end-to-end (mt#3308 AT
     };
 
     // Pre-fix condition: without normalization the reminder never fires.
-    expect(decideReminder(payload as never)).toBeNull();
+    expect(decideReminderFromPayload(payload as never)).toBeNull();
 
     normalizeToolResult(payload);
-    const reminder = decideReminder(payload as never);
+    const reminder = decideReminderFromPayload(payload as never);
     expect(reminder).not.toBeNull();
     expect(reminder).toContain("Drive it to convergence");
   });

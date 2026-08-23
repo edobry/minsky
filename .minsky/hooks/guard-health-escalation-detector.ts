@@ -41,7 +41,7 @@ import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { getGuardHealthSummary, STALE_ESCALATION_WINDOW_MS } from "./guard-health";
-import { cappedEvidenceLines, truncateToCodePoints } from "./guard-feedback-format";
+import { cappedEvidenceLines, truncateToRenderedLength } from "./guard-feedback-format";
 import type { GuardHealthSummary } from "./guard-health";
 import {
   shouldNotifyEscalation,
@@ -71,18 +71,55 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
 export const MAX_LISTED_GUARDS = 2;
 
 /**
- * Longest interpolated `lastEvent.message` (mt#3705).
+ * Longest interpolated `lastEvent.message`, in UTF-16 code units (mt#3705).
  *
  * The SECOND unbounded axis, and the one that mattered more: this value is a
  * caught error's `.message`, so its length belongs to whatever threw. A single
  * guard with a 300-char stack-ish message rendered 829 chars — over the ceiling
  * at a list length of ONE, which no per-item cap would have caught.
+ *
+ * **The UNIT was wrong until mt#4359, and the bound leaked because of it.** This
+ * was enforced with `truncateToCodePoints`, which bounds CODE POINTS, while the
+ * ceiling it feeds is measured in UTF-16 units — `guard-feedback-shape.test.ts`
+ * compares `advisory.length` against the declared number, and the dispatcher
+ * SPENDS `rendered.length` against `MERGED_CONTEXT_BUDGET_CHARS`. One emoji is
+ * one code point and two units, so a 60-code-point bound admitted a 120-unit
+ * message on each of the (at most two) live lines.
+ *
+ * That is not academic for THIS value: the docblock on `truncateToCodePoints`
+ * says a guard's interpolated `Error.message` "routinely carries emoji from a
+ * subprocess's own output", and this field is exactly that. Measured 2026-08-20
+ * against the live `buildCriticalWarning` at saturation — both lists overflowing
+ * `MAX_LISTED_GUARDS` — the all-ASCII render was 1207 against a declared 1300,
+ * and the identical all-emoji render was **1327: over the ceiling**. The margin
+ * was 93 and the mismatch cost 120.
+ *
+ * `truncateToRenderedLength` bounds units while still iterating code points, so
+ * a surrogate pair is never split. Same defect and same fix as mt#4234 on
+ * `ask-routing-deferral-detector`; see that primitive's docblock for why the fix
+ * belongs at the cap rather than at the ceiling's unit.
+ *
+ * **The declared 1300 stays, and is now a MEASURED ceiling rather than an
+ * inherited one.** Saturating every axis at once — the two longest names in
+ * `GUARD_REGISTRY` (37 chars) across an overflowing live list and an overflowing
+ * stale list, six-digit streaks, and an all-emoji message past the cap — renders
+ * **1219**. That is the true worst case, not the 1207 an earlier fixture with
+ * 36-char names produced. 1300 clears it by 81.
+ *
+ * Deliberately NOT lowered to 1219. Unlike mt#4234, where the annotation was a
+ * SAMPLE the render already exceeded and had to move, this number was never
+ * breached on the ASCII path — only the emoji unit bug crossed it, and that is
+ * fixed here. Tightening to the exact figure would buy 81 chars of a shared
+ * budget (this guard sits in the top-five bucket `MERGED_CONTEXT_BUDGET_CHARS`
+ * is derived from) at the cost of a ceiling that breaks on any guard RENAME —
+ * the name axis is bounded only by whatever is registered, so the exact figure
+ * is a moving target in a way the render text is not.
  */
 export const MAX_ERROR_MESSAGE_CHARS = 60;
 
 /** Bound an interpolated error message, marking any elision so it doesn't read as the whole message. */
 function truncateMessage(message: string): string {
-  return truncateToCodePoints(message, MAX_ERROR_MESSAGE_CHARS);
+  return truncateToRenderedLength(message, MAX_ERROR_MESSAGE_CHARS);
 }
 
 /**

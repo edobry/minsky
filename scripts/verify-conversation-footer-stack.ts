@@ -35,7 +35,9 @@
  * That state is transient by nature, so a run with no such conversation exits 0
  * with a `SKIP:` line rather than failing.
  *
- * Prerequisites (each is CHECKED at startup; a missing one SKIPs):
+ * Prerequisites (each is CHECKED at startup; a missing one SKIPs with exit 0,
+ * while one that is PRESENT but too slow to answer is a DIFFERENT outcome —
+ * `INCOMPLETE:` and exit 2, never a silent 0, per mt#4149):
  *
  *   1. A running cockpit serving the build under test, started WITHOUT
  *      `--no-dev-chromium` (that flag disables the browser this attaches to):
@@ -65,6 +67,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { preflightCockpit, skip } from "./lib/verify-preflight";
 
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
 const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
@@ -86,28 +89,24 @@ const OVERLAP_EPSILON_PX = 0.5;
 /** How far the strip's bottom may sit above the scrollport's before it is a gap. */
 const BOTTOM_GAP_TOLERANCE_PX = 1.5;
 
-function skip(reason: string): never {
-  console.log(`SKIP: ${reason}`);
-  process.exit(0);
-}
-
-async function reachable(url: string): Promise<boolean> {
-  try {
-    await fetch(url, { signal: AbortSignal.timeout(3000) });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 let token: string;
 try {
   token = readFileSync(TOKEN_PATH, "utf-8").trim();
 } catch {
   skip(`no cockpit token at ${TOKEN_PATH}`);
 }
-if (!(await reachable(`${COCKPIT}/health`))) skip(`no cockpit reachable at ${COCKPIT}`);
-if (!(await reachable(`${CDP}/json/version`))) skip(`no CDP endpoint at ${CDP}`);
+
+/**
+ * ABSENT, SLOW and WRONG-SERVICE are three different answers (mt#4149), and the
+ * shared preflight keeps them apart: a missing cockpit is a `SKIP:` + exit 0, a
+ * present-but-over-budget one exits non-zero rather than printing the same line.
+ *
+ * This also moves the probe from `/health` to `/api/health` and asserts the
+ * `service` field. `/health` falls through to the SPA's index.html and answers
+ * 200 with HTML, so the old check here could not fail on a wrong service — it
+ * passed against anything serving a page at all.
+ */
+await preflightCockpit({ cockpitUrl: COCKPIT, cdpUrl: CDP });
 
 const authHeaders = {
   "Content-Type": "application/json",

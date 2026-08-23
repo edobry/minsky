@@ -22,8 +22,27 @@
 //                        short id is `#` followed by decimal digits only, so
 //                        this is wrong by construction too.
 //
-// WHAT IS LOGGED BUT NOT FLAGGED: bare `mt#N` / `PR #N`, and a bare short id
-// the caller's short-id map can resolve (`linkable-short-id`, mt#3960).
+// WHAT IS LOGGED BUT NOT FLAGGED: bare `mt#N` / `PR #N`; a bare short id the
+// caller's short-id map can resolve (`linkable-short-id`, mt#3960); and a bare
+// short id whose own entity the author already deeplinked by UUID somewhere in
+// this message (`author-linked-short-id`, mt#4160).
+//
+// THE THIRD ONE IS A SECOND KEY ON AN EXISTING CHECK, NOT A NEW ONE (mt#4160).
+// Class 1 has always been message-scoped — `linkedShortIds` is collected across
+// every occurrence before deciding, so linking the first mention and writing
+// the rest bare does not flag. What it keys on is `collectLinkLabelRanges`: the
+// short id must sit inside the LABEL of a matching link. Its doc comment states
+// why that was the only available key — a short id is not derivable from a UUID
+// target — and that stops being true once the id can be RESOLVED, which the
+// caller does (see `shortIdsNeedingResolution`).
+//
+// The gap that key leaves is not hypothetical: the `/handoff` closing line puts
+// a prose title in the label and the short id in a trailing parenthetical —
+// `Handoff recorded: [<title>](minsky://memory/<uuid>) — memory `<pfx>` (mem#N).`
+// — so the two never coincide. Replayed over this detector's whole calibration
+// log, 23 of 43 `bare-short-id` fires had the entity linked in their own
+// message, including 16 of the 26 the mt#4160 pass hand-classified. Every one
+// of those was an advisory asking for a link that was already there.
 //
 // THE FLAG SET TRACKS THE LINKIFIER'S COMPLEMENT (mt#3897). v0 had these two
 // classes the other way around. `mt#2565` then shipped a display linkifier
@@ -112,8 +131,14 @@ export type FlaggedKind = "bare-short-id" | "malformed-target" | "raw-uuid-label
  * `linkable-short-id` is repaired only because THIS message's map happened to
  * hold the id, which is a measurement of how much of the class mt#3914 absorbs
  * over time — and the input to any future decision about the class as a whole.
+ *
+ * `author-linked-short-id` (mt#4160) needs no repair at all: the author already
+ * emitted a `minsky://<type>/<uuid>` link to that same entity in this message,
+ * so the reader can click it. Recorded rather than dropped for the same reason
+ * as the sibling above — a population folded into another cannot be rated
+ * against it, and the next calibration pass has to rate this suppression itself.
  */
-export type LoggedKind = "bare-ref" | "linkable-short-id";
+export type LoggedKind = "bare-ref" | "linkable-short-id" | "author-linked-short-id";
 
 export interface ScanFinding {
   kind: FlaggedKind | LoggedKind;
@@ -123,11 +148,27 @@ export interface ScanFinding {
   reason: string;
 }
 
+/** A `minsky://<type>/<id>` target present in the scanned message. */
+export interface LinkTarget {
+  type: string;
+  id: string;
+}
+
 export interface ScanResult {
   /** Findings that produce advisory text (v0 enforced classes). */
   flagged: ScanFinding[];
   /** Findings recorded for calibration only — never rendered. */
   logged: ScanFinding[];
+  /**
+   * Every `minsky://<type>/<id>` target in the message (mt#4160).
+   *
+   * Already computed for the two malformed-link classes; surfaced here so the
+   * caller can answer "did the author link this entity by UUID?" without
+   * re-parsing the message. The caller needs it because that question turns on
+   * resolving a short id the display map did NOT hold, which is IO this module
+   * must not do — see `shortIdsNeedingResolution` below.
+   */
+  linkTargets: LinkTarget[];
 }
 
 /**
@@ -354,5 +395,106 @@ export function scanMessage(text: string, options: ScanOptions = {}): ScanResult
     });
   }
 
-  return { flagged, logged };
+  return { flagged, logged, linkTargets: links.map((l) => ({ type: l.type, id: l.id })) };
+}
+
+/**
+ * A `bare-short-id` finding decomposed into the parts a resolver needs.
+ *
+ * `ref` is kept so the caller can key its resolution map by the exact string
+ * the finding carries, rather than re-deriving it and risking a mismatch.
+ */
+export interface ShortIdCandidate {
+  ref: string;
+  kind: ShortIdKind;
+  num: string;
+}
+
+/** Parse `mem#962` into its entity kind and numeric part; null if not a short id. */
+function parseShortIdRef(ref: string): { kind: ShortIdKind; num: string } | null {
+  const m = /^(ask|mem|ws)#(\d+)$/i.exec(ref);
+  if (!m) return null;
+  const kind = shortIdPrefixToKind(m[1] ?? "");
+  if (kind === undefined || m[2] === undefined) return null;
+  return { kind, num: m[2] };
+}
+
+/**
+ * The `bare-short-id` findings worth resolving, and ONLY those (mt#4160).
+ *
+ * The gate is deliberately narrow, because resolving means walking and
+ * JSON-parsing every tool result in the transcript (`collectShortIdBindings`)
+ * and this runs on every turn end: a candidate is returned only when the
+ * message ALSO carries at least one `minsky://<type>/<uuid>` link of that
+ * entity's own type. With no such link there is nothing the resolved UUID could
+ * match, so the walk would be pure cost.
+ *
+ * Measured on this detector's calibration log, that reduces the walk to the
+ * handful of turns a day where an author linked an entity and named its short
+ * id beside the link; every other turn resolves nothing.
+ */
+export function shortIdsNeedingResolution(
+  flagged: readonly ScanFinding[],
+  linkTargets: readonly LinkTarget[]
+): ShortIdCandidate[] {
+  const typesWithTargets = new Set(linkTargets.map((t) => t.type.toLowerCase()));
+  const candidates: ShortIdCandidate[] = [];
+  for (const finding of flagged) {
+    if (finding.kind !== "bare-short-id") continue;
+    const parsed = parseShortIdRef(finding.ref);
+    if (parsed === null) continue;
+    if (!typesWithTargets.has(parsed.kind)) continue;
+    candidates.push({ ref: finding.ref, kind: parsed.kind, num: parsed.num });
+  }
+  return candidates;
+}
+
+/**
+ * Move a `bare-short-id` finding out of `flagged` when the author already
+ * linked that same entity by UUID somewhere in this message (mt#4160).
+ *
+ * The discriminator is ENTITY IDENTITY, never proximity: the resolved UUID must
+ * be the target of a link whose type also matches. A bare `mem#A` sitting next
+ * to a link to `mem#B` still flags, which is not a corner case — it is 1 of the
+ * 10 true positives in the window that motivated this function.
+ *
+ * `resolved` maps a finding's `ref` (as it appears, matched case-insensitively)
+ * to that entity's UUID. An id absent from it is left flagged, so a resolution
+ * failure degrades to exactly today's behavior rather than suppressing blindly.
+ */
+export function partitionAuthorLinkedShortIds(
+  flagged: readonly ScanFinding[],
+  linkTargets: readonly LinkTarget[],
+  resolved: ReadonlyMap<string, string>
+): { flagged: ScanFinding[]; authorLinked: ScanFinding[] } {
+  const targetsByType = new Map<string, Set<string>>();
+  for (const target of linkTargets) {
+    const type = target.type.toLowerCase();
+    const set = targetsByType.get(type) ?? new Set<string>();
+    set.add(target.id.toLowerCase());
+    targetsByType.set(type, set);
+  }
+
+  const stillFlagged: ScanFinding[] = [];
+  const authorLinked: ScanFinding[] = [];
+  for (const finding of flagged) {
+    const parsed = finding.kind === "bare-short-id" ? parseShortIdRef(finding.ref) : null;
+    const uuid = parsed === null ? undefined : resolved.get(finding.ref.toLowerCase());
+    if (
+      parsed !== null &&
+      uuid !== undefined &&
+      targetsByType.get(parsed.kind)?.has(uuid.toLowerCase())
+    ) {
+      authorLinked.push({
+        kind: "author-linked-short-id",
+        ref: finding.ref,
+        // The UUID is named so a calibration pass can check the suppression
+        // itself rather than taking the guard's word for which entity matched.
+        reason: `already deeplinked in this message as minsky://${parsed.kind}/${uuid}`,
+      });
+      continue;
+    }
+    stillFlagged.push(finding);
+  }
+  return { flagged: stillFlagged, authorLinked };
 }

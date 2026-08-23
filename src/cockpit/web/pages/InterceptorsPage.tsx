@@ -5,22 +5,28 @@
  * description, failure classes, provenance status and enumerated coverage gaps.
  * The route noun is fixed by ask#7119 (`docs/architecture/interceptors.md` §6).
  *
- * WHAT THIS SURFACE DELIBERATELY DOES NOT ANSWER (mt#4010 §Slicing decision).
- * No health state, no canary badge, no fire count, no cost figure — not even as
- * a greyed-out placeholder. A stub implies a value is coming and re-creates the
- * deterrent/dormant/broken conflation the umbrella exists to prevent. The page
- * says so in copy rather than staying silent, so a reader can tell "not
- * answered yet" from "nothing to report". Health and cost arrive in slice 2.
- *
  * SLICE 1B (mt#4056) added the three axes — interception point, intervention
  * type, decision mechanism — as per-row chips and as facet filters, plus the
  * computed guard/detector/injector family filters. The two zero-family states
  * render as DIFFERENT markers; see `FamilyChips` for why that is the point of
  * the slice rather than a detail of it.
  *
+ * SLICE 2 (mt#4057) added what slice 1 deliberately left absent: whether each
+ * interceptor currently WORKS, what it costs, and the attention counts above
+ * the fold. Two sources compose here — the build-time catalog artifact
+ * (static) and the aggregates snapshot (live, sweeper-refreshed) — joined by
+ * `guardName` in the client, since only the second one moves.
+ *
+ * The absence discipline slice 1 established did not go away with the scope
+ * note it was written on: a figure whose SOURCE failed this refresh still
+ * renders as unavailable rather than as zero, and the pending state before the
+ * first rollup says so in copy. See `InterceptorHealth.tsx`.
+ *
  * @see mt#4010 — slice 1 (the readable corpus)
  * @see mt#4056 — slice 1b (the axes + family filters)
- * @see src/cockpit/web/hooks/useInterceptors.ts — the data source
+ * @see mt#4057 — slice 2 (health, cost, attention counts)
+ * @see src/cockpit/web/hooks/useInterceptors.ts — the static data source
+ * @see src/cockpit/web/hooks/useInterceptorAggregates.ts — the live data source
  * @see src/cockpit/web/components/InterceptorFacets.tsx — the facet controls + axis chips
  * @see docs/architecture/interceptors.md — the ontology this renders
  */
@@ -48,6 +54,23 @@ import {
   matchesFacets,
   type InterceptorFacets,
 } from "../components/InterceptorFacets";
+import {
+  indexSnapshotRows,
+  useInterceptorAggregates,
+} from "../hooks/useInterceptorAggregates";
+import {
+  InterceptorAttentionBar,
+  InterceptorCostFigure,
+  InterceptorHealthPending,
+  InterceptorStateChip,
+} from "../components/InterceptorHealth";
+import {
+  computeAttentionCounts,
+  deriveInterceptorCost,
+  deriveInterceptorState,
+} from "@minsky/domain/guard-events/interceptor-state";
+import type { InterceptorAggregateRow } from "@minsky/domain/guard-events/aggregates";
+import { LifecycleSpine } from "../components/LifecycleSpine";
 
 const ALL_CLASSES = "__all__";
 
@@ -67,7 +90,51 @@ function FailureClassChips({ classes }: { classes: string[] }) {
   );
 }
 
-function EntryRow({ entry }: { entry: InterceptorEntry }) {
+/**
+ * The health + cost cell.
+ *
+ * Three cases the reader must be able to tell apart, so each renders
+ * differently: the aggregates are not loaded yet (nothing here — the page-level
+ * note explains), the name has a row (state chip + cost), or the snapshot is
+ * ready and this declared name is in NEITHER population. The third is a
+ * finding about the catalog rather than about the interceptor.
+ */
+function HealthCell({
+  aggregate,
+  snapshotReady,
+}: {
+  aggregate: InterceptorAggregateRow | undefined;
+  snapshotReady: boolean;
+}) {
+  if (!snapshotReady) return null;
+  if (!aggregate) {
+    return (
+      <span
+        className="text-[9px] font-mono text-warn-amber"
+        title="This declared name appears in neither the fire log nor the aggregates snapshot's declared set."
+        data-testid="interceptor-no-aggregate"
+      >
+        not in the aggregates snapshot
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-baseline gap-2">
+      <InterceptorStateChip state={deriveInterceptorState(aggregate)} />
+      <InterceptorCostFigure cost={deriveInterceptorCost(aggregate)} />
+    </span>
+  );
+}
+
+function EntryRow({
+  entry,
+  aggregate,
+  snapshotReady,
+}: {
+  entry: InterceptorEntry;
+  aggregate: InterceptorAggregateRow | undefined;
+  snapshotReady: boolean;
+}) {
   return (
     <li className="border-b border-border/40 py-2" data-testid="interceptor-row">
       <div className="flex items-baseline justify-between gap-3">
@@ -78,6 +145,10 @@ function EntryRow({ entry }: { entry: InterceptorEntry }) {
           {entry.guardName}
         </Link>
         <FailureClassChips classes={entry.failureClasses} />
+      </div>
+
+      <div className="mt-1">
+        <HealthCell aggregate={aggregate} snapshotReady={snapshotReady} />
       </div>
 
       {entry.undescribed ? (
@@ -118,6 +189,10 @@ function EntryRow({ entry }: { entry: InterceptorEntry }) {
 
 export function InterceptorsPage() {
   const { data, isLoading, isError } = useInterceptors();
+  // A SECOND query, not a blocking dependency of the first: the corpus is
+  // readable while the rollup is still computing, and slice 1's whole point was
+  // that it is worth reading on its own.
+  const { data: aggregates } = useInterceptorAggregates();
   const [query, setQuery] = useState("");
   const [failureClass, setFailureClass] = useState<string>(ALL_CLASSES);
   const [facets, setFacets] = useState<InterceptorFacets>(NO_FACETS);
@@ -148,6 +223,9 @@ export function InterceptorsPage() {
     return byStratum;
   }, [filtered]);
 
+  const aggregateRows = useMemo(() => indexSnapshotRows(aggregates), [aggregates]);
+  const snapshot = aggregates?.status === "ready" ? aggregates.snapshot : null;
+
   const undescribedCount = data?.entries.filter((e) => e.undescribed).length ?? 0;
 
   // The family-STATE counts partition the population; the per-family counts do
@@ -175,6 +253,22 @@ export function InterceptorsPage() {
         </p>
       </header>
 
+      {/* Above the fold, and ABOVE the inventory's own loading state: what needs
+          attention is the reason to open this page (mt#3712, mt#3754 SC1), so it
+          does not wait on the alphabetical corpus to arrive. */}
+      {snapshot ? (
+        <InterceptorAttentionBar
+          counts={computeAttentionCounts(snapshot)}
+          computedAt={snapshot.computedAt}
+          sourceFailures={snapshot.sourceFailures}
+          windowDays={snapshot.windowDays}
+        />
+      ) : (
+        <div className="mb-3">
+          <InterceptorHealthPending testId="interceptors-health-pending" />
+        </div>
+      )}
+
       {isLoading && (
         <p className="text-sm text-muted-foreground" data-testid="interceptors-loading">
           Loading…
@@ -189,6 +283,16 @@ export function InterceptorsPage() {
 
       {data && (
         <>
+          {/* The spatial overview (mt#4011): where each interceptor applies on
+              one turn's trajectory. Reads the same two sources as the rows
+              below — placement from the static catalog, size/health from the
+              aggregates snapshot — so it degrades exactly as they do. */}
+          <LifecycleSpine
+            entries={data.entries}
+            aggregateRows={aggregateRows}
+            windowDays={snapshot?.windowDays ?? null}
+          />
+
           <div
             className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-muted-foreground mb-3"
             data-testid="interceptors-summary"
@@ -286,7 +390,12 @@ export function InterceptorsPage() {
               </h2>
               <ul className="list-none p-0 m-0 mt-1">
                 {grouped.get(stratum)?.map((e) => (
-                  <EntryRow key={e.guardName} entry={e} />
+                  <EntryRow
+                    key={e.guardName}
+                    entry={e}
+                    aggregate={aggregateRows?.get(e.guardName)}
+                    snapshotReady={aggregateRows !== null}
+                  />
                 ))}
               </ul>
             </section>
@@ -299,20 +408,32 @@ export function InterceptorsPage() {
               </h2>
               <ul className="list-none p-0 m-0 mt-1">
                 {grouped.get("unknown")?.map((e) => (
-                  <EntryRow key={e.guardName} entry={e} />
+                  <EntryRow
+                    key={e.guardName}
+                    entry={e}
+                    aggregate={aggregateRows?.get(e.guardName)}
+                    snapshotReady={aggregateRows !== null}
+                  />
                 ))}
               </ul>
             </section>
           )}
 
-          <p
-            className="mt-6 border-t border-border/40 pt-3 text-[10px] font-mono text-muted-foreground/70"
-            data-testid="interceptors-scope-note"
-          >
-            This surface does not yet answer whether an interceptor currently WORKS, what it costs,
-            or what it has caught. Those columns are deliberately absent rather than blank — a
-            placeholder would read as a value. They arrive with the health and cost slice.
-          </p>
+          {/* mt#4010's scope note lived here and is GONE (mt#4057 SC5), not
+              edited around: it existed to mark the health-and-cost gap honestly
+              while that gap existed, and leaving a softened version would keep
+              telling the reader a question is unanswered that this page now
+              answers. */}
+          {snapshot && (
+            <p
+              className="mt-6 border-t border-border/40 pt-3 text-[10px] font-mono text-muted-foreground/70"
+              data-testid="interceptors-population-note"
+            >
+              Health and cost cover {snapshot.population} interceptors the fire log has recorded
+              plus {snapshot.declaredOnlyRows.length} declared names it never has. A declared name
+              in neither is marked on its row rather than left blank.
+            </p>
+          )}
         </>
       )}
     </div>

@@ -52,11 +52,13 @@ import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { usePeek, classifyRefClick, rememberPeekOpener } from "../lib/peek";
+import { ENTITY_REF_ATTR } from "../lib/peek-dismiss";
 import { useResolvedEntityLabel, type EntityLabelInfo } from "../lib/use-entity-index";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "./ui/hover-card";
 import { statusStyle } from "../lib/status-colors";
 
-const LINK_CLASS = "font-mono text-primary underline-offset-2 hover:underline";
+const LINK_CLASS_BASE = "text-primary underline-offset-2 hover:underline";
+const LINK_CLASS = `font-mono ${LINK_CLASS_BASE}`;
 
 /**
  * Inline-label budget for `appendLabel` (mt#3189). Bounds a prose reference to
@@ -105,6 +107,18 @@ export interface EntityRefProps {
    * existed, which is what keeps every other call site unaffected.
    */
   search?: string;
+  /**
+   * Render the link in the monospace face. Defaults to TRUE, which is every
+   * pre-mt#4351 call site: an id is what they show, and `LINK_CLASS` has always
+   * set `font-mono` for exactly that reason.
+   *
+   * Pass `false` when the visible text is PROSE the author wrote rather than an
+   * id — a markdown link's label (`[the note](minsky://memory/…)`). Those
+   * reached this component for the first time in mt#4351, arriving from a
+   * branch that rendered a non-mono `<Link>`, so defaulting them to mono
+   * silently re-typeset text nobody asked to change (PR #3181 R1).
+   */
+  mono?: boolean;
   className?: string;
 }
 
@@ -158,7 +172,15 @@ function EntityHoverContent({
  * Renders `{type, id}` as an in-SPA link. See the module doc above for the
  * two rendering modes (`children` provided vs. omitted).
  */
-export function EntityRef({ type, id, children, appendLabel, search, className }: EntityRefProps) {
+export function EntityRef({
+  type,
+  id,
+  children,
+  appendLabel,
+  search,
+  mono = true,
+  className,
+}: EntityRefProps) {
   const info = useResolvedEntityLabel(type, id);
   const to = `${entityToPath(type, id)}${search ?? ""}`;
   const { openPeek, openPeekHolding } = usePeek();
@@ -218,8 +240,12 @@ export function EntityRef({ type, id, children, appendLabel, search, className }
         <Link
           to={to}
           onClick={onClick}
-          className={cn(LINK_CLASS, className)}
+          className={cn(mono ? LINK_CLASS : LINK_CLASS_BASE, className)}
           aria-label={accessibleName}
+          // Exempts this anchor from the peek's outside-dismiss (mt#4143). Without it, an
+          // ordinary click here would dismiss the assembly on the way to replacing its
+          // contents, and a shift-click would dismiss the very pane it means to hold.
+          {...{ [ENTITY_REF_ATTR]: "true" }}
         >
           {inline}
         </Link>

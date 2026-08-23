@@ -17,11 +17,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import {
   SessionFilm,
+  filmErrorLeadIn,
   parsePlayheadParam,
   DEFAULT_RIBBON_WIDTH_PX,
   MIN_RIBBON_WIDTH_PX,
   MAX_RIBBON_WIDTH_PX,
 } from "./SessionFilm";
+import { SessionFilmError } from "../../lib/session-film-client";
 
 const CONVERSATION_ID = "12345678-1234-1234-1234-123456789012";
 
@@ -53,12 +55,22 @@ function fixtureEvents(count = 10) {
   }));
 }
 
-function mockEvents({ status = 200, count = 10 }: { status?: number; count?: number } = {}) {
+/**
+ * `code` mirrors the route's real `{error:{code,message}}` body
+ * (`routes/session-film.ts`'s `sessionFilmError`) — the client only populates
+ * `SessionFilmError.code` from that shape, and mt#4135's lead-in branches on
+ * it. It defaults to `session_not_found`, the ordinary no-film case.
+ */
+function mockEvents({
+  status = 200,
+  count = 10,
+  code = "session_not_found",
+}: { status?: number; count?: number; code?: string } = {}) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://localhost");
     if (url.pathname === "/api/cockpit/session-film/events") {
       if (status !== 200) {
-        return new Response(JSON.stringify({ error: "scrub gate" }), {
+        return new Response(JSON.stringify({ error: { code, message: "mocked failure" } }), {
           status,
           headers: { "content-type": "application/json" },
         });
@@ -86,7 +98,15 @@ const VIRTUALIZING_ROW_COUNT = 120;
 const FAR_ROW = 80;
 
 function renderFilm(initialPath: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  // `retryDelay: 0` matters for the 5xx cases: SessionFilm's own query sets
+  // `retry: sessionFilmRetry`, which OVERRIDES `retry: false` here and retries
+  // a non-4xx three times. Without this the error branch is unreachable until
+  // ~7s of default exponential backoff elapses — a wall-clock-bound test of
+  // exactly the shape mt#3501 exists to stop. 4xx is unaffected either way
+  // (sessionFilmRetry refuses to retry it).
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, retryDelay: 0, gcTime: 0 } },
+  });
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <QueryClientProvider client={queryClient}>
@@ -497,7 +517,7 @@ describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
     // per-conversation signal exists to gate it on (see RunDetail's filmPath
     // docblock) — so this message is what keeps such a click explained rather
     // than dead.
-    mockEvents({ status: 422 });
+    mockEvents({ status: 404 });
     renderFilm(`${FILM_PATH}?turn=101`);
 
     await waitFor(() => {
@@ -506,16 +526,77 @@ describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
   });
 
   test("reports no film instead of surfacing a raw failure", async () => {
-    // The picker used to keep `scrubGateOk: false` conversations unreachable by
-    // disabling their row. Reachable-from-its-own-page means this error branch
-    // is now the only thing between the operator and a raw fetch failure.
-    mockEvents({ status: 422 });
+    // A conversation is reachable from its own page, so this error branch is
+    // the only thing between the operator and a raw fetch failure. The status
+    // used to be 422 (the film's scrub-gate refusal); mt#3268 / ADR-040
+    // removed that gate, so 404 is what an unfetchable film looks like now.
+    mockEvents({ status: 404 });
     renderFilm(FILM_PATH);
 
     await waitFor(() => {
       expect(screen.getByText(/This conversation has no film/i)).toBeDefined();
     });
     expect(screen.queryByTestId("session-film")).toBeNull();
+  });
+});
+
+describe("SessionFilm — the error lead-in names what failed (mt#4135)", () => {
+  // The load-bearing assertion in each non-absence case is the NEGATIVE one:
+  // before mt#4135 every failure rendered "This conversation has no film",
+  // so an operator debugging a broken server was told the film did not exist.
+
+  test("404 session_not_found is the one case that may assert absence", async () => {
+    mockEvents({ status: 404, code: "session_not_found" });
+    renderFilm(FILM_PATH);
+
+    await waitFor(() => {
+      expect(screen.getByText(/This conversation has no film/i)).toBeDefined();
+    });
+  });
+
+  test("404 invalid_id names the id, and does not claim the film is absent", async () => {
+    // The route answers 404 for an id `looksLikeConversationId` rejects — a
+    // different fact from "no transcript exists", and the one mt#3225's
+    // server-side fix was about.
+    mockEvents({ status: 404, code: "invalid_id" });
+    renderFilm(FILM_PATH);
+
+    await waitFor(() => {
+      expect(screen.getByText(/not a conversation this cockpit can film/i)).toBeDefined();
+    });
+    expect(screen.queryByText(/has no film/i)).toBeNull();
+  });
+
+  test("a 500 reports a failed read, and does not claim the film is absent", async () => {
+    mockEvents({ status: 500, code: "internal" });
+    renderFilm(FILM_PATH);
+
+    await waitFor(() => {
+      expect(screen.getByText(/film could not be loaded/i)).toBeDefined();
+    });
+    expect(screen.queryByText(/has no film/i)).toBeNull();
+  });
+
+  // Directly, because the remaining cases are about inputs the render path
+  // cannot easily produce: an error that is not a SessionFilmError at all
+  // (a network-level failure), and the deep-link variant of each cause.
+  test("anything that is not a SessionFilmError reports a failed read", () => {
+    expect(filmErrorLeadIn(new TypeError("Failed to fetch"), false)).toBe(
+      "The film could not be loaded"
+    );
+    expect(filmErrorLeadIn(undefined, false)).toBe("The film could not be loaded");
+  });
+
+  test("the deep-link lead-in still names the moment, for every cause (SC4)", () => {
+    const causes = [
+      new SessionFilmError(404, "session_not_found", "x"),
+      new SessionFilmError(404, "invalid_id", "x"),
+      new SessionFilmError(500, "internal", "x"),
+      new TypeError("Failed to fetch"),
+    ];
+    for (const cause of causes) {
+      expect(filmErrorLeadIn(cause, true)).toStartWith("That moment can't be shown — ");
+    }
   });
 });
 

@@ -32,6 +32,7 @@ import { z } from "zod";
 
 import type { CognitionProvider, ModelHint } from "../cognition/types";
 import type { ExtractedTurn } from "./turn-extractor";
+import { toDisplaySnippet } from "./text-snippet";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ── Tuning ─────────────────────────────────────────────────────────────────────
@@ -76,6 +77,33 @@ export const TITLE_MAX_LEN = 60;
 /** Turns fed to the model. The opening of a conversation carries its subject. */
 const MAX_TURNS = 12;
 
+/**
+ * How many candidate turns {@link selectTitleTurns} scans to find its
+ * {@link MAX_TURNS} substantive ones (mt#4179).
+ *
+ * Until mt#4179 the window was the first {@link MAX_TURNS} turns OUTRIGHT, and
+ * a turn is not a unit of content: an agent working through Read/Grep/Bash
+ * calls emits turns whose `userText` and `assistantText` are both NULL, and a
+ * pasted screenshot emits a turn whose only text is an `[Image: …]`
+ * placeholder. Measured on `bb0650ed-f6b7-444f-8fe7-28c91d784ab7` — a 177-turn
+ * session — turns 1 through 6 are ALL text-free, so the model was shown one
+ * four-word exchange and correctly answered that it could not name a subject.
+ * The conversation was not thin; the window was measured in the wrong unit.
+ *
+ * Scanning 3x the target bounds the prompt-assembly cost while giving a
+ * tool-call-heavy opening room to reach real prose.
+ */
+export const TURN_SCAN_LIMIT = MAX_TURNS * 3;
+
+/**
+ * Attachment placeholders the harness substitutes for pasted binary content.
+ * The text is present and non-empty, so an emptiness check passes it through,
+ * but it names a file path rather than a subject — the whole visible content of
+ * the opening turns of `c5199a09-2f93-49b5-8223-5a2f69f52156` (an 805-line
+ * session that went untitled for this reason).
+ */
+const ATTACHMENT_PLACEHOLDER_RE = /\[(?:Image|Attachment|Screenshot)\b[^\]]*\]/gi;
+
 /** Per-turn character budget, so one giant pasted turn cannot dominate the prompt. */
 const MAX_CHARS_PER_TURN = 600;
 
@@ -107,10 +135,49 @@ Rules:
  */
 const NO_SUBJECT_SENTINEL = "untitled";
 
-function buildUserPrompt(turns: ExtractedTurn[]): string {
+/**
+ * The only fields titling reads off a turn. Declared as a projection rather
+ * than taking a full {@link ExtractedTurn} so the pipeline can pass
+ * `agent_transcript_turns` rows straight through (mt#4179) without
+ * manufacturing the timing/tool-call fields this path never looks at.
+ */
+export type TitleTurn = Pick<ExtractedTurn, "userText" | "assistantText">;
+
+/** Length bound for the substantive-content probe — enough to tell empty from not. */
+const SUBSTANTIVE_PROBE_LEN = 120;
+
+/**
+ * The text a reader would actually SEE in this turn: harness markup and
+ * attachment placeholders removed. Empty means the turn carries no subject
+ * matter, whether or not its columns are non-NULL.
+ */
+function visibleText(text: string | null | undefined): string {
+  if (!text) return "";
+  return toDisplaySnippet(text.replace(ATTACHMENT_PLACEHOLDER_RE, " "), SUBSTANTIVE_PROBE_LEN);
+}
+
+/**
+ * Pick the turns the model is shown: the first {@link MAX_TURNS} turns that
+ * carry visible content, scanning at most {@link TURN_SCAN_LIMIT} candidates.
+ *
+ * Exported for direct testing, and because {@link TURN_SCAN_LIMIT} is also the
+ * bound the pipeline's turn query uses — the two must not drift, so the
+ * pipeline imports it rather than restating a number.
+ */
+export function selectTitleTurns<T extends TitleTurn>(turns: T[]): T[] {
+  const selected: T[] = [];
+  for (const turn of turns.slice(0, TURN_SCAN_LIMIT)) {
+    if (!visibleText(turn.userText) && !visibleText(turn.assistantText)) continue;
+    selected.push(turn);
+    if (selected.length >= MAX_TURNS) break;
+  }
+  return selected;
+}
+
+function buildUserPrompt(turns: TitleTurn[]): string {
   const lines: string[] = ["Title this session:\n"];
 
-  for (const turn of turns.slice(0, MAX_TURNS)) {
+  for (const turn of turns) {
     if (turn.userText) {
       lines.push(`Operator: ${safeTruncate(turn.userText, MAX_CHARS_PER_TURN, "head")}`);
     }
@@ -161,20 +228,22 @@ export class TitleGenerator {
   /**
    * Generate a short title from the transcript's opening turns.
    *
-   * Returns null when there is nothing to title (no turns) or the model
-   * reports no identifiable subject. THROWS on provider failure — the caller
-   * (the title pipeline) decides whether to skip the row and record the error;
-   * a silent null here would be indistinguishable from "nothing to do", which
-   * is the dominant latent-bug shape in this codebase (mem#682).
+   * Returns null when there is nothing to title (no turn carries visible
+   * content — see {@link selectTitleTurns}) or the model reports no
+   * identifiable subject. THROWS on provider failure — the caller (the title
+   * pipeline) decides whether to skip the row and record the error; a silent
+   * null here would be indistinguishable from "nothing to do", which is the
+   * dominant latent-bug shape in this codebase (mem#682).
    */
-  async generateTitle(agentSessionId: string, turns: ExtractedTurn[]): Promise<string | null> {
-    if (turns.length === 0) return null;
+  async generateTitle(agentSessionId: string, turns: TitleTurn[]): Promise<string | null> {
+    const selected = selectTitleTurns(turns);
+    if (selected.length === 0) return null;
 
     const result = await this.cognitionProvider.perform({
       id: `session-title:${agentSessionId}`,
       kind: "synthesize-narrative",
       systemPrompt: SYSTEM_PROMPT,
-      userPrompt: buildUserPrompt(turns),
+      userPrompt: buildUserPrompt(selected),
       schema: titleSchema,
       model: this.modelHint,
     });

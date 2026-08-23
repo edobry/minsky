@@ -100,8 +100,15 @@ describe("triggerDeploySmokeSweep", () => {
     // emitSystemEventBestEffort's contract), so this test exercises the
     // sweep's own control flow (fetch -> derive -> attempt emit) without a
     // live DB.
+    //
+    // mt#4412: this asserted `.toBeUndefined()`, which was a statement about
+    // the old `void` signature rather than about behavior. With an undefined
+    // provider the emit no-ops, and the sweep now REPORTS that as a domain
+    // failure — the retry-next-tick path — so `false` is the correct answer
+    // and is what the sibling "does NOT advance dedup when the emit no-ops"
+    // test already covers from the other side.
     const deps = fakeDeps();
-    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBeUndefined();
+    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBe(false);
   });
 
   test("does not re-fetch checks for the same commit twice (in-memory dedup)", async () => {
@@ -177,6 +184,38 @@ describe("triggerDeploySmokeSweep", () => {
         throw new Error("GitHub API unavailable");
       },
     });
-    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBeUndefined();
+    // PR #3237 R1 covers the sibling branch in the test below.
+    // mt#4412: the point of this test is that it RESOLVES rather than throws —
+    // `.toBeUndefined()` only ever encoded the old `void` return. It now also
+    // reports the swallowed throw as a domain failure, which is the stronger
+    // assertion: best-effort no longer means invisible.
+    await expect(triggerDeploySmokeSweep(undefined, deps)).resolves.toBe(false);
+  });
+
+  test("no GitHub backend configured is a domain FAILURE, not a healthy no-op (PR #3237 R1)", async () => {
+    // The sweep can never emit `deploy.smoke` without a GitHub backend to query
+    // check-runs against, so this is standing inertness. Reporting it as
+    // success would make a permanently-inert sweep indistinguishable from a
+    // working one on `/api/sweeps` — the exact defect mt#4412 closes, and the
+    // one place in that change which contradicted the rule its other 13 sweeps
+    // follow.
+    const noBackend = async () => null;
+    await expect(triggerDeploySmokeSweep(undefined, undefined, noBackend)).resolves.toBe(false);
+  });
+
+  test("a capable sweep with nothing to check is healthy (PR #3237 R1, the contrast)", async () => {
+    // The discriminating pair for the test above: deps BUILT fine, so the sweep
+    // is capable — there is simply no deployed commit to check, which is the
+    // local daemon's permanent and correct state. Reporting a standing failure
+    // here would be a false alarm on the majority of daemons.
+    const capableButNothingToDo = async () => ({
+      getCommitSha: () => null,
+      fetchChecksForSha: async () => {
+        throw new Error("must not be reached — there is no SHA to fetch");
+      },
+    });
+    await expect(
+      triggerDeploySmokeSweep(undefined, undefined, capableButNothingToDo)
+    ).resolves.toBe(true);
   });
 });

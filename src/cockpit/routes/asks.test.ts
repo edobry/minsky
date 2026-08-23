@@ -28,11 +28,13 @@ import type { Ask, AskState } from "@minsky/domain/ask/types";
 const servers: Server[] = [];
 
 const ASK_TITLE = "Rename decision: commit to a public brand name";
+const DECIDE_KIND = "direction.decide";
+const REREAD_FAILED = "fixture re-read failed";
 
 /** Seed one operator-routed Ask already sitting in the inbox (`suspended`). */
 async function seedSuspendedOperatorAsk(repo: FakeAskRepository): Promise<Ask> {
   const ask = await repo.create({
-    kind: "direction.decide",
+    kind: DECIDE_KIND,
     classifierVersion: "v1",
     requestor: "test-agent",
     title: ASK_TITLE,
@@ -49,7 +51,7 @@ async function seedSuspendedOperatorAsk(repo: FakeAskRepository): Promise<Ask> {
     suspendedAt: new Date().toISOString(),
   });
   const reread = await repo.getById(ask.id);
-  if (!reread) throw new Error("fixture re-read failed");
+  if (!reread) throw new Error(REREAD_FAILED);
   return reread;
 }
 
@@ -161,7 +163,7 @@ interface TerminalSeed {
 
 async function seedTerminalAsk(repo: FakeAskRepository, seed: TerminalSeed): Promise<Ask> {
   const ask = await repo.create({
-    kind: "direction.decide",
+    kind: DECIDE_KIND,
     classifierVersion: "v1",
     requestor: "test-agent",
     title: seed.title,
@@ -179,7 +181,7 @@ async function seedTerminalAsk(repo: FakeAskRepository, seed: TerminalSeed): Pro
     closedAt: seed.closedAt,
   });
   const reread = await repo.getById(ask.id);
-  if (!reread) throw new Error("fixture re-read failed");
+  if (!reread) throw new Error(REREAD_FAILED);
   return reread;
 }
 
@@ -195,6 +197,59 @@ async function getAsks(url: string, query = ""): Promise<AskListBody> {
   expect(res.status).toBe(200);
   return (await res.json()) as AskListBody;
 }
+
+/** An operator ask the reaper has woken at window-open (mt#4313). */
+async function seedRoutedOperatorAsk(repo: FakeAskRepository, title: string): Promise<Ask> {
+  const ask = await repo.create({
+    kind: DECIDE_KIND,
+    classifierVersion: "v1",
+    requestor: "test-agent",
+    title,
+    question: "Which name do we commit to?",
+    serviceStrategy: "scheduled",
+    windowMissedCount: 0,
+    forceImmediate: false,
+    routingTarget: "operator",
+  });
+  repo._seedAtState({ ...ask, state: "routed", routingTarget: "operator" });
+  const reread = await repo.getById(ask.id);
+  if (!reread) throw new Error(REREAD_FAILED);
+  return reread;
+}
+
+describe("GET /api/asks pending queue spans routed (mt#4313)", () => {
+  test("an ask the reaper woke at window-open stays in the unfiltered queue", async () => {
+    const repo = new FakeAskRepository();
+    const waiting = await seedSuspendedOperatorAsk(repo);
+    const woken = await seedRoutedOperatorAsk(repo, "woken at window-open");
+    const { url } = await makeHarness(repo);
+
+    const body = await getAsks(url);
+
+    expect(new Set(body.asks.map((a) => a.id))).toEqual(new Set([waiting.id, woken.id]));
+  });
+
+  test("a routed ask bound elsewhere than the operator stays out", async () => {
+    const repo = new FakeAskRepository();
+    const waiting = await seedSuspendedOperatorAsk(repo);
+    const subagent = await repo.create({
+      kind: "capability.escalate",
+      classifierVersion: "v1",
+      requestor: "test-agent",
+      title: "dispatched to a subagent",
+      question: "n/a",
+      windowMissedCount: 0,
+      forceImmediate: false,
+      routingTarget: "subagent",
+    });
+    repo._seedAtState({ ...subagent, state: "routed", routingTarget: "subagent" });
+    const { url } = await makeHarness(repo);
+
+    const body = await getAsks(url);
+
+    expect(body.asks.map((a) => a.id)).toEqual([waiting.id]);
+  });
+});
 
 describe("GET /api/asks state filter (mt#4092)", () => {
   test("with no param, terminal asks are absent and the pending queue is unchanged", async () => {

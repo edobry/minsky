@@ -14,6 +14,85 @@ import {
   HOOK_ONLY_ENV_VARS,
 } from "./environment";
 
+// ---------------------------------------------------------------------------
+// mt#4221: this file's subject is which env vars the REGISTRY admits, so its
+// verdict must not depend on which ones the operator happens to export.
+//
+// Every assertion below inspects config derived from the live `process.env`,
+// and the generic `MINSKY_*` -> dot-path fallback turns ANY unregistered
+// `MINSKY_FOO_BAR` into a top-level `foo` key. So a variable this file never
+// mentions can redden it on a tree where nothing is wrong:
+// `MINSKY_MCP_NOT_A_REAL_KNOB=1` derives `mcp.not.a.real.knob` and fails the
+// hook-only leak assertion below with `polluted: [ "mcp" ]`.
+//
+// Not hypothetical — that is how mt#4217 was found, via a real
+// MINSKY_MCP_MEMORY_CEILING_POLL_MS sitting in the operator's environment while
+// CI (which does not set it) stayed green. Registering that one name fixed that
+// one name; establishing a known baseline here removes the class.
+//
+// Each describe below still deletes and restores the specific keys it sets.
+// Those are unaffected: this runs FIRST (outer beforeEach) and restores LAST
+// (outer afterEach), so an inner block sees an already-clean slate and its own
+// restore is a no-op against it.
+//
+// Scoped to `MINSKY_*` deliberately. The non-MINSKY entries in
+// `environmentMappings` (GITHUB_TOKEN, OPENAI_API_KEY, ...) are EXPLICIT
+// mappings onto declared schema paths, so they cannot mint an unexpected
+// top-level key the way the generic fallback can — only the `MINSKY_*` path
+// derives a path nobody declared.
+//
+// Do NOT remove this as incidental setup. Without it this file asserts the
+// machine it runs on as much as the registry it is about (mem#912: assert what
+// the change owns, not the ambient state that reveals it).
+//
+// WHY A GLOBAL MUTATION IS SAFE HERE (PR #3081 R1). These hooks delete real
+// variables — including the MINSKY_STATE_DIR / MINSKY_LOG_LEVEL / MINSKY_LOG_MODE
+// that `tests/setup.ts` sets — for the duration of each test body. That would be
+// a cross-file race if anything else could observe `process.env` during that
+// window. Nothing can, under either concurrency mode bun offers:
+//
+//   - `--parallel` runs test FILES in worker processes and, per `bun test
+//     --help`, "Implies --isolate". Separate processes have separate
+//     environments, so a sibling file cannot see this file's mutation at all.
+//   - `--concurrent` / `test.concurrent()` is what would interleave test bodies
+//     inside ONE process. It is enabled nowhere: no `--concurrent`,
+//     `--parallel`, `--isolate` or `--shard` flag appears in `scripts/*.ts`,
+//     `package.json` or `bunfig.toml`; `bunfig.toml` sets `randomize = false`;
+//     and the repo contains zero `test.concurrent` / `describe.concurrent`
+//     call sites.
+//
+// So files and tests both run serially today, and the one mode that could break
+// this isolates by process rather than sharing one. If someone ever turns
+// `--concurrent` on, this file is not the only thing that breaks: the five
+// describes below already delete and restore `process.env` keys in their own
+// beforeEach/afterEach, as does much of the suite. Re-verify the two bullets
+// above before assuming this block is the problem.
+// ---------------------------------------------------------------------------
+
+let ambientMinskyEnv: Array<[string, string]> = [];
+
+beforeEach(() => {
+  ambientMinskyEnv = [];
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith("MINSKY_") || value === undefined) continue;
+    ambientMinskyEnv.push([key, value]);
+    delete process.env[key];
+  }
+});
+
+afterEach(() => {
+  // Restore exactly what was there. Any MINSKY_* a test itself set is deleted
+  // rather than left behind, so this file cannot leak into a sibling file
+  // sharing the process.
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith("MINSKY_")) delete process.env[key];
+  }
+  for (const [key, value] of ambientMinskyEnv) {
+    process.env[key] = value;
+  }
+  ambientMinskyEnv = [];
+});
+
 const TEST_POSTGRES_URL = "postgresql://user:pass@host:5432/db";
 
 const PERSISTENCE_KEYS = [
@@ -270,22 +349,37 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
           expect(metadata.loadedVariables).not.toContain(key);
         }
       }
-      // And no hook-only var leaks a top-level key derived from its first
-      // underscore-delimited segment (the `force` / `skip` / `two` shape the
-      // sampled cases above check individually).
-      const leakedTopLevelKeys = new Set(
-        [...HOOK_ONLY_ENV_VARS].map(
-          (key) =>
-            key
-              .toLowerCase()
-              .replace(/^minsky_/, "")
-              .split("_")[0]
-        )
-      );
-      const polluted = Object.keys(config as Record<string, unknown>).filter((topLevel) =>
-        leakedTopLevelKeys.has(topLevel)
-      );
-      expect(polluted).toEqual([]);
+      // And no hook-only var CONTRIBUTES anything to the config object (the
+      // `force` / `skip` / `two` shape the sampled cases above check
+      // individually).
+      //
+      // Compared against a baseline derived with those vars UNSET, rather than
+      // by guessing leaked key names from each var's first underscore-delimited
+      // segment (mt#4223). The guess was wrong in both directions:
+      //
+      //   - FALSE POSITIVE, which is what surfaced it. `MINSKY_GITHUB_TOKEN` is
+      //     hook-only as of mt#4223, so its first segment put `github` in the
+      //     guessed set — but `github` is a real declared config key, and CI
+      //     always has a plain `GITHUB_TOKEN` set, which the EXPLICIT mapping
+      //     legitimately routes to `github.token`. The test then reported
+      //     `polluted: ["github"]` on a tree where nothing had leaked. It passed
+      //     locally only because a dev machine usually exports no GITHUB_TOKEN —
+      //     the same ambient-environment dependence mt#4221 removed elsewhere in
+      //     this file, resurfacing through a different door.
+      //   - FALSE NEGATIVE. A hook-only var leaking into a NESTED path whose
+      //     top-level segment was already present would not change the key set
+      //     at all, so the guess could not see it.
+      //
+      // The delta is exact: anything the hook-only vars add is a leak, whatever
+      // it is called and however deep it sits.
+      for (const key of HOOK_ONLY_ENV_VARS) {
+        if (restore[key] === undefined) delete process.env[key];
+        else process.env[key] = restore[key];
+      }
+      const baseline = getEnvironmentConfiguration().config;
+      for (const key of HOOK_ONLY_ENV_VARS) process.env[key] = "1";
+
+      expect(config).toEqual(baseline);
     } finally {
       for (const key of HOOK_ONLY_ENV_VARS) {
         const value = restore[key];
@@ -585,5 +679,53 @@ describe("environment configuration source — principal channel (mt#3230)", () 
     // crashing the loader at boot for anyone who has these set.
     process.env.MINSKY_PRINCIPAL_CHANNEL_ENABLED = "true";
     expect(load().principal).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4221: guards on the ambient-env baseline established at the top of this
+// file. Without them the baseline is unfalsifiable — someone could delete the
+// beforeEach and every other test here would still pass on a machine that
+// happens to export nothing, which is precisely the condition under which this
+// file was green while being wrong.
+// ---------------------------------------------------------------------------
+
+describe("environment configuration source — ambient-env isolation (mt#4221)", () => {
+  test("no MINSKY_* variable survives into a test body", () => {
+    // What makes this a guard rather than a coincidence: `tests/setup.ts` is
+    // preloaded for EVERY run (bunfig.toml `[test].preload`) and sets
+    // MINSKY_LOG_LEVEL and MINSKY_LOG_MODE unconditionally, so there is always
+    // something for the baseline to strip. Delete the beforeEach and this fails
+    // on every machine and in CI — not only where an operator has extra vars
+    // exported.
+    const surviving = Object.keys(process.env).filter((key) => key.startsWith("MINSKY_"));
+    expect(surviving).toEqual([]);
+  });
+
+  test("an unregistered MINSKY_* var derives a top-level key — the mechanism isolated against", () => {
+    // Why the baseline is needed at all. This name is registered nowhere, so
+    // the generic fallback maps it to `mcp.not.a.real.knob` and mints a
+    // top-level `mcp` key. Inherited rather than set deliberately, that is
+    // exactly what fails the hook-only leak assertion above — the failure
+    // mt#4221 was filed for, reached through a name no registry mentions.
+    //
+    // If a loader change ever stops this deriving, THIS is the test that should
+    // fail and force the baseline's rationale to be re-read. Note that mt#1651
+    // as specced would not: it filters auto-mapped paths against the schema's
+    // declared top-level keys, and `mcp` IS declared
+    // (packages/domain/src/configuration/schemas/index.ts), so this path passes
+    // that filter untouched.
+    // Being UNREGISTERED is the fixture. The rule below guards production reads
+    // that would auto-map and crash config load at boot; this var is written by
+    // a test to demonstrate that very derivation and is read by no production
+    // code. Registering it would invert the assertion — a registered var is
+    // SKIPPED by the fallback, so `config.mcp` would be undefined and this test
+    // could no longer show why the baseline above is needed. Suppressed rather
+    // than renamed around the matcher: dodging a guard's heuristic defeats it
+    // for the next genuine case (mem#601).
+    // eslint-disable-next-line custom/no-unregistered-minsky-env-var
+    process.env.MINSKY_MCP_NOT_A_REAL_KNOB = "1";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.mcp).toBeDefined();
   });
 });

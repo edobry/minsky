@@ -1,11 +1,13 @@
 /**
- * InterceptorsPage render tests (mt#4010 slice 1).
+ * InterceptorsPage render tests (mt#4010 slice 1, mt#4057 slice 2).
  *
  * The load-bearing assertions are the two the slicing decision turns on:
  * every declared entry is RENDERED (population-completeness), and an
  * undescribed one renders its explicit marker rather than a blank cell.
- * Plus the constraint that is easiest to violate later: no health, canary,
- * fire-count or cost column — absent, not stubbed.
+ *
+ * Slice 2 replaced the "health and cost are ABSENT" block with its inverse.
+ * The constraint that survived the replacement, and is the easiest to violate
+ * later: a figure whose SOURCE failed still must not render as zero.
  *
  * Run via: bun run test:components
  */
@@ -15,6 +17,11 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { InterceptorsPage } from "./InterceptorsPage";
 import type { InterceptorEntry, InterceptorsPayload } from "../hooks/useInterceptors";
+import type { InterceptorAggregatesCatalogPayload } from "../hooks/useInterceptorAggregates";
+import type {
+  InterceptorAggregateRow,
+  InterceptorAggregatesSnapshot,
+} from "@minsky/domain/guard-events/aggregates";
 
 const originalFetch = global.fetch;
 
@@ -29,6 +36,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     description: "Blocks the example failure.",
     failureClasses: ["broken-main"],
     provenance: [".minsky/hooks/example-guard.ts"],
+    sourceFile: null,
     stratum: "registry",
     subject: "trajectory",
     provenanceStatus: "implementation",
@@ -38,6 +46,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     // Axis coordinates (mt#4056) — a fully-resolved `classified` default.
     point: "PreToolUse",
     pointSource: "registry",
+    trajectory: null,
     interventions: [{ type: "deny" }],
     mechanism: "structural",
     role: "judge",
@@ -64,13 +73,69 @@ function payload(overrides: Partial<InterceptorsPayload> = {}): InterceptorsPayl
   };
 }
 
-function renderPage(p: InterceptorsPayload) {
-  global.fetch = mock(async () =>
-    new Response(JSON.stringify({ state: "ok", payload: p }), {
+function aggregateRow(
+  overrides: {
+    guardName?: string;
+    windowFires?: number;
+    lifetimeFires?: number;
+    canary?: InterceptorAggregateRow["canary"];
+    duration?: InterceptorAggregateRow["fireLog"]["window"]["duration"];
+  } = {}
+): InterceptorAggregateRow {
+  return {
+    guardName: overrides.guardName ?? "example-guard",
+    fireLog: {
+      window: {
+        days: 7,
+        fires: overrides.windowFires ?? 4,
+        byDecision: { allow: overrides.windowFires ?? 4, warn: 0, deny: 0, other: 0 },
+        overrides: { total: 0, byEnvVar: {} },
+        duration: overrides.duration ?? null,
+      },
+      lifetime: { totalFires: overrides.lifetimeFires ?? 40, firstFireAt: null, lastFireAt: null },
+    },
+    canary: overrides.canary === undefined ? { state: "passing" } : overrides.canary,
+    health: null,
+    calibration: null,
+    registry: null,
+  };
+}
+
+function snapshot(
+  overrides: Partial<InterceptorAggregatesSnapshot> = {}
+): InterceptorAggregatesSnapshot {
+  const rows = overrides.rows ?? [aggregateRow()];
+  return {
+    computedAt: "2026-08-13T20:00:00.000Z",
+    windowDays: 7,
+    population: rows.length,
+    rows,
+    declaredOnlyRows: overrides.declaredOnlyRows ?? [],
+    calibrationReviewDue: overrides.calibrationReviewDue ?? [],
+    sources: {},
+    sourceFailures: overrides.sourceFailures ?? [],
+    refreshDurationMs: 2500,
+    ...overrides,
+  };
+}
+
+/**
+ * Route by widget id rather than answering every request with one payload:
+ * the page now makes TWO independent fetches, and a single-answer mock would
+ * feed the catalog payload to the aggregates hook and quietly render the
+ * pending state in every test.
+ */
+function renderPage(p: InterceptorsPayload, aggregates?: InterceptorAggregatesCatalogPayload) {
+  global.fetch = mock(async (input: unknown) => {
+    const url = String(input);
+    const payloadForUrl = url.includes("interceptor-aggregates")
+      ? (aggregates ?? { status: "pending" as const, snapshot: null })
+      : p;
+    return new Response(JSON.stringify({ state: "ok", payload: payloadForUrl }), {
       status: 200,
       headers: { "content-type": "application/json" },
-    })
-  ) as unknown as typeof fetch;
+    });
+  }) as unknown as typeof fetch;
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -97,6 +162,20 @@ describe("InterceptorsPage — population completeness", () => {
     // Derived from the payload, not a hard-coded number: the assertion has to
     // survive the corpus growing.
     expect(screen.getByTestId("interceptors-summary").textContent).toContain(String(entries.length));
+  });
+
+  test("mounts the lifecycle spine over the same entries, with a merge gate at the merge station (mt#4011)", async () => {
+    const entries = [
+      entry({ guardName: "alpha-guard" }),
+      entry({ guardName: "merge-gate", trajectory: "delivery" }),
+    ];
+    renderPage(payload({ population: entries.length, entries }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("lifecycle-spine")).toBeTruthy();
+    });
+    const merge = screen.getByTestId("spine-station-merge-time");
+    expect(merge.querySelector('[data-guard="merge-gate"]')).toBeTruthy();
   });
 
   test("groups by stratum, and a stratum with no entries renders no heading", async () => {
@@ -160,47 +239,100 @@ describe("InterceptorsPage — gaps render as gaps", () => {
   });
 });
 
-describe("InterceptorsPage — health and cost are ABSENT, not stubbed", () => {
-  test("renders no health, canary, fire-count or cost element", async () => {
-    renderPage(payload());
+describe("InterceptorsPage — health and cost (mt#4057 slice 2)", () => {
+  test("slice 1's scope note is GONE, not softened", async () => {
+    // SC5. The note's entire function was to mark the gap while it existed;
+    // leaving any version of it keeps telling the reader a question is
+    // unanswered that this page now answers.
+    renderPage(payload(), { status: "ready", snapshot: snapshot() });
     await waitFor(() => {
-      expect(screen.getAllByTestId("interceptor-row").length).toBe(1);
+      expect(screen.getByTestId("interceptors-attention-bar")).toBeTruthy();
     });
-
-    // Structural, NOT lexical. A word-scan is the wrong instrument here: the
-    // failure-class taxonomy legitimately contains "broken-main", and the
-    // coverage-gap labels legitimately say "no canary" — both are DECLARED
-    // data, not health. What must not exist is a health/cost SLOT.
-    for (const testid of [
-      "interceptor-health",
-      "interceptor-health-state",
-      "interceptor-canary-badge",
-      "interceptor-fire-count",
-      "interceptor-cost",
-    ]) {
-      expect(screen.queryByTestId(testid)).toBeNull();
-    }
+    expect(screen.queryByTestId("interceptors-scope-note")).toBeNull();
   });
 
-  test("the served payload carries no health or cost field at all", async () => {
-    // The stronger half of the constraint: the frontend cannot render a health
-    // value it was never sent. Asserted on the payload contract rather than on
-    // pixels, so it fails when someone widens the widget rather than when
-    // someone adds a column.
-    const p = payload();
-    const rowKeys = Object.keys(p.entries[0] ?? {});
-    for (const forbidden of ["health", "liveness", "canaryState", "fireCount", "cost", "tokens"]) {
-      expect(rowKeys).not.toContain(forbidden);
-    }
+  test("the attention counts render above the fold, from their own sources", async () => {
+    renderPage(payload(), {
+      status: "ready",
+      snapshot: snapshot({
+        rows: [
+          aggregateRow({ guardName: "a", canary: { state: "broken", brokenSinceAt: "2026-08-01T00:00:00Z" } }),
+          aggregateRow({ guardName: "b", canary: { state: "never-verified" } }),
+        ],
+        calibrationReviewDue: [
+          { logName: "l1", mappedGuardName: "a", reason: "past-threshold", injectedFiresSinceLastReview: 9 },
+          { logName: "l2", mappedGuardName: "b", reason: "never-fired", injectedFiresSinceLastReview: 0 },
+        ],
+      }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("attention-broken")).toBeTruthy();
+    });
+    expect(screen.getByTestId("attention-broken").textContent).toContain("1");
+    expect(screen.getByTestId("attention-never-verified").textContent).toContain("1");
+    expect(screen.getByTestId("attention-review-due").textContent).toContain("1");
+    expect(screen.getByTestId("attention-graduation-overdue").textContent).toContain("1");
   });
 
-  test("says plainly that it does not answer those questions yet", async () => {
+  test("a failed source renders as unavailable, NEVER as zero", async () => {
+    // The constraint that outlived slice 1's absence discipline: "0 broken"
+    // and "we could not check" are opposite messages, and the second one is
+    // the state that actually needs the operator.
+    renderPage(payload(), {
+      status: "ready",
+      snapshot: snapshot({ rows: [aggregateRow({ canary: null })], sourceFailures: ["canary"] }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("attention-broken")).toBeTruthy();
+    });
+    expect(screen.getByTestId("attention-broken").textContent).toContain("—");
+    expect(screen.getByTestId("attention-broken").textContent).not.toContain("0");
+    expect(screen.getByTestId("interceptors-source-failures").textContent).toContain("canary");
+  });
+
+  test("each row carries its state chip and its cost figure with the measured denominator", async () => {
+    renderPage(payload(), {
+      status: "ready",
+      snapshot: snapshot({
+        rows: [
+          aggregateRow({
+            guardName: "example-guard",
+            windowFires: 400,
+            duration: { avgMs: 12.5, p95Ms: 30, maxMs: 88, totalMs: 150, measuredFires: 12 },
+          }),
+        ],
+      }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-state-active")).toBeTruthy();
+    });
+    const cost = screen.getByTestId("interceptor-cost").textContent ?? "";
+    expect(cost).toContain("12 measured");
+    // The 388 fires with no recorded duration are named, so the total cannot
+    // be read as covering all 400.
+    expect(cost).toContain("388 untimed");
+  });
+
+  test("a declared name with no aggregate row is marked, not left blank", async () => {
+    renderPage(payload({ entries: [entry({ guardName: "ghost-guard" })] }), {
+      status: "ready",
+      snapshot: snapshot({ rows: [aggregateRow({ guardName: "someone-else" })] }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-no-aggregate")).toBeTruthy();
+    });
+  });
+
+  test("before the first rollup, the pending state says so instead of showing zeros", async () => {
     renderPage(payload());
     await waitFor(() => {
-      expect(screen.getByTestId("interceptors-scope-note")).toBeTruthy();
+      expect(screen.getByTestId("interceptors-health-pending")).toBeTruthy();
     });
-    // "Not answered yet" must be legible as such — silence would read as
-    // "nothing to report".
-    expect(screen.getByTestId("interceptors-scope-note").textContent).toContain("does not yet");
+    expect(screen.queryByTestId("attention-broken")).toBeNull();
+    expect(screen.getByTestId("interceptors-health-pending").textContent).toContain("not zero");
   });
 });

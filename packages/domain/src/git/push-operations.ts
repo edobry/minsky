@@ -108,6 +108,47 @@ export function redactPushError(err: unknown): unknown {
 }
 
 /**
+ * Prefixes one of `pushImpl`'s two actionable rewrites onto git's own error,
+ * IN PLACE, and returns that same error for rethrowing (mt#3264).
+ *
+ * Two separate problems, one fix.
+ *
+ * The rewrites used to REPLACE the stderr outright, throwing away the only text
+ * that said what actually went wrong. A non-fast-forward and a `cannot lock ref`
+ * conflict both surface as `[rejected]` and produced the same "you may need to
+ * pull or use --force" sentence — right for the first, useless for the second,
+ * with nothing left to tell them apart. The guidance is a GUESS at the cause;
+ * git already reported the cause, so keep both.
+ *
+ * They also threw a fresh `new Error(...)`, which silently dropped the original
+ * error's prototype (a `GitExecError` stops satisfying `instanceof`), its
+ * `name`, and the string extras Node's exec attaches (`stderr`/`stdout`/`cmd`).
+ * `redactPushError` in this same module already rejects re-wrapping for exactly
+ * that reason and says so in its doc block; these two paths contradicted it.
+ * So mutate the message and hand the original error back, preserving everything
+ * a consumer might branch on. Reviewer-caught (PR #3174 R1).
+ *
+ * Redaction runs over the whole error via `redactPushError` — necessary because
+ * the stderr is now being copied into the MESSAGE, which is a channel the
+ * fall-through path's redaction would have covered but these two paths, by
+ * building their own string, previously bypassed.
+ */
+function withGitReason(err: unknown, guidance: string, stderr: string): unknown {
+  const reason = redactPushCredentials(stderr).trim();
+  const message = reason ? `${guidance}\n\nGit reported:\n${reason}` : guidance;
+
+  if (err instanceof Error) {
+    err.message = message;
+    return redactPushError(err);
+  }
+
+  // Non-Error throw (a string, or something exotic from a custom execAsync):
+  // there is no prototype or field set worth preserving, so the guidance-bearing
+  // Error is strictly better than what was thrown.
+  return new Error(message);
+}
+
+/**
  * Result of push operations
  */
 export interface PushResult {
@@ -147,9 +188,15 @@ function shellQuote(s: string): string {
  * Error policy: errors from execAsync propagate raw across all phases
  * (rev-parse, remote-list, push), preserving original type, stack, and
  * structured fields. Two intentional UX overrides apply in the push catch:
- * stderr containing "[rejected]" or "no upstream" is rewritten into an
- * actionable user-facing message. All other push failures re-throw the
- * original error unchanged.
+ * stderr containing "[rejected]" or "no upstream" gets an actionable
+ * user-facing message PREPENDED to git's own reason (mt#3264 — the message used
+ * to replace the reason, leaving a rejection indistinguishable from any other).
+ * All other push failures re-throw the original error unchanged.
+ *
+ * Note the "[rejected]" test is narrower than it reads and deliberately so: a
+ * server-side `! [remote rejected]` does not contain the substring `[rejected]`,
+ * so a rejection like the App-permission one in mt#3264 falls through to the
+ * unchanged-error path and keeps its message already.
  */
 export async function pushImpl(options: PushOptions, deps: PushDependencies): Promise<PushResult> {
   const remote = options.remote || "origin";
@@ -221,16 +268,22 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     await deps.execAsync(pushCmd);
     return { workdir, pushed: true };
   } catch (err: unknown) {
-    // Two intentional UX rewrites — see policy in JSDoc above.
+    // Two intentional UX rewrites — see policy in JSDoc above. Each APPENDS
+    // git's own stderr rather than replacing it (mt#3264): the guidance is a
+    // guess at the cause, and git already said what the cause was.
     const gitError = validateGitError(err);
     if (gitError.stderr && gitError.stderr.includes("[rejected]")) {
-      throw new Error(
-        "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history."
+      throw withGitReason(
+        err,
+        "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history.",
+        gitError.stderr
       );
     }
     if (gitError.stderr && gitError.stderr.includes("no upstream")) {
-      throw new Error(
-        "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
+      throw withGitReason(
+        err,
+        "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first.",
+        gitError.stderr
       );
     }
     // mt#3219: the raw error's message is `Command failed: <full command>`,

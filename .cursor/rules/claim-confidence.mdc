@@ -48,6 +48,87 @@ enters the transcript" in a task spec; the record's sibling `toolUseResult` fiel
 and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
 plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
 
+**Program OUTPUT is a derived view too, and a grep you ran over it is one you BUILT (mt#4121).**
+Every example above is DATA-shaped — a parsed record, a type signature, a screenshot — so the bound
+is easy to honor while reading a data structure and easy to walk past while reading a run log. Two
+output-shaped forms, both from one session (2026-08-13). **A filter drops the structure that BOUND a
+line to its context:** a `grep -E "^\(fail\)|timed out"` over a test log put a `(fail)` from one
+block beside a `timed out` from another, and the pairing read as one record — it was an artifact of
+the filter. **A missing log line is a claim about the LOGGER, not about the code path:** "the handler
+logs there, no such line appeared, so it never ran" went into a spec as an elimination retiring two
+candidate causes, while `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts`, set by
+`tests/setup.ts`) silences winston's Console under the in-process harness (mt#2975). The code
+logged; the harness swallowed it. The tell in the second: the same turn had CORRECTLY established
+that the route uses the UNMOCKED logger, and that true fact was used to license "so its output would
+have appeared" — when that module is precisely the one carrying the silencing. **A verified fact
+adjacent to the question makes the inference feel checked.** Ask what the view CANNOT show before
+treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
+response body, not the run log you filtered.
+
+**Every case above is an accessor that DROPS. One that SYNTHESIZES is the unhandled half (mt#4227).**
+A filter, a projection, a silenced logger all REMOVE, so the remedy has always been "the view is
+missing something." A projection over a key the source LACKS does the opposite — it manufactures a
+type-valid value, and `null` then reads as data. `jq '{startedAt, uptimeMs}'` over a payload
+carrying neither prints `startedAt: null, uptimeMs: null`, which is byte-identical to two keys
+present and null; that became "present-but-null fields, possibly a small defect" to the principal
+(2026-08-17). The hazard is not `jq`'s: `.get(k)` returns `None`, `obj?.field` yields `undefined`,
+a DataFrame column selection creates `NaN` — anywhere a projection over a missing key returns a
+falsy value instead of raising. **An accessor is not a filter, it is a constructor.** So enumerate
+the source's real key set — `jq keys`, `has()`, `in` — BEFORE asserting anything about a field's
+VALUE. A null read through a projection is not evidence that the field exists and is empty; note
+this is the ABSENCE bound inverted, so the two are opposite failures of one operation and neither
+catches the other.
+
+**A wait loop is where a broken probe hides, because "not yet" is the expected reading (mt#4227).**
+`<cmd> 2>/dev/null | jq -r '.status // empty'` on a command that does not exist wrote its only
+explanation to the channel that was discarded, and `// empty` collapsed "no such command" into the
+same token as "no status yet" — 60 iterations over 30 minutes emitting exactly what a pending deploy
+emits. There is no moment at which that output looks wrong, because for most of a loop's life
+"nothing yet" IS correct. A loop waits on a condition; it is not where you discover whether your
+probe works. **Run the probe once in the foreground, stderr visible, and confirm it returns a real
+value before wrapping it in a loop.** Repo corollary: an MCP tool does not imply a CLI command of
+the same name.
+
+**Before accepting a zero result, check the channel can PERCEIVE that kind of thing (mt#4259).**
+Every paragraph above asks what a view drops or manufactures once you are holding its output;
+this one fires earlier, at channel SELECTION, and is cheaper there. Name the KIND of thing you
+are seeking — a rendered visual behaviour, a runtime value, a code path, a policy, a person's
+intent — and ask whether the channel renders that kind at all. **A modality mismatch returns
+"not found" whether or not the thing exists**, which is mem#704's can't-fail probe in search
+clothing: no error, no empty-looking output, just a plausible zero. Incident (2026-08-18,
+mt#4220): the question was whether Claude Code folds runs of agent actions in its terminal UI —
+a VISUAL behaviour — and the probe was `strings` over the compiled binary plus two doc pages, a
+TEXT search for a rendered artifact. `strings` cannot see compressed regions, so it returned
+zero either way; the feature existed, and the principal was watching it render while the search
+ran. **The falsifier for a rendered behaviour is a rendering** — a screenshot, an image search,
+a user describing what they see. And when the primary artifact sits on the principal's side of a
+boundary you cannot cross, HE is a first-tier channel rather than the audience for the answer:
+`principal-context.mdc §What Eugene can see`. And the same question runs one step further, past
+perception to the RANKING axis (mt#4268): an embedding index orders by MEANING, and an identifier's
+meaning is not its spelling, so a semantic search for a code token, config key, error string or
+column name returns a full, plausible set of neighbours while missing the exact match. Here the
+trap is non-silence. Every view above returns LESS than its source, which trains the tell to be
+"something is missing" — so **a full result set of near-misses with no direct hit** is the shape to
+learn, and it is evidence the INSTRUMENT was wrong rather than that nothing owns the subject. When
+the subject is an identifier the falsifier is an EXACT search: substring or grep over the corpus.
+
+**The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
+Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
+CODE, made in its source: *"emits aggregate counts and scores only — never prompt text"*, in a
+script's header. True of stdout, false of the network — scoring required embedding, so the same
+script sent the operator's raw transcript windows to a third-party provider. Nothing contradicts it:
+the docblock and the code agree, on the channel the docblock is about, and a careful re-read confirms
+the sentence — which is what makes it this section's shape rather than an ordinary wrong comment.
+**The scope of a data-flow claim silently equals the channel you were actively designing**, because
+that is where the privacy thought arose; the other channel was never in the frame the claim formed
+in. So **"emits", "only", "never", "no X leaves" are channel-scoped words in artifact-scoped
+clothing**: before writing one, enumerate the egress channels — stdout/stderr, files written, network
+calls, subprocess argv, anything handed to a third-party SDK — and either name the channel or cover
+them all. **A third-party SDK call is an egress even when its purpose reads as computation**:
+`generateEmbeddings(text)` is a data flow, `cosineSimilarity(a, b)` is not, and the difference is
+invisible at the call site. For a script that reads operator data, GATE the transmission rather than
+describing it. Incident: mem#1056 (PR #3033 R1, reviewer-caught, BLOCKING).
+
 **Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
 phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
 accessor, the transcript is the source. It presents as introspection rather than a lookup, and is

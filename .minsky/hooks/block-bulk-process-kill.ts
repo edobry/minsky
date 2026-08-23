@@ -106,21 +106,6 @@ export interface BulkKillInvocation {
  */
 const KILL_SEGMENT = /^\s*(?:[\w.\-/]*\/)?(kill|pkill|killall)\b\s*([^;&|]*)/i;
 
-/**
- * The kill verb this command invokes, if any — the shared half of the trigger.
- *
- * Exported because `operator-deferral-detector`'s surface F needs the same parse: its own inline
- * regex was the subject of PR #2954 R1's quote-awareness finding, and two copies of this
- * reasoning is exactly how they diverge.
- */
-export function findKillVerb(command: string): string | null {
-  for (const segment of splitTopLevel(command)) {
-    const match = KILL_SEGMENT.exec(segment);
-    if (match?.[1]) return match[1].toLowerCase();
-  }
-  return null;
-}
-
 /** Parses `-9` / `-TERM` / `-s TERM` off the front of a kill's arguments. */
 function stripSignal(args: string[]): { signal: string | null; rest: string[] } {
   if (args.length === 0) return { signal: null, rest: args };
@@ -134,22 +119,125 @@ function stripSignal(args: string[]): { signal: string | null; rest: string[] } 
   return { signal: null, rest: args };
 }
 
+/** One segment of a command whose leading token is a kill verb. */
+interface KillSegment {
+  verb: string;
+  /** The segment verbatim, trimmed — the evidence a reader needs to see. */
+  segment: string;
+  signal: string | null;
+  /** Arguments after the verb, with any leading signal removed. */
+  rest: string[];
+}
+
 /**
- * The trigger decision, pure over the command string.
+ * Every kill-verb segment in the command, parsed once.
  *
- * Quote-aware segment splitting is reused from `command-shape` so a `;` inside a quoted argument
- * cannot manufacture or suppress a match — the same reasoning `block-concurrent-bulk-mutation`
- * records for its own split.
+ * The single parse both public entry points below consume. Quote-aware segment splitting is
+ * reused from `command-shape` so a `;` inside a quoted argument cannot manufacture or suppress a
+ * match — the same reasoning `block-concurrent-bulk-mutation` records for its own split.
  */
-export function findBulkKill(command: string): BulkKillInvocation | null {
+function* eachKillSegment(command: string): Generator<KillSegment> {
   for (const segment of splitTopLevel(command)) {
     const match = KILL_SEGMENT.exec(segment);
     if (!match?.[1]) continue;
-
-    const verb = match[1].toLowerCase();
     const args = (match[2] ?? "").trim().split(/\s+/).filter(Boolean);
     const { signal, rest } = stripSignal(args);
+    yield {
+      verb: match[1].toLowerCase(),
+      segment: segment.trim(),
+      signal,
+      rest: stripRedirections(rest),
+    };
+  }
+}
 
+/**
+ * Remove shell redirections from a kill's arguments (mt#4193).
+ *
+ * Done HERE, at tokenization, rather than in either consumer's own filter — because the two
+ * consumers were wrong in OPPOSITE directions from the same cause, and a per-consumer filter
+ * fixes one at a time:
+ *
+ * - `findBulkKill` takes a `pkill`/`killall` target as the last non-flag argument, so
+ *   `pkill -f node 2>/dev/null` targeted `2>/dev/null` — bare-named `null` after the path strip,
+ *   which is on no interactive-class list. The guard did not deny a command it denies without
+ *   the redirect.
+ * - `findKillInvocation` COUNTS targets, so the space-separated form `kill 4821 > /dev/null` read
+ *   the PATH as a second target and made a single-process cleanup look like a multi-target kill.
+ *
+ * Two token shapes, because the shell writes redirections both ways. A token that CONTAINS an
+ * operator and does not END with one carries its own target (`2>/dev/null`) and is dropped alone;
+ * a token that ends with the operator (`>`, `2>`, `>>`) takes the NEXT token as its target, so
+ * both are dropped. `2>&1` never reaches here intact — `&` is a segment separator — which is why
+ * a trailing bare `2>` is an ordinary case rather than a malformed one.
+ */
+function stripRedirections(args: string[]): string[] {
+  const kept: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const token = args[index] ?? "";
+    if (!/[<>]/.test(token)) {
+      kept.push(token);
+      continue;
+    }
+    if (/[<>]$/.test(token)) index++;
+  }
+  return kept;
+}
+
+/** A kill this command actually performs, with the targets it names. */
+export interface KillInvocation {
+  /** `kill`, `pkill`, or `killall`. */
+  verb: string;
+  /** The segment the verb leads, verbatim. */
+  segment: string;
+  /** Non-flag arguments after the verb — PIDs, job specs, process names, or expansions. */
+  targets: string[];
+}
+
+/**
+ * The first TERMINATING kill this command performs, if any — the shared half of the trigger.
+ *
+ * Exported because `operator-deferral-detector`'s surface F needs the same parse: its own inline
+ * regex was the subject of PR #2954 R1's quote-awareness finding, and two copies of this
+ * reasoning is exactly how they diverge. It returns the invocation rather than the bare verb
+ * (mt#4111) because a consumer that has to say WHAT fired needs the segment and the targets —
+ * reconstructing either from the command string is the second copy this export exists to avoid.
+ *
+ * A non-terminating signal (`kill -0`, a liveness probe) is skipped here as it already is in
+ * {@link findBulkKill}: it destroys nothing, so it is not a kill for either caller's purposes.
+ */
+export function findKillInvocation(command: string): KillInvocation | null {
+  for (const { verb, segment, signal, rest } of eachKillSegment(command)) {
+    if (signal !== null && NON_TERMINATING_SIGNALS.has(signal)) continue;
+    return { verb, segment, targets: rest.filter(isTargetToken) };
+  }
+  return null;
+}
+
+/**
+ * True for an argument that names something to kill, rather than a flag.
+ *
+ * The ONE target filter both entry points use (mt#4193). Redirections are gone before this
+ * runs — {@link stripRedirections} removes them at tokenization, so every consumer sees the same
+ * argument list and neither can drift into its own idea of what a target is. That was not true
+ * until mt#4193: this filter carried the redirection test and only `findKillInvocation` called
+ * it, which is how the same defect produced an under-deny in one consumer and an over-count in
+ * the other.
+ */
+function isTargetToken(token: string): boolean {
+  return !token.startsWith("-");
+}
+
+/** The verb of {@link findKillInvocation}, for callers that need nothing else. */
+export function findKillVerb(command: string): string | null {
+  return findKillInvocation(command)?.verb ?? null;
+}
+
+/**
+ * The trigger decision, pure over the command string.
+ */
+export function findBulkKill(command: string): BulkKillInvocation | null {
+  for (const { verb, signal, rest } of eachKillSegment(command)) {
     if (signal !== null && NON_TERMINATING_SIGNALS.has(signal)) continue;
 
     if (verb === "kill") {
@@ -163,8 +251,10 @@ export function findBulkKill(command: string): BulkKillInvocation | null {
       continue;
     }
 
-    // pkill / killall: the target is the last non-flag argument.
-    const target = rest.filter((token) => !token.startsWith("-")).pop() ?? null;
+    // pkill / killall: the target is the last non-flag argument. Through the SAME filter
+    // `findKillInvocation` uses (mt#4193) — a second inline copy of "non-flag" is how the
+    // redirection defect stayed fixed in one consumer and live in this one.
+    const target = rest.filter(isTargetToken).pop() ?? null;
     if (!target) continue;
     const bare = target.replace(/^.*\//, "").toLowerCase();
     if (INTERACTIVE_PROCESS_CLASSES.includes(bare)) return { verb, pids: [], target: bare };

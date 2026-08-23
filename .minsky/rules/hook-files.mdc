@@ -8,9 +8,15 @@ tags:
 ---
 # Hook Files
 
-PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
-`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
-permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
+PreToolUse/merge/pre-commit gate index + guard-dispatcher. **Observers (non-blocking
+detectors/injectors/trackers) are NOT in this file and are no longer always-loaded (mt#4332):
+`hook-observers` auto-attaches when you edit a hook, or read it with `rules_get hook-observers`.**
+Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
+permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` — **the canonical form.
+The per-guard `MINSKY_*` names listed below are LEGACY and being retired into it** (ADR-028 D3 +
+Phase 7, re-confirmed by ask#9323 on 2026-08-20; mt#4428 owns the migration). They still work today.
+**Do not mint a new one for a new guard** — that population went 34 → 99 since ADR-028 was accepted,
+which is the growth the consolidation exists to stop.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
 - **Parallel-work** — PR/dup overlap. `MINSKY_FORCE_PARALLEL`/`_DUPLICATE_OK`.
@@ -24,25 +30,57 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/conflict-marker/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+  Conflict-marker (mt#4307) blocks a staged file carrying git's `<{7}`/`={7}`/`>{7}` line-anchored
+  markers, and unlike several siblings does NOT skip `src/generated/**` — that is where the
+  originating corruption hid. An open/close marker fires alone (measured: zero repo-wide); a bare
+  separator needs a corroborating marker, because a 7-char Markdown setext underline is otherwise
+  indistinguishable. In Markdown-family files an isolated marker inside a fenced block is exempt so
+  docs can quote one, but a COMPLETE block fires even fenced.
+  `MINSKY_SKIP_CONFLICT_MARKER_CHECK`.
+- **False `[no-deploy-impact]` claim** (mt#4397) — a COMMIT-MSG hook, not pre-commit: git gives the
+  message only to `commit-msg`, which also runs AFTER the regeneration-and-re-stage steps, so the
+  staged set it reads is the one that ships. Denies when the message asserts the tag and
+  `isDeploySurfaceFile` returns true for any staged file, INCLUDING deletions — deleting deploy
+  surface is deploy impact, and this reads paths, not content. A BACKTICKED or FENCED tag is
+  discussion, not a claim, so docs and retrospectives about the tag do not fire; fences are stripped
+  before inline spans, since the inline rule alone mis-parses a fence rather than merely missing it.
+  Skips the git read entirely when no claim is present. Fourth instance of the class in 17
+  days (PRs #3104, #3148, #3203, #3219); the prior tiers were prose (mt#4269) and memory (mem#1162,
+  never retrieved before the next recurrence). Fails open loudly if git is unreadable.
+  `MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
-  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
+  is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  the explicit list, and its admission criterion is now "reading the file EMITS a credential",
+  not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
+  `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
   Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
   secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
   DB connection string by design) — invoking one directly, via any interpreter or its own
   shebang, denies the same way a reader+secret-path pair does. Same matcher class as the
   file-read check (structured command string against a fixed list, no paraphrase axis), so no
-  new guard and no calibration-first ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers both checks.
+  new guard and no calibration-first ladder. Extended again mt#3850 with a THIRD check: a
+  process listing that requests the **argv** column (`ps` with no `-o`, or `-o` naming
+  `command`/`args`/`cmd`; `top -c`; `pgrep -a`) — argv is world-readable, so a secret any
+  process passed as an argument lands in the output even though the command names no secret and
+  no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
+  sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
+  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
 - **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
   (`--execute`/`--apply`) while another process is already running that same script. Denies with
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
   scripts — a second copy of any script is near-never intended, and a list would go stale silently.
   First execution-surface member of the duplication-gate family, every other one of which binds to
-  a task-graph surface (mem#999). `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
+  a task-graph surface (mem#999). **"Invoking" is now literal (mt#4088)** — the script must sit in
+  COMMAND POSITION with the flag after it, and a newline separates segments. Until then the two
+  questions were asked independently of one SEGMENT, so a command that merely MENTIONED a script
+  beside an unrelated `--execute` denied: a heredoc body documenting a test command, or a script
+  path passed as `--spec-file`. `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
 - **Bulk process-kill** (mt#4081) — `kill` naming 3+ PIDs, or `pkill`/`killall` naming an
   interactive process class. Denies with the move-vs-recreate alternative: a capability ruled out
   on ONE probed channel is not a capability that does not exist. Same matcher class as the two

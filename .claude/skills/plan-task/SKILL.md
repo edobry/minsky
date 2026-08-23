@@ -90,6 +90,58 @@ a status transition; everything else is investigation and gate-check.
    consecutive tool calls, whichever comes first — see `user-preferences.mdc §Progress
    heartbeats during tool-only stretches`. Don't hold a genuine blocking finding for the
    next scheduled heartbeat; report it immediately.
+5. **Search BEFORE you write an ownership claim (mt#3806).** If rescoping this spec is about
+   to put a claim about *who owns something* into it — "unowned", "no task covers this",
+   "nothing handles this", or a file-level collision with named other work — run the search
+   that would falsify it FIRST: `mcp__minsky__tasks_search` for the ownership claim,
+   `get_files`/`git_log --path` for the file claim (gate (g) check 1 spells both out). **A
+   negative ownership claim must cite the search that supports it, or not be written.**
+
+   This step exists because the search is already guaranteed — and was, by this skill, at the
+   wrong time. In the originating incident (`/plan-task mt#3682`, 2026-08-08) an agent wrote
+   "unowned — no task covers this today" into a spec's `## Does NOT cover`; gate (g) then ran
+   `tasks_search` **two minutes later, in the same skill run**, and returned mt#3826, which had
+   covered it for four hours and supplied the cause the spec called undetermined. No amount of
+   diligence fixes an ordering: the skill consulted its own oracle after the artifact was
+   written.
+
+   **Only the search hoists, not the whole gate.** Gate (g)'s path-collision check consumes the
+   spec's `## Scope` → `In scope` file list, so it cannot run before the spec is read — moving
+   the full gate here would break its own input. What moves is the cheap part that has no such
+   dependency: the ownership search. Gate (g) still runs in full at Step 3; this makes the claim
+   the trigger rather than the step.
+
+6. **Enumerate EVERY required-actions section, not just the template's (mt#4177).** On a re-run
+   against a task that already carries a gap report, grep the spec's headings for every
+   required-actions list — match `required actions` **case-insensitively at any heading depth**,
+   since the template emits `### Required actions before READY` but a later amendment writes its
+   own under a variant (`### Required actions added`, `### Further required actions`). **Name each
+   section you found in the audit output**, so a reader can tell "walked both" from "walked one and
+   did not know there was another."
+
+   **Then classify each match — the pattern deliberately over-matches.** A heading like
+   `## Required actions resolved (2026-08-16)` is a RECORD of discharge, not a list of owed work,
+   and a later pass must not try to re-discharge it. Sort the matches into OWED and RESOLVED, name
+   which is which, and walk only the owed ones. Over-matching then costs one line of triage;
+   under-matching costs a missed action, which is the failure this item exists to prevent — so the
+   pattern is loose on purpose and the reading is where precision belongs.
+
+   Each action in every OWED section is discharged before READY, or explicitly deferred with a
+   reason. A second owed list is not optional context — its items are numbered as a continuation of
+   the first, which is exactly what makes a partial read look complete.
+
+   Originating incident (mt#2755, 2026-08-16): the spec carried actions 1-4 under the template's
+   heading and actions **5, 6, 7** under `### Required actions added`, appended by a premise
+   correction five days later with no forward pointer from the first list. A re-run discharged 1-4
+   and set READY. Action 6 was "before speccing any queued detector, read the shipped
+   policy-coverage detector and record whether each is a consumer" — and three detector children
+   had already been filed without it.
+
+   Why this is a procedure fix rather than a spec-hygiene rule: the corpus ENCOURAGES appending
+   (gap reports, premise corrections and deviation records are all appended sections), and a
+   correction that surfaces new work naturally writes its own list rather than editing a section
+   another pass authored days earlier. Requiring future specs to consolidate would not repair the
+   ones that already exist.
 
 ### Step 2.5: Premise audit
 
@@ -258,7 +310,16 @@ Single-phase tasks pass this criterion automatically.
 
 Before a task can be READY, verify no other in-flight work covers the same files, signatures,
 or symptoms. Three required checks; **any hit is a blocking gap** until resolved (the user
-chooses: wait, coordinate, reframe scope, or explicitly acknowledge).
+chooses: wait, coordinate, reframe scope, proceed on the non-overlapping surface, or explicitly
+acknowledge).
+
+**A collision is rarely total — name the files it does NOT touch (mt#4184).** Check 1 already
+obliges you to read the colliding PR's actual changed-file list, so the set of in-scope files it
+leaves CLEAR is a by-product of a check that has already run. Record that set in the gap report.
+It is what makes "proceed on the non-overlapping surface" a real option rather than a slogan, and
+without it the default is to halt the whole task on a partial overlap. That is not hypothetical:
+in mt#4184's originating run the gap report itself stated that two of four in-scope files were
+untouched by the colliding PR, and the turn stopped on all four anyway.
 
 Rationale: this gate operationalizes `feedback_check_parallel_work_before_decomposing`.
 Three recurrences in three days proved memory-only enforcement insufficient (mt#1192/mt#1199,
@@ -270,10 +331,47 @@ Run all three:
    `## Scope` → `In scope` section:
 
    - Call `mcp__github__list_pull_requests` with `state: "open"` and inspect titles/branches.
-   - For high-suspicion matches, call `mcp__github__pull_request_read` with `method: "get_diff"`
-     to confirm the PR actually touches the path.
+     Treat this as a CANDIDATE FILTER only — a title is not evidence about files.
+   - For any candidate you would act on, call `mcp__github__pull_request_read` with
+     `method: "get_files"` to read the PR's actual changed-file list. `get_files` is the cheap
+     default (it returns filenames, which is the whole question); reserve `get_diff` for when
+     the hunks themselves matter.
    - Also check recent merges: `mcp__minsky__git_log` with the file path filter for the
      last 7 days — a fix that just landed on `main` is just as bad as one in flight.
+
+   **Read pathMatched on the result — an empty output alone does not distinguish the two
+   things it can mean (mt#4422).** git log -- <pathspec> exits 0 with EMPTY output when the
+   pathspec matches nothing, which is byte-identical to a real "no commits in this window". A
+   typo, a stale path, or several paths passed space-separated in the single path string
+   (quoted into ONE pathspec, so it can never match) therefore all read as "no collision" — the
+   pass this check is supposed to earn, handed over for free. The result now carries the
+   discriminator:
+
+   - pathMatched: true — the path has history and nothing touched it in your window. A real
+     negative: **no collision.**
+   - pathMatched: false — no commit has EVER touched this path. If the file is new or not yet
+     created, that is still **no collision** and is the expected answer for a spec listing files
+     it will create. If you believed the file exists, it is a typo or a stale path — fix it and
+     re-run, because nothing was searched.
+   - **field absent** — the probe could not run (not a git repository, git unavailable). You have
+     learned nothing about the path; do not score it either way.
+
+   Also: path takes ONE pathspec. **Issue one call per path** — a space-separated list is
+   quoted as a single filename containing spaces and always reports pathMatched: false.
+
+   **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
+   evidence is `get_files`/`get_diff` for an open PR, or `git_log --path` for a merge. A task's
+   title, its `## Scope` prose, or an inference about where that kind of code lives is NOT
+   evidence about which files were touched — and a claim grounded in those is how this gate
+   halts real work on a collision that does not exist.
+
+   **When the other work has no PR, a file-level claim is UNAVAILABLE.** Record "task-level
+   adjacency, files unknown" and decide on that basis rather than asserting an overlap. That is
+   a weaker finding than a collision, and should be reported as one.
+
+   Origin (mem#892, 2026-08-05): `/implement-task` §0a — this gate's late sibling — halted on a
+   claimed `SessionFilmStage.tsx` collision with mt#3792, whose PR never touched that file. The
+   filename came from the task's title plus an inference. One `get_files` call falsified it.
 
 2. **Signature search** — for the spec's signature phrases (specific identifier names,
    error message strings, env var names, migration slot numbers):
@@ -360,7 +458,8 @@ Gate criterion (h).
 If none of these apply, this criterion passes automatically. State that explicitly:
 "(h) No contract modification — criterion passes."
 
-**Consumer enumeration heuristic by change type.** For each category of change, the spec's
+**Consumer enumeration heuristic by change type.** For each category the change falls under —
+possibly MORE THAN ONE, per the union rule immediately below the table — the spec's
 `## Scope` → `In scope` list must cover all of the following:
 
 | Change type               | Consumers to enumerate                                                                                                           |
@@ -370,6 +469,33 @@ If none of these apply, this criterion passes automatically. State that explicit
 | Env-var rename            | All reads in `src/`, `services/`, `scripts/`, `.github/` **and** deployed-environment artifacts (see below)                      |
 | Config key / schema field | All reads in `src/`, `tests/`, `services/`, `.github/`, `docs/` **and** deployed-environment artifacts (see below)               |
 | Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the `*.test.ts` beside the command), skill, rule and `docs/` text that shows a call, and the generated CLI/MCP surface (`src/generated/completion-manifest.json`) |
+
+**Take the UNION of every row that applies — never pick one (mt#4265).** An artifact routinely
+belongs to more than one row, and the rows prescribe DIFFERENT directories: `Function / type
+signature` omits `docs/`; `Config key / schema field` includes it. When more than one row
+applies, the enumeration covers the UNION of their consumer sets, and the audit NAMES every row
+it unioned. There is no tie-break to get right, because there is no tie to break.
+
+**Row membership follows the artifact's EXPOSURE, not how the change is DECLARED.** The
+declaration cannot discriminate: an internal-only type and a type serialized into an HTTP
+response produce identical-looking diff hunks, and only the second one's consumers include
+`docs/`. So ask what the artifact is READ THROUGH — a route's response body, a golden contract
+fixture (`contract/*.json`), a generated manifest, a config file, a command's params map — and
+take every row that answer reaches.
+
+Worked example (mt#4252): a field added to a TypeScript discriminated union that `GET
+/api/health` serializes. DECLARED as a type, so the diff suggests `Function / type signature`,
+whose set has no `docs/`. EXPOSED as a response schema, so `Config key / schema field` applies
+too — and the union reaches `docs/`, where `docs/principal-channel.md` enumerated that same
+union and stated its field lists were "exhaustive per variant". The change made the doc's own
+sentence false rather than merely dating it. The sweep that ran was thorough on the row it
+picked; PICKING was the defect, and the reviewer caught it as BLOCKING.
+
+**Why a union instead of a better-worded row.** The previous instance (mt#3969) was answered by
+ADDING a row, and row-selection failed again seven days later — enlarging a choice does not help
+someone making it wrongly. This gate's own origin memo (2026-05-07, "contract propagation as
+design-time discipline") had already framed the categories as ones that "all qualify"; the
+exclusivity arrived later, with the table that rendered them as rows.
 
 **Callers of a COMMAND are a different population from callers of the FUNCTION behind it
 (mt#3969).** The row above exists because the two rows above it cannot find them:
@@ -405,9 +531,11 @@ following deployed-environment locations must be explicitly checked and enumerat
 1. Read the spec and identify whether it describes any of the trigger-condition change types.
    If not, record "(h) passes — no contract modification."
 2. If triggered, identify the specific artifact(s) being changed (names, paths, key names).
-3. For each artifact, look up its consumer class in the heuristic table above.
-4. Verify the spec's `## Scope` → `In scope` list covers each consumer class. Missing
-   consumer classes are blocking gaps.
+3. For each artifact, look up EVERY row of the heuristic table it is reachable through — by
+   EXPOSURE, not by how the change is declared — and take the UNION of those rows' consumer
+   sets. An artifact reachable through one row has one; a serialized type routinely has two.
+4. Verify the spec's `## Scope` → `In scope` list covers every consumer class in that union,
+   and that the audit NAMES the rows it unioned. Missing consumer classes are blocking gaps.
 5. For env-var and config-key changes specifically: confirm the spec explicitly addresses each
    of the three deployed-environment artifact categories, either enumerating consumers or
    stating "no consumers in this category."
@@ -524,8 +652,9 @@ This is the third-party-tool slice of the contract-propagation pattern that Gate
 addresses for first-party contracts: a claim crystallizes upstream and downstream consumers
 inherit it as a settled premise. Recurrence record: 9+ prior cases (mt#1208 ×2, mt#1224,
 mt#1262, mt#1682 ×4) plus mt#1713→mt#1714 (×2). Prior fix tier was a memory entry plus
-mt#1541's policy-coverage detector in calibration mode. Memory-only + calibration-mode
-detector is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
+mt#1541's policy-coverage detector in calibration mode — a detector since retired (mt#4197)
+for reasons that reinforce this gate's existence: it never observed this failure class at all.
+Memory-only is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
 is the right tier.
 
 **Trigger condition.** This criterion fires when the spec contains any of:
@@ -572,8 +701,10 @@ assumption inherited from upstream research or prior agent turns.
 Cross-reference: bridge memory `e296b3ee-324e-4186-9313-926dd3f9ee5b`
 (`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
 at spec-authoring time`) is the precedent memory this gate formalizes; once this gate ships,
-that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
-(Surface 1 policy-coverage detector, graduating to enforcing mode).
+that memory's job becomes historical record + pointer here. Mechanization path: ADR-042 decides
+which gates get a backstop and where each fires; mt#2755's children implement against it. Two
+earlier pointers here are retired — mt#1541 (CLOSED) and the policy-coverage detector its child
+shipped, deleted 2026-08-16 by mt#4197. See gate (n) below.
 
 #### Gate criterion (l) — Authoritative-source check for third-party-system decisions
 
@@ -831,20 +962,35 @@ passes" statement.
 **discipline** criterion — process-enforced by the `/plan-task` skill (the agent walks it every
 planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
 hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
-this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
-gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
-currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
-the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
-mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the `/plan-task` process that
-runs it: no stronger, and no weaker than its discipline-tier peers.
+this criterion makes NO claim of automated coverage. **No gate in this battery is mechanically
+enforced today** — but not because the mechanization work was abandoned, which is what this
+paragraph used to imply by naming CLOSED mt#1541 as the reason.
+
+**The battery is partially enforced, at a seam that is not its own.** ADR-042 measured it:
+`validate-task-spec.ts` already DENIES at `tasks_create` when a spec lacks `## Success Criteria`
+or `## Acceptance Tests` (two of gate (a)'s five sections), and three of the four `tasks_create`
+guards are gate-(g)-shaped. Everything shipped fires at `tasks_create`; nothing fires at the
+READY transition the battery actually gates.
+
+**The mechanization vehicle is ADR-042, not a detector.** This paragraph named mt#1575's
+policy-coverage detector until 2026-08-16; that detector is RETIRED (mt#4197), and ADR-042 had
+already decided the battery's enforcement shape independently of its fate — a gate criterion
+earns a mechanical backstop only when discharging it leaves a STRUCTURED trace, and each backstop
+fires where that trace first exists. Read ADR-042 before speccing any backstop for this battery;
+its per-gate table is the record, and mt#2755's children implement against it.
+
+Until those land, gate (n) is exactly as strong as the `/plan-task` process that runs it: no
+stronger, and no weaker than its discipline-tier peers.
 
 **Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
 "can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
-crash-on-start) and fires on `infra/**`, `services/*/Dockerfile`, `services/*/railway.json`,
-etc. Gate (n) asks "will this deployed feature actually WORK?" and fires on the external-system
-integration surface regardless of whether the change touches deploy-config files at all — the
-mt#2435 diff touched only `services/reviewer/src/*` application code, not deploy config. Do not
-conflate the two; a change can trip one, both, or neither.
+crash-on-start) and fires on whatever `packages/domain/src/deployment/deploy-surface.ts` matches
+— application SOURCE included, not only the platform's own config files (mt#4269). Gate (n) asks
+"will this deployed feature actually WORK?" and fires on the external-system integration surface,
+which is a different QUESTION about the same diff rather than a different set of files: the
+mt#2435 diff touched `services/reviewer/src/*`, which IS deploy surface, and its deploy was
+healthy while the integration sat inert behind a missing permission. Do not conflate the two; a
+change can trip one, both, or neither.
 
 Cross-reference: this task (mt#2740) formalizes the gate; bridge memory `2de33884`. Sibling
 verify-time enforcement: `/implement-task` §7a/§10 (live-exercise requirement, same task).
@@ -887,7 +1033,27 @@ observed evidence in the spec's `## Context` (or a `## Diagnosis` section):
 2. **Run it against the ACTUAL failing context**, not a simulation. A simulation (`env PATH=... cmd`)
    proves a CONDITIONAL ("IF the PATH lacks X THEN it fails"), NOT the ANTECEDENT ("the hook's PATH
    lacks X"). A "reproduced (definitive)" claim whose repro is a conditional is not verified.
-3. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
+3. **When the falsifier is a QUERY, the failing context is a SUBPOPULATION.** Step 2 in its
+   data-shaped form: scope the query to the population the CLAIM is about. A statistic computed
+   over a population in which the phenomenon is largely ABSENT is not evidence about where it is
+   PRESENT. Concretely — **before summarizing over a window, bucket the events by sub-interval
+   (day, or hour for a short window) and read the per-bucket counts.** This is not a statistical
+   test and does not need one: you are looking for a large share of the events sitting in a small
+   share of the window — visible by eye at the scale these questions arise. If they cluster, split
+   at the cluster and report per regime; a pooled statistic spanning a regime boundary is either
+   reported as such or not reported at all, because it describes neither regime. Note this failure
+   survives every check step 2 imposes: the antecedent is real, the query runs against production,
+   and the number it returns is arithmetically correct.
+   (mt#1897, 2026-08-19: 30 days of per-round reviewer latency put p99 at 61s against a 120s cap,
+   which became "the cap is 2x p99, so a timing-out round is stuck, not slow — do not raise the
+   timeout," written into the spec as an instruction not to pursue that option. Splitting at one
+   3.5-hour degraded window put the in-window p95 at 126.6s — the cap sits BELOW it — with 29 of
+   the 30-day total of 40 over-cap rounds inside that window; the same pooling had also
+   manufactured a concurrency correlation that goes flat once the window is excluded. The tell was
+   already written down two paragraphs above the percentiles: 15 of 25 timeout-carrying reviews
+   fell on a single day. The clustering was measured, recorded, and then not applied to the choice
+   of window — which is why this is a step rather than a caution.)
+4. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
    rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
    surface the gap and re-scope BEFORE designing a fix.
 
@@ -911,7 +1077,8 @@ restore + the append-only convention above); memories `d77d2bd4` (problem-statem
 
 When the spec proposes or changes a **mechanism, architecture, substrate, policy, or detection
 approach** — anything where "how should this work?" is the question — the agent must search the
-in-repo accepted decision records (`docs/architecture/adr-*.md`) for one that governs the choice,
+accepted decision records — BOTH corpora: `docs/architecture/adr-*.md` in-repo AND the Notion RFC
+corpus (mt#4244) — for one that governs the choice,
 cite it, and state match / extend / deviate BEFORE the mechanism is encoded and the task passes to
 READY. The accepted record is the DEFAULT; the spec justifies DEPARTING from it, not following it.
 
@@ -947,12 +1114,41 @@ findings-shaped `state-ops` audit — the criterion passes automatically. State 
 
 **Required when triggered:**
 
-1. **Search** — two cheap passes, either of which is usually enough: (a) grep the ADR corpus for the
+1. **Search** — three cheap passes: (a) grep the ADR corpus for the
    file paths named in the spec's `## Scope`; (b) grep the in-scope source files for `ADR-`
-   references — and **traverse what you find**.
-2. **Cite** — name the governing ADR in the spec, or state explicitly that the search was run and no
-   accepted record governs the decision. "No ADR governs this" is a PASSING answer only when the
-   search is recorded; an unrecorded absence is not a search.
+   references; (c) search the **Notion RFC corpus** —
+   `mcp__plugin_Notion_notion__notion-search` with the decision's subject terms, scoped to the
+   Minsky home page (`page_url: "33a937f0-3cb4-8197-a93e-cd4a98a94261"`, the parent
+   `/draft-rfc` publishes under) — and **traverse what you find**.
+
+   **Pass (c) is not optional garnish, and this gate shipped without it (mt#4244).** Minsky's
+   accepted decision records are SPLIT across two corpora by policy: `documentation-taxonomy.mdc`
+   routes ADRs to `docs/architecture/` and RFCs to Notion, and `/draft-rfc` publishes them there
+   under the Minsky home page. Passes (a) and (b) are both in-repo, so for the first year of this
+   gate's life an agent could run it honestly, record a correct PASS, and never have been able to
+   see half of what the gate is named for. That is a corpus gap, not a diligence gap — "search
+   harder" does not reach a page that is not on disk.
+
+   Originating incident (2026-08-17, mt#4239): a spec added a per-installation declaration of
+   which MCP servers a driven agent gets. Gate (p) ran, found ADR-038, and correctly recorded
+   "extend, not deviate." What neither in-repo pass could reach was **RFC 390937f0**
+   (`Capability-escalation loop`, **Accepted** 2026-07-01), whose Piece C1 is a
+   "lightweight, session-config declaration" of an agent's capability set — the same subject, one
+   granularity over. The design collision surfaced only when the principal asked whether the
+   shipped shape was right.
+
+   **If the Notion plugin is unavailable** (a headless or cron run, or the plugin is not
+   connected), record the pass as `UNAVAILABLE` with that reason — do NOT record a clean gate
+   pass. A corpus you could not search and a corpus you searched and found empty are different
+   findings, and only one of them licenses "no accepted record governs this."
+2. **Cite** — name the governing ADR **or RFC** in the spec, or state explicitly that all three
+   passes ran and no accepted record governs the decision. "No accepted record governs this" is a
+   PASSING answer only when the search is recorded; an unrecorded absence is not a search.
+
+   **Record which passes actually ran.** If pass (c) was skipped or unavailable, say so — do not
+   write "searched the decision records" and leave the reader to assume all three. An overstated
+   search record is worse than an honestly narrow one, because the next reader inherits it as
+   settled and has no reason to look again.
 3. **Match / extend / deviate** — state which, with justification for any deviation.
 4. **Phase placement** — if the ADR names a phase or task structure, state which phase this task
    belongs to, and whether it coordinates with the other phases or proceeds independently.
@@ -988,6 +1184,11 @@ guidance — but it targets named concepts and frames, not accepted decision rec
 gate). Mechanization: mt#2755 carries this criterion's deterministic slice — for each file path in a
 spec's `## Scope`, grep `docs/architecture/*.md`; if an ADR references that path and the spec cites
 no ADR, flag it. That grep only NOMINATES candidates; the governance judgment stays here.
+**Its corpus must match pass (c)'s (mt#4244):** the nominator is specced against the ADR corpus
+alone (ADR-042's (p) row, mt#4172), which would mechanize the very blind spot this gate just
+closed. A grep cannot reach Notion, so the deterministic slice covers one corpus and the prose
+covers both — state which corpus a nominator's silence is evidence about, rather than reading it
+as "no record governs this."
 
 ### Step 4: Act on gate results
 
@@ -1083,6 +1284,40 @@ conversations, all of them this skill's gate reports).
    Only when a category IS nameable does the halt stand — and then it routes through
    `asks_create` per the Ask-or-cite-ask paragraph below, never through chat prose.
 
+   **Naming the category is necessary and NOT sufficient — cite the reserving ACT (mt#3855, R6).**
+   A reservation needs **principal provenance**, which is exactly one of three things: a quoted
+   principal message, an ask response, or the LABEL of an option the principal explicitly selected.
+   **Agent-authored artifact text is NOT provenance** — not a spec criterion, not an option's
+   description or preview, not a PR body, not a memory. Citing your own prose as a decision record
+   is self-citation (`claim-confidence.mdc §The corpus is agent-authored`).
+
+   R6 (2026-08-08) is how a halt passes the category test and is still fabricated. The agent wrote
+   *"Principal approves the final hero headline before merge"* into the spec itself, shipped its own
+   headline anyway, then halted a reviewer-APPROVED, checks-green PR citing that criterion plus
+   "naming" — a real category, so mt#3596's test had nothing to catch. The fabrication had moved
+   upstream out of the RATIONALE and into the RESERVATION. The principal's answer: *"it was you who
+   decided that, i didnt 'keep it for [myself]'. you then made your own choices and went ahead with
+   them. did you want my input or not?"*
+
+   **Selecting an option endorses its LABEL, not a side-commitment buried in its preview.** You
+   wrote the description and preview text, so a clause riding along inside one is agent-authored no
+   matter which option the principal chose. To make it binding, confirm it on its own before
+   encoding it as a principal decision.
+
+   **The first condition is a positive citation test too (mt#3855, R8).** Quote the principal's
+   words AND name which step the quote defers. Condition 1's own three examples each name the step
+   outright — "don't implement yet", "just plan it", "I'll handle the impl". **A request to EXPLAIN
+   is not a deferral of the work being explained**: *"Hold on, help me understand the session film
+   stuff. What's going on here?"* names no step, so condition 1 does not hold and the chain walks.
+   R8 (2026-08-16) quoted precisely that and recast it as "an explicit pause on implementation";
+   the principal's next message was *"Why didn't you keep going? Help me understand."* — the same
+   shape as R5's *"sorry, what's my decision?"*.
+
+   **A quote must SUPPORT the claim — this binds on both conditions.** R8's quote was genuine and
+   still did not say what the citation asserted it said, which is the failure a bare "quote the
+   principal" requirement cannot catch. Read the quote back and ask whether it states the thing you
+   are about to attribute to it.
+
    **Worked example — the 2026-08-03 halt (R5).** Asked to proceed on mt#3592, an ordinary
    READY-able TODO with a spec, the agent halted: *"blocked on a principal decision: mt#3592
    re-attempts the change that took production down an hour ago … re-attempting it unprompted is
@@ -1140,14 +1375,17 @@ conversations, all of them this skill's gate reports).
 ## Gap Report (PLANNING — not yet READY)
 
 ### Blocking gaps
-- [criterion letter] <description of gap>
-- [criterion letter] <description of gap>
+- [criterion letter] [operator-actionable | self-resolving] <description of gap>
+- [criterion letter] [operator-actionable | self-resolving] <description of gap>
 
 ### Required actions before READY
 1. <concrete action the user or agent must take>
 2. <concrete action the user or agent must take>
 
 To re-run the gate after fixes: `/plan-task <task-id>`
+(The re-run enumerates EVERY required-actions section in the spec, not only this one — see
+Step 2 item 6. If you are appending a LATER list, that is fine and expected; do not renumber
+this one.)
 ```
 
 4. **If any blocking gap requires a principal-owned decision** (a scope choice, a naming
@@ -1163,7 +1401,62 @@ To re-run the gate after fixes: `/plan-task <task-id>`
    do, what actually blocks it (in plain words — no gate letters, no premise-audit labels),
    and a `minsky://task/mt%23<id>` deeplink to the recorded gap report. If step 4 filed an
    ask, cite the ask id (`[ask#N](minsky://ask/<uuid>)`) so the principal knows a decision
-   is queued for them. Then stop.
+   is queued for them.
+
+6. **Classify every blocking gap before you end the turn — the ending depends on it.**
+   Each gap is one of two kinds, and the gap report records which (the marker in the template
+   above):
+
+   - **operator-actionable** — a human has to act: a missing spec section, an unanswered design
+     question, a scope or naming decision. Nothing resolves this but the principal.
+   - **self-resolving** — an external condition clears it on its own, with no operator
+     involvement: an open PR merging, a CI run finishing, a deploy completing, a rate-limit
+     window resetting. Gate (g) hits are USUALLY this kind, because the usual blocker is
+     someone else's in-flight PR.
+
+   Then:
+
+   - **Every gap self-resolving → do NOT stop. Arm a watcher and say so.** Register the wait on
+     the specific unblocking event — `mcp__minsky__pr_watch_create` with `event: "merged"` for a
+     PR (production-enabled since mt#1899), or the mechanism `work-completion.mdc §External
+     self-resolving waits` names for the others — and close in the shape that rule prescribes:
+     "PR #N is what this waits on; I've armed a watch and will re-run the gate when it merges —
+     no action needed from you." Handing this wait to the operator is the anti-pattern, and
+     ending here with "re-run the gate once #N merges" IS handing it over, however impersonally
+     it is phrased.
+
+     **Arm the watch AND a mechanism that re-invokes unconditionally — belt-and-braces, not a
+     fallback (mt#4194).** `pr_watch_create` does not push. When a watch fires it writes a
+     `wake_pending` row keyed to the REGISTERING session, and `enrichWakeResponse`
+     (`src/mcp/middleware/wake-enrichment.ts`) drains it only when your next tool call satisfies
+     BOTH halves of a conjunction: the tool is on `WAKE_ENRICHMENT_ALLOWLIST` — five tools as of
+     mt#4194 (`tasks.get`, `pr.watch.list`, `tasks.status.get`, `session.pr.get`,
+     `session.pr.list`), but READ THE CONSTANT rather than this enumeration, which is a snapshot
+     and will drift — AND its args carry a `session`/`sessionId`/`task`/`taskId` that resolves
+     to that session.
+     `/plan-task` runs in the MAIN workspace with no session bound, where neither half reliably
+     holds. This is NOT a claim that the watch is broken — registering and firing work; what is
+     conditional is DELIVERY to the conversation that armed it.
+
+     **The pairing is the recommendation rather than a recovery, because the miss is silent.** A
+     call outside those five returns before the `wake.enrichment.no_session_id` telemetry is
+     reached, so an undelivered wake leaves you no signal to notice — there is nothing to fall
+     back FROM. So arm both: a backgrounded `Bash` poll per `work-completion.mdc §External
+     self-resolving waits`, or `session_pr_wait-for-review` when a session exists. Let the
+     closing sentence promise only what the unconditional mechanism delivers — and note that a
+     watch is invisible to the principal from the moment it is armed (`pr_watch_list` is its
+     only reader), so "I've armed a watch" asks them to trust something they cannot see.
+   - **Any gap operator-actionable → the turn ends on the human, as above** — but say which half
+     is which, so the principal is not left tracking the self-resolving ones. Arm the watcher for
+     those anyway.
+
+   **Why this step exists.** `work-completion.mdc §External self-resolving waits` already
+   required the watcher, was always-loaded, and lost anyway — because this branch used to end
+   "Then stop.", and a skill's terminal step is read AT the decision while an ambient rule is
+   not. Originating incident (2026-08-16, mt#4184): a gate-(g)-only failure on open PR #3039
+   ended with "once PR #3039 merges, re-running the gate on mt#4183 picks it up"; no watcher was
+   armed, and the operator prompted to resume ~80 minutes later with the PR still open. This is a
+   recurrence AFTER mt#2956 shipped that rule — see mem#641 R2.
 
 **Example (h) failure.** For a task that renames a config key (e.g., `sessionDbPath` →
 `sessiondb.path`) whose spec says "Sole consumer is `~/.config/minsky/config.yaml`":

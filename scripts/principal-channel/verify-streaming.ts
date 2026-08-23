@@ -27,7 +27,10 @@
  * 1 = at least one 429, meaning the cadence is too fast for this chat.
  */
 
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { editTelegramMessage, sendTelegramMessage } from "@minsky/domain/notify/telegram-transport";
 import { EDIT_THROTTLE_MS } from "../../src/cockpit/principal-channel-reply-stream";
 
@@ -42,7 +45,7 @@ async function main(): Promise<void> {
   const edits = numericArg("--edits", 12);
   const intervalMs = numericArg("--interval", EDIT_THROTTLE_MS);
 
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   if (!resolution.configured) {
     console.log(`SKIP: principal channel not configured (${resolution.reason})`);
     return;

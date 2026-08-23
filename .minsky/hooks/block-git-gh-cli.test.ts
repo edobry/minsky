@@ -723,6 +723,88 @@ describe("checkDenial — git", () => {
 // checkDenial — gh commands
 // ---------------------------------------------------------------------------
 
+// mt#4226 — the four `allowedInSessionExec` carve-outs must name their MCP tool
+// BEFORE the session_exec fallback.
+//
+// MEASURED, not assumed — the negative control (source reverted to the pre-fix
+// text, tests re-run) failed 7 of these and PASSED every ordering assertion. So
+// the ordering checks are NOT what catches this staleness: the old strings
+// already named the MCP tool first ("Use `mcp__minsky__git_restore <paths>` for
+// main-workspace single-file discard. For sessions, use `session_exec(...)`").
+// They are kept as a PIN against a future edit demoting the tool below the
+// fallback, and are honestly labelled as such rather than as the regression test.
+//
+// The four assertions that actually discriminate, and what each pins:
+//   - `{ session` in the message — the tool must be SHOWN accepting a session.
+//     This is the substantive claim; a message naming a bare tool still reads as
+//     main-workspace-only, which is the misreading that sent agents to the CLI.
+//   - the "for sessions, use" negative control — the retired phrasing itself.
+//   - `--source=` / `mt#1297` — the one real capability boundary is named.
+//   - the `git checkout` warning — the dead-end spelling is called out.
+//
+// Root cause being guarded (mem#1078): a denial string is an instruction with
+// hook authority, and it ages independently of the tool surface it names. All
+// four tools gained a `session` parameter and nothing re-read the guard.
+describe("carve-out denial text ranks the MCP tool above session_exec (mt#4226)", () => {
+  const deniedOnBash = (subcommand: string) => checkDenial({ binary: "git", args: [subcommand] });
+  const deniedOnSessionExec = (subcommand: string) =>
+    checkDenial({ binary: "git", args: [subcommand] }, "session_exec");
+
+  const CARVE_OUTS = [
+    { subcommand: "status", tool: "mcp__minsky__git_status" },
+    { subcommand: "reset", tool: "mcp__minsky__git_reset" },
+    { subcommand: "stash", tool: "mcp__minsky__git_stash" },
+    { subcommand: "restore", tool: "mcp__minsky__git_restore" },
+  ] as const;
+
+  for (const { subcommand, tool } of CARVE_OUTS) {
+    it(`git ${subcommand}: names ${tool} before any session_exec mention`, () => {
+      const reason = deniedOnBash(subcommand);
+      expect(reason).not.toBeNull();
+      const toolIndex = reason?.indexOf(tool) ?? -1;
+      expect(toolIndex).toBeGreaterThanOrEqual(0);
+      const execIndex = reason?.indexOf("session_exec") ?? -1;
+      if (execIndex >= 0) expect(toolIndex).toBeLessThan(execIndex);
+    });
+
+    it(`git ${subcommand}: shows the MCP tool taking a session argument`, () => {
+      // The substantive claim of the rewrite. A message naming the tool without
+      // its `session` argument still reads as main-workspace-only, which is the
+      // misreading that sent agents to the CLI in the first place.
+      expect(deniedOnBash(subcommand)).toContain("{ session");
+    });
+
+    it(`git ${subcommand}: carve-out still permits it via session_exec`, () => {
+      // SC5 — this task changes advice, not enforcement. Pinned here so a future
+      // edit to these strings cannot quietly take the escape hatch with it.
+      expect(deniedOnSessionExec(subcommand)).toBeNull();
+    });
+  }
+
+  it("NEGATIVE CONTROL: the retired 'for sessions, use ...' phrasing is gone", () => {
+    // Without this, every assertion above passes against a message that kept the
+    // stale sentence appended after a correctly-ranked opening.
+    for (const { subcommand } of CARVE_OUTS) {
+      expect(deniedOnBash(subcommand)?.toLowerCase() ?? "").not.toContain("for sessions, use");
+    }
+  });
+
+  it("git restore names --source= as the one case its MCP tool cannot cover", () => {
+    const reason = deniedOnBash("restore");
+    expect(reason).toContain("--source=");
+    expect(reason).toContain("mt#1297");
+  });
+
+  it("git restore steers to --source=, not the checkout spelling that has no carve-out", () => {
+    // `git checkout <ref> -- <path>` is the legacy spelling of the same
+    // capability, and the `checkout` rule carries no allowedInSessionExec — so a
+    // message pointing there would dead-end an agent inside a session. This
+    // asserts both halves: that the message warns, and that the warning is true.
+    expect(deniedOnBash("restore")).toContain("git checkout");
+    expect(deniedOnSessionExec("checkout")).not.toBeNull();
+  });
+});
+
 describe("checkDenial — gh", () => {
   const denied = (...args: string[]) => checkDenial({ binary: "gh", args });
 

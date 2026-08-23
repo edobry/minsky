@@ -39,18 +39,50 @@
  *
  * ## Why a subprocess rather than a native call
  *
- * The obvious alternative — `bun:ffi` calling `task_info(TASK_VM_INFO)` — reads
- * the current task cheaply but **cannot read another process's** without
- * `task_for_pid`, which requires root or the debugger entitlement on modern
- * macOS. Reading ANOTHER pid is a hard requirement here (mt#4105's supervisor
- * has to measure the daemon it supervises), so the FFI route fails the actual
- * requirement while adding a native dependency.
+ * `bun:ffi` calling `task_info(TASK_VM_INFO)` reads the current task cheaply but
+ * **cannot read another process's** without `task_for_pid`, which requires root
+ * or the debugger entitlement on modern macOS. Reading ANOTHER pid is a hard
+ * requirement here (mt#4105's supervisor has to measure the daemon it
+ * supervises), so `task_info` fails the actual requirement.
+ *
+ * **That objection is specific to `task_info`, and does NOT reach FFI as a class
+ * (mt#4211).** `proc_pid_rusage(pid, flavor, buf)` takes a pid DIRECTLY and needs
+ * no port lookup, so the entitlement problem never arises for it; its
+ * `ri_phys_footprint` field is the same quantity `footprint(1)` reports. Declared
+ * at `libproc.h:111` (macOS 10.9+), field at `sys/resource.h:211`. Probed
+ * 2026-08-17 unprivileged against another owned `bun` process: the cross-pid read
+ * succeeded, the value was byte-identical to `footprint -f bytes -p <pid>` for the
+ * same pid at the same moment, at **1.02 µs/call** over 10,000 iterations.
+ *
+ * **Recorded as a verified escape hatch, deliberately NOT implemented.** After the
+ * ADR-038 flip (mt#1713) there are ~2 concurrent pollers rather than ~50, so a 1 µs
+ * reader buys nothing operational while introducing this repo's first `bun:ffi`
+ * usage and native-ABI coupling. Reach for it only if some future surface genuinely
+ * needs high-frequency or high-N reads.
  *
  * `footprint(1)` needs root only for processes owned by ANOTHER user, which a
  * supervisor and its own children never are. Measured cost: **88ms** — against
- * 451ms for `top -l 1 -pid N -stats mem`, which yields the same number. At the
- * 30s poll cadence these guardrails use, 88ms is not a consideration. On Linux
+ * 451ms for `top -l 1 -pid N -stats mem`, which yields the same number. On Linux
  * the read is a plain file and cheaper still.
+ *
+ * **That 88ms is a per-call figure at N=1 and does NOT bound aggregate cost.**
+ * Every call serializes on `sysmond`, so cost is superlinear in the number of
+ * CONCURRENT callers — and this reader is armed per-connection, multiplying by an
+ * N the author does not control. On 2026-08-17, ~50 MCP processes polling on one
+ * aligned 30s cadence pinned a 16-core machine at load 176: the same call measured
+ * 0.08s quiet and 21.20s under that load (~265x), with 48-51 `footprint` processes
+ * resident whose individual lifetimes were 51-83s against a 30s interval. Killing
+ * the MCP processes dropped load to 8.7; the ceiling had never fired on a real
+ * breach. So read the 88ms as cheap at the concurrency it was MEASURED at — N=1 —
+ * and never as a bound at the concurrency this reader is armed at. Establish that
+ * concurrency before relying on the figure.
+ *
+ * **This parsing exists twice.** `cockpit-tray/src-tauri/src/supervisor/daemon_core.rs`
+ * carries an independent Rust implementation — `parse_footprint_bytes` (L864) plus
+ * `daemon_memory_bytes` (L936), which spawns `/usr/bin/footprint` itself — and THAT
+ * copy is the one on the post-flip cross-pid enforcement path, not this module.
+ * Establish which is load-bearing before "unifying" them. (mt#4211's spec placed
+ * `daemon_memory_bytes` in `supervisor.rs`; both are in `daemon_core.rs`.)
  */
 
 import { readFileSync } from "fs";

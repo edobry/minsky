@@ -21,7 +21,20 @@ import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import type { TranscriptSweepDeps } from "./sweepers";
 
 // Helper: wait for an async condition to become true (polls at 5ms intervals).
-async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
+// The bound was 500ms and measured the MACHINE, not the code: every condition
+// polled here completes in single-digit ms (the tests are dependency-injected,
+// with no real I/O), so under contention the deadline expired 2-7ms short and
+// the gate rejected commits that had nothing to do with this file. Raising it
+// costs nothing on the pass path — waitFor returns as soon as the condition
+// holds, so a larger bound only lengthens the FAILURE path (measured: the
+// 40-file related-test selection ran 28.17s passing vs 28.3s failing).
+//
+// mt#3501 sub-shape A owns the class; this is its fix for this file, with the
+// negative control that task's SC1 requires: the failure reproduced 3/3 on the
+// unmodified tree, including once with all other changes stashed. Landed here
+// because it was blocking mt#4159's commit and the gate has no override for a
+// failing (as opposed to timing-out) related test — see scripts/run-related-tests.ts:232.
+async function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
   // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() is used for timing, not path creation; the rule's regex fires on the call pattern but there is no filesystem interaction here
   const deadline = Date.now() + timeoutMs;
   while (!condition()) {

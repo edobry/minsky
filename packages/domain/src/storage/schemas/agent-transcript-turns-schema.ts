@@ -50,6 +50,24 @@ export const agentTranscriptTurnsTable = pgTable(
 
     // Turn content
     userText: text("user_text"),
+    /**
+     * Who authored `user_text` (mt#4289): `'human'` for genuine operator
+     * speech, a harness kind (`compact_summary`, `harness_meta`,
+     * `task_notification`, `peer`, `sdk`, …) for content Claude Code generated
+     * and recorded on a `user`-role line.
+     *
+     * Non-null exactly when `user_text` is. Measured against prod 2026-08-19:
+     * 8,245 of 18,948 `user_text` rows (43.5%) are harness-generated, and until
+     * this column every consumer that branched on `type: "user"` read all of
+     * them as the operator speaking.
+     *
+     * Deliberately `text` and not a boolean or an enum. A boolean would force
+     * the next kind into a second column; a Postgres enum would make a new
+     * harness kind a migration rather than a row. The vocabulary is partly the
+     * HARNESS's, so it must be able to grow without us shipping anything —
+     * see `transcripts/user-line-origin.ts`.
+     */
+    userOrigin: text("user_origin"),
     assistantText: text("assistant_text"),
     toolCalls: jsonb("tool_calls"),
 

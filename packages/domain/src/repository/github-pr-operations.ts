@@ -944,7 +944,15 @@ export async function getPullRequestDetails(
   createdAt?: string;
   updatedAt?: string;
   mergedAt?: string;
+  /** See the authoritative declaration for the null-vs-false semantics (mt#4182). */
+  mergeable?: boolean | null;
 }> {
+  // NOTE: this shape DUPLICATES `PullRequestOperations["get"]`'s return type in
+  // `./index.ts`, and the two drift independently — mt#4182 added `mergeable`
+  // to the interface and this literal still rejected it, which is how the
+  // duplication surfaced. Keep them in step until one references the other;
+  // `domain-oriented-modules` §"avoid duplication of interfaces/types across
+  // files" is the standing rule this violates.
   let prNumber: number | undefined;
   if (options.prIdentifier !== undefined) {
     prNumber =
@@ -992,6 +1000,10 @@ export async function getPullRequestDetails(
     createdAt: pr.created_at,
     updatedAt: pr.updated_at,
     mergedAt: pr.merged_at || undefined,
+    // mt#4182: pass through rather than coalesce — `null` (GitHub still
+    // computing) and `false` (conflicts) mean different things, and the
+    // difference is the whole point of the field.
+    mergeable: pr.mergeable ?? null,
   };
 }
 

@@ -25,6 +25,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { describeServerPersistenceUnavailability } from "../db-providers";
 import type { CommandExecutor } from "@minsky/domain/session/index";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 
 export interface AgentFocusRouteOptions {
   /** Test seam — overrides the cockpit-wide SQL connection getter. */
@@ -136,8 +138,10 @@ export function mountAgentFocusRoutes(
         adapter: result.adapter,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`[agent-focus] POST /api/agents/:id/focus — internal error: ${message}`);
+      if (await respondIfDatabaseUnavailable(res, err, "agent-focus")) return;
+      log.error(
+        `[agent-focus] POST /api/agents/:id/focus — internal error: ${getLoggableErrorSummary(err)}`
+      );
       res.status(500).json({ error: "An internal error occurred while focusing the session." });
     }
   });

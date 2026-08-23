@@ -201,10 +201,15 @@ const MERGE_TOOL_NAME_RE = /session_pr_merge$/i;
 /**
  * Recursively collect every string value reachable from `value` into `out`.
  * Local duplicate of the same small utility that appears in
- * `code-mechanism-assertion-detector.ts` — this repo's hooks tree convention
- * is to duplicate small helpers across detector files rather than
+ * `code-mechanism-assertion-detector.ts` — the sibling-detector duplication
+ * practice: duplicate small helpers across detector files rather than
  * cross-import between sibling detectors (each detector stays a
  * self-contained, independently-readable module).
+ *
+ * This is about DETECTOR-TO-DETECTOR imports and survives mt#4373 untouched.
+ * It used to be called "this repo's hooks tree convention", which collided with
+ * the separate — and now retired — convention against importing
+ * `packages/domain`. Two different rules; only the other one was retired.
  */
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === "string") {

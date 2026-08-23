@@ -104,9 +104,10 @@ spot-checking that reported behavior matches actual behavior.
   criteria.
 - Session lifecycle (`packages/domain/src/session/`) — the `pr_create → pr_approve → pr_merge →
 frozen` state machine enforces an ordered workflow. Sessions cannot skip steps.
-- System 3\* audit/probe channel (`packages/domain/src/detectors/`, mt#1035) — the research doc's
-  starting set is built: **Surface 1** (policy-coverage, `detectors/policy-coverage/`) blocks a
-  preference-encoding tool call pre-execution until policy is consulted; **Surface 4**
+- System 3\* audit/probe channel (`packages/domain/src/detectors/`, mt#1035) — **Surface 1**
+  (policy-coverage) was retired 2026-08-16 (mt#4197): it ran log-only for its whole life, blocked
+  nothing, and classified 97.7% of actions "covered" on incidental keyword matches, against a
+  target problem the design postulated rather than measured. **Surface 4**
   (post-mortem, `detectors/unasked-direction-analyzer.ts` + `unasked-direction-store.ts`) runs on
   a post-merge hook (`.minsky/hooks/post-merge-unasked-direction-scan.ts`) and surfaces findings
   for human triage via the `unasked-direction_*` MCP tools (`list`, `mark-real`,

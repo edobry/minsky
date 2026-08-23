@@ -1,6 +1,6 @@
 ---
 name: decision-defaults
-description: REQUIRED policy-corpus index overriding generic-SE defaults with Minsky-grounded answers; full detail in docs/rules-rationale/decision-defaults.md; consumed by the policy-coverage detector (mt#2755) when it ships
+description: REQUIRED policy-corpus index overriding generic-SE defaults with Minsky-grounded answers; full detail in docs/rules-rationale/decision-defaults.md
 alwaysApply: true
 tags:
   - minsky
@@ -24,6 +24,17 @@ Check for Minsky's own answer before a generic (SE) default. Full detail:
   - **Stall threshold (status hasn't changed):** 5 days for active work, 10 days for lynchpin tracking
 
   SE: "2-week sprint, 30-day window." `feedback_threshold_grounding`.
+
+  **CEILING case — a different question, and observed cadence is the wrong answer to it.** The
+  rule above grounds a threshold in what typically happens. When the threshold is instead a
+  **ceiling over work whose own budget is caller-specified or declared elsewhere** — a transport
+  bound over a tool's `timeoutSeconds`, a wrapper timeout over an SDK's own, a queue TTL over a
+  job's declared deadline — the binding constraint is that budget's **declared MAXIMUM**. Read
+  it and derive the value from it; a measured typical is not evidence about a permitted extreme.
+  Corollary: a wrapper bound BELOW the inner layer's own timeout makes that inner timeout dead
+  code, and you get the wrapper's error instead of the inner layer's diagnosis. Incidents:
+  mt#4455 (a 600s shim bound over a tool accepting 1800s — correctly measured band, wrong
+  population), mem#1112 (the same shape over an SDK's retry budget, three days earlier).
 - **Time estimates**: asked for a time estimate → don't; use scope descriptors (files, LOC, task
   IDs). SE: "velocity-based estimation." `feedback_no_time_estimates`.
 - **Task overlap**: two tasks, same outcome → subsume (subset) or coordinate (independent). SE:
@@ -59,5 +70,8 @@ Check for Minsky's own answer before a generic (SE) default. Full detail:
 - **Security-surface**: spec changes a CI/CD security surface → security + community-practice
   search + ≥1 citation. SE: "docs suffice." mt#1477; `/plan-task` gate (l).
 
-**Enforcement:** human-consulted; policy-coverage detector (mt#2755) will block uncovered
-actions once shipped.
+**Enforcement:** human-consulted. No mechanism blocks an uncovered action, and none is planned.
+This line promised one from 2026-05 until 2026-08-16: the policy-coverage detector, which ran
+log-only for its whole life, blocked nothing, and was retired by mt#4197 — it classified 97.7%
+of actions "covered" by matching an authority word and a category word in the same paragraph of
+this very corpus, which incidental prose satisfies almost everywhere.

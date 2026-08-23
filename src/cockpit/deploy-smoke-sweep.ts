@@ -170,6 +170,30 @@ async function buildRealDeps(): Promise<DeploySmokeSweepDeps | null> {
  * Never throws — every failure path (no commit SHA, no GitHub backend, API
  * error, emit failure) logs and returns.
  *
+ * @returns the sweep's DOMAIN outcome (mt#4412). The line is **CAN'T versus
+ *   NOTHING-TO**, the same one every other sweep in this change draws:
+ *
+ *   - **`false` — the sweep cannot do its work.** No GitHub repository backend
+ *     configured (`buildRealDeps()` returns null), so there is nothing to query
+ *     check-runs against and there never will be until the configuration
+ *     changes. That is standing inertness, and reporting it as success would
+ *     make it indistinguishable from a working sweep — the exact defect this
+ *     task closes. Also `false` for a no-oped emit and for a swallowed throw:
+ *     work attempted, work did not happen.
+ *   - **`true` — the sweep worked; there was nothing to do.** No
+ *     `RAILWAY_GIT_COMMIT_SHA` means this process is not a GitHub-triggered
+ *     Railway deploy, so there is no deployed commit to check — the sweep is
+ *     CAPABLE (its deps built fine) and correctly found no work. Same class as
+ *     "the smoke check has not completed yet" and "already emitted for this
+ *     commit". The local daemon is permanently in this state by design, and
+ *     reporting a standing domain failure there would be a false alarm on the
+ *     majority of daemons, which trains a reader to ignore the very field that
+ *     is supposed to mean something.
+ *
+ *   PR #3237 R1 (reviewer, BLOCKING) caught the no-backend case returning
+ *   `true`, which was the one place in mt#4412 that contradicted the rule the
+ *   other 13 sweeps follow.
+ *
  * @param persistenceProvider - held directly (not resolved from a DI
  *   container — sweepers have no `CommandExecutionContext`), per the mt#2537
  *   template's `emitSystemEventFromProvider` variant.
@@ -177,26 +201,42 @@ async function buildRealDeps(): Promise<DeploySmokeSweepDeps | null> {
  */
 export async function triggerDeploySmokeSweep(
   persistenceProvider: PersistenceProvider | undefined,
-  deps?: DeploySmokeSweepDeps
-): Promise<void> {
+  deps?: DeploySmokeSweepDeps,
+  /**
+   * Test seam for the deps BUILDER (PR #3237 R1). `deps` above short-circuits
+   * the builder entirely, so the "no GitHub backend configured" branch was
+   * reachable only through real project configuration and could not be
+   * asserted. Injecting the builder is the extraction
+   * `testing-standards.mdc §Testable Design` asks for, rather than patching a
+   * module-internal the function reaches itself.
+   */
+  buildDeps: () => Promise<DeploySmokeSweepDeps | null> = buildRealDeps
+): Promise<boolean> {
   try {
-    const resolvedDeps = deps ?? (await buildRealDeps());
-    if (!resolvedDeps) return;
+    const resolvedDeps = deps ?? (await buildDeps());
+    if (!resolvedDeps) {
+      // PR #3237 R1: a capability gap, not a healthy no-op. `buildRealDeps`
+      // returns null only when no GitHub repository backend is configured, so
+      // this sweep can never emit `deploy.smoke` in this process — permanent
+      // inertness, which is precisely what the domain-outcome field exists to
+      // surface. It already logs the reason at debug inside `buildRealDeps`.
+      return false;
+    }
 
     const sha = resolvedDeps.getCommitSha();
     if (!sha) {
       log.debug(
         "deploy-smoke-sweep: no RAILWAY_GIT_COMMIT_SHA (not a GitHub-triggered Railway deploy), skipping"
       );
-      return;
+      return true;
     }
-    if (sha === lastEmittedSha) return; // already emitted for this deploy's commit
+    if (sha === lastEmittedSha) return true; // already emitted for this deploy's commit
 
     const checks = await resolvedDeps.fetchChecksForSha(sha);
     const status = deriveSmokeStatus(checks);
     if (status === null) {
       log.debug("deploy-smoke-sweep: bundle-boot-smoke not completed yet, will retry", { sha });
-      return; // not completed (or not present) yet — retry next tick
+      return true; // not completed (or not present) yet — retry next tick
     }
 
     const emitted = await emitSystemEventFromProvider(persistenceProvider, {
@@ -211,13 +251,15 @@ export async function triggerDeploySmokeSweep(
         sha,
         status,
       });
-      return;
+      return false;
     }
     lastEmittedSha = sha;
     log.debug("deploy-smoke-sweep: emitted deploy.smoke", { sha, status });
+    return true;
   } catch (err) {
     log.warn("deploy-smoke-sweep: sweep failed (best-effort, swallowed)", {
       error: err instanceof Error ? err.message : String(err),
     });
+    return false;
   }
 }

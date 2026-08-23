@@ -23,6 +23,11 @@
 //     never silently).
 //   - `bare-ref` (`mt#N` / `PR #N`) is RECORD-ONLY. A message carrying only
 //     those findings writes a calibration record and no text.
+//   - `author-linked-short-id` is RECORD-ONLY (mt#4160). The short id resolves
+//     to an entity the author already deeplinked by UUID in this same message,
+//     so the reader can click it and there is nothing to ask for. Recorded
+//     rather than dropped because the suppression is itself a population a
+//     later calibration pass has to be able to rate.
 //
 // mt#3897 SWAPPED those two classes; the scanner's header carries the full
 // rationale. In short: the display linkifier (mt#2565) now repairs `mt#N` and
@@ -72,8 +77,14 @@ import { readFileSync } from "node:fs";
 import type { ClaudeHookInput } from "./types";
 import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
 import { calibrationLogPath } from "./dispatcher";
-import { extractAssistantText, extractFinalTurn } from "./transcript";
-import { scanMessage, type ScanFinding } from "./bare-entity-ref-scan";
+import { CAPTURE_SCHEMA_VERSION, captureArtifact } from "./judged-input-capture";
+import { collectShortIdBindings, extractAssistantText, extractFinalTurn } from "./transcript";
+import {
+  partitionAuthorLinkedShortIds,
+  scanMessage,
+  shortIdsNeedingResolution,
+  type ScanFinding,
+} from "./bare-entity-ref-scan";
 import { readShortIdMap } from "./linkify-message-display";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_BARE_ENTITY_REF";
@@ -299,8 +310,38 @@ export async function run(
   // pure; an unreadable or absent cache yields undefined, which flags every
   // short id — the pre-mt#3914 behavior, and the direction ADR-024's
   // "fail to Rung-1, never silent-skip" invariant requires.
-  const { flagged, logged } = scanMessage(text, { shortIdMap: readShortIdMap() });
-  if (flagged.length === 0 && logged.length === 0) return null;
+  const scan = scanMessage(text, { shortIdMap: readShortIdMap() });
+  const logged = scan.logged;
+
+  // mt#4160: the author may have deeplinked this entity by UUID in the same
+  // message, in which case the reader can already click it and the advisory
+  // would be asking for a link that is present. Measured over 26 injected
+  // fires, that was 16 of them — the `/handoff` closing line puts a prose title
+  // in the link label and the short id in a trailing parenthetical, so the
+  // label-range check below it cannot see the pairing.
+  //
+  // The bindings come from the TRANSCRIPT, not a lookup. See
+  // `collectShortIdBindings` for why: a DB read from hook context resolves to
+  // null every time, so a resolver built that way would be inert in production.
+  //
+  // Gated on `shortIdsNeedingResolution` so the transcript walk is skipped
+  // entirely unless a candidate could actually match — on the measured traffic
+  // that is a few turns a day, and every other turn pays nothing.
+  const candidates = shortIdsNeedingResolution(scan.flagged, scan.linkTargets);
+  const partitioned =
+    candidates.length > 0
+      ? partitionAuthorLinkedShortIds(
+          scan.flagged,
+          scan.linkTargets,
+          collectShortIdBindings(ctx.transcriptLines)
+        )
+      : { flagged: scan.flagged, authorLinked: [] as ScanFinding[] };
+  const { flagged, authorLinked } = partitioned;
+
+  // A turn whose ONLY findings were suppressed still records — the suppression
+  // is a population a later pass has to be able to rate, and returning early
+  // here would make it invisible in exactly the case it fired.
+  if (flagged.length === 0 && logged.length === 0 && authorLinked.length === 0) return null;
 
   // mt#3860: only a continuation can be capped, and only a fire that would
   // actually emit needs the check — so the log read is skipped entirely on an
@@ -325,8 +366,18 @@ export async function run(
     // `matches`: the carve-out's whole purpose is to let a future review
     // compare flagged-vs-logged, which is impossible once they are merged.
     logged_only: logged.map((f) => ({ family: f.kind, phrase: f.ref })),
+    // mt#4160: kept out of `logged_only` for the same reason `logged_only` is
+    // kept out of `matches` — a population folded into another cannot be rated
+    // against it, and this one exists to be rated. `reason` carries the UUID
+    // that matched, so a pass can check the suppression rather than trust it.
+    author_linked: authorLinked.map((f) => ({
+      family: f.kind,
+      phrase: f.ref,
+      reason: f.reason,
+    })),
     flagged_count: flagged.length,
     logged_only_count: logged.length,
+    author_linked_count: authorLinked.length,
     // mt#3860: whether the advisory was SUPPRESSED as the second consecutive
     // continuation, and whether it was actually EMITTED.
     //
@@ -338,6 +389,31 @@ export async function run(
     // silenced, which is otherwise invisible in the log.
     advisory_chain_capped: chainCapped,
     advisory_emitted: flagged.length > 0 && !chainCapped,
+    // mt#4161: snapshot the message these findings were judged against.
+    //
+    // Without it a rating pass has `matches` — it can see that `mem#1041` was
+    // flagged — and nothing to decide the verdict WITH. Every question that
+    // settles a fire is a question about the message: was this the FIRST
+    // mention of that ref, was a UUID actually in hand, was the ref inside a
+    // fence the matcher should have skipped. mt#4160's pass answered them by
+    // scanning session transcripts by timestamp, which worked and is not
+    // guaranteed to: transcripts age out (mt#3821 measured 12 of 959 records
+    // with none left), so a future pass inherits an archaeology step that can
+    // simply fail.
+    //
+    // WHOLE message, not a per-match window. `extractMatchContext` is the
+    // cheaper sibling and is the wrong tool here — a 240-char window around the
+    // ref cannot answer "was this the first mention" or "was a UUID present
+    // elsewhere in the message", which are two of the three questions above.
+    // `captureArtifact` is bounded (16k) and records `truncated`, so a pass
+    // reading a truncated record reports partial rather than a verdict.
+    //
+    // `captureSchema` is a NUMBER and is read by the sweep from the record's
+    // `detectorFields` passthrough, never the top level — no per-kind parse
+    // branch names it, so `parseDetectorFields` routes it there for every log
+    // kind (`hasCaptureMarker` in `calibration-sweep.ts`; mem#888).
+    captureSchema: CAPTURE_SCHEMA_VERSION,
+    judgedMessage: captureArtifact(text),
   };
 
   // Calibration-first (ADR-024): a record is written on every fire, but the

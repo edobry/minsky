@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
 import { EmbeddingsHealthTracker, type EmbeddingsHealthSummary } from "./embeddings-health-tracker";
 import {
   NoopEventEmitter,
@@ -36,6 +36,8 @@ const QUOTA_MSG = "You exceeded your current quota";
 const QUOTA_MSG_AGAIN = "quota exhausted again";
 const RATE_CODE = "rate_limit";
 const RATE_MSG = "429 rate limited";
+const BREAKER_CODE = "circuit_breaker_open";
+const BREAKER_MSG = "Circuit breaker is open";
 const DEGRADED_EVENT_TYPE = "embeddings.provider_degraded";
 
 describe("EmbeddingsHealthTracker", () => {
@@ -101,11 +103,11 @@ describe("EmbeddingsHealthTracker", () => {
 
   test("circuit_breaker_open immediately sets status to degraded", async () => {
     const tracker = EmbeddingsHealthTracker.getInstance();
-    await tracker.recordError(PROVIDER, "circuit_breaker_open", "Circuit breaker is open");
+    await tracker.recordError(PROVIDER, BREAKER_CODE, BREAKER_MSG);
 
     const summary = tracker.getSummary();
     expect(summary.status).toBe("degraded");
-    expect(summary.degradedReason).toBe("circuit_breaker_open");
+    expect(summary.degradedReason).toBe(BREAKER_CODE);
   });
 
   test("recordRecovery resets to healthy", async () => {
@@ -345,5 +347,85 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
 
     // Builder was cleared by resetForTest — nothing to fall back to.
     expect(emitter.emitted).toHaveLength(0);
+  });
+});
+
+describe("stale-degradation decay (mt#4212)", () => {
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  const START = new Date("2026-08-17T09:08:40.000Z");
+
+  beforeEach(() => {
+    EmbeddingsHealthTracker.resetForTest();
+    setSystemTime(START);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  test("circuit_breaker_open stops being reported once its window is empty", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, BREAKER_CODE, BREAKER_MSG);
+    expect(tracker.getSummary().status).toBe("degraded");
+
+    // The originating incident: the breaker self-healed in 60s but nothing
+    // called embeddings again, so the banner still read "degraded" six hours
+    // later. The breaker cannot outlive its own 60s timeout, so an hour with no
+    // errors is proof the reported reason is no longer true.
+    setSystemTime(new Date(START.getTime() + ONE_HOUR_MS + 1));
+
+    const summary = tracker.getSummary();
+    expect(summary.status).toBe("healthy");
+    expect(summary.degradedReason).toBeNull();
+    expect(summary.errorCountLastHour).toBe(0);
+  });
+
+  test("a degradation with errors still in the window is left alone", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, BREAKER_CODE, BREAKER_MSG);
+
+    setSystemTime(new Date(START.getTime() + ONE_HOUR_MS / 2));
+
+    expect(tracker.getSummary().status).toBe("degraded");
+    expect(tracker.getSummary().degradedReason).toBe(BREAKER_CODE);
+  });
+
+  test("repeated_rate_limit decays — its reason is defined by the same window", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    for (let i = 0; i < 3; i++) await tracker.recordError(PROVIDER, RATE_CODE, RATE_MSG);
+    expect(tracker.getSummary().status).toBe("degraded");
+
+    setSystemTime(new Date(START.getTime() + ONE_HOUR_MS + 1));
+    expect(tracker.getSummary().status).toBe("healthy");
+  });
+
+  test("exhausted is NOT decayed — quota persists until the account is topped up", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG);
+    expect(tracker.getSummary().status).toBe("exhausted");
+
+    setSystemTime(new Date(START.getTime() + 24 * ONE_HOUR_MS));
+
+    const summary = tracker.getSummary();
+    expect(summary.status).toBe("exhausted");
+    expect(summary.degradedReason).toBe(QUOTA_CODE);
+  });
+
+  test("a decayed degradation can emit an event again on the next cycle", async () => {
+    const emitter = new NoopEventEmitter();
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    tracker.setEventEmitter(emitter);
+
+    await tracker.recordError(PROVIDER, BREAKER_CODE, BREAKER_MSG);
+    expect(emitter.emitted).toHaveLength(1);
+
+    setSystemTime(new Date(START.getTime() + ONE_HOUR_MS + 1));
+    expect(tracker.getSummary().status).toBe("healthy");
+
+    // Decay must clear the per-cycle emit latch too, or a later, genuinely new
+    // degradation would go unrecorded.
+    await tracker.recordError(PROVIDER, BREAKER_CODE, BREAKER_MSG);
+    expect(tracker.getSummary().status).toBe("degraded");
+    expect(emitter.emitted).toHaveLength(2);
   });
 });

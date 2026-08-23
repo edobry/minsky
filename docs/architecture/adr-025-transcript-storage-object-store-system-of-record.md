@@ -4,6 +4,59 @@
 
 **ACCEPTED** — 2026-07-08
 
+## Corrections
+
+### 2026-08-18 — the archive-backup premise is false (mt#4285)
+
+This ADR asserted, in two places, that archive objects are covered by the Supabase project backup. They
+are not. Supabase's own documentation states: _"Database backups do not include objects you store via the
+Storage API, as the database only includes metadata about these objects"_ and _"Restoring an old backup
+does not restore objects you deleted after that backup"_
+([Supabase: Database Backups](https://supabase.com/docs/guides/platform/backups)). The same finding was
+reached independently by mt#2680 and recorded in `docs/architecture/transcript-archive.md §Backup /
+disaster-recovery posture (VERIFIED 2026-07-08)` — the same day this ADR was accepted. It stood
+uncorrected here for 41 days.
+
+Original text, retained as decision lineage:
+
+- **§Decision, criterion (d):** _"operational ownership is the existing Supabase vendor relationship — no
+  new on-call, and archive objects are covered by the Supabase project backup."_
+- **§Consequences, disaster recovery:** _"Archive objects are covered by the Supabase project backup; the
+  bucket must be treated as a critical, backed-up asset (verify the backup policy, not assume it)."_
+
+**What this changes, and what it does not.** The DECISION is untouched: this ADR remains ACCEPTED and its
+mechanism stands until superseded. What changes is criterion (d)'s honesty. (d) was one of four criteria
+offered to clear `decision-defaults.mdc §Datastores`' second-store bar, and it is a conjunction — the
+"no new on-call / existing vendor relationship" clause holds, the backup clause does not. So (d) is
+partially, not fully, met. The residual risk is real and unmitigated: logical loss of an unbacked bucket
+that would hold the only copy of the raw transcripts for ~60% of sessions. **mt#2715** (off-Supabase
+mirror) owns that gap and is still TODO.
+
+Whether a partially-unmet criterion changes the second-store choice is a separate and still-open question
+— [ask#8004](minsky://ask/f022e484-6047-44ad-8c2f-a6200064cb11) puts it to the principal, alongside an
+in-Postgres `transcript_lines` alternative whose storage cost was measured in mem#773. This correction
+deliberately does not pre-empt that decision. An accepted ADR should not carry a false premise while
+awaiting supersession, and it should not be quietly reversed by the agent that noticed the premise was
+wrong.
+
+### 2026-08-18 — the lifecycle-policy leg of the `pg_largeobject` rejection does not hold on Supabase (mt#4285)
+
+§Alternatives rejects `pg_largeobject` on three grounds, the third being that in-Postgres blobs "cannot
+carry a separate retention/lifecycle policy." That is true of `pg_largeobject` and misleading as a
+comparison, because **Supabase Storage does not support S3 lifecycle configuration either**:
+`GetBucketLifecycleConfiguration` and `PutBucketLifecycleConfiguration` are both marked unsupported, as
+are bucket versioning ("S3 versioning is not supported. Supabase Storage does not enable S3's versioning
+capabilities"), object lock, and object tagging
+([Supabase: S3 compatibility](https://supabase.com/docs/guides/storage/s3/compatibility), verified
+2026-08-18). A retention policy is application code you write and schedule under BOTH options, so this
+leg does not discriminate between them.
+
+Scope note: this is a SECOND instance of the same defect class as the correction above — an unverified
+factual premise about Supabase load-bearing in this ADR's reasoning — found while fixing the first, and
+patched in the same round rather than split into a follow-up. It records the verified fact and stops
+there. It does NOT re-weigh the two remaining legs (backup-set consumption, independent HTTP URL), and
+it does NOT revisit the decision; that is [ask#8004](minsky://ask/f022e484-6047-44ad-8c2f-a6200064cb11).
+
 ## Context
 
 The transcript substrate (`agent_transcripts` / `agent_transcript_turns`, behind
@@ -85,7 +138,9 @@ explicitly** (rather than claiming the bar doesn't apply): (a) a cold, immutable
 growing blob is a workload Postgres serves poorly — it is 40% of the DB and unbounded; (b) the evidence is
 quantified from the 2026-06-30 spike; (c) this ADR is the required amendment naming Supabase Storage and
 why `pg_largeobject` was not preferred (below); (d) operational ownership is the existing Supabase vendor
-relationship — no new on-call, and archive objects are covered by the Supabase project backup. Postgres
+relationship — no new on-call. **⚠ (d) is only PARTIALLY met: its original second clause claimed archive
+objects are covered by the Supabase project backup, which is false (corrected 2026-08-18 — see
+`## Corrections`; the unmitigated gap is owned by mt#2715).** Postgres
 remains the single source of truth for all structured **product** state; the archive is a raw landing zone
 that the disposable index is built from — the data-lake shape, consistent with "the search index is
 derived data" (memory `70b595dc`, ADR-013/ADR-018).
@@ -105,7 +160,9 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
   blobs still consume the Postgres backup set (the bloat we are removing), get no independent
   HTTP-accessible URL (wanted for future cockpit direct-streaming), and cannot carry a separate
   retention/lifecycle policy (delete a session's raw without a PG migration). For a cold, immutable,
-  large-object workload these three tip to object storage.
+  large-object workload these ~~three~~ **two** tip to object storage. **⚠ The third leg does not hold on Supabase:
+  Supabase Storage does not support S3 lifecycle configuration either, so a retention policy is
+  application code under both options — corrected 2026-08-18, see `## Corrections`.**
 - **(C) Accept lossy reconstruction from per-turn rows, fall back to JSONL.** Rejected: spike fact (1) —
   no JSONL fallback for most rows; spike fact (2) — the rows are lossy.
 
@@ -134,9 +191,13 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
   The cockpit server and any archive reader must hold the right Supabase credentials. This must be settled
   before the first upload.
 - **Disaster recovery (required to state).** For the ~60% of sessions with no local JSONL, the archive is
-  the _only_ copy — accidental bucket deletion is permanent data loss. Archive objects are covered by the
-  Supabase project backup; the bucket must be treated as a critical, backed-up asset (verify the backup
-  policy, not assume it).
+  the _only_ copy — accidental bucket deletion is permanent data loss. **Supabase database backups do NOT
+  cover Storage object contents** — they cover only the `storage.objects` metadata rows, so the bucket is
+  a critical asset that the project backup does **not** protect. Verified against
+  [Supabase: Database Backups](https://supabase.com/docs/guides/platform/backups); see
+  `docs/architecture/transcript-archive.md §Backup / disaster-recovery posture`. The outstanding
+  mitigation is an off-Supabase mirror — **mt#2715**, still TODO, and a candidate gate on the mt#2580
+  column drop. This paragraph originally asserted the opposite; see `## Corrections` (2026-08-18).
 - **Ingest must be fail-safe upload-then-parse:** never parse-and-discard when the upload has not durably
   confirmed. Archive objects are immutable and content-addressed/versioned per `(agentSessionId, harness)`;
   re-ingest / HWM-regression must be idempotent (the modern COALESCE-append can duplicate lines when the
@@ -155,6 +216,34 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
 - **`agent_transcript_turns` gains a conceptual writer coupling** (the promoted thinking/metadata columns
   are written on the same extraction path as the text columns; the mt#1418 single-writer guard remains the
   soft prerequisite, per ADR-019).
+
+## Promoted-column register
+
+`## Decision` says the derived index carries "a small set of currently-dropped fields promoted to
+columns," and mt#2580 §1 owns fixing that set. Promotions have been landing one task at a time
+ahead of that audit, each recording itself only in its own task spec — so the SET existed but the
+LIST did not, and nothing in the repo said which columns were promoted under this ADR or why. This
+table is that list. **A promotion is not complete until it appears here.**
+
+| column                     | task    | landed     | why it qualifies under `## Decision`                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `user_origin` (text, null) | mt#4289 | 2026-08-19 | Who authored the turn's `user_text` — `human` vs a harness kind. Inside the "fields the context-inspector consumes" set by that clause's own criterion: `session-context-snapshot.ts` already reads `isCompactSummary`, one of the four raw fields it derives from. Measured 2026-08-19: 43.5% of rows carrying `user_text` are harness-written, so without it every `type: "user"` consumer reads them as the operator. |
+
+Registered but not yet landed: per-turn `usage` + `model` (mt#3383 §3), tool-call / tool-result
+columns (mt#2583). mt#2580 §1's audit consumes this table rather than re-deriving it.
+
+**Two properties every row here must hold**, both of which follow from `## Decision` rather than
+from convention:
+
+1. **Derived at PARSE time, never read from the blob.** That is what makes the column reproducible
+   by re-parse and keeps it from adding a reader this ADR's endgame has to re-point (mt#2580 §2).
+2. **Backfilled by re-parse, not by a bespoke script.** `extractTurnsForAllTranscripts` is already
+   the keyset-paginated resumable sweep, and any column in the upsert's on-conflict SET is filled by
+   a re-run. Two consequences worth stating because both have already caught someone:
+   - A skip-if-unchanged guard on that upsert must list every promoted column, or the sweep skips
+     unchanged rows and populates nothing — silently, still reporting success (mt#4345).
+   - Running the sweep corpus-wide is a bulk shared-state operation, not a step inside a feature
+     PR: ~327k rows at ~9.5–17.5s per 100-row chunk (mem#950). mt#4050 owns the authorized run.
 
 ## Cross-references
 

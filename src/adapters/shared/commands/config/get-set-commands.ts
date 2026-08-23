@@ -143,8 +143,17 @@ export const configSetRegistration = defineCommand({
       success: true,
       json: params.json || false,
       key: params.key,
-      previousValue: result.previousValue,
-      newValue: result.newValue,
+      // mt#2702: the write echo is masked on the SAME rules config.get uses.
+      // Masking binds here, on the payload, rather than in the CLI renderer:
+      // per ADR-039 a command's result is render-by-default, so a credential
+      // left in the payload reaches stdout through the registered formatter,
+      // through the --json branch (which stringifies this object whole), and
+      // through every MCP caller — the last of which persists it verbatim to
+      // agent_transcripts. There is deliberately no showSecrets escape here:
+      // the caller just supplied this value, so echoing it back is worth
+      // nothing to them and costs a durable copy.
+      previousValue: maskValueForPath(params.key, result.previousValue),
+      newValue: maskValueForPath(params.key, result.newValue),
       filePath: result.filePath,
       backupPath: result.backupPath,
     };
@@ -200,7 +209,10 @@ export const configUnsetRegistration = defineCommand({
       success: true,
       json: params.json || false,
       key: params.key,
-      previousValue: result.previousValue,
+      // mt#2702: same masking as config.set above. Unset echoes the value
+      // being REMOVED, so on a credential key the secret is exactly what the
+      // confirmation would carry.
+      previousValue: maskValueForPath(params.key, result.previousValue),
       filePath: result.filePath,
       backupPath: result.backupPath,
     };

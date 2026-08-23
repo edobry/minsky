@@ -12,7 +12,7 @@
  * which is the incident this task closes (PR #2891, 2026-08-11).
  */
 import { describe, expect, test } from "bun:test";
-import { trimChecksResult, sessionPrChecks } from "./pr-checks-subcommand";
+import { trimChecksResult, sessionPrChecks, applyMergeStateToChecks } from "./pr-checks-subcommand";
 import type { SessionPrChecksDependencies } from "./pr-checks-subcommand";
 import type { ChecksResult, RepositoryBackend } from "../../repository/index";
 import type { SessionProviderInterface, SessionRecord } from "../types";
@@ -172,6 +172,9 @@ function makeQueueDeps(
         return next;
       },
     },
+    // mt#4182: a mergeable PR — present so these tests exercise the
+    // merge-state correction path rather than its can't-read guard.
+    pr: { get: async () => ({ mergeable: true }) },
   } as unknown as RepositoryBackend;
 
   const deps = {
@@ -358,6 +361,9 @@ describe("sessionPrChecks — setup-phase deadline (mt#4020 regression, SC1/SC4)
     } as unknown as SessionProviderInterface;
     const backend = {
       ci: { getChecksForPR: async () => terminalResult() },
+      // mt#4182: a mergeable PR — present so these tests exercise the
+      // merge-state correction path rather than its can't-read guard.
+      pr: { get: async () => ({ mergeable: true }) },
     } as unknown as RepositoryBackend;
 
     const deps: SessionPrChecksDependencies = {
@@ -431,6 +437,9 @@ describe("sessionPrChecks — SC5 fixture: real summarizer, combined-status {sta
       ci: {
         getChecksForPR: async () => getCheckRunsForRef(GH, HEAD_SHA, octokit),
       },
+      // mt#4182: a mergeable PR — present so these tests exercise the
+      // merge-state correction path rather than its can't-read guard.
+      pr: { get: async () => ({ mergeable: true }) },
     } as unknown as RepositoryBackend;
 
     let clock = 1_000_000;
@@ -453,5 +462,109 @@ describe("sessionPrChecks — SC5 fixture: real summarizer, combined-status {sta
     expect(result.allPassed).toBe(true);
     expect(result.summary.pending).toBe(0);
     expect(sleepCalls).toHaveLength(2);
+  });
+});
+
+describe("applyMergeStateToChecks (mt#4182)", () => {
+  /**
+   * PR #3031's shape, verbatim: the only check present is the reviewer bot's
+   * own findings run — the one check that does not need a merge ref, and so
+   * the one that still reports when a conflict stops CI dispatching.
+   */
+  const REVIEWER_ONLY_GREEN: ChecksResult = {
+    allPassed: true,
+    summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+    checks: [
+      {
+        name: "minsky-reviewer/findings",
+        status: "completed",
+        conclusion: "success",
+        url: "https://github.com/edobry/minsky/runs/95250179328",
+      },
+    ],
+  };
+
+  test("AT1: a conflicted PR whose only check passed is NOT reported as allPassed", () => {
+    const result = applyMergeStateToChecks(REVIEWER_ONLY_GREEN, false);
+    expect(result.allPassed).toBe(false);
+    // The reason has to name the cause, not just deny the verdict — the whole
+    // failure was an agent reading a green flag and diagnosing the wrong thing.
+    expect(result.mergeBlocked).toContain("merge conflicts");
+    expect(result.mergeBlocked).toContain("no pull_request workflows");
+    // The observed checks are preserved: this corrects the VERDICT, not the
+    // observation.
+    expect(result.checks).toEqual(REVIEWER_ONLY_GREEN.checks);
+    expect(result.summary).toEqual(REVIEWER_ONLY_GREEN.summary);
+  });
+
+  test("AT2: a mergeable PR with a full green set is untouched", () => {
+    const fullGreen: ChecksResult = {
+      allPassed: true,
+      summary: { total: 8, passed: 8, failed: 0, pending: 0 },
+      checks: [
+        { name: "build", status: "completed", conclusion: "success", url: null },
+        { name: "bundle-boot-smoke", status: "completed", conclusion: "success", url: null },
+      ],
+    };
+    const result = applyMergeStateToChecks(fullGreen, true);
+    expect(result).toEqual(fullGreen);
+    expect(result.mergeBlocked).toBeUndefined();
+  });
+
+  test("AT3: mergeable===null is NOT treated as blocked — unknown is not a conflict", () => {
+    // GitHub computes mergeability asynchronously and a GET triggers it, so a
+    // first read routinely returns null. Failing closed here would report every
+    // freshly-read PR as conflicted. Same call mt#2890 made for the approval
+    // path (`computeNonApprovalMergeBlockers` excludes null deliberately).
+    const result = applyMergeStateToChecks(REVIEWER_ONLY_GREEN, null);
+    expect(result).toEqual(REVIEWER_ONLY_GREEN);
+    expect(result.mergeBlocked).toBeUndefined();
+  });
+
+  test("a backend that does not report mergeability leaves the verdict alone", () => {
+    // `undefined` is "this backend does not report it", distinct from both
+    // false and null. Non-GitHub forges must not be reported as conflicted.
+    const result = applyMergeStateToChecks(REVIEWER_ONLY_GREEN, undefined);
+    expect(result).toEqual(REVIEWER_ONLY_GREEN);
+  });
+
+  test("an already-failing result keeps its verdict and gains no reason", () => {
+    // The correction only ever turns green -> not-green. A result that was
+    // already not-passing is not re-explained as a merge problem.
+    const failing: ChecksResult = {
+      allPassed: false,
+      summary: { total: 3, passed: 2, failed: 1, pending: 0 },
+      checks: [{ name: "build", status: "completed", conclusion: "failure", url: null }],
+    };
+    const result = applyMergeStateToChecks(failing, false);
+    expect(result.allPassed).toBe(false);
+    expect(result.checks).toEqual(failing.checks);
+  });
+});
+
+describe("trimChecksResult carries mergeBlocked (mt#4182, PR #3042 R1)", () => {
+  test("the trim drops the per-check breakdown but NOT the reason", () => {
+    // Without this the drive path sees allPassed:false, an empty failingChecks
+    // and zero counts — "nothing is wrong and nothing ran" — for a conflicted
+    // PR. The trim is about volume, not about discarding the explanation.
+    const trimmed = trimChecksResult({
+      allPassed: false,
+      mergeBlocked: "PR has merge conflicts, so GitHub could not build the merge ref",
+      summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+      checks: [
+        { name: "minsky-reviewer/findings", status: "completed", conclusion: "success", url: null },
+      ],
+    });
+    expect(trimmed.mergeBlocked).toContain("merge conflicts");
+    expect(trimmed.allPassed).toBe(false);
+  });
+
+  test("a green trim carries no mergeBlocked", () => {
+    const trimmed = trimChecksResult({
+      allPassed: true,
+      summary: { total: 8, passed: 8, failed: 0, pending: 0 },
+      checks: [],
+    });
+    expect(trimmed.mergeBlocked).toBeUndefined();
   });
 });

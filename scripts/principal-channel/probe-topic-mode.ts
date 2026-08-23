@@ -24,11 +24,14 @@
  * unreachable).
  */
 
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { getTelegramMe } from "@minsky/domain/notify/telegram-transport";
 
 async function main(): Promise<void> {
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   if (!resolution.configured) {
     console.error(`FAIL (not-configured): ${resolution.reason}`);
     process.exit(1);

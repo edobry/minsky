@@ -193,3 +193,11 @@ written — rule 1 is about what the _next_ one should do, not a reason to hold 
 - **Adjacent, deliberately excluded (mt#3637 F2):** mt#1427 (MCP server caches `config.yaml` at boot).
   Its read _succeeds_; the defect is staleness-after-success, not failure-frozen-as-a-value. Staleness
   wants invalidation; this class wants failure propagation.
+  **Class owner (added mt#4185):** the excluded class had no owner for four months, and mt#1427 is
+  one narrow instance in a different subsystem rather than a stand-in for it. In the cockpit daemon
+  the class is now owned by the sweep-liveness registry: `createIntervalSweeper` /
+  `registerSelfSchedulingSweep` make every long-lived loop's `lastAttemptAt` datable, and
+  `startSweepMetaWatchdog` acts on it. That is what rule 4's `lastAttemptAt` is for — the field
+  without which "stuck since boot" and "still retrying" are the same reading — applied to a loop
+  rather than to an initializer. Originating recurrence: mt#4183, where `principalChannel` reported
+  `running` for ~44 hours after its poller stopped, with no field a reader could date.

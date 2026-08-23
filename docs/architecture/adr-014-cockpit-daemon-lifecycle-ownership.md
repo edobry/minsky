@@ -6,6 +6,8 @@ Accepted (2026-06-02 — principal approved Option C; implemented in mt#2241)
 
 Amended 2026-08-11 (mt#3988) — see [Amendment: the port is resolved, not
 fixed](#amendment-2026-08-11-the-port-is-resolved-not-fixed).
+Amended 2026-08-12 (mt#3815) — see [Amendment: the supervisor owns a REGISTRY,
+not a daemon](#amendment-2026-08-12-the-supervisor-owns-a-registry-not-a-daemon).
 
 ## Context
 
@@ -130,6 +132,25 @@ These are guidance for the mt#2241 implementation, not part of the decision:
   single-owner-of-`:3737` invariant: whichever binds first wins; the other adopts or defers.
   Running both in "spawn" mode simultaneously is the misconfiguration to guard against.
 
+## Implementation note 2026-08-17 (mt#4205): the CLI path adopts the same predicate
+
+**Not an amendment — nothing this ADR decides changes.** It records that a SECOND implementer now
+follows the adoption rule above.
+
+The "Implementation notes and risks" section prescribes pairing an `EADDRINUSE` with a health probe
+to confirm the holder is ours, and the 2026-08-12 amendment's first bullet fixes what "ours" means
+(an identity assertion, fail-closed on a missing `service`, with a non-2xx answer still counting as
+ours). Until mt#4205 only the tray supervisor implemented that. The CLI's own guard —
+`minsky cockpit start`, the launchd and manual paths this ADR keeps as the opt-in headless mode —
+had independently arrived at a cruder answer: it classified the holder from a state file alone and
+then REFUSED to displace it, so the one holder it could identify with certainty was the one it never
+cleared.
+
+`src/cockpit/port-recovery.ts` now mirrors `daemon_core.rs`'s `is_ours` on that path. The
+single-owner invariant is unchanged; what changes is that both owners now resolve a contested port
+the same way, rather than the CLI path answering it differently from the supervisor. Operator-facing
+detail: `docs/architecture/cockpit.md` § _Port recovery: displacing a wedged incumbent_.
+
 ## Cross-references
 
 - Related tasks: mt#2241 (implements this — tray-app supervisor + adoption + login item),
@@ -222,3 +243,52 @@ Two consequences worth stating explicitly:
   running tray does not move it; quit and relaunch. This is deliberate: a port
   that could change under a live supervisor would reintroduce the same
   two-owners-two-ports state from the other direction.
+
+## Amendment 2026-08-12: the supervisor owns a REGISTRY, not a daemon
+
+This ADR is written throughout in terms of "the daemon", singular, and mt#2427
+explicitly scoped multi-daemon supervision OUT. **ADR-038 §Question 3 lifts that
+boundary, and mt#3815 implements it:** the tray supervises a registry of named
+daemons, and the local MCP daemon (`minsky mcp start --local-daemon`, mt#3814)
+is the second entry alongside the cockpit daemon.
+
+**Every decision this ADR records still holds — now PER ENTRY.**
+Spawn-as-managed-child, adopt-rather-than-double-spawn, respawn with throttle,
+child stdio→log redirection, teardown on Quit, and single-owner-of-port are
+unchanged in kind; each applies to each registered daemon and its own port.
+Read "the daemon" below as "each registered daemon", and "the port" as "that
+entry's port".
+
+Three consequences are NOT mechanical restatements and are worth having here:
+
+- **The health probe asserts an IDENTITY, not a status code.** ADR-014's
+  adoption rule ("confirm it is our daemon before adopting") was implemented as
+  a 2xx check, which cannot distinguish two Minsky services — they are built
+  from the same monorepo and answer 200 identically (mt#3148, and mt#3142 is the
+  incident). Each entry now carries the `service` value its health body must
+  publish, and a missing field fails just as a wrong one does. The visible
+  consequence is a Conflict status naming the port holder rather than a silent
+  adoption of whatever answered.
+- **An exit is CLASSIFIED, not assumed to be a crash.** mt#3814 gave the MCP
+  daemon its own identity-asserting adopt-or-fail on `EADDRINUSE`, so a spawned
+  daemon now has three intentional non-crash exits, two of them exit-0. The
+  supervisor discriminates with a health re-probe: an exit-0 with an incumbent
+  of ours serving means ADOPT (never respawn beside it); an exit-0 with nothing
+  serving is a clean stop or mt#3764's ppid-transition self-exit, restored
+  without counting toward the crash-loop accounting; a non-zero exit against a
+  foreign listener surfaces a conflict rather than respawning into a port that
+  will keep refusing.
+- **The registered MCP entry is spawned with mt#3764's never-connected idle exit
+  DISABLED.** That watcher self-terminates an HTTP-mode `mcp start` after 30
+  minutes with no MCP session, and is armed whenever the process's startup ppid
+  is not 1 — precisely the tray-spawned case. It exists to reap an _abandoned_
+  listener, which is the condition supervision replaces; left armed it produces a
+  30-minute exit/respawn cycle with a gap the operator lands in. mt#3764's OTHER
+  watcher — parent-death on a ppid transition — stays armed, and is what makes
+  "kill the tray and the daemon does not survive as an orphan" true.
+
+Implementation: `cockpit-tray/src-tauri/src/supervisor/registry.rs` (the entries),
+`supervisor/daemon_core.rs` (the mechanism, mt#3990), `supervisor.rs` (the
+per-daemon policy). ADR-038 §Question 2's decision that the two daemons stay
+SEPARATE PROCESSES is inherited unchanged — this is one supervisor of two
+processes, not one merged process.

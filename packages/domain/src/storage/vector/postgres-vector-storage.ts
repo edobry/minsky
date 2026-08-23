@@ -4,6 +4,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 import { log } from "@minsky/shared/logger";
 import { withPgPoolRetry } from "../../persistence/postgres-retry";
+import type { GuardedRawSql } from "../../persistence/raw-sql-pooler-guard";
 
 export interface PostgresVectorStorageConfig {
   tableName: string;
@@ -17,11 +18,18 @@ export interface PostgresVectorStorageConfig {
 
 @injectable()
 export class PostgresVectorStorage implements VectorStorage {
-  private readonly sql: ReturnType<typeof postgres>;
+  /**
+   * Accepts the mt#2773 GUARDED instance as well as a raw postgres-js client
+   * (mt#4298). Production wiring passes the guarded one — every query below
+   * goes through `.unsafe()`, the surface that guard bounds. Tests and
+   * one-off scripts still pass a raw client, which is why this stays a union
+   * rather than narrowing to `GuardedRawSql`.
+   */
+  private readonly sql: ReturnType<typeof postgres> | GuardedRawSql;
   private readonly db: PostgresJsDatabase;
 
   constructor(
-    sql: ReturnType<typeof postgres>,
+    sql: ReturnType<typeof postgres> | GuardedRawSql,
     db: PostgresJsDatabase,
     private readonly dimension: number,
     private readonly config: PostgresVectorStorageConfig

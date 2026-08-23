@@ -19,7 +19,24 @@ export type InterceptorStratum = "registry" | "standalone" | "precommit" | "reti
 
 export type InterceptorCoverageGap = "tuningOwnership" | "attentionCost" | "canary";
 
-/** Axis 1 — where in the trajectory an interceptor sits (ontology §2). */
+/**
+ * Axis 1 — where in the trajectory an interceptor sits (ontology §2).
+ *
+ * **One of THREE copies of this union**, and they must agree: this one (the
+ * cockpit-web reader), `src/cockpit/widgets/interceptors.ts` (the widget model),
+ * and `.minsky/hooks/interceptor-coordinates.ts` (the resolver). The duplication
+ * is structurally forced rather than sloppy — the hook tree may not import from
+ * `src/` (mt#4010's generated-artifact boundary, pinned by
+ * `tests/unit/hook-tree-import-boundary.test.ts`) and cockpit-web may not import
+ * from `.minsky/hooks/**` (the `no-node-import-in-cockpit-web` guard, mt#3239).
+ * `interceptor-points.test.ts` asserts the three stay identical, because a
+ * one-sided widening is silently unenforced coverage.
+ *
+ * The six events after `MessageDisplay` were added by mt#4129: hooks were
+ * registered at each in `.claude/settings.json` while no value could represent
+ * them, so the resolver dropped them and the catalog carried neither the hook
+ * nor a gap.
+ */
 export type InterceptionPoint =
   | "PreToolUse"
   | "PostToolUse"
@@ -28,6 +45,12 @@ export type InterceptionPoint =
   | "UserPromptSubmit"
   | "SessionEnd"
   | "MessageDisplay"
+  | "SessionStart"
+  | "StopFailure"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
   | "pre-commit"
   | "merge-time";
 
@@ -83,8 +106,26 @@ export interface InterceptorEntry {
   coverageGaps: InterceptorCoverageGap[];
   registered: boolean;
   undescribed: boolean;
+  /**
+   * The implementing hook file's basename, or null when there is none BY
+   * CONSTRUCTION (a pre-commit step, a retired or fixture name). The join key to
+   * the install provenance the detail view renders (mt#4229).
+   *
+   * One of the fields this type duplicates from `src/cockpit/widgets/interceptors.ts`
+   * — cockpit-web cannot import the widget module, which is why both copies exist
+   * and why adding a field means adding it twice. The generator derives it; the
+   * duplication is only of the SHAPE.
+   */
+  sourceFile: string | null;
   point: InterceptionPoint | null;
   pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (mt#4011): `"delivery"` for the merge
+   * gates, null where the stratum derives from point/subject. The lifecycle
+   * spine places `delivery` entries at the merge station; their `point` keeps
+   * mechanism truth (PreToolUse).
+   */
+  trajectory: "delivery" | null;
   interventions: Intervention[];
   mechanism: DecisionMechanism | null;
   role: InterceptorRole | null;
@@ -166,6 +207,20 @@ export const COVERAGE_GAP_LABELS: Record<InterceptorCoverageGap, string> = {
  * with the field, not convergence), so they are NOT prettified into sentence
  * case: a reader matching one against `.claude/settings.json` needs the exact
  * string.
+ */
+/**
+ * A DELIBERATE SUBSET of `InterceptionPoint`, not a copy of it (mt#4129).
+ *
+ * This is the spine's station order — where each point sits on a turn's
+ * trajectory — so it carries only points that HAVE a position there. The six
+ * mt#4129 added do not: ordering `Notification` or `PreCompact` against a turn's
+ * phases is a spine-design decision nobody has made, and inventing one would be
+ * worse than declining. An entry at such a point lands in `spinePopulation`'s
+ * `stationless` bucket, which reports it explicitly rather than dropping it.
+ *
+ * So do NOT "fix" this to match the union — `interceptor-points.test.ts`
+ * deliberately does not assert equality here, and does assert it for the four
+ * lists that must be complete.
  */
 export const INTERCEPTION_POINT_ORDER: InterceptionPoint[] = [
   "UserPromptSubmit",

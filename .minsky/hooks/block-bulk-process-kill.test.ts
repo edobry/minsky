@@ -16,6 +16,7 @@ import {
   BULK_PID_THRESHOLD,
   buildDenialReason,
   findBulkKill,
+  findKillInvocation,
   findKillVerb,
   OVERRIDE_ENV,
   run,
@@ -151,5 +152,68 @@ describe("PR #2954 R1 — parse robustness", () => {
     expect(findKillVerb("kill 111")).toBe("kill");
     expect(findKillVerb("git commit -m 'kill the loop'")).toBeNull();
     expect(findKillVerb("echo done && killall node")).toBe("killall");
+  });
+});
+
+describe("mt#4193 — a redirection is not a target", () => {
+  /**
+   * The under-deny direction. Each of these denies WITHOUT the redirect, and the redirect is
+   * the only difference — so a pass here is the guard reading the same command the same way
+   * however the operator wrote its output plumbing.
+   */
+  const REDIRECT_FORMS: ReadonlyArray<readonly [string, string]> = [
+    ["attached, stderr", "pkill -f node 2>/dev/null"],
+    ["attached, stdout", "pkill -f node >/dev/null"],
+    ["separated, stdout", "pkill -f node > /dev/null"],
+    ["separated, stderr", "pkill -f node 2> /dev/null"],
+    ["append", "pkill -f node >> /tmp/log"],
+    ["killall form", "killall node 2>/dev/null"],
+  ];
+
+  test.each(REDIRECT_FORMS)("denies an interactive-class kill: %s", (_label, command) => {
+    expect(findBulkKill(command)?.target).toBe("node");
+  });
+
+  test("the baseline it is measured against still denies", () => {
+    expect(findBulkKill("pkill -f node")?.target).toBe("node");
+  });
+
+  test("SC3: a redirect does not create a denial where none existed", () => {
+    // `minsky-mcp` is not an interactive process class — a documented MISS, and the widening
+    // must not turn it into a hit.
+    expect(findBulkKill("pkill -f minsky-mcp")).toBeNull();
+    expect(findBulkKill("pkill -f minsky-mcp 2>/dev/null")).toBeNull();
+  });
+
+  test("the bulk-PID path is unaffected in both directions", () => {
+    expect(findBulkKill("kill 111 222 333 2>/dev/null")?.pids.length).toBe(3);
+    expect(findBulkKill("kill 111 222 2>/dev/null")).toBeNull();
+  });
+
+  /**
+   * The over-count direction (SC5) — the same defect reaching the other consumer. A redirect
+   * PATH read as a target turns a one-process cleanup into a multi-target kill, which is what
+   * `operator-deferral`'s act-path surface counts.
+   */
+  test.each([
+    ["separated, stdout", "kill 4821 > /dev/null"],
+    ["separated, stderr", "kill 4821 2> /dev/null"],
+    ["attached", "kill 4821 >/dev/null 2>&1"],
+    ["trailing 2>&1, split at the &", "kill 4821 2>&1"],
+  ])("a single-PID kill names one target: %s", (_label, command) => {
+    expect(findKillInvocation(command)?.targets).toEqual(["4821"]);
+  });
+
+  test("a genuine multi-target kill still counts them all", () => {
+    expect(findKillInvocation("kill 4821 4822 > /dev/null")?.targets).toEqual(["4821", "4822"]);
+  });
+
+  test("SC2: `&>` is correct by a DIFFERENT mechanism, and is pinned here for that reason", () => {
+    // `&` is a segment separator, so `&>` never reaches `stripRedirections` — the segment simply
+    // ends before it. The outcome matches the other forms; the route does not. Without this test
+    // a change to the segment split could break `&>` while every redirect test stayed green.
+    expect(findBulkKill("pkill -f node &> /dev/null")?.target).toBe("node");
+    expect(findBulkKill("killall node &>/dev/null")?.target).toBe("node");
+    expect(findKillInvocation("kill 4821 &> /dev/null")?.targets).toEqual(["4821"]);
   });
 });

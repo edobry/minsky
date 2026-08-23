@@ -44,6 +44,40 @@ function formatCheckLine(check: CheckRunResult): string {
   return `  ${icon} ${check.name}${conclusion}${url}`;
 }
 
+/**
+ * The one-line verdict shown above the per-check breakdown.
+ *
+ * Extracted as a pure function (PR #3042 R1) so it can be tested without
+ * patching the domain call the command reaches itself — the functional-core
+ * shape `testing-standards.mdc §Testable Design` prescribes.
+ *
+ * What is load-bearing is that the `mergeBlocked` branch EXISTS at all, ahead
+ * of the final fallthrough. Before R1 there was no such branch, so a
+ * merge-blocked result — `allPassed` false, no timeout, both counts zero —
+ * matched none of the others and landed on "0 check(s) pending", which reads
+ * as "CI is still starting" for a PR whose CI can never start.
+ *
+ * Its POSITION among the first three is not load-bearing, and a negative
+ * control proved it: demoting the branch to just above the fallthrough left
+ * every test passing. Stated because the first draft of this comment claimed
+ * the opposite, and running the control is what corrected it.
+ */
+export function formatChecksStatusLine(result: {
+  allPassed: boolean;
+  timedOut?: boolean;
+  mergeBlocked?: string;
+  summary: { failed: number; pending: number };
+}): string {
+  const { allPassed, timedOut, mergeBlocked, summary } = result;
+  if (mergeBlocked) {
+    return `${ICON_FAIL} Checks cannot be read as merge-readiness — ${mergeBlocked}`;
+  }
+  if (allPassed) return `${ICON_PASS} All checks passed`;
+  if (timedOut) return `${ICON_PENDING} Timed out — ${summary.pending} check(s) still pending`;
+  if (summary.failed > 0) return `${ICON_FAIL} ${summary.failed} check(s) failed`;
+  return `${ICON_PENDING} ${summary.pending} check(s) pending`;
+}
+
 // ── Command factory ──────────────────────────────────────────────────────
 
 export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -75,15 +109,8 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
         }
 
         // --- Text output ---
-        const { summary, checks, allPassed, timedOut } = result;
-
-        const statusLine = allPassed
-          ? `${ICON_PASS} All checks passed`
-          : timedOut
-            ? `${ICON_PENDING} Timed out — ${summary.pending} check(s) still pending`
-            : summary.failed > 0
-              ? `${ICON_FAIL} ${summary.failed} check(s) failed`
-              : `${ICON_PENDING} ${summary.pending} check(s) pending`;
+        const { summary, checks } = result;
+        const statusLine = formatChecksStatusLine(result);
 
         const summaryLine =
           `Checks: ${summary.total} total, ` +

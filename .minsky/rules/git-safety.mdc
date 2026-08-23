@@ -7,4 +7,4 @@ tags:
   - workflow
 ---
 
-Destructive git operations (reset --hard, push --force, checkout ., restore ., clean -f, branch -D) require the git-safety skill. See `.claude/skills/git-safety/SKILL.md` for the structured protocol. ESLint rule `custom/no-unsafe-git-exec` structurally blocks untimed git execs at lint time.
+Destructive git operations (reset --hard, rebase, push --force, checkout --, restore, clean -f, branch -D) require the git-safety skill. See `.claude/skills/git-safety/SKILL.md` for the structured protocol (`restore --staged` is index-only and excluded). ESLint rule `custom/no-unsafe-git-exec` structurally blocks untimed git execs at lint time.

@@ -51,9 +51,189 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
+          # See the restore job's matching step for why this timestamp exists.
+          echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           railway up \
             --service cockpit-preview \
             --detach
+
+      # mt#4272 — the same check the restore job gained, for the same reason,
+      # and it belongs BEFORE the health assertions below rather than beside
+      # them. Those assertions are good at what they test (the passkey gate is
+      # mounted, the domain layer booted) and blind to whether THIS deploy is
+      # the one answering: a failed build leaves the previous one running, and
+      # it returns the same 200, the same 401, and the same gated:true. So the
+      # existing step would pass on a failed deploy — and would spend five
+      # minutes polling a URL that was already healthy before concluding so.
+      #
+      # Ordering it first also makes the failure legible: "the deploy failed"
+      # rather than "the gate assertions passed, somehow."
+      - name: Verify the deploy actually landed
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          # Foreground probe first — see the restore job's matching step for why
+          # a broken probe is invisible once it is inside a wait loop.
+          # pipefail: every status read below is `railway ... | jq ...`. Without
+          # it the pipeline's exit status is jq's, so a railway failure MID-LOOP
+          # yields empty output that the loop reads as "not registered yet" —
+          # the same masking the foreground probe guards against at entry, but
+          # arriving later. Both are needed: the probe catches a broken probe,
+          # pipefail catches one that breaks partway through.
+          set -o pipefail
+
+          # `jq` is preinstalled on GitHub's ubuntu runner images, but this
+          # workflow did not depend on it before this change (the older step
+          # greps the health body), so assert rather than assume — an absent jq
+          # would otherwise surface as an empty STATUS, which reads as "not
+          # registered yet" and times out ten minutes later blaming Railway.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "FAIL: jq is not available on this runner; the status reads below cannot work."
+            exit 1
+          fi
+
+          # stderr goes to a FILE, never into the captured value (mt#4277 R1).
+          # `railway` can write a warning to stderr on a SUCCESSFUL call, and
+          # `2>&1` would splice that text into the JSON — so jq then fails to
+          # parse a perfectly healthy read, and the result reads as "no
+          # deployment". Capturing them separately keeps the diagnostic without
+          # corrupting the data.
+          ERR_FILE="${RUNNER_TEMP:-/tmp}/railway-read-err"
+
+          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>"$ERR_FILE"); then
+            echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
+            cat "$ERR_FILE" || true
+            exit 1
+          fi
+          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>"$ERR_FILE"; then
+            echo "FAIL: 'railway deployment list --json' did not return an array — the probe is broken."
+            cat "$ERR_FILE" || true
+            exit 1
+          fi
+
+          # Consecutive READ failures tolerated before declaring the probe broken.
+          # Derived, not picked (mt#4277): the longest failure burst observed is
+          # 1 (one `error decoding response body` inside nine clean polls on
+          # 2026-08-19T01:07Z), so 3 carries 3x margin over the only sample we
+          # have, and costs 30s of the 10-minute budget — 5% — before it gives
+          # up. If read failures are ever seen in bursts of 3+, revisit this
+          # number rather than the design.
+          MAX_READ_FAILS=3
+          READ_FAILS=0
+
+          echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
+          for i in $(seq 1 60); do
+            # mt#4277: a failed READ is not an absent deployment. Separate them.
+            #
+            # These are two different ways to learn nothing, and collapsing them
+            # is the same conflation this whole check exists to end, one level
+            # down: `set -o pipefail` turns a transient `railway` error into a
+            # non-zero pipeline, and treating that as "not registered yet" would
+            # burn the full ten minutes and then blame Railway for a deploy that
+            # was healthy. Observed on the first live run: nine clean
+            # INITIALIZING polls, then one `error decoding response body`, and
+            # the step aborted while the deploy was still in flight.
+            #
+            # Keep pipefail — it is what makes the failure detectable at all
+            # (PR #3119 R1) — and handle it here instead.
+            # TWO ways the read can fail, and both mean this iteration told us
+            # nothing (mt#4277 R1): the command can fail, OR it can succeed and
+            # return a body jq cannot parse. Only an EMPTY-but-VALID array means
+            # "not registered yet". Treating a parse error as empty would put the
+            # silent conflation straight back — the loop would wait out the full
+            # ten minutes on a response it never understood.
+            #
+            # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
+            # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
+            # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
+            # BEFORE 'Z' (0x5A) — so a string compare puts a deployment created
+            # in the SAME second as the stamp behind it, and the loop would miss
+            # the deployment it is waiting for. jq's fromdateiso8601 rejects the
+            # fractional form outright, hence the sub() that trims it.
+            READ_OK=1
+            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>"$ERR_FILE"); then
+              READ_OK=0
+            elif ! STATUS=$(printf '%s' "$RAW" \
+              | jq -r --arg since "$DEPLOY_STARTED_AT" \
+                  '($since | fromdateiso8601) as $t
+                   | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
+                   | first | .status // empty' 2>"$ERR_FILE"); then
+              READ_OK=0
+            fi
+
+            if [ "$READ_OK" = "0" ]; then
+              READ_FAILS=$((READ_FAILS + 1))
+              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive): $(head -1 "$ERR_FILE" 2>/dev/null)"
+              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
+                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
+                cat "$ERR_FILE" || true
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
+
+            case "$STATUS" in
+              SUCCESS)
+                echo "Deploy reached SUCCESS."
+                LANDED=1
+                break
+                ;;
+              FAILED|CRASHED|REMOVED)
+                echo "FAIL: the preview deploy ended in $STATUS."
+                echo "Build logs:"
+                # --service is required: the token scopes the project, not a
+                # service, so an unscoped call resolves against whatever is
+                # "linked" — which on a runner is nothing.
+                railway logs --json --lines 100 --service cockpit-preview || true
+                exit 1
+                ;;
+              "")
+                echo "  [$i/60] no deployment registered yet"
+                ;;
+              *)
+                echo "  [$i/60] $STATUS"
+                ;;
+            esac
+            sleep 10
+          done
+
+          if [ "${LANDED:-0}" != "1" ]; then
+            echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+            exit 1
+          fi
+
+          # Identity AND freshness — see the restore job's matching block for the
+          # full reasoning. An earlier revision asserted only freshness here and
+          # leaned on the next step's cockpit-specific route assertions for
+          # identity. That was indirect for no saving: the health body is already
+          # being read for processStartedAtMs, so checking `service` in the same
+          # read costs one comparison and removes the argument.
+          echo "Confirming the deployed build is the one serving..."
+          STARTED_EPOCH_MS=$(date -u -d "$DEPLOY_STARTED_AT" +%s000 2>/dev/null \
+            || date -u -jf '%Y-%m-%dT%H:%M:%SZ' "$DEPLOY_STARTED_AT" +%s000)
+
+          for i in $(seq 1 30); do
+            BODY=$(curl -s --max-time 15 "$PREVIEW_URL/api/health" || echo '')
+            SERVICE=$(printf '%s' "$BODY" | jq -r '.service // empty' 2>/dev/null || echo '')
+            STARTED=$(printf '%s' "$BODY" | jq -r '.processStartedAtMs // empty' 2>/dev/null || echo '')
+
+            if [ "$SERVICE" = "minsky-cockpit" ] && [ -n "$STARTED" ] && [ "$STARTED" -ge "$STARTED_EPOCH_MS" ]; then
+              echo "Serving minsky-cockpit, started $STARTED (>= upload $STARTED_EPOCH_MS)."
+              exit 0
+            fi
+            if [ -n "$SERVICE" ] && [ "$SERVICE" != "minsky-cockpit" ]; then
+              echo "FAIL: the host is serving '$SERVICE', not minsky-cockpit — wrong artifact deployed."
+              exit 1
+            fi
+            echo "  [$i/30] service=${SERVICE:-unreachable} started=${STARTED:-?} (want >= $STARTED_EPOCH_MS)"
+            sleep 10
+          done
+
+          echo "FAIL: deploy reached SUCCESS but the live service never reported a process started at or after this run's upload."
+          echo "The previous build is most likely still serving."
+          exit 1
 
       - name: Verify preview is live
         run: |
@@ -185,6 +365,211 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
+          # Record the wall clock BEFORE the upload so the verify step below can
+          # tell the deployment this run created from any that preceded it.
+          echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           railway up \
             --service cockpit-preview \
             --detach
+
+      # mt#4272. `railway up --detach` returns as soon as the upload completes;
+      # Railway's own CLI help says so outright — "starts an upload and
+      # deployment, but it does not wait for the deployment to become healthy.
+      # Poll with `railway deployment list --json`" — and gives the flag the
+      # alias --no-wait. So without this step the job succeeds whatever Railway
+      # then does with the upload.
+      #
+      # That is not hypothetical: on 2026-08-18 this service took SIX
+      # consecutive FAILED deploys over ~50 minutes (21:14Z through 22:04Z),
+      # every one of them reported green by its workflow run, while the preview
+      # URL kept serving the 21:08Z build. Nothing surfaced it.
+      #
+      # Why this polls Railway rather than reusing the deploy job's health
+      # check: a failed deploy leaves the PREVIOUS build running, and that build
+      # answers /api/health with 200 exactly like a fresh one. A URL probe
+      # therefore passes in precisely the case this step exists to catch — it
+      # verifies "something healthy is serving", never "the deploy I just made
+      # is serving" (mem#704: a probe that returns the same result when the
+      # system is broken is not verification). Only the deployment's own
+      # terminal status distinguishes them.
+      - name: Verify the restore deploy actually landed
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          # Run the probe ONCE in the foreground before wrapping it in a loop.
+          # If `deployment list` fails — a token that does not scope this
+          # project, a CLI flag that changed — its output is empty, jq yields
+          # empty, and the loop below reads that as "not registered yet": sixty
+          # iterations emitting exactly what a pending deploy emits, then a
+          # timeout that blames Railway. There is no moment at which that looks
+          # wrong, which is why the check goes here and not in the loop.
+          # pipefail: every status read below is `railway ... | jq ...`. Without
+          # it the pipeline's exit status is jq's, so a railway failure MID-LOOP
+          # yields empty output that the loop reads as "not registered yet" —
+          # the same masking the foreground probe guards against at entry, but
+          # arriving later. Both are needed: the probe catches a broken probe,
+          # pipefail catches one that breaks partway through.
+          set -o pipefail
+
+          # `jq` is preinstalled on GitHub's ubuntu runner images, but this
+          # workflow did not depend on it before this change (the older step
+          # greps the health body), so assert rather than assume — an absent jq
+          # would otherwise surface as an empty STATUS, which reads as "not
+          # registered yet" and times out ten minutes later blaming Railway.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "FAIL: jq is not available on this runner; the status reads below cannot work."
+            exit 1
+          fi
+
+          # stderr goes to a FILE, never into the captured value (mt#4277 R1).
+          # `railway` can write a warning to stderr on a SUCCESSFUL call, and
+          # `2>&1` would splice that text into the JSON — so jq then fails to
+          # parse a perfectly healthy read, and the result reads as "no
+          # deployment". Capturing them separately keeps the diagnostic without
+          # corrupting the data.
+          ERR_FILE="${RUNNER_TEMP:-/tmp}/railway-read-err"
+
+          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>"$ERR_FILE"); then
+            echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
+            cat "$ERR_FILE" || true
+            exit 1
+          fi
+          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>"$ERR_FILE"; then
+            echo "FAIL: 'railway deployment list --json' did not return an array — the probe is broken."
+            cat "$ERR_FILE" || true
+            exit 1
+          fi
+
+          # Consecutive READ failures tolerated before declaring the probe broken.
+          # Derived, not picked (mt#4277): the longest failure burst observed is
+          # 1 (one `error decoding response body` inside nine clean polls on
+          # 2026-08-19T01:07Z), so 3 carries 3x margin over the only sample we
+          # have, and costs 30s of the 10-minute budget — 5% — before it gives
+          # up. If read failures are ever seen in bursts of 3+, revisit this
+          # number rather than the design.
+          MAX_READ_FAILS=3
+          READ_FAILS=0
+
+          echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
+          for i in $(seq 1 60); do
+            # Newest-first; take the newest deployment created at or after the
+            # upload. An empty result means Railway has not registered it yet.
+            # mt#4277: a failed READ is not an absent deployment. Separate them.
+            #
+            # These are two different ways to learn nothing, and collapsing them
+            # is the same conflation this whole check exists to end, one level
+            # down: `set -o pipefail` turns a transient `railway` error into a
+            # non-zero pipeline, and treating that as "not registered yet" would
+            # burn the full ten minutes and then blame Railway for a deploy that
+            # was healthy. Observed on the first live run: nine clean
+            # INITIALIZING polls, then one `error decoding response body`, and
+            # the step aborted while the deploy was still in flight.
+            #
+            # Keep pipefail — it is what makes the failure detectable at all
+            # (PR #3119 R1) — and handle it here instead.
+            # TWO ways the read can fail, and both mean this iteration told us
+            # nothing (mt#4277 R1): the command can fail, OR it can succeed and
+            # return a body jq cannot parse. Only an EMPTY-but-VALID array means
+            # "not registered yet". Treating a parse error as empty would put the
+            # silent conflation straight back — the loop would wait out the full
+            # ten minutes on a response it never understood.
+            #
+            # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
+            # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
+            # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
+            # BEFORE 'Z' (0x5A) — so a string compare puts a deployment created
+            # in the SAME second as the stamp behind it, and the loop would miss
+            # the deployment it is waiting for. jq's fromdateiso8601 rejects the
+            # fractional form outright, hence the sub() that trims it.
+            READ_OK=1
+            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>"$ERR_FILE"); then
+              READ_OK=0
+            elif ! STATUS=$(printf '%s' "$RAW" \
+              | jq -r --arg since "$DEPLOY_STARTED_AT" \
+                  '($since | fromdateiso8601) as $t
+                   | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
+                   | first | .status // empty' 2>"$ERR_FILE"); then
+              READ_OK=0
+            fi
+
+            if [ "$READ_OK" = "0" ]; then
+              READ_FAILS=$((READ_FAILS + 1))
+              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive): $(head -1 "$ERR_FILE" 2>/dev/null)"
+              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
+                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
+                cat "$ERR_FILE" || true
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
+
+            case "$STATUS" in
+              SUCCESS)
+                echo "Deploy reached SUCCESS."
+                LANDED=1
+                break
+                ;;
+              FAILED|CRASHED|REMOVED)
+                echo "FAIL: the restore deploy ended in $STATUS."
+                echo "Build logs:"
+                # --service is required: the token scopes the project, not a
+                # service, so an unscoped call resolves against whatever is
+                # "linked" — which on a runner is nothing.
+                railway logs --json --lines 100 --service cockpit-preview || true
+                exit 1
+                ;;
+              "")
+                echo "  [$i/60] no deployment registered yet"
+                ;;
+              *)
+                echo "  [$i/60] $STATUS"
+                ;;
+            esac
+            sleep 10
+          done
+
+          if [ "${LANDED:-0}" != "1" ]; then
+            echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+            exit 1
+          fi
+
+          # SUCCESS means the deployment BUILT and was promoted. It does not mean
+          # the process is up and answering — a container can reach SUCCESS and
+          # then crash on boot. And "the URL answers" is not enough either: the
+          # PREVIOUS build answers identically, which is the blind spot that let
+          # six failed deploys read as green.
+          #
+          # So assert two things about the live service, not one:
+          #   - identity: the health BODY says minsky-cockpit. Every service here
+          #     is built from the same monorepo, so a misconfigured build can put
+          #     a DIFFERENT app on this host and it answers 200 exactly like the
+          #     right one (mt#3148 / mt#3142).
+          #   - freshness: processStartedAtMs is at or after this run's upload, so
+          #     the process answering is the one this run deployed rather than a
+          #     survivor of a failed replacement.
+          echo "Confirming the restored build is the one serving..."
+          STARTED_EPOCH_MS=$(date -u -d "$DEPLOY_STARTED_AT" +%s000 2>/dev/null \
+            || date -u -jf '%Y-%m-%dT%H:%M:%SZ' "$DEPLOY_STARTED_AT" +%s000)
+
+          for i in $(seq 1 30); do
+            BODY=$(curl -s --max-time 15 "$PREVIEW_URL/api/health" || echo '')
+            SERVICE=$(printf '%s' "$BODY" | jq -r '.service // empty' 2>/dev/null || echo '')
+            STARTED=$(printf '%s' "$BODY" | jq -r '.processStartedAtMs // empty' 2>/dev/null || echo '')
+
+            if [ "$SERVICE" = "minsky-cockpit" ] && [ -n "$STARTED" ] && [ "$STARTED" -ge "$STARTED_EPOCH_MS" ]; then
+              echo "Serving minsky-cockpit, started $STARTED (>= upload $STARTED_EPOCH_MS)."
+              exit 0
+            fi
+            if [ -n "$SERVICE" ] && [ "$SERVICE" != "minsky-cockpit" ]; then
+              echo "FAIL: the host is serving '$SERVICE', not minsky-cockpit — wrong artifact deployed."
+              exit 1
+            fi
+            echo "  [$i/30] service=${SERVICE:-unreachable} started=${STARTED:-?} (want >= $STARTED_EPOCH_MS)"
+            sleep 10
+          done
+
+          echo "FAIL: deploy reached SUCCESS but the live service never reported a process started at or after this run's upload."
+          echo "The previous build is most likely still serving."
+          exit 1

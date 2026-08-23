@@ -22,8 +22,23 @@ Covers `git add` / `commit` / `push` / `status` / `diff` / `fetch` / `pull` / `c
 `git -C` (unconditionally — see below), and the `gh` surfaces with MCP equivalents.
 
 Rules flagged `allowedInSessionExec` are skipped when the call arrives via `session_exec`, because
-their denial reason redirects TO `session_exec` — applying them there would be self-contradictory.
-Four rules are carved out this way: `git status`, `git stash`, `git reset`, `git restore`.
+their denial reason OFFERS `session_exec` as a fallback — denying it there would take away the very
+path the message just handed the caller. Four rules are carved out this way: `git status`,
+`git stash`, `git reset`, `git restore`.
+
+**What those four messages say, and why it changed (mt#4226).** Until 2026-08-18 they read "for
+sessions, use `session_exec`", which framed the choice as a WORKSPACE boundary — MCP tool for main,
+CLI for sessions. That boundary stopped existing once `git_status`, `git_reset`, `git_stash` and
+`git_restore` all took a `session` parameter, and nothing re-read the guard when they did. Each
+message now names its MCP tool WITH that argument first and offers `session_exec` as the fallback
+for what the tool does not cover. Only one of the four has a real capability gap to point at:
+`git_restore` has no `source` parameter, so `git restore --source=<ref> -- <path>` still needs
+`session_exec` (tracked as mt#1297) — and that spelling specifically, because the equivalent
+`git checkout <ref> -- <path>` is caught by the `checkout` rule, which has no carve-out.
+
+The durable lesson, since this will age again: a denial string is an instruction carrying hook
+authority, and it ages independently of the tool surface it names. When you ship an MCP tool
+covering a carved-out command, update the matching `reason` in the same PR (mem#1078).
 
 `git -C` is denied on both tools for different reasons: on Bash it redirects to `session_exec`
 (which sets cwd itself); on `session_exec` it is both redundant and dangerous, since `-C` could

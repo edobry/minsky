@@ -40,6 +40,7 @@ import {
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { isTextEntryTarget } from "../../lib/keyboard";
 import {
+  SessionFilmError,
   fetchSessionFilmEvents,
   sessionFilmEventsQueryKey,
   sessionFilmRetry,
@@ -90,6 +91,13 @@ const MAX_RIBBON_FRACTION = 0.6;
  */
 const RIBBON_WIDTH_STORAGE_KEY = "cockpit.session-film.ribbon-width.v1"; // gitleaks:allow
 
+/**
+ * The ribbon's DOM id, so the divider can name what it sizes in `aria-controls`
+ * (mt#4261). A constant rather than a literal at each site because the two uses
+ * — the element's `id` and the divider's `controls` — are only correct together.
+ */
+const RIBBON_DOM_ID = "session-film-ribbon";
+
 export interface SessionFilmProps {
   /** The conversation to replay. Supplied by the route, not by a picker. */
   conversationId: string;
@@ -109,6 +117,49 @@ export function parsePlayheadParam(raw: string | null, rowCount: number): number
   const parsed = raw ? Number(raw) : 0;
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(rowCount - 1, Math.round(parsed)));
+}
+
+/**
+ * The lead-in the film's error state renders, chosen by WHAT failed (mt#4135).
+ *
+ * Only `session_not_found` may assert the film is absent. The events route
+ * answers 404 for two different reasons — that one, and `invalid_id` when the
+ * requested id is not one this cockpit can film — so branching on HTTP status
+ * would tell a reader who followed a bad id that their conversation has no
+ * film. That is the same misreport mt#3225 fixed on the server side, where a
+ * too-narrow `looksLikeConversationId` rejected 45 real subagent transcripts;
+ * an operator debugging it here would have been told the transcript did not
+ * exist. Everything else — a 500, the 15s assembly timeout, or a network
+ * failure that never produces a `SessionFilmError` at all — reports a failed
+ * read, which is what distinguishes "there is nothing here" from "try again".
+ *
+ * This branch no longer covers a scrub-gate refusal: mt#3268 / ADR-040 removed
+ * the gate from this endpoint, on the decision that it binds where transcript
+ * bytes cross the trust boundary (export, anonymous share link) rather than on
+ * the operator's own authenticated read.
+ *
+ * A reader who ARRIVED FROM A LINK asked for one specific moment, so a bare
+ * cause answers a question they did not ask and leaves the click looking broken
+ * (mt#3794, reviewer round 1). Naming the moment they wanted is the difference
+ * between a dead end and an explained one — and this is the only place that can
+ * say it, since the conversation view has no per-conversation film-availability
+ * signal to gate the link on.
+ *
+ * `ErrorState` appends the error's own message after this lead-in, so the
+ * server's detail is not lost either way; what this chooses is the sentence the
+ * reader takes as the answer.
+ */
+export function filmErrorLeadIn(error: unknown, arrivedByAddress: boolean): string {
+  const code = error instanceof SessionFilmError ? error.code : undefined;
+  const cause =
+    code === "session_not_found"
+      ? "this conversation has no film"
+      : code === "invalid_id"
+        ? "that id is not a conversation this cockpit can film"
+        : "the film could not be loaded";
+  return arrivedByAddress
+    ? `That moment can't be shown — ${cause}`
+    : `${cause.charAt(0).toUpperCase()}${cause.slice(1)}`;
 }
 
 export function SessionFilm({
@@ -233,17 +284,9 @@ export function SessionFilm({
     setUnresolvedAddress(null);
   }, [conversationId]);
 
-  // `verifiedRescrubbed` is pinned false: nothing in the UI has ever set it
-  // true (verified across the whole `web/**` tree at extraction time), and the
-  // standalone page only ever RESET it. The server-side scrub gate is the real
-  // enforcement — see the error branch below. Kept as an explicit constant
-  // rather than dropped so the query key still matches
-  // `sessionFilmEventsQueryKey`'s signature.
-  const verifiedRescrubbed = false;
-
   const eventsQuery = useQuery({
-    queryKey: sessionFilmEventsQueryKey(conversationId, verifiedRescrubbed),
-    queryFn: () => fetchSessionFilmEvents(conversationId, verifiedRescrubbed),
+    queryKey: sessionFilmEventsQueryKey(conversationId),
+    queryFn: () => fetchSessionFilmEvents(conversationId),
     retry: sessionFilmRetry,
   });
 
@@ -370,31 +413,12 @@ export function SessionFilm({
   }
 
   if (eventsQuery.isError) {
-    // The scrub gate lives server-side (`assertScrubGate` on
-    // GET /api/cockpit/session-film/events) and rejects transcripts from before
-    // the credential-scrub cutover. The standalone picker used to keep those
-    // conversations unreachable by disabling their row (`scrubGateOk: false`);
-    // with the picker gone, a conversation is reachable from its own page
-    // whether or not it passes, so THIS branch is now the only thing standing
-    // between the operator and a raw failure. Keep the message legible.
-    // (mt#3268 owns the open question of whether the film's refusal or the
-    // conversation view's ungated render is the right posture.)
-    // A reader who ARRIVED FROM A LINK asked for one specific moment, so the
-    // bare "no film" answers a question they did not ask and leaves the click
-    // looking broken (mt#3794, reviewer round 1). Naming the moment they wanted
-    // is the difference between a dead end and an explained one — and this is
-    // the only place that can say it, since the conversation view has no
-    // per-conversation film-availability signal to gate the link on.
     const arrivedByAddress = parseTurnAddress(searchParams) !== null;
     return (
       <div className="p-4">
         <ErrorState
           error={eventsQuery.error}
-          prefix={
-            arrivedByAddress
-              ? "That moment can't be shown — this conversation has no film"
-              : "This conversation has no film"
-          }
+          prefix={filmErrorLeadIn(eventsQuery.error, arrivedByAddress)}
           variant="page"
         />
       </div>
@@ -443,12 +467,14 @@ export function SessionFilm({
           onSelectRow={setSelectedRowIndex}
           onScrollRowChange={handleScrollRowChange}
           className="shrink-0"
+          id={RIBBON_DOM_ID}
           style={{ width: ribbonWidthPx }}
         />
         <PaneDivider
           value={ribbonWidthPx}
           min={MIN_RIBBON_WIDTH_PX}
           max={ribbonMaxPx}
+          controls={RIBBON_DOM_ID}
           onChange={handleRibbonResize}
           onReset={handleRibbonResetWidth}
           label="Resize the event ribbon"

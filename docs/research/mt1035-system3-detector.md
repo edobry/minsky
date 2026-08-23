@@ -2,8 +2,30 @@
 
 **Task:** mt#1035
 **Type:** Research / Design
-**Status:** Draft (2026-04-22)
+**Status:** Draft (2026-04-22) — **Surface 1 RETIRED 2026-08-16; see the banner below before reading this as a live plan**
 **Parent:** mt#1034 (Attention-Allocation Subsystem / ADR-008)
+
+> **Retirement notice (2026-08-16, mt#4197).** **Surface 1 — the policy-coverage detector this
+> document recommends shipping first — is retired and deleted.** It shipped (mt#1575), ran
+> `log-only` for its entire life, blocked nothing, and classified 97.7% of actions "covered" on
+> keyword matches unrelated to the action. Read this document as the design record it is, not as
+> a live roadmap.
+>
+> The load-bearing correction is to this document's own method, and it applies to **Surface 2 and
+> Surface 3 as well**: §Context derives the problem from how LLMs are trained ("noticing is a
+> structural property of the system, not a cognitive property of the agent") and **cites zero
+> incidents**. §Surface 2 concedes the gap in its own words — _"building signatures from
+> hypothesis before we have ground truth risks…"_ — and that is exactly what happened. Neither of
+> the two failure families that later named Surface 1 as their structural backstop (mem#278
+> premise-verification, mem#367 confabulated-strategic-frame) is a member of the class Surface 1
+> observes: both are read-side or justification-side failures, and Surface 1 watched writes.
+>
+> **Surface 4 is the part worth reviving, and it is broken.** This document assigns it the
+> ground-truth-corpus role that would make the other surfaces calibratable; it has produced zero
+> findings in 472 of 472 runs since 2026-07-24 because it reads a field the stored transcripts do
+> not have (**mt#4196**). Establish the phenomenon there before building another instrument for
+> it — Surface 4 repaired is the cheapest way to learn whether Surfaces 2 and 3 have a target at
+> all.
 
 ## Summary
 

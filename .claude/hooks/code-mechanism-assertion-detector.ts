@@ -127,6 +127,14 @@ import {
   CAPTURE_SCHEMA_VERSION,
   captureArtifact,
 } from "./judged-input-capture";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type {
+  ExemplarSet,
+  NominationDeps,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -407,6 +415,84 @@ export function isOverrideBoilerplateMention(tok: string, window: string): boole
 }
 
 /**
+ * URL-query-parameter exclusion — ADR-034 exclusion round SIX (mt#4157).
+ *
+ * The 2026-08-14 calibration pass classified all 10 injected fires: 8 false. One
+ * of those eight is an EXTRACTION defect rather than a backing one. The agent
+ * pasted Claude Code's own spend-limit banner —
+ * `raise it at claude.ai/settings/usage?from=cc_cli_limit_message` — and
+ * `cc_cli_limit_message`, a URL query-parameter VALUE in third-party output, was
+ * extracted by `SNAKE_CASE_RE` and paired with the nearby words "limit" and
+ * "raise" as predicates. No claim about it was made by anyone.
+ *
+ * **Round 6 was checked against ADR-034's reopen conditions before being
+ * written, which that ADR's §Consequences requires** ("a sixth round is now a
+ * decision with a record behind it, not a reflex"). None fires. Condition 1 needs
+ * rounds 6 AND 7 inside 5 days; this is 6. Condition 3 needs an identifier index,
+ * which does not exist. Condition 2 — "a measured FP rate above 10% on a
+ * classified corpus" — is the one that looks triggered by the headline 80%, and
+ * is not: it asks whether the mechanism ADR-034 KEPT is failing, and the rejected
+ * allowlist would have fixed exactly this one record while ADMITTING the other
+ * seven, whose symbols (`descendantsRequiredSigkill`, `expectedHeadSha`,
+ * `get_files`) are all real. Those seven are verification-corpus defects, not
+ * symbol-identification ones. Mechanism-attributable rate: 1/10.
+ *
+ * **Scoped to query parameters, deliberately not to "quoted third-party text".**
+ * The spec described this class both ways, but only one is mechanically
+ * decidable: nothing in the text marks its author, and the fixture's banner is
+ * not quoted or fenced at all. A query parameter is decidable, so that is the
+ * predicate. Path segments are also left alone — no record has yet fired on one,
+ * and ADR-034's whole subject is that predicates written ahead of evidence are
+ * how the arms race runs.
+ *
+ * Window-aware, like {@link isOverrideBoilerplateMention}: the token is excluded
+ * only when EVERY occurrence in the slice sits inside a query span, so an agent
+ * who also names the symbol in prose still fires. Occurrence-matching is plain
+ * substring, which can over-report an occurrence inside a longer word — that
+ * fails toward KEEPING the claim, the safe direction for a precision exclusion.
+ */
+const URL_QUERY_SPAN_RE = /[^\s`'"<>()[\]]*[?&][A-Za-z0-9_.~-]+=[^\s`'"<>()[\]]*/g;
+
+/**
+ * Does the part before the first `?`/`&` look like a URL?
+ *
+ * A SCHEME, or a dotted host — not merely a slash. PR #3031 R1 flagged that an
+ * earlier `head.includes("/")` branch would accept `src/foo?x=1`, so an
+ * identifier mentioned once in a path-shaped fragment could be suppressed. The
+ * slash branch is gone; a head now needs `http(s)://` (which also admits
+ * dotless hosts like `localhost:3000`) or a `name.tld`-shaped host.
+ *
+ * Residual bound, stated rather than papered over: a dotted filename followed by
+ * a query — `foo.ts?x=1` — still reads as a host, because distinguishing a TLD
+ * from a file extension needs a TLD list, and a stale list is a worse failure
+ * than this one. It costs a suppression only when the token appears NOWHERE else
+ * in the slice, since the caller requires every occurrence to be inside a span.
+ */
+const URL_HEAD_RE = /^(?:https?:\/\/\S+|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:\/|$))/;
+
+function hasUrlishHead(span: string): boolean {
+  return URL_HEAD_RE.test(span.split(/[?&]/)[0] ?? "");
+}
+
+export function isUrlQueryParameterMention(tok: string, window: string): boolean {
+  const spans: Array<readonly [number, number]> = [];
+  for (const m of window.matchAll(URL_QUERY_SPAN_RE)) {
+    if (!hasUrlishHead(m[0])) continue;
+    const s = m.index ?? 0;
+    spans.push([s, s + m[0].length] as const);
+  }
+  if (spans.length === 0) return false;
+
+  let sawOccurrence = false;
+  for (let at = window.indexOf(tok); at >= 0; at = window.indexOf(tok, at + 1)) {
+    sawOccurrence = true;
+    const inside = spans.some(([s, e]) => at >= s && at + tok.length <= e);
+    if (!inside) return false;
+  }
+  return sawOccurrence;
+}
+
+/**
  * UPPERCASE-exact SQL/DDL keyword exclusion (mt#3042). A migration/DDL
  * discussion in prose ("`ALTER` ... `DROP` ... `CREATE`") extracts SQL
  * keywords as backticked "symbols" near the `drops?` predicate — the
@@ -451,6 +537,14 @@ const SQL_KEYWORDS_UPPER: ReadonlySet<string> = new Set([
  * conditions that would reopen the question; a sixth round is a good moment to
  * check them rather than to write another predicate.
  *
+ * **Round 6 has since been written, and it is NOT here** (mt#4157): the
+ * URL-query-parameter exclusion needs the surrounding window, so it lives with
+ * {@link isUrlQueryParameterMention} beside the other window-aware predicate
+ * rather than in this token-only list, which still holds five rounds. Its doc
+ * comment carries the reopen-condition check ADR-034 asks for; read it before
+ * writing a SEVENTH, because two rounds inside 5 days is reopen condition 1 and
+ * round 6 landed 2026-08-16.
+ *
  * @see docs/architecture/adr-034-symbol-identification-in-code-mechanism-assertion.md
  */
 function isPlausibleSymbol(tok: string): boolean {
@@ -482,7 +576,7 @@ function isPlausibleSymbol(tok: string): boolean {
  * `cfg.maxBuffer`) are still captured independently by CAMEL_CASE_RE/SNAKE_CASE_RE
  * scanning the slice, so no real symbol is lost.
  */
-function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
+export function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
   let start = Math.max(0, anchorIndex - window);
   let end = Math.min(text.length, anchorIndex + window);
 
@@ -547,6 +641,10 @@ function symbolsNear(text: string, anchorIndex: number, window: number): string[
     // documented override line is discussion-framing, not a mechanism claim.
     // Needs the slice, so it cannot live in the token-only isPlausibleSymbol.
     if (isOverrideBoilerplateMention(o.tok, slice)) continue;
+    // mt#4157 — window-aware exclusion, round 6: a token that appears ONLY as a
+    // URL query parameter is part of a link, not a claim subject. Same reason
+    // this cannot live in the token-only isPlausibleSymbol: it needs the slice.
+    if (isUrlQueryParameterMention(o.tok, slice)) continue;
     found.add(o.tok);
   }
   return [...found];
@@ -587,6 +685,63 @@ export function elideBlocksAndQuotes(text: string): string {
  * tool_result CONTENT, which is collected for all read-class results below.
  */
 const READ_CLASS_TOOL_RE = /(?:^|_)(?:Read|Grep|Glob)$|(?:read_file|grep_search|repo_search)$/i;
+
+/**
+ * Collect the KEYS of a tool's input object (mt#4084).
+ *
+ * {@link collectStrings} walks `Object.values`, so a parameter NAME never enters
+ * the corpus — which is why a claim about `expectedHeadSha`, a declared
+ * parameter of a tool the turn actually called, read as unbacked.
+ *
+ * Keys only, never values: a value is content the AGENT chose and admitting it
+ * would be the write-echo inversion mt#3489 split out of this corpus. A key is
+ * different — the MCP boundary REJECTS undeclared parameters (mt#2778), so a key
+ * present in a call that succeeded was validated against the tool's declared
+ * schema rather than typed into prose.
+ */
+/**
+ * A parameter key distinctive enough to admit as backing (PR #3046 R1).
+ *
+ * Admitting EVERY key over-suppresses: `message`, `content`, `task`, `path`,
+ * `input` and `limit` are all extracted as symbols by `isPlausibleSymbol`
+ * (verified by running it — they are not on ADR-034's generic-word exclusion
+ * list), and `message` is a parameter of `session_commit`, which an agent calls
+ * constantly. A claim like "`message` is truncated at N" would then be silently
+ * backed by an unrelated commit in the same turn.
+ *
+ * So the key must carry its own shape — an internal capital (`expectedHeadSha`,
+ * `overrideReason`, `notBefore`) or an underscore. That is not a heuristic
+ * chosen ahead of evidence: every key in the measured silencing set
+ * (`expectedHeadSha`, `overrideReason`, `notBefore`, `headSha`) is camelCase,
+ * so the narrowing preserves all of them while excluding the bare-word class.
+ */
+const DISTINCTIVE_KEY_RE = /[a-z][A-Z]|_/;
+
+function collectKeys(value: unknown, out: string[]): void {
+  if (Array.isArray(value)) {
+    for (const v of value) collectKeys(v, out);
+  } else if (value && typeof value === "object") {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (DISTINCTIVE_KEY_RE.test(key)) out.push(key);
+      collectKeys(nested, out);
+    }
+  }
+}
+
+/**
+ * Push a same-turn tool CALL RECORD into the verification corpus (mt#4084):
+ * the tool's name plus its input parameter keys.
+ *
+ * Backing is a substring test, so the raw MCP-prefixed name is all that is
+ * needed — `mcp__minsky__refs_status` in the corpus already backs a claim
+ * written as `refs_status`. No prefix-stripping or alias layer, and no second
+ * matching layer beside the corpus (SC1's "change the gate, not the backing"
+ * constraint, from mt#3594).
+ */
+function collectCallRecord(name: string, input: unknown, out: string[]): void {
+  if (name !== "") out.push(name);
+  collectKeys(input, out);
+}
 
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === "string") {
@@ -669,7 +824,21 @@ function buildToolNameById(turnLines: TranscriptLine[]): Map<string, string> {
  * default, since it preserves the pre-mt#3489 suppression behavior rather than
  * surfacing a claim on evidence we cannot attribute.
  */
-function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: string } {
+/**
+ * Corpus options (mt#4084). Exists for ONE consumer: the backing replay's BEFORE
+ * arm, which must reproduce pre-mt#4084 behavior from the SHIPPED builder rather
+ * than from a copy of the old logic that can drift out of sync with it.
+ */
+export interface VerificationCorpusOptions {
+  /** Include same-turn tool names + parameter keys. Defaults to true (shipped behavior). */
+  includeCallRecord?: boolean;
+}
+
+function buildCorpora(
+  turnLines: TranscriptLine[],
+  options: VerificationCorpusOptions = {}
+): { read: string; writeEcho: string } {
+  const includeCallRecord = options.includeCallRecord !== false;
   const toolNameById = buildToolNameById(turnLines);
   const readParts: string[] = [];
   const writeParts: string[] = [];
@@ -686,6 +855,12 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
           if (READ_CLASS_TOOL_RE.test(name)) {
             collectStrings(block["input"], readParts);
           }
+          // mt#4084 — the CALL RECORD backs claims about the call, for EVERY
+          // tool rather than only read-class ones. The name attests the harness
+          // ran it; the keys are schema-validated by the MCP boundary. Neither
+          // is producible by asserting, which is the test that keeps the agent's
+          // own prose out (settled mt#4157).
+          if (includeCallRecord) collectCallRecord(name, block["input"], readParts);
         }
         // tool_result CONTENT — authentic tool outputs live on USER-role lines
         // (Claude Code records tool_result as user role). Role-gating prevents an
@@ -705,6 +880,10 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
       if (READ_CLASS_TOOL_RE.test(name)) {
         collectStrings(line.input, readParts);
       }
+      // Same widening on the top-level line shape — a turn recorded this way
+      // must not produce a different verdict from the nested one (mt#3650 is
+      // the standing example of exactly that divergence).
+      if (includeCallRecord) collectCallRecord(name, line.input, readParts);
     }
   }
 
@@ -721,9 +900,44 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
  * A symbol that appears in this corpus was inspected this turn. A symbol that
  * appears only in the write-echo corpus was AUTHORED this turn, which is not
  * the same thing and must not back a claim about it.
+ *
+ * ## The agent's own prose is NOT backing — decided 2026-08-16 (mt#4157)
+ *
+ * Settled here so the next calibration pass does not re-litigate it. Three of
+ * the 2026-08-14 pass's eight false positives arrived with their evidence in the
+ * same sentence — "Re-running against a real MCP server gave
+ * `descendantsRequiredSigkill: 1`", "the exact flagged command returns 76 matches
+ * at exit 0 on Darwin", "both failed on `CONNECT_TIMEOUT`". Each reads as
+ * maximally well-evidenced and each was recorded unbacked, because a claim the
+ * agent states in its own prose is not in this corpus.
+ *
+ * **Admitting prose was rejected.** It is circular: an agent could back any
+ * claim by asserting confidently, and suppression would land exactly on "I
+ * checked" — the sentence this detector exists to doubt. Self-authorship is an
+ * aggravating factor, not a mitigating one (mem#736), and mt#3489 already split
+ * write-echo out of this corpus for the same reason.
+ *
+ * **The narrower variant the spec floated needs no code — it is what this corpus
+ * already does.** "An observation naming a value the tool corpus ALSO contains"
+ * is precisely a symbol appearing here, and it already suppresses. The records
+ * show the mechanism working: `descendantsRequiredSigkill` fired at
+ * 2026-08-13T16:39Z with `hadSameTurnRead: false, backedClaimCount: 0`, and the
+ * SAME symbol was suppressed at 17:15Z as `same-turn-read` once a real read
+ * existed. All three class members carry `hadSameTurnRead: false` and
+ * `backedClaimCount: 0` — there was no tool evidence in the turn to admit.
+ *
+ * **What is left is a WINDOW question, not a prose question, and it is not
+ * ours.** If the read happened an earlier turn in the same session, the evidence
+ * is machine-recorded and merely out of frame. Widening same-turn to
+ * session-scope is the ask#6817 disposition that mt#3594 owns, and it is gated
+ * there on per-claim backing landing first — a session-scoped read of ANYTHING
+ * would otherwise back EVERYTHING. Do not widen this corpus's time window here.
  */
-export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
-  return buildCorpora(turnLines).read;
+export function buildVerificationCorpus(
+  turnLines: TranscriptLine[],
+  options?: VerificationCorpusOptions
+): string {
+  return buildCorpora(turnLines, options).read;
 }
 
 /**
@@ -1137,6 +1351,33 @@ export interface CodeMechanismDetectionResult {
    */
   claims: Array<{ symbol: string; predicate: string }>;
   /**
+   * Symbol-FREE claims nominated at Rung 2 (mt#3726) — a separate channel from
+   * `claims`, never merged into it.
+   *
+   * Kept separate for two reasons, neither cosmetic. First, every consumer of
+   * `claims` keys on `symbol`: the backing rule is
+   * `verificationCorpus.includes(symbol)` and the injection reminder names the
+   * symbol back to the agent. A claim with no symbol has nothing to look up and
+   * nothing to name, so putting one in `claims` would silently produce an
+   * unsuppressable, unnameable entry. Second, calibration review has to measure
+   * this cohort's false-positive rate on its own before anyone proposes wiring
+   * it — the same treatment `commentSurfaceClaims` and `artifactSurfaceClaims`
+   * get, and for the same reason.
+   *
+   * **There is no suppression for this channel yet, and that is a known
+   * over-fire source rather than an oversight.** The turn-level backing signal
+   * (`hadSameTurnRead`) is symbol-derived and cannot bind here; the candidate
+   * replacement — the falsifying FILE being nameable from the claim (mem#1087) —
+   * is a materially larger mechanism than an exemplar set, and mt#3594 owns the
+   * suppression-granularity question this would consume. Read the first
+   * calibration records with that in mind.
+   *
+   * Absent (rather than empty) on every Rung-1 result, so a record written
+   * before this shipped is distinguishable from one where the cohort ran and
+   * nominated nothing.
+   */
+  symbolFreeClaims?: Array<{ family: string; excerpt: string }>;
+  /**
    * TURN-level aggregate (mt#2673): true when at least one (symbol,
    * predicate) pair elsewhere in the turn WAS backed by the verification
    * corpus. NOT a claim-level flag on the `claims` above — those are
@@ -1239,6 +1480,477 @@ export function detectCodeMechanismAssertion(
 }
 
 // ---------------------------------------------------------------------------
+// Rung 2: identity/equivalence claims (mt#4155)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why this is Rung 2 and not another `PREDICATE_PATTERNS` entry.
+ *
+ * Every entry in `PREDICATE_PATTERNS` is a BEHAVIOR verb (`clamps`, `returns`,
+ * `throws`) or one of mt#3050's five SOURCING verbs. A claim that asserts a
+ * symbol's IDENTITY or EQUIVALENCE — "`X` is the single reader", "`X` is
+ * converted to it" — names neither, so `symbolsNear` extracts the symbol
+ * perfectly and no predicate anchors it. mt#4106 measured four such claims:
+ * `extracted: true`, `matched: false`, `claims: []` on all four, each with a
+ * passing positive control.
+ *
+ * ADR-024 assigns this to Rung 2. Its Rung 1 is a quotation/citation-aware
+ * elision PREFILTER aimed at the PRECISION axis — eliding quoted spans cannot
+ * make an identity sentence match a behavior verb, so Rung 1 is structurally
+ * incapable of covering this class. Adding identity verbs to the pattern list
+ * is neither rung: it is the pre-ladder move ADR-024 Context names as the arms
+ * race ("each miss has historically been answered by adding another regex
+ * family (R1 -> R5)"). The recall-miss rate the Rung-2 evidence gate asks for
+ * is exactly what mt#4106 supplies.
+ */
+export const IDENTITY_CLAIM_FAMILY = "identity-claim";
+
+/**
+ * How much of a nominated segment is kept as the claim's `predicate`. Matches
+ * the lexical path's 40-char predicate budget so both rungs' calibration
+ * records read the same width.
+ */
+const IDENTITY_PREDICATE_MAX_CHARS = 40;
+
+/**
+ * Curated exemplars for the identity/equivalence family.
+ *
+ * Drawn from the four mt#4106 fixtures plus the sibling surface forms they
+ * generalize. Deliberately phrased WITHOUT a concrete symbol name: the
+ * embedding scores the claim's GRAMMAR, and seeding a real identifier would
+ * bias every score toward turns that happen to discuss that identifier.
+ */
+export const IDENTITY_CLAIM_EXEMPLARS: readonly string[] = [
+  "this function is the single reader of that value",
+  "the field is converted to it before the comparison",
+  "both are expressed in the same unit against the same reading",
+  "that module is the only consumer of this interface",
+  "the two share the same underlying reader",
+  "this constant is equivalent to the one the caller passes",
+  "the value is converted to it, and the watermark that shares the same reader is converted with it",
+  "its arithmetic is expressed in the same unit against the same reading, so changing the input changes the projection",
+  "converting the one function also converts the watchers that consume it",
+];
+
+/** The exemplar set handed to `nominate`. */
+export const IDENTITY_CLAIM_EXEMPLAR_SET: ExemplarSet = {
+  family: IDENTITY_CLAIM_FAMILY,
+  exemplars: [...IDENTITY_CLAIM_EXEMPLARS],
+};
+
+// ---------------------------------------------------------------------------
+// Rung 2, second cohort: symbol-FREE claim classes (mt#3726)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why these are a different cohort from the identity family above, and not
+ * five more entries in `IDENTITY_CLAIM_EXEMPLARS`.
+ *
+ * The identity family is symbol-BEARING and predicate-free: `symbolsNear`
+ * extracts `X` from "`X` is the single reader" perfectly, and only the
+ * PREDICATE match fails. So its claims still render as `(symbol, predicate)`
+ * pairs, and its nominated segments still go through symbol extraction.
+ *
+ * These classes name no symbol at all. Measured 2026-08-19 by calling
+ * `symbolsNear` directly on one sentence per class — every one returns `[]`,
+ * against controls (`escapeLikeLiteral returns …`, `AgentSpawnsPipeline wires
+ * only runForSession`) that extract their symbols. So symbol extraction cannot
+ * be how these become claims, which is why they get their own claim channel
+ * (`symbolFreeClaims`) rather than joining `claims`.
+ *
+ * ADR-024 places both cohorts at Rung 2 for the same reason: these are RECALL
+ * misses that recur, and Rung 1 is a quotation-elision PREFILTER aimed at
+ * PRECISION — eliding quoted spans cannot make a symbol-free sentence match a
+ * behavior verb. Adding trigger-phrase regexes for them is neither rung; it is
+ * the pre-ladder move ADR-024 Context names as the arms race, and it is what
+ * mt#3726's own success criteria prescribed until this task's planning pass
+ * reconciled them against the ADR.
+ */
+
+/** A caller exists and will run this later, unprompted (mem#873, positive sign). */
+export const INVOCATION_PATH_POSITIVE_FAMILY = "invocation-path-positive";
+
+/** No automatic caller exists; a human must run it (mem#873 R2, negative sign). */
+export const INVOCATION_PATH_NEGATIVE_FAMILY = "invocation-path-negative";
+
+/** A property of a subsystem, asserted from the one component that was open (mem#1087). */
+export const SUBSYSTEM_PROPERTY_FAMILY = "subsystem-property";
+
+/** How a third-party system behaves, relayed rather than read (mt#3726 §Sibling shape). */
+export const EXTERNAL_SYSTEM_FAMILY = "external-system-mechanism";
+
+/** A log line attributed to the code path under investigation (mem#1123, R9). */
+export const LOG_ATTRIBUTION_FAMILY = "log-attribution";
+
+/**
+ * Exemplars are phrased WITHOUT concrete identifiers, for the same reason
+ * `IDENTITY_CLAIM_EXEMPLARS` is: the embedding scores the claim's GRAMMAR, and
+ * seeding a real name biases every score toward turns discussing that name.
+ */
+export const SYMBOL_FREE_EXEMPLAR_SETS: readonly ExemplarSet[] = [
+  {
+    family: INVOCATION_PATH_POSITIVE_FAMILY,
+    exemplars: [
+      "the missing rows self-heal on the next scheduled run",
+      "the sweeper will pick that up automatically",
+      "it gets retried on its own, so nothing further is needed",
+      "that runs nightly, so the backlog clears itself",
+      "the watcher handles it from here",
+      "this backfills on the next ingest",
+    ],
+  },
+  {
+    family: INVOCATION_PATH_NEGATIVE_FAMILY,
+    exemplars: [
+      "you'll need to run that command manually",
+      "that won't refresh on its own; it requires a reconnect",
+      "nothing picks that up automatically, so someone has to trigger it",
+      "there is no scheduled job for this, so it needs a deliberate run",
+      "you will have to restart it yourself for the change to take effect",
+    ],
+  },
+  {
+    family: SUBSYSTEM_PROPERTY_FAMILY,
+    exemplars: [
+      "two of the three running processes are stale leftovers",
+      "this is not a deploy-surface change",
+      "silent data loss is the worst consequence here",
+      "that would be a one-line migration",
+      "these extra instances are leaked and safe to reap",
+      "the concurrent copies do not interfere with each other",
+    ],
+  },
+  {
+    family: EXTERNAL_SYSTEM_FAMILY,
+    exemplars: [
+      "the repository auto-closes issues after sixty days",
+      "their bot checks only the comment timestamps",
+      "the vendor handles that case by retrying the request",
+      "it is rate-limited to a hundred requests per minute",
+      "that is the documented behavior of the service",
+    ],
+  },
+  {
+    family: LOG_ATTRIBUTION_FAMILY,
+    exemplars: [
+      "the log shows an unhandled rejection, so that failure is uncaught",
+      "this error line means the startup path crashed rather than exiting cleanly",
+      "the absence of that log line proves the branch never ran",
+      "these entries come from the code path I am investigating",
+      "the stack trace shows it died there instead of being handled",
+    ],
+  },
+];
+
+/** Every family in the symbol-free cohort, for classification and rendering. */
+export const SYMBOL_FREE_FAMILIES: readonly string[] = SYMBOL_FREE_EXEMPLAR_SETS.map(
+  (s) => s.family
+);
+
+/** True when `family` belongs to the symbol-free cohort rather than the identity family. */
+export function isSymbolFreeFamily(family: string): boolean {
+  return SYMBOL_FREE_FAMILIES.includes(family);
+}
+
+/** How much of a nominated segment is kept as a symbol-free claim's excerpt. */
+const SYMBOL_FREE_EXCERPT_MAX_CHARS = 120;
+
+/**
+ * Per-class opt-out, separate from the cohort-wide Rung-2 flag.
+ *
+ * `MINSKY_CMA_RUNG2_NOMINATION` turns the whole embedding path on; this turns
+ * the symbol-free cohort back off while leaving mt#4155's identity family
+ * running, so a calibration review that finds THIS cohort noisy can quiet it
+ * without also reverting a family whose records are clean.
+ *
+ * Registered in `HOOK_ONLY_ENV_VAR_CATEGORIES` as `operator-override`.
+ */
+export const SYMBOL_FREE_SKIP_ENV_VAR = "MINSKY_SKIP_SYMBOL_FREE_CLAIMS";
+
+/** True when the operator has turned the symbol-free cohort off. */
+export function isSymbolFreeCohortDisabled(): boolean {
+  const raw = process.env[SYMBOL_FREE_SKIP_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+/** The exemplar sets a nomination pass should score this turn. */
+export function activeExemplarSets(): ExemplarSet[] {
+  const sets: ExemplarSet[] = [IDENTITY_CLAIM_EXEMPLAR_SET];
+  if (!isSymbolFreeCohortDisabled()) sets.push(...SYMBOL_FREE_EXEMPLAR_SETS.map((s) => ({ ...s })));
+  return sets;
+}
+
+/**
+ * Opt-in for the Rung-2 nomination path.
+ *
+ * Ships DISABLED, matching mt#3408's precedent for the sibling family and
+ * mt#4155 SC5: the mechanism lands, and the threshold that decides it is
+ * measured against the calibration log before it is allowed to change a
+ * verdict. `DEFAULT_SIMILARITY_THRESHOLD` (0.455) was derived from the
+ * retrospective-trigger exemplar band; nothing has measured where
+ * identity-claim cosines actually live in THIS corpus.
+ *
+ * Registered in `HOOK_ONLY_ENV_VAR_CATEGORIES`.
+ */
+export const RUNG2_NOMINATION_ENV_VAR = "MINSKY_CMA_RUNG2_NOMINATION";
+
+/** True when the operator has opted into the Rung-2 nomination path. */
+export function isRung2NominationEnabled(): boolean {
+  const raw = process.env[RUNG2_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+/**
+ * One nominated segment, tagged with the family whose exemplars matched it.
+ *
+ * mt#4155 carried bare `string[]` because there was exactly one family, so the
+ * tag was implicit. With the symbol-free cohort (mt#3726) the family decides
+ * which claim channel a segment lands in — symbol extraction or the
+ * `symbolFreeClaims` excerpt — so it can no longer be dropped at the seam.
+ */
+export interface NominatedSegment {
+  family: string;
+  segment: string;
+}
+
+/** What a nomination attempt produced for one turn's prose. */
+export type IdentityNominationOutcome =
+  | { kind: "nominated"; segments: NominatedSegment[] }
+  | { kind: "none" }
+  | { kind: "degraded"; reason: string };
+
+/**
+ * Injected seam. Takes the ELIDED prose and returns the segments whose
+ * similarity to the identity-claim exemplars cleared the threshold.
+ */
+export type IdentityClaimNominator = (prose: string) => Promise<IdentityNominationOutcome>;
+
+/** A detection result plus which rung produced it. */
+export interface IdentityAugmentedResult extends CodeMechanismDetectionResult {
+  /** `"1-lexical"` when nomination did not contribute claims, `"2-embedding"` when it did. */
+  detectionRung: "1-lexical" | "2-embedding";
+  /** Set when a nomination attempt degraded; the turn then reports Rung 1. */
+  nominationDegradedReason?: string;
+}
+
+/**
+ * Turn nominated segments into (symbol, predicate) claims.
+ *
+ * Pure, and applies the SAME backing rules the lexical path applies: a symbol
+ * present in the verification corpus was inspected this turn and is excluded at
+ * claim level rather than reported. Without this the Rung-2 path would report
+ * claims the Rung-1 path suppresses, and the two rungs would disagree about the
+ * same turn.
+ */
+export function identityClaimsFromSegments(
+  segments: string[],
+  verificationCorpus: string,
+  writeEchoCorpus = ""
+): {
+  claims: Array<{ symbol: string; predicate: string }>;
+  backedCount: number;
+  hadWriteEcho: boolean;
+} {
+  const corpusLower = verificationCorpus.toLowerCase();
+  const writeEchoLower = writeEchoCorpus.toLowerCase();
+  const claims: Array<{ symbol: string; predicate: string }> = [];
+  const seen = new Set<string>();
+  const backedSeen = new Set<string>();
+  let hadWriteEcho = false;
+
+  for (const segment of segments) {
+    // Anchor at the segment's midpoint with a window wide enough to span it:
+    // unlike the lexical path there is no predicate match to anchor on, so the
+    // whole segment is the neighborhood.
+    const symbols = symbolsNear(segment, Math.floor(segment.length / 2), segment.length);
+    // `safeTruncate`, not `slice`: unlike the lexical path — whose predicate is
+    // a regex match over known-ASCII verbs — this slices arbitrary prose, which
+    // routinely carries em dashes and can carry astral characters.
+    const predicate = safeTruncate(segment.trim(), IDENTITY_PREDICATE_MAX_CHARS, "head");
+    for (const sym of symbols) {
+      const key = `${sym}::${predicate.toLowerCase()}`;
+      if (corpusLower.includes(sym.toLowerCase())) {
+        backedSeen.add(key);
+        continue;
+      }
+      if (writeEchoLower.length > 0 && writeEchoLower.includes(sym.toLowerCase())) {
+        hadWriteEcho = true;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      claims.push({ symbol: sym, predicate });
+    }
+  }
+
+  return { claims, backedCount: backedSeen.size, hadWriteEcho };
+}
+
+/**
+ * Run the Rung-2 pass over a turn and merge whatever it nominates into `base`.
+ *
+ * Merges rather than replaces: a turn can carry a behavior claim AND an
+ * identity claim, and reporting only the lexical half would reintroduce the
+ * miss on the very turns where both shapes appear.
+ *
+ * Never throws and never rejects — a degraded nomination returns `base`
+ * unchanged with the reason recorded, which is ADR-024's fail-to-Rung-1
+ * invariant rather than a silent skip.
+ */
+export async function augmentWithIdentityNomination(
+  base: CodeMechanismDetectionResult,
+  assistantText: string,
+  verificationCorpus: string,
+  writeEchoCorpus = "",
+  nominator?: IdentityClaimNominator
+): Promise<IdentityAugmentedResult> {
+  const rung1: IdentityAugmentedResult = { ...base, detectionRung: "1-lexical" };
+  if (nominator === undefined || !assistantText) return rung1;
+
+  const prose = elideBlocksAndQuotes(assistantText);
+  // Eligibility gate before spending a provider round-trip. mt#4155's version
+  // skipped the whole turn when no symbol was extractable, on the rationale that
+  // "a turn with no extractable symbol has nothing for an identity claim to be
+  // ABOUT" — sound for that family and FATAL for the symbol-free cohort, whose
+  // defining property is that `symbolsNear` returns nothing (mt#3726; measured
+  // on one sentence per class against extracting controls).
+  //
+  // So the gate now only fires when the identity family is the ONLY thing that
+  // could match. With the cohort active every turn is eligible, which is the
+  // cost this buys and the reason the whole Rung-2 path stays opt-in behind
+  // `MINSKY_CMA_RUNG2_NOMINATION`.
+  const hasSymbols = symbolsNear(prose, Math.floor(prose.length / 2), prose.length).length > 0;
+  if (!hasSymbols && isSymbolFreeCohortDisabled()) return rung1;
+
+  let outcome: IdentityNominationOutcome;
+  try {
+    outcome = await nominator(prose);
+  } catch (err) {
+    return {
+      ...rung1,
+      nominationDegradedReason: `nominator-threw: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  if (outcome.kind === "degraded") {
+    return { ...rung1, nominationDegradedReason: outcome.reason };
+  }
+  if (outcome.kind === "none") return rung1;
+
+  // Route by family. Identity nominations become (symbol, predicate) claims via
+  // symbol extraction; symbol-free nominations cannot, by construction, so they
+  // land in their own channel as excerpts.
+  const identitySegments = outcome.segments
+    .filter((n) => !isSymbolFreeFamily(n.family))
+    .map((n) => n.segment);
+  const symbolFreeClaims = dedupeSymbolFreeClaims(
+    outcome.segments.filter((n) => isSymbolFreeFamily(n.family))
+  );
+
+  const nominated = identityClaimsFromSegments(
+    identitySegments,
+    verificationCorpus,
+    writeEchoCorpus
+  );
+  const existing = new Set(base.claims.map((c) => `${c.symbol}::${c.predicate.toLowerCase()}`));
+  const fresh = nominated.claims.filter(
+    (c) => !existing.has(`${c.symbol}::${c.predicate.toLowerCase()}`)
+  );
+  if (fresh.length === 0 && symbolFreeClaims.length === 0) return rung1;
+
+  const claims = [...base.claims, ...fresh];
+  return {
+    // `matched` stays governed by the symbol-keyed claims. A symbol-free
+    // nomination alone must NOT flip it: `matched` drives the injection branch
+    // and `buildInjectionReminder`, both of which name symbols back to the
+    // agent, and this cohort has no suppression yet. Flipping it here would
+    // promote an unsuppressed cohort straight to operator-facing injection,
+    // which is the opposite of the calibration-first posture ADR-024 requires.
+    matched: base.matched || fresh.length > 0,
+    claims,
+    ...(symbolFreeClaims.length > 0 ? { symbolFreeClaims } : {}),
+    hadSameTurnRead: base.hadSameTurnRead || nominated.backedCount > 0,
+    backedClaimCount: base.backedClaimCount + nominated.backedCount,
+    hadWriteEchoBacking: base.hadWriteEchoBacking || nominated.hadWriteEcho,
+    detectionRung: fresh.length > 0 ? "2-embedding" : rung1.detectionRung,
+  };
+}
+
+/**
+ * Collapse nominated symbol-free segments into one claim per family.
+ *
+ * `nominate` already returns at most one best nomination per family per call,
+ * but `augment` runs per SURFACE and a caller may hand in segments from more
+ * than one pass, so the invariant is enforced here rather than assumed.
+ */
+export function dedupeSymbolFreeClaims(
+  nominations: readonly NominatedSegment[]
+): Array<{ family: string; excerpt: string }> {
+  const byFamily = new Map<string, string>();
+  for (const n of nominations) {
+    if (byFamily.has(n.family)) continue;
+    // `safeTruncate`, not `slice`: this is arbitrary prose and routinely carries
+    // em dashes and can carry astral characters.
+    byFamily.set(n.family, safeTruncate(n.segment.trim(), SYMBOL_FREE_EXCERPT_MAX_CHARS, "head"));
+  }
+  return [...byFamily].map(([family, excerpt]) => ({ family, excerpt }));
+}
+
+/**
+ * Build the real-wired nominator.
+ *
+ * Deps resolve lazily and a failure LATCHES: once degraded, later calls return
+ * degraded without re-attempting, so one wedged provider costs one round-trip
+ * per process rather than one per turn.
+ *
+ * The try/catch is load-bearing, not defensive habit. A hook is its own entry
+ * point: it inherits neither the reflect polyfill nor the process-global
+ * configuration, and `resolveNominationDeps` reaches the embedding factory
+ * which needs both. An escaping throw here would take out the whole detector
+ * verdict — the silent skip ADR-024 forbids — instead of degrading visibly.
+ */
+export function createIdentityClaimNominator(): IdentityClaimNominator {
+  let deps: NominationDeps | null | undefined;
+  let latchedFailure: string | undefined;
+
+  return async (prose: string): Promise<IdentityNominationOutcome> => {
+    if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
+
+    if (deps === undefined) {
+      try {
+        const bootstrap = await ensureHookDomainBootstrap();
+        if (!bootstrap.ok) {
+          latchedFailure = "bootstrap-failed";
+          return { kind: "degraded", reason: latchedFailure };
+        }
+        deps = await resolveNominationDeps();
+      } catch (err) {
+        latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+    }
+    if (deps === null) {
+      latchedFailure = "provider-unconfigured";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    // mt#3726: every ACTIVE family in one call, not just the identity set.
+    // `nominate` scores each exemplar set independently and returns at most one
+    // best nomination per family, so widening the cohort costs additional
+    // exemplar embeddings on the SAME round-trip rather than another round-trip.
+    const result = await nominate(prose, activeExemplarSets(), deps);
+    if (result.degraded) {
+      latchedFailure = result.degradedReason ?? "unknown";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+    const segments = result.nominations.map((n) => ({ family: n.family, segment: n.segment }));
+    if (segments.length === 0) return { kind: "none" };
+    return { kind: "nominated", segments };
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
 
@@ -1310,6 +2022,13 @@ function buildInjectionReminder(
 export interface RunDeps {
   /** Defaults to the real `shouldInjectClaimSet` (code-mechanism-assertion-dedup-store.ts). */
   shouldInjectClaimSetFn?: typeof shouldInjectClaimSet;
+  /**
+   * Rung-2 nominator (mt#4155). Injected rather than reached for, so the wiring
+   * is observable without a provider. Defaults to the real one when
+   * `MINSKY_CMA_RUNG2_NOMINATION` is set, and to `undefined` otherwise — which
+   * is what keeps Rung 2 off by default.
+   */
+  identityNominator?: IdentityClaimNominator;
 }
 
 /**
@@ -1356,6 +2075,51 @@ export function surfaceOnlyReasons(
   if (commentMatched) reasons.push("comment-surface-only");
   if (artifactMatched) reasons.push("artifact-surface-only");
   return reasons;
+}
+
+/**
+ * The WARN line a symbol-free nomination surfaces (mt#3726, PR #3178 R1).
+ *
+ * AT4 requires that a fire in log-only posture "writes a calibration record and
+ * surfaces a WARN, and blocks nothing." The first draft shipped the record and
+ * the blocks-nothing half and no WARN — a cohort that fires into a file nobody
+ * is watching, which is the ADR-024 coverage-receipt failure the calibration
+ * ladder exists to prevent. The reviewer caught it as BLOCKING.
+ *
+ * STDERR, via `auditLines` on the dispatcher path and a direct write on the
+ * standalone path — deliberately NOT `additionalContext`, which is the
+ * operator-facing injection channel this cohort must stay off until its
+ * false-positive rate is measured.
+ *
+ * Names the FAMILIES rather than the excerpts: the excerpt is the agent's own
+ * prose and is already in the calibration record, whereas the family is what a
+ * reader needs in order to know which claim shape just fired.
+ */
+export function buildSymbolFreeWarning(
+  claims: ReadonlyArray<{ family: string; excerpt: string }>
+): string {
+  const families = claims.map((c) => c.family).join(", ");
+  return (
+    `[code-mechanism-assertion-detector] WARN: symbol-free claim nominated ` +
+    `(${claims.length}; families: ${families}) — recorded only, not injected; ` +
+    `this cohort has no suppression yet (mt#3726, mt#3594)\n`
+  );
+}
+
+/**
+ * Collect every symbol-free claim across the three surfaces (mt#3726).
+ *
+ * Returns `undefined` rather than `[]` when the cohort produced nothing, so a
+ * calibration record written before this shipped stays distinguishable from one
+ * where the cohort ran and nominated nothing — the same distinction mt#4155
+ * added `identityDetectionRung` for.
+ */
+export function collectSymbolFreeClaims(
+  ...results: ReadonlyArray<CodeMechanismDetectionResult | undefined>
+): Array<{ family: string; excerpt: string }> | undefined {
+  const all = results.flatMap((r) => r?.symbolFreeClaims ?? []);
+  if (all.length === 0) return undefined;
+  return dedupeSymbolFreeClaims(all.map((c) => ({ family: c.family, segment: c.excerpt })));
 }
 
 export function computeSuppressionReasons(
@@ -1444,11 +2208,11 @@ export function computeSuppressionReasons(
  * shared context resolves the budget once per invocation, before any guard
  * runs — see the same note in `causal-premise-detector.ts`'s `run()`).
  */
-export function run(
+export async function run(
   input: ClaudeHookInput,
   ctx: DispatchContext,
   deps: RunDeps = {}
-): GuardOutcome | null {
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -1479,6 +2243,12 @@ export function run(
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#4155 — which rung produced this turn's claims, and why nomination
+  // degraded if it did. Recorded on every calibration entry: a Rung-2 pass that
+  // silently never runs is indistinguishable from one that runs and finds
+  // nothing, and the calibration log is the only place that is diagnosable.
+  let identityRung: "1-lexical" | "2-embedding" = "1-lexical";
+  let identityDegradedReason: string | undefined;
   // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
   // can capture it — without it a record carries claims but nothing to re-run a
   // changed detector against. ELIDED, never raw (PR #2926 R1): per
@@ -1513,6 +2283,52 @@ export function run(
       corpus,
       buildWriteEchoCorpus(turnLines)
     );
+
+    // mt#4155 — Rung 2. The nominator is built ONLY when the operator has opted
+    // in, so with the flag unset every surface returns exactly what it returned
+    // before this shipped: `augmentWithIdentityNomination` short-circuits on an
+    // undefined nominator. All three surfaces get the pass because the blind
+    // spot is in the shared matcher, not in any one surface's corpus.
+    const nominator =
+      deps.identityNominator ??
+      (isRung2NominationEnabled() ? createIdentityClaimNominator() : undefined);
+    if (nominator !== undefined) {
+      const writeEcho = buildWriteEchoCorpus(turnLines);
+      const chat = await augmentWithIdentityNomination(
+        result,
+        assistantText,
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const comment = await augmentWithIdentityNomination(
+        commentResult,
+        buildAddedCommentCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const artifact = await augmentWithIdentityNomination(
+        artifactResult,
+        buildArtifactProseCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      result = chat;
+      commentResult = comment;
+      artifactResult = artifact;
+      identityRung =
+        chat.detectionRung === "2-embedding" ||
+        comment.detectionRung === "2-embedding" ||
+        artifact.detectionRung === "2-embedding"
+          ? "2-embedding"
+          : "1-lexical";
+      identityDegradedReason =
+        chat.nominationDegradedReason ??
+        comment.nominationDegradedReason ??
+        artifact.nominationDegradedReason;
+    }
   } catch (err) {
     process.stderr.write(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1523,7 +2339,22 @@ export function run(
   // Both surfaces gate the record. Returning on `!result.matched` alone would
   // have made the comment surface silently dead: on a turn whose chat prose
   // asserts nothing, the guard would exit before writing any calibration record.
-  if (!result.matched && !commentResult.matched && !artifactResult.matched) return null;
+  //
+  // mt#3726 adds a fourth admitting condition for exactly the same reason the
+  // comment surface added the second: a symbol-free nomination deliberately does
+  // NOT flip `matched` (it has no symbol to inject), so gating the record on
+  // `matched` alone would make this cohort structurally unable to write a single
+  // calibration record — shipped, running, and permanently invisible, which is
+  // the ADR-024 coverage-receipt failure rather than a quiet start.
+  const symbolFreeClaims = collectSymbolFreeClaims(result, commentResult, artifactResult);
+  if (
+    !result.matched &&
+    !commentResult.matched &&
+    !artifactResult.matched &&
+    symbolFreeClaims === undefined
+  ) {
+    return null;
+  }
 
   const shouldInjectClaimSetFn = deps.shouldInjectClaimSetFn ?? shouldInjectClaimSet;
   const {
@@ -1554,10 +2385,32 @@ export function run(
     ...surfaceOnlyReasons(result.matched, commentResult.matched, artifactResult.matched)
   );
 
+  // mt#3726 — same argument as the two surface-only labels above, whose comment
+  // spells it out: `isSuppressedRecord` (`calibration-sweep.ts`) is
+  // `suppressionReasons.length > 0`, so an UNLABELED record counts as an
+  // operator-facing fire. A record whose only content is a symbol-free
+  // nomination injected nothing, and leaving it unlabeled would inflate the
+  // injected count and drive the review cadence off fires that never reached
+  // the operator — corrupting the measurement this cohort ships to enable.
+  if (
+    symbolFreeClaims !== undefined &&
+    !result.matched &&
+    !commentResult.matched &&
+    !artifactResult.matched
+  ) {
+    suppressionReasons.push("symbol-free-cohort-only");
+  }
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
+      // mt#4155 — which rung produced this record, and why nomination degraded
+      // if it did. Without these a Rung-2 pass that never ran looks exactly
+      // like one that ran and nominated nothing, which is the distinction the
+      // promotion decision turns on.
+      identityDetectionRung: identityRung,
+      identityNominationDegradedReason: identityDegradedReason,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
       backedClaimCount: result.backedClaimCount,
@@ -1575,6 +2428,13 @@ export function run(
       // before anyone proposes wiring it.
       artifactSurfaceClaims: artifactResult.claims,
       artifactSurfaceClaimCount: artifactResult.claims.length,
+      // mt#3726 — the symbol-free cohort, recorded and never injected, on the
+      // same terms as the two surfaces above. `undefined` when the cohort
+      // nominated nothing, which keeps a pre-mt#3726 record distinguishable
+      // from a turn where it ran and found nothing.
+      symbolFreeClaims,
+      symbolFreeClaimCount: symbolFreeClaims?.length ?? 0,
+      symbolFreeFamilies: symbolFreeClaims?.map((c) => c.family),
       // mt#3649: the judged input itself, so a CHANGED detector can be replayed
       // over this record rather than its effect inferred. Bounded and hashed by
       // the shared mt#3607 capture. `captureSchema` marks the record
@@ -1590,6 +2450,15 @@ export function run(
   // a comment would inject a reminder built from an EMPTY chat-claim array.
   if (INJECTION_ENABLED && result.matched && suppressionReasons.length === 0) {
     outcome.additionalContext = buildInjectionReminder(result.claims, relayReasons.length > 0);
+  }
+
+  // mt#3726 (PR #3178 R1) — AT4's WARN half. Emitted whenever the cohort
+  // nominated anything, INDEPENDENT of `matched` and of the injection branch
+  // above: a symbol-free nomination on a turn that also carries a symbol-bearing
+  // claim is still a fire of this cohort, and gating the WARN on
+  // symbol-free-ONLY would hide exactly the mixed turns where both shapes appear.
+  if (symbolFreeClaims !== undefined) {
+    outcome.auditLines = [...(outcome.auditLines ?? []), buildSymbolFreeWarning(symbolFreeClaims)];
   }
 
   return outcome;
@@ -1653,6 +2522,11 @@ export async function main(): Promise<void> {
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#4155 — same fields as `run()`. This path writes into the SAME calibration
+  // log, so omitting them here would leave records whose rung is unknowable and
+  // silently bias any measurement taken over the window (PR #3128 R2).
+  let identityRung: "1-lexical" | "2-embedding" = "1-lexical";
+  let identityDegradedReason: string | undefined;
   // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
   // can capture it — without it a record carries claims but nothing to re-run a
   // changed detector against. ELIDED, never raw (PR #2926 R1): per
@@ -1683,6 +2557,49 @@ export async function main(): Promise<void> {
       corpus,
       buildWriteEchoCorpus(turnLines)
     );
+
+    // mt#4155 — Rung 2, identical composition to run()'s path. Both entry points
+    // must apply the same rungs: they write the same calibration log, and a
+    // window mixing augmented and un-augmented records would report a recall
+    // difference that is an artifact of which entry point ran (PR #3128 R2).
+    const nominator = isRung2NominationEnabled() ? createIdentityClaimNominator() : undefined;
+    if (nominator !== undefined) {
+      const writeEcho = buildWriteEchoCorpus(turnLines);
+      const chat = await augmentWithIdentityNomination(
+        result,
+        assistantText,
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const comment = await augmentWithIdentityNomination(
+        commentResult,
+        buildAddedCommentCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const artifact = await augmentWithIdentityNomination(
+        artifactResult,
+        buildArtifactProseCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      result = chat;
+      commentResult = comment;
+      artifactResult = artifact;
+      identityRung =
+        chat.detectionRung === "2-embedding" ||
+        comment.detectionRung === "2-embedding" ||
+        artifact.detectionRung === "2-embedding"
+          ? "2-embedding"
+          : "1-lexical";
+      identityDegradedReason =
+        chat.nominationDegradedReason ??
+        comment.nominationDegradedReason ??
+        artifact.nominationDegradedReason;
+    }
   } catch (err) {
     console.error(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -1690,7 +2607,19 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!result.matched && !commentResult.matched && !artifactResult.matched) process.exit(0);
+  // mt#3726 — the fourth admitting condition, identical to run()'s. mt#4155's
+  // R2 fix (PR #3128) was that this standalone entry point had been left on
+  // Rung 1 while the dispatcher path moved; the same divergence would strand
+  // this cohort here, so both paths gain the condition together.
+  const symbolFreeClaims = collectSymbolFreeClaims(result, commentResult, artifactResult);
+  if (
+    !result.matched &&
+    !commentResult.matched &&
+    !artifactResult.matched &&
+    symbolFreeClaims === undefined
+  ) {
+    process.exit(0);
+  }
 
   // mt#3113 legs 1/4 (leg 3 is now surfaced, not suppressed — see mt#3152) —
   // identical composition to run()'s dispatcher path.
@@ -1711,10 +2640,30 @@ export async function main(): Promise<void> {
     ...surfaceOnlyReasons(result.matched, commentResult.matched, artifactResult.matched)
   );
 
+  // mt#3726 — same argument as the two surface-only labels above, whose comment
+  // spells it out: `isSuppressedRecord` (`calibration-sweep.ts`) is
+  // `suppressionReasons.length > 0`, so an UNLABELED record counts as an
+  // operator-facing fire. A record whose only content is a symbol-free
+  // nomination injected nothing, and leaving it unlabeled would inflate the
+  // injected count and drive the review cadence off fires that never reached
+  // the operator — corrupting the measurement this cohort ships to enable.
+  if (
+    symbolFreeClaims !== undefined &&
+    !result.matched &&
+    !commentResult.matched &&
+    !artifactResult.matched
+  ) {
+    suppressionReasons.push("symbol-free-cohort-only");
+  }
+
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
+      // mt#4155 — same two fields run() writes. A record without them cannot be
+      // attributed to a rung, and this path shares the log (PR #3128 R2).
+      identityDetectionRung: identityRung,
+      identityNominationDegradedReason: identityDegradedReason,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
       backedClaimCount: result.backedClaimCount,
@@ -1728,6 +2677,13 @@ export async function main(): Promise<void> {
       // before anyone proposes wiring it.
       artifactSurfaceClaims: artifactResult.claims,
       artifactSurfaceClaimCount: artifactResult.claims.length,
+      // mt#3726 — the symbol-free cohort, recorded and never injected, on the
+      // same terms as the two surfaces above. `undefined` when the cohort
+      // nominated nothing, which keeps a pre-mt#3726 record distinguishable
+      // from a turn where it ran and found nothing.
+      symbolFreeClaims,
+      symbolFreeClaimCount: symbolFreeClaims?.length ?? 0,
+      symbolFreeFamilies: symbolFreeClaims?.map((c) => c.family),
       // mt#3649: the judged input itself, so a CHANGED detector can be replayed
       // over this record rather than its effect inferred. Bounded and hashed by
       // the shared mt#3607 capture. `captureSchema` marks the record
@@ -1736,6 +2692,15 @@ export async function main(): Promise<void> {
       [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
       judgedInput: captureArtifact(judgedText),
     });
+  }
+
+  // mt#3726 (PR #3178 R1) — AT4's WARN, before the injection early-exit below.
+  // Order is load-bearing: that exit fires on every symbol-free-only turn (it
+  // keeps `matched` false by design), so a WARN written after it would never run
+  // on exactly the turns this cohort exists for. run() reaches the same
+  // behaviour through `auditLines`, which the dispatcher writes to STDERR.
+  if (symbolFreeClaims !== undefined) {
+    process.stderr.write(buildSymbolFreeWarning(symbolFreeClaims));
   }
 
   // `!result.matched` is required, not implied — see run()'s matching comment.

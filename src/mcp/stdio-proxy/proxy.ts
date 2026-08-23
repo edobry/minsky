@@ -35,6 +35,7 @@ import {
   PROXY_RESTART_NUDGE_TEXT,
   PROXY_READY_PROBE_ID_PREFIX,
   augmentToolsListResponse,
+  toolsListCount,
   buildReadyProbeRequest,
   buildToolsListChangedNotification,
   makeToolCallResponse,
@@ -49,6 +50,8 @@ import {
   redactAgentId,
 } from "./conversation-identity";
 import { resolveHarnessPid } from "@minsky/shared/conversation-pid-map";
+import { armChildMemoryCeiling, writeChildBreachRecord } from "./child-memory-ceiling";
+import type { MemoryCeilingBreach, StoppableWatcher } from "../orphan-exit";
 
 /** Default command for the inner MCP server. */
 const DEFAULT_CHILD_COMMAND = "minsky";
@@ -86,6 +89,9 @@ const STDERR_TAIL_MAX_CHARS = 4000;
  * a full payload capture, so it is truncated aggressively.
  */
 const LAST_TRANSPORT_EVENT_MAX_CHARS = 500;
+
+/** Byte→MB divisor for the mt#4112 breach log's human-readable fields. */
+const BYTES_PER_MB = 1024 * 1024;
 
 /**
  * `serverName` used for disconnect-tracker events recorded BY THE PROXY
@@ -298,6 +304,30 @@ export class MinskyStdioProxy {
   private lastTransportEvent = "";
 
   /**
+   * Out-of-process memory bound over the CURRENT child (mt#4112). One watcher
+   * for the proxy's whole lifetime — it resolves `this.child.pid` per tick, so
+   * a respawn needs no re-arming. Null until `start()` arms it, and after the
+   * signal handler stops it.
+   */
+  private childMemoryWatcher: StoppableWatcher | null = null;
+
+  /**
+   * Re-entrancy guard for the breach handler (mt#4112). The watcher repeats, and
+   * killing plus respawning is async, so without this a slow kill would be
+   * followed by a second breach handler racing the first over the same child
+   * handle. Cleared in a `finally` so a throw cannot wedge the guard on.
+   */
+  private isRestartingForMemory = false;
+
+  /**
+   * Wall-clock ms when the current child was spawned (mt#4112). The child's own
+   * uptime is what belongs on its breach record; the proxy's uptime is a
+   * different and much longer number, and recording that one would misattribute
+   * how fast the runaway grew.
+   */
+  private childSpawnedAtMs = 0;
+
+  /**
    * Lazily-resolved disconnect tracker for events THIS PROXY observes
    * (mt#2830) — see `PROXY_DISCONNECT_SERVER_NAME`. Lazy so tests that never
    * spawn a real child never touch the tracker's file-I/O side effects.
@@ -381,7 +411,37 @@ export class MinskyStdioProxy {
       );
     }
     this.setupSignalHandlers();
+    this.armChildMemoryCeiling();
     await this.spawnChild();
+  }
+
+  /**
+   * Arm the mt#4112 out-of-process memory bound over the inner server.
+   *
+   * Armed once, here, rather than per spawn: the reader resolves the current
+   * child's pid on each tick, so one watcher covers every child the proxy will
+   * ever have. Arming per spawn would leak a timer per respawn and would fire N
+   * kills for one breach.
+   *
+   * Armed BEFORE the first spawn, not after. `spawnChild()` does not resolve
+   * until the readiness probe answers or times out, and a child that wedges its
+   * event loop on startup answers nothing — so arming afterwards would add the
+   * full probe timeout to the response bound for exactly the child most likely
+   * to need it. A tick with no child reads null and is skipped.
+   */
+  private armChildMemoryCeiling(): void {
+    this.childMemoryWatcher = armChildMemoryCeiling({
+      getChildPid: () => this.child?.pid,
+      onBreach: (breach) => {
+        // Short-circuit before doing anything while a restart is already in
+        // flight. `restartChildForMemoryBreach` re-checks the same guards — it
+        // has to, since it is also reachable directly — but the kill can take
+        // the full SIGTERM grace period, which is several poll ticks, and this
+        // keeps those ticks from entering the restart path at all (PR #2975 R1).
+        if (this.isRestartingForMemory || this.isShuttingDown) return;
+        void this.restartChildForMemoryBreach(breach);
+      },
+    });
   }
 
   /**
@@ -457,6 +517,8 @@ export class MinskyStdioProxy {
     });
 
     this.child = child;
+    // mt#4112: the child's own uptime, for its breach record if it runs away.
+    this.childSpawnedAtMs = Date.now();
 
     // Wire the inbound path: stdin → inbound-transform → child.stdin
     this.inboundTransform = this.createInboundTransform();
@@ -889,6 +951,47 @@ export class MinskyStdioProxy {
             }
             continue;
           }
+          // mt#4128: record the tool list this conversation was actually
+          // served, BEFORE augmentation — so the number is the inner server's,
+          // not ours plus one.
+          //
+          // The condition this exists for: a conversation can hold ZERO
+          // `mcp__minsky__*` tools for its entire life while every process
+          // stays healthy and `claude mcp list` reports the server Connected.
+          // The client caches whatever `tools/list` it first receives and does
+          // not refresh on `notifications/tools/list_changed` (mt#2030,
+          // anthropics/claude-code#4118), so one bad list is permanent for that
+          // conversation — and `__proxy_restart_server`, appended just below,
+          // never reaches a client that never re-lists. Until this line there
+          // was no record anywhere of whether a list was served or how big it
+          // was, which is why the 2026-08-13 occurrence could not be diagnosed
+          // after the fact.
+          //
+          // stderr, NOT `log.*`, and that is the point rather than a style
+          // choice: `resolveDiagnosticSink` returns the `agent` sink —
+          // structured JSON on STDOUT — whenever `MINSKY_LOG_MODE=STRUCTURED`
+          // or `ENABLE_AGENT_LOGS=true` is set
+          // (packages/shared/src/logger.ts:136). stdout here IS the JSON-RPC
+          // channel this proxy pipes, so routing this record through the logger
+          // would let a diagnostic for channel corruption become a cause of it.
+          // Guarded for the same reason the stdout write in `runReadyProbe` is
+          // (PR #3038 R1). This sits inside the JSON-parse `try` below, whose
+          // `catch` means "not valid JSON — pass through as-is". Unguarded, an
+          // EPIPE on stderr would be swallowed by THAT handler: the line would
+          // still be forwarded, but augmentation would be skipped — silently
+          // dropping `__proxy_restart_server` from the response — and the
+          // failure would be misattributed to a parse error. A diagnostic must
+          // not be able to alter the frame it is describing.
+          try {
+            const servedCount = toolsListCount(msg);
+            if (servedCount !== null) {
+              proc.stderr.write(`[proxy] tools/list served: ${servedCount} tool(s)\n`);
+            }
+          } catch {
+            // intentional-swallow: the served-count record is diagnostic only,
+            // and the only channel available to report its own failure is the
+            // stream that just failed.
+          }
           const augmented = augmentToolsListResponse(msg);
           if (augmented !== msg) {
             outputLine = JSON.stringify(augmented);
@@ -980,6 +1083,96 @@ export class MinskyStdioProxy {
   }
 
   /**
+   * Kill and respawn the inner server after it crossed the memory ceiling
+   * (mt#4112).
+   *
+   * A RESTART rather than a bare kill, because the proxy can already replace a
+   * child without the client observing anything (mt#1322 / mt#2011) — so the
+   * out-of-process bound is strictly better than the in-process one it backs
+   * up, which drops the server entirely.
+   *
+   * Two properties worth stating, because both are load-bearing and neither is
+   * obvious from the call site:
+   *
+   * 1. **The kill escalates.** `killChild` is SIGTERM, then SIGKILL after
+   *    `CHILD_SIGTERM_GRACE_MS`, and resolves only once the child has actually
+   *    exited. A wedged child cannot run its own SIGTERM handler, so SIGKILL is
+   *    the path that actually fires here — which is why "we sent a signal" is
+   *    not the completion condition.
+   * 2. **It is not a crash.** Detaching `_proxyCloseHandler` before the kill
+   *    keeps `onChildClose` — the only writer of `recentFailures` — from
+   *    running, so an intentional memory restart cannot walk the proxy toward
+   *    `MAX_CONSECUTIVE_FAILURES`. That is the same mechanism
+   *    `handleProxyRestart` uses for the agent-initiated restart, and the two
+   *    are accounted for identically because both are deliberate.
+   */
+  private async restartChildForMemoryBreach(breach: MemoryCeilingBreach): Promise<void> {
+    if (this.isShuttingDown || this.isRestartingForMemory) return;
+
+    const oldChild = this.child;
+    if (!oldChild || !oldChild.pid || oldChild.exitCode !== null) return;
+
+    this.isRestartingForMemory = true;
+    const pid = oldChild.pid;
+    const uptimeSeconds = Math.max(0, Math.round((Date.now() - this.childSpawnedAtMs) / 1000));
+
+    try {
+      // Emitted BEFORE the kill. A wedged child records nothing itself, so this
+      // line and the artifact below are the only trace the breach leaves — and
+      // mt#3885 needs them to narrow which allocation path grows a server to
+      // tens of GB.
+      log.error("[mt#4112] Inner MCP server exceeded the memory ceiling; restarting it", {
+        pid,
+        residentMb: Math.round(breach.residentBytes / BYTES_PER_MB),
+        ceilingMb: Math.round(breach.ceilingBytes / BYTES_PER_MB),
+        residentBytes: breach.residentBytes,
+        ceilingBytes: breach.ceilingBytes,
+        uptimeSeconds,
+      });
+      writeChildBreachRecord({
+        pid,
+        residentBytes: breach.residentBytes,
+        ceilingBytes: breach.ceilingBytes,
+        uptimeSeconds,
+      });
+
+      this.child = null;
+
+      // Detach the close listener so `onChildClose` does not ALSO schedule a
+      // respawn — the same double-spawn race `handleProxyRestart` documents
+      // (BLOCKING 1, PR #1039 R1).
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- read side-channel property; same as the write in spawnChild
+      const handlerHost = oldChild as unknown as {
+        _proxyCloseHandler?: (code: number | null, signal: NodeJS.Signals | null) => void;
+      };
+      const handler = handlerHost._proxyCloseHandler;
+      if (handler) {
+        oldChild.removeListener("close", handler);
+      }
+
+      this.tearDownPipes(oldChild);
+      await this.killChild(oldChild);
+
+      if (this.isShuttingDown) return;
+      await this.spawnChild();
+      // The replacement's pid is already logged by `spawnChild` ("Inner MCP
+      // server spawned"), so this line carries only what that one cannot: which
+      // pid was killed, and that the kill was a memory breach.
+      log.debug("[mt#4112] Inner MCP server restarted after memory breach", { killedPid: pid });
+    } catch (err) {
+      // A failed respawn leaves the fresh child's own close handler in place if
+      // one was attached, so the ordinary respawn path still applies; log and
+      // let the watcher's next tick re-evaluate rather than exiting the proxy.
+      log.error("[mt#4112] Failed to restart inner MCP server after memory breach", {
+        killedPid: pid,
+        error: (err as Error).message,
+      });
+    } finally {
+      this.isRestartingForMemory = false;
+    }
+  }
+
+  /**
    * Kill a child process gracefully: SIGTERM → SIGKILL after grace period.
    * Returns when the child has actually exited.
    */
@@ -1035,6 +1228,11 @@ export class MinskyStdioProxy {
 
       log.debug("[proxy] Signal received; shutting down", { signal });
 
+      // mt#4112: disarm before the kill below, so a tick landing mid-teardown
+      // cannot start a restart of the child we are deliberately stopping.
+      this.childMemoryWatcher?.stop();
+      this.childMemoryWatcher = null;
+
       if (this.child && this.child.pid) {
         await this.killChild(this.child);
       }
@@ -1054,6 +1252,17 @@ export class MinskyStdioProxy {
   /** For testing: expose shutdown state. */
   get shuttingDown(): boolean {
     return this.isShuttingDown;
+  }
+
+  /**
+   * For testing: crash-loop failures counted in the current window (mt#4112).
+   *
+   * Exposed because "a memory restart is not a crash" is a claim about this
+   * counter specifically, and there is no other way to observe it. It is the
+   * value compared against `MAX_CONSECUTIVE_FAILURES`.
+   */
+  get recentFailureCount(): number {
+    return this.recentFailures.length;
   }
 }
 

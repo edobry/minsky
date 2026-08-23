@@ -55,28 +55,122 @@ agent with nothing to say. That is not hypothetical: on 2026-08-03 a transient
 DNS failure against the Pulumi backend stopped the channel from starting **five
 times**, and each was noticed only when a message went unanswered (mt#3608).
 
-`GET /api/health` therefore reports the channel's own state, independent of the
-poller:
+`GET /api/health` therefore reports the channel's own state:
 
 ```json
-{ "principalChannel": { "state": "running", "chatId": "167346572" } }
+{
+  "principalChannel": {
+    "state": "running",
+    "chatId": "167346572",
+    "since": "2026-08-17T03:48:02.000Z",
+    "lastProgressAt": "2026-08-17T03:49:17.000Z",
+    "dedupe": {
+      "mode": "durable",
+      "since": "2026-08-17T03:49:17.000Z",
+      "unrecordedCount": 0
+    }
+  }
+}
 ```
 
-| `state`        | Means                                                                                                         |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `running`      | The poller is up and consuming updates. Carries the `chatId`.                                                 |
-| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                 |
-| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                        |
-| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                  |
-| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.** |
-| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                      |
+| `state`        | Means                                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`, `dedupe`.                                       |
+| `stalled`      | Launched, then stopped making progress. Carries `chatId`, `since`, `lastProgressAt`, `staleForMs`, `thresholdMs`. **Not consuming messages.** |
+| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                                 |
+| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                        |
+| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason`, `attempts`, `lastAttemptAt`, `nextAttemptAt`.                   |
+| `failed`       | An exception AFTER credentials resolved (poller/actuator construction). Carries `reason` only. **The channel is not running.**                |
+| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                                      |
 
-**`failed` and `unconfigured` are deliberately different states.** The first
+Field lists above are exhaustive per variant and match `PrincipalChannelStatus`
+in `src/cockpit/principal-channel-launch.ts`, with one qualification: `dedupe` is
+typed OPTIONAL on `running`, while every other field listed is required. A live
+`running` payload always carries it — the poller and the dedupe are created
+together, so reaching `running` means one exists. The optionality covers a status
+seeded WITHOUT a poller, which only the test-only setter does. Read an absent
+`dedupe` as "not reported", never as `durable`.
+
+Two rows were wrong before mt#4183 and are corrected rather than carried forward:
+
+- **`failed` never carried `attempts`.** mt#3689 removed it: there it was always
+  the literal `1` and counted nothing, since that failure happens once, after
+  credentials have already resolved — so one field was carrying two meanings
+  across two fault classes. `state` already separates them.
+- **`failed` is no longer reachable from a credential-read failure.** mt#3683
+  removed that path's retry ceiling, so a failing read keeps retrying instead of
+  settling here. The row's old wording ("could not be read after retries")
+  described behaviour that no longer exists.
+
+`retrying`'s row was incomplete in the other direction — it omitted
+`nextAttemptAt`, which is the field that actually discriminates "still working
+the problem" from "stuck".
+
+**`running` used to be a latch, and this section used to say so wrongly.** Until
+mt#4183 the sentence above read "reports the channel's own state, **independent
+of the poller**" — which was false when written. `running` was assigned once, at
+the moment the poller was launched, and no code path ever wrote it again. It
+therefore reported the state the channel reached at STARTUP, not its state now.
+On 2026-08-16 the poll loop parked on an unsettled await and this field said
+`running` for ~44 hours while Telegram held undelivered updates and the daemon
+had zero connections to `api.telegram.org`.
+
+What makes it true now is that `running` and `stalled` are **projected on read**
+rather than stored: `lastProgressAt` comes from the poll loop's own progress
+reports into the sweep-liveness registry (mt#4185 registers the poller as
+`principal-channel poll`; see `GET /api/sweeps`), and `stalled` is computed when
+that stamp — or, before the first one lands, `since` — is older than the
+registry's own stall threshold. There is no write site for `stalled`, which is
+the point: nothing has to remember to update it, so it cannot go stale the way
+the latch did.
+
+Read `staleForMs` rather than just the state: "stalled 4 minutes" and "stalled 4
+days" call for different responses, and only the number distinguishes them.
+
+### `dedupe` — is the channel still able to tell a replay from a new message?
+
+`running` says the loop is TURNING. It does not say the loop can still recognise
+a message it already answered, and those two come apart exactly when Postgres is
+unreachable (mt#4252). The channel's dedupe is durable — the idempotency token is
+looked up in the append-only event log — so when the database is unreachable the
+check is unreachable with it. `dedupe` is the field that separates the two:
+
+| Field             | Means                                                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`            | `durable` — the last audit write LANDED, so the event log is answering the replay question. `degraded` — the last one FAILED, and a per-process fallback answered it. |
+| `since`           | ISO stamp of the write that set `mode`.                                                                                                                               |
+| `unrecordedCount` | How many messages this daemon has acted on with NO durable audit row behind them. A total for the process's lifetime, not a gauge — it does not reset on recovery.    |
+
+**`mode` describes the last write the channel attempted, dated by `since` — it is
+not a live database probe.** Nothing here polls Postgres; the channel only learns
+the database's state by trying to write to it. So a quiet channel keeps reporting
+whatever it last observed, and `since` is what stops that being mistaken for a
+fresh reading. A `degraded` from four hours ago on a channel nobody has messaged
+since means "the last write failed, four hours ago", not "still broken now".
+
+Like `running`/`stalled`, this is **projected, not latched**: `mode` is derived by
+comparing the last durable write against the last fallback, so it corrects itself
+on the next successful write and nothing has to remember to clear it.
+
+`degraded` is not by itself an outage you must act on — the channel keeps
+answering, which is the whole point of the fallback. What it tells you is that
+the audit log has a hole in it for those messages, and that dedupe is only as
+good as this process's memory: a daemon restart during a `degraded` stretch
+empties the fallback, and Telegram may re-serve anything still unconfirmed.
+`unrecordedCount` is the size of the hole.
+
+**`retrying` and `unconfigured` are deliberately different states.** The first
 means the credentials probably exist but could not be READ — a fault, usually
 transient, and retrying is the right response. The second means they were never
 set — an operator has to act. Before mt#3608 both reported the same
 "not configured" message, which reads as an operator oversight and is why five
 faults in one day went unexamined.
+
+This contrast used to name `failed` rather than `retrying`, and that stopped
+being true at mt#3683: an unreadable credential no longer exhausts into
+`failed`, it keeps retrying. `failed` now means something narrower and later —
+construction of the poller or actuator threw AFTER credentials had already
+resolved — so it is not the counterpart to `unconfigured` any more.
 
 The tray does not parse this field (it reads only `db` and
 `processStartedAtMs`), so it is for operators and the cockpit UI.
@@ -97,19 +191,28 @@ Replies are rendered — bold, italic, code, fenced blocks, links, quotes — vi
 Telegram's HTML mode. Tables become monospace blocks and headings become bold
 lines, because Telegram has no markup for either.
 
-**Replies stream.** Rather than arriving as one blob when the turn ends, the
-answer appears as soon as there is any of it and fills in as it is written. It
-is a single message being edited in place, roughly once a second — so your phone
-notifies you ONCE, when the reply first appears, not on every update. A reply
-too long for one Telegram message continues into a second one, split at a
-paragraph or line break rather than mid-word.
+**Replies stream, as a sequence of messages.** Rather than arriving as one blob
+when the turn ends, the answer appears as soon as there is any of it and fills
+in as it is written. Each run of prose between tool calls is its own message:
+the text within a message fills in live, and when the agent stops to use a tool,
+that message is finished and the next thought starts a new one — the way a
+person types in chat, rather than one message that keeps growing under your eyes.
+
+**Your phone still notifies you ONCE per turn**, on the first message. Every
+later message in the same turn is delivered silently, so a turn with six blocks
+costs you one notification, exactly as the single-message version did. A block
+too long for one Telegram message continues into another, split at a paragraph
+or line break rather than mid-word — that split is silent too.
 
 Two things worth knowing about how it settles:
 
-- **What you see mid-stream can change.** A turn that uses tools writes text
-  around each step; the message settles on the turn's final answer when it
-  finishes, which is not always the concatenation of everything that flickered
-  past.
+- **Nothing you have already read is taken away.** A turn that uses tools writes
+  text around each step, and its final answer is usually shorter than everything
+  that streamed. That final answer never overwrites what is already in the chat:
+  if it continues the last message it is added to it, if you have already seen it
+  nothing happens, and if it is something new — a timeout notice, say — it
+  arrives as its own message. (Until mt#3711 it DID overwrite, which is why a
+  reply could visibly shrink back down the moment the turn finished.)
 - **Streaming can never cost you the reply.** If editing fails partway, the
   complete answer is sent as a fresh message rather than left half-drawn — you
   may see some text twice, which is the deliberate trade. A half-written reply

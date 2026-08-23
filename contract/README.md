@@ -11,12 +11,28 @@ cannot simply import or shell out to the TS implementation. This directory
 pins the parts of that duplicated contract that can be pinned with a test,
 and documents the parts that can only be pinned with a comment.
 
+**Two health fixtures live here, for two different services (mt#4322).**
+`cockpit-health-shape.json` pins the COCKPIT's `GET /api/health`;
+`mcp-health-shape.json` pins the MCP DAEMON's `GET /health`. They are different
+bodies with different consumers and must not be conflated — the tray polls both,
+at different paths, and asserts a different `service` identity on each. Section 1
+below covers the cockpit fixture; section 1a covers the MCP one.
+
 ## 1. Health response shape (`cockpit-health-shape.json`)
 
 `GET /api/health` is emitted by `src/cockpit/routes/health.ts` and polled by
-the Rust supervisor (`health_ok` / `poll_health_detail` in
-`cockpit-tray/src-tauri/src/supervisor.rs`). `cockpit-health-shape.json` in
-this directory is the single golden fixture both sides read:
+the Rust supervisor (`daemon_core::probe_health` for the transport and the
+identity, `supervisor::db_status_from_body` for the cockpit-only `db` field).
+`cockpit-health-shape.json` in this directory is the single golden fixture both
+sides read:
+
+**mt#3815 changed which fields the Rust side consumes, and why.** The supervisor
+now watches a REGISTRY of daemons rather than one, so the endpoint path is
+per-entry (`/api/health` for the cockpit, `/health` for the MCP daemon) and the
+probe asserts the body's `service` identity instead of accepting any 2xx —
+`service` is therefore a `rustConsumedFields` entry now. The old `health_ok` /
+`poll_health_detail` pair named below is gone; their replacements are named
+above and read the same fields.
 
 - **Bun side** — `src/cockpit/health-contract.test.ts` boots the real
   `createCockpitServer()`, fetches `/api/health`, and asserts the live
@@ -25,7 +41,7 @@ this directory is the single golden fixture both sides read:
 - **Cargo side** — `cockpit-tray/src-tauri/src/supervisor.rs`'s
   `health_contract` test module reads the SAME fixture via `include_str!`
   and asserts two things: (a) every field in `rustConsumedFields` (the
-  fields `poll_health_detail` actually parses — currently `db` and
+  fields the supervisor actually parses — currently `service`, `db` and
   `processStartedAtMs`) is present in the fixture, and (b) the literal
   TypeScript source of `src/cockpit/routes/health.ts` (also pulled in via
   `include_str!`) still emits each of those field names. (b) is what makes a
@@ -35,10 +51,10 @@ this directory is the single golden fixture both sides read:
 **What this catches:** renaming, removing, or changing the type of any
 top-level `/api/health` field in `health.ts` fails the bun test immediately
 (the live response no longer matches the checked-in fixture). Renaming one
-of the two Rust-consumed fields (`db`, `processStartedAtMs`) additionally
-fails the cargo test immediately (the source-text scan no longer finds the
-old field name). Landing the rename cleanly requires updating this fixture
-AND (for the two Rust-consumed fields) `supervisor.rs`'s parsing code —
+of the three Rust-consumed fields (`service`, `db`, `processStartedAtMs`)
+additionally fails the cargo test immediately (the source-text scan no longer
+finds the old field name). Landing the rename cleanly requires updating this
+fixture AND (for the three Rust-consumed fields) the tray's parsing code —
 which is the explicit goal: the two implementations cannot silently drift
 apart on the fields that matter to both.
 
@@ -48,6 +64,38 @@ typed `string` but now emitting a value outside `"ok" | "degraded" |
 internals of `transcriptWatcher` / `transcriptSweep` are pinned only at the
 `"object"` type level — neither side parses their internals today, so a
 finer-grained pin would be over-fitting to code that doesn't exist yet.
+
+## 1a. MCP daemon health response shape (`mcp-health-shape.json`)
+
+`GET /health` on the MCP daemon, emitted by `buildMcpHealthResponse`
+(`src/mcp/health-payload.ts`) and served by the route in
+`src/commands/mcp/start-command.ts`. Pinned by mt#4322.
+
+The assertion differs from section 1's in one deliberate way: the cockpit test
+boots a real server and fetches the live route, which is cheap for an Express
+app. Booting the MCP server to read one route is not — it resolves a DI
+container, binds a port and installs shutdown handlers. So the payload was
+extracted into a pure builder and `src/mcp/health-payload.test.ts` asserts THAT,
+which is the same function the route calls. A field renamed in the emitter fails
+the contract test; a field renamed only in the test fails nothing, because the
+fixture is the contract rather than the test's copy of it.
+
+Two invariants a consumer or a future edit must preserve, both documented at
+length in the fixture's own `$readyFieldNote`:
+
+1. **The status code is not derived from `ready`, and readiness is not derived
+   from the status code.** `persistence.mode === "unconfigured"` is a 200 with
+   `ready: false` on purpose — that is the expected local/dev/offline boot and
+   the exact state `bundle-boot-smoke` asserts a 200 against, while a daemon in
+   it can serve no DB-backed work. Collapsing the two either breaks that CI gate
+   or re-opens the 31-hour outage `ready` was added to surface (mt#4297).
+2. **`ready`'s consumer stays tolerant of its absence.** `classifyDaemonProbe`
+   (`src/mcp/setup/local-http-apply.ts`) reads `ready` when present and falls
+   back to `persistence.mode` otherwise, because keying on it alone would
+   classify every pre-mt#4297 daemon as not-ready — including during a rollout.
+   The fixture requiring the field and the consumer tolerating its absence are
+   not in conflict: the fixture pins what THIS build emits, the fallback covers
+   what an OLDER one does.
 
 ## 2. Port/process-detection semantics
 

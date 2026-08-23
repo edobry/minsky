@@ -236,20 +236,20 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
     expect(result.claims).toEqual([]);
   });
 
-  test("AT3: genuine unbacked claim (tasks_create::guard-style) still extracted, and injected (INJECTION_ENABLED=true)", () => {
+  test("AT3: genuine unbacked claim (tasks_create::guard-style) still extracted, and injected (INJECTION_ENABLED=true)", async () => {
     const text = GENUINE_UNBACKED_CLAIM_TEXT;
     const result = detectCodeMechanismAssertion(text, "");
     expect(result.matched).toBe(true);
     expect(result.claims.map((c) => c.symbol)).toContain("tasks_create");
 
     const transcriptLines = [makeRunUserLine(), makeRunAssistantLine(text), makeRunUserLine()];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(INJECTION_ENABLED).toBe(true);
     expect(outcome?.additionalContext).toBeDefined();
     expect(outcome?.additionalContext).toContain("tasks_create");
   });
 
-  test("AT4: same fixture WITH a same-turn read of the symbol -> no fire (backed-claim exclusion intact)", () => {
+  test("AT4: same fixture WITH a same-turn read of the symbol -> no fire (backed-claim exclusion intact)", async () => {
     const text = GENUINE_UNBACKED_CLAIM_TEXT;
     const corpus = "export async function tasks_create() { /* read this turn */ }";
     const result = detectCodeMechanismAssertion(text, corpus);
@@ -268,7 +268,7 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
       } as TranscriptLine,
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(outcome).toBeNull();
   });
 
@@ -1296,7 +1296,7 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
 const ALWAYS_INJECT_DEPS = { shouldInjectClaimSetFn: () => true };
 
 describe("run() (dispatcher-compatible)", () => {
-  test("unread code-mechanism claim -> calibration record AND additionalContext (INJECTION_ENABLED=true, mt#3002)", () => {
+  test("unread code-mechanism claim -> calibration record AND additionalContext (INJECTION_ENABLED=true, mt#3002)", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(
@@ -1304,7 +1304,7 @@ describe("run() (dispatcher-compatible)", () => {
       ),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(outcome?.calibration).toBeDefined();
     expect(INJECTION_ENABLED).toBe(true);
     expect(outcome?.additionalContext).toBeDefined();
@@ -1313,16 +1313,16 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.claims.map((c) => c.symbol)).toContain("maxBuffer");
   });
 
-  test("no match -> null (silent allow)", () => {
+  test("no match -> null (silent allow)", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine("The build passed and all tests are green."),
       makeRunUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS)).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS)).toBeNull();
   });
 
-  test("comment-only claim -> recorded, and NOT injected (mt#3571)", () => {
+  test("comment-only claim -> recorded, and NOT injected (mt#3571)", async () => {
     // Two guards in one fixture, because they are the two ways this surface
     // could have shipped broken:
     //   1. The early return used to be `if (!result.matched) return null`, so a
@@ -1349,7 +1349,11 @@ describe("run() (dispatcher-compatible)", () => {
       },
     };
     const transcriptLines = [makeRunUserLine(), assistantWithWrite, makeRunUserLine()];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines as never), ALWAYS_INJECT_DEPS);
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(transcriptLines as never),
+      ALWAYS_INJECT_DEPS
+    );
 
     const cal = outcome?.calibration as {
       claims: unknown[];
@@ -1371,17 +1375,17 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.suppressionReasons.length).toBeGreaterThan(0);
   });
 
-  test("no transcript_path -> null", () => {
+  test("no transcript_path -> null", async () => {
     const input: ClaudeHookInput = {
       session_id: "test",
       cwd: "/test",
       hook_event_name: RUN_HOOK_EVENT_NAME,
     };
     const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
-    expect(run(input, ctx)).toBeNull();
+    expect(await run(input, ctx)).toBeNull();
   });
 
-  test("legacy override env var suppresses detection and returns an audit line", () => {
+  test("legacy override env var suppresses detection and returns an audit line", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine("`executeCommand` clamps `maxBuffer` to 10MB."),
@@ -1389,7 +1393,7 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+      const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
       expect(outcome?.calibration).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
@@ -1397,7 +1401,7 @@ describe("run() (dispatcher-compatible)", () => {
     }
   });
 
-  test("mt#3113 leg 1: hadSameTurnRead=true suppresses additionalContext but STILL logs the claim + reason (AT)", () => {
+  test("mt#3113 leg 1: hadSameTurnRead=true suppresses additionalContext but STILL logs the claim + reason (AT)", async () => {
     // A DIFFERENT symbol (readHelper) is backed this turn; unreadEnvGuard's
     // own claim remains unbacked at claim level (hadSameTurnRead is a
     // TURN-level aggregate, per mt#2673 — unchanged detection semantics).
@@ -1415,7 +1419,7 @@ describe("run() (dispatcher-compatible)", () => {
       } as TranscriptLine,
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(outcome?.additionalContext).toBeUndefined();
     const cal = outcome?.calibration as {
       hadSameTurnRead: boolean;
@@ -1428,7 +1432,7 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.claims.map((c) => c.symbol)).toContain("unreadEnvGuard");
   });
 
-  test("mt#3113 leg 3 (via run()): a subagent report landing THIS turn suppresses an unrelated fresh claim (AT)", () => {
+  test("mt#3113 leg 3 (via run()): a subagent report landing THIS turn suppresses an unrelated fresh claim (AT)", async () => {
     // The subagent's report is about a DIFFERENT topic than the claim — its
     // tool_result content must NOT literally contain "tasks_estimate", or
     // the claim would already be excluded via the pre-existing
@@ -1466,7 +1470,7 @@ describe("run() (dispatcher-compatible)", () => {
       makeRunAssistantLine(TASKS_ESTIMATE_CLAIM_TEXT),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     // mt#3152 REVERSAL: mt#3113 suppressed here. A relayed claim is now
     // SURFACED with relay-specific guidance — being second-hand is the reason
     // to check a claim, not to stay quiet (mem#706).
@@ -1484,7 +1488,7 @@ describe("run() (dispatcher-compatible)", () => {
     expect(cal.suppressionReasons).not.toContain(REASON_RELAYED_SUBAGENT_CONTENT);
   });
 
-  test("mt#3113 leg 4 (via run()): identical claim set two turns running injects at most once (AT)", () => {
+  test("mt#3113 leg 4 (via run()): identical claim set two turns running injects at most once (AT)", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(TASKS_ESTIMATE_CLAIM_TEXT),
@@ -1499,12 +1503,12 @@ describe("run() (dispatcher-compatible)", () => {
         return injectCallCount === 1;
       },
     };
-    const first = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), deps);
+    const first = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), deps);
     expect(first?.additionalContext).toBeDefined();
     const firstCal = first?.calibration as { suppressionReasons: string[] };
     expect(firstCal.suppressionReasons).not.toContain("deduped");
 
-    const second = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), deps);
+    const second = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines), deps);
     expect(second?.additionalContext).toBeUndefined();
     const secondCal = second?.calibration as { suppressionReasons: string[] };
     expect(secondCal.suppressionReasons).toContain("deduped");

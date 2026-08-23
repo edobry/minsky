@@ -201,11 +201,36 @@ function bashCommandOf(input: Record<string, unknown>): string {
   return typeof command === "string" ? command : "";
 }
 
-/** Read every task id this turn's walk-forward calls referenced, on EITHER transport. */
+/**
+ * Read every task id this turn's walk-forward calls referenced, on EITHER transport.
+ *
+ * **Deliberately NOT hand-off-qualified, unlike `stop-at-decision-scan.ts`
+ * (mt#4228).** That task qualified its sibling's `DISCHARGE_TOOLS` so a
+ * transition INTO PLANNING/READY stops counting as forward motion, and
+ * proposed the same change here by symmetry. Implementing it broke four
+ * fixtures that walk via `tasks status set … PLANNING`, and those fixtures are
+ * RIGHT — the two guards ask different questions:
+ *
+ *   - `stop-at-decision-scan` asks "after writing evidence into an open
+ *     decision, did the turn take the next step?" Setting PLANNING there opens
+ *     a hand-off; it is the stop, not the walk.
+ *   - This guard asks "did anything at all happen to the id just minted?" Its
+ *     own remedy text says *continue to /plan-task now*, and moving the task to
+ *     PLANNING is literally that skill's Step 1. Firing here would tell an
+ *     agent who had just started planning to go start planning.
+ *
+ * So the symmetry argument was wrong and the qualification is scoped to the one
+ * guard whose question it answers. Recorded rather than silently dropped
+ * because the reasoning is not visible from either file alone, and because this
+ * guard's over-fires are a live problem in their own right (mt#3784).
+ */
 function collectWalkedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): Set<string> {
   const walked = new Set<string>();
   for (const tool of WALK_FORWARD_TOOLS) {
     for (const input of findToolUseInputs(turnLines, tool)) {
+      // NOT hand-off-qualified, deliberately (mt#4228 — see the note below
+      // `collectWalkedIds`). A transition into PLANNING IS a walk for THIS
+      // guard, even though it is not a discharge for `stop-at-decision-scan`.
       for (const key of TASK_ID_PARAM_KEYS) {
         const value = input[key];
         if (typeof value === "string" && value.length > 0) walked.add(value);

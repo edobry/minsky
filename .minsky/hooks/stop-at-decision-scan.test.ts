@@ -1,6 +1,6 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the dedup store (turn-end-scan-store.ts) writes real per-session JSON files; these tests exercise the real store roundtrip (write -> dedup-read) in an isolated mkdtemp dir, mirroring turn-end-unwalked-task-scan.test.ts's precedent */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,10 @@ import {
   run,
   EVIDENCE_TOOL,
   EVIDENCE_COMPANION_TOOL,
+  RECOMMENDATION_MARKERS_BASELINE,
+  RECOMMENDATION_MARKERS_MT4085,
+  RECOMMENDATION_MARKER_REASON,
+  READ_ONLY_SESSION_PR_TOOLS,
 } from "./stop-at-decision-scan";
 import type { RunDeps } from "./stop-at-decision-scan";
 import type { TranscriptLine } from "./transcript";
@@ -19,7 +23,11 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 const BOUND_TASK = "mt#3639";
 const TARGET_TASK = "mt#3521";
 const SESSION_START_TOOL = "mcp__minsky__session_start";
+/** Declared once — mt#4228 added a second cluster of cases that name it. */
+const STATUS_SET_TOOL_NAME = "mcp__minsky__tasks_status_set";
 const BOUND_TARGET_REASON = "bound-task-target";
+/** Aliased from the hook's export — one source of truth for the reason string. */
+const MARKER_REASON = RECOMMENDATION_MARKER_REASON;
 
 /** The R5 closing message — a factual bound, no commitment phrase, no recommendation. */
 const R5_FINAL_MESSAGE =
@@ -135,7 +143,13 @@ describe("detectDecisionStop (pure core)", () => {
   // AT2 — the same evidence-write turn, discharged. Each consumer call must silence it.
   test.each([
     ["mcp__minsky__asks_create", { question: "Rung-2 disposition?", parentTaskId: TARGET_TASK }],
-    ["mcp__minsky__tasks_status_set", { taskId: TARGET_TASK, status: "READY" }],
+    // IN-PROGRESS, not READY (mt#4228). This row asserts that the tool
+    // discharges; a transition INTO READY no longer does, because it OPENS a
+    // hand-off rather than walking one. The READY and PLANNING cases are
+    // asserted directly in the `hand-off-qualified suppressions` block below,
+    // so the behaviour this row used to cover is still pinned — by the test
+    // that is actually about it.
+    [STATUS_SET_TOOL_NAME, { taskId: TARGET_TASK, status: "IN-PROGRESS" }],
     ["mcp__minsky__tasks_dispatch", { taskId: TARGET_TASK }],
     ["mcp__minsky__tasks_create", { title: "follow-up" }],
     [SESSION_START_TOOL, { task: "mt#9999" }],
@@ -191,7 +205,7 @@ describe("detectDecisionStop (pure core)", () => {
       full,
       "Evidence recorded. My recommendation: escalate to Rung 3."
     );
-    expect(detection?.suppressionReasons).toContain("recommendation-marker");
+    expect(detection?.suppressionReasons).toContain(MARKER_REASON);
   });
 
   test("counts memory_create as evidence, not as discharge", () => {
@@ -296,5 +310,364 @@ describe("run — status filter, dedup, evaluation stream (AT1-AT3 end-to-end)",
     const outcome = run(inputWith("done"), ctxFor(full), depsWith({}));
     expect(outcome).toBeNull();
     expect(evaluations).toHaveLength(0);
+  });
+});
+
+describe("mt#4085 — the natural-prose decision handoff", () => {
+  /**
+   * Verbatim tails of records the 2026-08-13 calibration pass classified FALSE.
+   * Sampled from `.minsky/stop-at-decision-calibration.jsonl`, not paraphrased:
+   * a detector fixture is an input drawn from the matcher's domain, and
+   * paraphrasing silently moves it out (mem#1020).
+   */
+  const CORPUS_HANDOFFS: ReadonlyArray<readonly [string, string]> = [
+    [
+      "possessive-inversion / yours to set (2026-08-10T15:24:57Z)",
+      "I didn't start mt#3897, even though its blocker cleared — a pending option on " +
+        "ask#7639 could reverse it, and detector enforcement posture is yours to set.",
+    ],
+    [
+      "possessive-inversion / yours to call (2026-08-10T17:40:01Z)",
+      "Confirming whether that peer is done is yours to call.",
+    ],
+    [
+      "nominalized / the decision reduces to (2026-08-11T20:29:00Z)",
+      "The decision reduces to which strain you'd rather live with: family-spanning " +
+        "entities, a nameless column header, an over-claiming guard, or a bet on a Draft.",
+    ],
+    [
+      "nominalized / the choice it has to make (2026-08-12T00:20:22Z)",
+      "Both findings are now written into mt#4010's spec, including the choice it has " +
+        "to make: absorb the interlock page, or state a division of labor.",
+    ],
+    [
+      "position-stating / my three positions (2026-08-12T21:51:50Z)",
+      "Still open from last turn, and unchanged by the interruption: my three positions " +
+        "— the pending request should be held by the task rather than the conversation.",
+    ],
+  ];
+
+  /**
+   * The two records the pass could not classify. Both stored tails are UNDER the
+   * 600-char cutoff (232 and 213 chars), so these are the COMPLETE messages the
+   * detector judged — which is what makes them usable as a negative control at
+   * all. A truncated control would prove nothing: a candidate could match text
+   * outside the stored window and silence it while the replay reported it firing.
+   */
+  const CORPUS_CONTROLS: ReadonlyArray<readonly [string, string]> = [
+    [
+      "uncertain (2026-08-08T23:46:04Z)",
+      "The task I've been working in is mt#3514 — the scope note above refers to its four " +
+        "original criteria, which remain open; only the orphan-removal criterion is " +
+        "implemented and waiting on that commit command.",
+    ],
+    [
+      "uncertain (2026-08-10T11:24:38Z)",
+      "Not a new retrospective case — that sentence is reporting the R4 analysis I just " +
+        "completed and recorded in mem#612 and mt#2447, not surfacing a fresh failure.\n\n" +
+        "Waiting on your token; nothing else is blocked on me.",
+    ],
+  ];
+
+  const suppressionFor = (message: string): string[] => {
+    const full = incidentTranscript();
+    return detectDecisionStop(finalTurnOf(full), full, message)?.suppressionReasons ?? [];
+  };
+
+  describe("negative control on the FIXTURES themselves — these must have failed before", () => {
+    // Without this, every AT1 assertion below would pass on a marker the BASELINE
+    // already carried, and the test would be green whether or not mt#4085 shipped.
+    // That is the non-discriminating-acceptance-test class of mt#4114.
+    test.each(CORPUS_HANDOFFS)("%s is NOT matched by the pre-mt#4085 baseline", (_label, text) => {
+      expect(RECOMMENDATION_MARKERS_BASELINE.some((re) => re.test(text))).toBe(false);
+    });
+
+    test.each(CORPUS_HANDOFFS)("%s IS matched by the mt#4085 additions", (_label, text) => {
+      expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(true);
+    });
+  });
+
+  describe("AT1 — each corpus phrase suppresses the fire", () => {
+    test.each(CORPUS_HANDOFFS)("%s", (_label, text) => {
+      expect(suppressionFor(text)).toContain(MARKER_REASON);
+    });
+  });
+
+  describe("AT2 — the two uncertain records still fire (negative control)", () => {
+    test.each(CORPUS_CONTROLS)("%s is not silenced", (_label, text) => {
+      expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(false);
+      expect(suppressionFor(text)).not.toContain(MARKER_REASON);
+    });
+  });
+
+  test("AT3 — an evidence-write closing with a bare status recap still fires", () => {
+    const recap =
+      "Both detector misses are now documented in the task record, and the measurement " +
+      "premise was false: a Rung-1 miss wrote no record at all.";
+    const reasons = suppressionFor(recap);
+    expect(reasons).not.toContain(MARKER_REASON);
+    expect(reasons).toEqual([]);
+  });
+
+  describe("PR #3037 R1 — bounding the breadth of /\\byours to \\w+/", () => {
+    /**
+     * The review asked whether the open `\w+` should be narrowed to a verb set
+     * like `set|call|decide|choose`. Measured against the recovered corpus (533
+     * evaluated turns) before answering: every verb that actually follows
+     * "yours to" is a decision verb —
+     *
+     *   authorize 4, decide 3, resolve 2, route 1, clear 1, pick 1,
+     *   write 1, set 1, make 1, call 1, reverse 1, certify 1
+     *
+     * — 12 distinct verbs, and the suggested allowlist would have caught 4 of
+     * them. Narrowing would reintroduce exactly the recall failure this task
+     * exists to fix, so the pattern stays open and these tests bound it instead,
+     * which is the alternative the review itself offered.
+     */
+    test.each([
+      "authorize",
+      "decide",
+      "resolve",
+      "route",
+      "clear",
+      "pick",
+      "write",
+      "set",
+      "make",
+      "call",
+      "reverse",
+      "certify",
+    ])("a decision verb observed in the corpus matches: yours to %s", (verb) => {
+      expect(
+        RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(`that one is yours to ${verb}`))
+      ).toBe(true);
+    });
+
+    test("the possessive-inversion pattern requires the 'yours to' construction", () => {
+      // Bounds the pattern from the other side: "yours" alone, or a possessive
+      // without the infinitive, is not a decision handoff.
+      for (const text of [
+        "the remaining budget is yours",
+        "yours truly",
+        "this workspace is yours and mine",
+      ]) {
+        expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(false);
+      }
+    });
+  });
+
+  test("the addition does not silence the residual class it deliberately excludes", () => {
+    // Four records in the same window were classified false and are NOT addressed
+    // here: they narrate the evidence-write rather than handing a decision over.
+    // Pinned so a later widening that swallows them breaks a test rather than
+    // drifting — suppressing this shape would match nearly every evaluated turn,
+    // since an evidence-write IS this detector's trigger condition.
+    const narratesTheWrite =
+      "Two corrections recorded: the rewrite trigger I'd captured was wrong, and the Rust " +
+      "spike isn't a drop-in reference. I've recorded that and withdrawn the gap.";
+    expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(narratesTheWrite))).toBe(false);
+  });
+});
+
+describe("hand-off-qualified suppressions (mt#4228)", () => {
+  /** A closing message with no recommendation marker, so only the suppressions under test can fire. */
+  const R6_FINAL_MESSAGE =
+    "mt#3845 is out of BLOCKED and back in PLANNING with all of this recorded. " +
+    "PR #3078 is open against the same two files, so that should land first.";
+
+  /** Detect, assert the turn was a candidate at all, and hand back a non-null result. */
+  function mustDetect(full: TranscriptLine[]): NonNullable<ReturnType<typeof detectDecisionStop>> {
+    const detection = detectDecisionStop(finalTurnOf(full), full, R6_FINAL_MESSAGE);
+    expect(detection).not.toBeNull();
+    return detection as NonNullable<typeof detection>;
+  }
+
+  test("R6: a spec-patch + a transition INTO PLANNING + a scratch write now FIRES", () => {
+    // The verbatim shape of the 2026-08-17 incident, from the detector's own
+    // evaluation record: candidate mt#3845, one spec patch, suppressed by
+    // `discharged:mcp__minsky__tasks_status_set` and `working-turn`.
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "PLANNING",
+        }),
+        toolResult("toolu_status", { success: true }),
+        toolUse("toolu_scratch", "Write", {
+          file_path: "/private/tmp/claude-501/proj/sess/scratchpad/runs.ts",
+          content: "// measurement script",
+        }),
+        toolResult("toolu_scratch", { success: true }),
+      ])
+    );
+
+    expect(detection.candidateTaskIds).toEqual([TARGET_TASK]);
+    expect(detection.suppressionReasons).toEqual([]);
+  });
+
+  test("a transition to IN-PROGRESS still discharges — only hand-off states changed", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "IN-PROGRESS",
+        }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain(`discharged:${STATUS_SET_TOOL_NAME}`);
+    expect(detection.dischargeToolsSeen).toEqual([STATUS_SET_TOOL_NAME]);
+  });
+
+  test("an unparseable status FAILS OPEN and still discharges", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, { taskId: TARGET_TASK }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain(`discharged:${STATUS_SET_TOOL_NAME}`);
+  });
+
+  test("a REPO write still marks the turn as working", () => {
+    // The path predicate must not swallow real work — this is the half that
+    // keeps the `working-turn` suppression meaningful.
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_repo", "Write", {
+          file_path: "/Users/edobry/Projects/minsky/src/thing.ts",
+          content: "export const x = 1;",
+        }),
+        toolResult("toolu_repo", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain("working-turn");
+  });
+
+  test("a scratch write BESIDE a repo write still marks the turn as working", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_scratch", "Write", { file_path: "/tmp/probe.ts", content: "//" }),
+        toolResult("toolu_scratch", { success: true }),
+        toolUse("toolu_repo", "Edit", {
+          file_path: "/Users/edobry/Projects/minsky/src/thing.ts",
+          old_string: "a",
+          new_string: "b",
+        }),
+        toolResult("toolu_repo", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain("working-turn");
+  });
+
+  test("a READ-ONLY session_pr_* call is not work — this is what kept R6 suppressed", () => {
+    // The `mcp__minsky__session_pr_` prefix matched the whole family. Listing
+    // PRs is investigation, which is the trigger condition, not a reason to
+    // suppress. Found by replay: the R6 turn's `working-turn` came from one
+    // `session_pr_list` and survived both qualifications the task was scoped to.
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_list", "mcp__minsky__session_pr_list", { status: "open" }),
+        toolResult("toolu_list", { pullRequests: [] }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toEqual([]);
+  });
+
+  test("a MUTATING session_pr_* call is still work", () => {
+    // The other half of the family must keep suppressing, or the exclusion has
+    // swallowed the rule instead of narrowing it.
+    for (const tool of [
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__session_pr_merge",
+      "mcp__minsky__session_pr_edit",
+    ]) {
+      const detection = mustDetect(
+        incidentTranscript([
+          toolUse("toolu_mutate", tool, { task: TARGET_TASK }),
+          toolResult("toolu_mutate", { success: true }),
+        ])
+      );
+      expect(detection.suppressionReasons).toContain("working-turn");
+    }
+  });
+
+  test("every READ_ONLY_SESSION_PR_TOOLS entry names a real command (PR #3090 R1)", () => {
+    // R1 flagged the hyphen in `…session_pr_wait-for-review` as a typo. It is
+    // not: that command's id is `session.pr.wait-for-review`, so the leaf name
+    // itself carries a hyphen and the MCP name keeps it. Pinned against the
+    // GENERATED manifest rather than a hand-written list, so an entry that
+    // matches nothing fails here instead of silently never suppressing —
+    // which is exactly the failure mode the finding was worried about, caught
+    // by a mechanism rather than by agreeing with it.
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), "src/generated/completion-manifest.json"), "utf8")
+    ) as unknown;
+    const ids = new Set<string>();
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return void node.forEach(walk);
+      if (node === null || typeof node !== "object") return;
+      const record = node as Record<string, unknown>;
+      const id = record["commandId"];
+      if (typeof id === "string") ids.add(`mcp__minsky__${id.replace(/\./g, "_")}`);
+      Object.values(record).forEach(walk);
+    };
+    walk(manifest);
+
+    expect(ids.size).toBeGreaterThan(50);
+    for (const tool of READ_ONLY_SESSION_PR_TOOLS) {
+      expect(ids.has(tool)).toBe(true);
+    }
+  });
+
+  test("a hand-off status-set is RECORDED as seen-but-not-discharging", () => {
+    // The calibration stream must still be able to tell "no status-set call"
+    // from "a status-set call that opened a hand-off" (PR #3090 R1,
+    // non-blocking) — `dischargeToolsSeen` alone can no longer distinguish them.
+    const handoff = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "PLANNING",
+        }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+    expect(handoff.dischargeToolsSeen).toEqual([]);
+    expect(handoff.statusSetSeenButNotDischarging).toBe(true);
+
+    const forward = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "DONE",
+        }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+    expect(forward.statusSetSeenButNotDischarging).toBe(false);
+
+    // No call at all is also false — the flag means "seen AND not discharging".
+    expect(mustDetect(incidentTranscript()).statusSetSeenButNotDischarging).toBe(false);
+  });
+
+  test("a session write is working regardless of path — no path check applies to it", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_sess", "mcp__minsky__session_write_file", {
+          sessionId: "s",
+          path: "/tmp/whatever.ts",
+          content: "//",
+        }),
+        toolResult("toolu_sess", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain("working-turn");
   });
 });

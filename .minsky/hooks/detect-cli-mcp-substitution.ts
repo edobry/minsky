@@ -1,0 +1,569 @@
+/**
+ * CLI-substitutes-MCP detector (mt#4144).
+ *
+ * `decision-defaults.mdc §Missing MCP tool` already states the policy — "bash-before-MCP, MCP
+ * erroring for it, no tool+bash denied" → escalate with capability+gap and four options. Nothing
+ * enforced it. This detector is that enforcement, at Rung 1.
+ *
+ * ## The gap it closes
+ *
+ * The operator-deferral family's ACT path (mem#707) was contained only by
+ * `block-bulk-process-kill` (mt#4081), whose trigger is a DESTRUCTIVE verb —
+ * `kill`/`pkill`/`killall` — in a turn with no capability search. An agent that concludes a tool
+ * surface is unavailable and quietly REBUILDS it out of `Bash` calls destroys nothing, defers
+ * nothing, and says nothing. It is invisible to every surface the family has.
+ *
+ * mem#707 R9 named the gap in one line before it recurred: "the act-path family is wider than the
+ * kill verb." It recurred as R10 fifteen minutes after mt#4081 went DONE — ~20 `Bash` calls
+ * reconstructing `tasks get|spec get|status set|edit`, `memory get|patch` and `tools asks list|get`
+ * out of the CLI, with the operator told in the turn's final message. Their reply, "It looks like
+ * Minsky MCP should be available," was one message away from the second tool call onward. Three
+ * durable writes went through that path, so every PreToolUse guard bound to the MCP tool names was
+ * bypassed as a side effect.
+ *
+ * ## Why the trigger is tool-call state, not a phrase
+ *
+ * Surfaces A–E of `operator-deferral-detector` key on PROSE. The act path emits none — its whole
+ * shape is that the agent is being CONSTRUCTIVE, which is why it reads as diligence rather than as
+ * a workaround. ADR-024 §Context names adding another phrase family as the arms race to stop, so
+ * this keys on two facts about what the session DID: a Minsky-CLI invocation whose command has a
+ * registered MCP equivalent, and no successful `mcp__minsky__*` call anywhere in the transcript.
+ *
+ * ## Not governed by ADR-024's ladder
+ *
+ * ADR-024 scopes its rungs to `UserPromptSubmit` guidance hooks matching behavioral trigger phrases
+ * in the agent's own prose. Neither axis applies to a command string: there is no paraphrase axis
+ * to widen, so Rung 2 (embedding) is not merely unlicensed but meaningless here. Same conclusion
+ * its sibling `truncated-outcome-read-detector` (mt#4096) reached for the same matcher class, and
+ * the same correction mt#4096 had to make at implementation time — mt#4144's planning audit also
+ * initially recorded this as "extends ADR-024 at Rung 1", which overstates the ADR's reach.
+ * Calibration-first shipping follows the repo-wide observer convention in `hook-observers.mdc`.
+ *
+ * ## The equivalence oracle
+ *
+ * `src/generated/completion-manifest.json` carries a `commandId` on every CLI leaf that came from
+ * the shared command registry (mt#4144). The MCP tool name is a pure transform of that id — the
+ * MCP adapter registers each command under `name: command.id`
+ * (`src/adapters/mcp/shared-command-integration.ts:533`) — so `tasks.status.set` is
+ * `mcp__minsky__tasks_status_set`. Reading generated JSON keeps this hook off the domain layer: a
+ * PreToolUse hook that imported the registry would owe `ensureHookDomainBootstrap()` on EVERY
+ * `Bash` call, per `custom/require-hook-domain-bootstrap`.
+ *
+ * A leaf with NO `commandId` is a command with no MCP equivalent (`minsky compile`,
+ * `minsky events emit`). Absence is the answer, not a lookup failure — those never fire.
+ *
+ * Override: MINSKY_ALLOW_CLI_SUBSTITUTION=1.
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+
+import type { ToolHookInput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import { leadingTokenOf, splitPipeline, splitTopLevel } from "./command-shape";
+import { extractToolResultText, TOOL_DENIAL_MARKER } from "./transcript";
+
+const OVERRIDE_ENV = "MINSKY_ALLOW_CLI_SUBSTITUTION";
+
+/** Tools whose input carries a shell command string. */
+const COMMAND_TOOL_NAMES = new Set(["Bash", "mcp__minsky__session_exec"]);
+
+/** Any successful call to one of these means the MCP surface is live — nothing to report. */
+const MCP_TOOL_NAME_PATTERN = /^mcp__minsky__/;
+
+interface ManifestNode {
+  name: string;
+  subcommands?: ManifestNode[];
+  commandId?: string;
+}
+
+export interface CliSubstitutionScanResult {
+  matched: boolean;
+  /** The registry command id the invocation resolved to, e.g. `tasks.status.set`. */
+  commandId: string | null;
+  /** Its MCP form, e.g. `mcp__minsky__tasks_status_set`. */
+  mcpToolName: string | null;
+}
+
+const CLEAN: CliSubstitutionScanResult = { matched: false, commandId: null, mcpToolName: null };
+
+/** Last path segment of a command token, so `/usr/local/bin/minsky` reads as `minsky`. */
+function basenameOf(token: string): string {
+  const cut = token.lastIndexOf("/");
+  return cut === -1 ? token : token.slice(cut + 1);
+}
+
+/** `tasks.status.set` -> `mcp__minsky__tasks_status_set`. */
+export function mcpToolNameFor(commandId: string): string {
+  return `mcp__minsky__${commandId.replace(/\./g, "_")}`;
+}
+
+/**
+ * Strip the invoking prefix and return the command's argv tail, or null when the segment does not
+ * invoke the Minsky CLI.
+ *
+ * Two spellings reach the same CLI and both appeared in the originating incident: the installed
+ * binary (`minsky …`, possibly path-qualified) and the in-repo entry point
+ * (`bun run src/cli.ts …`). `bunx minsky` is included for completeness.
+ */
+export function minskyArgvOf(segment: string): string[] | null {
+  const tokens = segment.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  // Basename, because the invocation is routinely path-qualified — `.mcp.json` itself launches
+  // `/Users/<user>/.bun/bin/minsky`. Comparing the raw token silently misses every such call.
+  const first = basenameOf(leadingTokenOf(segment));
+
+  if (first === "minsky") return tokens.slice(1);
+
+  if (first === "bun" || first === "bunx") {
+    // `bun run src/cli.ts …` / `bun src/cli.ts …` / `bunx minsky …`
+    let i = 1;
+    if (tokens[i] === "run") i++;
+    const target = tokens[i];
+    if (!target) return null;
+    if (target === "minsky" || /(^|\/)cli\.ts$/.test(target)) return tokens.slice(i + 1);
+    return null;
+  }
+
+  return null;
+}
+
+/**
+ * Walk the manifest by argv, skipping flags and their values, and return the deepest node reached.
+ *
+ * Stops at the first token that is not a subcommand — everything after a leaf is arguments. Flags
+ * are skipped rather than terminating the walk because a global flag can precede a subcommand
+ * (`minsky --json tasks get`).
+ */
+export function resolveCommandId(root: ManifestNode, argv: string[]): string | null {
+  let node: ManifestNode = root;
+  let afterFlag = false;
+
+  for (const token of argv) {
+    if (token.startsWith("-")) {
+      // `--key=value` carries its own value; bare `--` ends option parsing. Neither can consume a
+      // following token. Anything else MIGHT take a separated value (`--cwd /tmp`).
+      afterFlag = token !== "--" && !token.includes("=");
+      continue;
+    }
+
+    const next = node.subcommands?.find((s) => s.name === token);
+    if (next) {
+      // A token that names a subcommand is one, even directly after a flag — which is what keeps
+      // BOOLEAN flags working (`minsky --json tasks get`). Skipping unconditionally after any flag
+      // would swallow `tasks` here, trading one false-negative shape for another.
+      node = next;
+      afterFlag = false;
+      continue;
+    }
+
+    if (afterFlag) {
+      // Not a subcommand, directly after a value-taking-shaped flag: it is that flag's value
+      // (`minsky --cwd /tmp tasks get`). Consume it and keep walking.
+      afterFlag = false;
+      continue;
+    }
+
+    break; // a non-flag, non-subcommand token: the leaf's own arguments start here.
+  }
+  return node.commandId ?? null;
+}
+
+/** Repo-root-relative path to the generated oracle, resolved from this file's location. */
+export function manifestPath(): string {
+  return path.join(import.meta.dir, "..", "..", "src", "generated", "completion-manifest.json");
+}
+
+/**
+ * Read the manifest. Returns null on ANY failure — a missing or unparseable oracle means this
+ * detector reports nothing, which is the correct degradation for a log-only observer and keeps it
+ * from ever blocking a `Bash` call it cannot reason about.
+ */
+export function readManifest(): ManifestNode | null {
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath(), "utf8")) as ManifestNode;
+  } catch {
+    // intentional-swallow: no oracle means no finding. Never fail the tool call.
+    return null;
+  }
+}
+
+export function scanCommand(command: string, manifest: ManifestNode): CliSubstitutionScanResult {
+  for (const segment of splitTopLevel(command)) {
+    for (const stage of splitPipeline(segment)) {
+      const argv = minskyArgvOf(stage);
+      if (!argv) continue;
+      const commandId = resolveCommandId(manifest, argv);
+      if (commandId) {
+        return { matched: true, commandId, mcpToolName: mcpToolNameFor(commandId) };
+      }
+    }
+  }
+  return CLEAN;
+}
+
+/**
+ * True when the session has an MCP call that actually SUCCEEDED — at which point the substitution
+ * is a deliberate choice and this guard stays silent.
+ *
+ * **Presence of a `tool_use` is NOT sufficient, and the difference is the whole point** (PR #3004
+ * R1 BLOCKING, raised independently by both review chunks). The first implementation suppressed on
+ * any `mcp__minsky__*` tool_use name, which inverts the guard on its PRIMARY scenario: the
+ * stale-daemon case the `UserPromptSubmit` hook describes is exactly an MCP call that is ATTEMPTED
+ * and fails. Under name-presence, that failed attempt would suppress the detector for the rest of
+ * the session — silencing it precisely when the agent then rebuilds the surface out of CLI calls.
+ *
+ * So a call counts only when it has a correlated `tool_result` that is neither a permission denial
+ * nor an error. An UNCORRELATED tool_use — in flight, or its result outside the transcript window —
+ * counts as NOT succeeded, which is the conservative direction: it can cost a false fire, where
+ * suppressing a true one costs the finding entirely.
+ *
+ * **This answers "has MCP ever worked", which since mt#4353 is no longer the whole suppression
+ * question** — a success now silences only the FIRST substitution after it. `run` consults
+ * `readMcpSubstitutionState` below; this stays exported because it is a meaningful predicate on
+ * its own and its callers ask exactly this.
+ *
+ * (The conservative-direction note above once read "on a log-only observer". That was wrong about
+ * this guard, which injects on every unsuppressed match and always has — see mt#4290. The
+ * reasoning holds either way; the label did not.)
+ */
+export function hasSucceededMcpCall(ctx: DispatchContext): boolean {
+  // Manifest-free: the SUCCESS half of the state never consults the manifest (only substitution
+  // COUNTING does), so this stays a pure function of the transcript, as its callers expect.
+  return readMcpSubstitutionState(ctx, null).succeeded;
+}
+
+/** What the transcript says about MCP liveness and the current substitution run (mt#4353). */
+export interface McpSubstitutionState {
+  /** A `mcp__minsky__*` call with a correlated, non-error, non-denied result has occurred. */
+  succeeded: boolean;
+  /**
+   * CLI substitutions observed AFTER the last such success — or across the whole window when there
+   * has been none. The call being judged right now is NOT counted: this hook runs `PreToolUse`, so
+   * that call is not in the transcript yet. A value of 1 therefore means the pending call is the
+   * SECOND.
+   */
+  substitutionsSinceLastSuccess: number;
+  /**
+   * An `mcp__minsky__*` call ERRORED after the last success — direct evidence the surface broke,
+   * so the very next substitution fires without waiting for the run to reach two.
+   *
+   * A permission DENIAL does not set this: the operator refused one call, which says nothing about
+   * the surface. Cleared by a later success.
+   */
+  failedSinceLastSuccess: boolean;
+}
+
+/** tool_use_id -> its correlated result text and error flag, across the whole window. */
+function buildResultIndex(
+  lines: DispatchContext["transcriptLines"]
+): Map<string, { text: string; isError: boolean }> {
+  // A tool_result carries only the correlating id, never the originating tool's name, so this
+  // cannot be scoped by name here.
+  const resultById = new Map<string, { text: string; isError: boolean }>();
+  for (const line of lines ?? []) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const useId = block["tool_use_id"];
+      if (typeof useId !== "string") continue;
+      const text = extractToolResultText(block["content"]);
+      const prior = resultById.get(useId);
+      resultById.set(useId, {
+        text: (prior?.text ?? "") + text,
+        isError: (prior?.isError ?? false) || block["is_error"] === true,
+      });
+    }
+  }
+  return resultById;
+}
+
+/** One tool_use, normalized across the two transcript shapes (PR #3186 R1). */
+interface NormalizedToolUse {
+  name: string;
+  /**
+   * Correlating id, used to look the call's outcome up in the result index.
+   *
+   * **INVARIANT: always `undefined` for the top-level line shape** (PR #3186 R2). `TranscriptLine`
+   * declares `name`/`tool_name`/`input` at the top level but no `id`, so such a call can never be
+   * matched to its `tool_result` and therefore can never contribute SUCCESS or FAILURE evidence —
+   * only the substitution run, which needs neither. This is not a gap to close later: the id is
+   * absent from the wire shape, not merely unread.
+   */
+  id: string | undefined;
+  input: unknown;
+}
+
+/**
+ * Every tool_use on a line, from BOTH shapes Claude Code emits: a top-level `type: "tool_use"`
+ * line carrying `name`/`tool_name` + `input`, and an assistant line whose `message.content` array
+ * holds `tool_use` blocks. `transcript.ts` handles both in `findToolUseInputs` and
+ * `findCreatedResourceIds` and documents them; this walk read only the second until PR #3186 R1.
+ *
+ * Both are checked per line rather than as an either/or, mirroring `findToolUseInputs` exactly.
+ *
+ * `TranscriptLine` declares no `id` for the top-level shape, so such a call cannot be correlated
+ * to a result and can never count as a SUCCESS — the same conservative direction the uncorrelated
+ * case already took. It still advances the substitution RUN, which needs only the name and the
+ * command, and which is what the omission was actually costing.
+ */
+function toolUsesOf(line: DispatchContext["transcriptLines"][number]): NormalizedToolUse[] {
+  const uses: NormalizedToolUse[] = [];
+
+  if (line.type === "tool_use") {
+    const name = line.name ?? line.tool_name;
+    if (typeof name === "string") {
+      // `TranscriptLine` does not declare `id` for this shape; read it narrowly rather than
+      // widening the whole line to a record.
+      const id = (line as { id?: unknown }).id;
+      uses.push({ name, id: typeof id === "string" ? id : undefined, input: line.input });
+    }
+  }
+
+  const content = line.message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_use") continue;
+      const name = block["name"];
+      if (typeof name !== "string") continue;
+      const id = block["id"];
+      uses.push({ name, id: typeof id === "string" ? id : undefined, input: block["input"] });
+    }
+  }
+
+  return uses;
+}
+
+/** True when this tool_use is itself a Minsky-CLI call with a registered MCP equivalent. */
+function isSubstitutionToolUse(
+  name: string,
+  input: unknown,
+  manifest: ManifestNode | null
+): boolean {
+  if (manifest === null) return false;
+  if (!COMMAND_TOOL_NAMES.has(name)) return false;
+  const command = (input as Record<string, unknown> | undefined)?.["command"];
+  if (typeof command !== "string" || command === "") return false;
+  return scanCommand(command, manifest).matched;
+}
+
+/**
+ * Walk the transcript IN ORDER, tracking both whether MCP has worked and how long the current run
+ * of CLI substitutions is (mt#4353).
+ *
+ * **Why a run counter rather than a bare success flag.** The bare flag was monotonic: one success
+ * anywhere in the window silenced the guard for the rest of the session. Measured over the whole
+ * fire corpus (11,063 records, 2026-08-14 → 08-19), that left the guard reachable ONLY before a
+ * session's first successful MCP call — all 5 of its fires were their session's opening record,
+ * and every later moment in those same sessions was suppressed. The class it exists to catch is
+ * the opposite shape: MCP worked, then stopped, and the agent rebuilt the surface out of CLI calls
+ * (mem#707 R10/R11). That always happens after a success, so it was always suppressed.
+ *
+ * **Why the run counter and not a staleness signal.** There is no observable "MCP went away" event
+ * here. The harness posts a disconnect notice, but it is injected into model context and never
+ * written to the transcript — zero non-assistant entries carrying it across the 120 most recent
+ * transcripts — so a matcher on it could never fire (mem#704's can't-fail probe). And in the R11
+ * incident the agent stopped calling MCP rather than getting errors, so there is no failed call to
+ * find either. The only signal left in tool-call state is the substitution RUN itself.
+ *
+ * Operator decision (ask#9452): fire from the SECOND substitution since the last success. R11 was
+ * ~six in a row; a one-off stays quiet.
+ *
+ * A successful MCP call resets the run — it is live evidence the surface works — EXCEPT when that
+ * call IS the substitution. `mcp__minsky__session_exec` running the Minsky CLI is both at once, and
+ * letting it reset would let a CLI-rebuild burst clear its own counter at every step.
+ */
+export function readMcpSubstitutionState(
+  ctx: DispatchContext,
+  manifest: ManifestNode | null
+): McpSubstitutionState {
+  const lines = ctx.transcriptLines ?? [];
+  const resultById = buildResultIndex(lines);
+
+  let succeeded = false;
+  let substitutionsSinceLastSuccess = 0;
+  let failedSinceLastSuccess = false;
+
+  for (const line of lines) {
+    for (const use of toolUsesOf(line)) {
+      const isSubstitution = isSubstitutionToolUse(use.name, use.input, manifest);
+      if (isSubstitution) substitutionsSinceLastSuccess++;
+
+      if (!MCP_TOOL_NAME_PATTERN.test(use.name)) continue;
+      if (use.id === undefined) continue; // uncorrelatable — neither success nor failure evidence
+      const outcome = resultById.get(use.id);
+      if (!outcome) continue; // no correlated result — same
+
+      if (outcome.isError) {
+        // An MCP call that ERRORED after a success is direct evidence the surface broke. Unmute
+        // immediately rather than waiting for the run to reach two: SC1's failure half, and the
+        // one case where the transcript does say "MCP went away" out loud (PR #3186 R2).
+        failedSinceLastSuccess = true;
+        continue;
+      }
+      // A permission denial is the OPERATOR refusing one call, not the surface failing — the
+      // request reached the harness. Neither success nor failure evidence.
+      if (TOOL_DENIAL_MARKER.test(outcome.text)) continue;
+
+      succeeded = true;
+      failedSinceLastSuccess = false;
+      if (!isSubstitution) substitutionsSinceLastSuccess = 0;
+    }
+  }
+
+  return { succeeded, substitutionsSinceLastSuccess, failedSinceLastSuccess };
+}
+
+function buildWarning(result: CliSubstitutionScanResult, state: McpSubstitutionState): string {
+  // The three firing branches assert DIFFERENT facts, and none may claim another's (mt#4353):
+  // saying "no MCP call has succeeded" to an agent whose MCP is demonstrably working is a false
+  // statement it can check in one call, which costs the whole warning its credibility.
+  //
+  // **Order matters, and getting it wrong was PR #3186 R2's blocking finding.** A session whose
+  // only MCP call ERRORED has `failedSinceLastSuccess` true and `succeeded` FALSE, so a
+  // failure-first branch rendered "an MCP call errored since the last one succeeded" when none
+  // ever had. The never-succeeded branch is the strongest claim and is therefore checked FIRST —
+  // matching the `reason` field's own precedence, which already had this right.
+  const { succeeded, substitutionsSinceLastSuccess: runLength, failedSinceLastSuccess } = state;
+
+  const failureLead =
+    `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
+    `\`${result.mcpToolName}\`. An \`mcp__minsky__*\` call ERRORED since the last one succeeded, ` +
+    `so the surface may have just gone away — which is the moment this substitution is most ` +
+    `likely to be an unprobed assumption. Retry the tool once; a stale daemon exits and respawns. ` +
+    `If it is still failing, say so to the operator NOW rather than at the end of the turn; ` +
+    `\`/mcp\` is theirs to run and costs them one message.`;
+
+  const lead = !succeeded
+    ? `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
+      `\`${result.mcpToolName}\`, and no \`mcp__minsky__*\` call has succeeded in this session. ` +
+      `If the MCP surface is missing, retry the tool once — a stale daemon exits and respawns — ` +
+      `and if it is still absent, say so to the operator NOW rather than at the end of the ` +
+      `turn; \`/mcp\` is theirs to run and costs them one message.`
+    : failedSinceLastSuccess
+      ? failureLead
+      : // The only firing case left: MCP works, nothing failed, and the run has reached two. There
+        // is deliberately no fourth arm — `succeeded && run === 0 && !failed` is the SUPPRESSED
+        // case and never reaches here, and an arm for it could only restate another branch's claim.
+        `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
+        `\`${result.mcpToolName}\`. MCP has worked in this session, but this is substitution ` +
+        `#${runLength + 1} since the last \`mcp__minsky__*\` call succeeded — the shape of ` +
+        `rebuilding the tool surface out of CLI calls rather than one deliberate use. If the MCP ` +
+        `surface stopped responding, retry the tool once and say so to the operator NOW rather ` +
+        `than at the end of the turn; \`/mcp\` is theirs to run and costs them one message.`;
+
+  return (
+    `${lead} Rebuilding the surface out of CLI calls also routes around every PreToolUse guard ` +
+    `bound to the MCP tool names. If the substitution is deliberate, say which of ` +
+    `\`decision-defaults.mdc §Missing MCP tool\`'s four options applies. (mt#4144, mt#4353)`
+  );
+}
+
+function isOverridden(): boolean {
+  return process.env[OVERRIDE_ENV] === "1";
+}
+
+export async function run(
+  input: ToolHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  if (isOverridden()) return null;
+  if (!COMMAND_TOOL_NAMES.has(input.tool_name ?? "")) return null;
+
+  const toolInput = input.tool_input ?? {};
+  const command = typeof toolInput["command"] === "string" ? (toolInput["command"] as string) : "";
+  if (!command) return null;
+
+  const manifest = readManifest();
+  if (!manifest) return null;
+
+  const result = scanCommand(command, manifest);
+
+  const base = {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+    toolName: input.tool_name ?? null,
+    commandId: result.commandId,
+    // The sweep's diversity axis is the COMMAND ID, not the raw command string — a raw command is
+    // near-unique per fire and would satisfy the distinct-phrase gate by construction (mt#3781).
+    phrase: result.commandId,
+  };
+
+  if (!result.matched) {
+    return { calibration: { ...base, outcome: "clean" } };
+  }
+
+  const state = readMcpSubstitutionState(ctx, manifest);
+
+  // Suppressed, but RECORDED — the miss rate for this suppression stays measurable, per the
+  // evaluation-stream convention the operator-deferral surfaces already follow.
+  //
+  // mt#4353: the suppression is no longer monotonic. A success silences the FIRST substitution
+  // after it, not the rest of the session — see `readMcpSubstitutionState` for why the run length
+  // is the only available signal, and ask#9452 for the operator's choice of threshold.
+  if (
+    state.succeeded &&
+    state.substitutionsSinceLastSuccess === 0 &&
+    !state.failedSinceLastSuccess
+  ) {
+    return { calibration: { ...base, outcome: "suppressed-mcp-in-use" } };
+  }
+
+  // No canary short-circuit here, deliberately (PR #3004 R2 NON-BLOCKING). The sibling
+  // `truncated-outcome-read-detector` carries one, and copying it produced dead code: its guard is
+  // `!result.matched`, which the clean-return above has already handled, so the branch was
+  // unreachable. Nothing is lost by its absence — the scan is pure over its inputs and reads no DB,
+  // network or clock, so canary mode exercises the real decision path with no seam to bypass.
+  return {
+    additionalContext: buildWarning(result, state),
+    calibration: {
+      ...base,
+      outcome: "matched",
+      // Separate the three firing branches in the corpus. They have different false-positive
+      // profiles, and a future calibration pass has to be able to rate them apart rather than
+      // reading one blended rate (mt#4353).
+      reason: !state.succeeded
+        ? "no-mcp-success"
+        : state.failedSinceLastSuccess
+          ? "mcp-failed"
+          : "substitution-run",
+      substitutionsSinceLastSuccess: state.substitutionsSinceLastSuccess,
+      failedSinceLastSuccess: state.failedSinceLastSuccess,
+    },
+  };
+}
+
+/** Worst-case rendering for the registry's `attentionCost` probe (mt#4002). */
+export function renderWorstCase(): string {
+  const result: CliSubstitutionScanResult = {
+    matched: true,
+    commandId: "tasks.status.set",
+    mcpToolName: "mcp__minsky__tasks_status_set",
+  };
+  // THREE leads of different lengths since mt#4353 — measure, do not assume which is longest, or
+  // the ceiling silently tracks the wrong branch when any is edited. Each state below is one the
+  // guard can actually REACH; a state that never fires would measure a string never rendered.
+  const renderings = [
+    // never succeeded
+    buildWarning(result, {
+      succeeded: false,
+      substitutionsSinceLastSuccess: 0,
+      failedSinceLastSuccess: false,
+    }),
+    // succeeded, then a call errored
+    buildWarning(result, {
+      succeeded: true,
+      substitutionsSinceLastSuccess: 0,
+      failedSinceLastSuccess: true,
+    }),
+    // succeeded, no failure, run reached two
+    buildWarning(result, {
+      succeeded: true,
+      substitutionsSinceLastSuccess: 1,
+      failedSinceLastSuccess: false,
+    }),
+  ];
+  return renderings.reduce((longest, next) => (next.length > longest.length ? next : longest));
+}

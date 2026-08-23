@@ -288,6 +288,75 @@ mem#664 (family root, R1–R6) · mt#2870/mt#3112 (the one enforcement-tier fix 
 Stop-time limit) · mt#2838 (wrong-register escalation budget) · `/retrospective` step 4 (tier
 selection discipline).
 
+## The terminal actionables block (mt#4443)
+
+### The reconciliation with §Anti-patterns
+
+"Burying the needed-decision below the fold" was written as a placement complaint, but its own
+parenthetical already names the actual violation: **"a Tier-0 decision routed through prose
+instead of Asks."** The failure is ROUTING (prose in place of an Ask), not position. A Tier-0
+decision that never reaches `asks_create` is buried wherever it sits in a report — first sentence
+or last — because nothing marks it as decision-grade and nothing routes it to where a
+decision-grade item is supposed to land. Conversely, a non-blocking item set off by a rule and a
+heading at the very end is findable without reading the body, which is the opposite of buried. The
+terminal block and the anti-pattern bind on different axes (routing vs. marking) and do not
+contradict once that is made explicit — which is why the rule text ties the anti-pattern's
+parenthetical directly to §The terminal actionables block rather than leaving two clauses a single
+report could be judged against in opposite directions.
+
+### Engaging mem#664 — the six failed prose fixes
+
+mem#664 records `family:principal-altitude`'s R1 through R6, all DONE, all of which failed to
+contain principal-facing information landing at the wrong altitude. Its own diagnosis for WHY
+prose fixes kept failing is explicit: _"the family kept spawning new surfaces because the norm was
+never stated surface-generally"_ — recurrences moved to gate output, RFC bodies, closeout reports,
+and ordinary conversational answering, surfaces none of the six fixes named.
+
+The mt#4443 spec's defense for shipping a seventh prose change is a granularity claim: the six
+failed fixes required running discipline across an entire report (plain-language-first
+throughout, avoid narrative tells throughout, stay under a word budget throughout) — many small
+decisions, each cheap to skip under pressure — while the terminal block is one compositional
+decision, made once, at the natural pause of turn-end.
+
+**Checking the claim against the record rather than accepting it:** the family's very first fix,
+mt#2713 (R1), was ALSO a compositional, turn-end structural change — the three-part BLUF ordering
+— and the family still produced five further recurrences afterward, including one (R4,
+2026-07-22) on the SAME surface (a chat turn-end report) about one week later. On inspection,
+though, R4(a)'s specific defect was a word-budget overrun and label-led framing — axes that
+mt#2801 and mt#3287 fixed LATER, not the three-part ordering mt#2713 shipped — so R4 is not
+literally "the same fix decaying on its own terms." mem#664's own causal account (surface
+enumeration, not utterance granularity) is the stronger explanation for why the family recurred,
+and it does not obviously predict that a compositional fix is safer than a running one.
+
+**Conclusion: the granularity distinction is real in kind, and it is not established as
+sufficient by this record.** It is plausible — a single decision at a natural pause is a smaller
+ask than continuous vigilance — but the corpus has not yet tested that specific shape and failed,
+so absence-of-failure is not evidence of success either. This is why the rule text does not claim
+the argument settles anything: the escalation threshold (2 reports of buried actionables in 14
+days → record it on mt#4439 as evidence) is the actual check, not the granularity argument. Ship
+this as what it is — a cheap, falsifiable, interim measure — not as a fix the corpus has reason to
+expect will hold.
+
+### Why this is defensible to ship anyway
+
+Despite the above, shipping is still the right call, for reasons independent of the granularity
+argument:
+
+1. **The cost of being wrong is low and bounded.** If the block decays like its predecessors, the
+   escalation threshold catches it within two incidents and routes the finding to mt#4439 — the
+   design already in flight — rather than spawning an eighth ad hoc prose patch.
+2. **It costs two rule edits and is trivially reversible.** Unlike the six prior fixes, this one is
+   explicitly labelled interim in its own text, so a future editor is not misled into treating it
+   as settled.
+3. **It is field-tested at n=1** (roughly eight turns in the conversation that produced it) — weak,
+   stated as weak, not cited as validation.
+
+### Cross-references
+
+mem#664 (`family:principal-altitude`, R1–R6, all fixes DONE) · mt#4439 (the composition-layer RFC
+this is the interim of) · mt#4442 (the umbrella workstream) · `work-completion.mdc §Temporary
+mechanism budget` (the escalation-threshold discipline this follows).
+
 ## Cross-references
 
 `user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·

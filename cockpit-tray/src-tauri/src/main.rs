@@ -36,14 +36,16 @@ use std::sync::{Arc, Mutex};
 
 use tauri::RunEvent;
 
-use supervisor::SpawnedPgid;
+use supervisor::SpawnedPgids;
 
 fn main() {
     // Before anything that can observe it: the single-instance callback reads
     // this to tell the login-time launch race from a deliberate re-launch.
     single_instance::mark_started();
 
-    let spawned: SpawnedPgid = Arc::new(Mutex::new(None));
+    // One slot per daemon the tray spawns (mt#3815): a single `Option` could
+    // only remember the last one, so quitting would have left the other running.
+    let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
     let spawned_setup = spawned.clone();
 
     let mut builder = tauri::Builder::default();

@@ -1,6 +1,18 @@
-import { describe, test, expect } from "bun:test";
-import { decideReminder, DRIVE_TO_CONVERGENCE_REMINDER } from "./drive-pr-to-convergence";
+/**
+ * BINDING-level tests for the drive-pr-to-convergence hook.
+ *
+ * The DECISION tests — which tool the rule is about, and the reminder's own
+ * content — moved to `packages/domain/src/detectors/pr-convergence-reminder.test.ts`
+ * with the decision itself (mt#4374 SC4).
+ *
+ * What is left here is precisely what the binding owns: reading a result
+ * envelope out of a hook payload. Every case below is a payload SHAPE the
+ * decision must never have to know about.
+ */
+import { describe, expect, test } from "bun:test";
+import { decideReminderFromPayload } from "./drive-pr-to-convergence";
 import type { ToolHookInput } from "./types";
+import { DRIVE_TO_CONVERGENCE_REMINDER } from "@minsky/domain/detectors/pr-convergence-reminder";
 
 /**
  * Build a minimal `ToolHookInput` for tests.
@@ -16,103 +28,55 @@ function makeInput(overrides: Partial<ToolHookInput> = {}): ToolHookInput {
   };
 }
 
-describe("drive-pr-to-convergence hook (mt#1793)", () => {
-  describe("decideReminder", () => {
-    test("emits reminder on successful session_pr_create", () => {
-      const input = makeInput({
-        tool_result: {
-          success: true,
-          url: "https://github.com/edobry/minsky/pull/9999",
-        },
-      });
-      expect(decideReminder(input)).toBe(DRIVE_TO_CONVERGENCE_REMINDER);
+describe("decideReminderFromPayload (mt#1793 binding)", () => {
+  test("relays the reminder when the envelope reports success", () => {
+    const input = makeInput({
+      tool_result: {
+        success: true,
+        url: "https://github.com/edobry/minsky/pull/9999",
+      },
     });
-
-    test("silent on failed session_pr_create (success=false)", () => {
-      const input = makeInput({
-        tool_result: {
-          success: false,
-          error: "merge conflict",
-        },
-      });
-      expect(decideReminder(input)).toBeNull();
-    });
-
-    test("silent when tool_result is missing", () => {
-      const input = makeInput({ tool_result: undefined });
-      expect(decideReminder(input)).toBeNull();
-    });
-
-    test("silent when tool_result.success is not strictly true", () => {
-      // Truthy but not === true should not fire — guards against malformed
-      // result envelopes that happen to be truthy.
-      const input = makeInput({
-        tool_result: {
-          success: "true" as unknown as boolean, // string, not boolean
-        },
-      });
-      expect(decideReminder(input)).toBeNull();
-    });
-
-    test("silent on non-matching tool name", () => {
-      const input = makeInput({
-        tool_name: "mcp__minsky__session_commit",
-        tool_result: { success: true },
-      });
-      expect(decideReminder(input)).toBeNull();
-    });
-
-    test("silent on Bash tool (covers wildcard PostToolUse matchers that might union)", () => {
-      const input = makeInput({
-        tool_name: "Bash",
-        tool_result: { success: true },
-      });
-      expect(decideReminder(input)).toBeNull();
-    });
-
-    test("silent on session_pr_merge (sibling tool, not in scope)", () => {
-      const input = makeInput({
-        tool_name: "mcp__minsky__session_pr_merge",
-        tool_result: { success: true },
-      });
-      expect(decideReminder(input)).toBeNull();
-    });
+    expect(decideReminderFromPayload(input)).toBe(DRIVE_TO_CONVERGENCE_REMINDER);
   });
 
-  describe("DRIVE_TO_CONVERGENCE_REMINDER content", () => {
-    test("references the corpus rule for traceability", () => {
-      // The reminder references the corpus rule by section-name shorthand
-      // (§User-does-not-review-PRs) and by source file (decision-defaults.mdc).
-      // Match both substrings — the exact phrasing of the §-shorthand can
-      // change without breaking the rule-citation contract.
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("§User-does-not-review-PRs");
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("decision-defaults.mdc");
+  test("silent when the envelope reports failure", () => {
+    const input = makeInput({
+      tool_result: {
+        success: false,
+        error: "merge conflict",
+      },
     });
+    expect(decideReminderFromPayload(input)).toBeNull();
+  });
 
-    test("names the required next action explicitly", () => {
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("session_pr_wait-for-review");
-    });
+  test("silent when tool_result is missing entirely", () => {
+    const input = makeInput({ tool_result: undefined });
+    expect(decideReminderFromPayload(input)).toBeNull();
+  });
 
-    test("names the webhook-miss fallback (empty commit wake, not reviewer dispatch)", () => {
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("empty commit");
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("Do NOT dispatch a reviewer subagent");
+  test("silent when tool_result.success is truthy but not strictly true", () => {
+    // Guards against malformed result envelopes that happen to be truthy —
+    // the reason the binding compares with `=== true` rather than coercing.
+    const input = makeInput({
+      tool_result: {
+        success: "true" as unknown as boolean, // string, not boolean
+      },
     });
+    expect(decideReminderFromPayload(input)).toBeNull();
+  });
 
-    test("forbids the originating deferral phrases", () => {
-      // Originating-incident phrase from PR #1076.
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("Ping me when done");
-      // Slow-ask variants.
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("Let me know when merged");
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("Ready for your review");
+  test("silent when tool_result is a non-object", () => {
+    const input = makeInput({
+      tool_result: "ok" as unknown as Record<string, unknown>,
     });
+    expect(decideReminderFromPayload(input)).toBeNull();
+  });
 
-    test("includes the slow-ask framing reference", () => {
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("slow-ask variant");
+  test("passes the payload's tool_name through to the decision", () => {
+    const input = makeInput({
+      tool_name: "mcp__minsky__session_commit",
+      tool_result: { success: true },
     });
-
-    test("encodes the success branches (APPROVE / CHANGES_REQUESTED)", () => {
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("APPROVE");
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("CHANGES_REQUESTED");
-    });
+    expect(decideReminderFromPayload(input)).toBeNull();
   });
 });

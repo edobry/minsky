@@ -187,6 +187,12 @@ export interface SessionFilmRibbonProps {
   onScrollRowChange: (rowIndex: number) => void;
   className?: string;
   /**
+   * DOM id for the scroll container, so the divider that sizes this rail can
+   * name it in `aria-controls` (mt#4261 — the WAI-ARIA Window Splitter pattern
+   * lists that attribute as required, and it was missing).
+   */
+  id?: string;
+  /**
    * Inline styles for the scroll container. Exists for the ONE thing a class
    * cannot express: the operator's dragged width (mt#3701), which is a live
    * pixel value rather than one of Tailwind's steps. See the `w-full` note on
@@ -194,20 +200,6 @@ export interface SessionFilmRibbonProps {
    * element and cannot be applied by a wrapper.
    */
   style?: CSSProperties;
-  /**
-   * Asserts the film subject's session was verified re-scrubbed, for the
-   * content endpoint's scrub gate (mt#3262 SC 5) — mirrors the `events`
-   * fetch's own `verifiedRescrubbed` query param, which the host owns and does
-   * not thread down to this component. NOTE (mt#3461): no re-scrub-confirmation
-   * UI has ever existed — the host has always pinned this false, so the
-   * override this prop models is currently unreachable from either side.
-   * mt#3268 owns the scrub-gate posture question. Defaults to `false`: a pre-cutoff
-   * session's expanded-row content will 422 (rendered as "Content
-   * unavailable", never a crash — spec AT 4) even when the host already
-   * asserted the override for the events fetch. Threading it through is a
-   * follow-up, not required for this task's acceptance criteria.
-   */
-  verifiedRescrubbed?: boolean;
 }
 
 /** An event's outcome as the operator reads it — see `session-film-config.ts`'s label doc (mt#3795). */
@@ -510,8 +502,8 @@ export function SessionFilmRibbon({
   onSelectRow,
   onScrollRowChange,
   className,
+  id,
   style,
-  verifiedRescrubbed = false,
 }: SessionFilmRibbonProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -583,8 +575,8 @@ export function SessionFilmRibbon({
   // content never changes underneath a still-open film.
   const entityIndex = useEntityIndex();
   const contentQuery = useQuery({
-    queryKey: sessionFilmContentQueryKey(filmConversationId ?? "", verifiedRescrubbed),
-    queryFn: () => fetchSessionFilmContent(filmConversationId as string, verifiedRescrubbed),
+    queryKey: sessionFilmContentQueryKey(filmConversationId ?? ""),
+    queryFn: () => fetchSessionFilmContent(filmConversationId as string),
     enabled: expandedRowIndex !== null && filmConversationId !== null,
     staleTime: Infinity,
   });
@@ -739,6 +731,7 @@ export function SessionFilmRibbon({
       ref={containerRef}
       onScroll={handleScroll}
       style={style}
+      id={id}
       data-testid="session-film-ribbon"
       role="group"
       aria-label="Session event ribbon"
@@ -757,7 +750,15 @@ export function SessionFilmRibbon({
       // arrives; when a caller passes a width CLASS instead, tailwind-merge
       // still dedupes width-vs-width (unlike flex-vs-width, which it can't
       // model).
-      className={cn("relative w-full min-h-0 overflow-y-auto font-mono text-xs", className)}
+      // `scrollbar-readout` (mt#4355): this is the surface mt#3701's
+      // always-visible-thumb argument was written for — a virtualized ribbon
+      // running to hundreds of rows, where the bar is a position-and-extent
+      // readout rather than a drag target. It opts in explicitly now that the
+      // treatment is no longer applied app-wide through a bare `*`.
+      className={cn(
+        "relative w-full min-h-0 overflow-y-auto font-mono text-xs scrollbar-readout",
+        className
+      )}
     >
       <div style={{ height: range.totalHeightPx, position: "relative" }}>
         {/*

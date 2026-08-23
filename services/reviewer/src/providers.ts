@@ -13,6 +13,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
+import type * as OpenAICore from "openai/core";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import {
@@ -151,6 +152,100 @@ export interface TimingData {
   roundLatenciesMs: number[];
   timeoutCount: number;
   retryOutcomes: string[];
+}
+
+/**
+ * `retryOutcomes` entry for a round whose timeout was NOT recovered by the
+ * mt#1969 single retry — the review is about to throw.
+ *
+ * This string has been written since mt#2088 and read by nothing: the value was
+ * pushed onto a local array one statement before `throw`, so it died with the
+ * stack frame. 30 days of `review_timing` therefore contained zero rows carrying
+ * it while the service produced at least five unrecovered timeouts on
+ * 2026-08-18 alone (mt#4281).
+ */
+export const TIMEOUT_UNRECOVERED = "timeout-unrecovered";
+
+/**
+ * Carries partial timing out of a review that THREW (mt#4281).
+ *
+ * A non-enumerable symbol property rather than a field on `TimeoutError`:
+ * `TimeoutError` lives in `with-timeout.ts` and is shared with non-reviewer
+ * callers (`merge-state-sweeper.ts`), so reviewer-specific timing has no
+ * business in its shape. Non-enumerable so the attachment cannot alter how the
+ * error serializes into a log line.
+ */
+const PARTIAL_TIMING = Symbol.for("minsky.reviewer.partialTiming");
+
+/**
+ * Attach salvaged timing to an in-flight error and return it for `throw`.
+ *
+ * The arrays are COPIED. The caller's are still live locals at the throw site,
+ * and a carrier that aliased them would report whatever they held later rather
+ * than what they held at the failure.
+ */
+export function attachPartialTiming<E>(err: E, timing: TimingData): E {
+  if (err === null || typeof err !== "object") return err;
+
+  // PR #3136 R1 (BLOCKING, correct): `Object.defineProperty` THROWS on a
+  // frozen, sealed, or otherwise non-extensible object. Every caller is
+  // `throw attachPartialTiming(err, …)` inside a catch, so an unguarded throw
+  // here would REPLACE the original error with a TypeError — masking the actual
+  // failure and defeating this task's own criterion that recording must not
+  // alter control flow. Losing the timing is a bad outcome; losing the ERROR is
+  // a far worse one, so this degrades to returning `err` untouched.
+  //
+  // Both a pre-check and a catch: `isExtensible` covers the common frozen case
+  // without relying on an exception, and the catch covers the rest
+  // (a pre-existing non-configurable property under the same key, a hostile
+  // Proxy's `defineProperty` trap) rather than enumerating them.
+  if (!Object.isExtensible(err)) {
+    logPartialTimingAttachFailure("non-extensible-error");
+    return err;
+  }
+  try {
+    Object.defineProperty(err, PARTIAL_TIMING, {
+      value: {
+        roundLatenciesMs: [...timing.roundLatenciesMs],
+        timeoutCount: timing.timeoutCount,
+        retryOutcomes: [...timing.retryOutcomes],
+      } satisfies TimingData,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+  } catch {
+    logPartialTimingAttachFailure("define-property-threw");
+  }
+  return err;
+}
+
+/**
+ * Report a dropped timing attachment.
+ *
+ * Silence here would reproduce, in the recovery path, the exact defect this
+ * task exists to fix: a row that never gets written and nothing saying why. A
+ * reader seeing an unrecovered-timeout row with empty timing needs to be able
+ * to tell "no timing was accumulated" from "timing was accumulated and could
+ * not be attached".
+ */
+function logPartialTimingAttachFailure(reason: string): void {
+  log.warn("reviewer.partial_timing_attach_failed", {
+    event: "reviewer.partial_timing_attach_failed",
+    reason,
+  });
+}
+
+/** Read back timing attached by {@link attachPartialTiming}; undefined if absent. */
+export function extractPartialTiming(err: unknown): TimingData | undefined {
+  if (err === null || typeof err !== "object") return undefined;
+  const carried = (err as Record<symbol, unknown>)[PARTIAL_TIMING];
+  if (carried === null || typeof carried !== "object") return undefined;
+  const candidate = carried as Partial<TimingData>;
+  if (!Array.isArray(candidate.roundLatenciesMs)) return undefined;
+  if (typeof candidate.timeoutCount !== "number") return undefined;
+  if (!Array.isArray(candidate.retryOutcomes)) return undefined;
+  return candidate as TimingData;
 }
 
 export interface ReviewOutput {
@@ -1018,11 +1113,23 @@ export async function callOpenAIWithClient(
   // No tools provided — preserve original single-turn behavior.
   if (!tools) {
     const noToolsStart = Date.now();
-    const response = await withTimeout(
-      "openai.chat.completions.create.notools",
-      timeoutMs,
-      (signal) => client.chat.completions.create({ ...baseParams, messages }, { signal })
-    );
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await withTimeout("openai.chat.completions.create.notools", timeoutMs, (signal) =>
+        client.chat.completions.create({ ...baseParams, messages }, { signal })
+      );
+    } catch (err) {
+      // mt#4281: the SAME class as the tool-loop catch below. This path has its
+      // own `withTimeout` and its own success-only `timing` block, so a timeout
+      // here lost its duration exactly the way the loop's did. Found by the
+      // loop's own test taking this branch (no `tools` argument) — fixing only
+      // the site that prompted the work would have left this one silent.
+      throw attachPartialTiming(err, {
+        roundLatenciesMs: [Date.now() - noToolsStart],
+        timeoutCount: err instanceof TimeoutError ? 1 : 0,
+        retryOutcomes: err instanceof TimeoutError ? [TIMEOUT_UNRECOVERED] : [],
+      });
+    }
     const noToolsDurationMs = Date.now() - noToolsStart;
     const text = response.choices[0]?.message?.content ?? "";
     const usage = response.usage;
@@ -1144,9 +1251,13 @@ export async function callOpenAIWithClient(
       roundLatenciesMs.push(Date.now() - roundStart);
       if (err instanceof TimeoutError) {
         timeoutCount++;
-        retryOutcomes.push("timeout-unrecovered");
+        retryOutcomes.push(TIMEOUT_UNRECOVERED);
       }
-      throw err;
+      // mt#4281: everything accumulated above dies with this frame unless it
+      // rides out on the error — this function's only other exit builds
+      // `ReviewOutput.timing`, which a throw never reaches. runReview's boundary
+      // reads it back and writes the `review_timing` row this path has never had.
+      throw attachPartialTiming(err, { roundLatenciesMs, timeoutCount, retryOutcomes });
     }
     roundLatenciesMs.push(Date.now() - roundStart);
     if (retriedOnTimeout) {
@@ -1621,6 +1732,189 @@ export async function callOpenAIWithClient(
   };
 }
 
+/**
+ * SDK-level retry budget, PINNED to the value we were already inheriting
+ * (mt#4281).
+ *
+ * `new OpenAI({ apiKey })` defaults `maxRetries` to 2 and `timeout` to 10
+ * minutes (verified against the installed openai@4.104.0: `index.d.ts` docblocks
+ * for both options). Stating them changes nothing about today's behaviour and is
+ * deliberately NOT a tuning move — retry policy is a Class B guarantee trade
+ * owned by mt#2718 / mt#3526, needing a measured before/after and principal
+ * sign-off. What it buys is that the values are now a decision on the record
+ * rather than a default nobody chose.
+ *
+ * Why the 10-minute timeout is inert here, and stays: every toolloop call is
+ * already wrapped in `withTimeout(..., timeoutMs)` at ~120s, so the wrapper is
+ * the binding constraint and the SDK's own timeout never fires. Lowering it
+ * WOULD change behaviour — it would start firing — so it is left above the
+ * wrapper on purpose.
+ */
+export const OPENAI_SDK_MAX_RETRIES = 2;
+export const OPENAI_SDK_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * The SDK's own fetch signature, not a hand-written one: this type has to be
+ * assignable to `ClientOptions.fetch`, and the reviewer's tsconfig has
+ * `lib: ["ES2022"]` with no DOM, so `RequestInfo` is not a global here.
+ */
+type FetchLike = OpenAICore.Fetch;
+
+/**
+ * Statuses the OpenAI SDK retries internally, verified against the installed
+ * openai@4.104.0 `core.js#shouldRetry` rather than taken from the docs: 408
+ * (request timeout), 409 (lock timeout), 429 (rate limit), and any >= 500.
+ * Connection errors are retried too, on a separate branch that never yields a
+ * response and so cannot be observed here.
+ */
+export function isSdkRetryableStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+/**
+ * Render the fetch target for a log line.
+ *
+ * Takes `unknown` deliberately. The SDK's shimmed `RequestInfo` resolves to a
+ * bare `string` under this tsconfig, so a typed union narrows to `never` and the
+ * URL/Request branches will not compile — but the RUNTIME union really is
+ * `string | URL | Request`, and which one arrives depends on the shim the SDK
+ * selects. Handling all three keeps this correct if that resolution changes.
+ */
+function describeFetchTarget(input: unknown): string {
+  if (typeof input === "string") return input;
+  // Same class as R1's `fetch` finding: a bare `URL` reference would throw
+  // ReferenceError where the global is absent. Guarded off `globalThis` for the
+  // same reason, and because this runs on the failure path — where an
+  // incidental throw would replace the error being reported.
+  if (typeof globalThis.URL === "function" && input instanceof globalThis.URL) {
+    return input.toString();
+  }
+  if (typeof input === "object" && input !== null && "url" in input) {
+    return String((input as { url: unknown }).url);
+  }
+  return String(input);
+}
+
+/**
+ * Wrap a `fetch` so the SDK's own retries stop being invisible (mt#4281).
+ *
+ * The SDK retries up to `maxRetries` times INSIDE a single
+ * `chat.completions.create()` call, emitting nothing this service logs. So a
+ * 429 storm and one genuinely slow model call are indistinguishable from
+ * outside: both present as the 120s wrapper firing, with no error in between.
+ * That is the specific ambiguity mt#1897 has been unable to resolve for three
+ * months — its latency percentiles show the failures sit at ~2x p99, off the
+ * distribution rather than in its tail, which is the shape a hidden retry chain
+ * produces.
+ *
+ * Observes only; the response is passed through untouched, so retry semantics
+ * are unchanged. Logs the status and the request target — never headers, which
+ * carry the API key.
+ */
+/**
+ * Read the SDK's own attempt counter off an outgoing request.
+ *
+ * openai@4.104.0 `core.js#buildHeaders` stamps `x-stainless-retry-count` with
+ * `maxRetries - retriesRemaining` — a 0-based attempt index — on every request
+ * including the first. Returned 1-BASED, so `attempt: 1` is the original call
+ * and `attempt: 2` is the first retry, which is how a log reader will read it.
+ *
+ * Returns null rather than guessing when the header is absent: a fabricated
+ * attempt number is worse than a missing one, because it reads as measured.
+ */
+function readSdkAttempt(init: unknown): number | null {
+  if (init === null || typeof init !== "object" || !("headers" in init)) return null;
+  const headers = (init as { headers?: unknown }).headers;
+  if (headers === null || typeof headers !== "object") return null;
+
+  const raw =
+    typeof (headers as Headers).get === "function"
+      ? (headers as Headers).get("x-stainless-retry-count")
+      : ((headers as Record<string, unknown>)["x-stainless-retry-count"] ?? null);
+
+  if (raw === null || raw === undefined) return null;
+  const retryCount = Number(raw);
+  return Number.isInteger(retryCount) && retryCount >= 0 ? retryCount + 1 : null;
+}
+
+export function withSdkRetryVisibility(
+  baseFetch: FetchLike,
+  onRetryableResponse: (info: {
+    status: number;
+    target: string;
+    /** 1-based attempt; null when the SDK's header was absent. */
+    attempt: number | null;
+  }) => void
+): FetchLike {
+  return async (input, init) => {
+    const response = await baseFetch(input, init);
+    if (isSdkRetryableStatus(response.status)) {
+      onRetryableResponse({
+        status: response.status,
+        target: describeFetchTarget(input),
+        attempt: readSdkAttempt(init),
+      });
+    }
+    return response;
+  };
+}
+
+/**
+ * Build the reviewer's OpenAI client with its request budget stated and its
+ * internal retries observable (mt#4281).
+ *
+ * `baseFetch` is injected so the retry-visibility behaviour is testable against
+ * a stub transport without patching a module import.
+ */
+export function createReviewerOpenAIClient(apiKey: string, baseFetch?: FetchLike): OpenAI {
+  const budget = {
+    apiKey,
+    maxRetries: OPENAI_SDK_MAX_RETRIES,
+    timeout: OPENAI_SDK_TIMEOUT_MS,
+  };
+
+  // PR #3136 R1 (BLOCKING, correct): the previous `baseFetch: FetchLike = fetch`
+  // default made this hard-depend on a global `fetch`. Two problems. A bare
+  // identifier reference throws ReferenceError where the global is absent, at
+  // construction — turning a missing convenience into a dead reviewer. And
+  // passing `fetch` explicitly BYPASSES the SDK's own `_shims` transport
+  // selection, which exists precisely to supply a fetch on runtimes lacking one.
+  // The pre-existing `new OpenAI({ apiKey })` delegated that choice entirely, so
+  // this was a robustness regression introduced for instrumentation's sake.
+  //
+  // Resolved off `globalThis` (a property read, never a bare identifier) and
+  // bound, so an unbound extraction cannot lose its receiver.
+  const resolved =
+    baseFetch ??
+    (typeof globalThis.fetch === "function"
+      ? (globalThis.fetch.bind(globalThis) as FetchLike)
+      : undefined);
+
+  if (resolved === undefined) {
+    // No transport to wrap — hand the SDK its own. The pinned budget still
+    // applies; only retry VISIBILITY is lost, and it is announced rather than
+    // silently absent, so "no retry logs" cannot be misread as "no retries".
+    log.warn("openai.sdk_retry_visibility_unavailable", {
+      event: "openai.sdk_retry_visibility_unavailable",
+      reason: "no-global-fetch",
+    });
+    return new OpenAI(budget);
+  }
+
+  return new OpenAI({
+    ...budget,
+    fetch: withSdkRetryVisibility(resolved, ({ status, target, attempt }) => {
+      log.warn("openai.sdk_retryable_response", {
+        event: "openai.sdk_retryable_response",
+        status,
+        target,
+        attempt,
+        maxRetries: OPENAI_SDK_MAX_RETRIES,
+      });
+    }),
+  });
+}
+
 async function callOpenAI(
   config: ReviewerConfig,
   systemPrompt: string,
@@ -1628,7 +1922,7 @@ async function callOpenAI(
   tools?: ReviewerToolContext,
   options?: CallReviewerOptions
 ): Promise<ReviewOutput> {
-  const client = new OpenAI({ apiKey: config.providerApiKey });
+  const client = createReviewerOpenAIClient(config.providerApiKey);
   return callOpenAIWithClient(
     client,
     config.providerModel,

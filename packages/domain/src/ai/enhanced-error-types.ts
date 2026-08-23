@@ -41,6 +41,32 @@ export class RateLimitError extends Error {
   }
 }
 
+/**
+ * The provider rejected the REQUEST CONTENT — an over-length input, a malformed
+ * body, an unsupported parameter (mt#4212).
+ *
+ * This is a distinct class from every other provider error because it says
+ * nothing about the provider's health: the same call will fail identically
+ * forever, and a different call made a millisecond later will succeed. That
+ * distinction is what {@link isProviderHealthSignal} keys on to keep a bug in
+ * OUR input from tripping a circuit breaker meant to detect a failing PROVIDER.
+ *
+ * On 2026-08-17, 76 of these (turns over the 8192-token embedding limit) opened
+ * the shared `openai-embeddings` breaker and blacked out memory search, task
+ * search, tool search and knowledge sync in the same process.
+ */
+export class ProviderInputError extends Error {
+  public readonly provider: string;
+  public readonly statusCode: number;
+
+  constructor(message: string, provider: string, statusCode: number) {
+    super(message);
+    this.name = "ProviderInputError";
+    this.provider = provider;
+    this.statusCode = statusCode;
+  }
+}
+
 export type AuthenticationErrorType = "invalid_key" | "expired_key" | "unauthorized" | "forbidden";
 
 export class AuthenticationError extends Error {

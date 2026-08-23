@@ -197,12 +197,27 @@ returning an empty list, because an empty list would be indistinguishable from a
 genuinely has no tasks:
 
 ```
-Task backend unavailable — cannot list tasks: the 'postgres' persistence backend is configured
-but failed to initialize at boot (getaddrinfo ENOTFOUND), so no task backend is registered. The
-database is unreachable — this is NOT an empty database, and an empty result here would be
-indistinguishable from a real one. Check the boot logs and restart once the database is reachable;
-`minsky persistence check` reports the same failure.
+Task backend unavailable — cannot list tasks: the 'postgres' persistence backend was configured
+but failed to initialize AT BOOT (getaddrinfo ENOTFOUND), so no task backend was registered. This
+registration has NOT been re-attempted since boot, so the underlying dependency may well have
+recovered in the meantime. This is a backend-REGISTRATION failure, which is not the same as an
+empty database and not necessarily a current outage — an empty result here would be
+indistinguishable from a real one, which is why this fails instead. Note `minsky persistence
+check` may well PASS while this fails: it probes the live connection, whereas this reports what
+happened when the backend was registered.
 ```
+
+Once a re-registration has been attempted, the middle sentence is replaced by its timestamp and
+cause — `Last re-registration attempt 2026-08-21T19:30:00.000Z also failed (connect ECONNREFUSED).`
+That distinction is the point: without it, "stuck since boot" and "still retrying against a real
+outage" read identically (ADR-035 rule 4).
+
+**Read the tense carefully — it is deliberate (mt#4379).** This message describes what happened
+**when the backend was registered**, not what is true now. The wording used to assert "The database
+is unreachable" in the present tense, and that sentence was false often enough to be expensive: in
+mt#4379 persistence had long since recovered, `minsky persistence check` returned "All checks
+passed" seconds before this error rendered, and two separate agent sessions each opened their
+diagnosis at a perfectly healthy database.
 
 Before mt#3636 this state answered `{"tasks": [], "total": 0}` with exit 0, and
 `tasks status get` reported an existing task as "not found" — which invited agents and scripts to
@@ -210,10 +225,10 @@ act on the emptiness (re-creating tasks that already exist, concluding a depende
 
 The error text distinguishes two causes, which need opposite responses:
 
-| Error says                                                     | Cause                                                                                              | What to do                                                                                                                                              |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "…is configured but failed to initialize at boot (`<reason>`)" | Postgres IS configured; the connection failed at startup and the process has stayed degraded since | Fix connectivity, then **restart the process** — it does not currently retry (tracked: mt#3635). Run `minsky persistence check` for the same diagnosis. |
-| "persistence is not configured (`<reason>`)"                   | No connection string anywhere                                                                      | Set `persistence.postgres.connectionString`, or export `MINSKY_PERSISTENCE_POSTGRES_URL`                                                                |
+| Error says                                                      | Cause                                                    | What to do                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "…was configured but failed to initialize AT BOOT (`<reason>`)" | Postgres IS configured; the connection failed at startup | Fix connectivity if it is still down. **A restart is no longer required** (mt#4379): the zero-backend service now marks itself a degraded substitute, so the container re-registers it on a later `get()`. Note `minsky persistence check` may PASS here — it probes the live connection, while this reports registration time. |
+| "persistence is not configured (`<reason>`)"                    | No connection string anywhere                            | Set `persistence.postgres.connectionString`, or export `MINSKY_PERSISTENCE_POSTGRES_URL`                                                                                                                                                                                                                                        |
 
 **The diagnostic surface stays available** while reads are failing, so you can diagnose without a
 working database:
@@ -227,6 +242,25 @@ minsky config list           # answers normally
 `session` and `memory` commands also fail loudly in this state — they always did. A boot failure is
 additionally logged at error level at startup, but note that it goes to **stderr**, so an MCP client
 sees only the tool result; that is precisely why the read path had to carry the cause itself.
+
+**The wording above is not specific to task reads (mt#4383).** Three separate renderers describe this
+one state, and mt#4379 corrected only the first:
+
+| Renderer                                         | Reaches                                                                                                               |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `MultiBackendTaskService.describeUnavailability` | task reads (the message quoted above)                                                                                 |
+| `describePersistenceUnavailability`              | the canonical helper — `session` / `memory` commands, task routing, cockpit widgets, schema readiness, the toil-miner |
+| `describeFailedPersistenceInit`                  | the cockpit, where a failed init is PROPAGATED rather than substituted                                                |
+
+All three now agree on the two things that matter: no claim that the database is currently
+unreachable, and no instruction to restart. `minsky persistence check` PASSING while one of these
+fails is expected, not contradictory — it probes the live connection, they report a failed
+initialization.
+
+The cockpit renderer keeps the present tense on purpose, and it is the one exception worth knowing:
+its error is a live throw from the attempt just made, so "failed to initialize" is accurate at the
+moment you read it. The other two replay a record stored at boot, which is why they say **AT BOOT**
+and carry a retry clause.
 
 ## Advanced Features
 

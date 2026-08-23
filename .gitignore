@@ -62,6 +62,11 @@ services/reviewer/eval/results/
 **/.minsky/*-evaluations.jsonl
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
+# Sweep-time claims on a calibration log (mt#4164) — the same class of local
+# runtime state as the watermark store above, written on every read-only sweep
+# and emptied at ack. Tracking it would put one machine's in-flight passes into
+# every other checkout.
+**/.minsky/calibration-review-claims.json
 # Transient lock dir guarding the store above (mt#3899). A crashed pass can
 # leave one behind; the next pass reaps it by mtime. Never a tracked artifact.
 **/.minsky/calibration-review-watermarks.lock/
@@ -157,3 +162,4 @@ supabase/
 # the run, not of the repo: committing them would produce a large diff on every
 # run and invite reading one machine's numbers as a project-wide baseline.
 /scripts/cockpit-navigation-latency-results.json
+/scripts/peek-drag-frames-results.json

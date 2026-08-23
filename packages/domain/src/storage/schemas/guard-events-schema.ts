@@ -205,3 +205,80 @@ export const guardEventsTable = pgTable(
 
 export type GuardEventRecord = typeof guardEventsTable.$inferSelect;
 export type GuardEventInsert = typeof guardEventsTable.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Fire-log lifetime rollup (mt#4294)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-guard LIFETIME totals over the `fire-log` stream, maintained
+ * incrementally so no reader ever aggregates `guard_events` in full.
+ *
+ * ## Why this table exists
+ *
+ * The lifetime figures the interceptor catalog renders used to come from a
+ * `GROUP BY guard_name` over the whole table. Measured 2026-08-19 at 724,780
+ * rows / 677 MB: **2,193 ms and ~404 MB of disk reads per refresh, per
+ * cockpit**, to produce 109 rows — and the equivalent SINGLE-guard query was
+ * WORSE (10,972 ms), because filtering by `guard_name` turns a sequential scan
+ * into a bitmap heap scan over ~37,688 scattered blocks.
+ *
+ * ## Why a maintained table and not an index or a view
+ *
+ * Both alternatives were measured and rejected (mt#4294 records the plans):
+ *
+ * - **A covering index** does not help. An index-only scan over this table
+ *   measured 9,474 ms — 4.3x SLOWER than the sequential scan — because ~68K
+ *   rows/day arrive continuously, so the newest rows are never marked
+ *   all-visible and each one costs a random heap fetch. On an append-only
+ *   table that condition is the steady state, not a stale-statistics artifact
+ *   a VACUUM clears.
+ * - **A materialized view** relocates the cost rather than removing it:
+ *   `REFRESH` re-runs the full query every time, and `CONCURRENTLY` is slower
+ *   still. Postgres has no built-in incremental refresh.
+ *
+ * What remains is the documented alternative for an append-mostly event table:
+ * an incremental rollup maintained by upsert, processing only rows new since
+ * the last pass.
+ *
+ * ## Why it cannot drift
+ *
+ * `buildInsertBatch` (`guard-events/ingest-runtime.ts`) is the SOLE writer of
+ * `guard_events` — verified by grep across `src`, `packages`, `scripts` and
+ * `tests`. It inserts with `ON CONFLICT (dedupe_key) DO NOTHING ... RETURNING`,
+ * so the rows it returns are exactly the rows that were actually appended:
+ * re-ingesting the same file folds in nothing, which is what makes this exact
+ * rather than approximately-right. There is no watermark and no time-based
+ * cursor, so there is no late-commit window to reason about.
+ *
+ * `rebuildFireLogLifetimeRollup` recomputes the whole table from
+ * `guard_events` for bootstrap and for self-heal; `scripts/verify-interceptor-aggregates.ts`
+ * cross-checks the maintained values against a direct recompute.
+ *
+ * ## Grain
+ *
+ * One row per `guard_name` observed on the `fire-log` stream. Deliberately NOT
+ * keyed by stream: `guard_events.guard_name` carries two name-spaces (mt#4068
+ * — calibration rows use `stream-sources.ts` labels, fire-log rows use registry
+ * names), so a cross-stream rollup on this key would conflate them. Scoping to
+ * the fire-log stream is what keeps the key meaningful.
+ */
+export const guardEventFireLogRollupTable = pgTable("guard_event_fire_log_rollup", {
+  /** Registry guard name, as it appears on `fire-log` rows. */
+  guardName: text("guard_name").primaryKey(),
+
+  /** All-time fire count for this guard. Counts rows, including any whose `occurred_at` is null. */
+  totalFires: integer("total_fires").notNull().default(0),
+
+  /** Earliest non-null `occurred_at`. Null when every row for this guard lacks one. */
+  firstFireAt: timestamp("first_fire_at", { withTimezone: true }),
+
+  /** Latest non-null `occurred_at`. Null when every row for this guard lacks one. */
+  lastFireAt: timestamp("last_fire_at", { withTimezone: true }),
+
+  /** Last time this row was folded into or rebuilt. Diagnostic, not a cursor. */
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type GuardEventFireLogRollupRecord = typeof guardEventFireLogRollupTable.$inferSelect;
+export type GuardEventFireLogRollupInsert = typeof guardEventFireLogRollupTable.$inferInsert;

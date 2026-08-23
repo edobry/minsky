@@ -4,7 +4,11 @@
 // emitting unmatchable output erodes trust in its correct output).
 
 import { describe, test, expect } from "bun:test";
-import { scanMessage } from "./bare-entity-ref-scan";
+import {
+  partitionAuthorLinkedShortIds,
+  scanMessage,
+  shortIdsNeedingResolution,
+} from "./bare-entity-ref-scan";
 import { linkifyLine, type ShortIdMap } from "./entity-linkify";
 
 const kinds = (r: ReturnType<typeof scanMessage>) => r.flagged.map((f) => f.kind);
@@ -320,5 +324,145 @@ describe("bare-entity-ref scanner — short ids the display map resolves (mt#396
       const linked = linkifyLine(text, map).includes("minsky://memory/");
       expect(`${label}:${suppressed}`).toBe(`${label}:${linked}`);
     }
+  });
+});
+
+// mt#4160 — a short id whose own entity is already deeplinked in the same
+// message. Every fixture below is the VERBATIM judged text of a real fire,
+// recovered from the session transcript at or before its timestamp; none is
+// paraphrased or trimmed. mem#1020: a detector fixture that reaches no matcher
+// passes a negative assertion vacuously AND survives its own negative control,
+// so each must-not-flag case here is preceded by a liveness assertion proving
+// the fixture still fires before the suppression is applied.
+describe("bare-entity-ref scanner — author-linked short ids (mt#4160)", () => {
+  // Fire 2026-08-16T21:14:28Z, session 6b2b7665. The `/handoff` closing line:
+  // the link label is a prose title and the short id trails it in parentheses,
+  // so `collectLinkLabelRanges` cannot see that both name the same entity.
+  const MEM_1045 =
+    "Handoff recorded: [cockpit SQLSTATE classifier → gate-battery premise correction](minsky://memory/c748bf8f-5ac5-4026-a5a7-91f7b55f2031) — memory `c748bf8f` (mem#1045).";
+  const MEM_1045_UUID = "c748bf8f-5ac5-4026-a5a7-91f7b55f2031";
+
+  // Fire 2026-08-11T22:42:06Z, session 25a27bdb — the same template, a
+  // different entity, five days earlier.
+  const MEM_962 =
+    "Handoff recorded: [interception taxonomy + thin-hooks RFC](minsky://memory/764137ed-5887-498a-9647-79de8c630156) — memory `764137ed` (mem#962).";
+  const MEM_962_UUID = "764137ed-5887-498a-9647-79de8c630156";
+
+  // Fire 2026-08-13T20:44:22Z, session 7f08191d. The ONE case in the measured
+  // window where the link and a second bare mention sit in different
+  // paragraphs — the fixture that discriminates message scope from line scope.
+  const MEM_1024 =
+    "Handoff recorded: [cockpit passkey gate + share links — closed](minsky://memory/4ea01db6-f006-4472-a0e5-03a340139eaa) — memory `4ea01db6` (mem#1024). Written and live-verified minutes ago.\n\n" +
+    "**New session.** This conversation spans three days, two merged features, a security finding, and ten skill/rule files changed underneath it. mt#3268 needs none of that context — only its own spec and mem#1024.";
+  const MEM_1024_UUID = "4ea01db6-f006-4472-a0e5-03a340139eaa";
+
+  // Fire 2026-08-12T00:32:43Z, session ab3a7ed7 — a REAL positive. The message
+  // carries no minsky:// link of any type.
+  const MEM_968 = "2. **mem#968** — bridge until mt#4014 ships.";
+
+  // Fire 2026-08-13T20:53:23Z, session 93e98f39 — a REAL positive.
+  const MEM_1026 =
+    "Filed: **mt#4123** (the styling), **mt#4124** (the gate), **mem#1026** (the bridge).";
+
+  test("AT1 — the fixture fires today, and the suppression removes it", () => {
+    const scan = scanMessage(MEM_1045);
+    // Liveness FIRST (mem#1020): assert the fixture reaches the matcher before
+    // asserting anything about its absence.
+    expect(refs(scan)).toEqual(["mem#1045"]);
+    expect(kinds(scan)).toEqual(["bare-short-id"]);
+
+    const { flagged, authorLinked } = partitionAuthorLinkedShortIds(
+      scan.flagged,
+      scan.linkTargets,
+      new Map([["mem#1045", MEM_1045_UUID]])
+    );
+    expect(flagged).toHaveLength(0);
+    expect(authorLinked.map((f) => f.ref)).toEqual(["mem#1045"]);
+    expect(authorLinked.map((f) => f.kind)).toEqual(["author-linked-short-id"]);
+  });
+
+  test("AT2 — a link to a DIFFERENT entity does not suppress (identity, not adjacency)", () => {
+    const scan = scanMessage(MEM_1045);
+    expect(refs(scan)).toEqual(["mem#1045"]);
+
+    // Same message, same position, same distance — only the ENTITY differs.
+    const { flagged, authorLinked } = partitionAuthorLinkedShortIds(
+      scan.flagged,
+      scan.linkTargets,
+      new Map([["mem#1045", MEM_962_UUID]])
+    );
+    expect(flagged.map((f) => f.ref)).toEqual(["mem#1045"]);
+    expect(authorLinked).toHaveLength(0);
+  });
+
+  test("AT3 — the real positives still fire (no minsky:// link to that entity)", () => {
+    for (const [text, ref] of [
+      [MEM_968, "mem#968"],
+      [MEM_1026, "mem#1026"],
+    ] as const) {
+      const scan = scanMessage(text);
+      expect(refs(scan)).toEqual([ref]);
+      // Nothing to resolve: no link target of that type exists in the message.
+      expect(shortIdsNeedingResolution(scan.flagged, scan.linkTargets)).toHaveLength(0);
+      const { flagged } = partitionAuthorLinkedShortIds(scan.flagged, scan.linkTargets, new Map());
+      expect(flagged.map((f) => f.ref)).toEqual([ref]);
+    }
+  });
+
+  test("AT4 — suppression is MESSAGE-scoped: a later bare mention in another paragraph", () => {
+    const scan = scanMessage(MEM_1024);
+    expect(refs(scan)).toEqual(["mem#1024"]);
+
+    const { flagged, authorLinked } = partitionAuthorLinkedShortIds(
+      scan.flagged,
+      scan.linkTargets,
+      new Map([["mem#1024", MEM_1024_UUID]])
+    );
+    expect(flagged).toHaveLength(0);
+    expect(authorLinked.map((f) => f.ref)).toEqual(["mem#1024"]);
+  });
+
+  test("AT5 — a suppressed finding names the UUID that matched", () => {
+    const scan = scanMessage(MEM_962);
+    expect(refs(scan)).toEqual(["mem#962"]);
+
+    const { authorLinked } = partitionAuthorLinkedShortIds(
+      scan.flagged,
+      scan.linkTargets,
+      new Map([["mem#962", MEM_962_UUID]])
+    );
+    expect(authorLinked[0]?.reason).toContain(MEM_962_UUID);
+    expect(authorLinked[0]?.reason).toContain("minsky://memory/");
+  });
+
+  test("AT6 — an empty resolution map fails OPEN to today's behavior", () => {
+    const scan = scanMessage(MEM_1045);
+    expect(refs(scan)).toEqual(["mem#1045"]);
+
+    // This is what a resolution failure looks like from here: no bindings.
+    const { flagged, authorLinked } = partitionAuthorLinkedShortIds(
+      scan.flagged,
+      scan.linkTargets,
+      new Map()
+    );
+    expect(flagged.map((f) => f.ref)).toEqual(["mem#1045"]);
+    expect(authorLinked).toHaveLength(0);
+  });
+
+  test("the resolution gate skips a message with no link of the candidate's type", () => {
+    // A task link is present, but the candidate is a memory — nothing its
+    // resolved UUID could match, so no resolution is requested.
+    const scan = scanMessage(
+      "Filed [mt#4123](minsky://task/mt%234123) and mem#1026 as the bridge."
+    );
+    expect(refs(scan)).toEqual(["mem#1026"]);
+    expect(shortIdsNeedingResolution(scan.flagged, scan.linkTargets)).toHaveLength(0);
+  });
+
+  test("the resolution gate requests exactly the candidate it can decide", () => {
+    const scan = scanMessage(MEM_1045);
+    expect(shortIdsNeedingResolution(scan.flagged, scan.linkTargets)).toEqual([
+      { ref: "mem#1045", kind: "memory", num: "1045" },
+    ]);
   });
 });

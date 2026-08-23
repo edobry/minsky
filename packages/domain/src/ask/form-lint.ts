@@ -154,6 +154,88 @@ export const INCIDENT_VOCABULARY_PATTERN =
   /\b(outage|down|credits|failing|production|incident|429)\b/i;
 
 /**
+ * Prose by which an incident ask asserts its condition will NOT clear on its
+ * own (mt#4315) — matched case-insensitively against the question body.
+ *
+ * ## Why the trigger is the ASSERTION, not a missing observation window
+ *
+ * mt#4315 was specced to fire on an assertion made WITHOUT stating how long the
+ * author watched, on the theory that seeing "I watched this for 5 minutes"
+ * beside "it will not clear on its own" would prompt the author to reconsider.
+ * Planning measured that against the corpus and it does not hold: both
+ * originating asks stated their window, adjacently and prominently, and
+ * escalated anyway.
+ *
+ * - ask#9278: *"already held ~14 min with no sign of clearing"*
+ * - ask#9279: *"count held at exactly 16 across ~5 minutes while ages advanced
+ *   576s->858s"*
+ *
+ * Both conditions drained on their own roughly twenty minutes later. Neither
+ * claim was careless — each was accurate about the window measured and wrong as
+ * a PREDICTION, because the drain timescale exceeded the observation. A check
+ * keyed on the missing window would have fired on neither, which is a measured
+ * fire rate of 0 across every incident ask that has ever existed.
+ *
+ * So this fires on the assertion itself and says the thing the window was
+ * supposed to prompt: it is a prediction beyond any window you can have
+ * measured, and `work-completion.mdc §External self-resolving waits` calls that
+ * category (b) — arm a watcher, keep working, do not escalate.
+ *
+ * ## Corpus and fire rate (measured 2026-08-19, re-runnable)
+ *
+ * Corpus: all 12 asks with `severity: "incident"`, 2026-08-05 → 2026-08-19 —
+ * every one that has ever existed. This pattern matches **2 of 12**: ask#9278
+ * and ask#9279. The other 10 do not make the claim at all, and they span
+ * `authorization.approve`, `capability.escalate`, `direction.decide` and
+ * `coordination.notify`.
+ *
+ * **Read the ask#9278 fire precisely — it is not what it looks like.** Its
+ * STORED question is the RESOLVED rewrite, and the phrase that matches there is
+ * the correction quoting its own earlier claim: *I said the wedged connections
+ * showed "no sign of clearing."* The original assertion is gone from the record
+ * (edited twice BEFORE mt#4329 added value retention, so its `editHistory` kept
+ * field names and not prior values — an ask edited today keeps its original in
+ * `metadata.originalContent`), so the live
+ * sweep's ask#9278 fire is coincidental. The pinned fixture in
+ * `form-lint.self-resolving-claim.test.ts` carries the real original, recovered
+ * from the authoring transcript, and it fires on `will not reap`.
+ *
+ * That coincidence names a real false-positive class: **an ask that QUOTES a
+ * prior persistence claim in order to RETRACT it will fire.** Accepted rather
+ * than patched — the check is advisory, a retraction is exactly where the
+ * category-(b) reminder is harmless, and a "unless it appears inside a quote"
+ * carve-out is the arms-race move this docblock argues against below.
+ *
+ * **The 2 positives are partly circular** — the pattern was written from those
+ * two cases, so their recall is fitted rather than predicted. The 10 negatives
+ * are the load-bearing half: they are the no-over-fire evidence. Re-measure
+ * rather than trusting these numbers:
+ * `bun scripts/verify-self-resolving-claim-check.ts`.
+ *
+ * ## Known false-negative class, stated rather than discovered later
+ *
+ * `held steady` was in this set and was REMOVED (PR #3158 R2), on the evidence
+ * rather than on the reviewer's say-so. It contributed 0 of the 2 corpus fires —
+ * both matched other terms — while describing a flat measurement, which is a
+ * shape benign incident prose takes constantly ("rate held steady at 2/s for
+ * three minutes"). A term carrying no recall and a real false-positive surface
+ * is exactly what the paragraph below says not to accumulate. Note where it came
+ * from: ask#9279's *withdrawal* says "16 held steady", its escalation does not —
+ * the term was sampled from a retraction and never earned its place.
+ *
+ * An author who asserts persistence WITHOUT this vocabulary — by implication,
+ * or by describing a flat measurement and letting the reader conclude it —
+ * produces no match. That is deliberate: the alternative is a phrase set that
+ * grows one family per miss, which is the arms race ADR-024 §Context describes.
+ * ADR-024 does not GOVERN this surface (its ladder scopes to `UserPromptSubmit`
+ * guidance hooks, and this is a domain check at `asks.create`), so its rungs are
+ * not available here — but its reasoning is why this set is deliberately small
+ * and why a miss should be answered by re-measuring, not by appending.
+ */
+export const NOT_SELF_RESOLVING_PATTERN =
+  /\b(wedged,?\s+not\s+(transient|draining)|not\s+(self.?resolving|transient|draining|clearing)|no\s+sign\s+of\s+clearing|will\s+not\s+(reap|clear|resolve|drain)|won'?t\s+(reap|clear|resolve|drain)|do(es)?\s+not\s+self.?clear)\b/i;
+
+/**
  * The AskKinds this check's severity-transport rule applies to (mt#3436):
  * both are operator-only-shaped by design (`authorization.approve` routes
  * to the operator; `stuck.unblock` per `types.ts`'s kind table escalates
@@ -195,6 +277,42 @@ export const SEVERITY_TRANSPORT_CHECK_KINDS: readonly AskKind[] = [
  */
 export const OPTIONS_REQUIRED_CHECK_KINDS: readonly AskKind[] = ["direction.decide"];
 
+/**
+ * Words by which an option label carves an EXCEPTION out of the behavior it
+ * authorizes (mt#4148).
+ *
+ * Every other check in this module asks whether the ask can be READ and
+ * ANSWERED. This one is the first to ask about the option's CONTENT, and it is
+ * deliberately the weakest thing that can be asked mechanically: no matcher can
+ * know whether an exemption set is complete — that needs a model of the system
+ * the option describes. What a matcher CAN see is that an exception was
+ * written, which is the moment worth prompting the author to state the rule it
+ * carves out of.
+ *
+ * Lower-cased at the call site rather than with an `i` flag, so the per-word
+ * test stays free of `lastIndex` state.
+ *
+ * **`only` is deliberately NOT in this set**, though it is the word ask#8509's
+ * option DESCRIPTION used ("exempting only clicks landing on an EntityRef").
+ * A first draft included it and immediately failed an existing test: mt#3477's
+ * repaired-shape replay asserts the label "Alias now, read-only until mt#3325"
+ * is clean, and `\bonly\b` matches inside `read-only` because a hyphen is a
+ * word boundary. That is a true false positive of exactly the kind mem#719
+ * warns about — noise here would train authors to discount the check's correct
+ * fires. The four words that remain are unambiguously carve-out constructions,
+ * and `except` catches the originating incident's LABEL on its own, so nothing
+ * is lost by the narrowing.
+ *
+ * Originating incident: ask#8509 (2026-08-13), whose recommended option read
+ * "Close on outside click, except on an entity ref … exempting ONLY clicks
+ * landing on an EntityRef." It passed all seven checks above, the completeness
+ * checklist, and the form contract. The exemption set was still wrong — it
+ * omitted every sibling peek pane, which would have destroyed the held-pair
+ * comparison view — and the principal caught it on read rather than any
+ * mechanism. See mem#258 R7.
+ */
+export const OPTION_EXCEPTION_WORD_PATTERN = /\b(except|unless|other than|apart from)\b/;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -216,7 +334,10 @@ export type FormLintCheck =
   | "letter-prefixed-option-label"
   | "missing-force-immediate"
   | "missing-decision-options"
-  | "unlinkified-reference";
+  | "unlinkified-reference"
+  | "unscoped-option-exception"
+  | "duplicate-open-incident"
+  | "asserted-not-self-resolving";
 
 /**
  * Markers that only appear in a question when the tool call's own parameter
@@ -254,6 +375,122 @@ export function findSerializedParameterArtifact(question: string): string | null
     if (question.includes(marker)) return marker;
   }
   return null;
+}
+
+/**
+ * The counterweight to `missing-force-immediate` (mt#4312).
+ *
+ * `34a937f0` ("Companion principles: attention, humility, and noticing"), the
+ * page the Ask subsystem was designed from, names two attention failures and
+ * requires both to be prevented:
+ *
+ *   > **Waste** is the system asking when it shouldn't have. … It bothered the
+ *   > principal instead.
+ *   > **Usurp** is the system deciding when it shouldn't have. … The principal
+ *   > doesn't see this failure happen.
+ *   > Any design that protects attention has to prevent both, not just one.
+ *
+ * Usurpation was mechanized first, and the record says why — it is SILENT, so
+ * it has no other signal. Waste had nothing at any tier: `missing-force-immediate`
+ * above prompts an author TOWARD paging, the `turn-end-unescalated-incident`
+ * Stop-observer fires when a turn ends without one, and nothing anywhere asked
+ * whether a page was warranted.
+ *
+ * Originating incident (2026-08-19): ask#9278 at 03:01:32Z and ask#9279 at
+ * 03:02:12Z — two `authorization.approve` asks, both `severity: "incident"`,
+ * both `forceImmediate`, both paging the principal 40 seconds apart, both
+ * asking permission to `pg_terminate_backend` the same wedged Postgres
+ * backends. Neither agent could see the other's ask. Both premises expired
+ * within ~20 minutes when the backends drained on their own.
+ */
+
+/**
+ * Minimum length for a signature token. Mirrors the hooks tree's
+ * `MIN_SUBJECT_TOKEN_LENGTH` — same corpus, same problem, same answer.
+ */
+export const INCIDENT_SIGNATURE_MIN_TOKEN_LENGTH = 8;
+
+/**
+ * How many shared tokens make two incident asks the same incident.
+ *
+ * TWO, not one: a single shared identifier is how two genuinely different
+ * incidents in one subsystem look. Both originating asks shared THREE
+ * (`pg_terminate_backend`, `wait_event`, `ClientRead`), so the bar is met with
+ * margin on the case this exists for.
+ */
+export const MIN_SHARED_SIGNATURE_TOKENS = 2;
+
+/**
+ * Identifier-shaped runs of >= 8 chars, lowercased.
+ *
+ * IDENTIFIER-shaped, not merely long, and that restriction is the whole
+ * discriminator. A token qualifies only if it carries an underscore, a digit,
+ * or an interior capital — so `pg_terminate_backend`, `ECHECKOUTTIMEOUT` and
+ * `ClientRead` are signatures, while `production`, `connection`, `authorization`
+ * and `principal` are not. Those prose words are exactly what two UNRELATED
+ * incident asks share, and admitting them would make the check fire on any two
+ * incidents at once.
+ *
+ * Exact substring matching, no stemming and no similarity metric — mem#819
+ * records that similarity does not discriminate at the distances real
+ * duplicates sit at in this corpus.
+ *
+ * **Known false-negative class, stated rather than implied:** an incident ask
+ * written in plain prose — "the reviewer webhook is returning 502 and
+ * crash-looping" — yields NO signature tokens at all, so it is never compared
+ * against anything and this check can never fire for it. Found while writing
+ * the tests, where exactly that string turned out to be an inert fixture. The
+ * failure direction is the safe one (a missed duplicate, not a suppressed
+ * incident), and widening toward prose words is the trade this check exists to
+ * refuse — but a reader should not infer from silence that no duplicate exists.
+ */
+export function extractIncidentSignatureTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) {
+    if (raw.length < INCIDENT_SIGNATURE_MIN_TOKEN_LENGTH) continue;
+    const isIdentifierShaped = raw.includes("_") || /\d/.test(raw) || /[A-Z]/.test(raw.slice(1));
+    if (!isIdentifierShaped) continue;
+    out.add(raw.toLowerCase());
+  }
+  return out;
+}
+
+/** An already-open incident ask, as the overlap check needs to see it. */
+export interface OpenIncidentAskRef {
+  /** Human-readable id for the warning message (e.g. `ask#9278`). */
+  shortId: string;
+  question: string;
+}
+
+/** One open incident ask this question overlaps, and the tokens they share. */
+export interface IncidentOverlap {
+  shortId: string;
+  sharedTokens: string[];
+}
+
+/**
+ * Open incident asks whose question shares >= {@link MIN_SHARED_SIGNATURE_TOKENS}
+ * signature tokens with this one.
+ *
+ * Subject-keyed rather than task-keyed on purpose: ask#9278 carried
+ * `parentTaskId: mt#4190` and ask#9279 carried none, so `getOpenAskForTask`
+ * would not have linked the originating pair. Their entire overlap lived in the
+ * question text.
+ */
+export function findOverlappingIncidentAsks(
+  question: string,
+  openIncidentAsks: readonly OpenIncidentAskRef[]
+): IncidentOverlap[] {
+  const mine = extractIncidentSignatureTokens(question);
+  if (mine.size === 0) return [];
+  const out: IncidentOverlap[] = [];
+  for (const other of openIncidentAsks) {
+    const shared = [...extractIncidentSignatureTokens(other.question)].filter((t) => mine.has(t));
+    if (shared.length >= MIN_SHARED_SIGNATURE_TOKENS) {
+      out.push({ shortId: other.shortId, sharedTokens: shared.sort() });
+    }
+  }
+  return out;
 }
 
 /** A single fired check, with its human-readable warning message. */
@@ -304,6 +541,22 @@ export interface FormLintInput {
    * because this field was merely omitted.
    */
   forceImmediate?: boolean;
+  /**
+   * Whether this create carries `severity: "incident"` (mt#4312) — the marker
+   * that pages the principal. Optional; absent is treated as not-an-incident,
+   * matching the omission convention above.
+   */
+  severity?: string | undefined;
+  /**
+   * Open incident asks to check this one against (mt#4312).
+   *
+   * Passed IN rather than queried here, so this module stays a pure function of
+   * its input and the DB read lives in the imperative shell at
+   * `asks.create`. Omitting it is "the caller is not checking for duplicates",
+   * not "there are none" — the check stays silent, exactly as `options`'
+   * omission silences the label checks.
+   */
+  openIncidentAsks?: readonly OpenIncidentAskRef[];
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +592,10 @@ export function countWords(text: string): number {
  *      true -> "operator-only incident without forceImmediate" (mt#3436)
  *   7. `kind` is in `OPTIONS_REQUIRED_CHECK_KINDS` AND `options` is absent or
  *      empty -> "decision-shaped ask with no response options" (mt#3477)
+ *   8. any option label matches `OPTION_EXCEPTION_WORD_PATTERN` -> "state the
+ *      rule the exception carves out of" (mt#4148). The first check here about
+ *      an option's CONTENT rather than its readability, and permanently
+ *      advisory for that reason — see the constant's doc comment.
  *
  * Checks 4 and 5 fire ONCE for the ask, not once per offending option: the fix
  * is the same edit either way, and a four-option ask would otherwise emit four
@@ -355,7 +612,7 @@ export function countWords(text: string): number {
  * Check 7 (mt#3477) is NOT excluded: it blocks alongside the original five.
  */
 export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
-  const { kind, question, options, forceImmediate } = input;
+  const { kind, question, options, forceImmediate, severity, openIncidentAsks } = input;
   const matches: FormLintMatch[] = [];
 
   if (MCP_TOOL_ID_PATTERN.test(question)) {
@@ -450,6 +707,82 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         `(${unlinkified.join("; ")}) — the reader cannot open them from the ask. ` +
         `Supply the full URL. Note this says the reference was not linkified, not ` +
         `that a destination was checked: nothing here probes reachability`,
+    });
+  }
+
+  // mt#4148: an option label that carves an exception, with no statement of the
+  // rule it carves out of. Advisory by construction — it is on
+  // `filterBlockingFormLintMatches`'s exclusion list, because unlike every
+  // other check here it cannot be satisfied mechanically: the author has to
+  // decide whether the exemption set is right, and a hard-reject would just
+  // train them to reword the label rather than re-derive the set.
+  const exceptionLabels = (options ?? []).filter((o) =>
+    OPTION_EXCEPTION_WORD_PATTERN.test(o.label.toLowerCase())
+  ).length;
+  if (exceptionLabels > 0) {
+    matches.push({
+      check: "unscoped-option-exception",
+      message:
+        `${exceptionLabels} option label(s) carve an exception ` +
+        `("except"/"unless"/"other than"/"apart from") — ` +
+        `state the RULE the exception carves out of, not just the exception, and say where ` +
+        `the exception set came from: derived from the system's structure, or taken from the ` +
+        `one case that prompted this ask. An exemption written from the case in hand is how ` +
+        `ask#8509 authorized a change that would have broken the feature (mem#258 R7)`,
+    });
+  }
+
+  // mt#4312: an incident-marked ask whose subject already has an OPEN incident
+  // ask. Advisory permanently, and on `filterBlockingFormLintMatches`'s
+  // exclusion list for a reason this check owns rather than inherits: a
+  // suppressed real incident is strictly worse than a duplicate page, so the
+  // failure direction is chosen deliberately toward permitting. The fire is a
+  // prompt to READ the other ask, not a refusal.
+  if (severity === "incident" && openIncidentAsks && openIncidentAsks.length > 0) {
+    const overlaps = findOverlappingIncidentAsks(question, openIncidentAsks);
+    if (overlaps.length > 0) {
+      const rendered = overlaps
+        .map((o) => `${o.shortId} (shared: ${o.sharedTokens.join(", ")})`)
+        .join("; ");
+      matches.push({
+        check: "duplicate-open-incident",
+        message:
+          `an incident ask is already open on what looks like this subject — ${rendered}. ` +
+          `Read it before paging again: a second page for one incident spends the ` +
+          `principal's attention twice and tells them nothing new. If it IS the same ` +
+          `incident, add to that ask instead. If the condition is external and ` +
+          `self-resolving — a pool draining, a service restarting, CI finishing — arm a ` +
+          `watcher and keep working rather than escalating at all ` +
+          `(work-completion.mdc §External self-resolving waits). If it is genuinely a ` +
+          `different incident, say so and proceed`,
+      });
+    }
+  }
+
+  // mt#4315: an incident-marked ask asserting its condition will not clear on
+  // its own. Sibling of the check above and its other half — that one asks "has
+  // this already been raised?", this one asks "is the basis for raising it
+  // sound?". Advisory permanently, on the same direction-of-error argument: a
+  // suppressed real incident is worse than a warning the author overrides.
+  //
+  // Deliberately NOT conditioned on whether a window is stated. See
+  // NOT_SELF_RESOLVING_PATTERN's docblock — both originating asks stated one and
+  // escalated anyway, so keying on its absence measures 0 across the corpus.
+  if (severity === "incident" && NOT_SELF_RESOLVING_PATTERN.test(question)) {
+    matches.push({
+      check: "asserted-not-self-resolving",
+      message:
+        `this ask asserts the condition will not clear on its own. That is a PREDICTION, and it ` +
+        `reaches past any window you can have measured — the two asks that produced this check ` +
+        `each stated theirs (~14 minutes and ~5 minutes), and both conditions drained on their ` +
+        `own about twenty minutes later. Stating a longer window does not answer this; the drain ` +
+        `timescale is simply not observable from inside the outage. If the condition is external ` +
+        `and could resolve without you — a pool draining, a service restarting, CI finishing, a ` +
+        `rate limit resetting — that is category (b) in work-completion.mdc §External ` +
+        `self-resolving waits: arm a watcher and keep working rather than escalating. If you ` +
+        `have already armed one, or the condition genuinely cannot self-resolve (a revoked ` +
+        `credential, an exhausted quota, a permission that was never granted), say which in the ` +
+        `question and proceed`,
     });
   }
 

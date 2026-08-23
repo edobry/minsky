@@ -68,6 +68,13 @@ current page** instead of navigating to it. The page behind stays exactly where
 it was: same scroll position, same loaded data, same URL path. Closing the pane
 costs one Esc and returns you to what you were reading, with nothing left behind.
 
+**"A reference" includes the ones an agent typed.** Whether the cockpit recognized
+a bare `mt#NNNN` in the text, or the agent wrote the link itself as
+`[mem#728](minsky://memory/…)`, the same click peeks. Until mt#4351 the second
+kind navigated away instead — which made memory and task links inside stored
+conversations behave differently from the identical reference on a memory or task
+page, since that is the form agents are told to emit.
+
 Peeking deliberately does **not** open a tab. The tab strip records where you have
 NAVIGATED; a peek is the path that does not navigate, which is the whole reason it
 is cheap.
@@ -77,10 +84,13 @@ is cheap.
 | Click a reference              | Peek it — **replacing** whatever pane is already open     |
 | `⇧`-click a reference          | **Hold** the current pane; the next click opens beside it |
 | `⌘`/`Ctrl`-click, middle-click | Promote: open as a full page (and therefore as a tab)     |
+| Click anywhere off the peek    | Close **every** open pane at once                         |
 | `Esc`                          | Close the newest pane (repeat to unwind held panes)       |
 | Browser Back                   | Close the newest pane                                     |
 | Header pin control             | Hold this pane, same as `⇧`-click                         |
 | Header ↗ control              | Open this pane's entity as a full page                    |
+| Drag the peek's left edge      | Resize the peek; the width is remembered                  |
+| Double-click that edge, `Home` | Forget your width and go back to the default              |
 
 **Holding is how you compare two things.** By default one pane is open at a time
 and each click reuses it, so reading down a conversation never accumulates panes.
@@ -88,17 +98,63 @@ When you want to keep something on screen while you look at the next thing, hold
 it — and because every extra pane costs a deliberate gesture, there is no cap and
 nothing is ever evicted or buried behind something else.
 
+**Clicking away closes the whole peek; `Esc` takes it apart one pane at a time.**
+Those are deliberately different, because they answer different intentions: a
+click on the page behind means you are done peeking and want the page back, while
+`Esc` is how you dismantle a held pair a pane at a time. "Away" means away from
+the peek as a whole — clicking one pane never closes the pane beside it, and
+clicking an entity reference opens that entity rather than closing anything, so
+neither reading a held pair nor walking from one entity to the next can dismiss
+the assembly out from under you. Tabbing into the page behind is not a dismissal
+either; only a click is — and neither is dragging the peek's own edge to resize it.
+
+**How wide the peek gets is yours.** Drag the seam along its left edge, or focus
+it and use the arrow keys (`⇧` for bigger steps); the width you land on is
+remembered for next time. Double-click the seam, or press `Home`, to forget it and
+go back to the default. Two bounds you cannot drag past: the peek never gets so
+narrow that it stops being readable, and it never takes so much of the window that
+the page behind loses its majority — the second one tightens as you hold more
+panes, since the whole row has to fit. If you want a full-width view of something,
+that is what the header's ↗ control is for.
+
 **A peek is addressable and disposable.** The open panes live in the URL as a
 `?peek=` parameter, so copying the link, sharing it, or reloading brings the same
 panes back. Nothing is persisted anywhere else: navigate away from the page you
 peeked FROM and the whole assembly is gone.
 
-Four entity types — asks, sessions, conversations and interceptors — do not have a
-peek body yet and show an "open as page" link instead of their details
-(mt#4069). That is deliberate rather than unfinished-looking-by-accident: a peek
-renders the same component the entity's full page renders, never a separate
-compact copy that could quietly drift out of agreement with it, so a type gets a
-pane body only once it has one to share.
+Every routable entity type now renders a real pane body (mt#4069 closed the last
+four — asks, sessions, conversations and interceptors). The convention that got it
+there still holds: a peek renders the same component the entity's full page
+renders, never a separate compact copy that could quietly drift out of agreement
+with it.
+
+### The pane is a glance column, not a narrow page (mt#4123)
+
+Same component, different render context — and the pane supplies the context:
+
+- **The pane owns the gutters.** `SheetBody` and `SheetHeader` carry matching
+  horizontal padding, so no body has to remember to pad itself and none of them
+  can disagree about where the column's left edge is.
+- **One scrollport per pane.** The pane scrolls; bodies do not scroll inside it.
+  A body that caps its own height and adds its own scrollbar produces a scrollbar
+  inside a scrollbar, with the outer one left almost nothing to move.
+- **The pane is the frame.** A body drops its card border and background tint
+  here — a second frame drawn a gutter's width inside the first reads as a
+  mistake, and the pane already says where the content begins and ends.
+- **Width is proportional below ~924px.** The pane is 26rem wherever there is
+  room, and yields to 45% of the viewport below that, so the page behind keeps
+  the majority column at every window size. A peek that takes two-thirds of a
+  narrow window has defeated its own purpose.
+
+Bodies find out which context they are in from their `WidgetVariant`: `peek`
+rather than `page-body`. `page-body` means "inside a route wrapper", and every
+route that uses it supplies padding and a measure the pane does not — composing it
+in a pane renders a page-density layout with the page removed from around it,
+which is what mt#4123 was filed for.
+
+The geometry is verified in a real browser by
+`scripts/verify-peek-pane-layout.ts`, because none of it can be asserted under
+happy-dom (no layout engine — every measurement reads 0).
 
 ## Plant Board (`/plant`)
 
@@ -171,8 +227,9 @@ constant.
   ~48); the DONE valve instead shows a small **`N interlocks`** badge with
   the derived total. Before the first slow-clock sweep completes, the badge
   is honestly absent rather than showing a fabricated zero.
-- **Interlock history** (`/plant/interlock-history`, reached via the Learning Loop
-  node's "interlock history →" link) — a table of every derived interlock with:
+- **Interlock history** (absorbed into `/interceptors` by mt#4229; still reached
+  via the Learning Loop node's "interlock history →" link, which now lands on the
+  catalog, and per-entry on `/interceptors/:name`) — for every derived interlock:
   its **install date** (from `git log`, oldest add-commit per hook file),
   a **commit link** to GitHub, and — where derivable — the **originating
   `retrospective.fired` event** (mt#2537) that produced it. Retrospective
@@ -228,13 +285,36 @@ operator's own credentials + the operator's own machine.
   This is required because the child's working directory is a workspace clone,
   and Claude Code resolves MCP servers per-project: the operator's `.mcp.json`
   lives in the main checkout and is gitignored, so a clone inherits none of it.
-  The server set is deliberately just `minsky` — `github`/`supabase` carry their
-  own credential paths, so granting them is a separate decision — and
   `--strict-mcp-config` keeps the surface from varying with whichever claude.ai
   connectors and plugins the operator happens to have configured. Each session
   costs one additional `minsky mcp start` process (~57 MB RSS, measured
   2026-07-30); if concurrent driven sessions routinely exceed ~4, revisit
   against the hosted-HTTP server option (mt#2141).
+- **Which servers (mt#4239)** — `cockpit.drivenSession.mcpServers` selects the
+  set, resolved by name against the operator's `.mcp.json` in the **daemon's**
+  checkout (not the session clone, which never has one) and copied verbatim.
+  Default `["minsky", "github"]`; override with
+  `MINSKY_COCKPIT_DRIVEN_SESSION_MCP_SERVERS` (comma-separated). `minsky` is
+  always present and always synthesized — it must point at the running build and
+  this session's repo path, so an inherited entry of the same name never shadows
+  it.
+
+  Two exclusions are deliberate. **`supabase` is resolvable but not a default**:
+  driven sessions run under `bypassPermissions` and can be triggered from a phone
+  unattended, and that server carries `execute_sql` / `apply_migration` against
+  the production project — adding it is an explicit operator decision.
+  **Remote/OAuth servers are refused outright**, with a log line naming the
+  server: a headless `claude -p` child cannot complete an OAuth flow (verified
+  live against claude 2.1.226; vendor-documented at
+  code.claude.com/docs/en/mcp), and because `-p` waits for pending servers before
+  the first turn, emitting one would cost up to `MCP_TIMEOUT` — 30s by default —
+  of dead latency on **every** spawn while still delivering no tools. Notion is
+  the motivating case and is tracked separately at mt#4242.
+
+  Verify a real spawn with
+  `bun scripts/verify-driven-session-mcp-config.ts <workspace> <daemon-checkout>`,
+  which probes a tool from every provisioned server rather than assuming a
+  declared server is a reachable one.
 
 ### Reading the run list
 
@@ -282,6 +362,50 @@ instead of starting forever.
 reachable on it — it never opens the driven WebSocket at all. Controllability
 lives on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325
 can mount a composer here safely.
+
+### Runs of agent actions fold behind one line (mt#4250)
+
+A stretch of **three or more consecutive machinery turns** between two things
+the agent said renders as a single dim summary line rather than as N rows:
+
+```
+▸ 1m · thought, ran 2 shell commands, called minsky tasks_spec_patch, 4 reads
+```
+
+Click anywhere on the line to expand it into the individual rows; click again to
+collapse. Expansion is **two-stage** — the fold opens to the per-call rows, and
+each of those still has its own payload disclosure (mt#2790) beneath it. The
+rows are genuinely absent while collapsed, not hidden with CSS, which is where
+the density comes from.
+
+**Nothing is ever lost.** Expanding a fold yields every action it stood for, in
+order. The summary is a view, never a replacement for the record (mt#3845 SC6).
+
+**What never folds**, so it cannot hide inside a calm-looking line:
+
+- anything the agent or the operator _said_ — prose and user turns
+- any call that **errored** or was interrupted. A failure SPLITS the run around
+  it: summary, open error row, summary
+- **spawn dispatches** — the violet badge is structure you orient by
+- compaction boundaries, and harness retry turns
+- `WebSearch`, `WebFetch` and `Skill` calls, which keep their own row
+- runs of one or two turns, where a fold would cost more than it saves
+
+**Mutating calls are always named.** The summary names every tool that CHANGED
+something (`tasks_spec_patch`, `session_commit`) and reduces read-only calls to
+a count. A tool the classifier does not recognise is named too, rather than
+assumed harmless. Classification comes from `packages/shared/src/tool-effect.ts`
+(mt#3847). This is deliberately unlike the Claude Code terminal, which renders
+`called minsky` and drops which tool ran — fine when you are watching your own
+agent live, wrong for someone auditing a run afterwards.
+
+**Deep links open the fold they land in.** A turn address or film-moment link
+that targets a call inside a collapsed run arrives with that run already open
+and the row marked.
+
+**Expand all / Collapse all** act on folds as well as on individual calls. Fold
+state is per-view only — nothing is remembered between visits, so a historical
+conversation reads the same on any day.
 
 ### Identity registration and deeplinks
 

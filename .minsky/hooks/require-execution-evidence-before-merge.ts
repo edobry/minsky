@@ -246,6 +246,39 @@ export function findNewOperationalScripts(files: PrFile[]): string[] {
  *      heading and before the next Markdown heading or end-of-string.
  */
 export function hasExecutionEvidence(prBody: string): boolean {
+  return extractExecutionEvidenceRecords(prBody).length > 0;
+}
+
+/**
+ * One `Execution evidence:` record: the marker line, plus the text belonging to it.
+ *
+ * The BODY is what a per-CLAIM provenance check needs (mt#4236). `Execution
+ * evidence:` names a BLOCK, not a claim — one block routinely asserts a test run,
+ * a typecheck, a lint pass and a format check at once — so a boolean cannot say
+ * WHICH check a reader is being asked to believe, and the join that consumed the
+ * boolean discharged all four of them on any test run in the session.
+ *
+ * {@link hasExecutionEvidence} is now a wrapper over this, so the two cannot
+ * drift: the accepted forms, the fence rule, the negation guard and the
+ * content requirement are stated ONCE. Same move mt#4044 made on the
+ * negative-control matcher, for the same reason — a second matcher is how a
+ * widening on one surface silently fails to reach the other, which is the
+ * mt#4070 hazard by name.
+ */
+export interface ExecutionEvidenceRecord {
+  /** The marker line, verbatim, as the matcher saw it. */
+  label: string;
+  /** Inline content on the marker line plus the lines beneath, up to the next real heading. */
+  body: string;
+}
+
+/**
+ * Every execution-evidence record in `prBody`, in document order.
+ *
+ * Carries the behavior {@link hasExecutionEvidence} used to implement inline;
+ * that function's docblock above remains the statement of the accepted forms.
+ */
+export function extractExecutionEvidenceRecords(prBody: string): ExecutionEvidenceRecord[] {
   // Strip HTML comments before scanning. A marker inside <!-- ... --> is invisible
   // in rendered Markdown and must not count as evidence.
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
@@ -292,6 +325,7 @@ export function hasExecutionEvidence(prBody: string): boolean {
   // marker still counts, so the normal shape (label outside, output fenced under it) is
   // unaffected; only a marker with NO unfenced occurrence changes verdict.
   const fenceInternal = computeFenceInternalLines(lines);
+  const records: ExecutionEvidenceRecord[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined || fenceInternal[i]) continue;
@@ -308,29 +342,37 @@ export function hasExecutionEvidence(prBody: string): boolean {
     // the full text on the same line — allow only if there's content on the same
     // line OR content follows on subsequent lines.
     const inlineContent = (match[2] ?? "").trim();
-    if (inlineContent.length > 0) {
-      // Inline content on the heading line counts as evidence
-      return true;
-    }
 
-    // Look for non-empty content on subsequent lines before the next ## heading
+    // The lines belonging to this marker: everything up to the next REAL heading.
+    //
+    // Only a REAL heading ends the section (PR #2533 R1). An evidence block IS a
+    // pasted shell transcript, so a `# revert the fix first` comment inside the
+    // fence looks like a heading and would truncate the scan — a false NEGATIVE,
+    // and one that contradicts this function's own claim that fenced content
+    // beneath a real marker still counts. Matches `collectHeadingSections` below
+    // and `test-first-evidence.ts`, which both already gate on the fence.
+    const following: string[] = [];
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      // Only a REAL heading ends the section (PR #2533 R1). An evidence block IS a
-      // pasted shell transcript, so a `# revert the fix first` comment inside the
-      // fence looks like a heading and would truncate the scan — a false NEGATIVE,
-      // and one that contradicts this function's own claim that fenced content
-      // beneath a real marker still counts. Matches `collectHeadingSections` below
-      // (:662) and `test-first-evidence.ts`, which both already gate on the fence.
       if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
-      if (nextLine.trim().length > 0) return true; // found content
+      following.push(nextLine);
     }
-    // Heading found but no content — keep looking in case there's another
-    // Execution evidence: block further down
+
+    // Inline content on the marker line counts as evidence on its own; otherwise
+    // the section must carry at least one non-empty line. A marker with neither
+    // yields NO record — keep looking, in case there is another block further
+    // down. (This is the pre-mt#4236 `return true` / `keep looking` split,
+    // restated as a push.)
+    if (inlineContent.length > 0 || following.some((l) => l.trim().length > 0)) {
+      records.push({
+        label: line,
+        body: [inlineContent, ...following].filter((l) => l !== "").join("\n"),
+      });
+    }
   }
 
-  return false;
+  return records;
 }
 
 /**

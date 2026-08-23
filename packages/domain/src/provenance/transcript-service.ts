@@ -23,10 +23,12 @@
 
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { extractTextFromContent, resolveTranscriptMessageContent } from "./transcript-content";
 import { promises as fs } from "fs";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import type { AgentSessionId } from "../transcripts/transcript-source";
+import { isOperatorAuthored } from "../transcripts/user-line-origin";
 import { provenanceTable } from "../storage/schemas/provenance-schema";
 import { log } from "@minsky/shared/logger";
 
@@ -47,14 +49,67 @@ const CORRECTION_PATTERNS = [
   /\brevert\b/i,
 ];
 
-/** A filtered transcript message stored in the database. */
+/**
+ * A transcript message as stored in the database.
+ *
+ * TWO shapes reach this type, and the difference is load-bearing (mt#4196):
+ *
+ * - **Raw harness JSONL** — what the live ingest path writes, and the only shape with rows
+ *   in prod. The text is nested at `message.content`; there is NO top-level `content` key.
+ * - **Pre-extracted (legacy)** — what the transitional `ingestTranscript` below writes,
+ *   with `content` flattened onto the message. Zero live rows carry it.
+ *
+ * Both fields are declared so neither read is undeclared, and so a reader is confronted
+ * with the choice rather than defaulting into the one that happens to be wrong. **Do not
+ * read either field directly** — call `resolveTranscriptMessageContent` (or
+ * `resolveMessageText`) from `./transcript-content`, which tries nested first and falls
+ * back to flat. Reading `.content` alone is what left three consumers blind for months.
+ */
 export interface TranscriptMessage {
   type: "user" | "assistant";
   role: string;
+  /**
+   * The pre-extracted (legacy) content payload. `undefined` on every live row — prefer
+   * `resolveTranscriptMessageContent`, which handles both shapes.
+   */
   content: unknown;
+  /**
+   * The raw harness line's nested payload — where the text actually lives on stored rows.
+   * Optional because the legacy shape omits it, not because it is rare: it is the common case.
+   */
+  message?: { role?: string; content?: unknown; [key: string]: unknown };
   timestamp?: string;
   uuid?: string;
   model?: string;
+  /**
+   * Harness provenance markers, carried verbatim from the stored line (mt#4289).
+   *
+   * Declared for the same reason `message` is: they ARE on every live row —
+   * `getTranscript` casts the stored JSONB straight to this type — and omitting
+   * them from the declaration is what made a machine-written compact summary
+   * indistinguishable from operator speech at every reader of this interface.
+   * Do not branch on them directly; call `isOperatorAuthored` from
+   * `../transcripts/user-line-origin`, which knows their precedence.
+   */
+  isCompactSummary?: boolean;
+  isMeta?: boolean;
+  origin?: { kind?: string };
+  promptSource?: string;
+}
+
+/**
+ * True iff this message is the OPERATOR speaking, rather than a `user`-role
+ * line Claude Code generated (mt#4289).
+ *
+ * Both counts below used a bare `type === "user"` test, which reads a compact
+ * summary, an injected skill body, and a background-task notification as things
+ * the human said. `countCorrections` was the sharper case: a compact summary
+ * NARRATES the corrections in the conversation it summarizes, so it matches
+ * `CORRECTION_PATTERNS` almost by construction and inflated the count with the
+ * conversation's own history.
+ */
+function isOperatorMessage(msg: TranscriptMessage): boolean {
+  return msg.type === "user" && isOperatorAuthored(msg);
 }
 
 /** Statistics computed from a stored transcript. */
@@ -65,27 +120,39 @@ export interface MessageStats {
   corrections: number;
 }
 
-/** Extracts the text content from a message's content field (string or array). */
+/**
+ * Extracts the text content from an already-resolved content payload (string or array).
+ *
+ * Delegates to the shared extractor (mt#4196) rather than keeping a fourth copy of the
+ * same string-or-blocks logic. Behavior is unchanged: `""` for an unextractable payload,
+ * where the shared function returns `null`.
+ *
+ * It extracts from whatever payload it is HANDED — resolving WHICH payload is the caller's
+ * job, and `countCorrections` below now does that through `resolveTranscriptMessageContent`
+ * (mt#4225). Until then it handed over `msg.content`, the flat field absent from every live
+ * row, so `computeMessageStats` reported 0 corrections for any stored transcript.
+ */
 function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block: { type?: string }) => block.type === "text")
-      .map((block: { text?: string }) => block.text ?? "")
-      .join(" ");
-  }
-  return "";
+  return extractTextFromContent(content) ?? "";
 }
 
-/** Counts correction signals in a sequence of messages. */
+/**
+ * Counts correction signals in a sequence of messages.
+ *
+ * Serves BOTH shapes deliberately (mt#4225): `ingestTranscript` passes freshly-parsed lines
+ * carrying flat `content`, while `computeMessageStats` passes stored rows carrying nested
+ * `message.content`. The resolver tries nested first and falls back to flat, so the ingest
+ * path is unchanged and the stored path stops reading a field that is never there.
+ */
 function countCorrections(messages: TranscriptMessage[]): number {
   let corrections = 0;
   for (let i = 1; i < messages.length; i++) {
     const msg = messages[i] as TranscriptMessage;
     const prev = messages[i - 1] as TranscriptMessage;
-    // A user message after an assistant message that contains correction signals
-    if (msg.type === "user" && prev.type === "assistant") {
-      const text = extractTextContent(msg.content);
+    // An OPERATOR message after an assistant message that contains correction
+    // signals (mt#4289 narrowed this from any `user`-role line).
+    if (isOperatorMessage(msg) && prev.type === "assistant") {
+      const text = extractTextContent(resolveTranscriptMessageContent(msg));
       if (CORRECTION_PATTERNS.some((pattern) => pattern.test(text))) {
         corrections++;
       }
@@ -124,10 +191,19 @@ export class AgentTranscriptService {
           timestamp: line.timestamp as string | undefined,
           uuid: line.uuid as string | undefined,
           model: (msg?.model as string) ?? undefined,
+          // mt#4289: carry the provenance markers through the projection. This
+          // path DROPS every field it does not name, so without these the two
+          // stat paths would disagree — `computeMessageStats` (reading stored
+          // raw lines) would exclude synthetic lines while this one, three
+          // lines below, counted them as human.
+          isCompactSummary: line.isCompactSummary as boolean | undefined,
+          isMeta: line.isMeta as boolean | undefined,
+          origin: line.origin as { kind?: string } | undefined,
+          promptSource: line.promptSource as string | undefined,
         };
       });
 
-    const humanMessages = messages.filter((m) => m.type === "user").length;
+    const humanMessages = messages.filter(isOperatorMessage).length;
     const assistantMessages = messages.filter((m) => m.type === "assistant").length;
     const corrections = countCorrections(messages);
 
@@ -182,7 +258,7 @@ export class AgentTranscriptService {
     const messages = await this.getTranscript(sessionId);
     if (!messages) return null;
 
-    const humanMessages = messages.filter((m) => m.type === "user").length;
+    const humanMessages = messages.filter(isOperatorMessage).length;
     const assistantMessages = messages.filter((m) => m.type === "assistant").length;
     const corrections = countCorrections(messages);
 

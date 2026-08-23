@@ -26,7 +26,70 @@ import {
   buildReadyProbeRequest,
   buildToolsListChangedNotification,
   isReadyProbeResponse,
+  toolsListCount,
 } from "./tools";
+
+/**
+ * A notification method used by more than one test as a stand-in for "an
+ * ordinary non-tools/list frame". Named rather than repeated per
+ * `custom/no-magic-string-duplication`.
+ */
+const NOTIFICATIONS_INITIALIZED = "notifications/initialized";
+
+describe("memory-breach restart is not a crash (mt#4112)", () => {
+  /**
+   * A child that answers the readiness probe immediately, so each spawn costs
+   * milliseconds instead of the 2s probe timeout, and stays alive otherwise.
+   */
+  const RESPONDER = [
+    "-e",
+    'process.stdin.on("data",(d)=>{for(const l of String(d).split("\\n")){' +
+      "if(!l.trim())continue;try{const m=JSON.parse(l);if(m.id!==undefined)" +
+      'process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:m.id,result:{}})+"\\n")}' +
+      "catch{}}});process.stdin.resume()",
+  ];
+
+  test("the memory restart replaces the child without incrementing the crash counter", async () => {
+    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: RESPONDER });
+    // Drive spawn/restart directly rather than through `start()`, which would
+    // also install real signal handlers on the test process.
+    const internals = proxy as unknown as {
+      spawnChild: () => Promise<void>;
+      restartChildForMemoryBreach: (breach: {
+        residentBytes: number;
+        ceilingBytes: number;
+      }) => Promise<void>;
+    };
+
+    try {
+      await internals.spawnChild();
+      const firstChild = proxy.currentChild;
+      expect(firstChild).not.toBeNull();
+      // Positive control for the assertion below: while the child is under
+      // ordinary supervision its close handler IS attached, so a real exit
+      // would reach `onChildClose` and be counted.
+      expect(firstChild?.listenerCount("close")).toBe(1);
+      expect(proxy.recentFailureCount).toBe(0);
+
+      await internals.restartChildForMemoryBreach({
+        residentBytes: 3000 * 1024 * 1024,
+        ceilingBytes: 2048 * 1024 * 1024,
+      });
+
+      // The mechanism: the handler is gone, so `onChildClose` — the only
+      // writer of the crash counter — never ran for this exit.
+      expect(firstChild?.listenerCount("close")).toBe(0);
+      expect(proxy.recentFailureCount).toBe(0);
+
+      // And it is a restart, not a kill: a different child is now serving.
+      expect(proxy.currentChild).not.toBeNull();
+      expect(proxy.currentChild?.pid).not.toBe(firstChild?.pid);
+    } finally {
+      const survivor = proxy.currentChild;
+      if (survivor) await proxy.killChild(survivor);
+    }
+  }, 30_000);
+});
 
 describe("readiness-probe helpers (tools.ts)", () => {
   test("buildReadyProbeRequest returns a JSON-RPC ping with the supplied id", () => {
@@ -75,6 +138,43 @@ describe("readiness-probe helpers (tools.ts)", () => {
         method: "notifications/initialized",
       })
     ).toBe(false);
+  });
+
+  // mt#4128: the served-tool-count discrimination. The point of the record is
+  // to tell a HEALTHY serve from a TOOLLESS one, so both values are asserted —
+  // a probe that cannot report the broken case carries no information about the
+  // condition it exists for (mem#704).
+  test("toolsListCount reports the tool count of a tools/list response", () => {
+    const msg = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: { tools: [{ name: "a" }, { name: "b" }, { name: "c" }] },
+    };
+    expect(toolsListCount(msg)).toBe(3);
+  });
+
+  test("toolsListCount reports 0 for a served-but-empty tool list (the toolless case)", () => {
+    // The mt#4128 condition's server-side signature: a well-formed response
+    // carrying no tools. Distinguishable from `null` (not a tools/list at all),
+    // which is the whole reason the return type is `number | null` rather than
+    // a falsy count.
+    const msg = { jsonrpc: "2.0", id: 1, result: { tools: [] } };
+    expect(toolsListCount(msg)).toBe(0);
+  });
+
+  test("toolsListCount returns null for an error response", () => {
+    const msg = {
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: -32000, message: "boom" },
+      result: { tools: [] },
+    };
+    expect(toolsListCount(msg)).toBeNull();
+  });
+
+  test("toolsListCount returns null for a non-tools/list message", () => {
+    expect(toolsListCount({ jsonrpc: "2.0", id: 1, result: { ok: true } })).toBeNull();
+    expect(toolsListCount({ jsonrpc: "2.0", method: NOTIFICATIONS_INITIALIZED })).toBeNull();
   });
 
   test("buildToolsListChangedNotification returns the standard MCP frame with no id", () => {
@@ -478,7 +578,7 @@ describe("inbound transform — conversation-identity injection (mt#3285)", () =
   test("forwards non-tools/call frames byte-identical (initialize, notifications)", async () => {
     const transform = makeInboundTransform(CONV_AGENT_ID);
     const initLine = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-    const notifLine = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
+    const notifLine = JSON.stringify({ jsonrpc: "2.0", method: NOTIFICATIONS_INITIALIZED });
 
     (transform as NodeJS.WritableStream).write(`${initLine}\n${notifLine}\n`);
     (transform as NodeJS.WritableStream).end();

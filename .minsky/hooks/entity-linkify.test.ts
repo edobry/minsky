@@ -146,7 +146,11 @@ describe("decideDisplay", () => {
   test("emits the rewritten delta and carries the fence state forward", () => {
     const { display, nextState } = decideDisplay({ ...base, delta: "mt#5\n```\n" }, null);
     expect(display).toBe("[mt#5](minsky://task/mt%235)\n```\n");
-    expect(nextState).toEqual({ messageId: "m1", inFence: true });
+    // mt#4145 added the running tally to this record; assert the display-relevant
+    // fields rather than the whole shape, so a future bookkeeping field does not
+    // break a test about fence carrying.
+    expect(nextState?.messageId).toBe("m1");
+    expect(nextState?.inFence).toBe(true);
   });
 
   test("consumes carried state belonging to the same message", () => {

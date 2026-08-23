@@ -54,6 +54,9 @@ import {
   type WatermarkStore,
 } from "../domain/calibration/calibration-sweep";
 import { buildSweptEntries } from "../domain/calibration/swept-entries";
+// mt#4398 — see `passkey-store.ts` for why this wrapper rather than the domain
+// helper directly.
+import { describeServerPersistenceUnavailability } from "./db-providers";
 import { GuardHealthTracker } from "../mcp/guard-health-tracker";
 import { createCachedSqlDbGetter } from "./db-providers";
 import { findRepoRoot } from "./web-dist";
@@ -192,12 +195,28 @@ function readRegistryByGuard(): Map<string, RegistryJoin> {
 // Refresh (sweeper tick body)
 // ---------------------------------------------------------------------------
 
-export async function refreshInterceptorAggregates(): Promise<void> {
+/**
+ * Refresh the snapshot, reporting whether it actually succeeded (mt#4294).
+ *
+ * The `ok` flag is the point. This tick applies its own fail-open try/catch —
+ * correct, a failed refresh must not crash the cockpit — but until now it also
+ * returned nothing, so `createIntervalSweeper` recorded every failure as a
+ * COMPLETED tick. The scheduler could not tell a refresh that served a fresh
+ * snapshot from one that bailed on a dead source, which is why nothing could
+ * back off however long the failure persisted: there was no failure signal to
+ * back off from. Returning the mt#3684 `SweepTickResult` shape puts the
+ * outcome where `consecutiveDomainFailures` can see it.
+ *
+ * "No SQL-capable DB" reports `ok: true` deliberately — that is an
+ * INAPPLICABLE tick, not a failed one, and counting it as a failure would
+ * back off a cockpit that simply has no database configured.
+ */
+export async function refreshInterceptorAggregates(): Promise<{ ok: boolean }> {
   const startedAt = Date.now();
   const db = await getDb();
   if (!db) {
     log.debug("cockpit: interceptor-aggregates refresh: no SQL-capable DB, keeping prior snapshot");
-    return;
+    return { ok: true };
   }
 
   const since = new Date(startedAt - CATALOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
@@ -222,13 +241,24 @@ export async function refreshInterceptorAggregates(): Promise<void> {
       lifetimeOk: lifetime !== null,
       decisionCountsOk: decisionCounts !== null,
     });
-    return;
+    return { ok: false };
   }
+
+  // Read the registry BEFORE the canary batch: the canary lookup covers the
+  // UNION of the fire-log population and the declared one (mt#4057). A
+  // declared interceptor that has never fired is absent from `lifetime`
+  // entirely, so keying canary off `lifetime` alone would leave exactly the
+  // never-fired guards — the dormant case — permanently unverifiable.
+  const registryByGuard = await guarded("registry catalog artifact", async () =>
+    readRegistryByGuard()
+  );
+  const declaredNames = registryByGuard ? [...registryByGuard.keys()] : [];
+  const canaryNames = [...new Set([...lifetime.map((row) => row.guardName), ...declaredNames])];
 
   const canaryByGuard = await guarded("canary history", async () => {
     const repo = buildGuardCanaryHistoryRepository(db as PostgresJsDatabase);
     if (!repo) throw new Error("canary repository unavailable");
-    const statuses = await repo.getGuardStatuses(lifetime.map((row) => row.guardName));
+    const statuses = await repo.getGuardStatuses(canaryNames);
     const map = new Map<string, CanaryStatusJoin>();
     for (const [guardName, status] of statuses) {
       map.set(guardName, { ...status });
@@ -236,16 +266,13 @@ export async function refreshInterceptorAggregates(): Promise<void> {
     // Guards absent from the repository result carry never-verified implicitly
     // (guard-canary-history contract); make that explicit so a consumer never
     // confuses "no canary rows" with "canary source failed".
-    for (const row of lifetime) {
-      if (!map.has(row.guardName)) map.set(row.guardName, { state: "never-verified" });
+    for (const guardName of canaryNames) {
+      if (!map.has(guardName)) map.set(guardName, { state: "never-verified" });
     }
     return map;
   });
 
   const healthByGuard = await guarded("guard-health summary", async () => readHealthByGuard());
-  const registryByGuard = await guarded("registry catalog artifact", async () =>
-    readRegistryByGuard()
-  );
 
   cached = assembleInterceptorAggregates({
     computedAt: new Date(startedAt).toISOString(),
@@ -260,7 +287,10 @@ export async function refreshInterceptorAggregates(): Promise<void> {
     calibrationByGuard: calibration?.byGuard ?? null,
     registryByGuard,
     calibrationReviewDue: calibration?.reviewDue ?? null,
+    declaredNames,
   });
+
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -273,13 +303,21 @@ export interface InterceptorDetailResult {
   /**
    * The composed row. The window's decision counts + duration aggregates are
    * LIVE (single-guard, window-bounded — the index-served queries); the
-   * window's override figures, the lifetime totals, and the
-   * health/calibration/registry sections ride the SNAPSHOT at its refresh
-   * cadence (`snapshotComputedAt`). The all-time lifetime count and the
+   * window's override figures and the health/calibration/registry sections
+   * ride the SNAPSHOT at its refresh cadence (`snapshotComputedAt`). The
    * payload-detoasting override scan measured multi-second live on the
-   * corpus's highest-volume guard (verify script, 2026-08-12), so they stay
-   * off the request path like the catalog itself. Canary is live (few rows
-   * per guard).
+   * corpus's highest-volume guard (verify script, 2026-08-12), so it stays off
+   * the request path like the catalog itself. Canary is live (few rows per
+   * guard).
+   *
+   * The LIFETIME totals used to be in that off-request set for the same
+   * reason, and no longer are (mt#4294): they now come from the maintained
+   * `guard_event_fire_log_rollup`, where the single-guard read is a
+   * primary-key lookup. Measured before the change, the live single-guard
+   * lifetime query took 10,972 ms — worse than the full-catalog rollup's
+   * 2,193 ms, because filtering by `guard_name` trades a sequential scan for
+   * a bitmap heap scan over ~37,688 scattered blocks. It still prefers the
+   * snapshot row when one exists, purely to avoid a second round trip.
    */
   row: InterceptorAggregateRow | null;
   /** True when the guard has no live window rows AND no snapshot row — unknown to the fire log. */
@@ -289,7 +327,14 @@ export interface InterceptorDetailResult {
 
 export async function fetchGuardDetail(guardName: string): Promise<InterceptorDetailResult> {
   const db = await getDb();
-  if (!db) throw new Error("no SQL-capable database available");
+  if (!db) {
+    // mt#4398: "no SQL-capable database available" is true and unactionable —
+    // it does not say whether Postgres is unconfigured or configured-and-failed,
+    // which need opposite responses. Same fix as the two store siblings.
+    throw new Error(
+      `no SQL-capable database available. ${await describeServerPersistenceUnavailability()}`
+    );
+  }
 
   const since = new Date(Date.now() - CATALOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const [decisionCounts, durations, canary] = await Promise.all([
@@ -306,12 +351,17 @@ export async function fetchGuardDetail(guardName: string): Promise<InterceptorDe
 
   const snapshot = cached;
   const snapshotRow = snapshot?.rows.find((r) => r.guardName === guardName);
+  const declaredOnlyRow = snapshot?.declaredOnlyRows.find((r) => r.guardName === guardName);
 
   if (decisionCounts.length === 0 && !snapshotRow) {
+    // Declared but never fired (mt#4057). Still unknown to the FIRE LOG — the
+    // flag stays true and the zero counts stay zero — but not unknown to the
+    // system: its canary state is what makes the dormant verdict possible, so
+    // return the declared-only row rather than a null that erases it.
     return {
       guardName,
       windowDays: CATALOG_WINDOW_DAYS,
-      row: null,
+      row: declaredOnlyRow ? { ...declaredOnlyRow, canary } : null,
       unknownToFireLog: true,
       snapshotComputedAt: snapshot?.computedAt ?? null,
     };

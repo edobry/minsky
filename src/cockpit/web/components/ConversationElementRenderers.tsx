@@ -13,11 +13,70 @@
  * assembly (`pairToolInvocations`, `TurnView`, `CompactionBoundary`) — only
  * the single-element renderers moved here.
  *
+ * ## Weight hierarchy (mt#4220)
+ *
+ * Speech is the narrative spine of a transcript; tool calls are EVIDENCE the
+ * reader consults when a claim needs checking. So the visual weight ordering on
+ * this surface is, loudest first:
+ *
+ *   1. failures        — `destructive` border + tint, expanded by default
+ *   2. assistant/user prose — full `text-foreground`, `text-sm` (design-system `body`)
+ *   3. everything else — `text-muted-foreground`, `text-xs`, NO border, NO tint
+ *
+ * ### Tier 3 has two steps, not one (mt#4238)
+ *
+ * Within tier 3, a tool call the registry classifies as MUTATING sits one step
+ * above a read: brighter icon, brighter name, `font-semibold`. A read (and
+ * anything unclassifiable) recedes one step BELOW today's baseline. Both move
+ * away from a common midpoint, which is what makes the difference visible at a
+ * glance without spending a new signal.
+ *
+ * The channel is deliberately the neutral brightness/weight axis and nothing
+ * else. Enclosure is spent (tier 1 owns border + tint), `destructive` is
+ * reserved for hard alarms and amber for attention debt
+ * (`docs/design-system.md` §5.1 red-scarcity) — a healthy write is neither, so
+ * a hue here would be a false alarm. `src/cockpit/CLAUDE.md` §"Semantic tokens
+ * only" rules out a raw palette class regardless, and `ToolInvocation` is not
+ * in `COCKPIT_STATUS_FILES`.
+ *
+ * Tier 3's floor is unchanged and load-bearing: a healthy row still carries NO
+ * border and NO background tint at any effect, which is what
+ * `ConversationView.weight-hierarchy.test.tsx` pins at rest.
+ *
+ * **What this cannot distinguish.** `Bash` is `unclassified` by construction
+ * (`packages/shared/src/tool-effect.ts` — its effect is whatever the caller
+ * passed), so a shell command that commits renders at read weight. That is the
+ * classifier being conservative rather than confident, and it is a real limit
+ * of this surface, not an oversight: never guess an effect from a tool name's
+ * spelling.
+ *
+ * Before mt#4220 this was inverted: every machine element (tool call, thinking
+ * block, injected span, command) was a bordered, tinted card and the healthy
+ * tool row additionally carried an accent hue (`border-sky-500/30 bg-sky-500/5`,
+ * name in `text-sky-300`), while assistant prose rendered with no wrapper and no
+ * class at all. Border and color are the two strongest attention signals on a
+ * dark surface (`src/cockpit/CLAUDE.md` §"Dark-mode-first"), and both were spent
+ * entirely on the machinery — so a run of a dozen collapsed calls read as a
+ * dozen glowing boxes and the paragraph between them read as the gap between
+ * them.
+ *
+ * The size ordering was ALREADY correct and was not the defect: `<Prose>` renders
+ * at `text-sm` (the design-system `body` token, "primary readable content") and
+ * every machine element at `text-xs` (`small`, "captions, metadata"). What was
+ * wrong was colour and enclosure, which is why the fix is subtractive.
+ *
+ * **Adding an element kind here?** Give it rule 3 unless it is a failure. Reach
+ * for a border, a background tint, or a hue only when you can say which of the
+ * three tiers it belongs to and why — not to make it "findable", which is what
+ * produced the inversion.
+ *
  * @see mt#3262 — this extraction
  * @see mt#2374 / mt#2790 / mt#2791 — original implementation history
+ * @see mt#4220 — the weight hierarchy above
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { classifyTool } from "@minsky/shared/tool-effect";
 import { cn } from "../lib/utils";
 import type {
   ConversationElement,
@@ -30,7 +89,7 @@ import { friendlyToolName, parseToolName } from "../lib/tool-name";
 import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
-import type { InjectedSpan } from "../lib/injected-content";
+import type { InjectedSpan, TaskNotificationParts } from "../lib/injected-content";
 import { isApiErrorText } from "../lib/conversation-outcome";
 import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
@@ -45,6 +104,99 @@ export type SpawnInfo = NonNullable<ToolCallElement["spawn"]>;
 
 const SPAWN_BADGE_CLASS =
   "mr-2 shrink-0 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300";
+
+/**
+ * Focus ring for this module's disclosure controls (mt#4220, PR #3078 R1).
+ *
+ * `src/cockpit/CLAUDE.md` §"Accessibility-first primitives" requires a visible
+ * focus state on every interactive element, and these four — the tool-row
+ * toggle, the injected-span toggle, the command toggle, and the thinking
+ * `<summary>` — had none. That was already a gap before mt#4220 (the card
+ * border was unconditional chrome, never a focus indicator), but de-carding
+ * makes it acute: a keyboard user tabbing onto a borderless, tintless row had
+ * nothing at all to see. `ring-inset` because these rows have no border to sit
+ * outside of — an outset ring on a bare line reads as a stray box.
+ */
+export const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded";
+
+/**
+ * Hover affordance for this module's disclosure controls (mt#4251).
+ *
+ * mt#4220's border was carrying two jobs — excess visual weight, and
+ * delimiting the row as a clickable object. Removing it was right for the
+ * first and took the second with it: the principal reported (2026-08-18, with
+ * a screenshot) that "its not obvious to me that i can click on the entire row
+ * to expand it as there's no visual guides affording the row as an object."
+ *
+ * Answered on HOVER rather than at rest, so mt#4220's calm-at-rest result
+ * survives: nothing changes until a pointer is over the row, which is the
+ * moment the reader is asking the question. `bg-muted/50` is
+ * `docs/design-system.md`'s documented table-row convention, not a fresh
+ * pick — that doc is declared by `src/cockpit/CLAUDE.md` as the authority on
+ * component interaction states, and mt#4250's action-burst toggle shipped a
+ * near-miss `/40` which this task brings into line rather than propagating.
+ *
+ * Background only, deliberately. A `hover:text-foreground` alongside it would
+ * be inert on the tool row, whose every child span sets its own colour; the
+ * controls that DO have inheriting text pair it with this constant at their
+ * own call sites.
+ *
+ * Distinct from {@link FOCUS_RING} and never a replacement for it: they answer
+ * different questions ("is this clickable" vs "where am I") for different
+ * input modes.
+ */
+export const HOVER_ROW = "hover:bg-muted/50";
+
+/**
+ * The disclosure marker every expandable control in this view shares (mt#4348).
+ *
+ * Before this, the view drew disclosure markers three different ways at two
+ * different positions: `BurstFold` rendered its own glyph as a LEADING child,
+ * `ThinkingBlock` rendered none at all and inherited the browser's native
+ * `<summary>` marker, and the tool row, injected span and command control each
+ * pinned their own glyph to the right edge with `ml-auto`. The principal, on the
+ * mt#4251 render: *"this looks weird, esp since the information hierarchy for the
+ * collapsible section's outer and inner elements is non obvious, and the chevrons
+ * are on opposite sides."*
+ *
+ * **Leading, not trailing, and that is load-bearing rather than a preference.**
+ * A right-pinned marker cannot express depth: indenting a nested row shifts its
+ * text while leaving its marker in the same column as its parent's siblings, so
+ * no amount of indentation reads as containment. A leading marker turns the
+ * column itself into the depth indicator — which is why file trees, `<details>`
+ * and every outline UI put it there, and why this ships alongside
+ * {@link BURST_CHILDREN} rather than as a separate tidy-up.
+ *
+ * mt#4251's PR argued the opposite (a right-aligned column as a scanning aid).
+ * That holds only if the rows in a run SHARE the placement, and they did not.
+ */
+/**
+ * The container an expanded group puts its children in (mt#4348).
+ *
+ * `RunView` already expresses "these turns belong to one actor" with
+ * `border-l-2 pl-3` plus an accent hue. An expanded `BurstFold` expressed its
+ * own containment with NOTHING — `{open && turns.map(...)}` inside a bare
+ * `flex flex-col gap-2` — so a turn revealed by opening a fold rendered
+ * identically to a top-level turn, and the reader had no way to see that it sat
+ * inside the fold above it. That is the "information hierarchy … is non obvious"
+ * half of the mt#4348 report.
+ *
+ * Deliberately ONE step lighter than the run rail it nests inside: a hairline
+ * `border-l` against `border-2`, and a border token rather than an actor accent.
+ * A fold is subordinate to the run containing it, so its rail must not compete
+ * with the run's — two rails of equal weight would flatten exactly the hierarchy
+ * this exists to show.
+ */
+export const BURST_CHILDREN = "flex flex-col gap-2 border-l border-border/40 pl-3";
+
+export function DisclosureChevron({ open }: { open: boolean }) {
+  return (
+    <span aria-hidden className="shrink-0 select-none text-muted-foreground/60">
+      {open ? "▾" : "▸"}
+    </span>
+  );
+}
 
 /**
  * The `→ subagent (kind)` marker on an Agent tool call.
@@ -151,12 +303,26 @@ export function ThinkingBlock({
 
   return (
     <details
-      className="group rounded border border-border/60 bg-muted/20"
+      className="group rounded"
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+      <summary
+        className={cn(
+          "flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          // Suppress the USER AGENT's disclosure triangle (mt#4348). This was
+          // the only control in the view whose marker we did not draw — the
+          // browser's default `<summary>` marker, in its glyph, its size and
+          // its colour, none of which matched the three we render ourselves.
+          // `list-none` covers the standard `::marker`; the webkit
+          // pseudo-element covers Safari/older Chrome, which ignore it.
+          "list-none [&::-webkit-details-marker]:hidden",
+          HOVER_ROW,
+          FOCUS_RING
+        )}
+      >
+        <DisclosureChevron open={open} />
         <span className="italic">thinking</span>
-        <span className="ml-1 text-muted-foreground/60 group-open:hidden">
+        <span className="text-muted-foreground/60 group-open:hidden">
           ({thinking.length} chars — click to expand)
         </span>
       </summary>
@@ -187,6 +353,50 @@ export function ThinkingBlock({
 // `ConversationThread`): each bump of `epoch` forces this block's local
 // `open` state to `expandSignal.open`, while the per-block toggle button
 // keeps working normally in between broadcasts.
+
+/**
+ * The two tier-3 weight steps, by tool effect (mt#4238).
+ *
+ * `mutates` steps UP from the mt#4220 baseline; everything else steps DOWN.
+ * Both directions matter: moving only one of them would leave the pair a
+ * hairline apart, and the point is that a run of reads reads as texture while a
+ * write reads as an event.
+ *
+ * Semantic tokens only, and the same two properties in both rows — brightness
+ * and font-weight — so the difference is one axis rather than a new signal per
+ * element. No border, no tint, no hue at either step.
+ */
+const EFFECT_WEIGHT = {
+  /** The registry says this call changes state the caller asked to change. */
+  mutates: {
+    icon: "text-muted-foreground",
+    name: "font-semibold text-muted-foreground",
+    digest: "text-muted-foreground/70",
+  },
+  /**
+   * A read — or anything the registry cannot classify. These share a row on
+   * purpose: `unclassified` must never render a mutation signal it did not
+   * earn, and read weight is the conservative direction to be wrong in.
+   */
+  recessive: {
+    icon: "text-muted-foreground/50",
+    name: "font-normal text-muted-foreground/70",
+    digest: "text-muted-foreground/60",
+  },
+} as const;
+
+/**
+ * Pick a call's tier-3 weight step.
+ *
+ * Classify by the RAW tool name: `classifyTool` normalizes the harness's
+ * `mcp__minsky__` prefix and the underscored alias itself, so
+ * `mcp__minsky__tasks_spec_patch` resolves to `tasks.spec.patch` without any
+ * parsing here. Parsing it ourselves is exactly the name-shaped inference
+ * mt#3845 SC3 rules out.
+ */
+function effectWeightFor(toolName: string): (typeof EFFECT_WEIGHT)[keyof typeof EFFECT_WEIGHT] {
+  return classifyTool(toolName) === "mutates" ? EFFECT_WEIGHT.mutates : EFFECT_WEIGHT.recessive;
+}
 
 export function ToolInvocation({
   call,
@@ -226,6 +436,10 @@ export function ToolInvocation({
 
   const parsed = useMemo(() => parseToolName(call.name), [call.name]);
   const Icon = toolIconFor(parsed);
+  // Tier-3 weight step (mt#4238). Note this reads `call.name`, NOT `parsed` —
+  // the classifier does its own normalization, and handing it a pre-parsed bare
+  // name would drop the server that distinguishes an MCP tool from a native one.
+  const weight = useMemo(() => effectWeightFor(call.name), [call.name]);
   // A native file tool acting on a session workspace reveals that only through
   // its absolute path (mt#3378) — mark it in the label, and keep the session
   // identity in the tooltip rather than spending the line on a raw UUID.
@@ -256,8 +470,11 @@ export function ToolInvocation({
       // must find an element that is already anchored.
       {...{ [TOOL_USE_ANCHOR_ATTR]: call.id }}
       className={cn(
-        "rounded border",
-        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5",
+        "rounded",
+        // A healthy call is a dim LINE, not a card (mt#4220): no border, no
+        // tint. Only a failure keeps the card — see the weight hierarchy note
+        // at the top of this module for why.
+        isError && "border border-destructive/50 bg-destructive/5",
         isAddressed && ADDRESSED_MARK_CLASS
       )}
     >
@@ -268,36 +485,51 @@ export function ToolInvocation({
         inconsistently — so the row is a flex container holding the toggle and the
         badge as siblings, rather than one button wrapping both.
       */}
-      <div className="group/call flex w-full items-center">
+      {/*
+        The hover affordance (mt#4251) sits HERE, on the row-spanning flex
+        container, not on the toggle button and not on the anchored wrapper
+        above. The button is `flex-1`, so a background on it stops short of the
+        spawn badge and film link — the row would highlight in part, which is
+        the opposite of "this row is one object." The wrapper is the element
+        `ConversationView.weight-hierarchy.test.tsx` asserts carries no `bg-`
+        class at rest (mt#4220), and `hover:bg-*` matches that assertion's
+        regex; putting it there would fail the at-rest guarantee this task must
+        preserve. This div is the only element that is both full-width and
+        outside that assertion.
+      */}
+      <div className={cn("group/call flex w-full items-center rounded", HOVER_ROW)}>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs",
+            FOCUS_RING
+          )}
         >
+          <DisclosureChevron open={open} />
           <Icon
             aria-hidden
-            className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
+            className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : weight.icon)}
           />
           <span
             title={nameTooltip}
             className={cn(
-              "shrink-0 font-mono font-medium",
-              isError ? "text-destructive" : "text-sky-300"
+              "shrink-0 font-mono",
+              // A failure outranks the effect step — tier 1 wins over tier 3, so
+              // a failed write and a failed read are equally loud.
+              isError ? "font-medium text-destructive" : weight.name
             )}
           >
             {label}
           </span>
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-muted-foreground",
-              isError && "text-destructive/80"
+              "min-w-0 flex-1 truncate",
+              isError ? "text-destructive/80" : weight.digest
             )}
           >
             {digest}
-          </span>
-          <span aria-hidden className="ml-auto shrink-0 pl-1.5 text-muted-foreground/60">
-            {open ? "▾" : "▸"}
           </span>
         </button>
         {call.spawn && <SpawnBadge spawn={call.spawn} />}
@@ -326,7 +558,7 @@ export function ToolInvocation({
             value={call.input}
             toolName={call.name}
             entityIndex={entityIndex}
-            className="border-sky-500/20 text-foreground/80"
+            className="border-border/40 text-foreground/80"
           />
           {result ? (
             <>
@@ -369,8 +601,10 @@ export function ToolResult({
   return (
     <div
       className={cn(
-        "rounded border bg-muted/20",
-        element.isError ? "border-destructive/40" : "border-border/60"
+        // Same weight rule as ToolInvocation (mt#4220): the healthy case is a
+        // dim line, only a failure keeps the card.
+        "rounded",
+        element.isError && "border border-destructive/40 bg-destructive/5"
       )}
     >
       <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
@@ -422,29 +656,154 @@ export function InjectedContentBlock({
   }, [expandEpoch]);
 
   return (
-    <div className="rounded border border-border/40 bg-muted/10">
+    <div className="rounded">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground"
+        className={cn(
+          "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
+          FOCUS_RING
+        )}
       >
+        <DisclosureChevron open={open} />
         <span className="italic">{span.label}</span>
         <span className="text-muted-foreground/50">
           ({span.content.length.toLocaleString()} chars)
         </span>
-        <span aria-hidden className="ml-auto text-muted-foreground/60">
-          {open ? "▾" : "▸"}
-        </span>
       </button>
-      {open && (
-        <div className="border-t border-border/40 px-2 py-1">
+      {open &&
+        (span.notification !== undefined ? (
+          // No padding on the wrapper: the structured body pads its own rows,
+          // exactly as ToolInvocation's expanded branch does.
+          <div className="border-t border-border/40">
+            <TaskNotificationBody
+              span={span}
+              parts={span.notification}
+              entityIndex={entityIndex}
+            />
+          </div>
+        ) : (
+          <div className="border-t border-border/40 px-2 py-1">
+            <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+              {span.content}
+            </Prose>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * A background-task notification's body, rendered as the deferred TOOL RESULT
+ * it is (mt#4419).
+ *
+ * When the harness backgrounds a slow MCP call it returns the tool's entire
+ * JSON payload later, wrapped in a `<task-notification>` turn. That payload is
+ * the same shape an INLINE tool result carries, and the cockpit has rendered
+ * inline results as an entity-aware collapsible tree since mt#2552 — with an
+ * optional per-tool renderer keyed on the bare tool name. Only the DEFERRED
+ * copy came through the injected-content path, which prints its body verbatim,
+ * so one kind of content had two renderings and the operator met the worse one
+ * precisely when a call had taken long enough to be backgrounded.
+ *
+ * Three things keep this from losing information the prose path preserved:
+ *
+ *   - The payload goes to `ToolPayload` unconditionally, which dispatches JSON
+ *     to the tree and everything else to a `<pre>`. So a non-JSON result is
+ *     still shown as its own text, rather than as the envelope markup around it.
+ *   - Anything the envelope carried that the parse did not model comes through
+ *     as `remainder` and renders beneath — mt#2791's demote-never-drop contract
+ *     survives a structured view that has no slot for a future tag.
+ *   - A body the parse can make nothing of at all falls back to the exact prose
+ *     rendering shipped before, so an unanticipated shape degrades to "shown
+ *     verbatim" rather than to blank.
+ */
+function TaskNotificationBody({
+  span,
+  parts,
+  entityIndex,
+}: {
+  span: InjectedSpan;
+  parts: TaskNotificationParts;
+  entityIndex: EntityIndex;
+}) {
+  // PR #3245 R1. This used to gate the whole structured view on the payload
+  // parsing as JSON, and fall back to `span.content` — the ENTIRE decoded body,
+  // envelope tags and all — otherwise. The reviewer was right that this
+  // reintroduced the exact defect the task exists to fix, on the one path where
+  // nobody would look: a tool returning a non-JSON result still rendered
+  // `<task-id>…</task-id>` at the operator.
+  //
+  // The gate was also unnecessary. `ToolPayload` ALREADY dispatches on the same
+  // question and renders non-JSON as a <pre> — so asking `classifyToolPayload`
+  // here only to route around `ToolPayload` was duplicating its dispatch in
+  // order to do something worse with the answer. Handing it the payload
+  // unconditionally is both the fix and a deletion.
+  const hasStructure =
+    parts.taskId !== null ||
+    parts.status !== null ||
+    parts.summary !== null ||
+    parts.result !== null ||
+    parts.remainder !== null;
+
+  // The floor, for a body the parse could make nothing of at all — reachable
+  // only by a degenerate envelope of empty modelled tags (`<status></status>`),
+  // since anything else leaves at least a remainder. It exists so an
+  // unanticipated shape degrades to "shown verbatim", never to blank.
+  if (!hasStructure) {
+    return (
+      <div className="px-2 py-1">
+        <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+          {span.content}
+        </Prose>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {(parts.taskId !== null || parts.status !== null) && (
+        <div className="flex items-baseline gap-2 px-2 pt-1 text-[10px] text-muted-foreground/60">
+          {parts.taskId !== null && (
+            <>
+              <span className="uppercase tracking-wide">task</span>
+              <span className="font-mono">{parts.taskId}</span>
+            </>
+          )}
+          {parts.status !== null && <span className="ml-auto">{parts.status}</span>}
+        </div>
+      )}
+      {parts.result !== null && (
+        <>
+          <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+            result
+          </div>
+          {/* Handed over unconditionally: `ToolPayload` dispatches JSON to the
+              tree and everything else to a <pre>, so a non-JSON payload still
+              renders as its own text rather than as envelope markup.
+
+              `toolName` is the BARE name parsed from the summary, which is the
+              form ToolPayload's Tier-3 registry is keyed on — so a renderer
+              registered for this tool applies to its deferred result exactly as
+              it does to an inline one. */}
+          <ToolPayload
+            value={parts.result}
+            toolName={parts.toolName ?? undefined}
+            entityIndex={entityIndex}
+            className="border-border/40 text-foreground/70"
+          />
+        </>
+      )}
+      {parts.remainder !== null && (
+        <div className="px-2 py-1">
           <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
-            {span.content}
+            {parts.remainder}
           </Prose>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -489,8 +848,33 @@ export function CommandInvocation({
   const { command, output, caveat } = element;
 
   return (
-    <div className="rounded border border-border/40 bg-muted/10">
+    <div className="rounded">
       <div className="flex items-start gap-2 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls={detailsId}
+          aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
+          // Unlike its three siblings this control is NOT the row: the command
+          // line beside it is content, and only this chevron toggles anything.
+          // So the affordance covers the chevron's own hit-area — widening what
+          // is clickable would be a behaviour change, not an affordance fix
+          // (mt#4251). `px-1` gives the glyph enough box for the background to
+          // read as a control rather than a smudge.
+          //
+          // Leading rather than `ml-auto` (mt#4348): this row sits in the same
+          // column as the tool rows and the fold summary, and a marker that
+          // wanders to the right edge on one of them is what made the set read
+          // as three positions instead of one.
+          className={cn(
+            "shrink-0 rounded px-1 text-xs hover:text-foreground",
+            HOVER_ROW,
+            FOCUS_RING
+          )}
+        >
+          <DisclosureChevron open={open} />
+        </button>
         <span aria-hidden className="select-none font-mono text-xs text-muted-foreground/60">
           &gt;
         </span>
@@ -500,16 +884,6 @@ export function CommandInvocation({
             <div className="mt-0.5 font-mono text-xs text-muted-foreground">{output.content}</div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-controls={detailsId}
-          aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
-          className="ml-auto shrink-0 text-xs text-muted-foreground/60"
-        >
-          {open ? "▾" : "▸"}
-        </button>
       </div>
       {open && (
         <div id={detailsId} className="space-y-1 border-t border-border/40 px-2 py-1">
@@ -661,7 +1035,21 @@ export function ElementView({
           </div>
         );
       }
-      return <Prose entityIndex={entityIndex}>{element.text}</Prose>;
+      // Full-strength foreground, overriding <Prose>'s default `text-foreground/90`
+      // (mt#4220). Speech is the narrative spine of a transcript and every other
+      // element on this surface now recedes to `text-muted-foreground`; a prose
+      // block dimmed to 90% while the machinery around it carries the eye is the
+      // inverted hierarchy this task exists to correct. Deliberately a CALL-SITE
+      // override rather than a change to <Prose>'s default: this is the one
+      // surface where prose competes with dense machinery for attention, and
+      // ~16 other Prose sites (task specs, memory bodies, ask questions) have no
+      // such competition. If a second surface ever needs it, promote it to the
+      // default rather than adding a second override.
+      return (
+        <Prose entityIndex={entityIndex} className="text-foreground">
+          {element.text}
+        </Prose>
+      );
     }
     case "thinking":
       // mt#3276: thinking text is NEVER recorded — Claude Code writes
@@ -689,9 +1077,7 @@ export function ElementView({
           result={element.result}
           entityIndex={entityIndex}
           expandSignal={expandSignal}
-          isAddressed={
-            addressedToolUseId !== undefined && element.call.id === addressedToolUseId
-          }
+          isAddressed={addressedToolUseId !== undefined && element.call.id === addressedToolUseId}
           filmPath={filmPath}
           turnIndex={turnIndex}
         />

@@ -20,6 +20,7 @@
  */
 
 import { readFileSync, existsSync } from "fs";
+import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -50,6 +51,27 @@ interface TranscriptUsage {
   output_tokens?: number;
 }
 
+/**
+ * The message envelope the Claude Code harness actually emits.
+ *
+ * `content`, `usage`, `role` and `model` are nested HERE, not at the line's top
+ * level (mt#4122). Verified against real on-disk transcripts: an assistant line's
+ * top-level keys are `agentId, attributionAgent, attributionSkill, cwd,
+ * entrypoint, gitBranch, isSidechain, message, parentUuid, requestId, sessionId,
+ * timestamp, type, userType, uuid, version` — `content` and `usage` appear only
+ * inside `message`.
+ */
+interface TranscriptMessageEnvelope {
+  /** Message role. */
+  role?: string;
+  /** Message content (array of content blocks or string). */
+  content?: TranscriptMessageContent[] | string;
+  /** Token usage, typically on assistant messages. */
+  usage?: TranscriptUsage;
+  /** The model that produced this message. Read by {@link extractActualModel}. */
+  model?: string;
+}
+
 interface TranscriptLine {
   /** Session ID of the agent that produced this line. */
   agent_session_id?: string;
@@ -59,16 +81,21 @@ interface TranscriptLine {
    * assistant line; a parent conversation's own lines do not.
    */
   agentId?: string;
-  /** ISO-8601 message timestamp (when available). */
+  /** ISO-8601 message timestamp (when available). Genuinely top-level. */
   timestamp?: string;
-  /** Message role. */
-  role?: string;
-  /** Message content (array of content blocks or string). */
-  content?: TranscriptMessageContent[] | string;
-  /** Token usage, typically on assistant messages. */
-  usage?: TranscriptUsage;
-  /** Type discriminator for some transcript formats. */
+  /** Type discriminator. Genuinely top-level. */
   type?: string;
+  /** The real payload envelope — see {@link TranscriptMessageEnvelope}. */
+  message?: TranscriptMessageEnvelope;
+  /**
+   * Back-compat fallbacks (mt#4122). The harness does NOT emit these at the top
+   * level; they are retained so a differently-shaped or older transcript (or a
+   * non-Claude-Code producer) still reads. Every consumer must prefer
+   * `message.*` and fall back to these, never the reverse.
+   */
+  role?: string;
+  content?: TranscriptMessageContent[] | string;
+  usage?: TranscriptUsage;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,19 +253,29 @@ export async function readTranscriptMetrics(
         }
       }
 
-      // Count tool_use blocks in content
-      if (Array.isArray(parsed.content)) {
-        for (const block of parsed.content) {
+      // Count tool_use blocks in content.
+      //
+      // mt#4122: prefer `message.content` — that is where the harness actually
+      // puts it. This read was top-level-only, which is why `tool_use_count` was
+      // null on 112 of 112 closed `subagent_invocations` rows: the accessor was
+      // always `undefined`, the counter never left 0, and the `> 0 ? n : null`
+      // guard below turned that into a null indistinguishable from "no
+      // transcript". The top-level fallback is retained for a differently-shaped
+      // producer (see TranscriptLine's back-compat note).
+      const content = parsed.message?.content ?? parsed.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
           if (block?.type === "tool_use") {
             toolUseCount++;
           }
         }
       }
 
-      // Sum token usage
-      if (parsed.usage) {
-        const inputToks = parsed.usage.input_tokens ?? 0;
-        const outputToks = parsed.usage.output_tokens ?? 0;
+      // Sum token usage (same nesting fix as above, mt#4122).
+      const usage = parsed.message?.usage ?? parsed.usage;
+      if (usage) {
+        const inputToks = usage.input_tokens ?? 0;
+        const outputToks = usage.output_tokens ?? 0;
         totalTokens += inputToks + outputToks;
       }
     }
@@ -267,13 +304,10 @@ export async function readTranscriptMetrics(
 // Actual-model extraction (mt#2796)
 // ---------------------------------------------------------------------------
 
-/**
- * Harness-injected placeholder recorded as `message.model` on synthetic
- * assistant turns — rate-limit / API-error retries the harness manufactures
- * locally rather than a real model response. Never a genuine model id.
- * Verified 2026-07-15 against a real on-disk transcript.
- */
-export const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
+// The harness-injected `message.model` placeholder for a synthetic retry turn
+// is declared ONCE, in `../ai/dispatch-models` (mt#4237). It was hand-copied
+// here until then. Imported at the top of this file rather than re-exported,
+// so there is one name for it and one place to change it.
 
 /**
  * Minimal shape of a real Claude Code transcript line, for the fields this
@@ -288,18 +322,21 @@ export const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
  * Per-agent subagent transcript files (`<session>/subagents/agent-<id>.jsonl`)
  * additionally carry a top-level `agentId` field identifying which agent
  * produced each line (verified against real on-disk fixtures 2026-07-15).
- * `agent_session_id` is kept as a secondary check for parity with the
- * top-level shape {@link readTranscriptMetrics} already looks for, in case a
- * caller passes a differently-shaped file.
+ * `agent_session_id` is kept as a secondary check in case a caller passes a
+ * differently-shaped file.
+ *
+ * mt#4122: this used to be its own interface, declared beside a `TranscriptLine`
+ * that placed `content`/`usage` at the top level — two descriptions of one line
+ * kind, one right and one wrong. That divergence is what let the metrics reader
+ * read fields the harness never emits while the model reader, four hundred lines
+ * away in the same file, read them correctly. The earlier note here explained the
+ * mismatch as "parity with the top-level shape readTranscriptMetrics already
+ * looks for … in case a caller passes a differently-shaped file" — the wrong
+ * shape was seen and rationalized as a second legitimate format rather than
+ * recognized as a defect. One alias now, so a future edit cannot fix one reader
+ * and miss the other.
  */
-interface ModelTranscriptLine {
-  type?: string;
-  agentId?: string;
-  agent_session_id?: string;
-  message?: {
-    model?: string;
-  };
-}
+type ModelTranscriptLine = TranscriptLine;
 
 /**
  * Extract the first genuine (non-synthetic) model id from a JSONL

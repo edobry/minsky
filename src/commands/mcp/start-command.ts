@@ -12,7 +12,7 @@ import { Command } from "commander";
 import type { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
-import { log } from "@minsky/shared/logger";
+import { log, setProcessRole } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
@@ -26,6 +26,7 @@ import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resourc
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
+import { buildMcpHealthResponse } from "../../mcp/health-payload";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
@@ -41,6 +42,8 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 // graph analysis.
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "@minsky/domain/configuration/guard";
+import { hasLocalGitCapability } from "@minsky/domain/utils/git-exec";
+import { isHostedMcpServer, resolveMcpTransport } from "../../cli-discriminators";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -625,22 +628,13 @@ async function startHttpServer(
       ? (container.get("persistence") as PersistenceProvider)
       : undefined;
     const persistenceHealth = assessPersistenceHealth(persistence);
-    res.status(persistenceHealth.healthy ? 200 : 503).json({
-      status: persistenceHealth.healthy ? "ok" : "unhealthy",
-      // mt#3148: `service` is the uniform, assertable identity key every
-      // Minsky service emits. `server` is retained UNCHANGED alongside it —
-      // mt#3142's own diagnosis read `server` to identify the wrong app on the
-      // reviewer host, and mem#704's probe recipe still cites it. Renaming
-      // would break the diagnostic path this field exists to strengthen.
-      service: "minsky-mcp",
-      server: "Minsky MCP Server",
-      transport: "http",
-      timestamp: new Date().toISOString(),
-      persistence: {
-        mode: persistenceHealth.mode,
-        ...(persistenceHealth.reason ? { reason: persistenceHealth.reason } : {}),
-      },
-    });
+    // mt#4322: the body is built by `buildMcpHealthResponse` so the golden
+    // contract in `contract/mcp-health-shape.json` can assert the SAME code
+    // this route runs, rather than a copy of it. The per-field rationale moved
+    // there with it — including why `unconfigured` stays a 200 while `ready` is
+    // false, which is the invariant `bundle-boot-smoke` depends on.
+    const health = buildMcpHealthResponse(persistenceHealth, new Date().toISOString());
+    res.status(health.statusCode).json(health.body);
   });
 
   // OAuth discovery + Dynamic Client Registration (mt#1634c).
@@ -1233,20 +1227,20 @@ async function buildEmbeddingsEventEmitter(
   container: AppContainerInterface
 ): Promise<EventEmitterWithTryEmit | null> {
   try {
-    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-    if (!persistence) return null;
-
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-    if (!(persistence instanceof PersistenceProvider)) return null;
-    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-      return null;
-    }
-    const connection = await persistence.getDatabaseConnection();
-    if (!connection) return null;
-
-    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
-    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
-    return createEventEmitter(db);
+    // mt#4218: both halves now come from shared domain helpers that the cockpit
+    // and CLI hosts reach the same way — `resolveContainerPersistence` for the
+    // container lookup, `buildEventEmitterFromProvider` for the construction.
+    // The explicit `capabilities.sql` test is gone rather than relaxed: both
+    // helpers test `getDatabaseConnection` for callability and for a non-null
+    // result, which is the operative check and what every other emit site in
+    // the codebase already uses.
+    const { resolveContainerPersistence } = await import(
+      "@minsky/domain/ai/embeddings-health-wiring"
+    );
+    const { buildEventEmitterFromProvider } = await import(
+      "@minsky/domain/events/emit-best-effort"
+    );
+    return await buildEventEmitterFromProvider(await resolveContainerPersistence(container));
   } catch (err) {
     log.debug("[mt#2568] buildEmbeddingsEventEmitter threw", {
       error: getErrorMessage(err),
@@ -1329,6 +1323,15 @@ export function createStartCommand(
         // SAME baseline (set at cli.ts module load).
         profileCheckpoint("action_entry");
 
+        // mt#2464: this subcommand is a long-running SERVER, not a one-shot
+        // command, so undo the CLI entry point's blanket declaration. Without
+        // this the deployed minsky-mcp — which boots via `minsky mcp start
+        // --http` and is therefore a CLI process — would keep discarding every
+        // domain `log.info`/`log.warn`, the exact silence this task removes.
+        // Safe for the stdio transport too: the sink writes to stderr, never to
+        // the stdout channel the JSON-RPC protocol owns.
+        setProcessRole("long-running-service");
+
         // mt#2098: When no container is passed (standalone MCP server boot
         // without the CLI composition root), create one from the portable
         // domain bootstrap. This makes the MCP server independently bootable.
@@ -1363,8 +1366,19 @@ export function createStartCommand(
           process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS = defaults.sessionIdleTimeoutMs;
         }
 
-        // Determine transport type from --http flag
-        const transportType = options.http ? "http" : "stdio";
+        // mt#4322: ask the single source rather than re-deriving from flags.
+        // Note this is deliberately still read AFTER the mode branch above:
+        // `resolveMcpTransport` treats `localDaemon` as implying http itself,
+        // so it returns the same answer either side of that `options.http`
+        // assignment — which is precisely the property that lets the preAction
+        // hook and this body agree without depending on which ran first.
+        //
+        // PR #3238 R1: resolved ONCE for this whole action body and reused
+        // below (the stdin-cleanup branch, the error log). Re-calling it per
+        // site would be cheap and correct today, but re-opens in miniature the
+        // very thing this task closes — N derivations that a later edit
+        // mutating `options` in between could drift apart.
+        const transportType = resolveMcpTransport(options).transport;
 
         // Validate HTTP configuration if using HTTP transport
         if (transportType === "http") {
@@ -1375,7 +1389,29 @@ export function createStartCommand(
           }
           // Hosted MCP: the developer-setup guard is a dev-laptop UX nudge and
           // does not apply to a server process. See mt#1208.
-          setHostedMode(true);
+          //
+          // mt#4338: NOT `setHostedMode(true)` — hosted is a narrower question
+          // than HTTP, and `--local-daemon` (which implies --http, see the mode
+          // branch above) is the local daemon, not the hosted server.
+          //
+          // mt#4342: that flag identified one local LAUNCHER, not the property.
+          // A plain `--http --port N` on a developer machine carries neither
+          // flag, so it was indistinguishable from the Dockerfile CMD and had
+          // `git.*` refused with git on PATH. The capability probe answers the
+          // question the flags only proxied, and runs HERE rather than inside
+          // the predicate so the predicate stays pure and directly assertable.
+          // Both are documented on `isHostedMcpServer` / `hasLocalGitCapability`.
+          //
+          // PR #3233 R1: the probe ASCENDS from this directory rather than
+          // testing it for `.git`, so starting the server from a subdirectory of
+          // a repo is still local. That is the same misclassification mt#4342
+          // fixes, one level in.
+          setHostedMode(
+            isHostedMcpServer({
+              ...options,
+              hasLocalWorkspace: hasLocalGitCapability(options.repo ?? process.cwd()),
+            })
+          );
         }
 
         const projectContext = resolveProjectContext(options.repo);
@@ -1742,12 +1778,14 @@ export function createStartCommand(
         // ordering fix.
         if (container) {
           try {
-            const { EmbeddingsHealthTracker } = await import(
-              "@minsky/domain/ai/embeddings-health-tracker"
-            );
-            EmbeddingsHealthTracker.registerEventEmitterBuilder(() =>
-              buildEmbeddingsEventEmitter(container)
-            );
+            // mt#4218: registered through the shared host-wiring helper, which
+            // the cockpit daemon and the CLI now call the same way. Registering
+            // the tracker's builder directly from a host is what this replaces —
+            // three hosts each doing it their own way is how two of them came to
+            // do it not at all.
+            const { registerEmbeddingsHealthEventEmitter, resolveContainerPersistence } =
+              await import("@minsky/domain/ai/embeddings-health-wiring");
+            registerEmbeddingsHealthEventEmitter(() => resolveContainerPersistence(container));
           } catch (err) {
             log.debug(
               "[mt#2568] Could not register EmbeddingsHealthTracker event-emitter builder",
@@ -2225,7 +2263,7 @@ export function createStartCommand(
         // than once (PR #881 R1 NON-BLOCKING). Only attach for stdio transport —
         // HTTP-mode containers don't use stdin and may run with stdin closed at
         // startup, which would falsely trigger.
-        if (!options.http) {
+        if (transportType === "stdio") {
           process.stdin.on("close", cleanup);
         }
 
@@ -2239,7 +2277,12 @@ export function createStartCommand(
         await new Promise(() => {});
       } catch (error) {
         log.error("Failed to start MCP server", {
-          transportType: options.http ? "http" : "stdio",
+          // Re-resolved rather than reusing the `transportType` binding above:
+          // that const lives inside the `try`, and a throw before it is reached
+          // means it never existed. This is the "once per EXECUTION PATH" the
+          // R1 finding asks for — the catch is a different path, not a repeat
+          // of the same one.
+          transportType: resolveMcpTransport(options).transport,
           withInspector: options.withInspector || false,
           error: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,

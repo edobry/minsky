@@ -110,7 +110,14 @@ describe("watch-this-moment link", () => {
     expect(screen.queryAllByTestId("film-moment-link")).toHaveLength(0);
     // Control: the turn itself still rendered, so the assertion above is about
     // the affordance being absent and not about an empty thread.
-    expect(screen.getByTestId("turn-role-label")).toBeDefined();
+    //
+    // Asserted on the run header rather than the actor LABEL (mt#3845): these
+    // fixture blocks record no model, and an assistant run with no resolvable
+    // actor deliberately renders no label at all rather than a guessed one
+    // (ask#7348's honest-degradation clause). The header row itself is
+    // unconditional, so it is the control that actually means "something
+    // rendered".
+    expect(screen.getByTestId("run-header")).toBeDefined();
   });
 
   test("the link is reachable and labelled, not a hover-only mouse target", () => {

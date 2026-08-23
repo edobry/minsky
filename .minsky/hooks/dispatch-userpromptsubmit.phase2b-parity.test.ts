@@ -47,6 +47,12 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // mt#3997 — registered immediately before inject-dispatch-watchdog
       "inject-memory-capture",
       "inject-dispatch-watchdog",
+      // mt#3564 — registered immediately before memory-search. Not part of the
+      // Phase 2a/2b legacy-settings.json migration this test otherwise pins
+      // byte-for-byte; it is a new state injector, and its position among the
+      // other injectors carries no meaning beyond keeping the family contiguous
+      // (the merged block is ordered by contextPriority, not array position).
+      "inject-ask-responses",
       "memory-search",
       "skill-staleness-detector",
       "mcp-daemon-staleness-detector",
@@ -90,6 +96,11 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // build/deploy-claim seam detector; same new-guard-appended-after-
       // legacy-order rationale as its calibration-first siblings above.
       "build-claim-injection-detector",
+      // mt#4291 — context-fill gauge. Same new-guard-appended-after-legacy-order
+      // rationale as the siblings above: this is an ADDITION at the tail, not a
+      // re-sort, and every pre-existing name keeps its relative position — which
+      // is the property this assertion exists to guard.
+      "context-fill-gauge",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.

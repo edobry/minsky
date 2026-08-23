@@ -18,7 +18,13 @@ import {
   OVERRIDE_ENV_VAR,
   INJECTION_ENABLED,
   run,
+  buildEvaluationRecord,
+  recordEvaluation,
+  EVALUATION_LOG_NAME,
+  EVALUATED_TURN_CAPTURE_MAX_CHARS,
 } from "./causal-premise-detector";
+import type { EvaluationWriter } from "./causal-premise-detector";
+import { CAPTURE_SCHEMA_FIELD, CAPTURE_SCHEMA_VERSION } from "./judged-input-capture";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -379,16 +385,42 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
   };
 }
 
+/**
+ * Collect evaluation records instead of writing them.
+ *
+ * Every `run()` call in this file passes one. Without it the default writer
+ * appends to the REAL `.minsky/causal-premise-evaluations.jsonl` — the unit
+ * suite would then inject synthetic rows into the very denominator mt#3743
+ * exists to make trustworthy.
+ */
+function makeEvaluationCollector(): {
+  records: Record<string, unknown>[];
+  write: EvaluationWriter;
+} {
+  const records: Record<string, unknown>[] = [];
+  return {
+    records,
+    write: (record) => {
+      records.push(record);
+    },
+  };
+}
+
+/** A causal claim with a mechanism term and no same-turn backing — fires. */
+const FIRING_TURN_TEXT =
+  "The branch name got mangled due to the encoding configuration in the client library.";
+
+/** Prose with no causal phrase — the detector evaluates it and does NOT fire. */
+const NON_FIRING_TURN_TEXT = "Nothing noteworthy here.";
+
 describe("run() (dispatcher-compatible)", () => {
   test("unverified causal claim -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine(
-        "The branch name got mangled due to the encoding configuration in the client library."
-      ),
+      makeRunAssistantLine(FIRING_TURN_TEXT),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), makeEvaluationCollector().write);
     expect(outcome?.calibration).toBeDefined();
     expect(outcome?.additionalContext).toBeUndefined();
     expect(INJECTION_ENABLED).toBe(false);
@@ -397,10 +429,12 @@ describe("run() (dispatcher-compatible)", () => {
   test("no match -> null (silent allow)", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine("Nothing noteworthy here."),
+      makeRunAssistantLine(NON_FIRING_TURN_TEXT),
       makeRunUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(
+      run(RUN_HOOK_INPUT, makeCtx(transcriptLines), makeEvaluationCollector().write)
+    ).toBeNull();
   });
 
   test("no transcript_path -> null", () => {
@@ -410,24 +444,191 @@ describe("run() (dispatcher-compatible)", () => {
       hook_event_name: RUN_HOOK_EVENT_NAME,
     };
     const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
-    expect(run(input, ctx)).toBeNull();
+    expect(run(input, ctx, makeEvaluationCollector().write)).toBeNull();
   });
 
   test("legacy override env var suppresses detection and returns an audit line", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine(
-        "The branch name got mangled due to the encoding configuration in the client library."
-      ),
+      makeRunAssistantLine(FIRING_TURN_TEXT),
       makeRunUserLine(),
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      const outcome = run(
+        RUN_HOOK_INPUT,
+        makeCtx(transcriptLines),
+        makeEvaluationCollector().write
+      );
       expect(outcome?.calibration).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Evaluation stream (mt#3743)
+// ---------------------------------------------------------------------------
+
+describe("evaluation stream (mt#3743)", () => {
+  test("stream name yields the conventional -evaluations.jsonl filename", () => {
+    expect(EVALUATION_LOG_NAME).toBe("causal-premise");
+  });
+
+  describe("buildEvaluationRecord", () => {
+    const noMatch = detectCausalPremise(NON_FIRING_TURN_TEXT, []);
+
+    test("carries the verdict and the capture-schema marker", () => {
+      const record = buildEvaluationRecord({
+        timestamp: "2026-08-13T00:00:00.000Z",
+        sessionId: "s1",
+        elidedText: NON_FIRING_TURN_TEXT,
+        result: noMatch,
+      });
+      expect(record["fired"]).toBe(false);
+      expect(record[CAPTURE_SCHEMA_FIELD]).toBe(CAPTURE_SCHEMA_VERSION);
+      expect(record["timestamp"]).toBe("2026-08-13T00:00:00.000Z");
+      expect(record["session_id"]).toBe("s1");
+    });
+
+    test("AT3: the capture is truncated at the documented bound, and says so", () => {
+      const long = "a".repeat(EVALUATED_TURN_CAPTURE_MAX_CHARS + 500);
+      const record = buildEvaluationRecord({
+        timestamp: "2026-08-13T00:00:00.000Z",
+        elidedText: long,
+        result: noMatch,
+      });
+      const capture = record["judgedInput"] as {
+        excerpt: string;
+        length: number;
+        truncated: boolean;
+      };
+      expect(capture.excerpt.length).toBeLessThanOrEqual(EVALUATED_TURN_CAPTURE_MAX_CHARS);
+      // `length` is the FULL text, so a truncated capture still reports how much
+      // was judged rather than how much was kept.
+      expect(capture.length).toBe(long.length);
+      expect(capture.truncated).toBe(true);
+    });
+
+    test("a capture within the bound is not marked truncated", () => {
+      const record = buildEvaluationRecord({
+        timestamp: "2026-08-13T00:00:00.000Z",
+        elidedText: "short",
+        result: noMatch,
+      });
+      expect((record["judgedInput"] as { truncated: boolean }).truncated).toBe(false);
+    });
+  });
+
+  describe("run()", () => {
+    test("AT1: a non-firing evaluated turn produces an evaluation record and NO calibration record", () => {
+      const collector = makeEvaluationCollector();
+      const transcriptLines = [
+        makeRunUserLine(),
+        makeRunAssistantLine(NON_FIRING_TURN_TEXT),
+        makeRunUserLine(),
+      ];
+
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), collector.write);
+
+      // Both halves — the point is the MISS being visible.
+      expect(outcome).toBeNull();
+      expect(collector.records).toHaveLength(1);
+      expect(collector.records[0]?.["fired"]).toBe(false);
+    });
+
+    test("AT2: a firing turn appears in both, joinable on (session_id, timestamp)", () => {
+      const collector = makeEvaluationCollector();
+      const transcriptLines = [
+        makeRunUserLine(),
+        makeRunAssistantLine(FIRING_TURN_TEXT),
+        makeRunUserLine(),
+      ];
+
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), collector.write);
+
+      expect(collector.records).toHaveLength(1);
+      const evaluation = collector.records[0] as Record<string, unknown>;
+      const calibration = outcome?.calibration as Record<string, unknown>;
+
+      expect(evaluation["fired"]).toBe(true);
+      expect(calibration).toBeDefined();
+      // The join. Two `new Date()` calls would differ by milliseconds, so this
+      // asserts they share ONE value rather than merely both having a timestamp.
+      expect(evaluation["timestamp"]).toBe(calibration["timestamp"]);
+      expect(evaluation["session_id"]).toBe(calibration["session_id"]);
+    });
+
+    test("AT4: text inside a code fence does not reach the stream", () => {
+      const collector = makeEvaluationCollector();
+      const fenced = [
+        "Here is the log:",
+        "```",
+        "postgresql://user:hunter2@db.example.com:5432/prod",
+        "```",
+        NON_FIRING_TURN_TEXT,
+      ].join("\n");
+      const transcriptLines = [makeRunUserLine(), makeRunAssistantLine(fenced), makeRunUserLine()];
+
+      run(RUN_HOOK_INPUT, makeCtx(transcriptLines), collector.write);
+
+      const excerpt = (collector.records[0]?.["judgedInput"] as { excerpt: string }).excerpt;
+      expect(excerpt).not.toContain("hunter2");
+      expect(excerpt).not.toContain("postgresql://");
+      // The prose AROUND the fence survives — the elision blanks the fence, it
+      // does not blank the turn, so the record stays classifiable.
+      expect(excerpt).toContain("Here is the log:");
+    });
+
+    test("AT5: a write failure leaves the outcome unchanged and reports the real error", () => {
+      const written: string[] = [];
+      const originalWrite = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string) => {
+        written.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+
+      const exploding: EvaluationWriter = () => {
+        throw new Error("disk on fire");
+      };
+      const transcriptLines = [
+        makeRunUserLine(),
+        makeRunAssistantLine(FIRING_TURN_TEXT),
+        makeRunUserLine(),
+      ];
+
+      let outcome;
+      try {
+        outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), exploding);
+      } finally {
+        process.stderr.write = originalWrite;
+      }
+
+      // Degrades to the detector's existing behavior…
+      expect(outcome?.calibration).toBeDefined();
+      expect(outcome?.additionalContext).toBeUndefined();
+      // …and logs the ACTUAL error rather than swallowing it. A fail-open write
+      // that reports nothing is indistinguishable from one that succeeded, which
+      // is the failure mode this whole family keeps hitting.
+      expect(written.join("")).toContain("disk on fire");
+    });
+  });
+
+  describe("recordEvaluation", () => {
+    test("a throwing writer does not propagate", () => {
+      const originalWrite = process.stderr.write.bind(process.stderr);
+      process.stderr.write = (() => true) as typeof process.stderr.write;
+      try {
+        expect(() =>
+          recordEvaluation({ fired: false }, "/test", () => {
+            throw new Error("boom");
+          })
+        ).not.toThrow();
+      } finally {
+        process.stderr.write = originalWrite;
+      }
+    });
   });
 });

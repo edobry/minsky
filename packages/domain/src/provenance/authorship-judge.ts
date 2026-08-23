@@ -14,6 +14,8 @@
 import { z } from "zod";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "./transcript-service";
+import { resolveMessageText } from "./transcript-content";
+import { classifyUserLineOrigin, OPERATOR_ORIGIN } from "../transcripts/user-line-origin";
 import type { TierSignals } from "./types";
 import { AuthorshipTier } from "./types";
 import { log } from "@minsky/shared/logger";
@@ -28,8 +30,27 @@ const JUDGING_MODEL = "claude-haiku-4-5-20251001";
 /** Provider for tier judging. */
 const JUDGING_PROVIDER = "anthropic";
 
-/** Maximum tokens to generate — keep it tight for fast, cheap classification. */
-const MAX_TOKENS = 500;
+/**
+ * Maximum tokens to generate.
+ *
+ * **Raised 500 → 2000 by mt#4314, because 500 was never actually enforced.**
+ * `DefaultAICompletionService.generateObject` dropped `maxTokens` for the life of this
+ * module, so every judgment this judge has ever produced ran against the SDK's provider
+ * default. mt#4314 connects the knob, which makes this number bind for the first time.
+ *
+ * Measured before raising it, with the forwarding fix in place
+ * (`bun scripts/verify-authorship-judge-cap.ts --limit 10`): at 500, **1 of 10 judgments
+ * failed to parse** and the answer text of those that succeeded ran 850–1681 characters —
+ * the largest already ~420+ tokens of prose before JSON field names, quoting and escaping.
+ * The schema carries two open-ended prose fields plus a `trajectoryChanges` array, so this
+ * is not a tail case; "keep it tight" was safe only while it did nothing.
+ *
+ * A truncated structured response does not raise a truncation error — it fails schema
+ * validation on whichever field the model had not reached, which is exactly the signature
+ * mt#4314 was diagnosed from. 2000 is ~4x the largest observed answer, and a cap is a
+ * CEILING rather than a spend: raising it costs nothing on a judgment that stays short.
+ */
+const MAX_TOKENS = 2000;
 
 /** Zod schema for the structured AI response. */
 const authorshipJudgmentSchema = z.object({
@@ -57,25 +78,41 @@ Evaluate based on:
 
 Be honest and precise. A human sending many messages doesn't mean high contribution — evaluate content quality, not quantity.`;
 
-/** Summarize a single message for the prompt (truncate long content). */
-function summarizeMessage(msg: TranscriptMessage, index: number): string {
-  const role = msg.type === "user" ? "Human" : "Agent";
-  let content: string;
+/**
+ * The speaker label this message is rendered under in the judge's prompt (mt#4289).
+ *
+ * `Human` is reserved for genuine operator speech. A `user`-role line the
+ * harness wrote gets `Harness(<kind>)` — labelled rather than dropped, because
+ * this judge is grading how much of the work the human drove, and silently
+ * removing turns would distort the conversation's shape as badly as
+ * mis-attributing them.
+ *
+ * The failure this replaces is the sharpest in the consumer inventory: an
+ * auto-compaction summary is ~15KB of model prose NARRATING what the operator
+ * asked for, and it was handed to the judge under the label `Human:` — the
+ * model's account of the human's intent, presented as the human's own words, to
+ * a grader whose entire question is how much the human contributed.
+ */
+function roleLabelFor(msg: TranscriptMessage): string {
+  if (msg.type !== "user") return "Agent";
+  const origin = classifyUserLineOrigin(msg);
+  return origin === OPERATOR_ORIGIN ? "Human" : `Harness(${origin})`;
+}
 
-  if (typeof msg.content === "string") {
-    content = msg.content;
-  } else if (Array.isArray(msg.content)) {
-    // Extract text blocks from structured content
-    content = (msg.content as Array<{ type?: string; text?: string }>)
-      .filter((block) => block.type === "text")
-      .map((block) => block.text ?? "")
-      .join(" ");
-  } else {
-    content = "[non-text content]";
-  }
+/**
+ * Summarize a single message for the prompt (truncate long content).
+ *
+ * Content resolution goes through the shared resolver (mt#4225). This read `msg.content`
+ * directly until then — the flat field that no stored row carries — so every message the
+ * judge was handed rendered as `[non-text content]` and it graded authorship from a
+ * transcript of markers. Identical defect to mt#4196's analyzer, one consumer over.
+ */
+function summarizeMessage(msg: TranscriptMessage, index: number): string {
+  const role = roleLabelFor(msg);
+  const { text } = resolveMessageText(msg);
 
   // Truncate to keep prompt compact (safeTruncate ensures no split surrogate pairs)
-  const truncated = content.length > 300 ? `${safeTruncate(content, 300, "head")}…` : content;
+  const truncated = text.length > 300 ? `${safeTruncate(text, 300, "head")}…` : text;
   return `[${index + 1}] ${role}: ${truncated}`;
 }
 
@@ -87,7 +124,11 @@ function buildUserPrompt(messages: TranscriptMessage[], signals: TierSignals): s
     `initiation_mode=${signals.initiationMode ?? "unknown"}`,
   ].join(", ");
 
-  const humanMessages = messages.filter((m) => m.type === "user");
+  // mt#4289: the count the judge is told, like the labels above, means OPERATOR
+  // messages — not every `user`-role line.
+  const humanMessages = messages.filter(
+    (m) => m.type === "user" && classifyUserLineOrigin(m) === OPERATOR_ORIGIN
+  );
   const totalMessages = messages.length;
 
   const transcriptText = messages
@@ -140,7 +181,9 @@ export class AuthorshipJudge {
 
     log.debug("AuthorshipJudge: evaluating transcript", {
       messageCount: messages.length,
-      humanMessages: messages.filter((m) => m.type === "user").length,
+      humanMessages: messages.filter(
+        (m) => m.type === "user" && classifyUserLineOrigin(m) === OPERATOR_ORIGIN
+      ).length,
     });
 
     const result = await this.completionService.generateObject({

@@ -55,6 +55,7 @@ import {
 import {
   createDrivenResultObserver,
   createDrivenSessionPersistObserver,
+  createDrivenInitObserver,
   orchestrateDrivenSessionResume,
 } from "./driven-session-launch";
 import {
@@ -64,6 +65,7 @@ import {
 } from "@minsky/domain/transcripts/entity-thread-store";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { pendingReplyBuffer, schedulePendingDrain } from "./entity-thread-reply-buffer";
+import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 
 // ---------------------------------------------------------------------------
 // Seeding (pure)
@@ -389,6 +391,13 @@ export interface StartEntityThreadSessionOptions {
   /** Override the per-turn cost observer (mt#3402). Same seam convention. */
   onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
   /**
+   * Override the init observer (mt#4323). Same seam convention: production
+   * omits it and gets `createDrivenInitObserver` carrying this spawn's
+   * `FreshSpawnReason`; tests inject a capture to assert the conversation
+   * adoption WOULD be recorded without touching Postgres.
+   */
+  onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
+  /**
    * Override the resume orchestration (mt#3550) — the same seam convention as
    * the observers above. Production omits it and gets
    * `orchestrateDrivenSessionResume`, which reads the persisted row and takes a
@@ -464,16 +473,21 @@ export interface EntityThreadSession {
  * different things: the first is an ordinary first launch, the second is a
  * CONVERSATION SWAP the operator has to be told about, and the third is a
  * failure whose cause is unknown to this layer.
+ *
+ * **The definition MOVED to `@minsky/domain/storage/schemas/driven-sessions-schema`
+ * in mt#4323 and is re-exported here unchanged** — every existing consumer
+ * (this module's own logs, its tests, the panel's swap disclosure) imports the
+ * same type it always did. It had to move because
+ * `driven_session_conversations.adoption_reason` stores these values, the store
+ * that writes them lives in `packages/domain`, and that package deliberately
+ * imports nothing from `src/cockpit/**` — so leaving the union here would have
+ * forced a COPY on the table side, and a copy is exactly what drifts.
  */
-export type FreshSpawnReason =
-  /** No persisted row, or no database — this thread has never had an agent. */
-  | "no-prior-conversation"
-  /** A row exists and names a conversation that cannot be resumed. A SWAP. */
-  | "prior-conversation-unrecoverable"
-  /** A row exists but never linked a conversation (spawn died before `init`). */
-  | "prior-spawn-never-linked"
-  /** The resume itself threw — the store may simply be unreachable. */
-  | "resume-attempt-failed";
+export type { FreshSpawnReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
+
+// A re-export does NOT bind the name locally, and this module uses the type in
+// its own signatures below — hence the separate type-only import.
+import type { FreshSpawnReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 
 /** What {@link respawnThreadActuator} decided to do about an absent or dead record. */
 type ThreadActuatorRespawn =
@@ -647,6 +661,7 @@ export async function startEntityThreadSession(
   log.debug(`startEntityThreadSession: spawning for ${localId}`);
   const result = startDrivenSession({
     localId,
+    mcpServerNames: drivenSessionMcpServerNames(),
     cwd: opts.cwd ?? process.cwd(),
     permissionMode: DEFAULT_PERMISSION_MODE,
     // mt#3402: the SAME observer set ./routes/driven-sessions.ts wires for
@@ -656,10 +671,25 @@ export async function startEntityThreadSession(
     // restart) silently never held. This callsite was originally written from
     // `startDrivenSession`'s SIGNATURE rather than from its existing caller.
     //
-    // `createDrivenInitLinkObserver` is deliberately NOT wired: it early-returns
-    // unless the record carries BOTH a harnessSessionId and a minskySessionId,
-    // and a thread is bound to an entity, not to a workspace session. Wiring it
-    // would add a permanent no-op, not a link.
+    // mt#4323: this observer IS now wired, and the carve-out it replaces is
+    // worth reading before removing it again. It said
+    // `createDrivenInitLinkObserver` was deliberately not wired because it
+    // early-returned unless the record carried BOTH a harnessSessionId and a
+    // minskySessionId — and a thread is bound to an entity, not a workspace
+    // session — so wiring it "would add a permanent no-op, not a link." That
+    // was correct while the observer's only job was the `driven_spawn` link.
+    //
+    // It now also records the CONVERSATION ADOPTION, which every driven session
+    // has and which is the whole point of ADR-044's binding table. That write
+    // sits ABOVE the minskySessionId gate, so it is not a no-op here; the link
+    // half still self-gates and stays the no-op it always was for threads.
+    // Leaving this unwired would have excluded entity threads from the very
+    // record the umbrella exists to give them.
+    // `respawn` is narrowed to `spawn-fresh` here — the `resumed` and
+    // `held-elsewhere` arms both returned above — so its `reason` is exactly
+    // the FreshSpawnReason this adoption should record.
+    onHarnessSessionLinked:
+      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason }),
     onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
     onResultSummary: opts.onResultSummary ?? createDrivenResultObserver(),
     // mt#3550: only when this spawn is REPLACING a dead record. `register`

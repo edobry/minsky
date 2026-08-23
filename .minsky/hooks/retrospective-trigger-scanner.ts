@@ -808,6 +808,54 @@ export async function detectTriggerPhrasesWithNomination(
   return { matches, nominatedFamilies, enforcing, confirmedFamilies, rung3, capture };
 }
 
+/** Which rung put a family into `matches` (mt#4102). */
+export type MatchRung = "rung1" | "rung2" | "rung3";
+
+/**
+ * How a calibration record's stored `phrase` must be READ, per match.
+ *
+ * The three rungs produce structurally different phrases, and the record used to
+ * flatten them into one field:
+ *
+ * - **`rung1`** — the phrase IS the sentence that matched a pattern. It is the
+ *   reason, and it can be classified directly.
+ * - **`rung2`** — a raw-enforced nomination (`NOMINATION_ENFORCE_ENV_VAR` on).
+ *   The phrase is Rung 2's nominated SEGMENT, which reached `matches` WITHOUT
+ *   passing through the confirm stage.
+ * - **`rung3`** — a confirmed nomination. The phrase is again Rung 2's segment;
+ *   Rung 3 judged the TURN, not that sentence.
+ *
+ * For the last two the phrase is an artifact of nomination, routinely not the
+ * sentence that justified the fire — mt#3931 measured classifying from it
+ * inverting the verdict 4 times out of 4, and mt#4102 is a fifth instance that
+ * cost six days and a wrongly-scoped tune task. Hence
+ * `phrase_is_nomination_artifact`, which is the flag that tells a reviewer to
+ * recover the judged turn instead of reading the phrase.
+ *
+ * **Why membership in `nominatedFamilies` implies enforcement.** A nominated
+ * family reaches `matches` only on the enforcing branch; in the default
+ * log-only mode it stays in `pendingCandidates` and can enter `matches` only by
+ * way of Rung 3, which puts it in `confirmedFamilies` first. So a family that is
+ * BOTH in `matches` and in `nominatedFamilies` but not confirmed was enforced.
+ *
+ * Caller contract: pass the nominated/confirmed lists from the SAME detection
+ * that produced the match. A Rung-1-only entrypoint passes two empty lists,
+ * which is a positive claim that no nomination ran — not a default.
+ */
+export function rungProvenance(
+  family: string,
+  nominatedFamilies: readonly string[],
+  confirmedFamilies: readonly string[]
+): { rung: MatchRung; phrase_is_nomination_artifact?: true } {
+  if (confirmedFamilies.includes(family)) {
+    return { rung: "rung3", phrase_is_nomination_artifact: true };
+  }
+  if (nominatedFamilies.includes(family)) {
+    return { rung: "rung2", phrase_is_nomination_artifact: true };
+  }
+  return { rung: "rung1" };
+}
+
 export function detectUserCorrection(userText: string): TriggerMatch[] {
   // Same quoted/code elision as the assistant side (mt#2672) — a user
   // QUOTING a correction phrase while discussing it is not a correction.
@@ -1332,7 +1380,13 @@ export async function run(
       source: "live",
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
-      matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+      // mt#4102: the per-match rung marker, mirroring the Stop sibling. See
+      // `rungProvenance` for why the phrase's rung changes how it must be read.
+      matches: allMatches.map((m) => ({
+        family: m.family,
+        phrase: m.matchedPhrase,
+        ...rungProvenance(m.family, nominatedFamilies, confirmedFamilies),
+      })),
       transcript_excerpt: transcriptExcerpt,
       // mt#3950: a dedup that failed open is otherwise indistinguishable from a
       // clean no-match, which is what made candidate 3 unfalsifiable from the log.
@@ -1495,7 +1549,18 @@ export async function main(): Promise<void> {
     source: "live",
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
-    matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+    // mt#4102: unconditionally `rung1`, and that is a claim about this
+    // entrypoint rather than a copied default. The CLI path composes
+    // `detectTriggerPhrases`, `detectUserCorrection` and `detectMethodRedirect`
+    // — all Rung-1 matchers — and never reaches nomination or confirm, so no
+    // match here can carry a nominated segment. Marking it explicitly keeps ONE
+    // record schema across both entrypoints; a reader who has to remember which
+    // one omits the field is back to guessing what a phrase means.
+    matches: allMatches.map((m) => ({
+      family: m.family,
+      phrase: m.matchedPhrase,
+      ...rungProvenance(m.family, [], []),
+    })),
     transcript_excerpt: transcriptExcerpt,
     ...(mainDedupError !== undefined ? { dedup_error: mainDedupError } : {}),
     ...captureFields(injectedCapture),

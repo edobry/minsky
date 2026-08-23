@@ -120,6 +120,15 @@ export interface EntityThreadTurn {
   role: EntityThreadTurnRole;
   content: string;
   createdAt: Date;
+  /**
+   * The conversation this turn was recovered from (mt#4073), when it reached
+   * this table via the reconciler rather than the live recorder. Absent — not
+   * null — when the turn landed normally, so spreading a turn onto a response
+   * body cannot assert a recovery that did not happen.
+   */
+  recoveredFromConversationId?: string;
+  /** When a recovered turn was ORIGINALLY sent. Present iff the above is. */
+  originallySentAt?: Date;
 }
 
 /**
@@ -135,7 +144,13 @@ export function turnToSnapshotBlock(turn: EntityThreadTurn): SessionContextSnaps
     type: BLOCK_TYPE_BY_ROLE[turn.role],
     source: "observed",
     content: turn.content,
-    timestamp: turn.createdAt.toISOString(),
+    // A recovered turn reports when the agent actually SAID it, not when the
+    // reconciler wrote the row (mt#4073). `seq` still places it at the tail —
+    // it cannot be inserted mid-thread without breaking the append-only
+    // allocation — so without the original instant the panel would render an
+    // hour-old reply as having just arrived. The route's `recoveredReplies`
+    // notice is what explains the resulting out-of-order position.
+    timestamp: (turn.originallySentAt ?? turn.createdAt).toISOString(),
     rawJsonlType: RAW_JSONL_TYPE_BY_ROLE[turn.role],
   };
 }
@@ -148,6 +163,8 @@ export interface RawEntityThreadTurnRow {
   role: string;
   content: string;
   created_at: Date | string;
+  recovered_from_conversation_id?: string | null;
+  originally_sent_at?: Date | string | null;
 }
 
 /**
@@ -160,13 +177,25 @@ export interface RawEntityThreadTurnRow {
  */
 export function mapRawEntityThreadTurnRow(raw: RawEntityThreadTurnRow): EntityThreadTurn {
   const role: EntityThreadTurnRole = raw.role === "agent" ? "agent" : "operator";
-  return {
+  const base: EntityThreadTurn = {
     id: raw.id,
     localId: raw.local_id,
     seq: typeof raw.seq === "string" ? Number.parseInt(raw.seq, 10) : raw.seq,
     role,
     content: raw.content,
     createdAt: raw.created_at instanceof Date ? raw.created_at : new Date(raw.created_at),
+  };
+
+  // Omitted rather than nulled, following `mapRawEntityThreadRow` above: a
+  // present-but-null key reads as "we checked and it was not recovered" to
+  // anything doing a key check, and these turns are spread onto a response body.
+  const recovered = raw.recovered_from_conversation_id?.trim();
+  if (!recovered) return base;
+  const sentAt = raw.originally_sent_at;
+  return {
+    ...base,
+    recoveredFromConversationId: recovered,
+    ...(sentAt ? { originallySentAt: sentAt instanceof Date ? sentAt : new Date(sentAt) } : {}),
   };
 }
 
@@ -335,6 +364,14 @@ export interface AppendEntityThreadTurnInput {
   localId: string;
   role: EntityThreadTurnRole;
   content: string;
+  /**
+   * Set by the reconciler (mt#4073) when this turn is being restored from the
+   * thread's harness transcript rather than written as it streamed. Omit on the
+   * live path — the columns stay null, which is what "arrived normally" means.
+   */
+  recoveredFromConversationId?: string;
+  /** The instant the recovered reply was originally sent. */
+  originallySentAt?: Date;
 }
 
 /**
@@ -355,19 +392,23 @@ export async function appendEntityThreadTurn(
   input: AppendEntityThreadTurnInput
 ): Promise<EntityThreadTurn> {
   const result = await db.execute(sql`
-    INSERT INTO entity_thread_turns (id, local_id, seq, role, content)
+    INSERT INTO entity_thread_turns
+      (id, local_id, seq, role, content, recovered_from_conversation_id, originally_sent_at)
     SELECT
       ${input.localId} || '#' || next_seq.value,
       ${input.localId},
       next_seq.value,
       ${input.role},
-      ${input.content}
+      ${input.content},
+      ${input.recoveredFromConversationId ?? null},
+      ${input.originallySentAt?.toISOString() ?? null}
     FROM (
       SELECT COALESCE(MAX(seq), 0) + 1 AS value
       FROM entity_thread_turns
       WHERE local_id = ${input.localId}
     ) AS next_seq
-    RETURNING id, local_id, seq, role, content, created_at
+    RETURNING id, local_id, seq, role, content, created_at,
+      recovered_from_conversation_id, originally_sent_at
   `);
 
   const rows = Array.from(result as Iterable<RawEntityThreadTurnRow>);
@@ -398,7 +439,8 @@ export async function listEntityThreadTurns(
   localId: string
 ): Promise<EntityThreadTurn[]> {
   const result = await db.execute(sql`
-    SELECT id, local_id, seq, role, content, created_at
+    SELECT id, local_id, seq, role, content, created_at,
+      recovered_from_conversation_id, originally_sent_at
     FROM entity_thread_turns
     WHERE local_id = ${localId}
     ORDER BY seq ASC

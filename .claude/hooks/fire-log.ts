@@ -48,7 +48,11 @@ export type FireLogDecision = "allow" | "warn" | "deny";
 
 /**
  * RFC Part 1 override classification, computed against
- * {@link KNOWN_OVERRIDE_ENV_VARS} (mirroring `HOOK_ONLY_ENV_VARS`):
+ * {@link KNOWN_OVERRIDE_ENV_VARS} — the hooks-tree copy of
+ * `OPERATOR_OVERRIDE_ENV_VARS`, held equal to it in both directions by
+ * `known-override-env-vars.test.ts` (mt#3882). It is NOT a copy of the full
+ * `HOOK_ONLY_ENV_VARS` registry, which also holds credentials, server config
+ * and test fixtures that no operator ever authorized:
  *
  * - `authorized_exception` — the override env-var IS a documented,
  *   registered legitimate-use escape-hatch (present in the oracle).
@@ -117,9 +121,26 @@ export interface FireLogEntry {
    * join treats them as no evidence at all (dormant) rather than as a false
    * all-clear.
    */
-  guardOutcome?: "decided" | "crashed";
+  guardOutcome?: "decided" | "crashed" | "deadline-skipped";
   /** Milliseconds spent evaluating this guard (per-fire cost, not cumulative). */
   durationMs: number;
+  /**
+   * mt#3757 — the guard OVERRAN its declared `timeoutMs` but finished inside
+   * the accumulated slack, so it was NOT skipped. Carries the declared budget
+   * it crossed, in ms; `durationMs` beside it is what it actually cost.
+   *
+   * Deliberately a SEPARATE field rather than a `guardOutcome` value, and the
+   * distinction is load-bearing: a guard that overran its soft budget still
+   * DECIDED. Folding it into `guardOutcome` would drop it out of guard-health's
+   * clean-run join (which counts `"decided"` only), so a guard that worked
+   * correctly — merely slowly — would read as having produced no clean run.
+   * The overrun is an additive fact about COST, not a different outcome.
+   *
+   * `"deadline-skipped"` above is the opposite case and IS a new outcome: that
+   * guard produced no verdict at all, so it is correctly excluded from the
+   * clean-run join by the existing `=== "decided"` filter.
+   */
+  budgetExceededMs?: number;
   /** The env-var name that produced the override, when the outcome was overridden. */
   overrideEnvVar?: string;
   overrideClassification?: OverrideClassification;
@@ -246,8 +267,10 @@ export interface RecordFireLogInput {
   event: string;
   decision: FireLogDecision;
   /** mt#3892 — see {@link FireLogEntry.guardOutcome}. */
-  guardOutcome?: "decided" | "crashed";
+  guardOutcome?: "decided" | "crashed" | "deadline-skipped";
   durationMs: number;
+  /** mt#3757 — see {@link FireLogEntry.budgetExceededMs}. */
+  budgetExceededMs?: number;
   overrideEnvVar?: string;
   overrideClassification?: OverrideClassification;
   /** mt#2597 R1 fix — see {@link FireLogEntry.overrideSource}. */
@@ -288,6 +311,7 @@ export function recordFireLogEntry(
       decision: input.decision,
       ...(input.guardOutcome !== undefined ? { guardOutcome: input.guardOutcome } : {}),
       durationMs: input.durationMs,
+      ...(input.budgetExceededMs !== undefined ? { budgetExceededMs: input.budgetExceededMs } : {}),
       ...(input.overrideEnvVar !== undefined ? { overrideEnvVar: input.overrideEnvVar } : {}),
       ...(input.overrideClassification !== undefined
         ? { overrideClassification: input.overrideClassification }
@@ -343,8 +367,16 @@ function isValidEntry(item: unknown): item is FireLogEntry {
     // every other reader.
     (r.guardOutcome === undefined ||
       r.guardOutcome === "decided" ||
-      r.guardOutcome === "crashed") &&
-    typeof r.durationMs === "number"
+      r.guardOutcome === "crashed" ||
+      // mt#3757 — a guard skipped at its hard deadline. Produced no verdict, so
+      // it is neither decided nor crashed; the recovery join's `=== "decided"`
+      // filter already excludes it, and validating it here keeps the parsed
+      // type honest for every other reader, per the paragraph above.
+      r.guardOutcome === "deadline-skipped") &&
+    typeof r.durationMs === "number" &&
+    // mt#3757 — OPTIONAL, but a present value must be a number. Absence means
+    // the guard stayed inside its declared budget, which is the common case.
+    (r.budgetExceededMs === undefined || typeof r.budgetExceededMs === "number")
   );
 }
 

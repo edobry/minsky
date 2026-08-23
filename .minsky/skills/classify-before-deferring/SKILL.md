@@ -78,8 +78,19 @@ Examples:
 - "Does library `<Y>` still exist?" → `npm view Y` or fetch its repo.
 - "Is file `<Z>` still in the codebase?" → `Glob` / `Read`.
 - "What version of dep `<W>` are we on?" → read `package.json`.
+- **"The principal already decided / deferred `<X>`"** → **re-read what the principal actually
+  wrote.** The transcript is the lookup (mt#3855).
 
 **Action: DO THE LOOKUP.** Don't ask. Present findings, continue.
+
+**That last one does not look like the others, which is why it is listed.** Every other example
+resolves against a tool — `npm view`, `Glob`, `package.json` — so a claim about what the principal
+said reads as outside all three classes and gets treated as self-evident. It is not: it is a claim
+about a text you can re-read, and the failure mode is quoting something real that does not say what
+you are about to attribute to it. R8 (2026-08-16) quoted a genuine _"Hold on, help me understand…"_
+and cited it as an explicit pause on implementation; the principal's next message was _"Why didn't
+you keep going?"_ The lookup is: find the words, and check that they name the thing you are
+claiming. See `key-workflows.mdc §Skill-chain semantics` for the halt-path form of this test.
 
 ### Class B — Default Already Clear
 
@@ -98,14 +109,42 @@ Examples:
 
 No rule covers it; no lookup resolves it; the choice has real principal-level stakes.
 
-Examples (per `humility.mdc §Decisions Eugene reserves`):
+**"Real principal-level stakes" is a citation, not a judgment (mt#4141).** Class C is not the
+residue left over when A and B fail to fire — it has its own positive entry test, the same one
+`/plan-task` Step 4 applies at a chain hand-off. NAME which reserved category the decision falls
+under, from `principal-context.mdc §Decisions Eugene reserves`. The closed list:
 
-- Naming (product names, customer-facing terms, domain naming that sets precedent).
+- Naming (product names, customer-facing terms, domain naming that sets precedent, agent
+  self-presentation to external parties).
 - Architectural moves that affect customer experience or product surface.
 - Authorization for shared / production state changes.
 - Scope changes to in-flight work.
 - Vendor commitments (signup actions, paid plan upgrades).
 - Framework choices when stakes are principal-level.
+- Preferences that set a durable default — the default model, a standing tool or format choice,
+  anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and say what
+  you picked.
+
+**If you cannot name one, it is not Class C.** Re-run A and B; failing those, it is a decision that
+is simply yours — make it and say what you decided. Do not reach for "it has real stakes" as the
+justification: a stakes assessment is exactly what an agent can produce for anything, which is why
+the test is a citation against the closed list instead. This list is a COPY; the canonical source is
+`principal-context.mdc §Decisions Eugene reserves`, and `tests/domain/plan-task-halt-citation.test.ts`
+fails if the two diverge.
+
+**A heads-up is not a deferral.** Telling the principal a consequence — "restarting the server will
+drop the repro", "this will invalidate the cache" — stops no work and hands over no decision, and
+needs no classification at all. It becomes a Class C candidate only when a decision clause is
+attached to it ("…so that's your call"), at which point the citation test above applies to that
+decision. Watch for a courtesy caveat that acquires a decision clause: the informational half can be
+correct while the halt it grew is confabulated (mem#367 R7, 2026-08-14).
+
+**Orthogonal to both shipped deferral detectors, and narrowing neither (mt#4146):**
+`ask-routing-deferral` (LIVE) matches a DECISION handed to the principal in chat prose and
+`operator-deferral` (calibration-first, log-only) matches an ACTION handed over without a capability
+probe, so a pure heads-up is outside both and the paragraph above adds no phrase to either matcher
+and exempts none from it — which means a fire from either one is the signal that you DID hand over a
+decision or an action, never a false positive this paragraph excuses.
 
 **Action: ASK, with proper escalation packaging.** Walk the five-item checklist from `humility.mdc §Escalation packaging`:
 
@@ -209,7 +248,7 @@ Both are instances of the parent anti-pattern **performative language as substit
 - CLAUDE.md `User Preferences §Take direct action without asking` — the parent rule for asking-shape triggers
 - CLAUDE.md `Work Completion §Never notice an issue without acting on it` — the parent rule for R3 / recommending-shape triggers
 - CLAUDE.md `User Preferences §Professional communication` — sibling rule banning the credit direction ("You're absolutely right")
-- `humility.mdc §Decisions Eugene reserves` — defines the legitimate Class C principal-stakes cases
+- `principal-context.mdc §Decisions Eugene reserves` — the canonical closed list Class C cites. (Until mt#4141 both this pointer and Class C's aimed at a same-named section of `humility.mdc`, which does not exist. A citation that resolves to nothing cannot be checked against, which is how the Class C copy drifted to six categories against the canonical seven without anything noticing.)
 - `humility.mdc §Escalation packaging` — the five-item checklist for Class C asks
 - `/retrospective` — sibling skill for the contrition direction (mt#1895 amends its auto-trigger)
 - `/restate-plan` — sibling pre-output-discipline skill (covers the multi-step-direction-compression family, distinct trigger surface)

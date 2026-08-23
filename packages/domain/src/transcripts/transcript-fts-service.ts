@@ -60,6 +60,16 @@ export interface TranscriptFtsSearchOptions {
   limit?: number;
   /** Filter by turn role: 'user' turns have non-null userText; 'assistant' turns have non-null assistantText. */
   role?: "user" | "assistant";
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — e.g. `"human"` for
+   * operator speech only.
+   *
+   * `role: "user"` is NOT this filter and never was: it tests `user_text IS NOT
+   * NULL`, which 8,245 harness-written rows also satisfy (43.5% of the
+   * `user_text` population, measured against prod 2026-08-19). Searching for
+   * something the operator said needs `originKind: "human"` as well.
+   */
+  originKind?: string;
   /** Filter turns by the turn's own start time range (agent_transcript_turns.started_at). */
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
@@ -164,6 +174,11 @@ export class TranscriptFtsService {
       conditions.push(sql`${agentTranscriptTurnsTable.assistantText} IS NOT NULL`);
     }
 
+    // mt#4289: a separate axis from `role` — see TranscriptFtsSearchOptions.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
+    }
+
     if (opts.sessionId) {
       conditions.push(eq(agentTranscriptTurnsTable.agentSessionId, opts.sessionId));
     }
@@ -198,6 +213,7 @@ export class TranscriptFtsService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -231,6 +247,7 @@ export class TranscriptFtsService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
@@ -312,6 +329,7 @@ export class TranscriptFtsService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -336,6 +354,7 @@ export class TranscriptFtsService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,

@@ -83,11 +83,44 @@ const serviceParam = {
   required: false,
 } as const;
 
+/**
+ * Parameters for the blocking deployment waits.
+ *
+ * ## `timeoutSeconds` is not reliably reachable over MCP (mt#4455)
+ *
+ * This command emits **no progress notifications**. `context.onProgress?.()`
+ * (mt#2677) exists so a long-running command produces transport activity
+ * instead of silence; the emitters are the PR-polling commands
+ * (`session.pr.checks`, `session.pr.wait-for-review`, and `session.pr.drive`
+ * through its delegation to the latter) plus `session.migrate`. This command is
+ * not among them, so a wait here is silent for its whole duration and the
+ * connection looks IDLE to the transport underneath.
+ *
+ * Measured 2026-08-22: a `deployment.wait-for-latest` call with
+ * `timeoutSeconds: 600` failed at **~225 s** with
+ * `minsky mcp shim: daemon request failed: The operation timed out` — the
+ * runtime's idle bound, not the budget requested here. Raising `timeoutSeconds`
+ * past that does not help; the request dies before the budget is spent.
+ *
+ * **This is NOT the shim's `REQUEST_TIMEOUT_MS`** (`src/mcp/shim/client.ts`),
+ * which is an ABSOLUTE bound sized above the largest declared tool wait. That
+ * one is fixed; this is the separate idle-timeout half, and the fix for it is
+ * either emitting progress from this command or making the transport bound
+ * idle-based — see **mt#1576** Occurrence 8 for the mechanism and **mt#4455**
+ * for the transport-side decision.
+ *
+ * Practical consequence for callers: over MCP, treat a budget beyond ~3 minutes
+ * as aspirational. `deployment_status` (non-blocking) plus a caller-side poll is
+ * the reliable shape for a long deploy. The CLI path has no such ceiling.
+ */
 const deploymentWaitParams = {
   service: serviceParam,
   timeoutSeconds: {
     schema: z.number().int().positive().optional(),
-    description: "Maximum time to block before timing out. Default: 600 (10 minutes).",
+    description:
+      "Maximum time to block before timing out. Default: 600 (10 minutes). " +
+      "NOTE (mt#4455): over MCP this command emits no progress, so the transport's " +
+      "idle timeout (~225s measured) can end the call before this budget elapses.",
     required: false,
     defaultValue: 600,
   },

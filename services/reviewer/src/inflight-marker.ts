@@ -3,14 +3,32 @@
  *
  * The marker is a row in reviewer_inflight_reviews. A caller acquires the marker
  * by inserting a row with a unique (owner, repo, pr_number, head_sha) key.
- * INSERT ... ON CONFLICT DO NOTHING RETURNING id is the concurrency primitive:
- *   - Non-empty RETURNING → caller acquired the marker (it is now the owner).
- *   - Empty RETURNING → another caller already holds it.
+ * INSERT ... ON CONFLICT DO UPDATE ... WHERE expires_at < now() RETURNING id is
+ * the concurrency primitive:
+ *   - Non-empty RETURNING → caller acquired the marker (it is now the owner),
+ *     either by inserting a fresh row or by taking over an EXPIRED one.
+ *   - Empty RETURNING → another caller holds a LIVE marker.
  *
  * On runReview exit (success or error), the owner calls releaseMarker to DELETE
  * the row. The sweeper prunes stale markers (expires_at < now()) at the top of
  * each cycle as a defense-in-depth safety net for crashed runReview calls that
  * never released their marker.
+ *
+ * ## Two enforcement points for expiry, not one (mt#4267)
+ *
+ * The conditional takeover above and pruneStaleMarkers are BOTH expiry
+ * enforcement, at different moments, and both are load-bearing:
+ *
+ *   - acquire-time (this module's ON CONFLICT ... WHERE) makes a stale marker
+ *     recoverable by the NEXT caller, whichever entry point that is.
+ *   - sweep-time (pruneStaleMarkers) reclaims rows for PRs nobody retriggers,
+ *     so the table does not accumulate orphans indefinitely.
+ *
+ * Neither subsumes the other: the sweeper only reaches PRs its own cycle
+ * selects, and acquire-time only reaches PRs someone asks about. Removing the
+ * prune would leak rows; removing the takeover reintroduces mt#4267, where a
+ * marker orphaned by a killed process blocked every direct retrigger for up to
+ * a full sweeper cadence.
  *
  * ## TTL rationale
  *
@@ -113,10 +131,11 @@ export interface AcquireMarkerInput {
 /**
  * Attempt to acquire the inflight marker for a (owner, repo, prNumber, headSha) tuple.
  *
- * Uses INSERT ... ON CONFLICT (owner, repo, pr_number, head_sha) DO NOTHING RETURNING id
- * as the concurrency primitive:
+ * Uses INSERT ... ON CONFLICT (owner, repo, pr_number, head_sha) DO UPDATE ...
+ * WHERE expires_at < now() RETURNING id as the concurrency primitive:
  *   - Non-empty result → this caller acquired the marker; returns { acquired: true, id }.
- *   - Empty result → another caller holds it; returns { acquired: false, heldBy }.
+ *     Covers both a fresh insert and the takeover of an EXPIRED row (mt#4267).
+ *   - Empty result → another caller holds a LIVE marker; returns { acquired: false, heldBy }.
  *
  * Callers MUST wrap this in try/catch and proceed without the marker on DB errors
  * (fail-open contract per SC #6).
@@ -128,16 +147,41 @@ export async function acquireMarker(
   const { owner, repo, prNumber, headSha, acquiredBy, deliveryId } = input;
   const ttlMs = input.ttlMs ?? resolveInflightTtlMs();
 
-  // Use INSERT ... ON CONFLICT DO NOTHING RETURNING id.
-  // Drizzle doesn't expose ON CONFLICT DO NOTHING with RETURNING via typed helpers,
-  // so we use raw SQL for this single statement.
+  // INSERT ... ON CONFLICT DO UPDATE ... WHERE expires_at < now() RETURNING id.
+  // Drizzle doesn't expose ON CONFLICT with RETURNING via typed helpers, so this
+  // is raw SQL.
+  //
+  // mt#4267: the conflict action is a CONDITIONAL takeover rather than DO NOTHING.
+  // A LIVE row fails the WHERE, so Postgres updates nothing and RETURNING is empty
+  // — byte-identical behaviour to the old DO NOTHING, which is what keeps mt#1907's
+  // AT-4/AT-5 (two live acquirers, exactly one wins) true by construction. An
+  // EXPIRED row is taken over in the SAME statement, which is the whole point: a
+  // prune-then-insert pair would reopen the very race this marker exists to close.
+  //
+  // Without this, expiry was enforced in exactly one place — pruneStaleMarkers, run
+  // by the sweeper at the top of its cycle. That was sufficient when the sweeper and
+  // the webhook were the only two entry points, and stopped being sufficient when
+  // POST /retrigger (mt#2127/mt#2346) was added: it reaches runReview directly and
+  // never prunes, so a marker orphaned by a killed process refused every retrigger
+  // until the sweeper's next cycle happened to sweep it (SWEEPER_INTERVAL_MS, 10 min
+  // by default). Observed 2026-08-18: a redeploy killed a review in flight and a
+  // retrigger 16 minutes later — 11 minutes past the 5-minute TTL — was still
+  // refused with `concurrent_inflight`.
+  //
+  // RETURNING gives the EXISTING row's id on a takeover (DO UPDATE updates in place),
+  // so the new owner releases the same row it took over.
   const rows = await db.execute<{ id: string }>(
     sql`INSERT INTO reviewer_inflight_reviews
           (owner, repo, pr_number, head_sha, acquired_by, delivery_id, acquired_at, expires_at)
         VALUES
           (${owner}, ${repo}, ${prNumber}, ${headSha}, ${acquiredBy}, ${deliveryId},
            now(), now() + ${ttlMs} * interval '1 millisecond')
-        ON CONFLICT (owner, repo, pr_number, head_sha) DO NOTHING
+        ON CONFLICT (owner, repo, pr_number, head_sha) DO UPDATE
+          SET acquired_by = EXCLUDED.acquired_by,
+              delivery_id = EXCLUDED.delivery_id,
+              acquired_at = EXCLUDED.acquired_at,
+              expires_at  = EXCLUDED.expires_at
+          WHERE reviewer_inflight_reviews.expires_at < now()
         RETURNING id`
   );
 
@@ -146,7 +190,15 @@ export async function acquireMarker(
     return { acquired: true, id: firstRow.id };
   }
 
-  // ON CONFLICT fired — another caller holds the marker. Fetch heldBy for the log.
+  // The conflict action matched nothing — a LIVE marker holds the key. Fetch
+  // heldBy for the log.
+  //
+  // The `gt(expiresAt, now)` filter below is deliberate and, since mt#4267, says
+  // what it means: a null heldBy is now a genuine race (the row expired between
+  // the upsert and this select), not the routine stale-row case. Before the
+  // conditional takeover it was the routine case — a refusal against an expired
+  // row logged `acquired_by: null`, a marker held by nobody, which is the tell
+  // that distinguishes the mt#4267 defect from an ordinary concurrent review.
   let heldBy: string | null = null;
   try {
     const existing = await db

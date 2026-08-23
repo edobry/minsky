@@ -521,6 +521,77 @@ export interface SessionContextSnapshot {
     agentKind?: string;
   };
 
+  /**
+   * Set ONLY when the request asked for a window (mt#4263).
+   *
+   * Its absence is what tells a consumer it is holding the whole conversation,
+   * so the unwindowed response stays byte-identical to what shipped before —
+   * `ContextBlockView`, `ConversationOverviewPanel` and
+   * `PublishConversationDialog` all read every block and must keep doing so.
+   */
+  window?: SessionContextSnapshotWindow;
+
+  /**
+   * Every `tool_use` id in the conversation mapped to its tool name, over the
+   * FULL transcript — set only on a windowed response (mt#4263).
+   *
+   * The renderer pairs a tool-result with its call so the result can name what
+   * it answers, and it builds that map over ALL turns precisely because a
+   * result inside the window routinely answers a call outside it
+   * (`conversation-thread-model.ts`, `conversation-turn-assembly.ts`). A
+   * windowed client no longer holds the turns to derive it from, so the server
+   * sends the map — ids and names only, which is kilobytes against the
+   * megabytes the window is there to avoid. An unwindowed response omits it
+   * because that client can still derive it, and omitting keeps SC1's
+   * byte-for-byte guarantee.
+   */
+  toolNamesByUseId?: Record<string, string>;
+
   /** When this snapshot was assembled (ISO-8601 UTC). */
   assembledAt: string;
+}
+
+/**
+ * Where a windowed snapshot sits within its conversation (mt#4263).
+ *
+ * `oldestTurnIndex` is an ORIGINAL transcript-array index, not a position
+ * within the window — block ids embed that index and `SemanticEvent.turnIndex`
+ * is index-identical with it, so re-basing would renumber both. Pass it back as
+ * the next request's `before` to page further into the past.
+ */
+export interface SessionContextSnapshotWindow {
+  /** Renderable turn lines in the whole conversation. */
+  totalTurns: number;
+  /** Renderable turn lines actually returned. */
+  returnedTurns: number;
+  /**
+   * Original transcript-array index of the oldest turn RENDERED in this window,
+   * or `null` when the window produced no renderable blocks.
+   *
+   * Descriptive only — do NOT page with it. It answers "what is the oldest turn
+   * on screen", which is a different question from "where does the next request
+   * start", and the two diverge exactly when a slice contains only
+   * non-renderable entries. Use {@link nextBefore}.
+   */
+  oldestTurnIndex: number | null;
+  /**
+   * The exclusive cursor for the next (older) page — pass it back as `before`.
+   * `null` when this window already reached index 0.
+   *
+   * Separate from `oldestTurnIndex` because it is derived from the SLICE the
+   * server read, not from what that slice happened to render. A slice whose
+   * every entry is non-renderable renders nothing and still consumed those raw
+   * indices, so paging must continue below them; keying the cursor on the
+   * oldest rendered turn instead made `hasMore: true` reachable with no cursor
+   * to act on, which dead-ends paging and — because the client derives its
+   * "N earlier turns not loaded" count from the same field — silently renders
+   * "Beginning of conversation" over unfetched history (PR #3148 R1).
+   */
+  nextBefore: number | null;
+  /**
+   * Whether any turn exists before this window. Equivalent to
+   * `nextBefore !== null`; kept as its own field because it is what the render
+   * path branches on.
+   */
+  hasMore: boolean;
 }

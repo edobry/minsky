@@ -153,16 +153,89 @@ function lookupByKind(
   }
 }
 
+/**
+ * Why a ref did or did not resolve.
+ *
+ * `found: false` alone answers TWO questions at once — did the lookup COMPLETE,
+ * and did it MATCH — and a caller reading it as "does not exist" is wrong in
+ * exactly the case where being wrong costs most: the backend was unreachable, so
+ * the ref's existence is UNKNOWN and retrying may change the answer. The two
+ * failure cases that carry an `error` were likewise indistinguishable without
+ * reading its prose, though they are opposites: one is transient and says
+ * nothing about the ref, the other is a permanent caller mistake.
+ *
+ * ADR-035 states the obligation this discharges. Rule 5's third item is
+ * data-plane honesty — "does the tool a caller actually invokes tell the truth?
+ * … a read that answers 'not found' for a row that exists invites the caller to
+ * act on it". Rule 3 requires the discriminator; rule 4 supplies the word
+ * `unavailable`, reused verbatim here rather than coined.
+ */
+export type RefOutcome =
+  /** The lookup completed and matched. */
+  | "found"
+  /** The lookup completed and did not match — the ref genuinely does not exist. */
+  | "absent"
+  /** The lookup did NOT complete. Existence is unknown; retrying may change the answer. */
+  | "unavailable"
+  /** The token never classified as a ref. Permanent — retrying never helps. */
+  | "unparseable";
+
 export interface RefStatusResult {
   ref: string;
   kind: RefKind;
   id: string;
+  /**
+   * `outcome === "found"`. Kept as its own field because existing callers read
+   * it; `outcome` is what tells the three non-found cases apart.
+   */
   found: boolean;
+  outcome: RefOutcome;
   status?: string;
   title?: string;
   /** Full canonical UUID for found ask/memory/workspace rows (see ResolvedRef.uuid); absent otherwise. */
   uuid?: string;
   error?: string;
+}
+
+/**
+ * The message a caller gets when a lookup did not complete.
+ *
+ * The driver's own message is deliberately NOT forwarded. A Drizzle failure
+ * renders as `Failed query: select "id", "short_id" … from "asks" … \nparams:
+ * ask#8520,1` — schema detail on an agent-facing surface, and it reads as a
+ * crash rather than an unfinished lookup. Sanitizing that by pattern would fail
+ * OPEN, since a filter matching nothing forwards its input unchanged, so the raw
+ * cause is LOGGED and a fixed sentence is returned.
+ */
+function unavailableMessage(ref: string, kind: RefKind, cause: unknown): string {
+  log.error("refs.status: ref lookup did not complete", {
+    ref,
+    kind,
+    error: getErrorMessage(cause),
+  });
+  return `the ${kind} lookup did not complete — this ref's existence is unknown, not disproven`;
+}
+
+/**
+ * The rendered label for one ref. Pure, and exported so the rendering can be
+ * asserted without driving the command — the discriminator is only worth having
+ * if a reader of the CLI output sees it, not only a reader of the JSON.
+ */
+export function renderOutcomeLabel(result: RefStatusResult): string {
+  switch (result.outcome) {
+    case "found":
+      // `status` is optional on ResolvedRef, so a resolver may legitimately
+      // report a hit without one — interpolating it raw printed the literal
+      // string "undefined" in the status column (PR #3041 R1). Carried over
+      // from the pre-extraction expression; fixed here rather than moved.
+      return `${result.status ?? "FOUND"}${result.title ? `  ${result.title}` : ""}`;
+    case "absent":
+      return "NOT FOUND";
+    case "unavailable":
+      return `UNKNOWN${result.error ? ` (${result.error})` : ""}`;
+    case "unparseable":
+      return `BAD REF${result.error ? ` (${result.error})` : ""}`;
+  }
 }
 
 /**
@@ -188,6 +261,7 @@ async function resolveUuidRef(
           ...base,
           kind,
           found: true,
+          outcome: "found",
           status: resolved.status,
           title: resolved.title,
           // For a bare-uuid ref the classified id already IS the uuid, so a
@@ -202,16 +276,23 @@ async function resolveUuidRef(
   // Kind stays "uuid": the ref parsed fine, it just belongs to no uuid-keyed
   // store we know of. Reporting it as an absent ASK is the mt#3354 defect.
   if (failures.length > 0) {
-    // The common total-failure case is one cause (the DB is down) hit three
-    // times, which would otherwise print the same sentence three times on one
-    // CLI line. Collapse when every store failed identically; keep the per-store
-    // breakdown only when the causes genuinely differ.
-    const distinct = [...new Set(failures.map((f) => f.cause))];
-    const detail =
-      distinct.length === 1 ? distinct[0] : failures.map((f) => `${f.kind}: ${f.cause}`).join("; ");
-    return { ...base, found: false, error: `uuid lookup failed — ${detail}` };
+    // Every failing store's raw cause is logged (one line each, so a
+    // partially-degraded pool stays diagnosable); the returned message names
+    // none of them, per `unavailableMessage`.
+    for (const failure of failures) {
+      unavailableMessage(base.ref, failure.kind, failure.cause);
+    }
+    return {
+      ...base,
+      found: false,
+      outcome: "unavailable",
+      error:
+        "the uuid lookup did not complete against " +
+        `${failures.length} of ${UUID_KEYED_KINDS.length} stores — ` +
+        "this ref's existence is unknown, not disproven",
+    };
   }
-  return { ...base, found: false };
+  return { ...base, found: false, outcome: "absent" };
 }
 
 /**
@@ -232,6 +313,7 @@ export async function resolveRefs(
         return {
           ...base,
           found: false,
+          outcome: "unparseable",
           error:
             "unrecognized ref format (expected a task id like mt#123, a PR number, " +
             "a short id like ask#12 / mem#34 / ws#5, or a uuid)",
@@ -240,10 +322,11 @@ export async function resolveRefs(
       try {
         if (classified.kind === "uuid") return await resolveUuidRef(base, resolvers);
         const resolved = await lookupByKind(classified.kind, classified.id, resolvers);
-        if (!resolved.found) return { ...base, found: false };
+        if (!resolved.found) return { ...base, found: false, outcome: "absent" };
         return {
           ...base,
           found: true,
+          outcome: "found",
           status: resolved.status,
           title: resolved.title,
           // Spread rather than assign so task/changeset rows (whose resolvers
@@ -251,7 +334,12 @@ export async function resolveRefs(
           ...(resolved.uuid ? { uuid: resolved.uuid } : {}),
         };
       } catch (error) {
-        return { ...base, found: false, error: getErrorMessage(error) };
+        return {
+          ...base,
+          found: false,
+          outcome: "unavailable",
+          error: unavailableMessage(base.ref, classified.kind, error),
+        };
       }
     })
   );
@@ -396,7 +484,10 @@ export function registerRefsCommands(container?: AppContainerInterface): void {
     name: "status",
     description:
       "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids " +
-      "or uuids) to their current status in one call, with not-found explicit per ref",
+      "or uuids) to their current status in one call. Each ref carries an `outcome`: found, " +
+      "absent (it does not exist), unavailable (the lookup did not complete — existence is " +
+      "UNKNOWN, retry), or unparseable (bad ref format — retrying never helps). Read `outcome`, " +
+      "not `found`, before concluding a ref does not exist",
     category: CommandCategory.REFS,
     parameters: refsStatusParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
@@ -415,9 +506,10 @@ export function registerRefsCommands(container?: AppContainerInterface): void {
       const rendersOwnReport = !params.json && ctx?.format !== "json";
       if (rendersOwnReport) {
         for (const result of results) {
-          const label = result.found
-            ? `${result.status}${result.title ? `  ${result.title}` : ""}`
-            : `NOT FOUND${result.error ? ` (${result.error})` : ""}`;
+          // Each outcome gets its own word. "NOT FOUND" for an unreachable
+          // backend is the defect this rendering exists to remove: it states a
+          // fact about the ref that the failed lookup never established.
+          const label = renderOutcomeLabel(result);
           log.cli(`${result.ref}  [${result.kind}]  ${label}`);
         }
       }

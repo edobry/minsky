@@ -50,8 +50,38 @@ class FakeEmbeddingService {
 
 type FakeSelectResult = Record<string, unknown>;
 
+/**
+ * WHERE conditions the fake was handed, most recent first (mt#4289).
+ *
+ * The fake ignores conditions when choosing rows, so an applied filter and a
+ * dropped one return the identical canned set — recording the argument is the
+ * only way a test can tell them apart. See the FTS suite's `whereTreeFiltersOn`
+ * for why a naive column-name walk cannot: every `Column` back-references its
+ * `Table`, which holds every column of the table.
+ */
+let capturedWhereConditions: unknown[] = [];
+
+const SKIP_KEYS = new Set(["table"]);
+
+function whereTreeFiltersOn(trees: unknown[], columnName: string): boolean {
+  const seen = new WeakSet<object>();
+  const walk = (node: unknown, depth: number): boolean => {
+    if (depth > 14 || node === null || typeof node !== "object") return false;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    if ((node as { name?: unknown }).name === columnName) return true;
+    for (const [key, value] of Object.entries(node)) {
+      if (SKIP_KEYS.has(key)) continue;
+      if (walk(value, depth + 1)) return true;
+    }
+    return false;
+  };
+  return trees.some((tree) => walk(tree, 0));
+}
+
 function makeFakeDb(rows: FakeSelectResult[], countRows: FakeSelectResult[] = []) {
   let callCount = 0;
+  capturedWhereConditions = [];
 
   const limitFn = (n: number) => {
     // The first call is the main query; subsequent calls are getMessageCounts.
@@ -64,7 +94,10 @@ function makeFakeDb(rows: FakeSelectResult[], countRows: FakeSelectResult[] = []
 
   const orderByFn = (_expr: unknown) => ({ limit: limitFn });
 
-  const whereFn = (_condition: unknown) => ({ orderBy: orderByFn, limit: limitFn });
+  const whereFn = (condition: unknown) => {
+    capturedWhereConditions.unshift(condition);
+    return { orderBy: orderByFn, limit: limitFn };
+  };
 
   const innerJoinFn = (_table: unknown, _on: unknown) => ({
     where: whereFn,
@@ -352,5 +385,41 @@ describe("buildResumeHint (mt#3440)", () => {
     expect(buildResumeHint("abc-123", "/Users/dev/it's/minsky")).toBe(
       `cd '/Users/dev/it'\\''s/minsky' && claude --resume abc-123`
     );
+  });
+});
+
+// ── originKind filter parity with the FTS surface (mt#4289) ──────────────────
+
+describe("TranscriptSimilarityService — originKind (mt#4289)", () => {
+  test("search() carries userOrigin through to the result", async () => {
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow({ userOrigin: "compact_summary" })]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    const results = await svc.search("anything");
+
+    expect(results[0]?.userOrigin).toBe("compact_summary");
+  });
+
+  test("search() filters on user_origin when originKind is given, and not otherwise", async () => {
+    // PR #3182 R1 (BLOCKING): the field shipped on this surface but the FILTER
+    // did not, so `originKind` worked on FTS and silently did nothing here —
+    // two search surfaces answering the same question differently.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+    await svc.search("anything", { role: "user" });
+    expect(whereTreeFiltersOn(capturedWhereConditions, "user_origin")).toBe(false);
+    // Positive control for the probe: `role: "user"` DOES filter on user_text.
+    expect(whereTreeFiltersOn(capturedWhereConditions, "user_text")).toBe(true);
+
+    const svc2 = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+    await svc2.search("anything", { role: "user", originKind: "human" });
+    expect(whereTreeFiltersOn(capturedWhereConditions, "user_origin")).toBe(true);
   });
 });

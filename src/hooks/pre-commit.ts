@@ -32,6 +32,11 @@ import {
   isOverrideTruthy,
   NUL_BYTE_CHECK_OVERRIDE_ENV,
 } from "./nul-byte-detector";
+import {
+  detectConflictMarkerViolations,
+  CONFLICT_MARKER_CHECK_OVERRIDE_ENV,
+} from "./conflict-marker-detector";
+import { readStagedFileContent } from "./staged-file-reader";
 import { discoverProtectedDockerfiles } from "./workspace-copy-detector";
 import {
   detectMissingJournalEntries,
@@ -342,6 +347,32 @@ export class PreCommitHook {
         return variableResult;
       }
 
+      // Step 3-sql: SQL-capability message check (mt#4398, ~1s).
+      //
+      // `scripts/check-sql-capability-messages.ts` (mt#3661) has existed since
+      // its own task shipped and was invoked by NOTHING — not CI, not a package
+      // script, not this hook. It was exiting 1 on `main` with three real
+      // cause-free sites, and nobody could have known: a check with no caller
+      // produces no signal, which is `CLAUDE.md §Invocation path required for
+      // event/poll mechanisms` ("the feature exists, its tests pass, it produces
+      // nothing"). The three sites are fixed in this same change.
+      //
+      // WHY HERE rather than CI: `check-variable-naming` — the only other
+      // static source check of this shape — runs from this hook, so this
+      // follows the existing convention rather than inventing a second one.
+      // mt#3134 is separately deciding whether checks of this class belong in
+      // CI instead; if it lands on CI, this call moves with it rather than
+      // being duplicated. mt#4400 tracks the four SIBLING check scripts that
+      // are also unwired, and should append here rather than adding a method
+      // each — this file already carries one bespoke method per check, which
+      // is the growth mt#3645 is about.
+      const sqlCapabilityResult = await this.instrumented("sql-capability-message-check", () =>
+        this.runSqlCapabilityMessageCheck()
+      );
+      if (!sqlCapabilityResult.success) {
+        return sqlCapabilityResult;
+      }
+
       // Step 3a: Node shim detection — ban node shebangs, npm run, npx in source files (~0s)
       const nodeShimResult = await this.instrumented("node-shim-check", () =>
         this.runNodeShimCheck()
@@ -361,6 +392,23 @@ export class PreCommitHook {
       );
       if (!nulByteResult.success) {
         return nulByteResult;
+      }
+
+      // Step 3b-ii: conflict-marker detection — reject any staged file carrying
+      // git's `<<<<<<<` / `=======` / `>>>>>>>` markers (mt#4307). Same class as
+      // the NUL check above ("this file was never meant to be committed in this
+      // state"), and until this task only one of the two was checked. The
+      // originating incident: a failed `git stash pop` wrote markers into four
+      // rule files plus `src/generated/interceptor-catalog.json`, and the first
+      // sign of it was twenty unrelated cockpit tests failing in the pre-push
+      // suite on `JSON Parse error: Unrecognized token '<'`.
+      const conflictMarkerResult = await this.instrumented(
+        "conflict-marker-check",
+        () => this.runConflictMarkerCheck(),
+        CONFLICT_MARKER_CHECK_OVERRIDE_ENV
+      );
+      if (!conflictMarkerResult.success) {
+        return conflictMarkerResult;
       }
 
       // Step 3c: Dockerfile workspace-COPY regeneration (mt#1984 + mt#1992
@@ -863,6 +911,51 @@ export class PreCommitHook {
   }
 
   /**
+   * Run the SQL-capability message check (mt#4398).
+   *
+   * Mirrors {@link runVariableNamingCheck} deliberately — same shape, same
+   * shell-out, same timeout — because that is the repo's only existing
+   * convention for a static source check, and mt#4398's whole subject is a
+   * check that had no convention applied to it at all.
+   *
+   * NO OVERRIDE ENV VAR, deliberately (PR #3223 R1). The overrides in this
+   * file cluster on checks that can block a committer on something they cannot
+   * fix in the moment — NUL bytes, migration collisions, immutable migrations,
+   * deploy-domain ownership, the size budget, the related-test gate. The cheap
+   * lexical checks do not have one: `variable-naming-check` (this step's direct
+   * precedent and structural twin), `node-shim-check` and `secret-scanning` all
+   * ship without. This belongs to the second group — satisfying it is a
+   * one-line annotation or routing through an existing helper — and adding an
+   * override would mean registering a new `MINSKY_*` var in two more places
+   * for an escape hatch nothing needs yet. If a real case turns up where this
+   * blocks urgent work, add it then, with that case as the reason.
+   *
+   * The failure hint matters more than usual here: the script's own output
+   * already names each offending site AND the two ways to satisfy it, so this
+   * points at that output rather than restating it. Re-running by hand is the
+   * fix loop, which is also the one thing that always worked while nothing
+   * ran it automatically.
+   */
+  private async runSqlCapabilityMessageCheck(): Promise<HookResult> {
+    log.cli("🔍 Checking SQL-capability messages carry a cause...");
+
+    try {
+      await execAsync("bun run scripts/check-sql-capability-messages.ts", {
+        cwd: this.projectRoot,
+        timeout: 30000,
+      });
+      log.cli("✅ Every SQL-capability message names its cause.");
+      return { success: true, message: "SQL-capability message check passed", exitCode: 0 };
+    } catch (error) {
+      log.cli("❌ A persistence-gated error is missing its cause.");
+      log.cli(
+        "💡 Run 'bun run scripts/check-sql-capability-messages.ts' — it names each site and the two ways to satisfy it (route through describePersistenceUnavailability(), or annotate with '// sql-capability-message: <reason>')."
+      );
+      return { success: false, message: "Cause-free SQL-capability message found", exitCode: 1 };
+    }
+  }
+
+  /**
    * Grep staged source files for Node.js shims that should be Bun idioms.
    *
    * Flags:
@@ -1210,6 +1303,129 @@ export class PreCommitHook {
       return {
         success: false,
         message: `NUL-byte check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
+   * Block a commit whose staged content carries git conflict markers (mt#4307).
+   *
+   * Reads STAGED blobs, not working-tree files: a partially-staged resolution
+   * would otherwise pass or fail on the wrong bytes, and it is the staged content
+   * that is about to become a commit.
+   *
+   * Deliberately does NOT skip `src/generated/**`. Several sibling checks do, and
+   * a generated file is exactly where the originating corruption sat unnoticed
+   * until a test twenty files away failed to parse it.
+   *
+   * Override: `MINSKY_SKIP_CONFLICT_MARKER_CHECK=1` / `true` / `yes`, audit-logged
+   * to stdout like every sibling override.
+   */
+  private async runConflictMarkerCheck(): Promise<HookResult> {
+    log.cli("Checking staged files for conflict markers...");
+
+    if (isOverrideTruthy(process.env[CONFLICT_MARKER_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:conflict-marker-check] override ${CONFLICT_MARKER_CHECK_OVERRIDE_ENV}=` +
+          `${process.env[CONFLICT_MARKER_CHECK_OVERRIDE_ENV]} at ${ts} — conflict-marker check skipped`
+      );
+      return {
+        success: true,
+        message: "Conflict-marker check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
+    }
+
+    try {
+      // `R` as well as `ACM` (PR #3201 R1). A renamed file is still staged
+      // content about to become a commit, and `ACM` alone skips it — so a file
+      // that was resolved-then-renamed, or renamed while still conflicted, would
+      // pass unchecked. `--name-only` reports a rename by its NEW path, which is
+      // exactly the path `git show :<path>` needs.
+      //
+      // Scoped to THIS check deliberately: five sibling steps in this file use
+      // `ACM` and share the gap, but widening their input is a behaviour change
+      // for each of them and belongs in its own change, not smuggled in here.
+      // Tracked at mt#4366, which carries the measurement below.
+      //
+      // The gap is real only where rename DETECTION fires. Measured in a
+      // throwaway repo: a small file renamed with a big edit is recorded
+      // `D`+`A` and `ACM` lists it anyway; a 300-line file renamed with a
+      // conflict block added is recorded `R`, and `ACM` returns EMPTY while
+      // `ACMR` returns the new path. Invisible, not mislabelled — which is why
+      // nothing downstream notices.
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACMR",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+
+      const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (stagedFiles.length === 0) {
+        log.cli("No staged files — skipping conflict-marker check.");
+        return { success: true, message: "No staged files to check", exitCode: 0 };
+      }
+
+      // `readStagedFileContent` spawns git via argv, so a path containing spaces
+      // or shell metacharacters cannot break the command. `allSettled` so one
+      // unreadable path (a gitlink, a submodule) does not sink the rest.
+      const results = await Promise.allSettled(
+        stagedFiles.map((file) => readStagedFileContent(this.projectRoot, file))
+      );
+
+      const stagedContent = new Map<string, string>();
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r === undefined || r.status !== "fulfilled") continue;
+        const file = stagedFiles[i];
+        if (file === undefined) continue;
+        stagedContent.set(file, r.value);
+      }
+
+      const violations = detectConflictMarkerViolations(stagedContent);
+
+      if (violations.length === 0) {
+        log.cli(`No conflict markers detected in ${stagedContent.size} staged file(s).`);
+        return { success: true, message: "Conflict-marker check passed", exitCode: 0 };
+      }
+
+      log.cli("");
+      log.cli("Conflict marker(s) detected in staged files. Commit blocked.");
+      log.cli("");
+      for (const v of violations) {
+        log.cli(`   ${v.path}: line(s) ${v.lines.join(", ")}`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli("   - Tracking task: mt#4307");
+      log.cli("   - A conflict marker in a committed file is the same class of defect");
+      log.cli("     as a NUL byte: the file was never meant to be committed this way.");
+      log.cli("");
+      log.cli("Most likely cause: a merge or a `git stash pop` conflicted and the");
+      log.cli("   markers were never resolved. Resolve the listed files, `git add` them,");
+      log.cli("   and commit again. If a stash pop is what conflicted, your work may");
+      log.cli("   still be parked — check `git stash list` before resetting anything.");
+      log.cli("");
+      log.cli(
+        `If a marker is legitimate content (documenting one, say), set ` +
+          `${CONFLICT_MARKER_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `Conflict markers detected in ${violations.length} file(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Conflict-marker check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Conflict-marker check failed: ${errorMsg}`,
         exitCode: 1,
       };
     }

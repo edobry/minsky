@@ -1,0 +1,482 @@
+// Stale-signal sweep — the imperative shell (mt#3959).
+//
+// Consumes ./output-label-tokens.ts and answers one question at PR-creation
+// time: this change stopped emitting an operator-facing label; which durable
+// artifacts still quote it?
+//
+// ## Why this exists
+//
+// Fixing a signal fixes it GOING FORWARD and retracts nothing. mt#3911 shipped
+// the `extracted=` label fix on 2026-08-10; the two false findings drawn from
+// the bad label were still in the corpus the next day, being planned against,
+// and were corrected only because someone happened to re-run the number for an
+// unrelated reason. The generalizable rule ("re-check what you concluded from a
+// signal you just fixed") is exactly the shape that reads as obvious and gets
+// skipped, because the fix FEELS complete once the code is right.
+//
+// The mechanizable half is narrow: at the moment the label changes, the old
+// string is known, and the corpus can be grepped for it.
+//
+// ## Why three surfaces
+//
+// A false reading lands wherever conclusions are written down. Task specs are
+// the highest-yield surface and the only one with an existing substrate
+// (`duplicate-signature-scan.ts` already greps active specs). Memories and
+// accepted ADRs are added here because the originating incident contaminated
+// both classes: mem#827 records a false premise propagating "into ADR-032's
+// References and mt#3583's Context before anyone checked it."
+//
+// ## Posture: log-only, fail-open
+//
+// Log-only because the false-positive rate is UNMEASURED and known non-zero.
+// The planning pass measured the originating token against the live corpus: of
+// six specs containing `extracted=`, one (mt#2864, `extracted=549`) is a
+// correct reading that predates the label fix by 3.5 weeks, and two are
+// meta-references discussing the incident. So a fired sweep is not
+// self-evidently a finding, and the spec's SC4 backtest is what decides any
+// blocking tier — not this module's authoring.
+//
+// Fail-open because a missed stale reading is cheaper than a blocked
+// `session_pr_create`, and because the sweep needs a live database that a
+// canary process does not have.
+
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { TERMINAL_TASK_STATUSES } from "./task-statuses";
+import { CANARY_MODE_ENV, findRepoRoot, DEFAULT_FS, execWithPath } from "./types";
+import type { ToolHookInput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import { extractChangedOutputLabels, MAX_LABELS } from "./output-label-tokens";
+import type { ChangedOutputLabel } from "./output-label-tokens";
+import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
+
+/**
+ * Overall sweep deadline.
+ *
+ * Matches `duplicate-signature-scan.ts`'s 15s for the same measured reason: a
+ * PreToolUse hook is its own short-lived process and pays full cold boot
+ * (domain bootstrap, config, persistence connect) before any query runs, which
+ * that guard's comment records at 2.7-6.9s. This sweep runs the same shape of
+ * single ILIKE pass plus a bounded filesystem read.
+ */
+export const SWEEP_TIMEOUT_MS = 15_000;
+
+/**
+ * A token matching more artifacts than this is repo vocabulary, not a subject.
+ *
+ * Ubiquity is MEASURED per query rather than predicted from a maintained
+ * stoplist, so a label that becomes common as the corpus grows stops being
+ * reported without anyone editing a list — the same discipline
+ * `duplicate-signature-scan.ts` uses, and for the same reason.
+ */
+export const MAX_ARTIFACTS_PER_LABEL = 6;
+
+/** Cap on matches rendered into the warning; overflow is always stated. */
+export const MAX_REPORTED_MATCHES = 5;
+
+/** Where an artifact quoting a stale label lives. */
+export type ArtifactKind = "task" | "memory" | "adr";
+
+/** One durable artifact still quoting a label this diff stopped emitting. */
+export interface StaleSignalMatch {
+  readonly kind: ArtifactKind;
+  /** `mt#3902`, `mem#827`, or a repo-relative ADR path. */
+  readonly ref: string;
+  readonly status: string | null;
+  readonly label: string;
+  readonly excerpt: string;
+}
+
+export interface SweepResult {
+  readonly matches: StaleSignalMatch[];
+  readonly labelsTried: ChangedOutputLabel[];
+  readonly labelsDroppedAsUbiquitous: string[];
+  readonly failed?: string;
+}
+
+/** LIKE metacharacters must be escaped or a label containing `_` over-matches. */
+export function escapeLike(token: string): string {
+  return token.replace(/([\\%_])/g, "\\$1");
+}
+
+/** The line containing the label — the evidence a reader needs to judge it. */
+export function excerptAround(content: string, token: string): string {
+  const idx = content.toLowerCase().indexOf(token.toLowerCase());
+  if (idx === -1) return "";
+  const lineStart = content.lastIndexOf("\n", idx) + 1;
+  const lineEndRaw = content.indexOf("\n", idx);
+  const lineEnd = lineEndRaw === -1 ? content.length : lineEndRaw;
+  const line = content.slice(lineStart, lineEnd).trim();
+  // The excerpt is advisory context read by an agent, never re-parsed; a split
+  // surrogate at the 197-char bound would at worst render one replacement char.
+  return line.length > 200 ? `${line.slice(0, 197)}...` : line;
+}
+
+/**
+ * The filesystem surface {@link sweepAdrDocs} needs, injected so the sweep is
+ * testable without touching a real directory (`custom/no-real-fs-in-tests`).
+ * Mirrors the `MergeDetectFs`/`DEFAULT_FS` seam in `./types`.
+ */
+export interface AdrFs {
+  readdirSync(dir: string): string[];
+  readFileSync(path: string, encoding: "utf8"): string;
+}
+
+/** The real filesystem — the production binding for {@link sweepAdrDocs}. */
+export const DEFAULT_ADR_FS: AdrFs = {
+  readdirSync: (dir) => readdirSync(dir, { encoding: "utf8" }),
+  readFileSync: (path, encoding) => readFileSync(path, encoding),
+};
+
+/**
+ * Scan the accepted-ADR corpus on disk.
+ *
+ * Deliberately filesystem-based rather than a DB query: ADRs are repo files,
+ * and reading them from the working tree means the sweep sees the same text the
+ * PR author is about to ship, including an ADR added in this very diff.
+ */
+export function sweepAdrDocs(
+  labels: ChangedOutputLabel[],
+  adrDir: string,
+  fs: AdrFs = DEFAULT_ADR_FS
+): StaleSignalMatch[] {
+  const out: StaleSignalMatch[] = [];
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(adrDir).filter((f) => f.startsWith("adr-") && f.endsWith(".md"));
+  } catch {
+    // A missing ADR directory is not a failure — it means this repo checkout has
+    // none, and the other two surfaces still carry the sweep.
+    return out;
+  }
+  for (const file of entries) {
+    let content: string;
+    try {
+      content = fs.readFileSync(join(adrDir, file), "utf8");
+    } catch {
+      continue;
+    }
+    for (const label of labels) {
+      if (content.includes(label.text)) {
+        out.push({
+          kind: "adr",
+          ref: `docs/architecture/${file}`,
+          status: null,
+          label: label.text,
+          excerpt: excerptAround(content, label.text),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** The un-raced sweep body. Never rejects — converts every failure to a value. */
+async function runSweep(labels: ChangedOutputLabel[], repoRoot: string): Promise<SweepResult> {
+  const empty: SweepResult = { matches: [], labelsTried: labels, labelsDroppedAsUbiquitous: [] };
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) return { ...empty, failed: `domain bootstrap failed: ${bootstrap.error}` };
+
+    const { resolvePersistenceProviderOrError } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) return { ...empty, failed: describeProviderResolutionFailure(resolution) };
+
+    const provider = resolution.provider;
+    if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
+      return { ...empty, failed: `provider ${provider.constructor.name} is not SQL-capable` };
+    }
+    const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+    if (!db) return { ...empty, failed: "no database connection" };
+
+    const { sql } = await import("drizzle-orm");
+    const terminal = [...TERMINAL_TASK_STATUSES];
+    // Built conditionally: `not in ()` is itself a Postgres syntax error, and
+    // the terminal set is sourced from the domain registry — a future edit
+    // emptying it must not turn every sweep into a failed query.
+    const statusClause = terminal.length > 0 ? sql`and t.status::text not in ${terminal}` : sql``;
+
+    const matches: StaleSignalMatch[] = [];
+    const dropped: string[] = [];
+
+    for (const label of labels) {
+      const pattern = `%${escapeLike(label.text)}%`;
+
+      // ACTIVE task specs. Terminal-status exclusion is what makes the
+      // originating case tractable: at mt#3911's PR time mt#3902 and mt#3883
+      // were both active and carrying the false reading, while mt#2864 — a
+      // CORRECT `extracted=549` from three weeks earlier — was already DONE.
+      const taskRows = await db.execute(sql`
+        select t.id as id, t.status::text as status, s.content as content
+        from tasks t
+        join task_specs s on s.task_id = t.id
+        where s.content like ${pattern} escape '\\'
+        ${statusClause}
+        limit ${MAX_ARTIFACTS_PER_LABEL + 1}
+      `);
+
+      const memoryRows = await db.execute(sql`
+        select m.short_id as id, m.content as content
+        from memories m
+        where m.content like ${pattern} escape '\\'
+          and m.superseded_by is null
+        limit ${MAX_ARTIFACTS_PER_LABEL + 1}
+      `);
+
+      const adrMatches = sweepAdrDocs([label], join(repoRoot, "docs", "architecture"));
+
+      const taskList = Array.isArray(taskRows) ? taskRows : [];
+      const memoryList = Array.isArray(memoryRows) ? memoryRows : [];
+      const total = taskList.length + memoryList.length + adrMatches.length;
+
+      // Ubiquity is decided on the combined count across all three surfaces —
+      // a label common in specs but rare in ADRs is still repo vocabulary.
+      if (total > MAX_ARTIFACTS_PER_LABEL) {
+        dropped.push(label.text);
+        continue;
+      }
+
+      for (const row of taskList) {
+        const r = row as Record<string, unknown>;
+        const content = typeof r["content"] === "string" ? r["content"] : "";
+        const ref = String(r["id"] ?? "unknown");
+        // NO self-match exclusion, deliberately — it was added in R1 and removed
+        // the same round. The rule sounded like a correctness rule ("a task's own
+        // spec is discussing its subject, not misreading it") and is FALSE for
+        // exactly the case this guard exists for: mt#3911's own spec carried the
+        // originating mystery, `extracted=104` read as 104 turns extracted. SC3
+        // requires that spec to be surfaced by name. A task fixing a mislabelled
+        // signal is MORE likely than average to have drawn a bad conclusion from
+        // it, so its own spec is a prime suspect rather than an exempt one.
+        matches.push({
+          kind: "task",
+          ref,
+          status: typeof r["status"] === "string" ? r["status"] : null,
+          label: label.text,
+          excerpt: excerptAround(content, label.text),
+        });
+      }
+      for (const row of memoryList) {
+        const r = row as Record<string, unknown>;
+        const content = typeof r["content"] === "string" ? r["content"] : "";
+        matches.push({
+          kind: "memory",
+          ref: String(r["id"] ?? "unknown"),
+          status: null,
+          label: label.text,
+          excerpt: excerptAround(content, label.text),
+        });
+      }
+      matches.push(...adrMatches);
+    }
+
+    return { matches, labelsTried: labels, labelsDroppedAsUbiquitous: dropped };
+  } catch (err) {
+    return {
+      ...empty,
+      failed: `sweep failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Sweep the durable corpus for labels this diff stopped emitting.
+ *
+ * Never throws and never blocks past {@link SWEEP_TIMEOUT_MS}; every failure
+ * becomes `{ failed }` so the caller records a skip rather than blocking a PR
+ * on an infrastructure problem.
+ */
+export async function sweepForStaleSignals(
+  labels: ChangedOutputLabel[],
+  repoRoot: string
+): Promise<SweepResult> {
+  const empty: SweepResult = { matches: [], labelsTried: labels, labelsDroppedAsUbiquitous: [] };
+  if (labels.length === 0) return empty;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const TIMED_OUT = Symbol("stale-signal-sweep-timeout");
+  const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), SWEEP_TIMEOUT_MS);
+  });
+  // Rejection sink: runSweep converts every failure to a value, but an
+  // after-deadline rejection would otherwise surface as an unhandled rejection.
+  const sweep = runSweep(labels, repoRoot).catch(
+    (err): SweepResult => ({
+      ...empty,
+      failed: `sweep rejected: ${err instanceof Error ? err.message : String(err)}`,
+    })
+  );
+
+  try {
+    const outcome = await Promise.race([sweep, deadline]);
+    if (outcome === TIMED_OUT) {
+      return { ...empty, failed: `sweep exceeded the ${SWEEP_TIMEOUT_MS}ms deadline` };
+    }
+    return outcome;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Shaped per `guard-feedback-authoring.mdc`: guard-id header, the quoted
+ * evidence that tripped it, an imperative directive, and the branch under which
+ * NOT acting is correct.
+ */
+export function buildSweepWarning(result: SweepResult): string {
+  const changed = [...new Set(result.labelsTried.map((l) => l.text))].join(", ");
+  const lines = [
+    `[stale-signal-sweep] This change stops emitting ${changed} — these artifacts still quote it.`,
+    "",
+  ];
+  for (const m of result.matches.slice(0, MAX_REPORTED_MATCHES)) {
+    const status = m.status ? ` (${m.status})` : "";
+    lines.push(`  - ${m.ref}${status} quotes "${m.label}"`);
+    if (m.excerpt) lines.push(`      ${m.excerpt}`);
+  }
+  const overflow = result.matches.length - MAX_REPORTED_MATCHES;
+  if (overflow > 0) {
+    lines.push(`  ... and ${overflow} more (all recorded in the calibration log)`);
+  }
+  lines.push(
+    "",
+    "Read each excerpt and decide whether the conclusion it states still holds under the",
+    "label's NEW meaning. Fixing the signal does not retract what was concluded from it.",
+    "If a reading is now wrong, retract it in that artifact; if it was reading the label",
+    "correctly, or merely discussing the incident, leave it and say so in the PR body."
+  );
+  if (result.labelsDroppedAsUbiquitous.length > 0) {
+    lines.push(
+      "",
+      `Not swept (too common to be distinctive): ${result.labelsDroppedAsUbiquitous.join(", ")}`
+    );
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher entry point (ADR-028 D1/D2)
+// ---------------------------------------------------------------------------
+
+/** Override env var: set to "1"/"true"/"yes" to skip the sweep entirely. */
+export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STALE_SIGNAL_SWEEP";
+
+function isOverridden(): boolean {
+  const v = process.env[OVERRIDE_ENV_VAR];
+  return v === "1" || v?.toLowerCase() === "true" || v?.toLowerCase() === "yes";
+}
+
+/**
+ * Pure-function entry point invoked in-process by `./dispatch-pretooluse.ts`.
+ * Returns `null` for silent allow, matching the dispatcher's contract.
+ *
+ * NEVER denies — see this module's posture note. The sweep reports; whether a
+ * quoted reading is actually stale is a judgment the author makes, and the
+ * planning measurement found correct usages and meta-references among the very
+ * matches the originating token produces.
+ */
+export async function run(
+  input: ToolHookInput,
+  _ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  if (isOverridden()) return null;
+
+  const base = {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+  };
+
+  // Canary isolation (mt#3824 R2): a canary must never depend on which real
+  // artifacts happen to exist, and whether the canary process can reach a
+  // provider is deploy state rather than something this module controls.
+  if (process.env[CANARY_MODE_ENV] === "1") {
+    return {
+      calibration: {
+        ...base,
+        labelsTried: [],
+        outcome: "skipped",
+        reason: "canary mode — corpus sweep not exercised against live artifacts",
+      },
+    };
+  }
+
+  const repoRoot = findRepoRoot(process.cwd(), DEFAULT_FS);
+  if (!repoRoot) {
+    return {
+      calibration: { ...base, labelsTried: [], outcome: "skipped", reason: "no repo root" },
+    };
+  }
+
+  const diff = readBranchDiff(repoRoot);
+  if (diff.failed) {
+    return {
+      calibration: { ...base, labelsTried: [], outcome: "skipped", reason: diff.failed },
+    };
+  }
+
+  const allLabels = extractChangedOutputLabels(diff.text);
+  // Overflow is stated, never silently truncated (`hook-observers.mdc`).
+  const labels = allLabels.slice(0, MAX_LABELS);
+  const labelOverflow = allLabels.length - labels.length;
+
+  if (labels.length === 0) {
+    return { calibration: { ...base, labelsTried: [], outcome: "clean" } };
+  }
+
+  // `session_pr_create` carries the bound task, which is what lets the sweep
+  // drop the self-match below.
+  const result = await sweepForStaleSignals(labels, repoRoot);
+  const recordBase = {
+    ...base,
+    labelsTried: result.labelsTried.map((l) => `${l.file}:${l.text}`),
+    labelsDroppedAsUbiquitous: result.labelsDroppedAsUbiquitous,
+    labelOverflow,
+  };
+
+  if (result.failed) {
+    // A sweep that could not run is recorded so a sustained infra outage is
+    // visible in the calibration data rather than reading as a clean pass.
+    return { calibration: { ...recordBase, outcome: "skipped", reason: result.failed } };
+  }
+  if (result.matches.length === 0) {
+    return { calibration: { ...recordBase, outcome: "clean" } };
+  }
+
+  return {
+    additionalContext: buildSweepWarning(result),
+    calibration: {
+      ...recordBase,
+      outcome: "matched",
+      matches: result.matches.map((m) => ({
+        kind: m.kind,
+        ref: m.ref,
+        status: m.status,
+        label: m.label,
+        excerpt: m.excerpt,
+      })),
+    },
+  };
+}
+
+/**
+ * The branch's diff against its merge-base with main.
+ *
+ * `main...HEAD` (three dots) and not `main..HEAD`: the two-dot form re-reports
+ * every change main has made since the branch diverged, which would make the
+ * sweep fire on labels this PR never touched.
+ */
+function readBranchDiff(repoRoot: string): { text: string; failed?: string } {
+  const res = execWithPath(["git", "diff", "main...HEAD"], { cwd: repoRoot, timeout: 10_000 });
+  if (res.timedOut) return { text: "", failed: "git diff timed out" };
+  if (res.exitCode !== 0) {
+    // git's stderr on a failed `diff` is ASCII diagnostic text (ref names,
+    // "unknown revision"), and this only ever reaches a calibration record.
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- known-ASCII, see above
+    const detail = res.stderr.trim().slice(0, 200);
+    return { text: "", failed: `git diff exited ${res.exitCode}: ${detail}` };
+  }
+  return { text: res.stdout };
+}

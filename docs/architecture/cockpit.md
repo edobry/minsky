@@ -37,15 +37,27 @@ Three properties are load-bearing and easy to break:
 
 - **The pathname never changes.** Pane state lives entirely in a `?peek=` query parameter,
   derived on every render with no second copy (`lib/peek.ts`). That is simultaneously why the
-  peek is URL-addressable, why Back closes it, why it is ephemeral with nothing persisted —
-  and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
+  peek is URL-addressable, why Back closes it, why the pane LIST is ephemeral with nothing
+  persisted — and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
   `matchEntityRoute(pathname)` and a search-only change cannot reach it. **A peek therefore
   cannot be implemented as a route change**; that is the constraint the whole design turns on.
-- **The panes are non-modal, and do not dismiss on outside interaction.** Coexisting with a
-  live page is the feature. Radix's default treats any outside click as a dismissal, which
-  silently breaks the hold gesture — a shift-click lands outside the open pane, so the pane
-  closes at the same moment the hold opens the next one. `PeekHost` prevents all three
-  outside-interaction events. Non-modal also means panes do NOT trap focus (verified in
+
+  Read "nothing persisted" as scoped to the pane list, which is what the URL contract is about.
+  The pane WIDTH is a separate dimension and deliberately does persist, in `localStorage` via
+  `lib/peek-width.ts` (mt#4261) — a durable preference about this screen rather than part of the
+  peek's address, so a copied peek link carries which entities are open and never the copier's
+  window size.
+
+- **The panes are non-modal, and an outside CLICK dismisses the whole assembly.** Coexisting
+  with a live page is the feature, so there is no scrim and clicks reach the page behind. What
+  "outside" means is the load-bearing part: Radix computes it PER PANE, and taking that reading
+  literally would break the hold gesture — a shift-click lands outside the open pane, so the
+  pane would close at the same moment the hold opened the next one. `lib/peek-dismiss.ts` owns
+  the verdict instead, exempting every pane, every entity ref, and the assembly's own chrome
+  (mt#4143 per operator decision ask#8509; the chrome exemption is mt#4261's resize divider,
+  which is a flex sibling of the panes and so "outside" all of them). Esc remains the
+  one-pane-at-a-time unwind, and the FOCUS path never dismisses — tabbing behind a pane is not
+  a dismissal gesture. Non-modal also means panes do NOT trap focus (verified in
   `@radix-ui/react-dialog@1.1.15`: `DialogContentNonModal` sets `trapFocus: false`), which is
   unavoidable — a focus trap needs exactly one region to trap into, and the hold gesture
   allows two live panes.
@@ -129,25 +141,53 @@ not.
 
 ## Routes
 
-| Path                       | Page                | Purpose                                                                                                                                                                                                                                                                                                                  |
-| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/`                        | Home                | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398) |
-| `/agents`                  | Agents              | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                   |
-| `/agents/:id`              | Workspace detail    | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                |
-| `/conversation/:id`        | Conversation        | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                  |
-| `/context`                 | Context             | Agent context inspector                                                                                                                                                                                                                                                                                                  |
-| `/workstreams`             | Workstreams         | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                        |
-| `/tasks`                   | Tasks               | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                     |
-| `/asks`                    | Asks                | Interactive ask management                                                                                                                                                                                                                                                                                               |
-| `/proposals`               | Proposals           | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                               |
-| `/activity`                | Activity            | Event stream                                                                                                                                                                                                                                                                                                             |
-| `/embeddings`              | Embeddings          | Provider health + index coverage                                                                                                                                                                                                                                                                                         |
-| `/memories`                | Memories            | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                       |
-| `/settings`                | Settings            | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                      |
-| `/plant`                   | Plant Board         | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                   |
-| `/plant/interlock-history` | Interlock history   | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                                                                                                                                      |
-| `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                  |
-| `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                           |
+| Path                       | Page                | Purpose                                                                                                                                                                                                                                                                                                                               |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | Home                | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398)              |
+| `/agents`                  | Agents              | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                                |
+| `/agents/:id`              | Workspace detail    | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                             |
+| `/conversation/:id`        | Conversation        | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                               |
+| `/context`                 | Context             | Agent context inspector                                                                                                                                                                                                                                                                                                               |
+| `/workstreams`             | Workstreams         | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                                     |
+| `/tasks`                   | Tasks               | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                                  |
+| `/asks`                    | Asks                | Interactive ask management                                                                                                                                                                                                                                                                                                            |
+| `/proposals`               | Proposals           | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                                            |
+| `/activity`                | Activity            | Event stream                                                                                                                                                                                                                                                                                                                          |
+| `/embeddings`              | Embeddings          | Provider health + index coverage                                                                                                                                                                                                                                                                                                      |
+| `/memories`                | Memories            | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                                    |
+| `/settings`                | Settings            | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                                   |
+| `/plant`                   | Plant Board         | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                                |
+| `/plant/interlock-history` | (redirect)          | **Absorbed into `/interceptors` (mt#4229)** — redirects. Its install date / commit link / `retrospective.fired` correlation now render on the interceptor detail view, joined on the catalog's `sourceFile`. Two pages listed the same corpus with different memberships; the redirect is kept for bookmarks, per ADR-020's precedent |
+| `/interceptors`            | Interceptors        | The enforcement corpus: what intercepts, where on the turn, what it costs, and — since mt#4229 — when each one landed (mt#4010, mt#4056, mt#4057)                                                                                                                                                                                     |
+| `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                               |
+| `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                                        |
+
+### HTTP error semantics: 503 is a database outage, 500 is a bug (mt#4125)
+
+Every cockpit API handler distinguishes the two, and callers should too:
+
+| Status  | Means                                                                                                                                              | Caller should                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **503** | The persistence layer is unreachable — pool exhaustion, a dropped connection, no provider configured. Body: `Service unavailable — <description>`. | Treat as transient. Keep polling; render a "store unavailable" state rather than a failure. |
+| **500** | An error in the handler itself.                                                                                                                    | Treat as a defect.                                                                          |
+
+The classification runs through `respondIfDatabaseUnavailable`
+(`src/cockpit/db-unavailable-response.ts`), which wraps `isDatabaseUnavailableError` (mt#3398).
+That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the driver
+error and carries the QUERY TEXT as the wrapper's own message, so a non-walking check sees a query
+string and concludes "application bug" for what is really an outage.
+
+**This changed in mt#4125.** Before it, the predicate had 3 adopter call sites against 42
+unconditional `status(500)` sites, so a pool exhaustion was reported to the operator as an
+application bug — mt#4086 is the worked instance (`GET /api/changesets`, Supavisor
+`EMAXCONNSESSION`). Any runbook or note written before that date describing a cockpit route as
+returning 500 on a database outage is now wrong for the outage case; 500 still means what it always
+did for handler defects.
+
+Callers with a generic `if (!res.ok)` path are unaffected — both statuses are non-ok and render the
+same error state. A guard test in `src/cockpit/db-unavailable-response.test.ts` asserts the whole
+HTTP layer keeps classifying, and carries the enumerated exceptions (500s with no error object to
+classify) with their reasons.
 
 ## Widgets
 
@@ -235,17 +275,17 @@ and must not be hardcoded into widget vocabularies.
 
 ### Widget catalog by route
 
-| Widget ID                                                                                     | Page                                 | Surface                                                                                                                                                                                                                                                                                                                     |
-| --------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                                  | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home. |
-| `basic-health`, `credentials`                                                                 | `/settings`                          | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                   |
-| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                      | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                              |
-| `memories-health`                                                                             | `/memories`                          | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                       |
-| `memories-stats`                                                                              | `/memories`                          | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                                                                                                                                                                   |
-| `memories-list`                                                                               | `/memories`                          | Browseable record table with type + scope filters                                                                                                                                                                                                                                                                           |
-| `memories-search`                                                                             | `/memories`                          | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                                                                                                                                                             |
-| `memories-detail`                                                                             | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                     |
-| `slow-topology`                                                                               | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602)                                                                                                                                      |
+| Widget ID                                                                                     | Page                            | Surface                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                             | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home.                   |
+| `basic-health`, `credentials`                                                                 | `/settings`                     | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                                     |
+| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                 | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                                                |
+| `memories-health`                                                                             | `/memories`                     | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                                         |
+| `memories-stats`                                                                              | `/memories`                     | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                                                                                                                                                                                     |
+| `memories-list`                                                                               | `/memories`                     | Browseable record table with type + scope filters                                                                                                                                                                                                                                                                                             |
+| `memories-search`                                                                             | `/memories`                     | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                                                                                                                                                                               |
+| `memories-detail`                                                                             | `/memories` (modal)             | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                                       |
+| `slow-topology`                                                                               | `/plant`, `/interceptors/:name` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602). Second consumer moved from the interlock-history page to the interceptor detail view by mt#4229; the plant board's valve-inventory badge is unchanged |
 
 ### Reviewer Bot Status widget
 
@@ -305,7 +345,22 @@ subagent/mesh/retriever asks persist as `routed` awaiting a delivery loop
 (mt#1570 family). `createAsk` itself persists its route outcome at create
 (the sweep is the recovery backstop, not the primary path). Observability:
 asks count-by-state on `debug_systemInfo` (`asks` field) — a growing
-`detected` count means the advancement path is not running. One-time backlog
+`detected` count means the advancement path is not running.
+
+**The counts also carry an age dimension (mt#4361).** Alongside `byState`, the
+`asks` field reports `stallThresholdMs` (5 days, per `decision-defaults.mdc
+§Thresholds`) and `ageByState`: for each NON-TERMINAL state, the dwell time of
+the oldest ask in it (`oldestAgeMs`, measured from state ENTRY, `null` when the
+state is empty — not `0`, which means an ask that just arrived) and how many are
+past the threshold (`stalledCount`). The count alone cannot answer the question
+that matters for `routed`, which ADR-008 defines as transient: `routed: 5` reads
+identically five minutes and five weeks after those asks routed. Five undelivered
+`routed` asks sat 9–16 days and were found by a manual probe (mt#3353) with the
+count available the whole time. Deliberately a signal and NOT a sweep — an ask in
+`routed` is one no transport ever delivered, so nobody has seen it, and retiring
+it on age would discard an unread question rather than tidy a stale one.
+
+One-time backlog
 triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
 `--execute` to expire the stale set; `direction.decide` asks are never
 bulk-expired).
@@ -456,10 +511,12 @@ registrant like every other sweep in this file, so its liveness
 (lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
 covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
 (next section) under the name `"scheduled follow-ups"`. Those fields cover the
-SCHEDULING layer only; this sweep does not yet report a domain outcome, so its
-`reportsDomainOutcome` is `false` and whether its work is succeeding is not
-currently visible anywhere (mt#3684 added the channel; migrating each sweep onto
-it is separate work).
+SCHEDULING layer only. **As of mt#4412 this sweep also reports a DOMAIN
+outcome** — `ok` is false when a due follow-up failed to fire — so whether its
+work is succeeding is visible on `/api/sweeps` beside its scheduling fields.
+(mt#3684 added the channel and left adoption optional; mt#4412 made it
+mandatory, so "migrating each sweep onto it is separate work" no longer
+applies — every registrant now declares one.)
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -497,6 +554,13 @@ GET /api/sweeps
       "reinits": 0,
       "metaRestarts": 0,
       // Domain layer (mt#3684): did the sweep's WORK succeed?
+      // DECLARATION (mt#4412) — static, set at registration. True for every
+      // registrant: both registration paths oblige their sweeps to state an
+      // outcome, so this is assertable the moment the registry is populated.
+      "declaresDomainOutcome": true,
+      // OBSERVATION — has this sweep actually reported one YET? Flips on the
+      // first tick that completes and returns. Distinct from the field above
+      // on purpose; see below.
       "reportsDomainOutcome": true,
       "lastDomainSuccessAt": "2026-07-17T13:00:00.050Z",
       "lastDomainFailureAt": null,
@@ -515,10 +579,36 @@ a tick that failed still RETURNS — so on 2026-08-06 this endpoint showed
 prod-state sweep had been failing every tick for 13 hours. That reading was
 correct about scheduling and silent about the outage.
 
-A tick may therefore also report its own outcome (return `{ ok: boolean }`),
-recorded in the `*Domain*` fields. `reportsDomainOutcome` is `false` for a
-sweep that reports nothing — read the other three as meaningless in that case,
-NOT as healthy. `reinits` counts a sweep's own bounded self re-init (below);
+A tick therefore ALSO reports its own outcome (returns `{ ok: boolean }`),
+recorded in the `*Domain*` fields. **mt#3684 made that optional and mt#4412
+made it mandatory** — `IntervalSweeperOptions.tick` returns
+`Promise<SweepTickResult>` and `void` is no longer assignable, because 15 of 17
+registrants had taken the optional default, so for 88% of them this endpoint
+could not tell a working sweep from one whose tick caught its own error and
+returned. The self-scheduling path (`registerSelfSchedulingSweep`, below) is the
+other way into this registry and has no tick at all; its handle's
+`noteSuccess`/`noteFailure` record a domain outcome, while `noteProgress`
+remains scheduling-only and deliberately does not.
+
+**`declaresDomainOutcome` and `reportsDomainOutcome` are not the same field, and
+the difference is load-bearing.** The first is a static DECLARATION fixed at
+registration — every registrant is obliged to state an outcome, so the invariant
+is assertable the moment the registry is populated. The second is a runtime
+OBSERVATION: it starts `false` and flips the first time a tick actually
+completes and returns. So a registrant reads `reportsDomainOutcome: false`
+while it is merely waiting for its first tick (up to 60 minutes for `topology`),
+and also when its tick never settles at all — an abandoned tick never returns,
+so it can never flip the flag. **Neither is a defect**, which is why "has it
+reported yet" cannot be used as the health check; use `declaresDomainOutcome`
+for the invariant and the `*Domain*` timestamps for the actual outcome. When
+`reportsDomainOutcome` is `false`, read the three `*Domain*` fields as
+meaningless rather than healthy.
+
+What a sweep reports is its OWN result, never a blanket `ok: true` — a uniform
+success reproduces the original defect in a shape that reads as covered. The
+line each sweep draws is **"cannot do the work" (a domain failure) versus
+"nothing to do" (healthy)**: a missing dependency is the first, an empty pass is
+the second. `reinits` counts a sweep's own bounded self re-init (below);
 `metaRestarts` counts a meta-watchdog-triggered force-restart. A domain failure
 deliberately drives neither: re-init recovers a wedged tick, and mt#3682
 established that restarting the interval does nothing for a failure below the
@@ -526,11 +616,49 @@ sweep.
 
 This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
 (`prodStateSweep`, `transcriptSweep`, `dispatchWatchdogSweep`). Those cover 3
-of the 11 registered sweeps; the other 8 — ask advancement, stale-ask close,
-topology, deploy.smoke, scheduled follow-ups, conversation presence,
-conversation title, conversation summary — have no domain-specific tracker of
+of the **17** registered sweeps (measured live 2026-08-22; this said 11 before
+mt#4412 and had drifted). The other 14 — ask advancement, stale-ask close,
+short-id map refresh, ask-state refresh, topology, deploy.smoke, scheduled
+follow-ups, conversation presence, conversation title, conversation summary,
+guard-events sweep backstop, interceptor-aggregates, stdio-log rotation, and
+the self-scheduled principal-channel poll — have no domain-specific tracker of
 their own, which is why the domain fields above exist on the shared registry
-rather than being deferred to a per-sweep tracker that may not exist.
+rather than being deferred to a per-sweep tracker that may not exist. Settle the
+count with
+`curl -s localhost:3737/api/sweeps | jq '.sweeps | length'`.
+
+**`/api/health` carries the AGGREGATE, and only since mt#4384.** Its `sweepLiveness`
+block reports `abandonedTicksOutstanding`, the sweeps holding those ticks,
+`registrants`, and the declaring/reporting counts — enough that a reader cannot reach
+"healthy, just hasn't finished" from a wedged sweep. Before mt#4384 this endpoint never
+read the liveness registry at all, so abandonment could not appear there **by
+construction**: the three blocks it did carry are DOMAIN trackers, and an abandoned tick
+never completes, so it produces no domain outcome for them to report. On 2026-08-21
+`prodStateSweep` read `lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0`
+while `/api/sweeps` showed nine sweeps wedged with guards held. **Per-sweep detail still
+lives on `/api/sweeps`**, which the payload names in `authoritativeSurface`.
+
+### A restarted daemon takes up to 15 minutes to look healthy
+
+**At 12 minutes it looks identically wedged, and that is the single most misleading
+reading this subsystem produces.** mt#4335's abandoned-tick hard release fires at
+`DEFAULT_TICK_TIMEOUT_MS × ABANDONED_TICK_HARD_RELEASE_MULTIPLIER` = 5 min × 3 = **15
+minutes**. Until it does, a boot tick that wedged is still outstanding, so the sweep
+shows a tick open with `lastSuccessAt: null` — indistinguishable from a restart that
+accomplished nothing.
+
+Measured 2026-08-21: the boot tick was abandoned at 17:52:09, the hard release fired at
+18:07:09 **exactly**, and the next tick succeeded at 18:07:09.248Z. Someone checking at
+12 minutes concluded the restart had failed, and that reached the principal as an
+incident before being corrected.
+
+**So: wait past `tickTimeoutMs × 3` before judging a restart**, and read `/api/sweeps`
+(or `/api/health`'s `sweepLiveness`) rather than a domain tracker while you wait —
+`abandonedTicksOutstanding` falling to zero is the signal that recovery actually
+happened. Two further cautions from the same family: a restart is not reliably the
+remedy at all (mem#1178 records an occurrence that self-cleared with none), and
+`minsky cockpit restart` DOES work under the tray despite an older note to the contrary
+(re-measured 2026-08-21).
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the
@@ -547,13 +675,51 @@ its own `setInterval`, since the failure class it recovers from implicates
 the shared interval-scheduling layer; sharing that primitive for the
 watchdog itself would risk it dying alongside the thing it watches.
 
+**The reach of all of this is exactly the REGISTRANT SET (mt#4185).** The
+meta-watchdog iterates the liveness registry, so a loop that is not in the
+registry is not merely unrecovered — it is unobserved: absent from
+`/api/sweeps`, never scanned, never restarted. Membership is therefore the
+first question to ask of any long-lived loop in this daemon, ahead of any
+question about its failure modes.
+
+Two ways in, and no third: `createIntervalSweeper`, which registers as a side
+effect of scheduling the tick; and `registerSelfSchedulingSweep`, for a loop
+that schedules itself and hands back only the RECORDING half — it calls
+`noteProgress()` where it demonstrably advanced, supplies its own `restart`,
+and declares a PROGRESS BUDGET in place of a cadence (`selfScheduled: true` in
+the payload says which of the two `intervalMs` means). `custom/require-registered-cockpit-loop`
+fails the build on a new `start*` export that runs a flag-shaped `await` loop
+through neither.
+
+**A registrant that has reported NOTHING is still evaluated (mt#4206).** Every
+entry carries `registeredAt`, and for a self-scheduling participant the stall
+predicate falls back to it when `lastAttemptAt` is still null — so a loop that
+parks BEFORE its first progress call is flagged rather than skipped forever. The
+skip is retained for an interval sweep, where the null window is
+millisecond-scale because the registry drives the tick; treating it as a stall
+there would restart every healthy sweep at boot. `registeredAt` also makes
+"registered, never reported" a dateable reading on `/api/sweeps` instead of an
+inference from a bare null.
+
+This paragraph exists because its absence was load-bearing. Until mt#4185 the
+enumeration below listed only failure modes, so a NON-REGISTRANT loop was in
+neither the covered nor the not-covered set — outside the enumeration
+entirely, which is why repeated `Does NOT cover` audits never surfaced it
+while `startPrincipalChannelPoller` sat parked for ~44 hours (mt#4183). When
+writing a `Does NOT cover`, state the mechanism's MEMBERSHIP boundary, not
+only the failures it handles.
+
 **What this does NOT cover:** the daemon process dying (tray supervision,
 mt#2786, owns that) or the meta-watchdog's own `setTimeout` chain dying
 (total timer death) — that residual is detectable via `/api/sweeps`
 going stale plus the consumer-side staleness banners
 (`inject-prod-state.ts` / `inject-dispatch-watchdog.ts`), with recovery
-falling to tray/operator supervision. See mt#2894's spec for the full
-Covers/Does NOT cover enumeration.
+falling to tray/operator supervision. For a self-scheduling registrant it
+also does not clear a park in an await that ignores the abort signal: the
+stall is detected, logged and counted, but only the participant's own
+per-await bounds can settle it (mt#4183 owns the poller's). See mt#2894's
+spec for the full Covers/Does NOT cover enumeration, and mt#4185's for the
+self-scheduling seam's.
 
 **Daemon rotating file log.** Investigating the 2026-07-16 incident found
 that `log.warn` — the exact call the factory above uses for every tick
@@ -887,7 +1053,51 @@ a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
 - [ADR-014](adr-014-cockpit-daemon-lifecycle-ownership.md) — daemon lifecycle ownership (tray-app supervisor; mt#2241)
 - Bundle auto-rebuild (mt#2297): the tray keeps the served production bundle fresh — a startup pre-flight rebuild (when `src/cockpit/web/**` is newer than `dist/`) plus a runtime filesystem watcher that rebuilds on source changes (excluding `dist`/`node_modules`/`.git`). A "Last build" line in the tray menu shows when the bundle last refreshed; build failures surface there (serving the prior bundle on a runtime failure, refusing to spawn when there is no bundle at all). All of it no-ops on a no-source install. See `cockpit-tray/README.md` § _Bundle auto-rebuild_.
 - Backend auto-restart (mt#2299): the **server-side** complement to the bundle rebuild. The widget registry and route table load at process start, so when backend source (`src/cockpit/server.ts`, `widget-registry.ts`, `widgets/**`, `config.ts`, `types.ts`) changes, the running daemon is stale (new widgets return `Widget not found`) until it restarts. The daemon spawns from source (`bun run src/cli.ts`), so a plain process restart picks up backend changes with no build step. The tray (a) restarts an **adopted** daemon at startup if backend source is newer than the daemon's start time (the originating 2026-06-04 8-day-stale case), and (b) watches `src/cockpit/**` (excluding `web/**`, which the mt#2297 rebuild path owns) and restarts the daemon on a debounced backend change. A "Daemon uptime" line shows how long the daemon has run + the source mtime it was started against, so operators can confirm currency at a glance; a crash-loop on restart (e.g. a syntax error) surfaces the stderr tail in the status line instead of a silent "stopped". Operators never need to manually `kill <pid>` or know that backend changes require a restart (caveat: restart/stop of an _adopted_ daemon depends on `lsof`/`ps` availability + a killable holder; otherwise the tray surfaces the conflict message rather than killing a foreign listener). All of it no-ops on a no-source install. See `cockpit-tray/README.md` § _Backend auto-restart_.
+- Out-of-process memory ceiling (mt#4105): every poll, the supervisor reads each spawned child's **swap-inclusive** memory and SIGKILLs one over 2048 MB — the same threshold `DEFAULT_MEMORY_CEILING_MB` (`src/mcp/orphan-exit.ts`) gives the in-process watcher, differing only in who runs the check. That difference is the point: mt#3886's ceiling, mt#3764's watchers and the `SIGTERM` handlers are all timers or handlers ON the loop they police, and mt#4099 measured two `mcp start` processes at 48.2 GB and 32 GB with every one of them armed and none of them running (a 3s `sample` put all 2483 main-thread samples in one unbroken JS stack, zero `kevent` process-wide). **A process that has wedged its own event loop cannot be the thing that notices.** Mechanism: `footprint -f bytes -p <pid>` on macOS and `VmRSS + VmSwap` from `/proc/<pid>/status` on Linux — the same two interfaces `packages/shared/src/process-memory.ts` reaches, and for the reason it records: `task_info(TASK_VM_INFO)` cannot read another process without `task_for_pid` (root or the debugger entitlement), so a native binding is not an option for a supervisor measuring its child. SIGKILL rather than SIGTERM because the wedged child's `SIGTERM` handler is JS that never runs. Bound: one `POLL_INTERVAL` (5s). A kill the supervisor ordered is classified `ExitClass::CeilingKill` and respawned WITHOUT counting toward the restart throttle — a SIGKILLed process reports the same exit status as any other signalled death, so the supervisor's own record is the only thing that can tell them apart. **Covers supervised children only**; the stdio-proxy population is mt#4112's, and daemons spawned directly by Claude Desktop have no Minsky supervisor at all.
 - mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
+
+### Port recovery: displacing a wedged incumbent (mt#4205)
+
+When `cockpit start` cannot bind, it classifies the port holder
+(`src/cockpit/port-recovery.ts`). A holder matching **this workspace's** recorded pid+port is a
+`recognized-zombie`; a holder that does not — including another workspace's cockpit — is
+`unrecognized` and is never terminated.
+
+A recognized holder used to be refused outright unless the operator passed `--force`. That was the
+wrong default: every known daemon-wedge mechanism (mt#3039 / mt#3051 / mt#3060 / mt#3682) leaves the
+process **alive and still holding the port**, so the refusal turned any wedge into an outage lasting
+until a human intervened. It fired on 2026-08-06 and again on 2026-08-16.
+
+The guard now probes before deciding, mirroring the predicate ADR-014's supervisor already uses
+(`daemon_core.rs`'s `is_ours`). **Displacement requires a positive finding that nothing answered;
+every other outcome preserves the incumbent:**
+
+| Probe result at `GET /api/health`                                                 | Outcome                         |
+| --------------------------------------------------------------------------------- | ------------------------------- |
+| Answers with `service: "minsky-cockpit"` — **at any status, including 503**       | preserve                        |
+| Answers without a `service`, or with a different one                              | preserve (fail-closed, mt#3148) |
+| Nothing answers, but the holder's start time contradicts the recorded `startedAt` | preserve (recycled pid)         |
+| Nothing answers, start time corroborates                                          | **displace**, then bind         |
+
+A **503 preserves deliberately**: the daemon answers 503 while persistence is unhealthy (mt#2949)
+and mt#3638's pool-recycle self-heals it, so reading a degraded answer as absence would kill a live
+process for correctly reporting a problem.
+
+The probe targets the host the bind was **attempted** on, and tries both loopback families for a
+wildcard or `localhost` bind. `localhost` alone is not safe here: `findPortHolder` identifies the
+holder with `lsof -i tcp@localhost`, chosen in mt#3787 because it reaches both families, so it can
+name a holder that a single-family probe never reaches — and that miss reads as absence, on the
+branch that kills.
+
+`--force` remains the operator override and is now meaningful in both directions: it displaces even
+a preserving disposition. It is **not** needed to clear a silent incumbent.
+
+Each displacement emits a `cockpit.port_displaced` system event carrying the displaced pid, command,
+port, and whether `--force` was used. It is emitted after the replacement binds, because the guard
+runs before this process has any persistence provider — and it is the first daemon-lifecycle event
+type in that enum, which is why mt#4154 could not reconstruct the 2026-08-06 outage from
+`system_events`: every other type is agent-triggered, so a quiet window meant "nobody was working",
+not "nothing happened to the daemon".
 
 ## Cross-references
 
@@ -910,4 +1120,7 @@ a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
   UI copy; "weld" survives only as a verb ("welding an interlock"). See
   `src/cockpit/CLAUDE.md` §Vocabulary. The `/plant/weld-history` route was
   renamed to `/plant/interlock-history` as part of this change (breaking,
-  local-only cockpit — no external consumers).
+  local-only cockpit — no external consumers). mt#4229 later absorbed that route
+  into `/interceptors`; the VOCABULARY decision is untouched — "interlock" is
+  still the plant-UI noun, and the plant board's drill-down link still says
+  "interlock history". Only the destination moved.

@@ -7,16 +7,27 @@
  * and the promise that an actuator failure still reaches the principal.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   runPollCycle,
+  startPrincipalChannelPoller,
   truncateReply,
   type BindTopicOutcome,
   type ChannelActuator,
   type PollCursor,
   type PollCycleDeps,
   startTypingLoop,
+  PRINCIPAL_CHANNEL_SWEEP_NAME,
+  PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS,
 } from "./principal-channel-poller";
+import {
+  getSweepLivenessSnapshot,
+  startSweepMetaWatchdog,
+  _resetSweepLivenessRegistryForTest,
+  type SweepLivenessSnapshot,
+} from "./sweepers";
+import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
+import { DeadlineExceededError } from "@minsky/domain/utils/deadline";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import type { FetchFn } from "@minsky/domain/notify/telegram-transport";
 import {
@@ -35,6 +46,17 @@ const THREAD_ID_KEY = "message_thread_id";
 interface Recorded {
   type: string;
   payload: PrincipalMessageEventPayload;
+}
+
+/** Poll `condition` until it is true, or throw after `timeoutMs` (mt#4185). */
+async function waitForCondition(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() is used for timing, not path creation; the rule's regex fires on the call pattern but there is no filesystem interaction here
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- same: timing, not path creation
+    if (Date.now() > deadline) throw new Error("waitForCondition timed out");
+    await new Promise((r) => setTimeout(r, 5));
+  }
 }
 
 interface Harness {
@@ -1208,8 +1230,12 @@ describe("runPollCycle — receipt acks", () => {
  */
 describe("runPollCycle — streamed replies (mt#3542)", () => {
   const EDIT = "editMessageText";
+  /** A resolved answer that is NOT a continuation of anything streamed (mt#3711). */
+  const DIVERGENT_FINAL = "an unrelated final answer";
 
-  function streamHarness(opts: { threadId?: number } = {}): {
+  function streamHarness(
+    opts: { threadId?: number; sealAfterPartial?: boolean; finalText?: string } = {}
+  ): {
     h: Harness;
     edits: Array<Record<string, unknown>>;
     sends: Array<Record<string, unknown>>;
@@ -1247,9 +1273,17 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
             onPartialSeen = true;
             converseOpts.onPartial("partial ");
             converseOpts.onPartial("partial answer");
+            if (opts.sealAfterPartial === true) {
+              converseOpts.onBlockEnd?.();
+              converseOpts.onPartial("partial answerand a second block");
+            }
           }
           await new Promise((resolve) => setTimeout(resolve, 5));
-          return "the final answer";
+          // Defaults to a text that EXTENDS what streamed, which is the
+          // ordinary case: the deltas and the resolved result agree, and the
+          // settle is an edit. A caller that wants the DIVERGING case — the
+          // tool-heavy turn where `result` is not a continuation — passes it.
+          return opts.finalText ?? "partial answer, settled";
         },
       },
     });
@@ -1269,7 +1303,7 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
     return { h, edits, sends, sawOnPartial: () => onPartialSeen };
   }
 
-  test("hands the actuator an onPartial and settles on the resolved text", async () => {
+  test("settles additively — a resolved text that continues the stream is an EDIT", async () => {
     const { h, edits, sawOnPartial } = streamHarness();
 
     const outcome = await runPollCycle(h.deps);
@@ -1278,9 +1312,45 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
     expect(sawOnPartial()).toBe(true);
     // The placeholder carries the streamed progress...
     expect(h.sentTexts[0]).toContain("partial");
-    // ...and the message settles on the turn's authoritative answer, which is
-    // NOT simply the last streamed value.
-    expect(String(edits.at(-1)?.["text"])).toContain("the final answer");
+    // ...and the resolved answer, which continues it, is edited in rather than
+    // sent as a second message.
+    expect(String(edits.at(-1)?.["text"])).toContain("settled");
+  });
+
+  /**
+   * mt#3711 R2. The resolved text on a tool-heavy turn is NOT a continuation
+   * of what streamed — `result` carries the final answer while the deltas
+   * carried interstitial prose. Overwriting the open message with it is what
+   * made the reply visibly shrink at the end of a turn, so it now arrives as
+   * its own message and the streamed prose is left standing.
+   */
+  test("a resolved text that continues nothing on screen is a NEW message, not an overwrite", async () => {
+    const { h, edits, sends } = streamHarness({ finalText: DIVERGENT_FINAL });
+
+    await runPollCycle(h.deps);
+
+    expect(sends.some((p) => String(p["text"]).includes(DIVERGENT_FINAL))).toBe(true);
+    // Nothing was rewritten to it — the streamed text is still what it was.
+    for (const edit of edits) {
+      expect(String(edit["text"])).not.toBe(DIVERGENT_FINAL);
+    }
+    expect(h.sentTexts[0]).toContain("partial");
+  });
+
+  test("a tool call splits the turn into a second message, and only the first notifies", async () => {
+    const { h, sends } = streamHarness({ sealAfterPartial: true });
+
+    await runPollCycle(h.deps);
+
+    const first = sends.find((p) => String(p["text"]).includes("partial answer"));
+    const second = sends.find((p) => String(p["text"]).includes("and a second block"));
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    // SC2, at the poller seam: the phone buzzes once per turn however many
+    // blocks the turn has. Telegram omits the field entirely when it is not
+    // asked for, so the first message carries no `disable_notification` key.
+    expect("disable_notification" in (first ?? {})).toBe(false);
+    expect(second?.["disable_notification"]).toBe(true);
   });
 
   test("AT5 — the placeholder lands in the topic the message came from", async () => {
@@ -1421,5 +1491,182 @@ describe("truncateReply", () => {
     expect(result.length).toBeLessThanOrEqual(60);
     expect(result).toContain("THE ANSWER");
     expect(result).toStartWith("[...truncated...]");
+  });
+});
+
+describe("poller sweep-liveness registration (mt#4185)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  /** The poller's entry in the public `/api/sweeps` payload, or undefined. */
+  function pollerEntry(): SweepLivenessSnapshot | undefined {
+    return getSweepLivenessSnapshot().find((e) => e.name === PRINCIPAL_CHANNEL_SWEEP_NAME);
+  }
+
+  /**
+   * A `fetchFn` for the long poll that parks forever, optionally honouring the
+   * abort signal. This is the seam ADR-036 rule 2 requires be used instead of
+   * patching the `runPollCycle` module export — `PollCycleDeps.fetchFn` already
+   * exists, so a stub belongs here.
+   */
+  function parkingFetch(opts: { honourAbort: boolean }): FetchFn {
+    return (url, init) => {
+      const target = String(url);
+      if (!target.includes(GET_UPDATES)) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, result: true })));
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        if (!opts.honourAbort) return;
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    };
+  }
+
+  test("AT2: a poller parked on the long poll appears in /api/sweeps with a stale lastAttemptAt", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: false }) },
+      { errorBackoffMs: 5, progressBudgetMs: 50 }
+    );
+    try {
+      // The cycle stamps progress once (after the cursor read) and then parks
+      // on the long poll — exactly the 2026-08-16 shape.
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt != null);
+
+      const entry = pollerEntry();
+      expect(entry).toBeDefined();
+      expect(entry?.selfScheduled).toBe(true);
+      expect(entry?.intervalMs).toBe(50);
+
+      const parkedAt = entry?.lastAttemptAt;
+      await new Promise((r) => setTimeout(r, 60));
+      // Stale: the loop is alive as a process and has stopped advancing, which
+      // is the distinction the whole registry exists to make.
+      expect(pollerEntry()?.lastAttemptAt).toBe(parkedAt as string);
+    } finally {
+      poller.stop();
+    }
+  });
+
+  test("the meta-watchdog clears a park in an await that observes the abort signal", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: true }) },
+      { errorBackoffMs: 5, progressBudgetMs: 20 }
+    );
+    const stopWatchdog = startSweepMetaWatchdog(15);
+    try {
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt != null);
+      const parkedAt = pollerEntry()?.lastAttemptAt;
+
+      // The watchdog aborts the parked cycle; the loop starts a fresh one, and
+      // its cursor read stamps progress again.
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt !== parkedAt, 3000);
+      expect(pollerEntry()?.metaRestarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      poller.stop();
+    }
+  });
+
+  test("stop() deregisters, so a restarted daemon does not collide with its own previous poller", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: false }) },
+      { errorBackoffMs: 5 }
+    );
+    await waitForCondition(() => pollerEntry() !== undefined);
+    poller.stop();
+    expect(pollerEntry()).toBeUndefined();
+
+    // The name is free again — registering a second poller must not throw.
+    const second = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: false }) },
+      { errorBackoffMs: 5 }
+    );
+    try {
+      await waitForCondition(() => pollerEntry() !== undefined);
+      expect(pollerEntry()).toBeDefined();
+    } finally {
+      second.stop();
+    }
+  });
+
+  test("AT3: a long poll that never resolves ends the cycle at the bound instead of parking", async () => {
+    const h = harness(updateBody([]));
+    const started = Date.now();
+    // `longPollSec: 0.05` → a 100ms client deadline (2x the server value).
+    // Before mt#4183 there was no client deadline at all and this awaited forever.
+    await expect(
+      runPollCycle({
+        ...h.deps,
+        longPollSec: 0.05,
+        fetchFn: () => new Promise<Response>(() => {}),
+      })
+    ).rejects.toThrow(DeadlineExceededError);
+    // Bounded, not merely eventually — the whole point is a wall-clock guarantee.
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() measures elapsed time, not path creation; no filesystem interaction here
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  test("AT4: an audit write that never resolves ends the cycle at the bound too", async () => {
+    const h = harness(updateBody([{ updateId: 9, text: "hello" }]));
+    const started = Date.now();
+    await expect(
+      runPollCycle({
+        ...h.deps,
+        dbStepDeadlineMs: 100,
+        recordEvent: () => new Promise<"recorded">(() => {}),
+      })
+    ).rejects.toThrow(DeadlineExceededError);
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- same: elapsed-time measurement, not path creation
+    expect(Date.now() - started).toBeLessThan(2_000);
+    // The cursor never advanced, so the batch is re-fetched next cycle rather
+    // than skipped — the property that makes aborting mid-batch safe.
+    expect(h.cursorWrites).toEqual([]);
+  });
+
+  test("a cursor read that never resolves ends the cycle at the bound", async () => {
+    const h = harness(updateBody([]));
+    await expect(
+      runPollCycle({
+        ...h.deps,
+        dbStepDeadlineMs: 100,
+        cursor: { read: () => new Promise<number>(() => {}), write: async () => {} },
+      })
+    ).rejects.toThrow(DeadlineExceededError);
+  });
+
+  test("the loop SURVIVES a wedged long poll — it backs off and cycles again", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      {
+        ...h.deps,
+        longPollSec: 0.05,
+        fetchFn: () => new Promise<Response>(() => {}),
+      },
+      { errorBackoffMs: 5, progressBudgetMs: 60_000 }
+    );
+    try {
+      // Progress must keep advancing: each cycle deadlines, the catch converts
+      // it to an error outcome, the loop backs off and starts another. Before
+      // mt#4183 the first cycle parked and nothing ever advanced again.
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt != null);
+      const first = pollerEntry()?.lastAttemptAt;
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt !== first, 4000);
+      expect(pollerEntry()?.consecutiveFailures).toBeGreaterThanOrEqual(1);
+    } finally {
+      poller.stop();
+    }
+  });
+
+  test("the default progress budget is derived from the actuator's enforced ceilings", () => {
+    // Guards the derivation, not the number: if either actuator timeout moves,
+    // this budget must move with it or a legitimately slow turn gets restarted.
+    expect(PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS).toBe(
+      DEFAULT_READY_TIMEOUT_MS + DEFAULT_TURN_TIMEOUT_MS
+    );
+    expect(PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS).toBeGreaterThan(DEFAULT_TURN_TIMEOUT_MS);
   });
 });

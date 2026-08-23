@@ -48,12 +48,21 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
+  findToolUseInputs,
   isRealUserPrompt,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+// mt#3864 class 6: the local `elideMarkdownContexts` below covers fences, code
+// spans and blockquotes but NOT double-quoted prose — which is the one shape
+// class 6 needs (a bolded markdown link quoting a memory body). Composed onto
+// the local pass rather than swapping wholesale to `elideQuotedAndCodeContexts`:
+// elision.ts's own header scopes that consolidation to mt#2263 / the ADR-024
+// ladder, and replacing tested markdown behavior here is a larger, unmeasured
+// change than this task's evidence supports.
+import { elideDoubleQuotedSpans } from "./elision";
 import {
   CAPTURE_SCHEMA_FIELD,
   CAPTURE_SCHEMA_VERSION,
@@ -61,6 +70,48 @@ import {
   MATCH_CONTEXT_MAX_CHARS,
 } from "./judged-input-capture";
 import type { DispatchContext, GuardOutcome } from "./registry";
+
+// ---------------------------------------------------------------------------
+// Enforcement posture — quieted to log-only (mt#4286)
+// ---------------------------------------------------------------------------
+
+/**
+ * When false, the detector still DETECTS and still writes its calibration
+ * record; it injects no `additionalContext`. Matches the shape
+ * `causal-premise-detector.ts` and `ask-routing-deferral-detector.ts` use.
+ *
+ * **Set false 2026-08-19 per ask#9219**, answered by the operator with the
+ * option "Quiet it until mt#4256 lands" — the same call they made on ask#9085,
+ * re-aimed at the class that actually remains. The quieting on ask#9085 was
+ * never applied, which is why the ask had to be asked twice.
+ *
+ * WHY, in the operator's terms: mt#3864's replay moved exactly 1 of 17 firing
+ * cases. Its dominant class (12 cases) was deliberately left untuned and three
+ * more went to mt#4256, so this detector was live at close to the rate the
+ * operator had already agreed to quiet.
+ *
+ * **Retirement condition (`work-completion.mdc §Temporary mechanism budget`):**
+ * tracking task **mt#4256**, which measures and tunes the three remaining
+ * false-positive classes. Escalation threshold: if mt#4256 is still TODO **5
+ * days** after this lands (i.e. 2026-08-24), surface it rather than leaving the
+ * detector quiet by inertia. ADR-032 is quoted by `/calibration-review` on
+ * exactly this hazard — "a guard tuned into permanent silence is
+ * indistinguishable from a dead one."
+ *
+ * **Flipping this back is an operator decision, not an implementer's.**
+ * `/calibration-review` Step 4 (mt#3769, ask#7031) reserves enforcement posture
+ * to the principal: "Anything that changes enforcement posture: log-only →
+ * live, live → blocking, retiring a detector ... These change whether a
+ * detector interrupts agents, which is the thing the principal reserves."
+ *
+ * Two things must move together when it flips back — see
+ * `dispatcher.ts`'s `MERGED_CONTEXT_BUDGET_CHARS` doc comment: delete the
+ * registration's `renderProbe` (which is what excludes this guard from the
+ * merged-context bucket) and re-derive that constant against **1753**, this
+ * guard's real saturated render, NOT the 650 it declared while nothing
+ * measured it.
+ */
+export const INJECTION_ENABLED = false;
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -116,8 +167,89 @@ export interface OutcomeCategory {
   patterns: RegExp[];
   /** Tool names that, if present in the same turn, prove the claim. */
   requiredTools: string[];
+  /**
+   * Tools that count as evidence ONLY when the PR they were called against is
+   * the PR the claim names (mt#3864, PR #3096 R1).
+   *
+   * `requiredTools` is name-matched with no identity correlation, which is
+   * tolerable for tools that PERFORM the outcome — an agent rarely merges a PR
+   * it is not talking about, and those calls are rare and deliberate. It is NOT
+   * tolerable for READ tools: agents read PRs constantly, so accepting any read
+   * anywhere in the window would let a read of PR #100 silence a false "PR #200
+   * merged". The reviewer caught exactly that.
+   *
+   * A tool listed here suppresses only when the claim names a PR number AND
+   * that number appears in the tool call's input. **When the claim names no
+   * number, these tools do not suppress at all** — correlation is impossible,
+   * and for a suppressor the safe degrade direction is MORE fires, never fewer
+   * (ADR-024's fail-to-Rung-1 invariant).
+   */
+  identityScopedTools?: string[];
   /** Human-readable description of the tool the claim needed. */
   expectedTool: string;
+}
+
+/** The PR number a claim names, or null when it names none. */
+export function extractClaimedPrNumber(phrase: string): number | null {
+  const m = /\bPR\s*#?(\d+)/i.exec(phrase);
+  if (m?.[1] === undefined) return null;
+  const n = Number.parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * PR-number input keys read from the `identityScopedTools`' own inputs.
+ *
+ * Deliberately NOT generic (PR #3096 R4). This list held `"number"` and `"pr"`
+ * as forward-compat catches, and a generic key is the wrong risk to take here:
+ * a spurious match manufactures identity evidence, which SUPPRESSES a fire —
+ * the unsafe degrade under ADR-024's fail-to-Rung-1 invariant, and one that
+ * leaves no trace, since a suppressed claim is one the operator never sees.
+ *
+ * Audited against the tools that can reach this: `pull_request_read` takes
+ * `pullNumber`, and `session_pr_get` resolves by `task`/`sessionId` and carries
+ * no PR number at all. Neither has ever had a `number` or `pr` key. Measured,
+ * not assumed — replaying the 2026-08-13→18 corpus with and without the two
+ * generic keys produces identical tallies (1 identity-backed either way), so
+ * they contributed no evidence and only the hazard.
+ *
+ * A new identity-scoped tool whose input keys its PR number differently must
+ * add that key here deliberately; the missing-key failure is a fire, which is
+ * the safe direction.
+ */
+const PR_NUMBER_INPUT_KEYS = ["pullNumber", "prNumber"];
+
+/**
+ * Every tool any category treats as identity-scoped. Derived from
+ * `OUTCOME_CATEGORIES` rather than restated, so adding one to a category cannot
+ * leave the evidence-gathering side behind.
+ */
+export function identityScopedToolNames(): string[] {
+  return [...new Set(OUTCOME_CATEGORIES.flatMap((c) => c.identityScopedTools ?? []))];
+}
+
+/**
+ * PR numbers referenced by the given tools' inputs within `lines`.
+ *
+ * Deliberately reads only the numeric identity keys — a tool input can be
+ * large, and the only field this correlation needs is which PR was addressed.
+ */
+export function extractPrNumbersForTools(
+  lines: TranscriptLine[],
+  toolNames: readonly string[]
+): Set<number> {
+  const numbers = new Set<number>();
+  for (const toolName of toolNames) {
+    for (const input of findToolUseInputs(lines, toolName)) {
+      for (const key of PR_NUMBER_INPUT_KEYS) {
+        const raw = input[key];
+        const n =
+          typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(raw, 10) : NaN;
+        if (Number.isFinite(n)) numbers.add(n);
+      }
+    }
+  }
+  return numbers;
 }
 
 export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
@@ -170,7 +302,30 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
       "mcp__github__merge_pull_request",
       "merge_pull_request",
     ],
-    expectedTool: "session_pr_merge / merge_pull_request",
+    // mt#3864: READING a specific PR's state is evidence for a claim about that
+    // PR's state — the agent need not have performed the merge to know it
+    // happened. Measured, not assumed: both `merged` false positives in the
+    // 2026-08-13→18 window ("PR #3033 merged", "PR #3064 merged") had these in
+    // window and no merge tool, because another actor did the merge and the
+    // agent verified it by reading. See §MEASURED CAUSE (Cause A).
+    //
+    // IDENTITY-SCOPED, not plain required (PR #3096 R1): these suppress only
+    // when the PR read is the PR claimed. A bare name match would let a read of
+    // any PR silence a false claim about a different one, and reads are common
+    // enough that this would be the usual case rather than a corner.
+    //
+    // Deliberately NOT the list-shaped tools (`list_pull_requests`,
+    // `session_pr_list`), which were also in window: a listing does not
+    // establish any PARTICULAR PR's state, so accepting it as evidence would
+    // widen toward silence rather than toward accuracy — the ADR-024 §Context
+    // arms race this task exists to avoid.
+    identityScopedTools: [
+      "mcp__github__pull_request_read",
+      "pull_request_read",
+      "mcp__minsky__session_pr_get",
+      "session_pr_get",
+    ],
+    expectedTool: "session_pr_merge / merge_pull_request (or a read of the same PR)",
   },
   {
     key: "build-test",
@@ -217,14 +372,22 @@ export interface ClaimMatch {
 /**
  * Reason strings for this detector's suppression gate (mt#3207).
  *
- * The gate is one condition — the category's `requiredTools` appear — but it
- * has two sources with different FP profiles, so they get different reasons:
- * a same-turn tool call is proof the claim was backed as it was written, while
- * a trailing-window hit (mt#2671) is the weaker back-reference inference. A
- * calibration reviewer needs to tell them apart from the record alone.
+ * The gate has sources with different FP profiles, so they get different
+ * reasons: a same-turn tool call is proof the claim was backed as it was
+ * written, while a trailing-window hit (mt#2671) is the weaker back-reference
+ * inference. A calibration reviewer needs to tell them apart from the record
+ * alone.
+ *
+ * PR #3096 R3 (non-blocking) added the third. Identity-scoped suppression is a
+ * DIFFERENT condition from the other two — not `requiredTools` presence but a
+ * read of the PR the claim NAMES — and recording it as `window-tool-call` made
+ * the two indistinguishable in the log, which is the thing this docblock says
+ * must not happen. Its FP profile is its own: it is the only source that can be
+ * defeated by a claim naming the wrong number.
  */
 export const SUPPRESSION_SAME_TURN_TOOL_CALL = "same-turn-tool-call";
 export const SUPPRESSION_WINDOW_TOOL_CALL = "window-tool-call";
+export const SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL = "identity-scoped-tool-call";
 
 /** A claim that matched its category's patterns but was backed by a real tool call. */
 export interface SuppressedClaimMatch extends ClaimMatch {
@@ -294,10 +457,7 @@ export const MATCHED_PHRASE_MAX_CHARS = 200;
  * ran in a recent prior turn is a legitimate back-reference, not
  * pre-narration.
  */
-export function extractWindowToolUseNames(
-  lines: TranscriptLine[],
-  windowTurns: number
-): Set<string> {
+export function windowSlice(lines: TranscriptLine[], windowTurns: number): TranscriptLine[] {
   let boundaries = 0;
   let start = 0;
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -310,7 +470,44 @@ export function extractWindowToolUseNames(
       }
     }
   }
-  return new Set(extractToolUseNames(lines.slice(start)));
+  return lines.slice(start);
+}
+
+export function extractWindowToolUseNames(
+  lines: TranscriptLine[],
+  windowTurns: number
+): Set<string> {
+  return new Set(extractToolUseNames(windowSlice(lines, windowTurns)));
+}
+
+/**
+ * PR numbers each category's `identityScopedTools` were called against, WITHIN
+ * the same window the tool-name set covers (PR #3096 R2).
+ *
+ * Both halves of identity-scoped suppression must share one scope. The first
+ * version gathered PR numbers over the WHOLE transcript while gating on a
+ * scoped tool having run in-window — two different scopes, which let an old
+ * read of the claimed PR combine with an unrelated recent read to suppress.
+ * The reviewer caught it; deriving the numbers from `windowSlice` is what makes
+ * the two conditions one condition.
+ *
+ * Keyed BY CATEGORY so a scoped tool declared on one category cannot back a
+ * claim in another. Only `merged` declares any today, so this is a latent
+ * distinction rather than a live one — encoded now because the union form is
+ * indistinguishable from correct until a second category exists.
+ */
+export function buildIdentityEvidence(
+  lines: TranscriptLine[],
+  windowTurns: number
+): Map<string, ReadonlySet<number>> {
+  const slice = windowSlice(lines, windowTurns);
+  const byCategory = new Map<string, ReadonlySet<number>>();
+  for (const category of OUTCOME_CATEGORIES) {
+    const scoped = category.identityScopedTools ?? [];
+    if (scoped.length === 0) continue;
+    byCategory.set(category.key, extractPrNumbersForTools(slice, scoped));
+  }
+  return byCategory;
 }
 
 /**
@@ -332,9 +529,10 @@ export function extractWindowToolUseNames(
  */
 export function detectPreNarration(
   turnLines: TranscriptLine[],
-  windowToolNames?: ReadonlySet<string>
+  windowToolNames?: ReadonlySet<string>,
+  evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>
 ): ClaimMatch[] {
-  return detectPreNarrationWithSuppression(turnLines, windowToolNames).matches;
+  return detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers).matches;
 }
 
 /**
@@ -348,12 +546,22 @@ export function detectPreNarration(
  */
 export function detectPreNarrationWithSuppression(
   turnLines: TranscriptLine[],
-  windowToolNames?: ReadonlySet<string>
+  windowToolNames?: ReadonlySet<string>,
+  /**
+   * Per-category PR numbers the `identityScopedTools` were called against,
+   * within the SAME window `windowToolNames` covers. Build it with
+   * `buildIdentityEvidence`. Omitting it disables identity-scoped suppression
+   * entirely — the safe direction for a suppressor.
+   */
+  evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>
 ): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
   if (!rawText) return { matches: [], suppressed: [] };
 
-  const text = elideMarkdownContexts(rawText);
+  // Double-quoted prose elided AFTER the markdown pass (mt#3864 class 6), so
+  // quotes inside a code span are already blanked and cannot confuse pairing —
+  // the same ordering `elideQuotedAndCodeContexts` uses.
+  const text = elideDoubleQuotedSpans(elideMarkdownContexts(rawText));
   const toolNames = new Set(extractToolUseNames(turnLines));
 
   const matches: ClaimMatch[] = [];
@@ -380,10 +588,33 @@ export function detectPreNarrationWithSuppression(
     // (mt#2671). Same-turn wins when both hold: it is the stronger evidence.
     const sameTurn = category.requiredTools.some((t) => toolNames.has(t));
     const inWindow = category.requiredTools.some((t) => windowToolNames?.has(t) ?? false);
-    if (sameTurn || inWindow) {
+
+    // Identity-scoped evidence (PR #3096 R1/R2): a READ, in the window, OF THE
+    // PR the claim names. ONE condition in ONE scope — R2 flagged that the
+    // earlier form gated on "a scoped tool ran in-window" while sourcing PR
+    // numbers from the whole transcript, so an old read of the claimed PR could
+    // ride in on an unrelated recent one. `buildIdentityEvidence` derives the
+    // numbers from the same `windowSlice`, which collapses the two into one.
+    //
+    // A claim naming no PR number is never identity-backed and deliberately
+    // falls through to firing.
+    const claimedPr = extractClaimedPrNumber(matched.matchedPhrase);
+    const identityBacked =
+      claimedPr !== null && (evidencePrNumbers?.get(category.key)?.has(claimedPr) ?? false);
+
+    if (sameTurn || inWindow || identityBacked) {
+      // Ordered by strength of evidence, so the recorded reason names the
+      // source that actually carried the suppression: a same-turn call is the
+      // strongest, and identity-scoped is only reached when NO `requiredTools`
+      // call was present at all — which is precisely the case a calibration
+      // reviewer needs to see distinctly (PR #3096 R3).
       suppressed.push({
         ...matched,
-        reason: sameTurn ? SUPPRESSION_SAME_TURN_TOOL_CALL : SUPPRESSION_WINDOW_TOOL_CALL,
+        reason: sameTurn
+          ? SUPPRESSION_SAME_TURN_TOOL_CALL
+          : inWindow
+            ? SUPPRESSION_WINDOW_TOOL_CALL
+            : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
       });
       continue;
     }
@@ -422,6 +653,10 @@ export function buildPreNarrationRecord(
   return {
     timestamp: new Date().toISOString(),
     session_id: sessionId,
+    // mt#4286: mirrors `ask-routing-deferral-detector.ts`. Without it a reviewer
+    // cannot tell a quiet window from a live one, and every record in the log
+    // predating the mt#4286 flip looks identical to one written after it.
+    injection_enabled: INJECTION_ENABLED,
     // mt#3607: this surface has captured its judged input since mt#3198; the
     // marker says so explicitly, so a corpus-wide auditability check reads the
     // same field everywhere instead of special-casing the surfaces that shipped
@@ -509,6 +744,41 @@ function buildReminder(matches: ClaimMatch[]): string {
   ].join("\n");
 }
 
+/**
+ * The largest `additionalContext` this guard could emit, for
+ * `guard-feedback-shape.test.ts`'s size-ceiling check (mt#4002 pattern).
+ *
+ * Required because mt#4286 quieted this guard: a guard that renders nothing on
+ * the live path has its declared ceiling enforced against the empty string,
+ * which is the blind spot mt#4002 found on five guards at once (declared
+ * 400-1650, all measuring 0, five of six understated by up to 3.6x).
+ *
+ * **This is a proved CEILING, not a saturated sample** — unlike its siblings on
+ * `causal-premise` and `operator-deferral`, whose count axes are unbounded.
+ * `detectPreNarrationWithSuppression` emits at most ONE match per category
+ * ("one match per category is enough"), so the count axis is bounded by
+ * `OUTCOME_CATEGORIES.length`, and each phrase is capped at
+ * `MATCHED_PHRASE_MAX_CHARS` by `safeTruncate`. `context` is recorded but never
+ * rendered here, so it does not enter the bound. Both axes are therefore posed
+ * at their true maxima below.
+ *
+ * Measured at 1753 chars when this shipped, against a declared 650 — that 650
+ * came from the ONE-match canary (581 chars), which is not this guard's worst
+ * case. Adding a category or raising the phrase cap moves this; the test reads
+ * the render rather than a literal, so it re-derives itself.
+ */
+export function renderWorstCase(): string {
+  const phrase = "x".repeat(MATCHED_PHRASE_MAX_CHARS);
+  return buildReminder(
+    OUTCOME_CATEGORIES.map((category) => ({
+      category: category.key,
+      matchedPhrase: phrase,
+      expectedTool: category.expectedTool,
+      context: "",
+    }))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
 // ---------------------------------------------------------------------------
@@ -547,7 +817,8 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
     // per the guard-module contract (mt#2637) — never re-derived.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
+    const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
     process.stderr.write(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -562,7 +833,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const outcome: GuardOutcome = {
     calibration: buildPreNarrationRecord(input.session_id, detection),
   };
-  if (detection.matches.length > 0) {
+  if (INJECTION_ENABLED && detection.matches.length > 0) {
     outcome.additionalContext = buildReminder(detection.matches);
   }
   return outcome;
@@ -627,7 +898,8 @@ export async function main(): Promise<void> {
     // Cross-turn suppression (mt#2671): scan the trailing window for backing
     // tool calls so legitimate back-references don't fire.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
+    const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
     console.error(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -642,7 +914,9 @@ export async function main(): Promise<void> {
   appendCalibrationRecord(input.cwd, buildPreNarrationRecord(input.session_id, detection));
 
   // mt#3207: suppressed-only passes record but never inject (mirrors `run()`).
-  if (detection.matches.length === 0) {
+  // mt#4286: and while the posture is log-only, NO pass injects — the record
+  // above is written either way, which is the whole point of the quieting.
+  if (!INJECTION_ENABLED || detection.matches.length === 0) {
     process.exit(0);
   }
 

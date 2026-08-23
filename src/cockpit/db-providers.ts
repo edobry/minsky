@@ -41,6 +41,9 @@ import {
   describePersistenceUnavailability,
   PersistenceUnavailableError,
 } from "@minsky/domain/persistence/unconfigured-provider";
+// Canonical unknown→string coercion (PR #3220 R1). Static like its neighbours:
+// this is a pure function with no runtime weight to defer.
+import { getErrorMessage } from "@minsky/domain/schemas/error";
 import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
@@ -171,14 +174,68 @@ export function classifyDriverConnectionError(err: unknown): string | undefined 
  * configured-but-failed case, because it describes the SAME state — the two
  * differ only in whether the bootstrap handed back a placeholder or threw.
  */
+/**
+ * Coerce a rejection into something an operator can read (PR #3220 R1).
+ *
+ * The old fallback was a bare `String(err)`, which renders `[object Object]`
+ * for a plain-object rejection — and this whole function exists to surface a
+ * cause, so losing it here defeats the point. Not hypothetical on this path:
+ * `getSharedPersistenceService` races a timeout and PROPAGATES whatever the
+ * init rejected with, which is not guaranteed to be an `Error` subclass.
+ *
+ * `getErrorMessage` is the repo's canonical coercion and handles `Error` and
+ * `{ message }` shapes, but its own last resort is `String(error)` — so the
+ * object case still needs catching after it.
+ */
+function describeRejection(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+
+  const viaMessage = getErrorMessage(err);
+  if (viaMessage !== "[object Object]") return viaMessage;
+
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    // intentional-swallow: a circular or non-serializable rejection has no
+    // better rendering available, and a diagnosis step must never replace the
+    // failure it was called to describe (this module's stated contract).
+    return String(err);
+  }
+}
+
 export function describeFailedPersistenceInit(err: unknown): string {
-  const reason =
-    classifyDriverConnectionError(err) ?? (err instanceof Error ? err.message : String(err));
+  const reason = classifyDriverConnectionError(err) ?? describeRejection(err);
+  // mt#4383: kept in lockstep with `describePersistenceUnavailability`, per the
+  // mt#3661 test that asserts the two share wording — an operator must not get
+  // different advice from the cockpit than from the MCP adapters. mt#4379
+  // corrected a THIRD renderer of this same state (the task-backend message)
+  // and did not reach either of these two; aligning all three is the point of
+  // mt#4383.
+  //
+  // Two clauses are gone and neither depended on tense:
+  //
+  //  - "`minsky persistence check` reports the same failure" asserted a parity
+  //    nothing verified. It is not merely unverified but backwards: that
+  //    command probes the LIVE connection while this reports one failed
+  //    attempt, so they are EXPECTED to disagree once the outage clears —
+  //    which is precisely how two agent sessions lost their first diagnostic
+  //    minutes to a database that was already healthy.
+  //  - "restart once the database is reachable" is no longer the remedy;
+  //    mt#4379 made the container re-register dependents on recovery.
+  //
+  // This path DOES keep the present tense its sibling drops, and the asymmetry
+  // is deliberate rather than an oversight: `getSharedPersistenceService`
+  // PROPAGATES a failed init instead of substituting a provider, so the error
+  // arrives here as a live throw from the attempt just made (see
+  // `describeServerPersistenceUnavailability` above). There is no stored
+  // boot-time record being replayed, which is the thing that made the sibling's
+  // present tense a lie.
   return (
     `Postgres IS configured, but persistence failed to initialize: ${reason}. ` +
-    "The database is unreachable — this is a degraded provider, not a missing " +
-    "configuration. Check the boot logs and restart once the database is " +
-    "reachable; `minsky persistence check` reports the same failure."
+    "This is a degraded provider, not a missing configuration. Note `minsky " +
+    "persistence check` may well PASS while this fails: it probes the live " +
+    "connection, whereas this reports the initialization attempt that just failed."
   );
 }
 

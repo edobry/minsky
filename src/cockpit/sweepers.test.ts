@@ -11,6 +11,7 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import {
   createIntervalSweeper,
+  registerSelfSchedulingSweep,
   getSweepLivenessSnapshot,
   startSweepMetaWatchdog,
   _simulateDroppedTimerForTest,
@@ -40,6 +41,7 @@ describe("createIntervalSweeper", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {
@@ -66,6 +68,7 @@ describe("createIntervalSweeper", () => {
       tick: async () => {
         ingestCount++;
         await gate; // Block indefinitely until the test resolves it.
+        return { ok: true };
       },
     });
 
@@ -98,9 +101,10 @@ describe("createIntervalSweeper", () => {
         if (callCount === 1) {
           // First call hangs forever — simulates mt#2625's hung DB call.
           await neverResolves;
-          return;
+          return { ok: true };
         }
         // Every subsequent call resolves immediately.
+        return { ok: true };
       },
     });
 
@@ -134,14 +138,112 @@ describe("createIntervalSweeper", () => {
         callCount++;
         if (callCount === 1) {
           await neverResolves;
-          return;
+          return { ok: true };
         }
+        return { ok: true };
       },
     });
 
     try {
       await waitFor(() => callCount >= 2, 2000);
       expect(callCount).toBeGreaterThanOrEqual(2);
+    } finally {
+      stop();
+    }
+  });
+
+  // ── mt#4335: an abandoned tick must not run CONCURRENTLY with its successor ──
+  //
+  // The defect this pins is not "the guard is never released" (mt#2625 above
+  // covers that) — it is the opposite. On timeout the guard was released while
+  // the abandoned tick was STILL RUNNING, so the next tick started beside it.
+  // Each overlapping tick opens its own database connection, and the abandoned
+  // one is never cancelled, so a persistently-slow tick leaks roughly one
+  // connection per cycle. Measured 2026-08-19: 16 backends in
+  // `state='active', wait_event='ClientRead'`, opened in a single ~40s burst.
+  //
+  // The observable here is CONCURRENCY, which is the framework-level cause;
+  // the stranded connection is its consequence one layer down. Asserting on
+  // concurrency keeps the test deterministic and free of a live Postgres.
+  test("an overrunning tick is not run concurrently with the next tick (mt#4335)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let starts = 0;
+
+    // Timings matter here and are chosen against the two deadlines, not picked
+    // round. The first tick must overrun `tickTimeoutMs` (so it IS abandoned)
+    // while settling comfortably before
+    // `tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER` (so the
+    // watchdog's ceiling does NOT fire and this test exercises the settle path
+    // rather than the force-release path). 50 / 100 / 150 gives 50ms of margin
+    // on both sides.
+    const TICK_TIMEOUT_MS = 50;
+    const FIRST_TICK_MS = 100; // > timeout, < 150ms ceiling
+    const stop = createIntervalSweeper({
+      name: "test-abandoned-no-overlap",
+      intervalMs: 20,
+      tickTimeoutMs: TICK_TIMEOUT_MS,
+      tick: async () => {
+        starts++;
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        try {
+          if (starts === 1) await new Promise((r) => setTimeout(r, FIRST_TICK_MS));
+        } finally {
+          inFlight--;
+        }
+        return { ok: true };
+      },
+    });
+
+    try {
+      // Wait past the first tick's settle plus several further intervals, so a
+      // regression has ample opportunity to start a second tick alongside it.
+      await waitFor(() => starts >= 2, 2000);
+      await new Promise((r) => setTimeout(r, 60));
+      expect(maxInFlight).toBe(1);
+      // The abandonment DID happen — otherwise this test would also pass on a
+      // build where the tick simply never overran, proving nothing (mem#704).
+      const snap = getSweepLivenessSnapshot().find((s) => s.name === "test-abandoned-no-overlap");
+      expect(snap?.abandonedTicks).toBeGreaterThanOrEqual(1);
+      // It settled on its own, so nothing is left outstanding and the ceiling
+      // never had to fire.
+      expect(snap?.abandonedTicksOutstanding).toBe(0);
+      expect(snap?.abandonedTickHardReleases).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("an abandoned tick that NEVER settles is still force-released at the ceiling (mt#4335 keeps mt#2625)", async () => {
+    // The complement of the test above, and the reason the ceiling exists:
+    // holding the guard until settle would starve the sweep forever if the
+    // tick never settles, which is precisely the mt#2625 bug. The ceiling
+    // bounds the wait instead of removing it.
+    let starts = 0;
+    const neverResolves = new Promise<void>(() => {
+      /* deliberately never settles */
+    });
+
+    const stop = createIntervalSweeper({
+      name: "test-abandoned-hard-release",
+      intervalMs: 10,
+      tickTimeoutMs: 20, // ceiling = 60ms
+      tick: async () => {
+        starts++;
+        if (starts === 1) await neverResolves;
+        return { ok: true };
+      },
+    });
+
+    try {
+      await waitFor(() => starts >= 2, 2000);
+      expect(starts).toBeGreaterThanOrEqual(2);
+      const snap = getSweepLivenessSnapshot().find((s) => s.name === "test-abandoned-hard-release");
+      // The distinguishing counter: this one never settled, so it was released
+      // by the ceiling rather than by its own completion.
+      expect(snap?.abandonedTickHardReleases).toBeGreaterThanOrEqual(1);
+      expect(snap?.abandonedTicksOutstanding).toBeGreaterThanOrEqual(1);
     } finally {
       stop();
     }
@@ -158,6 +260,7 @@ describe("createIntervalSweeper", () => {
         if (callCount === 1) {
           throw new Error("unexpected failure");
         }
+        return { ok: true };
       },
     });
 
@@ -177,6 +280,7 @@ describe("createIntervalSweeper", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
 
@@ -200,6 +304,7 @@ describe("createIntervalSweeper", () => {
       intervalMs: 60_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {
@@ -223,7 +328,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-liveness-success",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     try {
       await waitFor(() => {
@@ -252,6 +357,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       tickTimeoutMs: 15,
       tick: async () => {
         await neverResolves;
+        return { ok: true };
       },
     });
     try {
@@ -280,6 +386,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
           await new Promise(() => {});
         }
         // Ticks after the threshold resolve immediately (success).
+        return { ok: true };
       },
     });
     try {
@@ -304,7 +411,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-liveness-deregister",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     await waitFor(() =>
       getSweepLivenessSnapshot().some((e) => e.name === "test-liveness-deregister")
@@ -330,6 +437,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
         // consecutiveFailures on schedule without this test needing to
         // orchestrate exact promise resolution timing.
         await new Promise<void>(() => {});
+        return { ok: true };
       },
     });
 
@@ -368,7 +476,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-duplicate-name",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     try {
       expect(() =>
@@ -376,7 +484,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
           name: "test-duplicate-name",
           intervalMs: 60_000,
           tickTimeoutMs: 5_000,
-          tick: async () => {},
+          tick: async () => ({ ok: true }),
         })
       ).toThrow(/duplicate active sweep registration/);
     } finally {
@@ -389,7 +497,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       name: "test-reuse-after-stop",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
-      tick: async () => {},
+      tick: async () => ({ ok: true }),
     });
     stopFirst();
 
@@ -400,6 +508,7 @@ describe("sweep-liveness registry (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         calls++;
+        return { ok: true };
       },
     });
     try {
@@ -426,6 +535,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     // Short meta-cadence for test speed; stall threshold is 2x intervalMs (15ms) = 30ms.
@@ -467,6 +577,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     const stopWatchdog = startSweepMetaWatchdog(20);
@@ -492,6 +603,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     await waitFor(() => callCount >= 1);
@@ -542,6 +654,7 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       tickTimeoutMs: 5_000,
       tick: async () => {
         callCount++;
+        return { ok: true };
       },
     });
     const stopWatchdog = startSweepMetaWatchdog(20); // stall threshold = 2 * 500ms = 1000ms
@@ -631,29 +744,87 @@ describe("sweep domain-outcome reporting (mt#3684)", () => {
     }
   });
 
-  test("negative control: the same tick reporting nothing leaves the failure invisible (AT2)", async () => {
-    // This is the pre-fix surface, and what an operator read for 13 hours.
+  test("a silent tick is no longer expressible — `void` fails to typecheck (AT2, mt#4412)", async () => {
+    // This test used to BE the pre-fix surface: it registered a tick that
+    // handled its own failure and said nothing, then asserted the resulting
+    // entry was indistinguishable from a healthy sweep on every field that
+    // existed — what an operator read for 13 hours.
+    //
+    // mt#4412 makes that case unrepresentable rather than merely discouraged,
+    // so the negative control moves from runtime to COMPILE time. The
+    // `@ts-expect-error` below IS the assertion: it fails the build if a
+    // void-returning tick ever becomes assignable again, which is the
+    // regression this task exists to prevent.
     const stop = createIntervalSweeper({
       name: "test-domain-silent",
       intervalMs: 60_000,
       tickTimeoutMs: 5_000,
+      // @ts-expect-error mt#4412 — a tick returning nothing is no longer
+      // assignable to `IntervalSweeperOptions.tick`. Removing the type change
+      // makes this directive unused and the build fails on it.
       tick: async () => {
         /* handled its own failure and said nothing — the old contract */
       },
     });
     try {
-      await waitFor(() => entryFor("test-domain-silent")?.lastSuccessAt != null);
+      // Paired runtime assertion so this exercises real behavior rather than
+      // resting on a type directive alone: the registrant still appears, and
+      // it DECLARES a domain outcome even though this particular (illegal)
+      // tick never reports one. Declaration is static; reporting is observed.
+      await waitFor(() => entryFor("test-domain-silent") != null);
       const entry = entryFor("test-domain-silent");
 
+      expect(entry?.declaresDomainOutcome).toBe(true);
       expect(entry?.reportsDomainOutcome).toBe(false);
-      expect(entry?.lastDomainFailureAt).toBeNull();
-      expect(entry?.lastDomainSuccessAt).toBeNull();
-      expect(entry?.consecutiveDomainFailures).toBe(0);
-      // Indistinguishable from a healthy sweep on every field that exists.
-      expect(entry?.lastSuccessAt).not.toBeNull();
-      expect(entry?.consecutiveFailures).toBe(0);
     } finally {
       stop();
+    }
+  });
+
+  test("EVERY registrant declares a domain outcome, by whichever path it joined (mt#4412)", async () => {
+    // The invariant is asserted over the REGISTRY, not per-sweep, because the
+    // defect this task closes was never in a member — it was in the
+    // enumeration. mem#1060: "when you fix a defect in one member of an
+    // enumeration, the class lives in the enumeration, not the member."
+    //
+    // Concretely, mt#4412's own spec originally scoped itself to
+    // `createIntervalSweeper` and would have left `registerSelfSchedulingSweep`
+    // — the OTHER way into this registry, and the one ADR-035's class-owner
+    // note names alongside it — still silent. Both paths are registered here so
+    // a future third path fails this test rather than quietly joining as the
+    // next silent registrant.
+    const stopInterval = createIntervalSweeper({
+      name: "test-invariant-interval",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => ({ ok: true }),
+    });
+    const selfHandle = registerSelfSchedulingSweep({
+      name: "test-invariant-self-scheduled",
+      progressBudgetMs: 60_000,
+      restart: () => {},
+    });
+
+    try {
+      const snapshot = getSweepLivenessSnapshot();
+
+      // Denominator first (mem#1079): without this the `every` below passes
+      // vacuously on an empty registry, which is precisely the shape of a
+      // green test that checks nothing.
+      expect(snapshot.length).toBeGreaterThanOrEqual(2);
+
+      // And both REGISTRATION PATHS are actually present — a non-empty
+      // snapshot containing two interval sweeps would satisfy the count while
+      // leaving the self-scheduled path untested, which is the gap this test
+      // exists to hold closed.
+      expect(snapshot.some((e) => e.selfScheduled)).toBe(true);
+      expect(snapshot.some((e) => !e.selfScheduled)).toBe(true);
+
+      const silent = snapshot.filter((e) => !e.declaresDomainOutcome).map((e) => e.name);
+      expect(silent).toEqual([]);
+    } finally {
+      stopInterval();
+      selfHandle.stop();
     }
   });
 
@@ -1007,5 +1178,381 @@ describe("runAskStateRefreshTick (mt#3744)", () => {
 
     expect(result).toEqual({ ok: true });
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("self-scheduling registrants (mt#4185)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  test("AT1: a registrant that stops reporting progress is flagged stalled and restarted", async () => {
+    let restarts = 0;
+    // Budget 15ms -> the meta-watchdog's stall threshold is 2x = 30ms, and it
+    // scans every 20ms. Same shape as the dropped-timer test above.
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-stall",
+      progressBudgetMs: 15,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      handle.noteProgress();
+
+      const first = getSweepLivenessSnapshot().find((e) => e.name === "test-self-scheduling-stall");
+      expect(first?.selfScheduled).toBe(true);
+      expect(first?.intervalMs).toBe(15);
+      expect(first?.lastAttemptAt).not.toBeNull();
+
+      // Report nothing further: `lastAttemptAt` stops advancing, which is the
+      // only signal the wedged poller gave off during the 44-hour incident.
+      await waitFor(() => restarts >= 1, 2000);
+
+      const after = getSweepLivenessSnapshot().find((e) => e.name === "test-self-scheduling-stall");
+      expect(after?.metaRestarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("AT3: a registrant reporting progress inside its budget is never restarted", async () => {
+    let restarts = 0;
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-healthy",
+      progressBudgetMs: 200,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(10);
+    // Report every 15ms against a 200ms budget (400ms threshold) — the ratio a
+    // healthy poller runs at, where a 25s long poll sits inside a 420s budget.
+    //
+    // Headroom widened from 60ms at PR #3065 R1: a NO-restart assertion whose
+    // margin is a small multiple of the reporting interval can fail on
+    // event-loop jitter rather than on the behaviour under test. Same class the
+    // reviewer flagged in that PR's AT2; fixed here too rather than only there.
+    const reporting = setInterval(() => handle.noteProgress(), 15);
+    try {
+      handle.noteProgress();
+      await new Promise((r) => setTimeout(r, 250));
+      expect(restarts).toBe(0);
+      const entry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-self-scheduling-healthy"
+      );
+      expect(entry?.metaRestarts).toBe(0);
+    } finally {
+      clearInterval(reporting);
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("a restart resets staleness itself, so one stall cannot become a restart storm", async () => {
+    // mt#3060's lesson applied to this seam: a restart that does not stamp
+    // progress is re-triggered on every subsequent scan, because nothing the
+    // watchdog reads has changed. Assert the counter stays near 1 while the
+    // participant reports nothing at all.
+    let restarts = 0;
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-no-storm",
+      progressBudgetMs: 40,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(5);
+    try {
+      handle.noteProgress();
+      await waitFor(() => restarts >= 1, 2000);
+      const afterFirst = restarts;
+      // 100ms at a 5ms scan cadence is ~20 scans. Without the stamp inside
+      // `restart`, every one of them would fire again.
+      await new Promise((r) => setTimeout(r, 100));
+      expect(restarts - afterFirst).toBeLessThanOrEqual(2);
+    } finally {
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("a failed cycle still counts as progress — erroring-but-alive is not wedged", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-failure",
+      progressBudgetMs: 1000,
+      restart: () => {},
+    });
+    try {
+      handle.noteFailure("telegram 502");
+      const entry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-self-scheduling-failure"
+      );
+      expect(entry?.consecutiveFailures).toBe(1);
+      expect(entry?.lastErrorAt).not.toBeNull();
+      // The distinction the meta-watchdog exists to draw: a loop that is
+      // failing is still cycling, so it must not be force-restarted.
+      expect(entry?.lastAttemptAt).not.toBeNull();
+    } finally {
+      handle.stop();
+    }
+  });
+
+  test("stop() removes the registrant from the public snapshot", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-stop",
+      progressBudgetMs: 1000,
+      restart: () => {},
+    });
+    handle.noteProgress();
+    expect(getSweepLivenessSnapshot().some((e) => e.name === "test-self-scheduling-stop")).toBe(
+      true
+    );
+    handle.stop();
+    expect(getSweepLivenessSnapshot().some((e) => e.name === "test-self-scheduling-stop")).toBe(
+      false
+    );
+  });
+
+  test("a duplicate ACTIVE registration throws rather than silently untracking the first", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-dupe",
+      progressBudgetMs: 1000,
+      restart: () => {},
+    });
+    try {
+      expect(() =>
+        registerSelfSchedulingSweep({
+          name: "test-self-scheduling-dupe",
+          progressBudgetMs: 1000,
+          restart: () => {},
+        })
+      ).toThrow(/duplicate active sweep registration/);
+    } finally {
+      handle.stop();
+    }
+  });
+
+  test("AT1: a registrant that reports NOTHING is flagged stalled, measured from registration", async () => {
+    // The first-cycle park (mt#4206): `noteProgress()` is never called, so
+    // `lastAttemptAtMs` stays null. Before this fix the meta-watchdog skipped
+    // the entry outright and it was permanently unevaluated.
+    let restarts = 0;
+    const handle = registerSelfSchedulingSweep({
+      name: "test-never-reported",
+      progressBudgetMs: 15,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      await waitFor(() => restarts >= 1, 2000);
+      expect(restarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("AT2: an interval sweep registered alongside is untouched while the self-scheduled one is restarted", async () => {
+    // The differential that makes AT1 safe: the SAME watchdog scan, in the same
+    // window, must restart the self-scheduling never-reporter and leave the
+    // interval sweep alone.
+    //
+    // Timing headroom is deliberate and load-bearing (PR #3065 R1). An earlier
+    // version gave the interval sweep a 15ms cadence — a 30ms stall threshold
+    // against a 20ms scan — which ordinary event-loop jitter can exceed, so the
+    // assertion could fail for reasons unrelated to the branch under test. At
+    // 1000ms the threshold is 2000ms and this test finishes in well under a
+    // second, so no amount of jitter can flip it.
+    //
+    // On what this does NOT cover, stated rather than implied: an interval
+    // sweep's `lastAttemptAtMs === null` window is not deterministically
+    // reachable from a test, because `createIntervalSweeper` registers the entry
+    // and schedules its boot tick in the same synchronous block — the stamp
+    // lands a microtask later. That unreachability is itself why skipping the
+    // null is safe on that path, and it is why this test asserts the observable
+    // differential rather than staging a null it cannot hold open.
+    let selfRestarts = 0;
+
+    const stopInterval = createIntervalSweeper({
+      name: "test-interval-not-flagged",
+      intervalMs: 1_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => ({ ok: true }),
+    });
+    const selfHandle = registerSelfSchedulingSweep({
+      name: "test-self-never-reports",
+      progressBudgetMs: 15,
+      restart: () => {
+        selfRestarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      await waitFor(() => selfRestarts >= 1, 2000);
+
+      const intervalEntry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-interval-not-flagged"
+      );
+      expect(selfRestarts).toBeGreaterThanOrEqual(1);
+      // Its boot tick stamped, so it is evaluated on the normal path and is
+      // comfortably inside its own threshold.
+      expect(intervalEntry?.lastAttemptAt).not.toBeNull();
+      expect(intervalEntry?.metaRestarts).toBe(0);
+    } finally {
+      stopWatchdog();
+      selfHandle.stop();
+      stopInterval();
+    }
+  });
+
+  test("AT3: the snapshot distinguishes never-reported from stale-reported", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-registered-at",
+      progressBudgetMs: 60_000,
+      restart: () => {},
+    });
+    try {
+      const before = getSweepLivenessSnapshot().find((e) => e.name === "test-registered-at");
+      // Never reported: a DATEABLE registration plus a null progress stamp —
+      // not a bare null a reader has to interpret.
+      expect(before?.registeredAt).toBeTruthy();
+      expect(Number.isNaN(Date.parse(before?.registeredAt ?? ""))).toBe(false);
+      expect(before?.lastAttemptAt).toBeNull();
+
+      handle.noteProgress();
+      const after = getSweepLivenessSnapshot().find((e) => e.name === "test-registered-at");
+      // Reported: both fields present, so the two states are distinguishable
+      // without inferring anything from a null.
+      expect(after?.lastAttemptAt).not.toBeNull();
+      expect(after?.registeredAt).toBe(before?.registeredAt as string);
+    } finally {
+      handle.stop();
+    }
+  });
+
+  test("an interval sweep is reported as NOT self-scheduled, so intervalMs still reads as a cadence", async () => {
+    const stop = createIntervalSweeper({
+      name: "test-self-scheduling-discriminator",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => ({ ok: true }),
+    });
+    try {
+      await waitFor(() =>
+        getSweepLivenessSnapshot().some((e) => e.name === "test-self-scheduling-discriminator")
+      );
+      const entry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-self-scheduling-discriminator"
+      );
+      expect(entry?.selfScheduled).toBe(false);
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe("domain-failure backoff (mt#4294)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  test("a persistently failing tick runs FEWER times than an identical one without backoff", async () => {
+    // Controlled comparison rather than an absolute count: both sweepers fail
+    // every tick at the same cadence in the same window, so the only
+    // difference is the backoff. Asserting an exact tick count against
+    // wall-clock would be flaky on a loaded machine; a relative comparison is
+    // not.
+    let withBackoff = 0;
+    let withoutBackoff = 0;
+
+    const stopA = createIntervalSweeper({
+      name: "test-backoff-on",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 4 },
+      tick: async () => {
+        withBackoff++;
+        return { ok: false };
+      },
+    });
+    const stopB = createIntervalSweeper({
+      name: "test-backoff-off",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        withoutBackoff++;
+        return { ok: false };
+      },
+    });
+
+    try {
+      await waitFor(() => withoutBackoff >= 12, 3000);
+      expect(withBackoff).toBeLessThan(withoutBackoff);
+      // ...and it must still be PROBING. A backoff that stops entirely never
+      // discovers the dependency recovered, which is the failure mode the
+      // maxSkippedTicks clamp exists to prevent.
+      expect(withBackoff).toBeGreaterThanOrEqual(2);
+    } finally {
+      stopA();
+      stopB();
+    }
+  });
+
+  test("does not skip anything while ticks keep succeeding", async () => {
+    // The negative control for the test above: same option, same cadence,
+    // only the outcome differs. If this one also skipped, the comparison above
+    // would prove nothing about failure being the trigger.
+    let calls = 0;
+    const stop = createIntervalSweeper({
+      name: "test-backoff-healthy",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 4 },
+      tick: async () => {
+        calls++;
+        return { ok: true };
+      },
+    });
+    try {
+      await waitFor(() => calls >= 10, 3000);
+      expect(calls).toBeGreaterThanOrEqual(10);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a recovery clears the backoff, so the next tick is not skipped", async () => {
+    let calls = 0;
+    let failUntilCall = 4;
+    const callsAtRecovery: number[] = [];
+
+    const stop = createIntervalSweeper({
+      name: "test-backoff-recovers",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 4 },
+      tick: async () => {
+        calls++;
+        if (calls <= failUntilCall) return { ok: false };
+        callsAtRecovery.push(calls);
+        return { ok: true };
+      },
+    });
+
+    try {
+      // Once healthy again, ticks should resume at full cadence — several
+      // successes should land quickly rather than trickling in behind an
+      // outstanding skip budget.
+      await waitFor(() => callsAtRecovery.length >= 5, 3000);
+      expect(callsAtRecovery.length).toBeGreaterThanOrEqual(5);
+    } finally {
+      failUntilCall = 0;
+      stop();
+    }
   });
 });

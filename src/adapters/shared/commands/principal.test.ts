@@ -7,22 +7,26 @@
  * this file's `beforeEach` re-registration can never collide with another
  * test file's registration of the same command id.
  *
- * Credential injection (mt#3557). `registerPrincipalCommands` takes a
- * `channelDeps` seam. It exists because a test asserting the "not configured"
- * branch must be able to GUARANTEE that branch, and previously could not:
- * `resolvePrincipalChannel` reads the real environment, and when that is empty
- * it falls through to spawning the `pulumi` CLI. On any machine with Pulumi
- * config the resolution therefore SUCCEEDED and the command sent over the real
- * global `fetch` — three tests in the outer describe below were delivering
- * live Telegram messages to the principal on every full-suite run, and the two
- * that assert `delivered: false` failed with `delivered: true`. In CI, with no
- * route to Telegram, the same tests instead hung to the 15s timeout, which is
- * why they were first misfiled as a load-dependent flake (mt#3557).
+ * Credential injection (mt#3557, made mandatory by mt#3609).
+ * `registerPrincipalCommands` takes a REQUIRED `channelDeps` parameter. It
+ * exists because a test asserting the "not configured" branch must be able to
+ * GUARANTEE that branch, and once could not: `resolvePrincipalChannel` read
+ * the real environment, and when that was empty it fell through to spawning
+ * the `pulumi` CLI. On any machine with Pulumi config the resolution therefore
+ * SUCCEEDED and the command sent over the real global `fetch` — three tests in
+ * the outer describe below were delivering live Telegram messages to the
+ * principal on every full-suite run, and the two that assert
+ * `delivered: false` failed with `delivered: true`. In CI, with no route to
+ * Telegram, the same tests instead hung to the 15s timeout, which is why they
+ * were first misfiled as a load-dependent flake (mt#3557).
  *
  * The outer describe registers with `FORCE_NOT_CONFIGURED` so that branch is
  * reachable deterministically and no test can reach the network. The inner
- * "credentials resolvable" describe re-registers WITHOUT it, because that block
- * supplies its own credentials via env and stubs `globalThis.fetch`.
+ * "credentials resolvable" describe registers its own deps instead — a
+ * `readEnv` over the `process.env` it populates, explicitly-stubbed Pulumi
+ * readers, and a `fetchFn` delegating to the `globalThis.fetch` it stubs per
+ * test. Before mt#3609 that block passed NO deps and relied on the real
+ * readers, avoiding `pulumi` only by the accident that env wins when set.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -77,13 +81,18 @@ const FORCE_NOT_CONFIGURED: PrincipalChannelDeps = {
   readEnv: () => undefined,
   readPulumiToken: async () => null,
   readPulumiPlain: async () => null,
-  fetchFn: (() => {
+  now: Date.now,
+  // `async`, so this rejects rather than throwing synchronously — same reason
+  // as the sibling tripwire in principal-channel.test.ts (PR #3168 R1). The
+  // `as unknown as typeof fetch` cast is also gone: `fetchFn` is typed
+  // `FetchFn`, which this satisfies directly.
+  fetchFn: async () => {
     throw new Error(
       "principal.test.ts: fetch reached under FORCE_NOT_CONFIGURED — credential resolution " +
         "succeeded when it should not have. Do NOT relax this into a no-op stub; it is the " +
         "guard against re-introducing live Telegram sends from the test suite (mt#3557)."
     );
-  }) as unknown as typeof fetch,
+  },
 };
 
 describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
@@ -91,7 +100,7 @@ describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
 
   beforeEach(() => {
     registry = createSharedCommandRegistry();
-    registerPrincipalCommands(registry, FORCE_NOT_CONFIGURED);
+    registerPrincipalCommands(FORCE_NOT_CONFIGURED, registry);
     clearPrincipalChannelCache();
   });
 
@@ -154,12 +163,27 @@ describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
     const ORIGINAL_FETCH = globalThis.fetch;
 
     beforeEach(() => {
-      // Re-register WITHOUT FORCE_NOT_CONFIGURED: this block needs the real
-      // resolution path so the env credentials it sets below are the ones used.
-      // Safe because it supplies its own credentials (so the `pulumi` fallback
-      // is never reached) and stubs `globalThis.fetch` per test.
+      // This block needs env-based resolution to SUCCEED, so it injects a
+      // reader that reads the real `process.env` it populates below — rather
+      // than passing no deps at all, which is what it used to do.
+      //
+      // That old form is the defect mt#3609 fixes: "no deps" meant "fall
+      // through to the real readers", and the `pulumi` fallback was avoided
+      // only by the happy accident that env wins when it is set. The Pulumi
+      // readers are now stubbed EXPLICITLY, so this block cannot reach the
+      // `pulumi` CLI even if the env setup below were to fail. `fetchFn`
+      // delegates to `globalThis.fetch`, which each test in this block stubs.
       registry = createSharedCommandRegistry();
-      registerPrincipalCommands(registry);
+      registerPrincipalCommands(
+        {
+          readEnv: (name) => process.env[name],
+          readPulumiToken: async () => null,
+          readPulumiPlain: async () => null,
+          now: Date.now,
+          fetchFn: (url, init) => globalThis.fetch(url, init),
+        },
+        registry
+      );
       clearPrincipalChannelCache();
       process.env[TOKEN_ENV_KEY] = "test-token";
       process.env[CHAT_ENV_KEY] = "999";

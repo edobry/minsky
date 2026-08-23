@@ -91,6 +91,16 @@ describe("DI enforcement", () => {
       "HOSTED_SAFE_SESSION_COMMANDS",
       "KNOWN_TOP_LEVEL_KEYS",
       "HOOK_ONLY_ENV_VARS",
+      // mt#3882 — the `operator-override` slice of HOOK_ONLY_ENV_VAR_CATEGORIES.
+      // Same class as the entry above it.
+      //
+      // NOTE: this list duplicates `custom/no-domain-singleton`'s `allowedNames`
+      // in `eslint.config.js` by hand, and nothing checks the two agree — adding
+      // a constant there and not here fails only when this test runs. Left as-is
+      // rather than fixed here: it is the same defect class mt#3882 exists to
+      // retire, on a different pair of files, and folding it into this PR would
+      // widen a scope the gate already bounded.
+      "OPERATOR_OVERRIDE_ENV_VARS",
     ]);
 
     test("no export const x = new X() outside allowlist", () => {

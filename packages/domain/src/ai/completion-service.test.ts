@@ -212,3 +212,225 @@ describe("DefaultAICompletionService — temperature handling (mt#2733)", () => 
     });
   });
 });
+
+/**
+ * The forwarding contract (mt#4314).
+ *
+ * Scoped to the CONTRACT rather than to `maxTokens`, deliberately. The defect was not that
+ * one field was mistyped — it was that each of the three methods hand-assembles its own call
+ * options and nothing asserted a declared request field reaches the SDK. Two of the three
+ * forwarded `maxTokens`; `generateObject` did not, so two production callers' caps
+ * (`unasked-direction-analyzer` at 2000, `authorship-judge` at 500) had never once been
+ * applied. It typechecked, and there is no caller-visible signal of the actual value, so the
+ * only way to learn it was to read this file.
+ *
+ * Pinning `maxTokens` alone would leave the same shape in place for the next field, so these
+ * assert per-method that what the caller declares arrives — and that an UNSET field is
+ * omitted rather than forwarded as `undefined`, which is mt#2733's separate lesson.
+ */
+describe("DefaultAICompletionService — request-field forwarding contract (mt#4314)", () => {
+  const schema = z.object({ ok: z.boolean() });
+
+  it("complete() forwards the caller's call settings to generateText", async () => {
+    const generateText = fakeGenerateText();
+    const service = makeService({ generateText });
+
+    await service.complete({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      prompt: "hi",
+      temperature: 0.5,
+      maxTokens: 1234,
+    });
+
+    const callArgs = generateText.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArgs.temperature).toBe(0.5);
+    expect(callArgs.maxTokens).toBe(1234);
+  });
+
+  it("stream() forwards the caller's call settings to streamText", async () => {
+    const streamText = fakeStreamText();
+    const service = makeService({ streamText });
+
+    const iterator = service.stream({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      prompt: "hi",
+      temperature: 0.5,
+      maxTokens: 1234,
+    });
+    for await (const _chunk of iterator) {
+      // no-op — just draining so streamText is actually invoked
+    }
+
+    const callArgs = streamText.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArgs.temperature).toBe(0.5);
+    expect(callArgs.maxTokens).toBe(1234);
+  });
+
+  it("generateObject() forwards the caller's call settings — the field that was dropped", async () => {
+    const generateObject = fakeGenerateObject({ ok: true });
+    const service = makeService({ generateObject });
+
+    await service.generateObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+      temperature: 0.5,
+      maxTokens: 1234,
+    });
+
+    const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArgs.temperature).toBe(0.5);
+    expect(callArgs.maxTokens).toBe(1234);
+  });
+
+  it("generateObject() forwards mode when the caller sets one", async () => {
+    // mt#4317 added `mode` to select the structured-output strategy. It reaches the provider
+    // only through this spread, and NO production caller currently sets it — so nothing else
+    // in the codebase would notice if the forwarding silently stopped working. Same shape as
+    // the `maxTokens` defect this file already pins (PR #3200 R3).
+    const generateObject = fakeGenerateObject({ ok: true });
+    const service = makeService({ generateObject });
+
+    await service.generateObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+      mode: "tool",
+    });
+
+    const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArgs.mode).toBe("tool");
+  });
+
+  it("generateObject() omits mode when the caller did not set one, so the SDK still picks", async () => {
+    // The mt#2733 half again: forwarding `mode: undefined` would hand the SDK an explicit
+    // value where it expects absence, which is how a default silently stops being a default.
+    const generateObject = fakeGenerateObject({ ok: true });
+    const service = makeService({ generateObject });
+
+    await service.generateObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+    });
+
+    const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "mode")).toBe(false);
+  });
+
+  it("generateObject() omits maxTokens when the caller did not set one", async () => {
+    // The mt#2733 half: absent means absent, not `undefined` handed to the SDK.
+    const generateObject = fakeGenerateObject({ ok: true });
+    const service = makeService({ generateObject });
+
+    await service.generateObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+    });
+
+    const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "maxTokens")).toBe(false);
+  });
+
+  it("complete() omits maxTokens when the caller did not set one", async () => {
+    // PR #3156 R1: this path SET the key unconditionally, so an unset cap arrived as
+    // `maxTokens: undefined`. Fixing the omission on one method and leaving its siblings
+    // is the class-not-instance miss the reviewer caught.
+    const generateText = fakeGenerateText();
+    const service = makeService({ generateText });
+
+    await service.complete({ provider: "anthropic", model: "claude-sonnet-5", prompt: "hi" });
+
+    const callArgs = generateText.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "maxTokens")).toBe(false);
+  });
+
+  it("stream() omits maxTokens when the caller did not set one", async () => {
+    const streamText = fakeStreamText();
+    const service = makeService({ streamText });
+
+    for await (const _chunk of service.stream({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      prompt: "hi",
+    })) {
+      // draining
+    }
+
+    const callArgs = streamText.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "maxTokens")).toBe(false);
+  });
+
+  it("all three methods agree on omitting an unset maxTokens", async () => {
+    // The contract stated once over all three, so the next method cannot diverge quietly
+    // in EITHER direction — forwarding a set value, and omitting an unset one.
+    const generateText = fakeGenerateText();
+    const generateObject = fakeGenerateObject({ ok: true });
+    const streamText = fakeStreamText();
+    const service = makeService({ generateText, generateObject, streamText });
+
+    await service.complete({ provider: "anthropic", model: "m", prompt: "hi" });
+    await service.generateObject({
+      provider: "anthropic",
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+    });
+    for await (const _chunk of service.stream({
+      provider: "anthropic",
+      model: "m",
+      prompt: "hi",
+    })) {
+      // draining
+    }
+
+    const hasKey = [
+      generateText.mock.calls[0]?.[0],
+      generateObject.mock.calls[0]?.[0],
+      streamText.mock.calls[0]?.[0],
+    ].map((args) => Object.prototype.hasOwnProperty.call(args as object, "maxTokens"));
+
+    expect(hasKey).toEqual([false, false, false]);
+  });
+
+  it("every method that accepts maxTokens actually forwards it", async () => {
+    // The contract stated once, over all three, so adding a fourth method without
+    // forwarding is a failing test rather than a silent drop.
+    const generateText = fakeGenerateText();
+    const generateObject = fakeGenerateObject({ ok: true });
+    const streamText = fakeStreamText();
+    const service = makeService({ generateText, generateObject, streamText });
+
+    await service.complete({ provider: "anthropic", model: "m", prompt: "hi", maxTokens: 77 });
+    await service.generateObject({
+      provider: "anthropic",
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+      maxTokens: 77,
+    });
+    for await (const _chunk of service.stream({
+      provider: "anthropic",
+      model: "m",
+      prompt: "hi",
+      maxTokens: 77,
+    })) {
+      // draining
+    }
+
+    const forwarded = [
+      generateText.mock.calls[0]?.[0],
+      generateObject.mock.calls[0]?.[0],
+      streamText.mock.calls[0]?.[0],
+    ].map((args) => (args as Record<string, unknown>).maxTokens);
+
+    expect(forwarded).toEqual([77, 77, 77]);
+  });
+});

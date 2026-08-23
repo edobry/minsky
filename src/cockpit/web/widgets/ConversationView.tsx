@@ -46,7 +46,7 @@ import {
   type ReactNode,
   useCallback,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import type {
@@ -66,6 +66,7 @@ import { SupersededPromptMarker, supersededMarkerKey } from "../components/Super
 import {
   classifySnapshotError,
   fetchSnapshot,
+  mergeSnapshotPages,
   snapshotQueryKey,
   snapshotRetry,
 } from "../lib/conversation-snapshot";
@@ -268,8 +269,18 @@ function ConversationThread({
   turnTarget,
   filmPath,
   tail,
+  isLoadingOlder = false,
+  onLoadOlder,
 }: {
   snapshot: SessionContextSnapshot;
+  /**
+   * A fetch for an older page is in flight (mt#4263). Only the self-fetching
+   * host windows, so a caller passing a whole pre-fetched snapshot leaves both
+   * of these unset and the thread behaves exactly as it did before.
+   */
+  isLoadingOlder?: boolean;
+  /** Fetch the next older page. Absent when the host holds the whole transcript. */
+  onLoadOlder?: () => void;
   /** Host chrome pinned to the thread's bottom edge — see `ConversationViewCommonProps.tail`. */
   tail?: ReactNode;
   /** Film-tab path enabling the per-row "watch this moment" link (mt#3794). */
@@ -314,9 +325,31 @@ function ConversationThread({
     callNameByToolUseId,
     visibleTurns,
   } = useMemo(
-    () => buildConversationThread(allBlocks, snapshot.spawnChildrenByToolUseId),
-    [allBlocks, snapshot.spawnChildrenByToolUseId]
+    () =>
+      buildConversationThread(
+        allBlocks,
+        snapshot.spawnChildrenByToolUseId,
+        snapshot.toolNamesByUseId
+      ),
+    [allBlocks, snapshot.spawnChildrenByToolUseId, snapshot.toolNamesByUseId]
   );
+
+  /**
+   * Turns the server still holds beyond what has been fetched (mt#4263).
+   *
+   * `0` whenever the response carried no window — which is every caller that
+   * hands this component a whole pre-fetched snapshot, so nothing about those
+   * paths changes. Derived from the response rather than counted locally
+   * because `visibleTurns` is a count of RENDERABLE turns after rewind
+   * suppression, and the server's cursor is an index into the raw transcript;
+   * subtracting one from the other would produce a plausible wrong number.
+   */
+  // `nextBefore` is the count as well as the cursor: indices are zero-based, so
+  // a cursor of 2186 means turns 0..2185 are unfetched. Reading
+  // `oldestTurnIndex` here collapsed to 0 on a page that rendered nothing, and
+  // a 0 falls through to "Beginning of conversation" over real history —
+  // exactly the false picture this boundary exists to prevent (PR #3148 R1).
+  const unfetchedBefore = Math.max(0, snapshot.window?.nextBefore ?? 0);
 
   /**
    * Where the rendered window STARTS, as an index into `visibleTurns` — `null`
@@ -428,6 +461,26 @@ function ConversationThread({
     () => visibleTurns.slice(hiddenBefore, renderEnd),
     [visibleTurns, hiddenBefore, renderEnd]
   );
+
+  /**
+   * What the scroll listener needs to decide whether reaching the top should
+   * FETCH (mt#4263), held in a ref for the same reason `useThreadWindow` keeps
+   * its own window state in one: the listener below is keyed on its scrollport
+   * alone and must not re-bind every time a page arrives.
+   *
+   * Assigned during render and read only from the event handler, so nothing
+   * renders from it.
+   */
+  const loadOlderRef = useRef<{
+    hiddenBefore: number;
+    canLoad: boolean;
+    load: (() => void) | undefined;
+  }>({ hiddenBefore, canLoad: false, load: undefined });
+  loadOlderRef.current = {
+    hiddenBefore,
+    canLoad: unfetchedBefore > 0 && !isLoadingOlder,
+    load: onLoadOlder,
+  };
 
   // Merge call+result pairs within the rendered window (mt#2790), then drop
   // any turn that has nothing left to render (a pure-tool-result USER turn
@@ -547,7 +600,16 @@ function ConversationThread({
      */
     const onScroll = () => {
       sample();
-      if (didInitialScrollRef.current && isNearTop(scrollport)) revealOlder();
+      if (!didInitialScrollRef.current || !isNearTop(scrollport)) return;
+      revealOlder();
+      // Everything fetched is already mounted, and the server still holds
+      // history: the same gesture has to cross the FETCH boundary too, or
+      // scrolling to the top of a windowed conversation stops at a wall the
+      // reader has no way to see past. `revealOlder` above is a no-op in this
+      // state (it bails when the window cannot move back), so the two never
+      // both fire for one scroll frame.
+      const older = loadOlderRef.current;
+      if (older.hiddenBefore === 0 && older.canLoad) older.load?.();
     };
     sample();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
@@ -754,6 +816,9 @@ function ConversationThread({
         firstTurnAt={visibleTurns[0]?.timestamp}
         onRevealOlder={revealOlder}
         onRevealFromStart={revealFromStart}
+        unfetchedBefore={unfetchedBefore}
+        isLoadingOlder={isLoadingOlder}
+        onLoadOlder={onLoadOlder}
       />
       {buildTurnNodes({
         preparedTurns,
@@ -870,12 +935,51 @@ function ConversationFetcher({
   onNotFound?: () => void;
   className?: string;
 }) {
-  const query = useQuery<SessionContextSnapshot, Error>({
-    queryKey: snapshotQueryKey(sessionId),
-    queryFn: () => fetchSnapshot(sessionId),
+  /**
+   * The conversation is fetched a PAGE at a time (mt#4263).
+   *
+   * This host is the only snapshot consumer that renders a window rather than
+   * aggregating over every block, so it is the only one that asks for one. The
+   * other three keep calling `fetchSnapshot(sessionId)` with no window and keep
+   * receiving the whole transcript under the unchanged three-part query key.
+   *
+   * `INITIAL_TURNS` is reused as the page size rather than picking a second
+   * number: it is already what the render window mounts, so a page fetched is a
+   * page shown, and the two budgets cannot drift apart.
+   */
+  const windowParams = useMemo(() => ({ turns: INITIAL_TURNS }), []);
+  const query = useInfiniteQuery<SessionContextSnapshot, Error>({
+    queryKey: snapshotQueryKey(sessionId, windowParams),
+    queryFn: ({ pageParam }) =>
+      fetchSnapshot(sessionId, {
+        ...windowParams,
+        ...(typeof pageParam === "number" ? { before: pageParam } : {}),
+      }),
+    initialPageParam: undefined,
+    // The cursor is the oldest ORIGINAL turn index this page reached, which is
+    // exactly what the endpoint's `before` is exclusive of. `undefined` stops
+    // paging — TanStack's contract for "no next page" — and `hasMore` false is
+    // the server saying it has nothing older.
+    // `nextBefore`, NOT `oldestTurnIndex` — the latter describes what rendered
+    // and is null for a page of purely non-renderable entries, which would end
+    // paging while the server still reports history (PR #3148 R1).
+    getNextPageParam: (lastPage) => lastPage.window?.nextBefore ?? undefined,
     staleTime: 30_000,
     retry: snapshotRetry,
   });
+
+  /**
+   * The pages folded back into the one snapshot the thread consumes.
+   *
+   * Merging HERE rather than teaching the thread about pages keeps every other
+   * consumer of `ConversationThread` — the share page, the publish preview,
+   * the driven-session host — on the plain single-snapshot shape they already
+   * pass.
+   */
+  const mergedSnapshot = useMemo(
+    () => (query.data ? mergeSnapshotPages(query.data.pages) : undefined),
+    [query.data]
+  );
 
   // Live-tail seam: exactly one of the two channels is active per host —
   // workspaceSessionId (mt#2232, WorkspaceDetailPage) takes precedence when
@@ -980,7 +1084,7 @@ function ConversationFetcher({
       </>
     );
   }
-  if (query.isLoading || !query.data) {
+  if (query.isLoading || !mergedSnapshot) {
     return (
       <>
         <LoadingState message="Loading conversation…" className={className} />
@@ -990,12 +1094,14 @@ function ConversationFetcher({
   }
   return (
     <ConversationThread
-      snapshot={query.data}
+      snapshot={mergedSnapshot}
       extraBlocks={liveBlocks.length > 0 ? liveBlocks : undefined}
       className={className}
       turnTarget={turnTarget}
       filmPath={filmPath}
       tail={tail}
+      isLoadingOlder={query.isFetchingNextPage}
+      onLoadOlder={query.hasNextPage ? () => void query.fetchNextPage() : undefined}
     />
   );
 }

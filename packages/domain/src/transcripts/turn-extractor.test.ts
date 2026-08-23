@@ -694,3 +694,95 @@ describe("extractTurns", () => {
     });
   });
 });
+
+// ── user_origin: who authored the turn's user_text (mt#4289) ──────────────────
+
+describe("userOrigin (mt#4289)", () => {
+  /** The auto-compaction boundary record — real shape, observed 2026-08-19. */
+  function compactSummaryLine(ts = TS1): RawTurnLine {
+    return {
+      type: "user",
+      timestamp: ts,
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+      message: { role: "user", content: "This session is being continued from a previous…" },
+    } as unknown as RawTurnLine;
+  }
+
+  test("a compact-summary line's turn is marked compact_summary, not operator speech", () => {
+    const turns = extractTurns([compactSummaryLine(), assistantLine("continuing")]);
+
+    expect(assertTurn(turns, 0).userOrigin).toBe("compact_summary");
+  });
+
+  test("an ordinary operator prompt is human", () => {
+    const turns = extractTurns([userLine("do X"), assistantLine("done")]);
+
+    expect(assertTurn(turns, 0).userOrigin).toBe("human");
+  });
+
+  test("a skill body (isMeta) is harness_meta", () => {
+    const skillBody = {
+      type: "user",
+      timestamp: TS1,
+      isMeta: true,
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "Base directory for this skill: /x" }],
+      },
+    } as unknown as RawTurnLine;
+
+    expect(assertTurn(extractTurns([skillBody, assistantLine("ok")]), 0).userOrigin).toBe(
+      "harness_meta"
+    );
+  });
+
+  test("userOrigin is null exactly when userText is null", () => {
+    // A tool_result-only user line opens a pending turn but contributes no
+    // text. Stamping it `human` would put an operator-speech marker on a row
+    // carrying no operator speech — inverting the question the column answers.
+    const turns = extractTurns([
+      assistantLine("calling a tool", [regularToolCall("Bash", "toolu_bash")]),
+      toolResultLine("toolu_bash"),
+      assistantLine("done", [], TS4),
+    ]);
+
+    for (const turn of turns) {
+      expect(turn.userOrigin === null).toBe(turn.userText === null);
+    }
+  });
+
+  test("supersession carries the SURVIVING line's origin, not the last line's", () => {
+    // Back-to-back user lines: the last one wins for text (see the pairing
+    // notes), so the origin must be the one belonging to THAT line. Recomputing
+    // at flush time from a stale line is the bug this guards.
+    const turns = extractTurns([
+      compactSummaryLine(),
+      userLine("actually, do Y", TS2),
+      assistantLine("doing Y", [], TS3),
+    ]);
+
+    expect(assertTurn(turns, 0).userText).toBe("actually, do Y");
+    expect(assertTurn(turns, 0).userOrigin).toBe("human");
+  });
+
+  test("an operator prompt whose TEXT opens with a synthetic prefix stays human", () => {
+    // Negative control for mt#4289's measurement method: the 43.5% figure was
+    // measured with `user_text LIKE` prefixes because the table carried no
+    // provenance. This asserts the prefixes did not become the predicate.
+    const pasted = {
+      type: "user",
+      timestamp: TS1,
+      origin: { kind: "human" },
+      promptSource: "typed",
+      message: {
+        role: "user",
+        content: "Base directory for this skill: /x — why is this its own turn?",
+      },
+    } as unknown as RawTurnLine;
+
+    expect(assertTurn(extractTurns([pasted, assistantLine("because…")]), 0).userOrigin).toBe(
+      "human"
+    );
+  });
+});

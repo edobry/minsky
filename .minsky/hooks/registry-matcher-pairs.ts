@@ -70,6 +70,81 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["flakiness-control-detector", "require-duplicate-check-record"],
   ["flakiness-control-detector", "duplicate-signature-scan"],
   ["flakiness-control-detector", "duplicate-check-search-provenance"],
+  // Fourth tier on the duplicate-check record (mt#4167), asking the one question
+  // the other three leave open: were the candidates the record NAMES actually
+  // read? Present / true / searched are each satisfiable while the reconciliation
+  // itself is invented, which is how mt#4158 distinguished mt#3053 on a property
+  // mt#3053's own spec contradicts and passed all three.
+  //
+  // Not folded into the search-provenance sibling despite both reading session
+  // state: that one asks whether ANY search ran, a single membership test over
+  // tool NAMES, while this asks whether a SPECIFIC id was surfaced, which needs
+  // tool ARGUMENTS and an id-extraction heuristic with its own false-positive
+  // surface. One calibration log cannot size two different heuristics, and
+  // merging them would put this one's id-parsing behind the other's canary.
+  ["require-duplicate-check-record", "duplicate-check-candidate-read"],
+  ["duplicate-signature-scan", "duplicate-check-candidate-read"],
+  ["duplicate-check-search-provenance", "duplicate-check-candidate-read"],
+  ["flakiness-control-detector", "duplicate-check-candidate-read"],
+  // FIFTH question about the same `tasks_create` spec (mt#4168), and the first
+  // whose matcher is WIDER than that one tool: it also fires on
+  // `tasks_spec_patch` / `tasks_edit` / `tasks_spec_search_replace`, where none
+  // of the four above reach. The shared token is `tasks_create` alone, and the
+  // question is a third kind again — not the duplicate check (tiers 1-3) and not
+  // a flakiness claim (tier 4), but whether the spec's file-COLLISION and
+  // negative-OWNERSHIP claims each have a discharging call behind them.
+  //
+  // Not foldable into `duplicate-check-search-provenance` despite the shared
+  // "did the call run?" shape: that guard reads ONE bounded paragraph (the
+  // duplicate-check record) and joins against one tool list, while this reads the
+  // whole authored body and joins a PR NUMBER against a specific
+  // `pull_request_read`. Same family of question, different extractor, different
+  // join, different false-positive surface — so they need separate calibration
+  // logs to be sized at all.
+  ["claim-provenance-scan", "require-duplicate-check-record"],
+  ["claim-provenance-scan", "duplicate-signature-scan"],
+  ["claim-provenance-scan", "duplicate-check-search-provenance"],
+  ["claim-provenance-scan", "flakiness-control-detector"],
+  // Seventh question about the same spec text (mt#4153), and the first to read
+  // `## Success Criteria` as a CLAIM. Every sibling reads a different section or a
+  // different claim class: whether the duplicate-check record is present, whether
+  // its verdicts are true, whether its search ran, whether a failure-MODE claim
+  // carries its control, whether a collision or ownership claim carries provenance.
+  // None reads the criteria — which is the gap this exists for, because a criterion
+  // is not a claim that drives a decision but the claim the work is measured
+  // AGAINST, so a wrong one certifies the wrong thing as done or blocks work that
+  // was already authorized. Not foldable into any of them: its Class B half
+  // resolves the authorizing ask, which no sibling touches, and its Class A half is
+  // silenced by evidence — an inline verifying command — that means nothing to the
+  // others. It also spans two more matchers than they do, since Class B is only
+  // reachable on an edit. Independent overrides; running all seven is the point.
+  //
+  // The sixth pair below was added while resolving a merge, not authored with the
+  // other five: `duplicate-check-candidate-read` (mt#4167) landed on this same
+  // matcher after they were written, so the list was complete against the siblings
+  // it could see and silent about that one — the identical shape mt#4167's own note
+  // describes one hunk down, now hit a third time. It is orthogonal for the reason
+  // the whole comment gives: that guard asks whether a named candidate's spec was
+  // opened, which is a question about the duplicate-check record, not about whether
+  // a criterion asserts something unverified.
+  ["spec-criterion-claim-detector", "require-duplicate-check-record"],
+  ["spec-criterion-claim-detector", "duplicate-signature-scan"],
+  ["spec-criterion-claim-detector", "duplicate-check-search-provenance"],
+  ["spec-criterion-claim-detector", "flakiness-control-detector"],
+  ["spec-criterion-claim-detector", "claim-provenance-scan"],
+  ["spec-criterion-claim-detector", "duplicate-check-candidate-read"],
+
+  // The pair NEITHER side could declare alone: mt#4167 and mt#4168 landed within
+  // an hour of each other, each adding a `tasks_create` guard while the other was
+  // in review, so each one's own list is complete against the four it could see
+  // and silent about the other. Both read session tool-call state, and they are
+  // still orthogonal — this one asks whether a NAMED CANDIDATE's spec was
+  // surfaced (an id join against `tasks_spec_get`/`tasks_get`), that one whether
+  // a file-COLLISION or negative-OWNERSHIP claim has a discharging call (a PR
+  // number joined against `pull_request_read`, over the whole authored body
+  // rather than one paragraph). Different extractor, different join, separate
+  // calibration logs.
+  ["claim-provenance-scan", "duplicate-check-candidate-read"],
   // Fourth guard on the Bash/session_exec command string (mt#4055), and the
   // first that asks about the WORLD rather than the string: its three siblings
   // decide entirely from the text (a constructed path, a secret-bearing read,
@@ -104,6 +179,95 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["chained-verification-commands", "truncated-outcome-read"],
   ["block-concurrent-bulk-mutation", "truncated-outcome-read"],
   ["block-bulk-process-kill", "truncated-outcome-read"],
+  // Sixth question about the same Bash/session_exec command string (mt#4144),
+  // and the first that is not about the command alone: every sibling above asks
+  // a property of WHAT the command does — a constructed path, a secret read, an
+  // unattributable exit, a truncated outcome field, a concurrent bulk mutation,
+  // a mass kill. This one asks what the command SUBSTITUTES FOR: it pairs the
+  // command against a generated CLI->MCP equivalence oracle and against session
+  // state (has any `mcp__minsky__*` call succeeded). Folding it into any sibling
+  // would put that session-state leg, whose false-positive surface is entirely
+  // unrelated to theirs, behind one calibration log and one override.
+  ["check-guessed-session-path", "cli-mcp-substitution"],
+  ["block-secret-file-read", "cli-mcp-substitution"],
+  ["chained-verification-commands", "cli-mcp-substitution"],
+  ["block-concurrent-bulk-mutation", "cli-mcp-substitution"],
+  ["block-bulk-process-kill", "cli-mcp-substitution"],
+  ["truncated-outcome-read", "cli-mcp-substitution"],
+  // Seventh question about the same command string (mt#4215), and the first
+  // asked about the command's INPUT. Every sibling reads the command alone or
+  // pairs it with session state; this one pairs it with the FILESYSTEM, asking
+  // whether the paths it names are there to be searched. That is a different
+  // false-positive surface from all six — it lives in an argument-grammar
+  // parser and in the resolution of a relative path against a cwd, neither of
+  // which any sibling touches — so it needs its own calibration log and its own
+  // override. Note the near-miss with `check-guessed-session-path`, which also
+  // stats a path: that one fires on a CONSTRUCTED session path anywhere in the
+  // command and denies; this one fires on a path in ARGUMENT POSITION of a
+  // search binary and only records. Independent overrides; running all seven is
+  // the point.
+  ["check-guessed-session-path", "nonexistent-search-path"],
+  ["block-secret-file-read", "nonexistent-search-path"],
+  ["chained-verification-commands", "nonexistent-search-path"],
+  ["block-concurrent-bulk-mutation", "nonexistent-search-path"],
+  ["block-bulk-process-kill", "nonexistent-search-path"],
+  ["truncated-outcome-read", "nonexistent-search-path"],
+  ["cli-mcp-substitution", "nonexistent-search-path"],
+  // Two guards on `session_pr_create`, both reading the SAME branch diff and
+  // both asking about operator-facing output — but about opposite failures, and
+  // neither subsumes the other. `stale-signal-sweep` (mt#3959) fires on a label
+  // the diff STOPPED emitting and looks OUTWARD, at durable artifacts still
+  // quoting the old meaning. `unrendered-result-field-scan` (mt#3913) fires on a
+  // field the diff ADDED and looks INWARD, at whether anything in the diff
+  // prints it at all. One is rendered-under-a-wrong-name, the other is
+  // rendered-nowhere; a diff can trip either, both, or neither. Independent
+  // overrides; running both is the point.
+  ["stale-signal-sweep", "unrendered-result-field-scan"],
+  // mt#4044's `evidence-record-provenance` shares `session_pr_create` with both
+  // guards above, and shares nothing else with either: it reads the COMMIT
+  // MESSAGE / PR BODY for an evidence record that claims a run, and joins that
+  // claim against the session transcript. The two above read the branch DIFF and
+  // never look at a transcript. Same seam, disjoint inputs, disjoint failures —
+  // so all three should run, and none subsumes another.
+  //
+  // Declared here on 2026-08-16 rather than at authoring time: this branch was
+  // approved on 2026-08-12, when its `session_pr_create` co-registration did not
+  // yet exist on main. mt#3913 landed the second guard afterwards, which is what
+  // turned a single registration into a pair needing a declaration.
+  ["stale-signal-sweep", "evidence-record-provenance"],
+  ["unrendered-result-field-scan", "evidence-record-provenance"],
+  // mt#4124's `new-surface-design-pass` is the fourth guard on this seam, and it
+  // reads a THIRD thing: the branch's added-file STATUS plus the session's skill
+  // invocations. The two diff guards above read the diff's CONTENT and never its
+  // status; `evidence-record-provenance` reads the transcript but for a prose
+  // record's discharge, not for which skills ran.
+  //
+  // Non-subsumption is easiest to see from the failure each admits. A PR can add
+  // a new pane with no design pass while emitting every label it used to
+  // (`stale-signal-sweep` quiet), rendering every field it added
+  // (`unrendered-result-field-scan` quiet), and claiming no evidence record at
+  // all (`evidence-record-provenance` quiet) — which is PR #2942, the incident
+  // this guard exists for. Same seam, disjoint inputs, disjoint failures.
+  ["stale-signal-sweep", "new-surface-design-pass"],
+  ["unrendered-result-field-scan", "new-surface-design-pass"],
+  ["evidence-record-provenance", "new-surface-design-pass"],
+  // mt#4171's `enumeration-scope-check` is the fifth guard on this seam, and it
+  // asks a question none of the other four can reach: given that this branch
+  // changed a SERIALIZED contract, did the session's consumer sweep reach the
+  // directories gate (h) prescribes for that change type?
+  //
+  // Every sibling is quiet on it by construction. `stale-signal-sweep` compares
+  // operator-facing labels the branch stopped emitting; `unrendered-result-field-scan`
+  // asks whether a field the branch ADDED has a render site; `new-surface-design-pass`
+  // asks whether anyone looked at an ADDED render path; `evidence-record-provenance`
+  // asks whether a claimed run happened. A change can satisfy all four — mt#4252
+  // did, and shipped a documentation file whose own "exhaustive per variant"
+  // sentence it had just made false. That gap is only visible by joining the
+  // change against the SWEEP, which is this guard alone.
+  ["stale-signal-sweep", "enumeration-scope-check"],
+  ["unrendered-result-field-scan", "enumeration-scope-check"],
+  ["evidence-record-provenance", "enumeration-scope-check"],
+  ["new-surface-design-pass", "enumeration-scope-check"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

@@ -68,6 +68,38 @@ describe("assembleInterceptorAggregates", () => {
     expect(snapshot.rows.map((r) => r.guardName)).toEqual(["alpha", "zeta"]);
   });
 
+  test("declared names absent from the fire log become declaredOnlyRows, not rows (mt#4057)", () => {
+    const NEVER_FIRED_LAST = "zulu-never-fired";
+    const snapshot = assembleInterceptorAggregates(
+      baseInput({
+        lifetime: [{ guardName: "has-fired", totalFires: 5, firstFireAt: null, lastFireAt: null }],
+        declaredNames: [NEVER_FIRED_LAST, "has-fired", "alpha-never-fired"],
+        canaryByGuard: new Map([[NEVER_FIRED_LAST, { state: "passing" }]]),
+      })
+    );
+    // `population` stays the fire-log count — folding the declared-only names
+    // in would silently redefine SC3's population.
+    expect(snapshot.population).toBe(1);
+    expect(snapshot.rows.map((r) => r.guardName)).toEqual(["has-fired"]);
+    expect(snapshot.declaredOnlyRows.map((r) => r.guardName)).toEqual([
+      "alpha-never-fired",
+      NEVER_FIRED_LAST,
+    ]);
+    // Their fire-log figures are measured zeros, and their joins are real.
+    expect(must(snapshot.declaredOnlyRows[1]).fireLog.lifetime.totalFires).toBe(0);
+    expect(must(snapshot.declaredOnlyRows[1]).fireLog.window.fires).toBe(0);
+    expect(must(snapshot.declaredOnlyRows[1]).canary).toEqual({ state: "passing" });
+  });
+
+  test("declaredNames omitted leaves the snapshot fire-log-only", () => {
+    const snapshot = assembleInterceptorAggregates(
+      baseInput({
+        lifetime: [{ guardName: "only", totalFires: 1, firstFireAt: null, lastFireAt: null }],
+      })
+    );
+    expect(snapshot.declaredOnlyRows).toEqual([]);
+  });
+
   test("decision counts bucket allow/warn/deny and collapse the rest to other", () => {
     const snapshot = assembleInterceptorAggregates(
       baseInput({

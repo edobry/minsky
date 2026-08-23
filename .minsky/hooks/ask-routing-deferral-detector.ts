@@ -53,7 +53,7 @@ import {
   extractMatchContext,
 } from "./judged-input-capture";
 import { createHash } from "node:crypto";
-import { cappedEvidenceLines } from "./guard-feedback-format";
+import { cappedEvidenceLines, truncateToRenderedLength } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,40 @@ export const SUPPRESSION_ASKS_CREATE_THIS_TURN = "asks-create-this-turn";
  */
 export const SUPPRESSION_STOP_GUARD_ALREADY_INJECTED = "deduped-by-untaken-action-stop";
 
+/**
+ * Reason string for the mt#4201 suppression: the matched sentence CITES an ask
+ * that is already filed, so the message is REPORTING a routed decision rather
+ * than deferring one in prose.
+ *
+ * This is the inversion mem#719 names in its sharpest form — the fire lands on
+ * the compliant behaviour, so the reader most likely to see it is the one who
+ * did the right thing, and the remedy it emits ("file an ask") is already done.
+ * Measured across three independent windows: 2 of 2 `principal-reserved` matches
+ * (2026-08-10, via the subsumed mt#3932), 2 of 3 false (2026-08-17), and 1 of 10
+ * injected (2026-08-20).
+ */
+export const SUPPRESSION_CITES_FILED_ASK = "cites-filed-ask";
+
+/**
+ * Reason string for the mt#4175 suppression: the offer FOLLOWS a decision this
+ * agent already took, so it is a revisability offer rather than a deferral.
+ *
+ * Same inversion as {@link SUPPRESSION_CITES_FILED_ASK} one class over. The
+ * matched phrase here is produced by `humility.mdc §Stakes filter` being
+ * FOLLOWED — *"if the wrong answer costs a 30-second edit, decide it, take a
+ * reasonable default, and say what you picked"* — so an agent doing exactly what
+ * the always-loaded corpus requires gets warned for it. That is worse than
+ * ordinary noise: it pushes toward silent decisions (drop the revisability
+ * offer) or genuine deferral (ask first), both worse than the behaviour being
+ * penalised.
+ *
+ * Measured across four independent windows before this shipped: 3 of 11 injected
+ * (2026-08-16), 2 of 10 (2026-08-20), 3 of 14 (2026-08-18), and the one
+ * offer-shape fire left standing on the sibling surface after mt#4311
+ * (2026-08-21).
+ */
+export const SUPPRESSION_SETTLED_DECISION = "settled-decision";
+
 /** Short sha1, matching the Stop guard's key derivation. */
 function sha1Short(input: string): string {
   return createHash("sha1").update(input).digest("hex").slice(0, 16);
@@ -129,6 +163,23 @@ export interface DeferralMatch {
    * them.
    */
   context: string;
+  /**
+   * JUST the sentence containing the match (mt#4201, PR #3205 R1).
+   *
+   * Captured here, at match time, where `m.index` is known — NOT re-derived
+   * later by searching {@link context} for {@link matchedPhrase}. The reviewer
+   * caught why that mattered: a phrase recurring in the captured window makes a
+   * substring search select the WRONG occurrence's sentence, and `context`
+   * deliberately carries a lead sentence (`leadSentences: 1`) for exactly the
+   * kind of prose where a deferral phrase repeats. Same extractor, one fewer
+   * lead sentence, zero ambiguity.
+   *
+   * SEPARATE from `context` rather than replacing it: `context` is what a
+   * calibration reviewer classifies from and its width was chosen deliberately
+   * (see above). This is the narrower window the ask-citation suppression tests,
+   * and only that.
+   */
+  sentence: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +225,69 @@ export const DEFERRAL_MENU_PATTERNS: RegExp[] = [
   /\blet\s+me\s+know\s+(which|how)\s+(you[''’]?d\s+like|to\s+proceed)\b/i,
 ];
 
+/**
+ * The agent has ALREADY TAKEN the decision the offer would reverse (mt#4175).
+ *
+ * The discriminator is a completed or in-progress FIRST-PERSON action of the
+ * agent's own, in the same window as the offer. The sibling
+ * `operator-deferral-detector`'s `SETTLED_DECISION_PATTERNS` records the line
+ * both detectors agree on: *"a completed or firmly-stated decision of the
+ * agent's own is not a decision being handed over; a proposed next step is."*
+ * mt#3801 owns the second half there; this array is the first half here.
+ *
+ * **Deliberately NOT shared with that array, and the planning note that said to
+ * lift it was wrong.** Two reasons, both found by reading it: its content is
+ * tuned to the SIBLING's corpus (resourcing reasons — `with fresh context`,
+ * `this turn has run long`) which this corpus does not contain, so a lift would
+ * have to be a merge; and mt#4175's `## Scope` puts "any other detector" out of
+ * scope, so editing that file to extract the array is out of bounds for this
+ * task. If the two converge later, mt#4070 is the task that argues for hoisting
+ * decoration-tolerant matchers into one primitive — that is where the merge
+ * belongs, with both corpora in hand.
+ *
+ * Matched against {@link DeferralMatch.context} — the matched sentence plus ONE
+ * lead sentence — not against {@link DeferralMatch.sentence}. That scope is the
+ * whole discrimination and it has a cost in both directions:
+ *
+ * - Too NARROW (the sentence alone) misses the measured shape where the
+ *   decision sits in the preceding sentence: *"I filed mt#4243 as tracking
+ *   rather than walking it to implementation … Say the word if you want it
+ *   built now."*
+ * - Too WIDE (the whole turn) suppresses a genuine deferral that merely shares a
+ *   turn with an unrelated decision — and a long turn almost always contains
+ *   one, so the wide scope silences the class this detector exists for.
+ *
+ * `context` is also the window a calibration reviewer classifies from, so the
+ * suppression is tested at the same scope the class was MEASURED at rather than
+ * at a scope chosen after the fact.
+ *
+ * **EVERY pattern requires a first-person subject, and that is a contract this
+ * array must keep (PR #3224 R1).** A first cut carried
+ * `/\b(both\s+)?recorded\s+in\b/i` to reach the one AT1 context whose marker is
+ * PASSIVE — *"the reasoning and the alternative are both recorded in mt#3268."*
+ * That contradicted this docblock, and the failure it bought is concrete: a
+ * neutral status line in the lead sentence (*"Meeting notes recorded in
+ * mt#3268."*) would silence a genuine deferral following it (*"Next. Say the
+ * word and I'll plan it."*) — an AT2-floor shape suppressed by a token that
+ * says nothing about who decided anything.
+ *
+ * It was DROPPED rather than tightened: `I recorded` is already in the
+ * alternation, so nothing first-person was lost, and what WAS lost is that one
+ * context, which moves into the measured residual. Reaching one more case by
+ * suppressing on a subject-less token is not a trade SC1' asks for — it permits
+ * a partial result, not a wrong one. A test pins the contract behaviourally
+ * (passive and third-person narration must not suppress), so a future addition
+ * that forgets the `I` fails rather than merely disagreeing with this comment.
+ */
+export const SETTLED_DECISION_PATTERNS: RegExp[] = [
+  // Shared with the sibling's array by content, not by import — see above.
+  /\bI\s+(picked|chose|selected|went\s+with)\b/i,
+  // Measured shapes this corpus actually produced.
+  /\bI[''’]?m\s+taking\b/i,
+  /\bI\s+(filed|implemented|shipped|recorded|wrote)\b/i,
+  /\bI\s+haven[''’]?t,?\s+since\b/i,
+];
+
 const CLASS_PATTERNS: Array<{ cls: DeferralClass; patterns: RegExp[] }> = [
   { cls: "principal-reserved", patterns: PRINCIPAL_RESERVED_PATTERNS },
   { cls: "deferral-menu", patterns: DEFERRAL_MENU_PATTERNS },
@@ -201,6 +315,49 @@ export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [PAUSE_STOP_SELF_
  */
 
 /**
+ * The four constituents of a menu shape, declared ONCE so {@link hasMenuShape}
+ * and {@link findOfferShape} cannot drift apart (mt#3801) — the same
+ * declare-once discipline {@link PAUSE_STOP_SELF_REPORT} carries above, for the
+ * same reason.
+ *
+ * Each leg carries a stable LABEL instead of reporting its own matched text.
+ * That is a calibration-log constraint, not cosmetics: the sweep's diversity
+ * axis keys on `matches[].phrase` (see {@link DeferralMatch.context}), and the
+ * disjunction leg's match — `"mt3799 or I"` — is near-unique per turn.
+ * Reporting it would make every record distinct and destroy the count that
+ * decides when this log gets reviewed.
+ */
+/**
+ * Each leg additionally carries how much OFFER it supplies on its own (mt#4311).
+ *
+ * `unless` and `if you'd rather` NAME the reader's alternative — they cannot
+ * appear without offering one, which is why mt#3801 promoted them. A bare `?`
+ * or a bare `X or Y` supplies only GRAMMAR: English uses both constantly for
+ * caveats, negations and technical description. Measured over three calibration
+ * windows, the weak two accounted for every false fire this task was filed on.
+ *
+ * The distinction is consumed ONLY by {@link findOfferShape}. {@link hasMenuShape}
+ * deliberately still treats all four alike, because it is a different surface
+ * with the opposite direction of error — see its docblock.
+ */
+type MenuLegStrength = "explicit-offer" | "grammatical";
+
+const MENU_SHAPE_LEGS: ReadonlyArray<{
+  label: string;
+  pattern: RegExp;
+  strength: MenuLegStrength;
+}> = [
+  { label: "offer-shape:question", pattern: /\?/, strength: "grammatical" },
+  { label: "offer-shape:or", pattern: /\b\w+\s+or\s+\w+/i, strength: "grammatical" },
+  { label: "offer-shape:unless", pattern: /\bunless\b/i, strength: "explicit-offer" },
+  {
+    label: "offer-shape:if-you-rather",
+    pattern: /\bif\s+you(['’]d|\s+would)?\s+(rather|prefer|want)\b/i,
+    strength: "explicit-offer",
+  },
+];
+
+/**
  * A menu shape: an explicit question, or any construction offering the reader
  * an alternative. Scoped to ONE LINE so a question elsewhere in a long report
  * cannot license a pause phrase that stands alone.
@@ -208,14 +365,195 @@ export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [PAUSE_STOP_SELF_
  * `unless` / `if you'd rather` are included because they offer a choice without
  * a question mark or a disjunction — `"I'll stop here unless you want more"`
  * hands the continue/stop decision over just as squarely as asking would.
+ *
+ * KNOWN MISS, recorded rather than closed (mt#3801): the disjunction leg needs
+ * a bare space before `or`, so `"Next step is mt#3799, or I can go straight at
+ * it."` is not recognized — a comma breaks the `\s+`. Widening it is not a free
+ * recall win, because this predicate is ALSO the suppression gate for
+ * {@link MENU_SHAPE_REQUIRED_PATTERNS}, where a wider menu shape suppresses
+ * LESS and therefore fires MORE. That is the false-positive direction on a
+ * live-injecting guard (see {@link lineAt}, which records the same asymmetry),
+ * so it needs its own evidence rather than riding along with a recall change.
  */
 export function hasMenuShape(paragraph: string): boolean {
-  return (
-    /\?/.test(paragraph) ||
-    /\b\w+\s+or\s+\w+/i.test(paragraph) ||
-    /\bunless\b/i.test(paragraph) ||
-    /\bif\s+you(['’]d|\s+would)?\s+(rather|prefer|want)\b/i.test(paragraph)
-  );
+  return MENU_SHAPE_LEGS.some(({ pattern }) => pattern.test(paragraph));
+}
+
+/**
+ * A first-person clause proposing an action the AGENT would take.
+ *
+ * The second constituent of the offer shape, and the reason
+ * {@link hasMenuShape} cannot be promoted to a trigger on its own: it is TRUE
+ * for `"The migration ran cleanly unless a row was locked, in which case it
+ * retried."` — a factual qualifier with no offer in it and no actor at all.
+ * Measured against the live matcher on 2026-08-17, not reasoned about.
+ *
+ * Every form here is NON-PAST by construction, which is what separates an offer
+ * from a report: `"I fixed it unless a row was locked"` names a first-person
+ * action, offers nothing, and matches none of them.
+ */
+/**
+ * How much OFFER the agent-action clause itself supplies (mt#4311).
+ *
+ * `governed` — the clause is grammatically governed by the READER's preference:
+ * `"you'd rather I clear it"`, `"want me to take it"`. The second person is
+ * built into the construction, so the clause cannot occur without handing over
+ * a choice. These two legs ARE an offer.
+ *
+ * `bare` — a first-person modal with no such governor: `"I'll stop"`,
+ * `"I can test"`. This is the shape of an offer AND the shape of an ordinary
+ * capability or intent report, and nothing inside the clause separates them.
+ * Every false positive mt#4311 measured is of this kind.
+ */
+type AgentActionTier = "governed" | "bare";
+
+const AGENT_ACTION_MATCHERS: ReadonlyArray<{ tier: AgentActionTier; pattern: RegExp }> = [
+  // Contracted modal — `I'll`, `I'd`.
+  { tier: "bare", pattern: /\bI\s*['’](?:ll|d)\b/i },
+  // Explicit modal.
+  { tier: "bare", pattern: /\bI\s+(?:can|could|will|would|should|shall)\b/i },
+  // Bare verb governed by a preference token, which is where English drops the
+  // modal: `"you'd rather I go straight at it"`, `"unless you prefer I hold"`.
+  { tier: "governed", pattern: /\b(?:rather|prefer)\s+I\s+\w+/i },
+  // The object form of the same construction. `for` is deliberately NOT in this
+  // alternation (PR #3088 R1): `"for me to"` is the DESCRIPTIVE form, not an
+  // offer — `"It would be unusual for me to change that"` proposes nothing, and
+  // `"there is no need for me to rerun this"` is its negation. Every member
+  // here takes `me` as a direct object of a volition verb, which `for` does not.
+  { tier: "governed", pattern: /\b(?:want|need|prefer|like)\s+me\s+to\s+\w+/i },
+];
+
+/**
+ * Negation immediately LEADING an agent-action clause (PR #3088 R1).
+ *
+ * Bounded to a few words because the negation has to govern the clause: in
+ * `"there is no need for me to rerun"` it does, while a `not` two sentences
+ * back does not. Same shape and the same reasoning as
+ * `operator-deferral-detector`'s `NEGATION_LEAD_PATTERN`, declared locally
+ * rather than imported because that module imports THIS one — sharing it would
+ * close the cycle.
+ */
+const AGENT_ACTION_NEGATED_LEAD = /\b(?:no|not|never|nothing|unable|hardly)\s+(?:\w+\s+){0,2}$/i;
+
+/** How far back {@link namesAgentAction} reads for a governing negation. */
+const AGENT_ACTION_LOOKBACK_CHARS = 24;
+
+/**
+ * True when `line` proposes an action the agent itself would perform.
+ *
+ * **Polarity is checked, not assumed (PR #3088 R1).** The patterns above match
+ * the SHAPE of a first-person action clause, and that shape is identical
+ * whether the agent is offering to act or saying it will not — `"I can take
+ * it"` and `"I can't reproduce it"` differ by two characters, and `\b` sits
+ * between `can` and `'t`, so the modal leg matches both. A negated clause is
+ * not an offer, and firing on one would put noise into a LIVE-injecting guard.
+ *
+ * Three forms, all measured against the live matcher rather than reasoned
+ * about: a contraction directly after the match (`I can't`), an explicit `not`
+ * directly after it (`I would not`), and a governing negator just before it
+ * (`no need ... me to`).
+ */
+export function namesAgentAction(line: string): boolean {
+  return matchAgentActionTier(line) !== null;
+}
+
+/**
+ * The STRONGEST agent-action tier present in `line`, or null (mt#4311).
+ *
+ * Strongest, not first-matching: a line carrying both — `"Want me to take it?
+ * I can start now"` — is governed, and returning `bare` because the bare
+ * pattern is earlier in the array would silence a real offer. Array order
+ * decides which PATTERN reports, never which tier wins.
+ *
+ * Polarity is applied per pattern before the tier counts, so a negated clause
+ * contributes nothing — see {@link namesAgentAction}'s docblock for why.
+ */
+function matchAgentActionTier(line: string): AgentActionTier | null {
+  let sawBare = false;
+  for (const { tier, pattern } of AGENT_ACTION_MATCHERS) {
+    const m = pattern.exec(line);
+    if (!m) continue;
+    const start = m.index ?? 0;
+    const trailing = line.slice(start + m[0].length);
+    if (/^['’]t\b/.test(trailing)) continue;
+    if (/^\s+not\b/i.test(trailing)) continue;
+    const lead = line.slice(Math.max(0, start - AGENT_ACTION_LOOKBACK_CHARS), start);
+    if (AGENT_ACTION_NEGATED_LEAD.test(lead)) continue;
+    if (tier === "governed") return "governed";
+    sawBare = true;
+  }
+  if (!sawBare) return null;
+  return INVERTED_FIRST_PERSON.test(line) ? "governed" : "bare";
+}
+
+/**
+ * Subject-auxiliary inversion on a first-person clause: `"should I stop …?"`
+ * (mt#4311).
+ *
+ * English inverts the auxiliary only to ASK, and asking about one's OWN action
+ * is offering it — which is why this belongs with the governed tier rather than
+ * the bare one. Found by measurement, not anticipated: replaying the live log,
+ * the first cut silenced *"should I stop letting my own writing count as
+ * evidence I checked something, at the cost of ~6% more interruptions?"*, a real
+ * decision handed to the principal in prose, which is precisely this detector's
+ * target class.
+ *
+ * IT UPGRADES, IT NEVER ADMITS, and the distinction is the whole safety of it.
+ * The check runs only after some {@link AGENT_ACTION_MATCHERS} leg has already
+ * matched, so no line that was previously invisible becomes matchable. A
+ * widening here would point the false-positive way on a LIVE-injecting guard;
+ * an upgrade can only preserve a fire that was already happening.
+ *
+ * PRECISELY WHAT IS UNCHANGED (PR #3211 R1): {@link namesAgentAction} returns
+ * the SAME BOOLEAN on every input as before mt#4311 — its body did change, from
+ * a direct scan to a tier computation, and an earlier draft of this comment
+ * said "bit-for-bit unchanged", which is true of the behaviour and false of the
+ * source. The invariant that matters: `matchAgentActionTier` returns null under
+ * exactly the old condition (no matcher passed polarity), and the inversion
+ * check cannot change null-ness because it runs only when `sawBare` is already
+ * true. The test `inversion UPGRADES a bare clause, and admits nothing new`
+ * enforces the half that could regress.
+ */
+const INVERTED_FIRST_PERSON = /\b(?:should|shall|can|could|would|will|may)\s+I\b/i;
+
+/**
+ * The OFFER shape: a menu handing the principal a choice about what the AGENT
+ * does next (mt#3801) — `"Next step is X unless you'd rather I do Y"`.
+ *
+ * The CONJUNCTION is the whole mechanism, and it is deliberately not a ninth
+ * entry in {@link DEFERRAL_MENU_PATTERNS}. The offer class has open-ended
+ * surface forms; five sibling tasks against this file each adding one phrase is
+ * the arms race ADR-024 exists to end. Both constituents already existed in
+ * this file — what was missing was the relation between them, which is why this
+ * is a wiring change rather than a corpus addition.
+ *
+ * Line-scoped for the reason {@link lineAt} records: a menu token three
+ * paragraphs away from an agent-action clause was never said in one breath.
+ * Returns the FIRST line satisfying both, reporting the leg's stable label.
+ */
+export function findOfferShape(
+  text: string
+): { index: number; length: number; label: string } | null {
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const tier = matchAgentActionTier(line);
+    if (tier !== null) {
+      for (const { label, pattern, strength } of MENU_SHAPE_LEGS) {
+        // A BARE first-person clause needs a leg that offers on its own
+        // (mt#4311). Co-locating "I can test …" with a grammatical `or` on one
+        // line is not an offer — measured across three calibration windows, it
+        // is a caveat, a negation, or a technical description, and it was the
+        // whole of this surface's false-positive population. A GOVERNED clause
+        // already carries the offer, so any leg may report it, which is what
+        // keeps `"Want me to file those, or a subset?"` firing.
+        if (tier === "bare" && strength !== "explicit-offer") continue;
+        const m = pattern.exec(line);
+        if (m) return { index: offset + (m.index ?? 0), length: m[0].length, label };
+      }
+    }
+    offset += line.length + 1;
+  }
+  return null;
 }
 
 /**
@@ -293,8 +631,26 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
         // is byte-identical between a real deferral and a courtesy offer. See
         // `MatchContextOptions.leadSentences` for the measured distribution.
         context: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 1 }),
+        // mt#4201: the same extractor with no lead sentence IS the containing
+        // sentence — the forward scan already stops at the first `.`/`!`/`?`.
+        sentence: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 0 }),
       });
       break;
+    }
+  }
+  // The structural offer trigger (mt#3801), run AFTER the literal corpus and
+  // only when the menu class produced nothing. Ordering it second is what keeps
+  // this change purely additive: a turn that already matches a literal pattern
+  // keeps that pattern's phrase, so no existing record changes shape.
+  if (!matches.some((m) => m.cls === "deferral-menu")) {
+    const offer = findOfferShape(scanned);
+    if (offer) {
+      matches.push({
+        cls: "deferral-menu",
+        matchedPhrase: offer.label,
+        context: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 1 }),
+        sentence: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 0 }),
+      });
     }
   }
   return matches;
@@ -345,6 +701,53 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Reminder builder (only used when INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
+/**
+ * Longest evidence phrase this guard will RENDER, in UTF-16 code units (mt#4234).
+ *
+ * The unit is deliberate and was wrong in the first cut (PR #3187 R1). Bounding
+ * CODE POINTS leaves the render unbounded in the unit that is actually enforced
+ * and actually spent: `guard-feedback-shape.test.ts` compares `.length` against
+ * the declared ceiling, and `composeAdditionalContext` spends `.length` against
+ * `MERGED_CONTEXT_BUDGET_CHARS`. One emoji is one code point and two units, so a
+ * 120-code-point cap admitted a 240-unit phrase and the ceiling was not a
+ * ceiling for emoji-bearing prose — which is the agent's own text, and routinely
+ * contains it. `truncateToRenderedLength` bounds units while never splitting a
+ * surrogate pair; see its docblock for why the fix goes here rather than
+ * re-denominating the ceiling.
+ *
+ * The evidence line exists so the agent can recognize which of its own phrases
+ * tripped the guard — recognition, not reproduction. 120 is comfortably above
+ * the longest phrase the live corpus produces (82 chars, the ask#6136 sample),
+ * so no real match is truncated today and the bound is a ceiling rather than an
+ * active trim.
+ *
+ * **Why a cap is REQUIRED here and not merely tidy.** `matchedPhrase` is
+ * `m[0]` — the regex's whole matched span — and two patterns in this file match
+ * spans bounded only by the next sentence terminator in the agent's own prose:
+ * `/\b(want\s+me\s+to|should\s+I)\b[^.?]*\bor\b[^.?]*\?/i` and the
+ * `before (encoding|committing to|locking in) … decision is yours` shape, both
+ * via an unbounded `[^.?]*`. Rendering that span raw made the advisory grow 1:1
+ * with whatever the agent wrote: measured 2026-08-19 against the live matcher,
+ * a 1484-char run-on sentence carrying both classes rendered 2350 chars against
+ * a declared ceiling of 600. There is no finite worst case to pose for an
+ * unbounded axis, so `attentionCost` could not be a ceiling until this existed
+ * — `registry.ts` says as much ("a guard that CAPS its own output is bounded by
+ * construction"), and `guard-feedback-authoring.mdc` prefers the cap to raising
+ * the annotation.
+ *
+ * Applied at RENDER time, deliberately NOT in `detectDeferralPhrases`.
+ * `calibrationMatches` feeds `matches[].phrase` to the calibration sweep's
+ * diversity axis (see {@link DeferralMatch.context} for why that axis is
+ * sensitive), so truncating at match time would change which records count as
+ * distinct and move the count that decides when this log gets reviewed.
+ */
+export const MAX_RENDERED_PHRASE_CHARS = 120;
+
+/** One evidence line, with the phrase bounded per {@link MAX_RENDERED_PHRASE_CHARS}. */
+function evidenceLine(match: DeferralMatch): string {
+  return `  - "${truncateToRenderedLength(match.matchedPhrase, MAX_RENDERED_PHRASE_CHARS)}"`;
+}
+
 export function buildReminder(matches: DeferralMatch[]): string {
   const lines: string[] = [
     "[ask-routing-deferral-detector] Your prior turn deferred a decision to the principal in chat prose.",
@@ -361,7 +764,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "§Escalation packaging and file it via `mcp__minsky__asks_create` (kind direction.decide) " +
         "NOW — or cite the id of an existing open ask."
     );
-    lines.push(...cappedEvidenceLines(principal, (m) => `  - "${m.matchedPhrase}"`));
+    lines.push(...cappedEvidenceLines(principal, evidenceLine));
     lines.push("");
   }
   if (menu.length > 0) {
@@ -372,7 +775,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "Class C (genuinely principal-reserved → package + asks_create). Run the lookups first; " +
         "most menus collapse to one obvious action."
     );
-    lines.push(...cappedEvidenceLines(menu, (m) => `  - "${m.matchedPhrase}"`));
+    lines.push(...cappedEvidenceLines(menu, evidenceLine));
     lines.push("");
   }
 
@@ -448,6 +851,122 @@ export function resolveStopOverlap(
   return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
+/**
+ * An already-filed ask, cited the two ways this corpus cites one (mt#4201).
+ *
+ * `ask#N` is the short-id label form and `minsky://ask/<uuid>` is the deeplink
+ * target; `cockpit-deeplinks.mdc` prescribes writing BOTH as
+ * `[ask#N](minsky://ask/<uuid>)`, so either alone is enough to recognize a
+ * citation and neither is required to accompany the other.
+ *
+ * Deliberately NOT anchored to a markdown link: an unlinked bare `ask#N` is the
+ * documented fallback when the uuid is not at hand, and it linkifies in the
+ * cockpit anyway. Requiring the link would fire on exactly the case the deeplink
+ * rule already concedes.
+ */
+// ADR-024 **Rung 1 — quotation/citation-aware deterministic prefilter**, which
+// that ADR names as "the default stopping point" and clause (a) says the ladder
+// stops at "by default; Rungs 2-3 are strictly evidence-gated". A literal
+// ask-citation token test is precisely citation-aware deterministic
+// prefiltering — the ADR's own words for it — so no rung escalation is argued
+// and none is needed. Recorded HERE, at the mechanism, because SC2 asks for the
+// rung to be named in the implementation and a PR body does not survive merge.
+const ASK_CITATION_RE = /\bask#\d+\b|minsky:\/\/ask\/[0-9a-f-]{8,}/i;
+
+/**
+ * Whether a matched sentence is REPORTING a filed ask rather than deferring.
+ *
+ * Takes {@link DeferralMatch.sentence} — the containing sentence, captured at
+ * match time — NOT the turn and NOT the wider `context`. That scope is the whole
+ * discrimination, and getting it wrong in either direction has a cost:
+ *
+ * - Too WIDE (the `context`, which carries a lead sentence) suppresses a genuine
+ *   deferral sitting beside a reported ask. Found by a failing test:
+ *   *"Still yours: [ask#9275](…), whether the detector starts speaking. Want me
+ *   to file the follow-up task, or should I leave it?"* — the second sentence is
+ *   real work the agent could just do, and context granularity silences it.
+ * - Too CLEVER (re-deriving the sentence later by searching the context for the
+ *   phrase) picks the wrong occurrence when the phrase repeats — PR #3205 R1.
+ *   Hence the capture at match time, where the offset is known.
+ *
+ * The value read is the ELIDED text, so an ask id inside a code fence or a
+ * quoted span is blanked and does NOT suppress. That is correct rather than
+ * incidental: quoted text is not this turn's citation, and honoring it would let
+ * a pasted transcript silence a live deferral (PR #3205 R1, non-blocking).
+ *
+ * **The id is MATCHED, never verified to exist, and that is a decision with a
+ * stated failure mode (SC5).** Verifying would mean a substrate lookup inside a
+ * `UserPromptSubmit` hook: latency on every turn, and — the deciding half — a
+ * DB outage would silently flip the detector back to firing on compliant
+ * behaviour, which is precisely the inversion this suppression exists to end.
+ * Failing OPEN toward suppression is the safe direction here.
+ *
+ * What match-only concedes: a fabricated `ask#9999` would suppress a real
+ * deferral. That costs the fabricator and nobody else — this guard injects to
+ * the agent that wrote the sentence, so gaming it is self-deception with no
+ * downstream victim, and the ask substrate remains the source of truth for
+ * whether a decision was actually routed.
+ */
+export function citesFiledAsk(sentence: string): boolean {
+  return ASK_CITATION_RE.test(sentence);
+}
+
+/**
+ * Drop matches whose sentence cites a filed ask (mt#4201).
+ *
+ * Mirrors {@link resolveStopOverlap}'s shape deliberately — same per-match
+ * filter, same `suppressedAll` signal — so the two suppressions compose without
+ * either needing to know about the other.
+ */
+export function resolveAskCitation(matches: DeferralMatch[]): {
+  remaining: DeferralMatch[];
+  suppressedAll: boolean;
+} {
+  const remaining = matches.filter((m) => !citesFiledAsk(m.sentence));
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
+}
+
+/**
+ * Does this window show the agent having ALREADY taken the decision (mt#4175)?
+ *
+ * Takes {@link DeferralMatch.context} rather than `.sentence` — see
+ * {@link SETTLED_DECISION_PATTERNS} for why that scope, and what it costs in
+ * each direction.
+ *
+ * Scoped to `deferral-menu` at the call site below, NOT here: the
+ * `principal-reserved` class is a different question, and a settled decision
+ * does not make "rotating that token is your call" any less the principal's.
+ * mt#4201 owns that class's suppression and this must not reach into it —
+ * mt#4175's `## Scope` cedes it explicitly.
+ */
+export function settlesDecision(context: string): boolean {
+  return SETTLED_DECISION_PATTERNS.some((p) => p.test(context));
+}
+
+/**
+ * Drop `deferral-menu` matches whose window shows a decision already taken
+ * (mt#4175).
+ *
+ * Mirrors {@link resolveAskCitation} and {@link resolveStopOverlap} — same
+ * per-match filter, same `suppressedAll` signal — so the three suppressions
+ * compose without any needing to know about the others.
+ *
+ * The `cls` guard is the load-bearing half. Without it this would silence the
+ * `principal-reserved` class too, and that class's regression floor includes
+ * *"Rotating that token is your call … Say the word and I'll do it."* — a
+ * correctly-identified principal decision that still belongs in an ask rather
+ * than in chat prose. The detector's subject is CHANNEL, not judgment.
+ */
+export function resolveSettledDecision(matches: DeferralMatch[]): {
+  remaining: DeferralMatch[];
+  suppressedAll: boolean;
+} {
+  const remaining = matches.filter(
+    (m) => !(m.cls === "deferral-menu" && settlesDecision(m.context))
+  );
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
+}
+
 /** `storeDir` is a test seam; the dispatcher never passes it. */
 export function run(
   input: ClaudeHookInput,
@@ -510,10 +1029,32 @@ export function run(
   // failure is the one that speaks. Fails open — an unreadable store or a
   // mismatched key means no suppression, i.e. the pre-mt#3336 double injection,
   // never a dropped warning.
+  // mt#4201: a sentence that CITES a filed ask is reporting a routed decision,
+  // not deferring one. Runs BEFORE the stop-overlap filter so the two compose on
+  // the same per-match footing; `matches` itself is untouched, so the calibration
+  // record still carries every detection (the mt#3207 detect-first discipline).
+  //
+  // Only an all-suppressed turn records a reason, matching the stop-overlap
+  // convention immediately below: a reason string gates injection entirely, so
+  // pushing one on a PARTIAL suppression would silence the genuine deferrals that
+  // survived alongside the reported ask.
+  // mt#4175: runs FIRST, so a revisability offer never reaches the later
+  // filters. Chained by `remaining` like its two siblings; only an
+  // all-suppressed turn records a reason, per the convention above.
+  const settled = resolveSettledDecision(matches);
+  if (settled.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_SETTLED_DECISION);
+  }
+
+  const askCited = resolveAskCitation(settled.remaining);
+  if (askCited.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
+  }
+
   const { remaining, suppressedAll } = resolveStopOverlap(
     input.session_id,
     assistantText,
-    matches,
+    askCited.remaining,
     storeDir
   );
   if (suppressedAll) {
@@ -615,7 +1156,26 @@ export async function main(): Promise<void> {
   // mt#3270 R1 shape. `suppressedAll` feeds the shared
   // `suppressionReasons.length > 0` exit below, which is what actually withholds
   // the injection.
-  const { remaining, suppressedAll } = resolveStopOverlap(input.session_id, assistantText, matches);
+  // mt#4201, mirroring `run()` above — this file's two write paths must not
+  // disagree about what suppresses (the mt#3607 declared-once discipline).
+  // mt#4175: runs FIRST, so a revisability offer never reaches the later
+  // filters. Chained by `remaining` like its two siblings; only an
+  // all-suppressed turn records a reason, per the convention above.
+  const settled = resolveSettledDecision(matches);
+  if (settled.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_SETTLED_DECISION);
+  }
+
+  const askCited = resolveAskCitation(settled.remaining);
+  if (askCited.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
+  }
+
+  const { remaining, suppressedAll } = resolveStopOverlap(
+    input.session_id,
+    assistantText,
+    askCited.remaining
+  );
   if (suppressedAll) {
     suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
   }

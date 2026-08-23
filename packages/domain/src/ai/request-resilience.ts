@@ -9,7 +9,7 @@
  * dependency that would only deepen as more shared behavior accrued (PR #2481
  * review).
  */
-import { RateLimitError } from "./enhanced-error-types";
+import { ProviderInputError, RateLimitError } from "./enhanced-error-types";
 
 /**
  * Wall-clock bound on a single outbound provider request (mt#3444).
@@ -59,10 +59,39 @@ export function isRequestTimeoutError(error: unknown): boolean {
  */
 export function isRetryableAIError(error: unknown): boolean {
   const msg = String((error as Error)?.message || "");
+  if (error instanceof ProviderInputError) return false;
   if (/insufficient_quota/i.test(msg)) return false;
   if (error instanceof RateLimitError) return true;
   if (isRequestTimeoutError(error)) return true;
   return /429|rate.limit|502|Bad Gateway|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
+}
+
+/**
+ * Whether `error` is evidence about the PROVIDER's health, as opposed to a
+ * defect in the request we sent (mt#4212).
+ *
+ * This is the question a circuit breaker should be asking, and until mt#4212 no
+ * one asked it: `IntelligentRetryService.execute` counted every failure, so a
+ * permanently-invalid input incremented a breaker whose only job is to stop
+ * hammering a provider that cannot serve us. Retryability is a NEARBY but
+ * different question — `insufficient_quota` is not retryable yet is entirely a
+ * statement about the provider account, and fast-failing on it is correct.
+ *
+ * Defaults to `true`. An unclassified error keeps the pre-mt#4212 behavior of
+ * counting against the breaker; only errors positively identified as
+ * request-content defects are excluded. Narrowing wrongly would silently
+ * disable the breaker, which is the worse failure of the two.
+ */
+export function isProviderHealthSignal(error: unknown): boolean {
+  if (error instanceof ProviderInputError) return false;
+  if (error instanceof RateLimitError) return true;
+
+  // Message-shape fallback for input errors raised outside the provider
+  // services (or by an older code path that predates ProviderInputError).
+  const msg = String((error as Error)?.message || "");
+  return !/invalid_request_error|maximum input length|maximum context length|reduce the length/i.test(
+    msg
+  );
 }
 
 /**

@@ -63,6 +63,7 @@
  */
 
 import type { TranscriptMessage } from "../provenance/transcript-service";
+import { resolveTranscriptMessageContent } from "../provenance/transcript-content";
 import {
   EVENT_SCHEMA_VERSION,
   weightForVerb,
@@ -157,18 +158,11 @@ function normalizeContent(content: unknown): ContentBlock[] {
  * type, and this module's own test fixtures) otherwise — defensive against
  * either shape rather than trusting the seam's type annotation.
  */
-interface RawTranscriptLineShape extends TranscriptMessage {
-  /** Present on real production rows (see the resolver doc comment above). */
-  message?: { content?: unknown; [key: string]: unknown };
-}
-
-function resolveInnerContent(msg: TranscriptMessage): unknown {
-  const raw = msg as RawTranscriptLineShape;
-  if (raw.message !== null && typeof raw.message === "object" && "content" in (raw.message ?? {})) {
-    return raw.message?.content;
-  }
-  return msg.content;
-}
+// mt#4196: this resolver and its `RawTranscriptLineShape` used to live here, module-private
+// — and three OTHER consumers of the same seam went on reading the flat `.content` field
+// and rendering every stored message as non-text. The discovery above was right and
+// unreachable. It now lives in `provenance/transcript-content.ts`, imported above, and
+// `TranscriptMessage` declares the nested `message` field so no cast is needed.
 
 /**
  * Claude Code's synthesized "user cancelled" marker (mt#3131 D6) — harness
@@ -214,7 +208,7 @@ export function extractLeadingUserTexts(
   for (const msg of messages) {
     if (texts.length >= limit) break;
     if (msg.type !== "user") continue;
-    const blocks = normalizeContent(resolveInnerContent(msg));
+    const blocks = normalizeContent(resolveTranscriptMessageContent(msg));
     if (blocks.some((b) => b.type === "tool_result")) continue;
     const text = extractPlainText(blocks);
     if (text && !isSyntheticInterruptText(text)) texts.push(text);
@@ -704,7 +698,7 @@ function indexToolResults(messages: readonly TranscriptMessage[]): Map<string, T
   const byId = new Map<string, ToolResultRef>();
   for (const msg of messages) {
     if (msg.type !== "user") continue;
-    for (const block of normalizeContent(resolveInnerContent(msg))) {
+    for (const block of normalizeContent(resolveTranscriptMessageContent(msg))) {
       if (block.type !== "tool_result") continue;
       if (typeof block.tool_use_id !== "string") continue;
       if (byId.has(block.tool_use_id)) continue;
@@ -814,7 +808,7 @@ export function adaptTranscriptToEvents(
     const messageUuid = msg.uuid;
 
     if (msg.type === "assistant") {
-      const blocks = normalizeContent(resolveInnerContent(msg));
+      const blocks = normalizeContent(resolveTranscriptMessageContent(msg));
       const batchId = makeBatchId(msg, i);
       const tStart = msg.timestamp ?? "";
 
@@ -868,7 +862,7 @@ export function adaptTranscriptToEvents(
         }
       }
     } else if (msg.type === "user") {
-      const blocks = normalizeContent(resolveInnerContent(msg));
+      const blocks = normalizeContent(resolveTranscriptMessageContent(msg));
       const hasToolResult = blocks.some((b) => b.type === "tool_result");
       if (hasToolResult) continue; // a completion, not a fresh prompt — handled above.
 

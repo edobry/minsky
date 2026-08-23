@@ -61,6 +61,34 @@ immediately re-run. A false negative costs the working set.
 Each of these degrades recall in the same direction as `chained-verification-commands`' documented
 stale-pattern-list note: a miss, never a wrong deny.
 
+### Retired recall limit: a redirection displacing the target (mt#4193)
+
+Until mt#4193 a fourth limit sat here without ever being written down, because nobody had noticed
+it. `pkill`/`killall` took their target as "the last non-flag argument", so any redirection
+displaced the real one:
+
+| Command                     | Target the guard read         | Denied |
+| --------------------------- | ----------------------------- | ------ |
+| `pkill -f node`             | `node`                        | yes    |
+| `pkill -f node 2>/dev/null` | `null` (after the path strip) | **no** |
+| `pkill -f node > /dev/null` | `/dev/null` → `null`          | **no** |
+
+The same defect reached the OTHER consumer in the opposite direction. `findKillInvocation` counts
+targets for `operator-deferral`'s act-path surface, and the space-separated form left the redirect
+PATH in the list — so `kill 4821 > /dev/null` counted two targets and a one-process cleanup read as
+a multi-target kill.
+
+Both are fixed at TOKENIZATION rather than in either consumer's filter: `stripRedirections` removes
+redirections from the argument list inside `eachKillSegment`, so every consumer sees the same
+arguments. That is why `isTargetToken` is now only a flag test — the previous split, where one
+consumer's filter carried the redirection rule and the other had an inline copy of "non-flag", is
+exactly how the two directions of one bug stayed alive in two places.
+
+Note this is the guard's first RECALL WIDENING — every prior note in this section degrades recall
+by design. It denies strictly more than before, and only commands that already denied without
+their output plumbing. A class the guard deliberately misses (`pkill -f minsky-mcp`) still misses
+with or without a redirect; there is a regression test pinning that.
+
 ## Relationship to the detector
 
 `operator-deferral-detector`'s **surface F** (act-path workaround) records the same shape as an

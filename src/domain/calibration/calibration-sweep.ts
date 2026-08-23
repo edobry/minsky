@@ -132,6 +132,20 @@ export interface CalibrationLogEntry {
    *     captureSchema, prTitle, judgedPrBody, judgedSpec, modifiedTestFiles, ...}
    *     (mt#3244 `test-first-evidence.ts`) — same capture-shape family as
    *     execution-evidence-at-coverage; no `matches` array.
+   *   "execution-evidence-render-path" → {timestamp, task, prNumber, surface,
+   *     captureSchema, judgedPrBody, renderPathFiles: string[], hasTests}
+   *     (mt#2421 `render-path-evidence.ts`) — same capture-shape family; no
+   *     `matches` array. Declared here by mt#4064, which found it undeclared on
+   *     every surface: the log existed with 14 fires in 7d and no sweep visited it.
+   *   "execution-evidence-sc-coverage" → {timestamp, task, prNumber, surface,
+   *     captureSchema, judgedPrBody, judgedSpec, judgedEvidenceText,
+   *     executableCriterionCount, unaddressedCriteria: {number, text}[],
+   *     presentElsewhereCriteria: {number, text}[], ...} (mt#3350
+   *     `success-criteria-coverage.ts`) — same family; no `matches` array. Also
+   *     declared by mt#4064, and the harder half to notice: nothing has written
+   *     this log yet, so it was absent from disk and therefore invisible to both
+   *     the coverage-receipt check and the sweep-coverage check, which discover
+   *     their inputs by globbing `.minsky/*-calibration.jsonl`.
    *   "ask-form-lint"                 → {timestamp, askId?, kind, matches:
    *     {class, phrase}[], acknowledged?} (mt#2798
    *     `ask-form-lint-calibration.ts`) — already matches-shaped (`class` is a
@@ -158,6 +172,15 @@ export interface CalibrationLogEntry {
    *     outcome-status record, no `matches` array. The two extra fields carry
    *     the violation SHAPE (which command, which truncator), which is the
    *     sweep's diversity axis for this kind.
+   *   "nonexistent-search-path"       → {ts, sessionId, toolName, outcome,
+   *     binary?, missingCount?, unresolvedCount?, phrase?} (mt#4215
+   *     `nonexistent-search-path-detector.ts`, same D4 write path) — an
+   *     outcome-status record, no `matches` array. `phrase` carries the
+   *     diversity axis (binary + the path SEGMENTS that failed to resolve, not
+   *     the raw paths, which are near-unique). `unresolvedCount` is written on
+   *     CLEAN records too, and is the only measurement of what the detector's
+   *     deliberate silence rules cost — a relative path under `session_exec`, a
+   *     path behind a `cd`, a glob, a variable. Read it when reviewing recall.
    *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
    *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
    *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
@@ -199,6 +222,8 @@ export interface CalibrationLogEntry {
     | "bare-prohibition"
     | "execution-evidence-at-coverage"
     | "execution-evidence-test-first"
+    | "execution-evidence-render-path"
+    | "execution-evidence-sc-coverage"
     | "ask-form-lint"
     | "unwalked-task"
     | "unescalated-incident"
@@ -206,6 +231,7 @@ export interface CalibrationLogEntry {
     | "agent-dispatch-record"
     | "chained-verification-commands"
     | "truncated-outcome-read"
+    | "nonexistent-search-path"
     | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
     | "generic-matches";
@@ -297,13 +323,11 @@ export function findInvalidLiveSinceDates(
  * V2 entries (mt#2619 — calibration-review cadence closeout):
  *   - code-mechanism-assertion-calibration.jsonl (mt#2486)
  *   - pre-narration-calibration.jsonl (mt#2197)
- *   - policy-coverage-calibration.jsonl (mt#1575) — NOTE: this log is NOT a
- *     matched-phrase detector log like the other five. It is a per-tool-call
- *     coverage-decision audit trail (every Edit/Write/NotebookEdit gets a
- *     record, "covered" or "uncovered"), so its volume and semantics differ.
- *     It is registered here so the standing cadence mechanism surfaces it —
- *     see mt#2619 PR body for the disposition finding (100% "covered" outcome
- *     across 1,457 fires with evidence spans that do not match the action).
+ *   - policy-coverage-calibration.jsonl (mt#1575) — PRODUCER RETIRED 2026-08-16
+ *     (mt#4197). The detector is deleted; the entry, the parser and the
+ *     1,760-record file all stay, because this registry is what makes the
+ *     retained history interpretable (see the note at the entry itself). The
+ *     log simply stops growing.
  *
  * V3 entry (mt#2866):
  *   - silent-stretch-calibration.jsonl (mt#2824 detector) — NOTE: like
@@ -368,6 +392,16 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     name: "pre-narration",
     kind: "pre-narration",
   },
+  // RETIRED PRODUCER (mt#4197, 2026-08-16). The policy-coverage detector is
+  // deleted, so this log gains no new records — but the entry STAYS, for a
+  // reason worth stating because removing it was tried first and was wrong:
+  // this registry supplies the outcome -> fire-log-decision mapping
+  // (`covered`/`dismissed` -> allow, `uncovered-logged` -> warn,
+  // `uncovered-blocked` -> deny) for the 1,760 records deliberately retained on
+  // disk as the retirement's evidence. Drop the entry and that history stops
+  // being interpretable, which defeats the point of keeping it. The sweep
+  // reports nothing here because its watermark is already at 1760/1760 and
+  // nothing appends — dormancy by exhaustion, not by suppression.
   {
     path: ".minsky/policy-coverage-calibration.jsonl",
     name: "policy-coverage",
@@ -875,7 +909,7 @@ export interface SharedCalibrationFields {
    * | `wall-of-text` | `depth-request-override`, `question-answer-override` |
    * | `untaken-action` | (none — see below) |
    * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
-   * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
+   * | `pre-narration` | `same-turn-tool-call`, `window-tool-call`, `identity-scoped-tool-call` |
    * | `knowledge-acquisition` | `propagation-in-window` |
    *
    * Records written by those detectors BEFORE mt#3207 carry no field and are
@@ -1493,7 +1527,44 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       // The raw command is deliberately NOT the axis: it is near-unique, which
       // would satisfy the distinct-phrase gate by construction — the same defect
       // from the opposite direction.
-      phrases.add(`${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`);
+      //
+      // `kind` joins the axis with mt#4176's enumeration arm. The two arms have
+      // different false-positive profiles — the outcome arm keys on a curated
+      // command list, the enumeration arm on `--help` — so a review that cannot
+      // separate them is reading one blended rate. Records predating mt#4176
+      // carry no `kind` and are all outcome-arm by construction, so they default
+      // to `outcome` rather than dropping out of the axis.
+      const kind = rec.detectorFields["kind"];
+      const arm = typeof kind === "string" ? kind : "outcome";
+      phrases.add(
+        `${arm}|${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`
+      );
+    } else if (
+      rec.detectorFields &&
+      typeof rec.detectorFields["binary"] === "string" &&
+      typeof rec.detectorFields["missingCount"] === "number"
+    ) {
+      // nonexistent-search-path (mt#4215): same shape and same reasoning as the clause above —
+      // an outcome-status record with no `matches`, which without a clause here would fall to the
+      // `else` and sit at zero diversity forever (the mt#3781 inert-sweep defect).
+      //
+      // Axis = the binary plus the SEGMENT that failed to resolve, never the raw path. A raw path
+      // is near-unique and would satisfy the distinct-phrase gate by construction; the failed
+      // segment is what repeats across genuinely similar mistakes (the same wrong `tray`, the same
+      // wrong root), which is exactly what a review needs to see clustered.
+      // The fallback is defensive only: `run()` writes `phrase` on every MATCHED record, and only
+      // matched records reach here (a CLEAN record carries `binary: null`, fails this branch's
+      // guard, and correctly contributes nothing — the axis measures fires). It exists for a record
+      // whose writer omitted `phrase` — a hand-edited or pre-rename line. PR #3149 R1 NON-BLOCKING
+      // noted that `binary|missingCount` alone collapses distinct shapes that share a count;
+      // `unresolvedCount` is the only other discriminating field available at this layer, since the
+      // failed SEGMENTS live in `phrase` itself and cannot be reconstructed from what is left.
+      const phrase = rec.detectorFields["phrase"];
+      phrases.add(
+        typeof phrase === "string" && phrase.length > 0
+          ? phrase
+          : `${rec.detectorFields["binary"]}|${rec.detectorFields["missingCount"]}|${rec.detectorFields["unresolvedCount"]}`
+      );
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
@@ -1890,6 +1961,8 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "bare-prohibition": true,
   "execution-evidence-at-coverage": true,
   "execution-evidence-test-first": true,
+  "execution-evidence-render-path": true,
+  "execution-evidence-sc-coverage": true,
   "ask-form-lint": true,
   "unwalked-task": true,
   "unescalated-incident": true,
@@ -1897,6 +1970,7 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "agent-dispatch-record": true,
   "chained-verification-commands": true,
   "truncated-outcome-read": true,
+  "nonexistent-search-path": true,
   "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
   "generic-matches": true,
@@ -2224,6 +2298,42 @@ export interface ReviewReceipt {
   issuedAt: string;
   /** Log path → the log's total fire count at read time. */
   counts: Record<string, number>;
+  /**
+   * The paths that were REVIEW-DUE when this receipt was issued — the set the
+   * reviewer was actually shown, and classified against (mt#4391).
+   *
+   * Deliberately a SECOND field rather than a narrowing of `counts`, which
+   * still covers every log that exists. The two bound different things and
+   * both are needed: `counts` bounds HOW FAR a path may advance, `reviewDue`
+   * bounds WHICH paths may advance at all. Narrowing `counts` instead would
+   * break the property its own docblock records — that a receipt omitting a
+   * log cannot ack it — for the case where a due log stops being due.
+   *
+   * The gap this closes: `computeReviewDueLogs` runs again at ack time against
+   * live state, so a log that crosses a threshold DURING the pass is in the
+   * ack's review-due set and was never in the reviewer's. Advancing it marks
+   * its whole backlog reviewed by nobody. Measured on the 2026-08-21 pass:
+   * `wall-of-text` sat one injected fire below the bar at sweep time, one
+   * record arrived mid-pass, and the ack advanced its watermark 359 → 373 —
+   * 14 records, 9 of them injected, that no reviewer ever saw.
+   */
+  reviewDue: string[];
+  /**
+   * Paths that WERE due at mint time but were withheld from the reviewer
+   * because another pass held a claim on them (PR #3214 R1).
+   *
+   * These must not be advanced — this pass stood down on them, so it
+   * classified nothing — but they are not `newlyDue` either, and reporting
+   * them as such asserts a threshold crossing that never happened. Recording
+   * the two separately is what lets the ack skip both for the RIGHT stated
+   * reason.
+   *
+   * The alternative the review raised first — minting `reviewDue` from the
+   * UNFILTERED due set — was rejected: it would make the ack advance exactly
+   * the logs the skill told the reviewer to stand down on, which is this
+   * task's own defect wearing different clothes.
+   */
+  claimHeldAtMint: string[];
 }
 
 /** Thrown when a supplied review token is malformed, corrupt, or impossible. */
@@ -2244,7 +2354,12 @@ function canonicalReceiptJson(receipt: ReviewReceipt): string {
   for (const path of sortedPaths) {
     counts[path] = receipt.counts[path] as number;
   }
-  return JSON.stringify({ issuedAt: receipt.issuedAt, counts });
+  // Sorted for the same reason the `counts` keys are: the checksum must depend
+  // on the receipt's CONTENT, never on the order a caller happened to build it
+  // in — otherwise a token round-trips only when the iteration order matches.
+  const reviewDue = [...receipt.reviewDue].sort();
+  const claimHeldAtMint = [...receipt.claimHeldAtMint].sort();
+  return JSON.stringify({ issuedAt: receipt.issuedAt, counts, reviewDue, claimHeldAtMint });
 }
 
 function receiptChecksum(payloadJson: string): string {
@@ -2255,16 +2370,35 @@ function receiptChecksum(payloadJson: string): string {
 }
 
 /**
- * Issue a receipt token over what THIS sweep observed, for every log that
- * exists (not only the review-due ones — which logs are due can change between
- * the read and the ack, and a receipt that omits a log cannot ack it).
+ * Issue a receipt token over what THIS sweep observed.
+ *
+ * `counts` covers every log that EXISTS — not only the review-due ones, because
+ * which logs are due can change between the read and the ack, and a receipt
+ * that omits a log cannot ack it.
+ *
+ * `reviewDuePaths` is the orthogonal half (mt#4391): the paths this sweep
+ * actually PRESENTED as due. Both are recorded because a path can change
+ * membership in either direction between the read and the ack, and only one of
+ * those directions is safe to follow. A log that STOPS being due is simply not
+ * acked (the ack's own set excludes it); a log that STARTS being due mid-pass
+ * would otherwise be advanced on a count nobody classified against.
  */
-export function buildReviewToken(results: CalibrationLogResult[], issuedAt: string): string {
+export function buildReviewToken(
+  results: CalibrationLogResult[],
+  issuedAt: string,
+  reviewDuePaths: readonly string[],
+  claimHeldPaths: readonly string[] = []
+): string {
   const counts: Record<string, number> = {};
   for (const r of results) {
     counts[r.entry.path] = r.totalFires;
   }
-  const payloadJson = canonicalReceiptJson({ issuedAt, counts });
+  const payloadJson = canonicalReceiptJson({
+    issuedAt,
+    counts,
+    reviewDue: [...reviewDuePaths],
+    claimHeldAtMint: [...claimHeldPaths],
+  });
   const payload = Buffer.from(payloadJson, "utf8").toString("base64url");
   return `${payload}.${receiptChecksum(payloadJson)}`;
 }
@@ -2309,10 +2443,30 @@ export function parseReviewToken(token: string): ReviewReceipt {
   if (typeof parsed !== "object" || parsed === null) {
     throw new InvalidReviewTokenError("Review token payload is not an object.");
   }
-  const { issuedAt, counts } = parsed as { issuedAt?: unknown; counts?: unknown };
+  const { issuedAt, counts, reviewDue, claimHeldAtMint } = parsed as {
+    issuedAt?: unknown;
+    counts?: unknown;
+    reviewDue?: unknown;
+    claimHeldAtMint?: unknown;
+  };
   if (typeof issuedAt !== "string" || typeof counts !== "object" || counts === null) {
     throw new InvalidReviewTokenError(
       "Review token payload is missing `issuedAt` or `counts`. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  // A token minted before mt#4391 carries no `reviewDue`, and there is no safe
+  // reading of its absence: treating it as "every path is ackable" restores the
+  // very defect the field exists to close, and doing so SILENTLY, on the one
+  // path the caller believes is guarded. Rejecting costs one read-only re-run —
+  // the same remedy every other rejection here prescribes — and tokens are
+  // per-pass and never persisted, so the window in which one can be stale is a
+  // single in-flight pass.
+  if (!Array.isArray(reviewDue) || reviewDue.some((p) => typeof p !== "string")) {
+    throw new InvalidReviewTokenError(
+      "Review token payload is missing a valid `reviewDue` list — it predates mt#4391, which records " +
+        "which logs the sweep actually presented as due. Without it an ack cannot tell a log you " +
+        "classified from one that crossed its threshold while you worked. Re-run the read-only sweep " +
+        "and pass the token it returns."
     );
   }
   const validated: Record<string, number> = {};
@@ -2324,7 +2478,27 @@ export function parseReviewToken(token: string): ReviewReceipt {
     }
     validated[path] = count;
   }
-  return { issuedAt, counts: validated };
+  // Absent is accepted as empty here, unlike `reviewDue` above, and the
+  // asymmetry is deliberate: both fields ship in the same change, so a token
+  // carrying a valid `reviewDue` and no `claimHeldAtMint` cannot be produced by
+  // this code — only hand-written, which the docblock already says this is not
+  // a boundary against. Empty is also the benign reading (no claims held), so
+  // there is no silent-defect branch to protect. A present-but-wrong TYPE is
+  // still rejected.
+  if (
+    claimHeldAtMint !== undefined &&
+    (!Array.isArray(claimHeldAtMint) || claimHeldAtMint.some((p) => typeof p !== "string"))
+  ) {
+    throw new InvalidReviewTokenError(
+      "Review token carries a malformed `claimHeldAtMint` list. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  return {
+    issuedAt,
+    counts: validated,
+    reviewDue: reviewDue as string[],
+    claimHeldAtMint: (claimHeldAtMint as string[] | undefined) ?? [],
+  };
 }
 
 /** Outcome of checking a receipt against the log state at ack time. */
@@ -2337,6 +2511,47 @@ export interface ReceiptReconciliation {
   clampedPaths: string[];
   /** Ackable paths the receipt does not cover, so they cannot be advanced. */
   unreceiptedPaths: string[];
+  /**
+   * Paths the receipt PRESENTED as review-due that are no longer ackable at ack
+   * time, because another pass advanced them first (mt#4408).
+   *
+   * The classification work this pass did on them was duplicated, and the
+   * other pass's watermark stands. This is the LOST-ACK case, and before this
+   * field existed it was the one concurrency outcome that produced no signal at
+   * all: `driftedPaths` is computed per attempted WRITE, and a fully-lost ack
+   * attempts none — `computeReviewDueLogs` returns an empty set, so
+   * `reconcileReviewReceipt`'s loop body never runs and every diagnostic array
+   * comes back `[]`. The reviewer is left with `watermarkAdvanced: false`,
+   * which is byte-identical to an ack that had nothing to do.
+   *
+   * Distinct from {@link newlyDuePaths} (became due AFTER the mint — nobody
+   * classified them) and {@link claimHeldPaths} (withheld at mint — this pass
+   * was told to stand down). Those two say "not yours to advance"; this one
+   * says "yours, and someone else got there first."
+   *
+   * Originating incident: mt#4408 R4, 2026-08-21 — two passes classified the
+   * same four logs ~15 minutes apart, the loser's ack returned all-empty, and
+   * the collision was found only by reading id-adjacent task numbers.
+   */
+  ackedByAnotherPass: string[];
+  /**
+   * Paths that became review-due AFTER the receipt was issued (mt#4391).
+   *
+   * Not advanced — nobody classified them — and named rather than dropped,
+   * because a silent skip trades one invisible loss for another. Expect to see
+   * these in the NEXT sweep's `reviewDue`.
+   */
+  newlyDuePaths: string[];
+  /**
+   * Paths that were due at mint time but held by ANOTHER pass's claim, so this
+   * pass stood down on them (PR #3214 R1).
+   *
+   * Same disposition as `newlyDuePaths` — not advanced — and a different
+   * REASON, which is why it is a separate field. Folding them together would
+   * tell a reviewer a threshold was crossed when the log was simply someone
+   * else's to review.
+   */
+  claimHeldPaths: string[];
 }
 
 /**
@@ -2357,6 +2572,17 @@ export interface ReceiptReconciliation {
  *   - **Path absent from the receipt** — the read sweep never showed this log,
  *     so nothing is known about what was classified. NOT advanced, and named
  *     in `unreceiptedPaths`. Advancing on a guess is the defect.
+ *   - **Path present in `counts` but NOT in `reviewDue`** (mt#4391) — the sweep
+ *     saw the log and did not present it as due, so the reviewer never
+ *     classified it; it crossed a threshold during the pass. NOT advanced, and
+ *     named in `newlyDuePaths`. This is the SET half of the same discipline the
+ *     bullets above apply to the COUNT: the receipt says what was reviewed, and
+ *     the ack honors it rather than re-deriving from live state.
+ *   - **Path in `claimHeldAtMint`** (PR #3214 R1) — due at mint time, but
+ *     another pass held a claim on it, so this reviewer was told to stand down
+ *     and classified nothing. Same disposition as the bullet above, DIFFERENT
+ *     reason, and named in `claimHeldPaths` so the report does not assert a
+ *     threshold crossing that never happened.
  */
 export function reconcileReviewReceipt(
   receipt: ReviewReceipt,
@@ -2368,14 +2594,68 @@ export function reconcileReviewReceipt(
   const midPassArrivals: { path: string; count: number }[] = [];
   const clampedPaths: string[] = [];
   const unreceiptedPaths: string[] = [];
+  const newlyDuePaths: string[] = [];
+  const claimHeldPaths: string[] = [];
+  const ackedByAnotherPass: string[] = [];
+  const receiptReviewDue = new Set(receipt.reviewDue);
+  const receiptClaimHeld = new Set(receipt.claimHeldAtMint);
+
+  // Walk the RECEIPT's due set, not `results`, for the lost-ack case (mt#4408).
+  // The loop below is keyed on `ackablePaths`, so a path that left that set
+  // between mint and ack is invisible to it — which is precisely the outcome
+  // this detects. A path the reviewer was SHOWN and that is now un-ackable was
+  // advanced by someone else; the watermark check distinguishes that from a
+  // path that never advanced at all.
+  for (const path of receipt.reviewDue) {
+    if (ackablePaths.has(path)) continue;
+    // Claim-held paths are already disjoint from `reviewDue` at MINT time —
+    // `calibration.ts` passes the claim-FILTERED set as `reviewDuePaths` and
+    // `claimedByOthers` separately, and `buildReviewToken` stores the two
+    // verbatim without unioning them. This skip enforces that locally anyway
+    // (PR #3227 R1): the invariant currently lives in a caller two files away,
+    // and if a future one ever minted `reviewDue` from the UNFILTERED set, a
+    // claim-held path would land here and be reported as a loss this pass
+    // suffered — when in fact the pass was told to stand down and classified
+    // nothing. Cheaper to enforce than to rely on.
+    if (receiptClaimHeld.has(path)) {
+      claimHeldPaths.push(path);
+      continue;
+    }
+    const receiptCount = receipt.counts[path];
+    const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
+    if (receiptCount !== undefined && watermarkCount >= receiptCount) {
+      ackedByAnotherPass.push(path);
+    }
+  }
 
   for (const result of results) {
     const path = result.entry.path;
     if (!ackablePaths.has(path)) continue;
 
+    // Order matters, and this is the more fundamental condition: absent from
+    // `counts` means the sweep never saw the log AT ALL, which is a different
+    // (and worse) situation than seeing it and not presenting it as due.
+    // Testing `reviewDue` first would relabel every unreceipted log as
+    // "newly due", which is both wrong and less alarming than the truth.
     const receiptCount = receipt.counts[path];
     if (receiptCount === undefined) {
       unreceiptedPaths.push(path);
+      continue;
+    }
+
+    // The log was NOT presented to the reviewer, so nothing was classified in
+    // it either way. Both branches below skip; they differ only in the reason
+    // reported, and the reason is the whole value of naming it (PR #3214 R1).
+    if (!receiptReviewDue.has(path)) {
+      // Due at mint, withheld because a concurrent pass held it.
+      if (receiptClaimHeld.has(path)) {
+        claimHeldPaths.push(path);
+        continue;
+      }
+      // Swept, not due then, due now. Its count is present and perfectly valid
+      // — which is exactly why the count cannot answer this question, and why
+      // the set had to be recorded separately (mt#4391).
+      newlyDuePaths.push(path);
       continue;
     }
     if (receiptCount > result.totalFires) {
@@ -2400,7 +2680,15 @@ export function reconcileReviewReceipt(
     }
   }
 
-  return { reviewedCounts, midPassArrivals, clampedPaths, unreceiptedPaths };
+  return {
+    reviewedCounts,
+    midPassArrivals,
+    clampedPaths,
+    unreceiptedPaths,
+    newlyDuePaths,
+    claimHeldPaths,
+    ackedByAnotherPass,
+  };
 }
 
 /**

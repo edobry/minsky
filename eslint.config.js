@@ -34,6 +34,7 @@ import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
 import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
 import requireGuardOutcomeInFireLog from "./eslint-rules/require-guard-outcome-in-fire-log.js";
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
+import requireRegisteredCockpitLoop from "./eslint-rules/require-registered-cockpit-loop.js";
 import noSilentCatch from "./eslint-rules/no-silent-catch.js";
 import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
 import noSpyPatching from "./eslint-rules/no-spy-patching.js";
@@ -77,15 +78,19 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // outside brand-system.md's "one accent, two warning tiers, one pastel"
   // budget.
   "src/cockpit/web/components/JsonView.tsx",
-  // Tool-call chip (sky = "no error") + subagent-spawn badge (violet) —
-  // categorical message-type distinction, not a status indicator. Same
-  // token-budget rationale as JsonView.tsx above.
-  "src/cockpit/web/widgets/ConversationView.tsx",
-  // mt#3262 SC 2: the ToolInvocation / InjectedContentBlock renderers
-  // (carrying the SAME sky/violet categorical chips as ConversationView.tsx
-  // above) were extracted out of ConversationView.tsx into this shared
-  // module so the session-film ribbon can reuse them without forking. Same
-  // exemption rationale, same code, new file.
+  // Subagent-spawn badge (violet) — a categorical "this call spawned a child
+  // conversation" marker, not a status indicator. Same token-budget rationale
+  // as JsonView.tsx above; paired with SpawnParentBacklink.tsx below, which
+  // carries the same violet as the ascent half of the affordance.
+  //
+  // NARROWED mt#4220: this entry previously also covered a sky-hued tool-call
+  // chip (`border-sky-500/30 bg-sky-500/5`, name in `text-sky-300`). That hue
+  // is gone — a healthy tool call is now a dim `text-muted-foreground` line
+  // with no border and no tint, because spending an accent colour on the
+  // machinery is what buried assistant prose on this surface. See the module's
+  // "Weight hierarchy" docblock. Violet is the only raw palette left here, and
+  // a future sky-style categorical chip should be argued on its own merits
+  // rather than inheriting this entry.
   "src/cockpit/web/components/ConversationElementRenderers.tsx",
   // mt#3692: the "Spawned by" backlink is the ascent half of the same
   // subagent-spawn affordance the violet badge marks above, so it carries the
@@ -141,6 +146,33 @@ const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
     // `rawJsonlType === "user"`, which silently miscounted tool results
     // (PR #2419 R1 BLOCKING).
     "@minsky/domain/transcripts/rewind-detection",
+    // mt#4057: same "zero imports at ANY hop" bar as the two above —
+    // interceptor-state.ts's ONLY import is `import type { ... }` from
+    // ./aggregates, erased at compile time, so it contributes no runtime import
+    // edge whatsoever (verified: `grep '^import' ` returns that one type-only
+    // line and nothing else). The `/interceptors` catalog and detail pages
+    // import `deriveInterceptorState` / `deriveInterceptorCost` /
+    // `computeAttentionCounts` from it so the deterrent-vs-dormant-vs-broken
+    // verdict has ONE authority shared with the server-side verification
+    // script, rather than a second copy in the web bundle that could drift into
+    // inferring health from fire counts — the exact conflation mt#3754 exists
+    // to prevent.
+    "@minsky/domain/guard-events/interceptor-state",
+    // mt#4287: meets the same "zero Node dependency at ANY hop" bar, verified
+    // rather than assumed. protection-summary.ts has exactly TWO import lines:
+    // a type-only one from ./aggregates (erased, no runtime edge) and a value
+    // import from ./interceptor-state — the entry directly above, whose own
+    // sole import is likewise type-only. So its entire runtime import graph is
+    // {interceptor-state}, which is already verified empty; there is no third
+    // hop to check.
+    //
+    // The operator page imports `deriveProtectionSummary` from it so the
+    // per-failure-class rollup has ONE authority rather than a second copy in
+    // the web bundle. That matters more here than for a typical shared helper:
+    // the maintainer and operator surfaces render the SAME figures in two
+    // vocabularies, and a drifted second definition would leave both looking
+    // correct while disagreeing — the exact failure mt#3754 SC6 forbids.
+    "@minsky/domain/guard-events/protection-summary",
   ],
 };
 
@@ -287,6 +319,7 @@ export default [
           "require-hook-domain-bootstrap": requireHookDomainBootstrap,
           "require-guard-outcome-in-fire-log": requireGuardOutcomeInFireLog,
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
+          "require-registered-cockpit-loop": requireRegisteredCockpitLoop,
           "no-silent-catch": noSilentCatch,
           "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
           "no-spy-patching": noSpyPatching,
@@ -449,6 +482,10 @@ export default [
             "HOSTED_SAFE_SESSION_COMMANDS",
             "KNOWN_TOP_LEVEL_KEYS",
             "HOOK_ONLY_ENV_VARS",
+            // mt#3882 — the `operator-override` slice of the same registry,
+            // derived from HOOK_ONLY_ENV_VAR_CATEGORIES. Same kind of thing as
+            // the entry above it: a constant lookup table, not a service.
+            "OPERATOR_OVERRIDE_ENV_VARS",
           ],
         },
       ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)
@@ -1141,6 +1178,20 @@ export default [
   // tweak" rationale. This `.ts` block needs no separate plugin registration:
   // `no-raw-colors-in-cockpit` is already in the main `**/*.ts` block's
   // `custom` plugin object above.
+  // mt#4185 — a long-lived cockpit-DAEMON loop must join the sweep-liveness
+  // registry, or the meta-watchdog built to catch exactly its failure cannot
+  // see it. COVERAGE IS DECLARED HERE: `src/cockpit/**/*.ts` minus
+  // `src/cockpit/web/**` (browser code has no daemon loops and no registry to
+  // join) and minus tests (a fixture loop is the point of the rule's own
+  // test). No separate plugin registration is needed — the rule is already in
+  // the main `**/*.ts` block's `custom` plugin object above.
+  {
+    files: ["src/cockpit/**/*.ts"],
+    ignores: ["src/cockpit/web/**", "**/*.test.ts"],
+    rules: {
+      "custom/require-registered-cockpit-loop": "error",
+    },
+  },
   {
     files: ["src/cockpit/web/**/*.ts"],
     ignores: ["**/*.test.ts"],

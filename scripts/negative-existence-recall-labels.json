@@ -1,0 +1,162 @@
+[
+  {
+    "timestamp": "2026-08-12T18:07:40.243Z",
+    "sessionHash": "c5d4c9b66f09f985",
+    "proseChars": 31623,
+    "label": "claim-missed",
+    "handRead": true,
+    "missedSentenceCount": 8
+  },
+  {
+    "timestamp": "2026-08-12T18:11:16.491Z",
+    "sessionHash": "0996f89d0420b3bd",
+    "proseChars": 6478,
+    "label": "no-claim",
+    "handRead": true,
+    "missedSentenceCount": 0
+  },
+  {
+    "timestamp": "2026-08-12T20:07:28.988Z",
+    "sessionHash": "146b29fe069311d9",
+    "proseChars": 13606,
+    "label": "claim-missed",
+    "handRead": true,
+    "missedSentenceCount": 2
+  },
+  {
+    "timestamp": "2026-08-12T20:35:29.804Z",
+    "sessionHash": "a6c47d8bf737fb09",
+    "proseChars": 4280,
+    "label": "no-claim",
+    "handRead": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "timestamp": "2026-08-12T20:43:55.124Z",
+    "sessionHash": "d50bab863f074da0",
+    "proseChars": 59872,
+    "label": "claim-missed",
+    "handRead": true,
+    "missedSentenceCount": 11
+  },
+  {
+    "timestamp": "2026-08-12T21:30:01.308Z",
+    "sessionHash": "26884634e62a80a9",
+    "proseChars": 31371,
+    "label": "claim-missed",
+    "handRead": true,
+    "missedSentenceCount": 6
+  },
+  {
+    "timestamp": "2026-08-12T21:42:05.949Z",
+    "sessionHash": "403b0a32747509f1",
+    "proseChars": 7624,
+    "label": "claim-missed",
+    "handRead": true,
+    "missedSentenceCount": 1
+  },
+  {
+    "timestamp": "2026-08-12T21:51:20.792Z",
+    "sessionHash": "62c4f2109fe86214",
+    "proseChars": 41313,
+    "label": "no-claim",
+    "handRead": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "timestamp": "2026-08-12T21:52:31.523Z",
+    "sessionHash": "f6eeb16383075c43",
+    "proseChars": 15349,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "timestamp": "2026-08-12T22:04:20.124Z",
+    "sessionHash": "62c4f2109fe86214",
+    "proseChars": 12736,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "timestamp": "2026-08-12T22:23:25.821Z",
+    "sessionHash": "71500a6fd6a011e7",
+    "proseChars": 4062,
+    "label": "no-claim",
+    "handRead": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "timestamp": "2026-08-13T13:53:59.878Z",
+    "sessionHash": "8ccfd310103b1cfd",
+    "proseChars": 1330,
+    "label": "no-claim",
+    "handRead": true,
+    "missedSentenceCount": 0
+  },
+  {
+    "timestamp": "2026-08-13T16:03:25.156Z",
+    "sessionHash": "87a8526d8fc5c753",
+    "proseChars": 48545,
+    "label": "claim-missed",
+    "handRead": true,
+    "missedSentenceCount": 8
+  },
+  {
+    "timestamp": "2026-08-13T17:15:27.476Z",
+    "sessionHash": "0ea8cc156e404f60",
+    "proseChars": 36651,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 6
+  },
+  {
+    "timestamp": "2026-08-13T21:06:22.955Z",
+    "sessionHash": "87a8526d8fc5c753",
+    "proseChars": 13073,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 2
+  },
+  {
+    "timestamp": "2026-08-14T05:16:28.247Z",
+    "sessionHash": "85a7eacadba1702f",
+    "proseChars": 65674,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 12
+  },
+  {
+    "timestamp": "2026-08-16T21:05:05.184Z",
+    "sessionHash": "3d85c5189c443193",
+    "proseChars": 11796,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "timestamp": "2026-08-16T22:29:21.684Z",
+    "sessionHash": "e8582dc77220a1aa",
+    "proseChars": 28212,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 7
+  },
+  {
+    "timestamp": "2026-08-17T00:24:30.755Z",
+    "sessionHash": "47fb102e6f2ce8d3",
+    "proseChars": 35180,
+    "label": "no-claim",
+    "handRead": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "timestamp": "2026-08-17T02:51:47.655Z",
+    "sessionHash": "47fb102e6f2ce8d3",
+    "proseChars": 39302,
+    "label": "claim-missed",
+    "handRead": false,
+    "missedSentenceCount": 2
+  }
+]

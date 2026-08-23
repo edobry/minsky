@@ -75,11 +75,12 @@ export function addArgumentsFromMappings(command: Command, mappings: ParameterMa
       command.argument(argName, options.description || paramDef.description || "");
     }
 
-    // Add custom parser if provided
-    if (options.parser) {
-      // Note: Commander.js doesn't have a direct way to add parsers to arguments
-      // This would need to be handled in the action function
-    }
+    // A custom `parser` is deliberately not attached here. Commander DOES accept
+    // one on `.argument(name, description, fn)` — the comment this replaced
+    // claimed otherwise, which is how positionals ended up with no coercion at
+    // all (mt#1173). Parsing is centralized in `normalizeCliParameters` instead,
+    // so a value is coerced against its zod schema wherever it arrives from,
+    // not only when Commander declared the parser.
   });
 
   return command;
@@ -239,29 +240,97 @@ function getZodSchemaType(schema: z.ZodType): string | undefined {
  * object have no scalar CLI form, so a string value is unambiguously JSON.
  * (mt#2482)
  *
- * Wrapper handling (zod v4): `optional` / `nullable` / `default` unwrap to the
- * inner schema; `.refine()` keeps `.type === "record"`/`"object"` (checks are
- * added in place, no wrapper) so it needs no special case; `.transform()`
- * produces a `pipe` whose INPUT side is the original schema — we recurse into
- * `.in` so `record.transform(...)` is detected as a record while
- * `string.pipe(...)` (string input) is correctly left alone (mt#2482 R1).
+ * Wrapper handling (optional / nullable / default / refine / transform) moved
+ * to `unwrappedZodType` below when mt#1173 gave it a second caller; see there
+ * for the zod-v4 mechanics.
  */
 function structuredZodType(schema: z.ZodType): "record" | "object" | undefined {
+  const schemaType = unwrappedZodType(schema);
+  return schemaType === "record" || schemaType === "object" ? schemaType : undefined;
+}
+
+/**
+ * The innermost zod v4 type name, after unwrapping the wrappers a CLI parameter
+ * can legitimately carry. Shared by `structuredZodType` and
+ * `coerceScalarCliString` so both agree on what a schema actually expects.
+ *
+ * `optional` / `nullable` / `default` unwrap to the inner schema. `.refine()`
+ * needs no case: checks are added in place, so the underlying `.type` survives.
+ * `A.pipe(B)` and `X.transform()` are both `pipe`, and a CLI value must match
+ * the INPUT side — so recurse into `.in`, the public ZodPipe input accessor in
+ * zod v4. That is what keeps `record.transform(...)` detected as a record while
+ * `string.pipe(...)` is correctly left alone (mt#2482 R1).
+ *
+ * Deliberately NOT shared with `getZodSchemaType` above, which drives Commander
+ * option construction and has its own (separately-owned) gap for unions —
+ * mt#3731. Merging them would entangle two independent defects.
+ */
+function unwrappedZodType(schema: z.ZodType): string | undefined {
   const schemaType = (schema as { type?: string }).type;
-  if (schemaType === "record" || schemaType === "object") return schemaType;
   if (schemaType === "optional" || schemaType === "nullable") {
-    return structuredZodType((schema as z.ZodOptional | z.ZodNullable).unwrap() as z.ZodType);
+    return unwrappedZodType((schema as z.ZodOptional | z.ZodNullable).unwrap() as z.ZodType);
   }
   if (schemaType === "default") {
-    return structuredZodType((schema as z.ZodDefault).removeDefault() as z.ZodType);
+    return unwrappedZodType((schema as z.ZodDefault).removeDefault() as z.ZodType);
   }
   if (schemaType === "pipe") {
-    // A.pipe(B) and X.transform() are both `pipe`; the CLI value must match the
-    // INPUT side. `.in` is the public ZodPipe input accessor in zod v4.
     const inSchema = (schema as z.ZodPipe).in as z.ZodType | undefined;
-    return inSchema ? structuredZodType(inSchema) : undefined;
+    return inSchema ? unwrappedZodType(inSchema) : undefined;
   }
-  return undefined;
+  return schemaType;
+}
+
+/**
+ * Converts a CLI-supplied string to the scalar type its schema declares.
+ *
+ * Every CLI value arrives as a string, but a shared command declaring
+ * `z.number()` rejects one — so a numeric POSITIONAL is unusable from the CLI
+ * while the identical command works over MCP, which is JSON-typed (mt#1173).
+ * Options escape this because `addTypeHandlingToOption` gives them a Commander
+ * `argParser`; a positional gets no parser, so its raw string reaches
+ * `schema.parse()` and fails with "expected number, received string".
+ *
+ * The conversion is deliberately NARROWER than zod's own `z.coerce.number()`,
+ * which is documented to use `Number(input)` and therefore maps `true` to 1,
+ * `null` to 0 and `""` to 0. Putting that on a registry schema would change the
+ * MCP transport's semantics too, since both boundaries validate against the
+ * same schema. So this converts only at the CLI boundary, only for STRING
+ * input, and only when the string actually denotes a value of the target type.
+ * A string that does not is returned UNTOUCHED, so zod raises its own error and
+ * genuinely-malformed input keeps the message it has always had.
+ *
+ * Arrays and unions are excluded by construction: `unwrappedZodType` reports
+ * them as "array"/"union", which matches no branch below. Their CLI handling is
+ * a separate defect with a separate owner (mt#3731).
+ */
+function coerceScalarCliString(raw: string, schema: z.ZodType): string | number | bigint | boolean {
+  const target = unwrappedZodType(schema);
+  if (target !== "number" && target !== "bigint" && target !== "boolean") {
+    return raw;
+  }
+
+  // `Number("")` is 0 and `BigInt("")` is 0n — an omitted-looking value must
+  // never become a real one, so an empty/whitespace string is left to zod.
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return raw;
+  }
+
+  if (target === "number") {
+    const parsed = Number(trimmed);
+    // Rejects NaN and both infinities; `z.number()` refuses them anyway, and
+    // returning the raw string produces the clearer type-level message.
+    return Number.isFinite(parsed) ? parsed : raw;
+  }
+
+  if (target === "bigint") {
+    return /^[+-]?\d+$/.test(trimmed) ? BigInt(trimmed) : raw;
+  }
+
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "true") return true;
+  if (lowered === "false") return false;
+  return raw;
 }
 
 /**
@@ -349,6 +418,14 @@ export function normalizeCliParameters(
               `(e.g. '{"key":"value"}'), but the value is not valid JSON: ${rawValue}`
           );
         }
+      } else if (typeof rawValue === "string") {
+        // Scalar sibling of the structured branch above: a CLI positional
+        // reaches here as a raw string with no Commander parser to have typed
+        // it, so coerce it against the declared scalar schema first (mt#1173).
+        // A schema is either structured or scalar, never both, so `else if`
+        // keeps the two mutually exclusive. Non-string values (the MCP and
+        // in-process paths, and any option Commander already parsed) skip both.
+        valueToParse = coerceScalarCliString(rawValue, paramDef.schema as z.ZodType);
       }
 
       // Parse and validate the value

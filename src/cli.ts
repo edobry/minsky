@@ -11,6 +11,16 @@ import "./reflect-polyfill";
 import { profileCheckpoint } from "./utils/cold-start-profile";
 profileCheckpoint("cli_top");
 
+// mt#2464: declare this process a one-shot command BEFORE setupConfiguration() below, which is
+// where the persistence/backend bootstrap emits its first `log.info` lines. Without this the
+// domain diagnostic sink treats a scripted `minsky ...` invocation (stderr redirected, so not a
+// terminal) the same as a deployed container and writes boot chatter to its stderr — which breaks
+// any command that promises clean output. `minsky security check-credentials --quiet` documents
+// exactly that and asserts it three ways; its tests are the regression guard for this line.
+// The `start` subcommands that are long-running servers declare themselves back.
+import { setProcessRole } from "@minsky/shared/logger";
+setProcessRole("one-shot-command");
+
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it
 import { setupConfiguration } from "@minsky/domain/config-setup";
@@ -58,6 +68,10 @@ import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli
 import { validateError } from "@minsky/domain/schemas/error";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import {
+  registerEmbeddingsHealthEventEmitter,
+  resolveContainerPersistence,
+} from "@minsky/domain/ai/embeddings-health-wiring";
+import {
   isMcpStartStdio,
   isCompletionInvocation,
   isCockpitInvocation,
@@ -89,6 +103,17 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // Make the container available to CLI command execution contexts (mt#761).
   // Execute handlers access it via context.container.get("serviceName").
   cliFactory.setContainer(container);
+
+  // mt#4218: an embeddings degradation inside a CLI process was recorded
+  // nowhere. `minsky tasks index-embeddings` and its siblings run real
+  // embedding calls, so `EmbeddingsHealthTracker.recordError` fires here — but
+  // only `mcp start` ever registered an emitter, so the event resolved null and
+  // was dropped. Registered here, at CLI construction, rather than in the
+  // preAction hook below: registration only stores a closure, and
+  // `resolveContainerPersistence` returns `undefined` until the container
+  // actually has persistence, so registering before init is both safe and what
+  // keeps a degradation during init itself recordable.
+  registerEmbeddingsHealthEventEmitter(() => resolveContainerPersistence(container));
 
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);

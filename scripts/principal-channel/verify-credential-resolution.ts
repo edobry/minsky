@@ -63,6 +63,7 @@
 import {
   clearPrincipalChannelCache,
   resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
 } from "@minsky/domain/notify/principal-channel";
 
 async function main(): Promise<void> {
@@ -71,7 +72,7 @@ async function main(): Promise<void> {
   clearPrincipalChannelCache();
 
   const startedAt = Date.now();
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   const elapsedMs = Date.now() - startedAt;
 
   if (resolution.configured) {

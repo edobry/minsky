@@ -93,18 +93,125 @@ export const FLAKINESS_DENIAL_PATTERNS: readonly RegExp[] = [
 export const UNVERIFIED_MARKER = "UNVERIFIED";
 
 /**
+ * The heading of the record that discharges a DENIAL (mt#4166).
+ *
+ * **This label is NOT itself sufficient, and never reads as evidence on its own
+ * — {@link hasLoadControl} is the check, and it requires the RECORD.** The label
+ * only marks where the record starts. `Load control: was never run` and a bare
+ * `## Load control` both carry this string and silence nothing.
+ *
+ * A denial — "not load-dependent", "fails deterministically" — is a claim about
+ * behavior ACROSS load conditions, so the only evidence that bears on it is a
+ * measurement from more than one. Recorded counts do not carry that: they say
+ * what happened, not that the confound was held constant.
+ *
+ * ## Why the RECORD is authored rather than inferred
+ *
+ * Inferring the straddle from prose was prototyped against the real mt#4158
+ * text and MEASURED not to discriminate: counts sit near `idle machine` AND
+ * near `full gated suite` there, scoring identically to a genuine two-condition
+ * record. That is structural, not a thin vocabulary — mt#4158 CLAIMS the idle
+ * machine (falsely; a 900s suite was running) and separately DISCUSSES the full
+ * suite as the broken thing. The difference between measuring two conditions
+ * and mentioning two conditions is not in the text, so no pattern reaches it.
+ *
+ * So the author writes the two runs down and owns the claim, exactly as
+ * `Negative control:` (mt#3244) and `Execution evidence:` (mt#1459) do for the
+ * same kind of unknowable. A record whose two runs were never observed is a lie,
+ * and catching lies is not this guard's job — making the OMISSION visible is.
+ */
+export const LOAD_CONTROL_LABEL = "Load control";
+
+/** ```-fenced lines, where a label is quoted rather than asserted (mt#3511). */
+const FENCE_RE = /^[ \t]*(?:```|~~~)/;
+
+/**
  * A test invocation, as the isolation control is actually written.
  *
  * Bun is the only runner in this repo (`CLAUDE.md`: "Always use `bun`, never
  * `node`/`npm`/`npx`"), so this deliberately does not try to cover other
  * ecosystems' runners — a match on `npm test` here would be evidence of a spec
  * describing some other project.
+ *
+ * Declared here rather than beside `hasIsolationControl` below because
+ * `hasLoadControl` derives its counting form at module-evaluation time; a
+ * `const` is not hoisted, so the reader would be a TDZ error.
  */
 const TEST_INVOCATION_RE = /\bbun\s+(?:run\s+)?test\b|\bbun\s+scripts\/run-tests/i;
 
 /** Observed pass counts — `17 pass`, `0 fail`, `3 passed`, `1533 tests`. */
 const PASS_COUNT_RE = /\b\d+\s+(?:pass(?:ed|ing)?|tests?\s+pass)/i;
 const FAIL_COUNT_RE = /\b\d+\s+(?:fail(?:ed|ing|ures?)?)\b/i;
+
+/**
+ * How far past the label the record itself is looked for.
+ *
+ * The runs sit directly under the label in every form §2b prescribes; this is
+ * wide enough for a heading, a blank line and a few command lines without
+ * reaching an unrelated section further down the spec.
+ */
+const LOAD_CONTROL_RECORD_WINDOW_CHARS = 600;
+
+/** Counting form of {@link TEST_INVOCATION_RE}; `lastIndex` is reset per use. */
+const TEST_INVOCATION_GLOBAL_RE = new RegExp(TEST_INVOCATION_RE.source, "gi");
+
+/**
+ * Whether the spec records a two-condition load control under its literal label.
+ *
+ * TWO things are required, and the label is only the first (PR #3034 R1). The
+ * label is a HEADING for the record, not the record — so it must be backed,
+ * within {@link LOAD_CONTROL_RECORD_WINDOW_CHARS}, by **two** test invocations
+ * and at least one observed count. Two invocations is the whole claim: a denial
+ * is about behavior across conditions, so one run cannot discharge it no matter
+ * how it is labelled.
+ *
+ * Requiring the record rather than the label closes two shapes that the label
+ * alone admits, both of which assert the opposite of compliance:
+ *
+ * - **The disclaimer.** `Load control: was never run` carries the label and a
+ *   colon, and says the control did not happen.
+ * - **The bare heading.** `## Load control` with nothing under it names no runs.
+ *
+ * Deliberately structural — count invocations, not vocabulary. A negation list
+ * (`never run`, `pending`, `TODO`) would be the paraphrase arms race ADR-024
+ * §Context exists to end, and "was never run" is one phrasing of unboundedly
+ * many. A record with two runs in it cannot be a disclaimer.
+ *
+ * Decoration is still accepted — leading bullet, `**bold**`, any heading level —
+ * because mt#3778 measured a sibling matcher rejecting every such form and
+ * logging 42 consecutive unpassable fires.
+ */
+export function hasLoadControl(spec: string): boolean {
+  if (!spec) return false;
+
+  let offset = 0;
+  let inFence = false;
+  for (const raw of spec.split("\n")) {
+    const lineStart = offset;
+    offset += raw.length + 1;
+
+    if (FENCE_RE.test(raw)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    const withoutBullet = raw.replace(/^[ \t]*(?:[-*+][ \t]+)?/, "");
+    const heading = /^#{1,6}[ \t]*(.*)$/.exec(withoutBullet);
+    const body = (heading?.[1] ?? withoutBullet).replace(/\*\*/g, "").trim();
+    if (!new RegExp(`^${LOAD_CONTROL_LABEL}\\b`, "i").test(body)) continue;
+
+    // The window starts at the label's own line: a one-line form
+    // (`Load control: alone 67 pass / 0 fail, under load 55 pass / 12 fail`)
+    // carries its record on that same line.
+    const window = spec.slice(lineStart, lineStart + LOAD_CONTROL_RECORD_WINDOW_CHARS);
+    TEST_INVOCATION_GLOBAL_RE.lastIndex = 0;
+    const runs = window.match(TEST_INVOCATION_GLOBAL_RE)?.length ?? 0;
+    const counted = PASS_COUNT_RE.test(window) || FAIL_COUNT_RE.test(window);
+    if (runs >= 2 && counted) return true;
+  }
+  return false;
+}
 
 /** Longest matched phrase kept in a record; the excerpt carries the context. */
 const MAX_PHRASE_CHARS = 120;
@@ -136,13 +243,52 @@ export interface FlakinessClaim {
   index: number;
 }
 
+/**
+ * A claim with its own excuse resolved (mt#4166).
+ *
+ * Resolution is PER CLAIM, not per document. The shipped detector asked both
+ * questions document-wide, and on mt#4158 that let one honest `UNVERIFIED` —
+ * attached to a side note about whether slow MCP calls shared a root cause with
+ * the slow boot — excuse a load-bearing denial 2,146 characters away, because
+ * it happened to land 255 characters from the unrelated word "intermittently".
+ * A single boolean cannot say WHICH claim was excused, so it excused all of them.
+ */
+export interface ResolvedFlakinessClaim extends FlakinessClaim {
+  /** `UNVERIFIED` sits within {@link MARKER_PROXIMITY_CHARS} of THIS claim. */
+  markedUnverified: boolean;
+  /**
+   * The evidence this claim's family actually accepts is present.
+   *
+   * The families take different evidence, which is the whole point: an
+   * ATTRIBUTION is discharged by a recorded run with counts (they show the
+   * failure is real), a DENIAL only by the {@link LOAD_CONTROL_LABEL} record
+   * (counts from one condition cannot reach a claim about behavior across
+   * conditions).
+   */
+  controlled: boolean;
+}
+
 export interface FlakinessAttributionResult {
   matched: boolean;
-  /** Every claim found, both families. */
-  claims: FlakinessClaim[];
-  /** True when the spec records a test invocation WITH observed counts. */
+  /** Every claim found, both families, each carrying its own resolution. */
+  claims: ResolvedFlakinessClaim[];
+  /**
+   * True when the spec records a test invocation WITH observed counts.
+   *
+   * Discharges an ATTRIBUTION. Since mt#4166 it does NOT discharge a denial —
+   * see {@link hasLoadControl} — but it is still reported, because a
+   * false-positive review needs to tell "no evidence at all" from "evidence
+   * present, of the wrong kind for this claim".
+   */
   hasIsolationControl: boolean;
-  /** True when `UNVERIFIED` sits within {@link MARKER_PROXIMITY_CHARS} of a claim. */
+  /** True when the spec carries the {@link LOAD_CONTROL_LABEL} record. */
+  hasLoadControl: boolean;
+  /**
+   * True when `UNVERIFIED` sits within {@link MARKER_PROXIMITY_CHARS} of ANY
+   * claim. Document-wide, and retained only as a sizing signal for the
+   * calibration record — it is no longer what silences anything. Read
+   * `claims[].markedUnverified` for the question that decides a fire.
+   */
   hasUnverifiedMarker: boolean;
   /**
    * Sizing signal for the false-positive review, NOT a trigger (mt#3658 §The
@@ -177,15 +323,32 @@ export function extractFlakinessClaims(spec: string): FlakinessClaim[] {
     ["attribution", FLAKINESS_ATTRIBUTION_PATTERNS],
   ];
 
+  // Spans already claimed by a denial. "not load-dependent" contains
+  // "load-dependent", so the attribution pattern matches INSIDE it and would
+  // otherwise record a second, contradictory claim about the same words.
+  const denialSpans: Array<[number, number]> = [];
+
   // Denials are scanned FIRST so "not load-dependent" is recorded as a denial
   // rather than being swallowed by the attribution pattern it contains.
   for (const [family, patterns] of families) {
     for (const pattern of patterns) {
       const match = pattern.exec(spec);
       if (!match) continue;
+      // Scanning order alone only settles which family LABELS the span; it does
+      // not stop the attribution pattern from matching within it. Until mt#4166
+      // that shadow claim was harmless because one control silenced the whole
+      // document — under per-claim resolution it is a denial that stays lit no
+      // matter what evidence its author records.
+      if (
+        family === "attribution" &&
+        denialSpans.some(([from, to]) => match.index >= from && match.index < to)
+      ) {
+        continue;
+      }
       const phrase = match[0].slice(0, MAX_PHRASE_CHARS);
       if (seen.has(phrase.toLowerCase())) continue;
       seen.add(phrase.toLowerCase());
+      if (family === "denial") denialSpans.push([match.index, match.index + match[0].length]);
       const start = Math.max(0, match.index - EXCERPT_CONTEXT_CHARS);
       const end = Math.min(spec.length, match.index + match[0].length + EXCERPT_CONTEXT_CHARS);
       claims.push({ phrase, excerpt: spec.slice(start, end), family, index: match.index });
@@ -249,16 +412,25 @@ function suspectsSingleFileAcceptanceTest(spec: string): boolean {
  * third conjunct needs a database.
  */
 export function detectFlakinessAttribution(spec: string): FlakinessAttributionResult {
-  const claims = extractFlakinessClaims(spec ?? "");
-  const control = hasIsolationControl(spec ?? "");
-  const marker = hasUnverifiedMarkerNearClaim(spec ?? "", claims);
+  const text = spec ?? "";
+  const control = hasIsolationControl(text);
+  const loadControl = hasLoadControl(text);
+
+  // Each claim resolves against the evidence ITS family accepts, and against a
+  // marker near ITSELF. Both were document-wide before mt#4166, and both
+  // silenced mt#4158 for reasons that had nothing to do with its denial.
+  const claims: ResolvedFlakinessClaim[] = extractFlakinessClaims(text).map((claim) => ({
+    ...claim,
+    markedUnverified: hasUnverifiedMarkerNearClaim(text, [claim]),
+    controlled: claim.family === "denial" ? loadControl : control,
+  }));
 
   return {
-    matched: claims.length > 0 && !control && !marker,
+    matched: claims.some((c) => !c.markedUnverified && !c.controlled),
     claims,
     hasIsolationControl: control,
-    hasUnverifiedMarker: marker,
-    singleFileAcceptanceTestSuspected:
-      claims.length > 0 && suspectsSingleFileAcceptanceTest(spec ?? ""),
+    hasLoadControl: loadControl,
+    hasUnverifiedMarker: claims.some((c) => c.markedUnverified),
+    singleFileAcceptanceTestSuspected: claims.length > 0 && suspectsSingleFileAcceptanceTest(text),
   };
 }

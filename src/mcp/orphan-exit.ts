@@ -393,14 +393,30 @@ export interface ResidentMemoryCeilingWatcherOptions {
   /** Injectable so tests can assert without real timers. Defaults to `setInterval`/`clearInterval`. */
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  /**
+   * Keep polling after a breach instead of disarming (mt#4112).
+   *
+   * The one-shot default is correct for the original caller, which EXITS on
+   * breach — repeat firing during its own teardown would be noise. It is wrong
+   * for a supervisor that OUTLIVES the process it is measuring: the stdio
+   * proxy kills and respawns its child, so a one-shot watcher would bound the
+   * first runaway and then sit disarmed for the rest of the proxy's lifetime,
+   * leaving every subsequent child unguarded. That failure is invisible —
+   * nothing errors, and the first kill looks like the mechanism working.
+   *
+   * A repeating watcher can fire again while the caller is still handling the
+   * previous breach, so a caller that opts in owns its own re-entrancy guard.
+   */
+  repeatAfterBreach?: boolean;
   onCeilingExceeded: (breach: MemoryCeilingBreach) => void;
 }
 
 /**
  * Poll resident memory and fire `onCeilingExceeded` the first time it is
- * at or above `ceilingBytes`. Fires at most once per watcher, mirroring
- * `startParentDeathWatcher`'s one-shot semantics — the process is exiting,
- * so repeat firing during teardown would be noise.
+ * at or above `ceilingBytes`. Fires at most once per watcher by default,
+ * mirroring `startParentDeathWatcher`'s one-shot semantics — the process is
+ * exiting, so repeat firing during teardown would be noise. Pass
+ * `repeatAfterBreach` when the caller survives the breach (mt#4112).
  */
 export function startResidentMemoryCeilingWatcher(
   options: ResidentMemoryCeilingWatcherOptions
@@ -417,8 +433,10 @@ export function startResidentMemoryCeilingWatcher(
     // treating it as 0 would silently disarm the ceiling for the whole run.
     if (residentBytes === null) return;
     if (residentBytes >= options.ceilingBytes) {
-      stopped = true;
-      clearIntervalFn(timer);
+      if (!options.repeatAfterBreach) {
+        stopped = true;
+        clearIntervalFn(timer);
+      }
       options.onCeilingExceeded({ residentBytes, ceilingBytes: options.ceilingBytes });
     }
   }, pollIntervalMs);

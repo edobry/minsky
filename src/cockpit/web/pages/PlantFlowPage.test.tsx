@@ -25,7 +25,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Suspense } from "react";
 import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Routes } from "react-router-dom";
+import { MemoryRouter, Routes, useLocation } from "react-router-dom";
 import { PlantFlowPage } from "./PlantFlowPage";
 import { plantRoutes } from "../App";
 
@@ -778,11 +778,23 @@ describe("time-scrubber replay (mt#2600)", () => {
 // ---------------------------------------------------------------------------
 
 describe("plant route convergence (App.tsx plantRoutes)", () => {
+  /**
+   * Renders the current pathname so a test can assert where a link LANDED, not
+   * only that something rendered (mt#4229). Needed once a plant-board link
+   * points outside `plantRoutes`: no route here can render `/interceptors`, so
+   * without this the only observable would be "nothing threw".
+   */
+  function LocationProbe() {
+    const location = useLocation();
+    return <span data-testid="plant-test-location">{location.pathname}</span>;
+  }
+
   function renderPlantRoutesAt(initialPath: string) {
     const queryClient = createTestQueryClient();
     return render(
       <MemoryRouter initialEntries={[initialPath]}>
         <QueryClientProvider client={queryClient}>
+          <LocationProbe />
           <Suspense fallback={null}>
             <Routes>{plantRoutes}</Routes>
           </Suspense>
@@ -816,10 +828,18 @@ describe("plant route convergence (App.tsx plantRoutes)", () => {
   });
 
   // mt#2626 R1 review: the shallow "doesn't throw" click test above doesn't
-  // prove navigation actually reaches the renamed route. This one exercises
-  // the real plantRoutes wiring end-to-end: click the Learning Loop node's
-  // drill-down link and confirm /plant/interlock-history's page renders.
-  test("clicking the interlock-history link navigates to /plant/interlock-history", async () => {
+  // prove navigation actually reaches the destination. This one exercises the
+  // real wiring end-to-end.
+  //
+  // mt#4229 retargeted it. The link used to land on `/plant/interlock-history`,
+  // a route inside `plantRoutes`, so the assertion could be "the drill-down page
+  // rendered". That page is now absorbed into `/interceptors`, which is NOT a
+  // plant route — so the destination cannot render here, and asserting on a
+  // rendered page would mean either pulling the whole app's route table into a
+  // plant-board test or quietly weakening this back to "doesn't throw".
+  // Asserting the LOCATION keeps the same question ("where does this link
+  // actually go") answerable at this test's scope.
+  test("clicking the interlock-history link navigates to /interceptors", async () => {
     mockPlantBoardFetch();
     renderPlantRoutesAt("/plant");
 
@@ -830,8 +850,7 @@ describe("plant route convergence (App.tsx plantRoutes)", () => {
     fireEvent.click(screen.getByTestId("weld-history-link"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("weld-history-page")).toBeDefined();
+      expect(screen.getByTestId("plant-test-location").textContent).toBe("/interceptors");
     });
-    expect(screen.getByText(/INTERLOCK HISTORY/)).toBeDefined();
   });
 });

@@ -90,8 +90,9 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "./driven-session-host";
+import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 import {
-  createDrivenInitLinkObserver,
+  createDrivenInitObserver,
   createDrivenResultObserver,
   createDrivenSessionPersistObserver,
   orchestrateDrivenSessionResume,
@@ -120,7 +121,7 @@ export const PRINCIPAL_CHANNEL_LOCAL_ID = "principal-channel-standing";
  * takes minutes of tool work. The timeout exists so the principal always gets
  * SOMETHING back — never so it can cut a working turn short at a useful moment.
  */
-const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * How long a freshly spawned conversation gets to become ready (mt#3234).
@@ -132,7 +133,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
  * cleanly separating it from the failure mode this bounds, where the child sat
  * for twenty minutes and never came up at all.
  */
-const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
+export const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
  * Poll interval while waiting for a spawn to become ready.
@@ -285,6 +286,7 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     }
 
     const { record } = startDrivenSession({
+      mcpServerNames: drivenSessionMcpServerNames(),
       cwd: opts.cwd,
       permissionMode: opts.permissionMode ?? "bypassPermissions",
       ...(opts.model === undefined ? {} : { model: opts.model }),
@@ -294,7 +296,9 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       // Without these the conversation is never written down at all, so a
       // restart has nothing to resume FROM — the defect this task fixes.
       onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
-      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      // mt#4323: `startDrivenSession`, so this is a fresh conversation for the
+      // channel — never a resume, which goes through its own path.
+      onHarnessSessionLinked: createDrivenInitObserver({ adoptionReason: "initial" }),
       onResultSummary: createDrivenResultObserver(),
       registry,
       ...(opts.spawnFn === undefined ? {} : { spawnFn: opts.spawnFn }),
@@ -394,11 +398,11 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
 
   return {
     async converse(text: string, opts: ConverseOptions = {}): Promise<string> {
-      const { replyToText, images, onPartial } = opts;
+      const { replyToText, images, onPartial, onBlockEnd } = opts;
       const record = await ensureRecordOnce();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
-      const turn = awaitTurnResult(record, turnTimeoutMs, onPartial);
+      const turn = awaitTurnResult(record, turnTimeoutMs, onPartial, onBlockEnd);
       const sent = sendDrivenSessionInput(record, composeTurnInput(text, replyToText), {
         // Shapes match structurally; the seam type is deliberately the host's
         // (mt#3235), so no mapping is needed here.
@@ -550,24 +554,56 @@ export function partialAssistantText(payload: Record<string, unknown>): string |
 }
 
 /**
+ * True when this payload marks the START of a tool-use block (mt#3711).
+ *
+ * This is the semantic boundary the reply stream splits messages on: the prose
+ * before a tool call is a finished thought, and the prose after it is a new
+ * one. Splitting there is what makes a streamed turn read like chat rather
+ * than like one paragraph that keeps growing.
+ *
+ * Read from the SAME event family {@link partialAssistantText} reads, and by
+ * the same discipline — key on the block's own declared `type`, never on the
+ * incidental presence of a field. A `content_block_start` arrives for text and
+ * thinking blocks too, and neither ends a prose block: text CONTINUES one, and
+ * a thinking block is not shown at all, so sealing on it would emit a message
+ * boundary the reader has no way to account for.
+ */
+export function startsToolUseBlock(payload: Record<string, unknown>): boolean {
+  if (payload["type"] !== "stream_event") return false;
+  const evt = payload["event"];
+  if (typeof evt !== "object" || evt === null) return false;
+  const frame = evt as Record<string, unknown>;
+  if (frame["type"] !== "content_block_start") return false;
+  const block = frame["content_block"];
+  if (typeof block !== "object" || block === null) return false;
+  return (block as Record<string, unknown>)["type"] === "tool_use";
+}
+
+/**
  * Resolve with the assistant's text for the next completed turn.
  *
  * The stream-json `result` event is the turn's terminal marker and carries the
- * final text. Intermediate events are partial — forwarding them as separate
- * MESSAGES would produce a flood of phone notifications, which is why this
- * originally discarded them outright. `onPartial` (mt#3542) does not reopen
- * that: the caller edits ONE message in place, and Telegram does not notify on
- * an edit.
+ * final text. Intermediate events are partial, and were originally discarded
+ * outright because forwarding them as separate MESSAGES would flood the
+ * principal's phone with notifications.
  *
- * The `result` text remains authoritative. Streamed deltas are a progress view
- * and can differ from it — a turn with tool-use rounds emits text before and
- * after each round, while `result` carries the final answer — so the caller is
- * expected to SETTLE on the resolved value rather than keep the accumulation.
+ * That objection was retired in mt#3711: `disable_notification` separates
+ * "separate message" from "notification", verified live on this channel. So
+ * the caller now renders a turn as one message per prose block —
+ * `onPartial` feeds the running text, `onBlockEnd` marks where a tool call
+ * interrupted it — with only the first message notifying.
+ *
+ * The `result` text remains authoritative, and can differ from the streamed
+ * deltas: a turn with tool-use rounds emits text before and after each round
+ * while `result` carries the final answer. The caller settles on it, but only
+ * ADDITIVELY — see `principal-channel-reply-stream.ts`'s `finish`, which may
+ * not take back text the principal has already read.
  */
 function awaitTurnResult(
   record: DrivenSessionRecord,
   timeoutMs: number,
-  onPartial?: (accumulated: string) => void
+  onPartial?: (accumulated: string) => void,
+  onBlockEnd?: () => void
 ): PendingTurn {
   let settle: ((value: string) => void) | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -576,7 +612,19 @@ function awaitTurnResult(
   const subscriber = {
     onEvent(event: DrivenSessionEvent): void {
       if (event.payload["type"] !== "result") {
-        if (onPartial === undefined || settle === null) return;
+        if (settle === null) return;
+        if (startsToolUseBlock(event.payload)) {
+          // Same best-effort contract as the partial below, and for the same
+          // reason: a consumer that throws must not be able to kill the turn
+          // whose progress it is reporting.
+          try {
+            onBlockEnd?.();
+          } catch {
+            // intentional-swallow: progress reporting is never worth a failed turn.
+          }
+          return;
+        }
+        if (onPartial === undefined) return;
         const chunk = partialAssistantText(event.payload);
         if (chunk === null) return;
         accumulated += chunk;

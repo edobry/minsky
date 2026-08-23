@@ -1,12 +1,25 @@
+/**
+ * BINDING-level tests for the dispatch-intent write gate.
+ *
+ * The DECISION tests — the allow/deny acceptance matrix, the declaration
+ * matching, and the denial text — moved to
+ * `packages/domain/src/detectors/dispatch-intent-gate.test.ts` with the
+ * decision itself (mt#4374 SC4).
+ *
+ * What is left is what the binding owns: which tools are gated, whether the
+ * caller is a subagent, and how a session id is resolved from the payload. The
+ * last two blocks deliberately still call the decision — they walk payload →
+ * decision end-to-end, which is the seam this module exists to be, and is
+ * mt#4374 AT3's replay for this guard.
+ */
 import { describe, expect, it } from "bun:test";
 import {
   isSubagentContext,
   resolveSessionIdFromInput,
-  decideDispatchIntentGate,
-  buildDenialMessage,
   GATED_TOOL_NAMES,
   cloneSessionDirRegex,
 } from "./dispatch-intent-write-gate";
+import { decideDispatchIntentGate } from "@minsky/domain/detectors/dispatch-intent-gate";
 import { SESSION_DIR_RE } from "./check-guessed-session-path";
 import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
 import type { ToolHookInput } from "./types";
@@ -178,45 +191,6 @@ describe("resolveSessionIdFromInput", () => {
 // decideDispatchIntentGate — the deny / allow / expired / wrong-session matrix
 // ---------------------------------------------------------------------------
 
-describe("decideDispatchIntentGate — acceptance matrix", () => {
-  it("ALLOW: no declarations at all (regression: no declaration -> no denial)", () => {
-    const decision = decideDispatchIntentGate(SESSION_ID, [], NOW);
-    expect(decision.decision).toBe("allow");
-  });
-
-  it("DENY: a live read-only declaration covers the target session", () => {
-    const declarations = [makeDeclaration()];
-    const decision = decideDispatchIntentGate(SESSION_ID, declarations, NOW + 1000);
-    expect(decision.decision).toBe("deny");
-    expect(decision.reason).toMatch(/read-only/);
-  });
-
-  it("ALLOW: declaration exists but is expired", () => {
-    const declarations = [makeDeclaration({ ttlMs: 60_000 })];
-    const later = NOW + 61_000; // past the 60s TTL
-    const decision = decideDispatchIntentGate(SESSION_ID, declarations, later);
-    expect(decision.decision).toBe("allow");
-  });
-
-  it("ALLOW: declaration exists for a different session (wrong session)", () => {
-    const declarations = [makeDeclaration({ sessionId: "some-other-session" })];
-    const decision = decideDispatchIntentGate(SESSION_ID, declarations, NOW);
-    expect(decision.decision).toBe("allow");
-  });
-
-  it("ALLOW: declaration exists but its intent is 'implementation', not 'read-only'", () => {
-    const declarations = [makeDeclaration({ intent: "implementation" })];
-    const decision = decideDispatchIntentGate(SESSION_ID, declarations, NOW);
-    expect(decision.decision).toBe("allow");
-  });
-
-  it("ALLOW: session id unresolvable (null), even with a declaration present for some session", () => {
-    const declarations = [makeDeclaration()];
-    const decision = decideDispatchIntentGate(null, declarations, NOW);
-    expect(decision.decision).toBe("allow");
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Agent-identity independence (mt#2865 core finding: session-scoped, not
 // agent_id-scoped — a fork with a DIFFERENT agent_id than its parent is
@@ -236,29 +210,6 @@ describe("agent-identity independence", () => {
     const sessionId = resolveSessionIdFromInput(forkInput);
     const decision = decideDispatchIntentGate(sessionId, declarations, NOW + 1000);
     expect(decision.decision).toBe("deny");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildDenialMessage
-// ---------------------------------------------------------------------------
-
-describe("buildDenialMessage", () => {
-  it("includes the resolved session id", () => {
-    expect(buildDenialMessage(SESSION_ID, makeDeclaration())).toContain(SESSION_ID);
-  });
-
-  it("names the declared reason when present", () => {
-    const message = buildDenialMessage(SESSION_ID, makeDeclaration({ reason: "custom reason" }));
-    expect(message).toContain("custom reason");
-  });
-
-  it("names the sanctioned alternative (report back to the parent)", () => {
-    expect(buildDenialMessage(SESSION_ID, makeDeclaration())).toMatch(/[Rr]eport your findings/);
-  });
-
-  it("handles a null (unresolvable) session id gracefully", () => {
-    expect(buildDenialMessage(null, makeDeclaration())).toMatch(/this session/);
   });
 });
 

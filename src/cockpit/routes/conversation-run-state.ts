@@ -28,6 +28,7 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { recordRunStateEvent } from "@minsky/domain/conversation-run-state/repository";
 import { createCachedSqlDbGetter, describeServerPersistenceUnavailability } from "../db-providers";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /**
  * Lazy-cached SQL handle. `cacheNegative: false` — a failed probe is retried on
@@ -126,6 +127,7 @@ export function mountConversationRunStateRoutes(
       });
       res.json({ ok: true, ...result });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "conversation-run-state")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }

@@ -43,41 +43,18 @@ export interface SessionFilmEventsResponse {
 }
 
 export async function fetchSessionFilmEvents(
-  conversationId: string,
-  verifiedRescrubbed = false
+  conversationId: string
 ): Promise<SessionFilmEventsResponse> {
   const params = new URLSearchParams({ conversationId });
-  if (verifiedRescrubbed) params.set("verifiedRescrubbed", "true");
   const res = await fetch(`/api/cockpit/session-film/events?${params.toString()}`);
   if (!res.ok) await parseErrorResponse(res);
   return (await res.json()) as SessionFilmEventsResponse;
 }
 
-export interface SessionFilmPickerRow {
-  agentSessionId: string;
-  label: string;
-  startedAt: string | null;
-  cwd: string | null;
-  ingestedAt: string | null;
-  scrubGateOk: boolean;
-}
-
-export async function fetchSessionFilmSessions(): Promise<SessionFilmPickerRow[]> {
-  const res = await fetch("/api/cockpit/session-film/sessions");
-  if (!res.ok) await parseErrorResponse(res);
-  const body = (await res.json()) as { sessions: SessionFilmPickerRow[] };
-  return body.sessions;
-}
-
 export function sessionFilmEventsQueryKey(
-  conversationId: string,
-  verifiedRescrubbed: boolean
-): readonly [string, string, string, boolean] {
-  return ["session-film", "events", conversationId, verifiedRescrubbed] as const;
-}
-
-export function sessionFilmSessionsQueryKey(): readonly [string, string] {
-  return ["session-film", "sessions"] as const;
+  conversationId: string
+): readonly [string, string, string] {
+  return ["session-film", "events", conversationId] as const;
 }
 
 /** Do NOT retry a client error (4xx) — mirrors conversation-snapshot.ts's snapshotRetry rationale. */
@@ -95,29 +72,26 @@ export interface SessionFilmContentResponse {
 }
 
 /**
- * Fetch the SCRUB-GATED transcript content for a conversation, whole (not
- * per-row) — one call per first-expand, then indexed in memory by the
- * ribbon. Mirrors `fetchSessionFilmEvents`'s error-parsing discipline.
- * Deliberately hits `/api/cockpit/session-film/content`, never
+ * Fetch the transcript content for a conversation, whole (not per-row) — one
+ * call per first-expand, then indexed in memory by the ribbon. Mirrors
+ * `fetchSessionFilmEvents`'s error-parsing discipline. Deliberately hits
+ * `/api/cockpit/session-film/content`, never
  * `/api/cockpit/context-inspector/snapshot` — see `session-film.ts`'s module
  * doc comment for why (spec SC 5).
  */
 export async function fetchSessionFilmContent(
-  conversationId: string,
-  verifiedRescrubbed = false
+  conversationId: string
 ): Promise<SessionFilmContentResponse> {
   const params = new URLSearchParams({ conversationId });
-  if (verifiedRescrubbed) params.set("verifiedRescrubbed", "true");
   const res = await fetch(`/api/cockpit/session-film/content?${params.toString()}`);
   if (!res.ok) await parseErrorResponse(res);
   return (await res.json()) as SessionFilmContentResponse;
 }
 
 export function sessionFilmContentQueryKey(
-  conversationId: string,
-  verifiedRescrubbed: boolean
-): readonly [string, string, string, boolean] {
-  return ["session-film", "content", conversationId, verifiedRescrubbed] as const;
+  conversationId: string
+): readonly [string, string, string] {
+  return ["session-film", "content", conversationId] as const;
 }
 
 // ── Event → real content resolution (mt#3262 SC 2) ──────────────────────────

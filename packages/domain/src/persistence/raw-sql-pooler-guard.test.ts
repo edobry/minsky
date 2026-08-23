@@ -7,7 +7,12 @@
  * connection's promises.
  */
 import { describe, test, expect, mock } from "bun:test";
-import { guardRawSqlAgainstPoolerWedge } from "./raw-sql-pooler-guard";
+import {
+  guardRawSqlAgainstPoolerWedge,
+  getPoolerSaturation,
+  POOLER_SATURATION,
+  type PoolerSaturation,
+} from "./raw-sql-pooler-guard";
 
 /** Build a minimal postgres-js-like callable with a mocked .unsafe. */
 function fakeSql(opts?: { max?: number; delayMs?: number; failEvery?: number }) {
@@ -66,6 +71,74 @@ describe("guardRawSqlAgainstPoolerWedge (mt#2773)", () => {
     expect(unsafe).toHaveBeenCalledTimes(12);
     expect(outcomes.filter((o) => o.status === "rejected")).toHaveLength(4);
     expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(8);
+  });
+
+  // mt#4308 — the saturation signal. Before this, an `ECHECKOUTTIMEOUT` mid-write
+  // was the first notice that the pooler's client budget was exhausted, and
+  // nothing aggregated it, so a recurrence read as an unrelated flake.
+  test("saturation reports the cap and an idle pool before any query runs", () => {
+    const { sql } = fakeSql({ max: 4 });
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+
+    const snap = (
+      (guarded as unknown as Record<symbol, unknown>)[POOLER_SATURATION] as () => PoolerSaturation
+    )();
+
+    expect(snap.limit).toBe(4);
+    expect(snap.inFlight).toBe(0);
+    expect(snap.queued).toBe(0);
+    expect(snap.saturated).toBe(false);
+    expect(snap.everSaturated).toBe(false);
+    // Distinct from "settled at epoch 0" — nothing has run yet.
+    expect(snap.lastSettledAt).toBeNull();
+  });
+
+  test("everSaturated survives the burst that set it, after inFlight and queued return to zero", async () => {
+    const { sql } = fakeSql({ max: 2, delayMs: 5 });
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+    const read = () =>
+      (
+        (guarded as unknown as Record<symbol, unknown>)[POOLER_SATURATION] as () => PoolerSaturation
+      )();
+
+    // Deliberately NOT awaited yet — the mid-burst read is the point.
+    const inflight = Promise.all(
+      Array.from({ length: 10 }, () => guarded.unsafe("SELECT 1 AS one"))
+    );
+
+    const during = read();
+    expect(during.saturated).toBe(true);
+    expect(during.queued).toBeGreaterThan(0);
+    // The cap holds while saturated — this is the mt#2773 invariant, re-asserted
+    // through the new counters rather than through the fake's own bookkeeping.
+    expect(during.inFlight).toBeLessThanOrEqual(2);
+
+    await inflight;
+
+    const after = read();
+    expect(after.inFlight).toBe(0);
+    expect(after.queued).toBe(0);
+    expect(after.saturated).toBe(false);
+    // The load-bearing property: an operator reading this AFTER the incident
+    // still learns the cap was reached. `saturated` alone would say "fine".
+    expect(after.everSaturated).toBe(true);
+    expect(after.peakQueued).toBeGreaterThan(0);
+    expect(after.peakInFlight).toBe(2);
+    expect(after.lastSettledAt).not.toBeNull();
+  });
+
+  test("getPoolerSaturation() exposes the guard without holding a reference to it", async () => {
+    const { sql } = fakeSql({ max: 3 });
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+
+    await Promise.all(Array.from({ length: 6 }, () => guarded.unsafe("SELECT 1 AS one")));
+
+    // This is the path `debug_systemInfo` takes — it has no handle on the
+    // provider's memoized guard, only the module-level reader.
+    const viaModule = getPoolerSaturation();
+    expect(viaModule).not.toBeNull();
+    expect(viaModule?.limit).toBe(3);
+    expect(viaModule?.everSaturated).toBe(true);
   });
 
   test("params and options forward verbatim; params default to []", async () => {

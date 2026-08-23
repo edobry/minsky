@@ -21,12 +21,15 @@
  * Exit codes: 0 = the poll succeeded (with or without messages), 1 = it failed.
  */
 
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { getTelegramUpdates } from "@minsky/domain/notify/telegram-transport";
 import { routeInboundMessage } from "@minsky/domain/notify/principal-inbound";
 
 async function main(): Promise<void> {
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   if (!resolution.configured) {
     console.error(`FAIL (not configured): ${resolution.reason}`);
     process.exit(1);

@@ -12,6 +12,7 @@ import type { AskRepository } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import { getServerAskRepository, describeServerPersistenceUnavailability } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /** Options accepted by {@link mountAskRoutes}. */
 export interface AskRoutesOptions {
@@ -185,11 +186,49 @@ function toAskListRow(a: Ask) {
  *
  * Both endpoints used to call `repo.transition(askId, "routed")`, on the
  * expectation that something would re-dispatch the Ask into the operator
- * queue on the next service window. Nothing does: `ServiceWindowReaper`
- * (packages/domain/src/ask/service-window-reaper.ts) — the only component
- * that performs `routed -> suspended` — has no production callsite.
+ * queue on the next service window. Nothing did — `ServiceWindowReaper`
+ * (packages/domain/src/ask/service-window-reaper.ts) had no production
+ * callsite until mt#4313 gave it one.
  *
- * Meanwhile an operator-bound Ask never legitimately reaches `routed` at all.
+ * Two corrections to this docblock's original wording (mt#4313). It said the
+ * reaper "performs `routed -> suspended`"; the direction is the opposite —
+ * the reaper's only `transition()` call targets `"routed"`, moving a windowed
+ * cohort `suspended -> routed` when its window opens.
+ *
+ * **The reaper no longer runs (mt#4410, 2026-08-21).** This docblock claimed it
+ * did, which was true for one day: mt#4313 wired it, and mt#4410 unwired it
+ * when the principal retired the attention-window concept —
+ * `startServiceWindowSweeper` is now deliberately uncalled by the daemon. What
+ * that retirement did NOT reach is the create-time defaults, so a
+ * `direction.decide` ask is still born into an `ask-hours` window nothing will
+ * open; that residue is mt#4421's.
+ *
+ * That does not revive these two buttons. What made them harmful was never
+ * `routed` itself but that they were an entrance to it with no window context
+ * and nothing to bring the Ask back — a `routed` ask they created belonged to
+ * no cohort, so no window-open would ever pick it up. Restoring a real defer
+ * (a `snoozedUntil` column plus something that fires when it elapses) is still
+ * the delivery-layer work described at the end of this docblock.
+ *
+ * ## The visibility half is fixed only for OPERATOR-routed asks (mt#4361)
+ *
+ * The unfiltered `GET /api/asks` below lists asks in `routed` as well as
+ * `suspended` — but BOTH of its paths then filter on
+ * `routingTarget === OPERATOR_ROUTING_TARGET`. This docblock used to conclude
+ * from that widening that "an ask in `routed` is no longer invisible to the
+ * operator", which is true as written and empty in practice, because the two
+ * populations are disjoint: `routeResultToOutcomeWrite` sends every
+ * operator-bound ask straight to `suspended`, and since mt#3491 made the
+ * buttons below inert, no operator-routed ask enters `routed` at all.
+ *
+ * So the real `routed` population — subagent/mesh/retriever, the transports
+ * that do not exist — is NOT visible here and this endpoint is not where it
+ * becomes visible. mt#4361's answer is the age dimension on
+ * `getAskStateCounts` (`packages/domain/src/ask/state-counts-provider.ts`),
+ * surfaced on `debug_systemInfo`: deliberately a signal rather than a sweep,
+ * because an ask in `routed` is one no human and no agent has ever seen, and
+ * retiring it on age would discard an undelivered question.
+ *
  * `routeResultToOutcomeWrite` maps the inbox/elicitation transports straight
  * to `suspended` ("'Dispatch' for the inbox transport IS landing on the
  * operator surface" — ask/advancement.ts); only subagent/mesh/retriever
@@ -251,6 +290,7 @@ function makeDeferOrEscalateHandler(
         ...(mode === "escalate" ? { escalated: false } : {}),
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       // No transition happens here any more, so the former "Invalid
       // transition" -> 409 branch is unreachable and was removed (R1
       // non-blocking). `repo.getById` can still fail for unrelated reasons;
@@ -344,8 +384,26 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       const projectScope = await resolveCockpitProjectScope(projectParam);
 
       if (filter.states === null) {
-        const suspended = await repo.listByState("suspended", projectScope);
-        const operatorAsks = suspended.filter(
+        // Unfiltered = "what is still waiting on the operator", which spans
+        // `routed` as well as `suspended` (mt#4313).
+        //
+        // This list was suspended-only for as long as nothing ever moved an
+        // operator ask INTO `routed` — the docblock above calls `routed` a trap
+        // state precisely because its only entrances were the two inert
+        // defer/escalate buttons. The service-window reaper is now a third
+        // entrance and a legitimate one: it transitions a cohort
+        // `suspended -> routed` when its window opens. Reading only `suspended`
+        // here would make the whole cohort vanish from this page at window-open
+        // — the same disappearance mt#3491 removed the buttons to prevent.
+        //
+        // `pendingAsksForWindow` has always spanned both states, so this brings
+        // the generic page in line with the window surfaces rather than
+        // inventing a rule.
+        const [routed, suspended] = await Promise.all([
+          repo.listByState("routed", projectScope),
+          repo.listByState("suspended", projectScope),
+        ]);
+        const operatorAsks = [...routed, ...suspended].filter(
           (a) => a.routingTarget === OPERATOR_ROUTING_TARGET && !isTerminal(a.state)
         );
         operatorAsks.sort(compareAskPriority);
@@ -373,6 +431,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         truncated: total > page.length,
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -415,6 +474,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       });
       res.json({ ids });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -474,6 +534,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         },
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -576,6 +637,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
 
       res.json({ ok: true, id: ask.id, state: ask.state });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("not found")) {
         res.status(404).json({ error: message });

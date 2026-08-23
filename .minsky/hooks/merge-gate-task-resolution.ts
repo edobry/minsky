@@ -15,8 +15,10 @@
 //
 // **DB-free by construction.** The branch fallback parses `git rev-parse --abbrev-ref HEAD`
 // rather than looking the session up by id, deliberately NOT the DB-backed lookup
-// `record-subagent-invocation.ts` uses — that would violate the hooks' self-containment
-// invariant (`.minsky/hooks/SPEC.md`). At merge time `cwd` is typically the session
+// `record-subagent-invocation.ts` uses. (The reason recorded here used to be the hooks'
+// self-containment invariant, retired by mt#4373; the constraint stands on a stronger one —
+// a DB read from a hook process costs 3.3–5.5s per fire and fails OPEN silently when it
+// fails, per mt#3090/mt#3019.) At merge time `cwd` is typically the session
 // workspace, whose branch is `task/mt-NNNN`, so the fallback covers the common shape of the
 // currently-silent case.
 //

@@ -198,10 +198,12 @@ pub(crate) fn cockpit_url(port: u16) -> String {
     format!("http://localhost:{port}")
 }
 
-/// The supervisor's health-probe endpoint.
-pub(crate) fn health_url(port: u16) -> String {
-    format!("{}/api/health", cockpit_url(port))
-}
+// The cockpit's health URL used to be built here, as `health_url(port)`. It
+// moved out in mt#3815: the supervisor now probes N daemons, each with its own
+// health PATH carried on its registry entry, so the URL is composed generically
+// by `daemon_core::probe_health` from `(port, health_path)`. Keeping a
+// cockpit-specific builder beside that would be a second way to spell the same
+// URL — which is the exact duplication mt#3988 removed from this module.
 
 /// The mt#3048 "is any driven session mid-turn" endpoint the backend watcher
 /// consults before an auto-restart.
@@ -247,7 +249,6 @@ mod tests {
     #[test]
     fn urls_follow_the_port_they_are_given() {
         assert_eq!(cockpit_url(4317), "http://localhost:4317");
-        assert_eq!(health_url(4317), "http://localhost:4317/api/health");
         assert_eq!(
             turn_active_url(4317),
             "http://localhost:4317/api/driven-session/turn-active"
@@ -260,10 +261,6 @@ mod tests {
     #[test]
     fn urls_at_the_default_port_match_the_replaced_constants() {
         assert_eq!(cockpit_url(DEFAULT_COCKPIT_PORT), "http://localhost:3737");
-        assert_eq!(
-            health_url(DEFAULT_COCKPIT_PORT),
-            "http://localhost:3737/api/health"
-        );
         assert_eq!(
             turn_active_url(DEFAULT_COCKPIT_PORT),
             "http://localhost:3737/api/driven-session/turn-active"

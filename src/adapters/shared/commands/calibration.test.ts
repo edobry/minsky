@@ -543,3 +543,215 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     expect(after?.openAskId).toBeUndefined();
   });
 });
+
+describe("observability.calibration-review — server-injected caller identity (mt#4408)", () => {
+  const CLAIMS_FILE = ".minsky/calibration-review-claims.json";
+  const INJECTED = "com.anthropic.claude-code:conv:injected-aaaa";
+  const OTHER_PASS = "com.anthropic.claude-code:conv:other-bbbb";
+
+  /**
+   * Run `fn` with both harness identity env vars unset, then restore.
+   *
+   * Load-bearing rather than hygiene: this suite runs inside a Claude Code
+   * harness, where `CLAUDE_CODE_SESSION_ID` IS set — so a test asserting
+   * "no identity ⇒ claimsUnavailable" would pass via the env fallback whether
+   * or not the injection worked. That is exactly the can't-fail probe shape
+   * (mem#704) this task exists to end.
+   */
+  async function withoutHarnessIdentity<T>(fn: () => Promise<T>): Promise<T> {
+    const saved = {
+      agent: process.env.CLAUDE_AGENT_ID,
+      session: process.env.CLAUDE_CODE_SESSION_ID,
+    };
+    delete process.env.CLAUDE_AGENT_ID;
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    try {
+      return await fn();
+    } finally {
+      if (saved.agent !== undefined) process.env.CLAUDE_AGENT_ID = saved.agent;
+      if (saved.session !== undefined) process.env.CLAUDE_CODE_SESSION_ID = saved.session;
+    }
+  }
+
+  function readClaims(workspace: string): Record<string, { actorId: string }> {
+    const path = join(workspace, CLAIMS_FILE);
+    if (!existsSync(path)) return {};
+    // `as string` for the same reason `readWatermarks` above casts: this repo's
+    // src/types/node.d.ts declares readFileSync as `string | Buffer` regardless
+    // of encoding, so no overload narrows it.
+    const raw = readFileSync(path, { encoding: "utf-8" }) as string;
+    return JSON.parse(raw) as Record<string, { actorId: string }>;
+  }
+
+  test("callerActorId resolves identity, so the pass claims its review-due logs", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    const result = await withoutHarnessIdentity(
+      async () =>
+        (await getCommand().execute(
+          { ack: false, json: true, callerActorId: INJECTED },
+          { workspacePath: workspace }
+        )) as { claimsUnavailable: boolean; reviewDue: { name: string }[] }
+    );
+
+    expect(result.claimsUnavailable).toBe(false);
+    expect(result.reviewDue.length).toBeGreaterThan(0);
+
+    // The claim is held by the INJECTED id specifically — not merely by "some"
+    // id, which an env fallback would also satisfy.
+    const claims = readClaims(workspace);
+    const holders = Object.values(claims).map((c) => c.actorId);
+    expect(holders.length).toBeGreaterThan(0);
+    expect(new Set(holders)).toEqual(new Set([INJECTED]));
+  });
+
+  test("NEGATIVE CONTROL — without callerActorId the pass is unidentifiable and claims nothing", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    const result = await withoutHarnessIdentity(
+      async () =>
+        (await getCommand().execute({ ack: false, json: true }, { workspacePath: workspace })) as {
+          claimsUnavailable: boolean;
+        }
+    );
+
+    expect(result.claimsUnavailable).toBe(true);
+    expect(Object.keys(readClaims(workspace))).toEqual([]);
+  });
+
+  test("a second pass is warned about the first pass's claim", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    await withoutHarnessIdentity(async () => {
+      await getCommand().execute(
+        { ack: false, json: true, callerActorId: INJECTED },
+        { workspacePath: workspace }
+      );
+      const second = (await getCommand().execute(
+        { ack: false, json: true, callerActorId: OTHER_PASS },
+        { workspacePath: workspace }
+      )) as { claimedByOthers: string[]; reviewDue: { name: string }[] };
+
+      // The R4 case, closed: the second pass SEES the first and stands down.
+      expect(second.claimedByOthers.length).toBeGreaterThan(0);
+      expect(second.reviewDue).toEqual([]);
+    });
+  });
+
+  test("an unidentifiable second pass still SEES the first pass's claim (SC2)", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    await withoutHarnessIdentity(async () => {
+      await getCommand().execute(
+        { ack: false, json: true, callerActorId: INJECTED },
+        { workspacePath: workspace }
+      );
+      // No callerActorId: cannot name itself, so it writes no claim — but the
+      // read must still happen. Before mt#4408 the early return skipped it and
+      // this came back empty, which read as "nobody is here".
+      const second = (await getCommand().execute(
+        { ack: false, json: true },
+        { workspacePath: workspace }
+      )) as { claimsUnavailable: boolean; claimedByOthers: string[] };
+
+      expect(second.claimsUnavailable).toBe(true);
+      expect(second.claimedByOthers.length).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe("observability.calibration-review — a fully-lost ack names the loss (mt#4408)", () => {
+  test("a path this token presented as due, advanced by another pass, is reported", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    // Pass A mints a token over the review-due set.
+    const tokenA = await readReviewToken(workspace);
+
+    // Pass B classifies and acks the same window first — the winner.
+    const tokenB = await readReviewToken(workspace);
+    const ackB = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: tokenB },
+      { workspacePath: workspace }
+    )) as { watermarkAdvanced: boolean };
+    expect(ackB.watermarkAdvanced).toBe(true);
+
+    // Pass A now acks with its own valid token. Nothing is left to advance.
+    const ackA = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: tokenA },
+      { workspacePath: workspace }
+    )) as {
+      watermarkAdvanced: boolean;
+      driftedPaths: string[];
+      ackedByAnotherPass: string[];
+    };
+
+    // The pre-mt#4408 signature: advanced nothing, drifted nothing.
+    expect(ackA.watermarkAdvanced).toBe(false);
+    expect(ackA.driftedPaths).toEqual([]);
+    // ...and now the loss is NAMED rather than silent.
+    expect(ackA.ackedByAnotherPass.length).toBeGreaterThan(0);
+    expect(ackA.ackedByAnotherPass.some((p) => p.includes("silent-stretch"))).toBe(true);
+  });
+
+  test("an uncontended ack reports no lost paths", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+    const token = await readReviewToken(workspace);
+    const acked = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: token },
+      { workspacePath: workspace }
+    )) as { watermarkAdvanced: boolean; ackedByAnotherPass: string[] };
+
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(acked.ackedByAnotherPass).toEqual([]);
+  });
+});
+
+describe("observability.calibration-review — lost-ack reporting edges (mt#4408 AT3/AT4)", () => {
+  test("AT3 — an uncontended ack reports the new field empty and still advances", async () => {
+    // The discrimination this field has to preserve: "nobody took anything from
+    // me" must not look like "someone else got there first". An empty workspace
+    // is NOT the fixture for that — `never-fired` is a review-due reason, so the
+    // registry's zero-record logs are due here regardless (measured: an empty
+    // workspace returns knowledge-acquisition with reason `never-fired`). What
+    // makes this uncontended is that no second pass acks in between.
+    const workspace = makeWorkspace();
+    const token = await readReviewToken(workspace);
+    const acked = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: token },
+      { workspacePath: workspace }
+    )) as { ackedByAnotherPass: string[]; watermarkAdvanced: boolean };
+
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(acked.ackedByAnotherPass).toEqual([]);
+  });
+
+  test("AT4 — the text output states the loss in words, not only in JSON", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    const tokenA = await readReviewToken(workspace);
+    const tokenB = await readReviewToken(workspace);
+    await getCommand().execute(
+      { ack: true, json: true, reviewToken: tokenB },
+      { workspacePath: workspace }
+    );
+
+    // json: false — this asserts the RENDERED text, which is the surface a
+    // reviewer actually reads. The JSON field being right is a separate claim.
+    const acked = (await getCommand().execute(
+      { ack: true, reviewToken: tokenA },
+      { workspacePath: workspace }
+    )) as { text?: string; message?: string };
+
+    const rendered = `${acked.text ?? ""}${acked.message ?? ""}`;
+    expect(rendered).toContain("LOST:");
+    expect(rendered).toContain("silent-stretch");
+    expect(rendered).toContain("do NOT re-ack");
+  });
+});

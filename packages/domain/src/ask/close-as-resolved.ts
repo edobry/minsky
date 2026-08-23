@@ -116,6 +116,46 @@ async function closeByCurrentState(
     await repo.close(ask.id, { response });
     return { kind: "closed", askId: ask.id };
   }
+  // mt#3353: record WHO cancelled and WHY before the transition, because the
+  // transition itself cannot. `repo.transition(id, to)` writes `state` and
+  // `closedAt` and nothing else — no responder, no payload — so every Ask
+  // cancelled before this change carries no trace of what retired it.
+  //
+  // Written BEFORE the state change, not after: the write only touches a row
+  // that is still non-terminal, so the order is forced.
+  //
+  // Via `recordCancellation` rather than a read-merge-`updateContent` sequence.
+  // That sequence is what shipped first and what PR #3190's review caught as
+  // BLOCKING: it merges into the `ask` snapshot read at the TOP of
+  // `closeAskAsResolved`, so any concurrent edit landing in between is written
+  // back over — a lost update on the very column whose job here is provenance,
+  // and the window is widened by every await before it. `recordCancellation`
+  // merges server-side with jsonb `||`, so there is no window to lose.
+  //
+  // A failure here must not block the cancellation — the transition is the
+  // point of the call and the record is the audit trail — so this is
+  // best-effort, matching the never-throws contract the rest of this module
+  // keeps.
+  //
+  // Note for a future sweep author: this records provenance for whoever calls
+  // it, and says nothing about WHEN a periodic pass may safely call it for a
+  // `classified`/`routed` ask. That rule is mt#4361, and parent-task-terminal
+  // is NOT it — a parent can go terminal by concluding the work is
+  // operator-only while that work is still outstanding.
+  try {
+    await repo.recordCancellation(ask.id, {
+      responder: input.responder,
+      cancelledAt: new Date().toISOString(),
+      fromState: ask.state,
+      ...(input.payload ? { payload: input.payload } : {}),
+    });
+  } catch (err) {
+    log.debug("closeAskAsResolved: could not record cancellation provenance (best-effort)", {
+      askId: ask.id,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   await repo.transition(ask.id, "cancelled");
   return { kind: "cancelled", askId: ask.id };
 }

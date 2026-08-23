@@ -82,7 +82,7 @@ export const BASELINE_HOOK_TIMEOUT_SECONDS = 5;
 /**
  * Events whose settings.json entries carry a tool-name `matcher`. The rest are
  * lifecycle events that fire unconditionally and take no matcher — mirroring
- * `.minsky/hooks/registry.ts`'s `NON_TOOL_SCOPED_EVENTS` distinction.
+ * `.minsky/hooks/registry-matcher-pairs.ts`'s `NON_TOOL_SCOPED_EVENTS` distinction.
  */
 const TOOL_SCOPED_EVENTS: ReadonlySet<string> = new Set([
   "PreToolUse",

@@ -64,6 +64,63 @@ export interface EventEmitterWithTryEmit extends EventEmitter {
 }
 
 // ---------------------------------------------------------------------------
+// Failure description (mt#4131)
+// ---------------------------------------------------------------------------
+
+/** A single structured warn entry, described independent of WHERE it's emitted. */
+export interface EmitFailureLogEntry {
+  message: string;
+  context: Record<string, unknown>;
+}
+
+/**
+ * Pure decision core: build the warn entry for a failed `system_events` insert.
+ *
+ * Drizzle wraps every driver failure in a `DrizzleQueryError` whose `message` is
+ * only `Failed query: <sql>` + `params: <params>` — the driver's own error is on
+ * `.cause`. postgres.js populates `code` there: a connection token such as
+ * `CONNECTION_ENDED` when the pool has gone away, or a SQLSTATE plus `detail` /
+ * `constraint_name` when the server actually rejected the row. So logging
+ * `message` alone reports THAT a write failed and never WHY, which is how 865
+ * dropped `mcp.disconnect` events stayed undiagnosable from the log.
+ *
+ * The cause keys are omitted rather than set to `undefined` when there is no
+ * cause — a plain `Error` is the common case here, and four empty keys on every
+ * such line is noise.
+ */
+export function describeEmitFailure(
+  err: unknown,
+  eventType: SystemEventInput["eventType"]
+): EmitFailureLogEntry {
+  const context: Record<string, unknown> = {
+    eventType,
+    error: err instanceof Error ? err.message : String(err),
+  };
+
+  const cause: unknown = err instanceof Error ? err.cause : undefined;
+  if (cause) {
+    context.causeMessage = cause instanceof Error ? cause.message : String(cause);
+    const fields = cause as { code?: unknown; detail?: unknown; constraint_name?: unknown };
+    if (typeof fields.code === "string") context.causeCode = fields.code;
+    if (typeof fields.detail === "string") context.causeDetail = fields.detail;
+    if (typeof fields.constraint_name === "string")
+      context.causeConstraint = fields.constraint_name;
+  }
+
+  return {
+    message: "EventEmitter: failed to emit system event (best-effort, swallowed)",
+    context,
+  };
+}
+
+/** Injectable warn sink, mirroring `LogPostgresNoticeDeps` (mt#3628). */
+export interface EventEmitterLogDeps {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+const defaultEventEmitterLogDeps: EventEmitterLogDeps = { warn: log.warn };
+
+// ---------------------------------------------------------------------------
 // DrizzleEventEmitter — Postgres implementation
 // ---------------------------------------------------------------------------
 
@@ -75,7 +132,10 @@ export interface EventEmitterWithTryEmit extends EventEmitter {
  * This ensures EventEmitter failure is non-fatal for the calling domain action.
  */
 export class DrizzleEventEmitter implements EventEmitterWithTryEmit {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    private readonly logDeps: EventEmitterLogDeps = defaultEventEmitterLogDeps
+  ) {}
 
   /**
    * Emit with a persistence signal: resolves `true` when the row was actually
@@ -102,10 +162,8 @@ export class DrizzleEventEmitter implements EventEmitterWithTryEmit {
       // Best-effort: log the failure but never propagate it.
       // A dead DB should not prevent asks from being created, PRs from being
       // reviewed, or subagents from being dispatched.
-      log.warn("EventEmitter: failed to emit system event (best-effort, swallowed)", {
-        eventType: event.eventType,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const entry = describeEmitFailure(err, event.eventType);
+      this.logDeps.warn(entry.message, entry.context);
       return false;
     }
   }

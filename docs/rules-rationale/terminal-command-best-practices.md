@@ -264,6 +264,44 @@ Rotation is the real closure. Scrubbing a transcript only closes the searchable 
 JSONL and any model-provider round-trip already happened. If the operator declines rotation, that
 is their call to make explicitly, not an outcome to assume.
 
+### Secrets in MCP server launch config (mt#4140)
+
+An MCP client config (`.mcp.json`, `settings.json`) is a launch surface, and a secret can reach a
+server through it in two shapes that no single search finds. Both were live in one five-entry file.
+
+**Shape 1 — COMPUTED onto the command line.** A `stdio` server whose launch string ends up putting
+the value in a child process's **argv**, which every process on the machine can read:
+
+```jsonc
+// UNSAFE — `sh -c` expands $(…) at spawn time, so the token lands in docker's argv
+"args": ["-c", "docker run --rm -i -e TOKEN=$(gh auth token) ghcr.io/example/server"]
+
+// SAFE — the assignment prefix puts the value in docker's ENVIRONMENT; the name-only
+// `-e TOKEN` (no `=`) forwards it from there. The sh -c process's own argv holds the
+// unexpanded `$(…)` text.
+"args": ["-c", "TOKEN=$(gh auth token) docker run --rm -i -e TOKEN ghcr.io/example/server"]
+```
+
+**The bounded claim matters here.** This moves the secret from argv (world-readable) to the process
+environment (same-user/root only). It is a real reduction in blast radius, not elimination — do not
+describe the result as "the token is no longer exposed."
+
+**Shape 2 — EMBEDDED at rest.** An `http` server whose `headers.Authorization` carries a literal
+token. Nothing computes it and `ps` cannot see it, so shape 1's conversion does not apply; the
+exposure is that the file itself is a credential store, which is why `.mcp.json` is on
+`block-secret-file-read`'s explicit list (mt#4159).
+
+**Auditing a config for both.** Neither search finds the other, and that is the whole lesson —
+a prior pass searched this file for literal secrets and for `${VAR}` references, found neither, and
+correctly concluded the mechanism was unidentified while a live token sat in argv:
+
+- **Shape 1's signature is a COMMAND SUBSTITUTION** — `$(…)` or backticks — inside a
+  `command`/`args` field. Not a literal, not a `${VAR}`: the value does not exist until spawn time.
+- **Shape 2's signature is a literal high-entropy string** in `headers`, `env`, or a URL.
+
+Do not audit by grepping for one signature. Enumerate every server and ask, per entry, what each
+launch and auth field CARRIES.
+
 ## Rationale
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode

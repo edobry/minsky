@@ -94,13 +94,34 @@ words.
 Where in the trajectory it sits. Current values are the Claude Code harness lifecycle events plus
 the repo/delivery gates:
 
+<!-- axis-1-points:start — parsed by tests/unit/interceptor-points.test.ts; every name backticked -->
+
 `PreToolUse` · `PostToolUse` · `Stop` · `SubagentStop` · `UserPromptSubmit` · `SessionEnd` ·
-`MessageDisplay` · pre-commit · merge-time
+`MessageDisplay` · `SessionStart` · `StopFailure` · `Notification` · `PermissionRequest` ·
+`PreCompact` · `PostCompact` · `pre-commit` · `merge-time`
+
+<!-- axis-1-points:end -->
 
 The agent-runtime values are _literal copies_ of the harness's own event names, so this is
 identity with the field, not convergence — keep them verbatim. AspectJ's "join point", Kubernetes'
 admission phases and OWASP's "control point" are the same concept in other lineages, and are
 useful as glosses only.
+
+The six from `SessionStart` onward were added by mt#4129. Hooks were registered at each of them in
+`.claude/settings.json` while the model had no value to represent them, so the point resolver
+dropped them and the catalog carried neither the hook nor a gap — this list was one of the places
+that made the omission look intentional. It is a SIXTH copy of these names: the other five are
+three type unions (the hook tree cannot import from `src/`, and cockpit-web cannot import from
+`.minsky/hooks/**`, so the duplication is forced), the runtime `POINTS` gate, and `VALID_POINTS`.
+`tests/unit/interceptor-points.test.ts` pins all six to each other — including this one, via the
+`axis-1-points` HTML comment markers around the list above. A prose list is exactly the copy that
+would otherwise rot silently, which is why it is fenced and parsed rather than trusted; keep every
+name backticked so the parser sees it.
+
+Not every point has a place on the spine: `INTERCEPTION_POINT_ORDER` is deliberately a subset,
+because ordering `Notification` or `PreCompact` against a turn's phases is a spine-design decision
+nobody has made. An entry at such a point lands in `spinePopulation`'s `stationless` bucket, which
+reports it rather than dropping it.
 
 ### Axis 2 — intervention type
 
@@ -160,8 +181,10 @@ four amendments, and **the amended model — not the clean three axes — is the
 ### (a) A declared type is a capability SET, not a fixed conjunction
 
 The word "composable" reads as declared-at-registration. It must read as **the set of
-interventions the entity MAY produce**. `policy-coverage-detector` selects deny, warn, or allow
-per fire at runtime; the declaration names its repertoire, not its outcome. This matches the
+interventions the entity MAY produce**. The worked example this amendment was written against,
+`policy-coverage-detector`, selected deny, warn, or allow per fire at runtime; the declaration
+named its repertoire, not its outcome. (That entity was retired 2026-08-16, mt#4197, and no
+longer appears in the catalog — the amendment it motivated stands on its own.) This matches the
 field: a Kubernetes validating webhook may allow or deny per request.
 
 Consequence for the catalog: an entity legitimately belongs to more than one computed family, and
@@ -238,8 +261,9 @@ role before the ontology existed, which is evidence the vocabulary self-organize
 and a constraint any genus had to satisfy.
 
 **A family word is a filter, so membership is not exclusive.** By amendment (a),
-`policy-coverage-detector` is both a guard and a detector. This is a property of the model, not a
-classification error to resolve.
+`policy-coverage-detector` was both a guard and a detector. This is a property of the model, not a
+classification error to resolve. (That entity was retired 2026-08-16, mt#4197; the counts below
+were measured while it was still in the catalog.)
 
 **The three words do not PARTITION the corpus (measured, mt#4038).** Computing the filters over
 the authored capability sets: guard 42 · detector 27 · injector 25 — and **8 entities land in none
@@ -249,6 +273,12 @@ filters `mutate` or `record(framework)`. The eight are exactly the pre-commit re
 regens) and the framework-state writers (`record-turn-anchor`, `record-agent-dispatch`,
 `auto-session-title`) — precisely the "feeders and infrastructure" §5 already names as the
 entities that surfaced as falsifiers because they do not judge.
+
+The class has since taken a ninth member: `interceptor-catalog-regen` joined at mt#4071
+(2026-08-13), a pre-commit regeneration step that had been firing since mt#4010 but carried no
+authored coordinates, so it resolved into no family for the mundane reason that nothing had
+classified it. That is the visible diff this pinning exists to produce; the counts above are
+mt#4038's measurement and are left as measured.
 
 This is the corpus reporting a property of the model, not a gap to close by widening a capability
 set until something matches. **A catalog must render these as explicitly outside the family
@@ -420,8 +450,11 @@ explicitly out of scope, permanently, not deferred.
   choice reinforces it: the MCP Interceptors WG charter (primary source) explicitly rules
   "client-specific hook implementation details" out of scope, i.e. the emerging protocol layer
   makes the same hook/interceptor split mt#2626 made.
-- **`interlock` remains the plant-UI deny noun** — the Plant Board's S2 valves, the
-  `/plant/interlock-history` route — per mt#2626, unchanged and shipped.
+- **`interlock` remains the plant-UI deny noun** — the Plant Board's S2 valves, and the
+  "interlock history →" drill-down link — per mt#2626, unchanged and shipped. The
+  `/plant/interlock-history` ROUTE was absorbed into `/interceptors` by mt#4229 and now
+  redirects; the vocabulary split survives the move intact, which is the point worth noting
+  here: the page changed, the noun did not.
 - **`guard` and `detector` remain correct** wherever deny/allow or calibration-first-record is
   what is meant. No rules-corpus sweep replacing them is warranted or intended.
 - **No code is renamed and no storage is migrated** by this page.

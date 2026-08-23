@@ -81,7 +81,11 @@ import {
   type Intervention,
   type Role,
 } from "../.minsky/hooks/interceptor-coordinates";
-import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
+import {
+  buildCoordinateResolutionInput,
+  readSettingsHookNames,
+} from "./interceptor-coordinate-input";
+import { resolvePrecommitStepNames } from "./precommit-step-names";
 
 const GENERATED_BANNER = "by scripts/build-interceptor-catalog.ts — do not edit directly";
 
@@ -126,6 +130,13 @@ export interface CatalogEntryCoordinates {
   readonly point: InterceptionPoint | null;
   /** How axis 1 was established, so a reader can tell derived from authored. */
   readonly pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (ontology §5) — `"delivery"` for the
+   * merge gates, whose subject nothing in a declared source separates from the
+   * other PreToolUse denials; null everywhere the stratum derives. mt#4011's
+   * lifecycle spine reads this for merge-station placement.
+   */
+  readonly trajectory: "delivery" | null;
   /** Axis 2 — the capability SET, never a single primary (ontology amendment (a)). */
   readonly interventions: readonly Intervention[];
   /** Axis 3. */
@@ -145,7 +156,39 @@ export interface CatalogEntryCoordinates {
   readonly deliberatelyUnauthored: boolean;
 }
 
-export type CatalogEntryWithCoordinates = CatalogEntry & CatalogEntryCoordinates;
+/** The build-time join key between the catalog and any file-keyed view of the corpus. */
+export interface CatalogEntrySourceFile {
+  /**
+   * The hook FILE that implements this entry, as a bare basename — the join key
+   * between the catalog (keyed by `guardName`) and any file-keyed view of the
+   * same corpus, `/plant/interlock-history`'s git-derived install provenance
+   * being the one that matters (mt#4229).
+   *
+   * Derived, not authored, and the derivation is already exact: the description
+   * store's contract makes `provenance[0]` the module that IMPLEMENTS the
+   * behavior, so it resolves the cases where the file name and the guard name
+   * differ — `bare-prohibition` implements as `warn-bare-prohibition-dispatch.ts`
+   * — without a second hand-maintained alias map to drift.
+   *
+   * `null` means NO HOOK FILE BY CONSTRUCTION, which is a different answer from
+   * "we could not find one": a pre-commit step's provenance is
+   * `src/hooks/pre-commit.ts`, and a retired or fixture name resolves to the
+   * oracle that declares it. Neither has install provenance to join to, so a
+   * null here is correct rather than a gap. Measured at introduction: 109 of 134
+   * non-null.
+   *
+   * This field exists because NEITHER consumer may import the hook tree —
+   * `tests/unit/hook-tree-import-boundary.test.ts` pins "`src/**` must not
+   * import `.minsky/hooks/**`", which covers the cockpit widget and the web page
+   * alike. The generator runs in `scripts/`, where the import is legal, so the
+   * join is resolved once at build time instead of duplicated on both sides.
+   */
+  readonly sourceFile: string | null;
+}
+
+export type CatalogEntryWithCoordinates = CatalogEntry &
+  CatalogEntryCoordinates &
+  CatalogEntrySourceFile;
 
 /**
  * Names known to one source and not the other.
@@ -166,8 +209,12 @@ export interface InterceptorCatalog {
   readonly _generated: string;
   /** Repo-relative sources this artifact distills, so drift is auditable. */
   readonly generatedFrom: readonly string[];
-  /** Entry count — the DECLARED population. */
-  readonly population: number;
+  // NO `population` field (mt#4208). The declared population is `entries.length`,
+  // and storing a second copy of it is what broke main twice: git unions two
+  // branches' entry additions while resolving the single count line without a
+  // conflict, so the artifact lands self-inconsistent and the source-keyed regen
+  // hook never re-fires on the merge commit that did it. `parseCatalog` derives
+  // the number at read time; consumers see it unchanged.
   readonly divergence: CatalogDivergence;
   /** The 11-class taxonomy, so the cockpit renders definitions without a second copy. */
   readonly failureClasses: Readonly<Record<string, FailureClassDefinition>>;
@@ -176,6 +223,50 @@ export interface InterceptorCatalog {
 }
 
 const DELIBERATELY_UNAUTHORED = new Set(DELIBERATELY_UNAUTHORED_NAMES);
+
+/**
+ * Provenance prefixes that denote a hook file.
+ *
+ * `.minsky/hooks/` is the only one any entry uses today — the description
+ * store's `hook()` helper hard-codes it, and a check over the generated catalog
+ * finds zero `.claude/hooks/` first-pointers. `.claude/hooks/` is accepted
+ * anyway because it is the generated MIRROR of the same file: the two resolve to
+ * the same basename, so accepting both costs nothing and removes a silent-null
+ * failure mode if a description is ever written against the generated tree
+ * (PR #3087 R1).
+ */
+const HOOK_SOURCE_PREFIXES = [".minsky/hooks/", ".claude/hooks/"] as const;
+
+/**
+ * The implementing hook file's basename, or `null` when the entry has none.
+ *
+ * Two independent conditions, and BOTH must hold:
+ *
+ * 1. `provenanceStatus === "implementation"`. This is the load-bearing one and
+ *    it was missing in the first cut (PR #3087 R1). A `declaration-only` entry's
+ *    `provenance[0]` is the ORACLE THAT DECLARES IT — `known-guard-names.ts` —
+ *    which is a real path under `.minsky/hooks/`, so a prefix test alone
+ *    happily derives `sourceFile: "known-guard-names"` for it. Nine entries
+ *    resolved that way, and each would have rendered the oracle's install date
+ *    and commit as its own provenance: nine wrong answers, presented as fact,
+ *    on the exact surface built to keep absence and declaration apart.
+ * 2. `provenance[0]` is under a hook directory. A later pointer is a rule or a
+ *    registry, so this reads the FIRST only rather than scanning the list for
+ *    something hook-shaped — scanning would invent a join the store never
+ *    asserted.
+ */
+export function deriveSourceFile(
+  provenance: readonly string[],
+  provenanceStatus: CatalogEntry["provenanceStatus"]
+): string | null {
+  if (provenanceStatus !== "implementation") return null;
+  const first = provenance[0];
+  if (first === undefined) return null;
+  const prefix = HOOK_SOURCE_PREFIXES.find((p) => first.startsWith(p));
+  if (prefix === undefined) return null;
+  const basename = first.slice(prefix.length);
+  return basename.endsWith(".ts") ? basename.slice(0, -".ts".length) : basename;
+}
 
 /**
  * Resolve one name's axis coordinates and computed families.
@@ -194,6 +285,7 @@ function resolveEntryCoordinates(
   return {
     point: resolved.point,
     pointSource: resolved.pointSource,
+    trajectory: resolved.trajectory,
     interventions: resolved.interventions,
     mechanism: resolved.mechanism,
     role: resolved.role,
@@ -229,13 +321,16 @@ export function buildCatalog(sources: CatalogSources): InterceptorCatalog {
       ".minsky/hooks/known-guard-names.ts",
       ".minsky/hooks/registry.ts",
     ],
-    population: names.length,
     divergence: { declaredButNotDescribed, describedButNotDeclared },
     failureClasses: FAILURE_CLASSES,
-    entries: names.map((name) => ({
-      ...resolveCatalogEntry(name, sources.input),
-      ...resolveEntryCoordinates(name, sources.coordinateInput),
-    })),
+    entries: names.map((name) => {
+      const described = resolveCatalogEntry(name, sources.input);
+      return {
+        ...described,
+        ...resolveEntryCoordinates(name, sources.coordinateInput),
+        sourceFile: deriveSourceFile(described.provenance, described.provenanceStatus),
+      };
+    }),
   };
 }
 
@@ -260,10 +355,45 @@ function buildResolveInput(): ResolveCatalogInput {
  * different: it enumerates the corpus, and a retired step or a test fixture is
  * part of that corpus (each carries its own stratum). So both are unioned back
  * in here rather than the oracle's own resolver being changed.
+ *
+ * `precommitNames` is passed EXPLICITLY (mt#4071). Omitting it makes
+ * `resolveKnownGuardNames` fall back to the hand-maintained
+ * `PRECOMMIT_STEP_NAMES` snapshot, and a pre-commit step added without an
+ * accompanying snapshot edit is then absent from the population — not reported
+ * as a divergence, simply not in the catalog, because the divergence lists
+ * compare descriptions against the oracle and the name is in neither. That is
+ * how `interceptor-catalog-regen` — a step this very generator's pre-commit
+ * hook runs — stayed missing from the catalog it builds.
  */
 export function collectOracleNames(): ReadonlySet<string> {
+  // mt#4129: `.claude/settings.json` registration is the fact that decides
+  // whether something runs at a lifecycle point. Before this, the oracle's only
+  // route for a non-registry hook was `STANDALONE_GUARD_NAMES`, defined as
+  // "guards that FIRE-LOG but are not in GUARD_REGISTRY" — so a hook whose
+  // handler never writes a record was in neither source the divergence check
+  // compares, and the check reported zero discrepancies while 30 registered
+  // hooks were missing from the catalog entirely.
+  //
+  // A null here is NOT treated as "none registered": that would silently shrink
+  // the population back to the pre-fix set. It throws, because a generator that
+  // cannot read the registration file must not emit a catalog claiming to be
+  // complete — the same reason `audit-settings-hook-coverage.ts` exits non-zero.
+  const settingsNames = readSettingsHookNames();
+  if (!settingsNames) {
+    throw new Error(
+      "Could not derive hook registrations from .claude/settings.json. The catalog " +
+        "population would silently omit every settings-registered hook, so this is a " +
+        "hard failure rather than a smaller catalog. Check that the file exists and " +
+        "that every hook command still points at a `<name>.ts` script."
+    );
+  }
+
   return new Set([
-    ...resolveKnownGuardNames({ registryNames: GUARD_REGISTRY.map((r) => r.name) }),
+    ...resolveKnownGuardNames({
+      registryNames: GUARD_REGISTRY.map((r) => r.name),
+      precommitNames: resolvePrecommitStepNames(),
+    }),
+    ...settingsNames,
     ...RETIRED_GUARD_NAMES.keys(),
     ...FIXTURE_GUARD_NAMES.keys(),
   ]);
@@ -307,10 +437,10 @@ async function main(): Promise<void> {
   console.log(
     [
       `Wrote interceptor catalog: ${OUT_PATH_REL}`,
-      `  Population: ${catalog.population}`,
+      `  Population: ${catalog.entries.length}`,
       `  Declared but not described: ${declaredButNotDescribed.length}${names(declaredButNotDescribed)}`,
       `  Described but not declared: ${describedButNotDeclared.length}${names(describedButNotDeclared)}`,
-      `  Interception point resolved: ${withPoint}/${catalog.population}`,
+      `  Interception point resolved: ${withPoint}/${catalog.entries.length}`,
       `  Families: guard ${family("guard")} · detector ${family("detector")} · injector ${family("injector")}`,
       `  Family state: classified ${state("classified")} · out-of-model ${state("out-of-model")} · unclassified ${state("unclassified")}`,
     ].join("\n")

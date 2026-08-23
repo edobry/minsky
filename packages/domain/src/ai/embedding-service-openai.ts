@@ -1,7 +1,8 @@
 import { injectable } from "tsyringe";
 import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
-import { RateLimitError } from "./enhanced-error-types";
+import { truncateEmbeddingInput, truncateEmbeddingInputs } from "./embeddings/truncate-input";
+import { ProviderInputError, RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
 import {
@@ -89,13 +90,15 @@ export class OpenAIEmbeddingService implements EmbeddingService {
   }
 
   async generateEmbedding(content: string): Promise<number[]> {
-    const resp = await this.requestWithRetry([content]);
+    const bounded = await truncateEmbeddingInput(content, this.model, "openai");
+    const resp = await this.requestWithRetry([bounded]);
     if (!resp.data?.[0]?.embedding) throw new Error("Invalid embedding response");
     return resp.data[0].embedding;
   }
 
   async generateEmbeddings(contents: string[]): Promise<number[][]> {
-    const resp = await this.requestWithRetry(contents);
+    const bounded = await truncateEmbeddingInputs(contents, this.model, "openai");
+    const resp = await this.requestWithRetry(bounded);
     return resp.data.map((d) => d.embedding);
   }
 
@@ -184,7 +187,19 @@ export class OpenAIEmbeddingService implements EmbeddingService {
         );
       }
 
-      throw new Error(`Embedding request failed: ${res.status} ${res.statusText}${extra}`.trim());
+      const message = `Embedding request failed: ${res.status} ${res.statusText}${extra}`.trim();
+
+      // A 4xx that is not a rate limit or an auth failure means the provider
+      // rejected what we SENT — an over-length input, a malformed body (mt#4212).
+      // Typing it keeps it off the circuit breaker, which exists to detect a
+      // failing provider and cannot be informed by a permanently-invalid request.
+      // 401/403 stay untyped on purpose: an unusable credential is a
+      // service-level condition where pausing the caller is the right response.
+      if (res.status >= 400 && res.status < 500 && ![401, 403, 429].includes(res.status)) {
+        throw new ProviderInputError(message, "openai", res.status);
+      }
+
+      throw new Error(message);
     }
     return (await res.json()) as OpenAIEmbeddingResponse;
   }
