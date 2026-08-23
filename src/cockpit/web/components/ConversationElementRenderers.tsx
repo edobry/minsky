@@ -87,7 +87,11 @@ import { Prose } from "./Prose";
 import { ToolPayload } from "./ToolPayload";
 import { friendlyToolName, parseToolName } from "../lib/tool-name";
 import { toolIconFor } from "../lib/tool-icon";
-import { summarizeToolInvocation } from "../lib/tool-summary";
+import {
+  summarizeToolInvocation,
+  toolConsequence,
+  type ToolConsequence,
+} from "../lib/tool-summary";
 import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan, TaskNotificationParts } from "../lib/injected-content";
 import { isApiErrorText } from "../lib/conversation-outcome";
@@ -394,8 +398,22 @@ const EFFECT_WEIGHT = {
  * parsing here. Parsing it ourselves is exactly the name-shaped inference
  * mt#3845 SC3 rules out.
  */
-function effectWeightFor(toolName: string): (typeof EFFECT_WEIGHT)[keyof typeof EFFECT_WEIGHT] {
-  return classifyTool(toolName) === "mutates" ? EFFECT_WEIGHT.mutates : EFFECT_WEIGHT.recessive;
+function effectWeightFor(
+  toolName: string,
+  consequence: ToolConsequence
+): (typeof EFFECT_WEIGHT)[keyof typeof EFFECT_WEIGHT] {
+  if (classifyTool(toolName) !== "mutates") return EFFECT_WEIGHT.recessive;
+  // A mutating tool whose RESULT says it changed nothing did not actuate, so it
+  // does not earn the actuation step (mt#4437). The name classified the
+  // CAPABILITY; only the payload can speak to the EVENT.
+  //
+  // `unknown` deliberately keeps the mutates step: no paired result (the
+  // windowing case, mt#3481), an error, or a payload carrying no delta all land
+  // here, and stepping DOWN on those would assert "nothing happened" from an
+  // absence of evidence. Capability weight — today's behaviour — is the honest
+  // rendering when the consequence is not known, and it is also the
+  // conservative direction, since it claims no more than mt#4238 already did.
+  return consequence === "unchanged" ? EFFECT_WEIGHT.recessive : EFFECT_WEIGHT.mutates;
 }
 
 export function ToolInvocation({
@@ -439,7 +457,20 @@ export function ToolInvocation({
   // Tier-3 weight step (mt#4238). Note this reads `call.name`, NOT `parsed` —
   // the classifier does its own normalization, and handing it a pre-parsed bare
   // name would drop the server that distinguishes an MCP tool from a native one.
-  const weight = useMemo(() => effectWeightFor(call.name), [call.name]);
+  // The result payload, in the shape both the digest and the consequence read.
+  const resultInfo = useMemo(
+    () => (result ? { content: result.content, isError: result.isError } : undefined),
+    [result]
+  );
+  // What this call DID, read off the payload — `unknown` until it says (mt#4437).
+  const consequence = useMemo(
+    () => toolConsequence(call.name, resultInfo),
+    [call.name, resultInfo]
+  );
+  const weight = useMemo(
+    () => effectWeightFor(call.name, consequence),
+    [call.name, consequence]
+  );
   // A native file tool acting on a session workspace reveals that only through
   // its absolute path (mt#3378) — mark it in the label, and keep the session
   // identity in the tooltip rather than spending the line on a raw UUID.
@@ -455,12 +486,8 @@ export function ToolInvocation({
     : call.name;
   const digest = useMemo(
     () =>
-      summarizeToolInvocation(
-        call.name,
-        call.input,
-        result ? { content: result.content, isError: result.isError } : undefined
-      ),
-    [call.name, call.input, result]
+      summarizeToolInvocation(call.name, call.input, resultInfo),
+    [call.name, call.input, resultInfo]
   );
 
   return (
