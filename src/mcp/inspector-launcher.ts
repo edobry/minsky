@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from "child_process";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage, getErrorStack } from "@minsky/domain/errors/index";
 import { processCwd } from "@minsky/shared/process";
+import { resolveMinskyCommand } from "./resolve-server-command";
 
 /**
  * Configuration options for the MCP Inspector
@@ -94,9 +95,13 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   }
 
   try {
-    // Build the MCP server command that the inspector will launch
-    // Use bun run to execute the minsky command properly
-    const serverCommand = ["bun", "run", "minsky", "mcp", "start"];
+    // mt#4475. This site was NOT broken: `bun run minsky` resolves through this
+    // package's own `bin` entry (package.json → `"minsky": "./scripts/cli-entry.ts"`),
+    // not through $PATH — verified by running it (`bun run minsky --version` → 0.1.2).
+    // It is converted anyway because that resolution depends on cwd being inside
+    // the package, and deriving from the running process does not. Hardening, not
+    // a fix — recorded so a later reader does not infer this site was failing.
+    const serverCommand = [...resolveMinskyCommand(), "mcp", "start"];
 
     // Add transport-specific arguments
     if (mcpTransportType === "httpStream") {

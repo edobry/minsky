@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { log } from "@minsky/shared/logger";
+import { resolveMinskyServerSpawn } from "../../mcp/resolve-server-command";
 
 /**
  * Parse repeated `--arg key=value` strings into the arguments object sent to the tool.
@@ -59,8 +60,13 @@ export async function callMcpToolDirectly(
       serverArgs.push("--repo", options.repo);
     }
 
-    log.debug(`Spawning minsky with args: ${JSON.stringify(serverArgs)}`);
-    const child = spawn("minsky", serverArgs, {
+    // Re-invoke THIS build rather than resolving "minsky" on $PATH (mt#4475).
+    // The bare name only worked where a global install exists, which is why
+    // this file's own round-trip test failed in CI and took main red.
+    const { command, args } = resolveMinskyServerSpawn(serverArgs);
+
+    log.debug(`Spawning ${command} with args: ${JSON.stringify(args)}`);
+    const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: process.cwd(),
       env: { ...process.env },

@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { spawn } from "child_process";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
+import { resolveMinskyServerSpawn } from "../../mcp/resolve-server-command";
 import { exit } from "@minsky/shared/process";
 
 /**
@@ -23,7 +24,10 @@ export function createToolsCommand(): Command {
         }
 
         await new Promise<void>((resolve, reject) => {
-          const child = spawn("minsky", ["mcp", "start"], {
+          // Re-invoke THIS build rather than $PATH (mt#4475) — same defect and
+          // same fix as direct-client.ts; this site simply had no test to fail.
+          const { command, args } = resolveMinskyServerSpawn(["mcp", "start"]);
+          const child = spawn(command, args, {
             stdio: ["pipe", "pipe", "pipe"],
             cwd: options.repo || process.cwd(),
             env: { ...process.env },

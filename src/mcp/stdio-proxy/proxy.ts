@@ -30,6 +30,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { Transform, type Readable, type Writable } from "stream";
 import { log } from "@minsky/shared/logger";
 import { DisconnectTracker, type McpDisconnectCause } from "../disconnect-tracker";
+import { resolveMinskyServerSpawn } from "../resolve-server-command";
 import {
   PROXY_RESTART_TOOL_NAME,
   PROXY_RESTART_NUDGE_TEXT,
@@ -53,8 +54,10 @@ import { resolveHarnessPid } from "@minsky/shared/conversation-pid-map";
 import { armChildMemoryCeiling, writeChildBreachRecord } from "./child-memory-ceiling";
 import type { MemoryCeilingBreach, StoppableWatcher } from "../orphan-exit";
 
-/** Default command for the inner MCP server. */
-const DEFAULT_CHILD_COMMAND = "minsky";
+// The default child COMMAND is no longer a constant (mt#4475): it is derived
+// from the running process by `resolveMinskyServerSpawn`, so the supervisor
+// respawns this build rather than whatever `minsky` is on $PATH. Only the args
+// stay constant, and only for the branch where a caller names its own executable.
 /** Default args for the inner MCP server. */
 const DEFAULT_CHILD_ARGS = ["mcp", "start"];
 
@@ -105,7 +108,13 @@ const BYTES_PER_MB = 1024 * 1024;
 export const PROXY_DISCONNECT_SERVER_NAME = "minsky-proxy";
 
 export interface ProxyOptions {
-  /** Command to spawn as the inner MCP server. Default: "minsky" */
+  /**
+   * Command to spawn as the inner MCP server.
+   *
+   * Default: derived from the running process (mt#4475) — `argv[0]` plus the
+   * entry script, so the supervisor respawns THIS build. Supplying it opts out
+   * of that derivation entirely and takes `childArgs` verbatim.
+   */
   childCommand?: string;
   /** Arguments for the inner MCP server command. Default: ["mcp", "start"] */
   childArgs?: string[];
@@ -341,8 +350,23 @@ export class MinskyStdioProxy {
   }
 
   constructor(options: ProxyOptions = {}) {
-    this.childCommand = options.childCommand ?? DEFAULT_CHILD_COMMAND;
-    this.childArgs = options.childArgs ?? DEFAULT_CHILD_ARGS;
+    // mt#4475. `childCommand` and `childArgs` cannot be defaulted independently
+    // any more: when we derive the executable from this process, the entry
+    // script has to travel WITH it as the first argument, so a caller that
+    // names its own executable must get its own args untouched.
+    if (options.childCommand !== undefined) {
+      // Caller named the executable — honor it exactly. This is the path the
+      // proxy tests take (`childCommand: "bun"`), and the operator escape hatch.
+      this.childCommand = options.childCommand;
+      this.childArgs = options.childArgs ?? DEFAULT_CHILD_ARGS;
+    } else {
+      // Derive both, so the supervisor respawns THIS build rather than whatever
+      // `minsky` happens to be on the child's $PATH — which on a machine with no
+      // global install was nothing at all.
+      const resolved = resolveMinskyServerSpawn(options.childArgs ?? DEFAULT_CHILD_ARGS);
+      this.childCommand = resolved.command;
+      this.childArgs = resolved.args;
+    }
     this.conversationAgentId =
       options.conversationAgentId !== undefined
         ? options.conversationAgentId
