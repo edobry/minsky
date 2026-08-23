@@ -7589,6 +7589,22 @@
           "commandId": "mcp.register"
         },
         {
+          "name": "status",
+          "description": "Report the local MCP daemon's liveness, including whether a query can currently get through its connection pool",
+          "commandId": "mcp.status"
+        },
+        {
+          "name": "restart",
+          "description": "Restart the local MCP daemon (the tray respawns it). Previews by default; pass --execute to act.",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Actually restart the daemon rather than previewing"
+            }
+          ],
+          "commandId": "mcp.restart"
+        },
+        {
           "name": "proxy",
           "description": "Start the Minsky stdio respawn proxy. Transparently supervises the inner MCP server, absorbing clean exits from the staleness mechanism (mt#1322) and respawning without Claude Code disconnecting. Opt-in alternative to 'minsky mcp start' for stable long-running sessions.",
           "options": [
