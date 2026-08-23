@@ -17,18 +17,28 @@
  * @see docs/architecture/adr-008-attention-allocation-subsystem.md — the ask entity
  * @see packages/domain/src/credentials/providers/index.ts — the provider registry
  */
+import {
+  CREDENTIAL_REQUEST_METADATA_KEY,
+  readCredentialRequest,
+} from "@minsky/shared/credential-request";
+import type { CredentialRequestPayload } from "@minsky/shared/credential-request";
 import type { Ask, AskKind } from "../ask/types";
 import type { CredentialProvider } from "./types";
 
 /**
- * Metadata key carrying the request payload on the ask row.
+ * The payload contract is defined in `@minsky/shared` and re-exported here.
  *
- * The payload is the provider id and NOTHING else — `displayName`,
- * `configPath`, `acquireUrl` and `scopeGuidance` are resolved from the registry
- * at render time, so a card cannot drift from the provider it describes, and a
- * provider whose acquire URL changes needs no migration of historical rows.
+ * Both sides need it — this module builds and resolves the request, and the
+ * browser-bundled cockpit reads it off an ask to pick a render mode — and this
+ * module is Node-reaching, so the browser cannot import it
+ * (`custom/no-node-import-in-cockpit-web`, mt#3239). Re-exported rather than
+ * redefined so the key string has exactly one definition.
  */
-export const CREDENTIAL_REQUEST_METADATA_KEY = "credentialRequest";
+export {
+  CREDENTIAL_REQUEST_METADATA_KEY,
+  readCredentialRequest,
+  type CredentialRequestPayload,
+} from "@minsky/shared/credential-request";
 
 /**
  * The kind a credential request is filed under.
@@ -42,12 +52,6 @@ export const CREDENTIAL_REQUEST_METADATA_KEY = "credentialRequest";
  * That choice carries a known exposure — see {@link isPolicyResolved}.
  */
 export const CREDENTIAL_REQUEST_ASK_KIND: AskKind = "authorization.approve";
-
-/** The request payload as it is persisted, and as readers get it back. */
-export interface CredentialRequestPayload {
-  /** Registry id of the provider whose credential is being requested. */
-  readonly provider: string;
-}
 
 /** Inputs for {@link buildCredentialRequestAsk}. Carries no secret-shaped field. */
 export interface BuildCredentialRequestInput {
@@ -110,22 +114,6 @@ export function buildCredentialRequestAsk(
     ...(parentTaskId ? { parentTaskId } : {}),
     metadata: { [CREDENTIAL_REQUEST_METADATA_KEY]: payload },
   };
-}
-
-/**
- * Read the request payload off an ask, or `null` when it is not one.
- *
- * Defensive about shape rather than trusting the jsonb column: `metadata` is
- * free-form and a row can predate, or sit outside, this feature entirely.
- */
-export function readCredentialRequest(
-  ask: Pick<Ask, "metadata"> | null | undefined
-): CredentialRequestPayload | null {
-  const raw = ask?.metadata?.[CREDENTIAL_REQUEST_METADATA_KEY];
-  if (!raw || typeof raw !== "object") return null;
-  const provider = (raw as { provider?: unknown }).provider;
-  if (typeof provider !== "string" || provider.length === 0) return null;
-  return { provider };
 }
 
 /**
