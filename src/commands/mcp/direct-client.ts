@@ -2,6 +2,28 @@ import { spawn } from "child_process";
 import { log } from "@minsky/shared/logger";
 
 /**
+ * Parse repeated `--arg key=value` strings into the arguments object sent to the tool.
+ *
+ * Extracted as a pure function so the marshalling can be tested without spawning a
+ * server (the pure-decision-core pattern, mt#3629): everything else in this module is IO.
+ */
+export function parseToolArgs(args: string[]): Record<string, string> {
+  const argsObj: Record<string, string> = {};
+  for (const arg of args) {
+    // Split on the FIRST separator only, keeping the remainder in the value.
+    // Do NOT use `arg.split("=", 2)`: JavaScript's limit caps the RESULT ARRAY
+    // LENGTH and DISCARDS the rest, so `content=a=b=c` yielded `content -> "a"`
+    // and the tool was called with a silently truncated value (mt#4459).
+    const separatorIndex = arg.indexOf("=");
+    // -1 is "no separator"; 0 is a leading separator, i.e. an empty key. Both are
+    // malformed, and both are skipped rather than written under a bogus key.
+    if (separatorIndex <= 0) continue;
+    argsObj[arg.slice(0, separatorIndex)] = arg.slice(separatorIndex + 1);
+  }
+  return argsObj;
+}
+
+/**
  * Call an MCP tool directly via stdio (faster than inspector CLI)
  * @param toolName Name of the tool to call
  * @param args Tool arguments as key-value pairs
@@ -44,13 +66,7 @@ export async function callMcpToolDirectly(
     }, timeoutMs);
 
     // Convert args array to object
-    const argsObj: Record<string, string> = {};
-    for (const arg of args) {
-      const [key, value] = arg.split("=", 2);
-      if (key && value !== undefined) {
-        argsObj[key] = value;
-      }
-    }
+    const argsObj = parseToolArgs(args);
 
     // Send the MCP request
     const request = {

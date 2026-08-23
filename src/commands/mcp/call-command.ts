@@ -10,7 +10,17 @@ import { runInspectorCli, type McpInspectorError } from "./inspector-utils";
  */
 export function createCallCommand(): Command {
   const callCommand = new Command("call");
-  callCommand.description("Call a specific MCP tool");
+  callCommand.description(
+    "Call a specific MCP tool.\n\n" +
+      "Argument marshalling: --arg splits on the FIRST '=' only, so a value may itself " +
+      "contain '=' characters and is passed through whole. Every value is sent as a STRING, " +
+      "so a tool parameter typed as a number or boolean will fail schema validation " +
+      "(e.g. --arg 'limit=8' is rejected as \"expected number, received string\"); omit such " +
+      "parameters or use a native CLI command instead.\n" +
+      "For long or structured content, prefer a native command with real options " +
+      "(e.g. 'minsky memory update <id> --content \"$(cat body.md)\"'). Run " +
+      "'minsky <noun> --help' to see whether one exists before falling back to 'mcp call'."
+  );
   callCommand
     .argument("<tool-name>", "Name of the tool to call")
     .option(
@@ -19,7 +29,8 @@ export function createCallCommand(): Command {
     )
     .option(
       "--arg <key=value>",
-      "Tool arguments in key=value format (can be used multiple times)",
+      "Tool arguments in key=value format (can be used multiple times). Splits on the first " +
+        "'=' only; the value keeps any later '=' characters. Values are always sent as strings.",
       (value: string, previous: string[] = []) => {
         return [...previous, value];
       },

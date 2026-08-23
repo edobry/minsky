@@ -7501,7 +7501,7 @@
         },
         {
           "name": "call",
-          "description": "Call a specific MCP tool",
+          "description": "Call a specific MCP tool.\n\nArgument marshalling: --arg splits on the FIRST '=' only, so a value may itself contain '=' characters and is passed through whole. Every value is sent as a STRING, so a tool parameter typed as a number or boolean will fail schema validation (e.g. --arg 'limit=8' is rejected as \"expected number, received string\"); omit such parameters or use a native CLI command instead.\nFor long or structured content, prefer a native command with real options (e.g. 'minsky memory update <id> --content \"$(cat body.md)\"'). Run 'minsky <noun> --help' to see whether one exists before falling back to 'mcp call'.",
           "options": [
             {
               "flags": ["--repo"],
@@ -7510,7 +7510,7 @@
             },
             {
               "flags": ["--arg"],
-              "description": "Tool arguments in key=value format (can be used multiple times)",
+              "description": "Tool arguments in key=value format (can be used multiple times). Splits on the first '=' only; the value keeps any later '=' characters. Values are always sent as strings.",
               "takesValue": true
             },
             {
