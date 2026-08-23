@@ -33,11 +33,24 @@ export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
 /**
  * States a pending request can be sitting in when the sweep finds it.
  *
- * **`routed` is where these actually live.** `buildCredentialRequestAsk` sets no
- * `serviceStrategy`, so the router takes the `asap` path and returns a
- * `RoutedAsk` — `suspended` is produced only for `scheduled` / `deadline-bound`
- * asks held for a service window (`../ask/router.ts`). Dropping `routed` here
- * would mean the sweep never fires for any credential request at all.
+ * **BOTH are reachable, which is the whole reason this set has two members — do
+ * not narrow it to whichever one you observe today.**
+ *
+ * `buildCredentialRequestAsk` sets no `serviceStrategy`, and it is tempting to
+ * read `router.ts`'s `ask.serviceStrategy ?? "asap"` and conclude these are
+ * always `routed`. They are not: `createAsk`
+ * (`src/adapters/shared/commands/asks.ts`) resolves the PER-KIND default from
+ * `SERVICE_WINDOW_DEFAULTS` and writes it onto the row BEFORE the router runs,
+ * so the router never sees an absent strategy. `authorization.approve` — this
+ * request's kind — defaults to `deadline-bound`, whose beyond-threshold branch
+ * suspends. The `?? "asap"` is real and simply never applies here.
+ *
+ * Which of the two a request lands in is also an OPEN QUESTION rather than a
+ * fixed fact: **mt#4427** owns whether `deadline-bound` should keep suspending
+ * at all now that the reaper which re-evaluated those deadlines was retired, and
+ * two of its three candidate outcomes would put these asks back in `routed`.
+ * A comment naming one state would be falsified by that decision; a set covering
+ * both survives it either way.
  */
 const CANDIDATE_STATES: readonly AskState[] = ["routed", "suspended"];
 
