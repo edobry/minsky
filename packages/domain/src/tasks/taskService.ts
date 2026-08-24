@@ -45,7 +45,11 @@ async function resolveCurrentProjectId(
   workspacePath: string,
   db: ScopeResolverDb
 ): Promise<string | undefined> {
-  const scope = await resolveProjectScope(resolveProjectIdentity({ repoPath: workspacePath }), db);
+  const scope = await resolveProjectScope(
+    resolveProjectIdentity({ repoPath: workspacePath }),
+    db,
+    "taskService.currentProjectId"
+  );
   return isAllProjects(scope) ? undefined : scope;
 }
 

@@ -2045,11 +2045,14 @@ export class MinskyMCPServer {
         };
         if (persistence.getDatabaseConnection) {
           const rawDb = await persistence.getDatabaseConnection();
+          // No cast, and no shape check HERE (mt#4509; PR #3288 R1). `resolveProjectScope`
+          // takes `unknown` and validates the handle itself, so a bad one is classified and
+          // logged as `invalid-db-handle` in one place. Narrowing at this call site instead
+          // would SUPPRESS that log — the handle would silently fail the `if` and vanish,
+          // which is the failure mode this task exists to end.
+          // A null handle stays silent: persistence not being ready is not a defect.
           if (rawDb) {
-            const scope = await resolveProjectScope(
-              identity,
-              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-            );
+            const scope = await resolveProjectScope(identity, rawDb, "mcp.presence");
             const { isAllProjects } = await import("@minsky/domain/project/scope");
             // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
             if (!isAllProjects(scope)) {

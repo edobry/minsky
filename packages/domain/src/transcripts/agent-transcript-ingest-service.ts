@@ -258,7 +258,7 @@ async function resolveIngestProjectId(
   try {
     const identity = resolveProjectIdentity({ repoPath: cwd });
     if (identity.kind !== "resolved") return null;
-    const scope = await resolveProjectScope(identity, db);
+    const scope = await resolveProjectScope(identity, db, "transcripts.ingest");
     return isAllProjects(scope) ? null : scope;
   } catch (err) {
     log.debug("[transcripts] Project id resolution failed for ingest; leaving unscoped", {
