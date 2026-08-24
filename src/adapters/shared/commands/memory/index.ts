@@ -43,6 +43,13 @@ import type {
 } from "@minsky/domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
+import {
+  validateAssociations,
+  summarizeAssociationIssues,
+  TRACKS_TASK_ASSOCIATION,
+  ASSOCIATION_TYPE_TUPLE,
+} from "@minsky/domain/memory/associations";
+import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
 import { emitSystemEventBestEffort } from "../system-event-emit";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
 import {
@@ -254,9 +261,12 @@ const memoryCreateParams = {
     required: false as const,
   },
   associations: {
-    schema: z.record(z.string(), z.array(z.string())),
-    description:
-      'Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). See ADR-012 for type-string conventions.',
+    // Key type is the CLOSED ADR-012 vocabulary (mt#4448), so the CLI/MCP parameter help
+    // lists the allowed keys and a bad one fails at the schema rather than at the runtime
+    // validator. The runtime check in `execute` still runs — it also validates id SHAPES,
+    // which a key enum cannot express. PR #3295 R1 (non-blocking).
+    schema: z.record(z.enum(ASSOCIATION_TYPE_TUPLE), z.array(z.string())),
+    description: `Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). Allowed keys: ${ASSOCIATION_TYPE_TUPLE.join(", ")}. See ADR-012.`,
     required: false as const,
   },
   force: {
@@ -324,9 +334,16 @@ const memoryUpdateParams = {
     required: false as const,
   },
   associations: {
+    // DELIBERATELY still `z.string()` keys, unlike create above (PR #3295 R1). This command's
+    // merge semantics make an empty array a key REMOVAL, and the keys most needing removal are
+    // precisely the out-of-vocabulary ones. An enum here would make the 26 divergent records
+    // uncleanable through the supported path — the schema would reject the very key you are
+    // trying to delete. The runtime validator enforces the vocabulary for non-empty writes and
+    // exempts removals; see `validateAssociations(..., "update")`.
     schema: z.record(z.string(), z.array(z.string())),
     description:
-      "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
+      "Merge associations: new keys added, existing keys replaced, keys set to [] removed. " +
+      "Non-empty values must use an ADR-012 type; any key may be set to [] to remove it.",
     required: false as const,
   },
 } satisfies CommandParameterMap;
@@ -896,6 +913,44 @@ export function registerMemoryCommands(
         });
       }
 
+      // ADR-012 vocabulary check (mt#4448). Deliberately NOT gated on `force`: that flag
+      // bypasses the derivation heuristic above, which is a judgment call about content.
+      // The association vocabulary is a closed set, and an override would restore the exact
+      // condition the mt#4448 census measured — 26 of 28 records keyed on invented strings.
+      const associationIssues = validateAssociations(params.associations);
+      const associationError = summarizeAssociationIssues(associationIssues);
+      if (associationError) {
+        throw new Error(associationError);
+      }
+
+      // Derive `tracksTask` from a retirement clause the author already wrote (mt#4448).
+      // The other half of the write-side criterion: rejecting bad keys stops the corpus
+      // getting worse, but the reason 1198 of 1226 records carry NO association is that
+      // setting one is a separate thing to remember. An author who writes "Tracking task:
+      // mt#X" in the body has already stated the relationship; making them restate it as a
+      // structured argument is the step that does not happen.
+      //
+      // Reuses `extractTrackingTaskRefs` — the CALIBRATED extractor mt#1709 shipped, which
+      // requires an explicit retirement RELATIONSHIP rather than a bare task mention. A
+      // looser pattern here would mint exactly the noise this task removed from the backfill.
+      //
+      // Only fires when the caller supplied no `tracksTask`: an explicit argument always wins,
+      // including an explicit empty array.
+      const associations = { ...(params.associations ?? {}) };
+      if (associations[TRACKS_TASK_ASSOCIATION] === undefined) {
+        const derived = extractTrackingTaskRefs({
+          content: params.content,
+          ...(params.description === undefined ? {} : { description: params.description }),
+        });
+        if (derived.source === "text" && derived.refs.length > 0) {
+          associations[TRACKS_TASK_ASSOCIATION] = derived.refs;
+          log.debug("[memory.create] derived tracksTask from a retirement clause", {
+            name: params.name,
+            refs: derived.refs,
+          });
+        }
+      }
+
       const service = await resolveMemoryService(deps, ctx ?? {});
 
       // ADR-021 / mt#2416: default projectId to the resolved current project
@@ -924,7 +979,7 @@ export function registerMemoryCommands(
         sourceAgentId: params.sourceAgentId ?? null,
         sourceSessionId: params.sourceSessionId ?? null,
         confidence: params.confidence ?? null,
-        associations: params.associations,
+        associations,
       };
 
       const record = await service.create(input);
@@ -959,6 +1014,17 @@ export function registerMemoryCommands(
       // error rather than letting a non-uuid reach the driver as a cast.
       const { id: rawId, ...updateFields } = params;
       const id = await resolveMemoryIdInput(rawId, ctx ?? {});
+
+      // ADR-012 vocabulary check (mt#4448), in `update` mode: an empty value array is a
+      // key REMOVAL under this command's merge semantics and stays legal for any key, so
+      // the divergent keys can be cleaned up through the supported path. A non-empty value
+      // under an unknown key is rejected exactly as it is on create.
+      const associationError = summarizeAssociationIssues(
+        validateAssociations(updateFields.associations, "update")
+      );
+      if (associationError) {
+        throw new Error(associationError);
+      }
 
       const service = await resolveMemoryService(deps, ctx ?? {});
       const record = await service.update(id, updateFields);

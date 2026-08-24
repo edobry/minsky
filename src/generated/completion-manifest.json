@@ -6507,7 +6507,7 @@
             },
             {
               "flags": ["--associations"],
-              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). See ADR-012 for type-string conventions.",
+              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). Allowed keys: tracksTask, relatedTask, originatesRule, originatesSkill, informsAsk, extractedFromSession, extractedFromTranscript, citedInReview. See ADR-012.",
               "takesValue": true
             },
             {
@@ -6582,7 +6582,7 @@
             },
             {
               "flags": ["--associations"],
-              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
+              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed. Non-empty values must use an ADR-012 type; any key may be set to [] to remove it.",
               "takesValue": true
             }
           ],
