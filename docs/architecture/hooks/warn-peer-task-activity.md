@@ -74,6 +74,27 @@ own grounding at `packages/domain/src/presence/types.ts`: _"A working agent touc
 inside 15m (grounded per decision-defaults §Thresholds)."_ The value is duplicated in the hook so
 its domain imports stay dynamic (`domain-bootstrap.ts` layer 1); a test asserts the two agree.
 
+### The measurement that WAS run, and what it actually yielded (PR #3281 R3)
+
+mt#4494's SC6 asked for a window "derived from observed session-start-to-first-write cadence."
+That was measured — `scripts/measure-session-start-to-first-write.ts`, ~2.5 months of ledger — and
+**the quantity cannot ground a threshold**: 40 usable pairs from **1194** `session.started` rows,
+and within those 40, p50 16.2 min against p75 **742** min (max 55 days; only 47.5% inside 15
+minutes). A heavy-tailed sample drawn from a population where the phenomenon is mostly absent is
+what gate (o) step 3 says not to summarize.
+
+**Why it is empty is the finding worth keeping.** `task.status_changed` is emitted almost entirely
+by EXPLICIT `tasks_status_set` calls during planning — TODO→PLANNING 1480, PLANNING→READY 1372 —
+while the IMPLICIT lifecycle transitions barely register: **READY→IN-PROGRESS 36** against those
+1194 session starts, IN-PROGRESS→IN-REVIEW 13.
+
+Two consequences for this hook:
+
+- **`session.started` is the load-bearing trigger**, which is why it fires unwindowed. An agent
+  deep in implementation may change no status for hours; the status trigger would never see it.
+- **The status trigger is a supplement, not the mechanism.** Sizing its window precisely matters
+  less than it looks, which is further reason not to manufacture a number for it.
+
 ## What it deliberately does NOT do
 
 **It attributes exactly one thing, and says so (revised in PR #3281 R1).** The first version
