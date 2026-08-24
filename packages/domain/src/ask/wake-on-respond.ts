@@ -47,14 +47,28 @@ export interface WakeSignalPayload {
    *
    * Absent in legacy rows (pre-mt#1725); treat as `"ask.review"` when absent.
    */
-  kind?: "ask.review" | "pr.watch";
+  kind?: "ask.review" | "pr.watch" | "ask.answered";
   /**
    * For `"ask.review"`: primary key of the Ask that just responded.
    * For `"pr.watch"`: primary key of the PrWatch that fired.
+   * For `"ask.answered"`: primary key of the Ask an operator just answered.
    */
   askId: string;
-  /** Session UUID of the agent that originally filed the Ask / registered the watch. */
-  parentSessionId: string;
+  /**
+   * Workspace session UUID of the agent that originally filed the Ask / registered
+   * the watch.
+   *
+   * Optional since mt#4476 — a wake is addressed to EITHER this or {@link agentId},
+   * and an ordinary ask filed from a main-workspace conversation has no workspace
+   * session. `"ask.review"` and `"pr.watch"` still always set it.
+   */
+  parentSessionId?: string;
+  /**
+   * Conversation-grain caller identity of the agent that filed the Ask, in ADR-006
+   * `{kind}:{scope}:{id}` AgentId form (mt#4476). The key the `"ask.answered"` path
+   * uses, since it has no workspace session to key on.
+   */
+  agentId?: string;
   /** Task ID associated with the parent session, when present. */
   parentTaskId?: string;
   /**

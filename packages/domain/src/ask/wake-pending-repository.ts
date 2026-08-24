@@ -35,6 +35,30 @@ import type { WakeSignalPayload } from "./wake-on-respond";
 export interface WakePendingRepository {
   insert(payload: WakeSignalPayload): Promise<void>;
   drainBySession(parentSessionId: string, drainedForTool: string): Promise<WakeSignalPayload[]>;
+  /**
+   * Consumer side, conversation grain (mt#4476). Same atomic semantics as
+   * `drainBySession`, keyed on the ADR-006 caller identity the MCP server resolves
+   * on every tool call. This is the path an ordinary answered ask travels — it has
+   * no workspace session to key on.
+   */
+  drainByAgent(agentId: string, drainedForTool: string): Promise<WakeSignalPayload[]>;
+}
+
+/**
+ * Thrown by `insert` when a payload names neither addressing key.
+ *
+ * A row with both keys NULL matches no drain query, so it would sit undelivered
+ * forever while every surface reported success — the silent-failure shape mem#704
+ * names. Failing at the write is the only place it is still visible.
+ */
+export class UnaddressableWakeError extends Error {
+  constructor(askId: string) {
+    super(
+      `wake_pending: refusing to insert an unaddressable row for ask ${askId} — ` +
+        `neither parentSessionId nor agentId is set, so no drain could ever match it.`
+    );
+    this.name = "UnaddressableWakeError";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -45,8 +69,10 @@ export class DrizzleWakePendingRepository implements WakePendingRepository {
   constructor(private readonly db: PostgresJsDatabase) {}
 
   async insert(payload: WakeSignalPayload): Promise<void> {
+    assertAddressable(payload);
     const row: WakePendingInsert = {
-      parentSessionId: payload.parentSessionId,
+      parentSessionId: payload.parentSessionId ?? null,
+      agentId: payload.agentId ?? null,
       askId: payload.askId,
       payloadJson: payload,
     };
@@ -76,6 +102,22 @@ export class DrizzleWakePendingRepository implements WakePendingRepository {
       .returning();
     return rows.map(rowToPayload);
   }
+
+  async drainByAgent(agentId: string, drainedForTool: string): Promise<WakeSignalPayload[]> {
+    // Same atomic UPDATE ... RETURNING as drainBySession, on the conversation-grain
+    // key. Kept as a separate statement rather than an OR over both columns: the two
+    // keys have separate partial indexes, and an OR would force the planner to choose
+    // one or fall back to a scan.
+    const rows = await this.db
+      .update(wakePendingTable)
+      .set({
+        drainedAt: new Date(),
+        drainedForTool,
+      })
+      .where(and(eq(wakePendingTable.agentId, agentId), isNull(wakePendingTable.drainedAt)))
+      .returning();
+    return rows.map(rowToPayload);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +132,8 @@ export class DrizzleWakePendingRepository implements WakePendingRepository {
 export class FakeWakePendingRepository implements WakePendingRepository {
   private readonly rows: Array<{
     id: string;
-    parentSessionId: string;
+    parentSessionId: string | null;
+    agentId: string | null;
     askId: string;
     payload: WakeSignalPayload;
     emittedAt: Date;
@@ -99,9 +142,11 @@ export class FakeWakePendingRepository implements WakePendingRepository {
   }> = [];
 
   async insert(payload: WakeSignalPayload): Promise<void> {
+    assertAddressable(payload);
     this.rows.push({
       id: `fake-${this.rows.length + 1}`,
-      parentSessionId: payload.parentSessionId,
+      parentSessionId: payload.parentSessionId ?? null,
+      agentId: payload.agentId ?? null,
       askId: payload.askId,
       payload,
       emittedAt: new Date(),
@@ -114,9 +159,20 @@ export class FakeWakePendingRepository implements WakePendingRepository {
     parentSessionId: string,
     drainedForTool: string
   ): Promise<WakeSignalPayload[]> {
+    return this.drainWhere((row) => row.parentSessionId === parentSessionId, drainedForTool);
+  }
+
+  async drainByAgent(agentId: string, drainedForTool: string): Promise<WakeSignalPayload[]> {
+    return this.drainWhere((row) => row.agentId === agentId, drainedForTool);
+  }
+
+  private drainWhere(
+    matches: (row: (typeof this.rows)[number]) => boolean,
+    drainedForTool: string
+  ): WakeSignalPayload[] {
     const drained: WakeSignalPayload[] = [];
     for (const row of this.rows) {
-      if (row.drainedAt === null && row.parentSessionId === parentSessionId) {
+      if (row.drainedAt === null && matches(row)) {
         row.drainedAt = new Date();
         row.drainedForTool = drainedForTool;
         drained.push(row.payload);
@@ -127,7 +183,8 @@ export class FakeWakePendingRepository implements WakePendingRepository {
 
   /** Test helper — return all rows including drained ones. */
   listAll(): ReadonlyArray<{
-    parentSessionId: string;
+    parentSessionId: string | null;
+    agentId: string | null;
     askId: string;
     payload: WakeSignalPayload;
     drainedAt: Date | null;
@@ -135,6 +192,7 @@ export class FakeWakePendingRepository implements WakePendingRepository {
   }> {
     return this.rows.map((r) => ({
       parentSessionId: r.parentSessionId,
+      agentId: r.agentId,
       askId: r.askId,
       payload: r.payload,
       drainedAt: r.drainedAt,
@@ -146,6 +204,16 @@ export class FakeWakePendingRepository implements WakePendingRepository {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Both implementations refuse an unaddressable payload, so a test using the fake
+ * cannot pass on a payload the real repository would silently strand (mt#4476).
+ */
+function assertAddressable(payload: WakeSignalPayload): void {
+  if (!payload.parentSessionId && !payload.agentId) {
+    throw new UnaddressableWakeError(payload.askId);
+  }
+}
 
 function rowToPayload(row: WakePendingRecord): WakeSignalPayload {
   // The schema's `.$type<WakeSignalPayload>()` annotation gives us a typed
