@@ -7,6 +7,9 @@
 2026-08-18. Supersedes the storage decision recorded in mt#3363 §Storage decision.
 Carried out by mt#4319.
 
+**The decision below stands unchanged. One supporting citation has been corrected** — see
+`## Corrections` (2026-08-24): ADR-025, cited here as precedent, was itself superseded by ADR-045.
+
 ## Decision (read this first)
 
 **Split an entity thread's record by AUTHOR: agent turns become a derived projection over ingested
@@ -263,10 +266,41 @@ follows is the narrowing its §6 asks for, applied:
 principal's to decide, and its larger unification across entity threads, task work and collision
 detection. Adopting §5's schema does not accept §3's ontology.
 
+## Corrections
+
+### 2026-08-24 — the ADR-025 precedent citation, half of which no longer holds (mt#4501)
+
+**The decision this ADR records is unaffected.** What changed is underneath one of its supporting
+citations: ADR-025 was superseded by
+[ADR-045](./adr-045-transcript-lines-live-landing-zone-object-storage-cold-tier.md) on 2026-08-24,
+after the principal answered ask#8004. Raw transcripts now land in an insert-only Postgres
+`transcript_lines` table; object storage is re-scoped to a cold seal-at-close tier.
+
+`## Options considered` says: _"Precedent already exists in this corpus. ADR-025 decided for the
+transcript subsystem that the raw transcript is the immutable system of record and Postgres is a
+rebuildable derived index. This ADR applies that same stance one layer up rather than inventing a
+shape."_
+
+Read that as two claims, because only one of them moved:
+
+- **"Derive the read model from the ingested record rather than from a separately-recorded echo" —
+  intact, and it is the half this ADR actually rests on.** ADR-044 states it independently at
+  `## Context → The file is not the record`, which does not depend on where the ingested copy lives.
+- **"The raw transcript FILE in object storage is the immutable system of record" — reversed.** Under
+  ADR-045 the system of record is the ingested lines in Postgres. Consequently
+  `## Decision → Agent turns`' phrase _"and per ADR-025 eventually the object-store archive"_ now
+  describes a cold tier that seals after a session closes, not the live landing zone.
+
+Nothing here changes what this ADR decided, what mt#4319 is implementing, or the option the principal
+chose. It is recorded so a reader arriving at the precedent citation does not follow it to a
+superseded record — the same failure mode ADR-025 itself carried for 41 days (see its
+`## Corrections`).
+
 ## Cross-references
 
-ADR-025 (transcript storage: raw file as system of record, Postgres as rebuildable derived index —
-the precedent this extends) · ADR-017 (continuous-watch capture; the reconciliation default
+ADR-045 (transcript storage: `transcript_lines` is the live landing zone — **supersedes ADR-025**;
+see `## Corrections`) · ADR-025 (transcript storage: raw file as system of record, Postgres as
+rebuildable derived index — the precedent this extends, now superseded) · ADR-017 (continuous-watch capture; the reconciliation default
 mt#4073 invoked) · ADR-040 (scrub gate binds at trust-boundary crossings — adjacent, and does not
 cover the recorder/ingest asymmetry described above) · mt#3363 §Storage decision (the decision this
 supersedes) · mt#4036, mt#4066, mt#4073, mt#4093 (the four incidents) ·

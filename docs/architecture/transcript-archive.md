@@ -1,9 +1,20 @@
 # Transcript Raw Archive
 
-Architecture reference for the transcript raw-archive foundation (mt#2680), the first
-implementation slice of [ADR-025](./adr-025-transcript-storage-object-store-system-of-record.md):
-the raw transcript file for each agent session lives in a **private Supabase Storage bucket** as
-the immutable system of record; Postgres is a rebuildable derived index parsed from it.
+Architecture reference for the transcript raw-archive foundation (mt#2680) — the store, its key
+layout, its confirmation contract, and its security posture, all as built and all still accurate.
+
+> **⚠ Re-scoped 2026-08-24 by
+> [ADR-045](./adr-045-transcript-lines-live-landing-zone-object-storage-cold-tier.md).** This
+> document originally opened by describing the bucket as the **immutable system of record**, with
+> Postgres a rebuildable derived index parsed from it. That was
+> [ADR-025](./adr-025-transcript-storage-object-store-system-of-record.md)'s decision, and it is
+> **superseded**. The live landing zone is now an insert-only `transcript_lines` table in Postgres;
+> **this bucket becomes a one-way cold tier that seals a session after it closes.**
+>
+> **The store described below is unchanged and was never wired up** — `putRaw` has no production
+> caller, so no object has ever been written outside the smoke script. What changed is what the
+> bucket is FOR. Passages whose meaning depends on the retired capture model are marked inline
+> below rather than deleted.
 
 ## Components
 
@@ -24,10 +35,21 @@ the immutable system of record; Postgres is a rebuildable derived index parsed f
 - The object name is the SHA-256 of the object bytes: keys are deterministic, uploads are
   structurally idempotent (`upsert: false`; an already-exists response is success after
   verification), and any downloaded object is integrity-checked against its own key.
-- Objects are **immutable**. A growing session produces a new snapshot object per capture;
-  nothing is overwritten or deleted. The store interface deliberately exposes **no delete**.
-- "Newest complete version" = largest byte count (transcripts are append-only), `created_at`
-  as tiebreak. The upload-then-parse ingest (mt#2681) consumes/refines this rule.
+- Objects are **immutable**; nothing is overwritten or deleted, and the store interface
+  deliberately exposes **no delete**. That property is unchanged by ADR-045 and is the reason the
+  bucket suits a cold tier.
+  **Retired by ADR-045: _"A growing session produces a new snapshot object per capture."_** That
+  was the incremental-capture model, and combined with immutability it meant the bucket retained
+  every prefix of every session — at ~69 captures/session, a projected ~35x the corpus size. The
+  contradiction between an immutable store and incremental capture is precisely why ADR-025 needed
+  a successor rather than an amendment. Under the cold tier a session is written **once, at close**,
+  so there is one object per session and no prefix accumulation.
+- **Retired by ADR-045:** _"'Newest complete version' = largest byte count (transcripts are
+  append-only), `created_at` as tiebreak."_ This rule only has work to do when a session has
+  multiple objects, which seal-at-close makes impossible. It is kept here because the backfill
+  (mt#2682) may still encounter multi-object sessions if any are ever written.
+  The reference to the upload-then-parse ingest consuming this rule is stale — **mt#2681's scope
+  inverts** to lines-table ingest.
 - `format` metadata distinguishes `raw-jsonl` originals from `legacy-transcript-message`
   objects (pre-extracted legacy rows archived by the backfill, mt#2682) so a legacy object is
   never mistaken for a raw original.
@@ -36,10 +58,15 @@ the immutable system of record; Postgres is a rebuildable derived index parsed f
 
 `putRaw` never reports success on the upload call alone: it re-reads the object (listing
 size, or a full download+hash when the listing carries no size) and compares against the
-local content, throwing `TranscriptArchiveVerificationError` on any mismatch. This is the
-fail-safe primitive the upload-then-parse ingest (mt#2681: never parse-then-discard on an
-unconfirmed upload) and the backfill (mt#2682: no row is drop-eligible without a confirmed
-archive object) build on.
+local content, throwing `TranscriptArchiveVerificationError` on any mismatch.
+
+**The primitive survives ADR-045; one of its two named consumers does not.** It was built for the
+upload-then-parse ingest (mt#2681: never parse-then-discard on an unconfirmed upload), and that
+capture path is retired — mt#2681 now ingests into `transcript_lines`, where the equivalent
+guarantee is a database transaction rather than a re-read. What the contract still serves: the
+backfill (mt#2682, whose destination also changes) and, prospectively, the seal-at-close write,
+where confirming the object before treating a session as sealed is the same discipline applied at
+a different moment.
 
 ## Configuration
 
@@ -79,9 +106,22 @@ assumption. The corrected stance:
 2. **Logical loss** (accidental bucket deletion, a bad script, credential compromise) is the
    real residual risk, and native backups do not mitigate it. First-line mitigations: the
    store interface exposes no delete; the service-role key is secret-handled.
-3. **Second copy:** an off-Supabase mirror of the bucket is tracked as **mt#2715**, flagged
-   as a candidate GATE for the mt#2580 column drop (after which the archive is the only copy
-   of the raw transcripts for the majority of sessions). Principal decides the gating.
+3. **Second copy:** an off-Supabase mirror of the bucket is tracked as **mt#2715**.
+
+**Re-scoped 2026-08-24 (ADR-045).** The finding above is unchanged and still verified — Supabase
+database backups still do not cover Storage objects. What changed is the **stake**. This section
+was written when the bucket was to become the only copy of the raw transcripts for the majority of
+sessions after the mt#2580 column drop, which is what made mt#2715 a candidate gate on that drop.
+Under ADR-045 the raw corpus lands in Postgres instead, so:
+
+- **mt#2715 stops gating mt#2580.** It survives, re-scoped, and it now owns the DR question for
+  the corpus in its new home rather than for this bucket.
+- **The bucket is a redundant cold copy, not a sole copy** — which lowers the cost of the logical-
+  loss risk in item 2 without eliminating it.
+- **The corpus's own envelope is now the database's**, and that was measured rather than assumed:
+  `pitr_enabled: false` with a 7-day daily-backup window on the production project. See ADR-045
+  `## Consequences → Disaster-recovery posture`; the open question of whether 7 days suffices is
+  [ask#9995](minsky://ask/af68c3e5-a676-4610-bf65-8493311232fd), owned by mt#2715.
 
 ## Operations
 
@@ -96,6 +136,10 @@ bun scripts/transcript-archive/smoke.ts
 
 ## Cross-references
 
-- ADR-025 (decision), ADR-018 (interface + fake DI pattern), ADR-002 (provider architecture)
-- mt#2581 (epic) · mt#2680 (this foundation) · mt#2681 (upload-then-parse ingest) ·
-  mt#2682 (backfill) · mt#2580 (blob drop) · mt#2715 (DR mirror)
+- **ADR-045 (the current decision — `transcript_lines` is the live landing zone; this bucket is a
+  cold seal-at-close tier)** · ADR-025 (the superseded decision this store was built under, retained
+  as lineage) · ADR-018 (interface + fake DI pattern) · ADR-002 (provider architecture)
+- mt#2581 (epic) · mt#2680 (this foundation) · mt#2681 (ingest rewrite — **scope inverted** from
+  upload-then-parse to lines-table ingest) · mt#2682 (backfill — destination re-pointed) ·
+  mt#2580 (blob drop — **no longer gated on mt#2715**) · mt#2715 (DR posture) ·
+  mt#3954 (bucket provisioning — justification now mt#4447) · mt#4501 (the supersession)
