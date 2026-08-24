@@ -1035,3 +1035,53 @@ describe("memory.create associations PARAMETER SCHEMA (mt#4528)", () => {
     expect(associationsSchema().safeParse({ tracksTask: "mt#1" }).success).toBe(false);
   });
 });
+
+describe("memory.update associations PARAMETER SCHEMA — removal must stay possible (mt#4528 SC4)", () => {
+  /**
+   * The update schema is deliberately NOT enum-keyed (PR #3295 R1): an empty array REMOVES a
+   * key under this command's merge semantics, and the keys most needing removal are exactly
+   * the out-of-vocabulary ones. An enum here would reject the very key you are deleting and
+   * make the divergent records uncleanable through the supported write path.
+   *
+   * That was asserted in a comment and in domain-level `validateAssociations` tests, and NOT
+   * at this schema — which is the same layer the mt#4528 defect lived in. The reviewer caught
+   * it as SC4 Not Met, correctly: verifying the layer BENEATH the schema is what caused this
+   * regression in the first place.
+   */
+  function updateAssociationsSchema() {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, makeDeps());
+    const cmd = registry.getCommand(UPDATE_CMD);
+    const schema = cmd?.parameters["associations"]?.schema;
+    if (!schema) throw new Error("memory.update has no associations parameter schema");
+    return schema;
+  }
+
+  test("an empty array under an OUT-OF-VOCABULARY key is accepted — this is key removal", () => {
+    expect(updateAssociationsSchema().safeParse({ tasks: [] }).success).toBe(true);
+    expect(updateAssociationsSchema().safeParse({ docs: [], prs: [] }).success).toBe(true);
+  });
+
+  test("an empty array under a vocabulary key is accepted", () => {
+    expect(updateAssociationsSchema().safeParse({ tracksTask: [] }).success).toBe(true);
+  });
+
+  test("a normal vocabulary write is accepted", () => {
+    expect(updateAssociationsSchema().safeParse({ tracksTask: ["mt#1"] }).success).toBe(true);
+  });
+
+  test("a non-array value is still rejected", () => {
+    expect(updateAssociationsSchema().safeParse({ tracksTask: "mt#1" }).success).toBe(false);
+  });
+
+  test("update's schema is NOT the create schema — they diverge deliberately", () => {
+    // If someone later "unifies" these, this fails and points at the reason.
+    const createRegistry = createSharedCommandRegistry();
+    registerMemoryCommands(createRegistry, makeDeps());
+    const createSchema = createRegistry.getCommand(CREATE_CMD)?.parameters["associations"]?.schema;
+    if (!createSchema) throw new Error("memory.create has no associations parameter schema");
+
+    expect(createSchema.safeParse({ tasks: [] }).success).toBe(false);
+    expect(updateAssociationsSchema().safeParse({ tasks: [] }).success).toBe(true);
+  });
+});
