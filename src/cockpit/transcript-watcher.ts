@@ -397,12 +397,23 @@ export class TranscriptWatcher {
    */
   private noteAbandonedIngest(jsonlPath: string): void {
     this.tracker.recordIngestAbandoned();
+
+    // Read the pause BEFORE counting (PR #3284 R1). `isIngestPaused` lazily
+    // CLEARS an expired pause and resets the streak as a side effect, so doing
+    // it after the threshold test let an abandon arriving just past expiry be
+    // judged against the streak that expiry had just cleared — and re-arm the
+    // pause on the spot. Reading first means such an abandon starts a fresh
+    // streak, which is what the expiry meant.
+    const alreadyPaused = this.isIngestPaused();
+
     this.consecutiveAbandons++;
     log.warn("cockpit transcript-watcher: ingest abandoned at bound", {
       jsonlPath,
       timeoutMs: this.ingestTimeoutMs,
       consecutiveAbandons: this.consecutiveAbandons,
     });
+    // Already paused: count it, never extend the window (the mt#4502 latch).
+    if (alreadyPaused) return;
     if (this.consecutiveAbandons < ABANDON_BACKOFF_THRESHOLD) return;
     // Arm on the TRANSITION only — never re-arm while already paused (mt#4502).
     //
@@ -413,7 +424,6 @@ export class TranscriptWatcher {
     // Measured on the live daemon: 15:13:44Z → 15:14:19Z → 15:14:24Z → 15:14:48Z,
     // with `ingestsTriggered` and `ingestsSucceeded` frozen throughout. It ended
     // only when the last pre-pause straggler drained, which is not a bound.
-    if (this.isIngestPaused()) return;
     this.ingestPausedUntilMs = this.now() + ABANDON_BACKOFF_MS;
     this.tracker.setIngestPausedUntil(this.ingestPausedUntilMs);
     log.warn("cockpit transcript-watcher: pausing ingest after consecutive abandons", {

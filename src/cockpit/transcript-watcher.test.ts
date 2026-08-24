@@ -537,6 +537,62 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
     expect(s.ingestPausedUntil).toBeNull();
   });
 
+  /**
+   * PR #3284 R1 (BLOCKING). `isIngestPaused()` lazily clears an expired pause
+   * AND resets the streak as a side effect. Testing the threshold before that
+   * read meant an abandon arriving just past expiry was judged against the
+   * streak the expiry had already cleared, and re-armed the pause immediately —
+   * so a single straggler could keep a healthy watcher paused indefinitely, one
+   * window at a time. Same latch as mt#4502, one branch over.
+   *
+   * NEGATIVE CONTROL: counting before reading, the final assertion sees a fresh
+   * horizon instead of null.
+   */
+  test("an abandon arriving after the pause expired starts a fresh streak, it does not re-arm", async () => {
+    // The abandon must reach `noteAbandonedIngest` WITHOUT a fresh `processFile`
+    // ahead of it — a `processFile` calls `isIngestPaused()` itself and would
+    // clear the expired pause (and the streak) before the ingest ever runs, so
+    // routing the abandon through one cannot exercise this branch. A straggler
+    // started before the pause and timing out after it expires is the only way
+    // in, and is exactly the production shape.
+    const files = ["z", "a", "b", "c"].map((n) => join(root, "proj-a", `${n}.jsonl`));
+    for (const f of files) await writeLines(f, [userLine("x", "2026-08-24T00:00:00.000Z")]);
+
+    const gates: Deferred[] = [];
+    const gatedTimeout = async () => {
+      const d = deferred();
+      gates.push(d);
+      await d.promise;
+      return { timedOut: true } as const;
+    };
+    gate = deferred();
+    const watcher = makeWatcher({ timeoutSignal: gatedTimeout });
+
+    const zPending = watcher.processFile(files[0] as string);
+    await waitForEntries(1);
+
+    for (let i = 1; i <= 3; i++) {
+      const p = watcher.processFile(files[i] as string);
+      await waitForEntries(i + 1);
+      gates[i]?.resolve();
+      await p;
+    }
+    expect(tracker.getSummary(clockMs).ingestPausedUntil).not.toBeNull();
+
+    // The window elapses with no `processFile` in between, so nothing has
+    // cleared the streak — it is still at the threshold.
+    clockMs += 5 * 60_000 + 1;
+
+    // Now the straggler times out. It is the FIRST abandon of a new window, not
+    // the fourth of the old one.
+    gates[0]?.resolve();
+    await zPending;
+
+    const s = tracker.getSummary(clockMs);
+    expect(s.ingestsAbandoned).toBe(4);
+    expect(s.ingestPausedUntil).toBeNull();
+  });
+
   test("consecutive abandons pause the ingest path, and the pause lifts on its own", async () => {
     const files = ["a", "b", "c", "d"].map((n) => join(root, "proj-a", `${n}.jsonl`));
     for (const f of files) await writeLines(f, [userLine("x", "2026-08-24T00:00:00.000Z")]);
