@@ -473,7 +473,16 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // longer branch — so the ordinary canary (commitment-only) measures the shorter
   // one and bounds nothing. The declared worstCaseCanary is posed at the overlap.
   "turn-end-untaken-action-scan": WORST_CASE_CANARY, // capped lines + a branching directive
-  "turn-end-unwalked-task-scan": "capped", // MAX_LISTED_IDS (mt#3536)
+  // mt#3784: was `"capped"` on `MAX_LISTED_IDS` alone, which was true and no
+  // longer sufficient — the restructure added a SECOND axis (two directive
+  // branches of different lengths), and the id cap says nothing about which one
+  // renders. Both axes are now saturated at once by a declared
+  // `worstCaseCanary` (four ids so the `…and N more` line renders, and NO
+  // primary-thread call so the longer branch is selected), so it earns the
+  // stronger value. The measurement that motivated this: the registration's own
+  // comment had drifted to "470 chars" against an actual 519, because nothing
+  // had ever rendered the guard at its cap.
+  "turn-end-unwalked-task-scan": WORST_CASE_CANARY,
   "wall-of-text-detector": "fixed", // one excerpt, EXCERPT_MAX_CHARS
 };
 

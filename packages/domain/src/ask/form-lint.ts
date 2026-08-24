@@ -104,6 +104,110 @@ import type { AskKind } from "./types";
 export const MCP_TOOL_ID_PATTERN = /\bmcp__/;
 
 /**
+ * Domain jargon that is NOT an MCP tool id (mt#4516).
+ *
+ * `MCP_TOOL_ID_PATTERN` above catches `mcp__*` and nothing else, so it is silent
+ * on the vocabulary that actually reaches the principal. ask#9864 carried
+ * `direction.decide`, `stuck.unblock`, `ADR-038` and `isSyncKind` in its body
+ * and lint said nothing; the principal replied that he did not understand it.
+ *
+ * Three deliberately narrow patterns rather than one general
+ * "dotted identifier" rule. A general one would match filenames
+ * (`form-lint.ts`), version strings and hostnames — and the failure mode of a
+ * noisy check is documented in mem#719: a detector emitting unmatchable output
+ * erodes trust in its correct output. Each pattern below is a CLOSED or
+ * syntactically unambiguous set:
+ *
+ * 1. The seven `AskKind` values. Enumerated, not inferred — they are the
+ *    subsystem's own routing vocabulary and have no meaning to a reader who has
+ *    not read `types.ts`. Kept in sync by `form-lint.test.ts`, which asserts the
+ *    pattern covers every member of the union.
+ * 2. `ADR-<n>` / `RFC-<n>` — an in-repo decision-record citation. The record may
+ *    be worth linking in `contextRefs`; its NUMBER is not a thing to read.
+ * 3. A backticked camelCase symbol (`isSyncKind`, `hasElicitation`). Backticks
+ *    plus an internal capital is a code identifier by construction — prose does
+ *    not produce that shape by accident.
+ *
+ * ALL THREE ARE ADVISORY, and this is the reason they are a separate check
+ * rather than a widening of `internal-tool-id`: that check BLOCKS at the
+ * `asks.create` / `asks.edit` boundary — it is absent from
+ * `filterBlockingFormLintMatches`'s exclusion list — so widening it would ship
+ * new hard rejects with no measured fire history behind them, the inverse of
+ * the calibration-first ladder every other check here went through (mt#2263).
+ *
+ * Splitting the difference inside one check is not available:
+ * `filterBlockingFormLintMatches` keys on `m.check`, so every match carrying
+ * the name `internal-tool-id` blocks or none does. A separate check name IS
+ * the mechanism for "widen coverage without widening blocking."
+ *
+ * mt#4516's SC4 originally said to widen `internal-tool-id`, and was AMENDED
+ * to this shape during implementation after PR #3291 R1 flagged the
+ * divergence — see that criterion's own text for the reconciliation. The
+ * criterion, not this comment, is the record.
+ */
+export const ASK_KIND_JARGON_PATTERN =
+  /\b(?:capability\.escalate|information\.retrieve|authorization\.approve|direction\.decide|coordination\.notify|quality\.review|stuck\.unblock)\b/;
+
+/** In-repo decision-record citation by number — see `ASK_KIND_JARGON_PATTERN` (mt#4516). */
+export const DECISION_RECORD_REF_PATTERN = /\b(?:ADR|RFC)-\d+/;
+
+/** Backticked camelCase code symbol — see `ASK_KIND_JARGON_PATTERN` (mt#4516). */
+export const BACKTICKED_SYMBOL_PATTERN = /`[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*`/;
+
+/**
+ * Meta-commentary OPENING the question body (mt#4516).
+ *
+ * The edit path is reached because something was already wrong, so the sentence
+ * that wants to come first is about the ask's own history rather than the
+ * question. ask#9864's rewrite opened *"Correction, 2026-08-24: this ask was
+ * filed on a misquote…"* — bookkeeping in the field that must carry the
+ * decision.
+ *
+ * Anchored to the START of the body, deliberately: "correction" appearing
+ * mid-paragraph is ordinary prose and must not fire. The label must also be
+ * followed by punctuation, so a body legitimately beginning "Note that the
+ * deploy…" does not match while "Note:" does.
+ *
+ * Recall is partial by construction. Unlike the three patterns above, this one
+ * matches natural language, whose surface forms are unbounded — the axis
+ * ADR-024 assigns to embedding rather than regex. It is advisory for that
+ * reason and should not be answered by accumulating phrasings; if it misses
+ * often enough to matter, that is evidence for a different mechanism, not a
+ * longer alternation.
+ */
+export const META_LEDE_PATTERN =
+  /^\s*(?:[-*+]\s+)?(?:\*\*)?(?:correction|note|update|revised|amended|errata)\b\s*(?:\*\*)?\s*[:,—–-]/i;
+
+/** A bare ISO date opening the body — the other common meta-lede shape (mt#4516). */
+export const DATE_LEDE_PATTERN = /^\s*(?:\*\*)?\d{4}-\d{2}-\d{2}\b/;
+
+/**
+ * The body's first sentence talking ABOUT the ask (mt#4516).
+ *
+ * The third meta-lede shape, and the one that needs no label: *"This ask was
+ * filed on a misquote"* opens with the subject rather than a marker, so neither
+ * pattern above sees it. Scoped to the FIRST SENTENCE for the same reason those
+ * are anchored — an ask that mentions itself in passing further down is not
+ * leading with bookkeeping.
+ */
+export const SELF_REFERENTIAL_LEDE_PATTERN = /\bthis ask\b/i;
+
+/** Characters that end the opening sentence, for `SELF_REFERENTIAL_LEDE_PATTERN`'s scope. */
+const SENTENCE_END = /[.?!]/;
+
+/**
+ * The body's opening sentence — the window `SELF_REFERENTIAL_LEDE_PATTERN` reads.
+ *
+ * Capped at 200 characters so a body with no terminal punctuation at all cannot
+ * turn the "first sentence" check into a whole-body one.
+ */
+export function firstSentenceOf(question: string): string {
+  const head = question.trimStart().slice(0, 200);
+  const end = head.search(SENTENCE_END);
+  return end === -1 ? head : head.slice(0, end + 1);
+}
+
+/**
  * Word-count budget for the question body (spec Deliverable 2: "> 150
  * words"). This is the MECHANICAL lint threshold, not the authoring target.
  *
@@ -337,7 +441,9 @@ export type FormLintCheck =
   | "unlinkified-reference"
   | "unscoped-option-exception"
   | "duplicate-open-incident"
-  | "asserted-not-self-resolving";
+  | "asserted-not-self-resolving"
+  | "domain-jargon"
+  | "meta-lede";
 
 /**
  * Markers that only appear in a question when the tool call's own parameter
@@ -619,6 +725,35 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
     matches.push({
       check: "internal-tool-id",
       message: "internal tool id in principal-facing text",
+    });
+  }
+
+  // mt#4516: the three jargon classes `internal-tool-id` cannot see. Reported
+  // as ONE match naming which classes fired, not one per class — the fix is a
+  // single rewrite pass either way, and the check's own origin is an ask that
+  // carried all three at once.
+  const jargonClasses: string[] = [];
+  if (ASK_KIND_JARGON_PATTERN.test(question)) jargonClasses.push("ask-kind name");
+  if (DECISION_RECORD_REF_PATTERN.test(question)) jargonClasses.push("ADR/RFC number");
+  if (BACKTICKED_SYMBOL_PATTERN.test(question)) jargonClasses.push("code symbol");
+  if (jargonClasses.length > 0) {
+    matches.push({
+      check: "domain-jargon",
+      message: `domain jargon in principal-facing text (${jargonClasses.join(", ")}) — say what it means, or move the reference to contextRefs`,
+    });
+  }
+
+  // mt#4516: the body opens with commentary about the ask rather than the
+  // question. Anchored to the start; mid-body occurrences are ordinary prose.
+  if (
+    META_LEDE_PATTERN.test(question) ||
+    DATE_LEDE_PATTERN.test(question) ||
+    SELF_REFERENTIAL_LEDE_PATTERN.test(firstSentenceOf(question))
+  ) {
+    matches.push({
+      check: "meta-lede",
+      message:
+        "body opens with commentary about the ask instead of the question — the prior wording is already preserved under metadata.originalContent",
     });
   }
 

@@ -1127,7 +1127,19 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
       // warning's job is to put category (b) in front of the author at the
       // moment of escalation; blocking would let a wrong guess about someone
       // else's infrastructure withhold a real page from the principal.
-      m.check !== "asserted-not-self-resolving"
+      m.check !== "asserted-not-self-resolving" &&
+      // mt#4516: both calibration-first, per the mt#2263 ladder — a new check
+      // earns a blocking leg from measured fires, not from the author's
+      // confidence in its pattern. `domain-jargon` exists as a sibling of
+      // `internal-tool-id` rather than a widening of it precisely so that this
+      // line can hold: widening the blocking check would have shipped new hard
+      // rejects with no fire history behind them.
+      m.check !== "domain-jargon" &&
+      // Additionally, `meta-lede` matches natural language, where recall is
+      // partial by construction (see its pattern's doc comment). Blocking on a
+      // check that cannot see half its own class would reject the authors who
+      // phrase it one way and wave through the ones who phrase it another.
+      m.check !== "meta-lede"
   );
 }
 
@@ -2192,10 +2204,7 @@ async function resolveCurrentProjectScope(
     if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistenceProvider.getDatabaseConnection();
     if (!rawDb) return undefined;
-    const scope = await resolveProjectScope(
-      identity,
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-    );
+    const scope = await resolveProjectScope(identity, rawDb, caller);
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {

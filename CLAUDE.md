@@ -714,6 +714,30 @@ which is the growth the consolidation exists to stop.
 - **Dispatch-intent write gate** — writes under read-only intent. none.
 - **Nested-fork dispatch** — undeclared nested fork. `MINSKY_ALLOW_NESTED_FORK`.
 
+## Adding a hook module: the registries it obliges (mt#4508)
+
+One new `.minsky/hooks/<name>.ts` obliges several registries, and they fail at DIFFERENT gates —
+so an author who fixes them one at a time learns the count by exhausting it. mt#4494 hit four
+across three separate signals; mem#1206 records the full sequence.
+
+- `.claude/settings.json` — registration (or `GUARD_REGISTRY`, for a dispatcher-routed guard).
+- `packages/domain/src/rules/enforcement-mapping.ts` — `ENFORCEMENT_MAPPINGS` if it DENIES, else
+  `NON_ENFORCEMENT_CLAUDE_HOOKS` with a non-empty reason. Pre-commit (mt#4367).
+- `interceptor-descriptions.ts` — description + failureClasses + provenance + stratum.
+- `interceptor-coordinates.ts` — required for every DESCRIBED interceptor, so describing a module
+  CREATES this obligation.
+- `docs/architecture/hook-module-inventory.md` — a classified row plus the count bumps.
+
+**The fast gate now selects the tree's census tests for any `.minsky/hooks/` change (mt#4508).**
+`hook-module-inventory.test.ts` fires on the mere ADDITION of a module; `interceptor-coordinates.test.ts`
+fires a step later, once it is described. Before mt#4508 a new module selected ZERO related tests, so
+every local check passed and the first signal was full CI on an already-approved PR. Check with
+`bun scripts/run-related-tests.ts .minsky/hooks/<name>.ts`.
+
+Still true, and not covered by that: `.minsky/hooks/**` is absent from `run-tests-main.ts`'s `ROOTS`,
+so the pre-PUSH gated runner cannot execute that tree at all — run `bun run test:hooks` before
+pushing a hook change (mem#1206).
+
 # Design Principle: Humility
 
 A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone **when the stakes warrant it**; §Stakes filter decides which do. Full framing: `docs/theory-of-operation.md §Companion Principles`, mt#1034.
@@ -800,10 +824,24 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Auto-walked transitions** (chain forward unless an explicit halt condition holds):
 
-- `/create-task` → `/plan-task` when the task was filed as **incident response** — a problem the
-  user reported in the live conversation, or one discovered during this conversation's work
-  (mt#2689). Filing the task is not the deliverable; the fix is. Background/tracking tasks filed
-  for later by design are exempt — say so explicitly when stopping there.
+- `/create-task` → `/plan-task` when the task was filed as **incident response** AND the response
+  was not scoped to filing (mt#2689, narrowed mt#3784). **Where the problem was raised does not
+  settle the second half** — this line read "a problem the user reported in the live conversation,
+  or one discovered during this conversation's work … filing is not the deliverable" and welded a
+  trigger to a conclusion. Read the verb aimed at YOU, not the verb inside the artifact: "file a
+  task to investigate X" makes investigation the task's CONTENT and filing your whole deliverable.
+  Three exemptions — name which when you stop:
+  - **Filed for later by design** — a background/tracking task.
+  - **Request-scope** — the instruction was to file it ("file a task to…", "make a task for…",
+    "track this"). No deferral language is needed for this to hold.
+  - **Incidental discovery** — a DIFFERENT task is this conversation's active thread and you found
+    this while working it. Default here is *keep working the primary thread and surface the filed
+    items at the close for routing* (`communication-contract.mdc §The terminal actionables block`),
+    NOT walk and not a bare stop. Walk only if it blocks the current deliverable's correctness or
+    would recur in this session's remaining work — a prose/doc fix meets neither.
+
+  Conversely, an ask answered in this conversation that authorized the work is evidence to WALK:
+  its "file tasks for X" phrasing names the record-keeping step, not a scope ceiling.
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)

@@ -141,7 +141,7 @@ export async function listTasksFromParams(
               persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
             const db = await sqlProvider.getDatabaseConnection?.();
             if (db) {
-              projectScope = await resolveProjectScope(identity, db);
+              projectScope = await resolveProjectScope(identity, db, "tasks.list");
             }
           }
         } catch (err) {
