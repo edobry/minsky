@@ -128,6 +128,33 @@ describe("TranscriptListService", () => {
       expect(truncation).toEqual({ returned: 2, total: 3, truncated: true });
     });
 
+    test("allConversationIds carries EVERY id even when the page is capped (mt#4480)", async () => {
+      // The cap is the point. `conversations` is a page; `allConversationIds`
+      // is the store. The disk-coverage sweep asks "which on-disk conversations
+      // have no row?", and answering that against a page turns "not on this
+      // page" into "never ingested" — which reported 1,491 phantom
+      // never-ingested conversations against a true value of 3, silently,
+      // because a page is a perfectly well-formed set with nothing wrong to
+      // notice about it.
+      const baseRows = [
+        makeBaseRow({ agentSessionId: "conv-a" }),
+        makeBaseRow({ agentSessionId: "conv-b" }),
+        makeBaseRow({ agentSessionId: "conv-c" }),
+      ];
+      const db = makeFakeDb({ baseRows });
+      const svc = new TranscriptListService(db);
+
+      const { conversations, allConversationIds, truncation } = await svc.listConversations({
+        limit: 1,
+      });
+
+      expect(conversations).toHaveLength(1);
+      expect(truncation.truncated).toBe(true);
+      expect(allConversationIds).toEqual(["conv-a", "conv-b", "conv-c"]);
+      // The invariant a coverage check depends on, stated as such.
+      expect(allConversationIds).toHaveLength(truncation.total);
+    });
+
     test("turn stats (count/first/last) are attached from the turn-stats query, coercing the raw-SQL aggregate string result to Date", async () => {
       // postgres.js returns min()/max() aggregate results as ISO strings, NOT
       // Date instances (unlike a plain typed column) — fixture mirrors that,

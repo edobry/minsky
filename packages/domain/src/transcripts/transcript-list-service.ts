@@ -89,6 +89,21 @@ export interface TranscriptListOptions {
 export interface TranscriptListResult {
   conversations: TranscriptListRow[];
   truncation: ListTruncationMetadata;
+  /**
+   * EVERY conversation id in the store, before the loud cap (mt#4480).
+   *
+   * Distinct from `conversations.map(c => c.agentSessionId)`, which is the
+   * PAGE. A caller asking "which on-disk conversations have no row?" needs the
+   * whole set — comparing disk against a page reports every un-returned
+   * conversation as never-ingested, which is exactly what happened: a
+   * default-limit call reported 1,491 of 1,503 on-disk sessions missing when
+   * the true number was 3.
+   *
+   * Free to provide: the base query already selects every row in order to
+   * compute `truncation.total`, so this is the id column of a result set that
+   * was fetched anyway, not a second query.
+   */
+  allConversationIds: string[];
 }
 
 @injectable()
@@ -166,7 +181,11 @@ export class TranscriptListService {
         };
       });
 
-      return { conversations, truncation };
+      return {
+        conversations,
+        truncation,
+        allConversationIds: baseRows.map((r) => r.agentSessionId),
+      };
     } catch (err) {
       throw new Error(
         `TranscriptListService.listConversations: query failed: ${getErrorMessage(err)}`,

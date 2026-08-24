@@ -112,6 +112,28 @@ export const MAX_SUBAGENT_TREE_DEPTH = 3;
 
 const JSONL_EXT = ".jsonl";
 
+/**
+ * `.jsonl` basenames under a session tree that are NOT conversations (mt#4480).
+ *
+ * The Workflow tool writes a run journal at
+ * `subagents/workflows/<wf-id>/journal.jsonl`, which `scanSubagentTree`'s
+ * deliberately-general recursion picks up like any other transcript. It then
+ * yields the literal `agentSessionId` `"journal"` — a value no harness ever
+ * mints, since Claude Code ids are UUIDs or `agent-`-prefixed hashes.
+ *
+ * The cost was not a failed ingest. It was a MEASUREMENT: `transcripts list
+ * --check-disk-coverage` reports on-disk sessions with no row, so three journal
+ * files read as three permanently-never-ingested conversations that no amount
+ * of backfilling would ever clear — a small standing false positive in exactly
+ * the surface that exists to prove ingest coverage is complete.
+ *
+ * Matched on the exact basename rather than on "looks like a UUID": subagent
+ * transcripts are legitimately named `agent-<hex>`, so a shape test would have
+ * to encode every id convention the harness uses and would silently drop real
+ * transcripts the day it adds another.
+ */
+const NON_CONVERSATION_BASENAMES = new Set(["journal"]);
+
 /** Loosely-typed parsed JSONL line (we narrow on `type`). */
 interface JsonlLine {
   type?: unknown;
@@ -280,6 +302,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
   ): AsyncIterable<DiscoveredSession> {
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(JSONL_EXT)) continue;
+      if (NON_CONVERSATION_BASENAMES.has(basename(entry.name, JSONL_EXT))) continue;
       const jsonlPath = join(dir, entry.name);
       const stat = await safeStat(jsonlPath);
       if (!stat) continue;

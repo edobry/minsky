@@ -10,15 +10,17 @@
  *     the ingest counters from being recorded (fail-open)
  *   - idempotency is delegated to ingestAll (HWM-gated) — just assert it's called
  *
- * @see src/cockpit/sweepers.ts — startTranscriptSweepBackstop (mt#2615 — moved from server.ts)
+ * @see src/cockpit/transcript-sweep-backstop.ts — the unit under test
+ *   (mt#2615 moved it out of server.ts into sweepers.ts; mt#4480 moved it again,
+ *   into the module this test file was already named after)
  * @see src/cockpit/transcript-sweep-tracker.ts — TranscriptSweepTracker
  * @see mt#2321 — cockpit-daemon transcript sweep backstop
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./sweepers";
+import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./transcript-sweep-backstop";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
-import type { TranscriptSweepDeps } from "./sweepers";
+import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
 
 // Helper: wait for an async condition to become true (polls at 5ms intervals).
 // The bound was 500ms and measured the MACHINE, not the code: every condition
@@ -244,6 +246,89 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     } finally {
       stop();
     }
+  });
+
+  // ── mt#4480: an abandoned pass is not a sweep ──────────────────────────────
+
+  test("an aborted ingest is recorded as an abort, never as a completed sweep", async () => {
+    // The whole point. In production, five passes in a row returned
+    // `sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0` after
+    // the pool was recycled under them — and each one incremented `sweepsRun`
+    // and added 1,502 to `sessionsIngested`, so the health surface read like a
+    // busy, healthy sweep while nothing at all was being ingested.
+    let embedRan = false;
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({
+        sessionsProcessed: 12,
+        sessionsErrored: 12,
+        totalIngested: 0,
+        aborted: {
+          afterSessionsProcessed: 12,
+          consecutiveInfraFailures: 10,
+          failureKind: "connection-lost",
+        },
+      }),
+      runEmbeddings: async () => {
+        embedRan = true;
+      },
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+
+    try {
+      // Default 5 s deadline, not the 500 ms its neighbours pass: mt#3501
+      // records that five tests in this file poll ms-scale conditions against
+      // a 500 ms wall-clock deadline and fail under load. No reason to enlarge
+      // that population while it is still open.
+      await waitFor(() => tracker.getSummary().sweepsAborted >= 1);
+
+      const summary = tracker.getSummary();
+      expect(summary.sweepsAborted).toBe(1);
+      expect(summary.lastAbortAt).not.toBeNull();
+      // Not counted as a sweep, and its sessions are not counted as swept.
+      expect(summary.sweepsRun).toBe(0);
+      expect(summary.sessionsIngested).toBe(0);
+      expect(summary.lastSweepAt).toBeNull();
+      // An abandoned pass IS a sweep-level error.
+      expect(summary.lastErrorAt).not.toBeNull();
+      // Phase 2 needs the same dead connection, so it must not have been tried.
+      expect(embedRan).toBe(false);
+      expect(summary.embedRuns).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("lastProductiveSweepAt advances only when the sweep actually ingested something", async () => {
+    // `lastSweepAt` says the mechanism RAN; this says it did its job. The gap
+    // between them is the freshness signal — a sweep that runs every 30
+    // minutes and ingests nothing looks identical to a healthy one on every
+    // other field here.
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({
+        sessionsProcessed: 5,
+        sessionsErrored: 0,
+        totalIngested: 0,
+      }),
+      runEmbeddings: async () => {},
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    try {
+      // Default deadline — see the mt#3501 note on the sibling test above.
+      await waitFor(() => tracker.getSummary().sweepsRun >= 1);
+      const summary = tracker.getSummary();
+      expect(summary.sweepsRun).toBe(1);
+      expect(summary.lastSweepAt).not.toBeNull();
+      expect(summary.lastProductiveSweepAt).toBeNull();
+    } finally {
+      stop();
+    }
+
+    tracker.recordSweepCompleted(5, 0, 0, 3);
+    expect(tracker.getSummary().lastProductiveSweepAt).not.toBeNull();
   });
 
   // ── stop function ─────────────────────────────────────────────────────────

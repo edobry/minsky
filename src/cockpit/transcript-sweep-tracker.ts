@@ -54,6 +54,28 @@ export interface TranscriptSweepSummary {
   /** ISO timestamp of the last completed sweep, or null (no sweep yet). */
   lastSweepAt: string | null;
   /**
+   * Passes ABANDONED mid-flight because the database connection died (mt#4480).
+   *
+   * Disjoint from `sweepsRun`: an abandoned pass is not a sweep that happened.
+   * Before this existed, a pass that ingested nothing because the pool was
+   * recycled under it incremented `sweepsRun` and looked identical to a healthy
+   * one — five such passes ran back to back on 2026-08-24 while this surface
+   * reported `sweepsRun: 2` and nothing else amiss.
+   */
+  sweepsAborted: number;
+  /** ISO timestamp of the last abandoned pass, or null. */
+  lastAbortAt: string | null;
+  /**
+   * ISO timestamp of the last sweep that actually ingested something, or null.
+   *
+   * The load-bearing freshness signal, and the one field here that cannot be
+   * satisfied by a mechanism that is merely RUNNING. `lastSweepAt` advances on
+   * every tick including the ones that write nothing; this advances only when
+   * the sweep did its job. A widening gap between the two is the standing
+   * condition an operator wants, and it is visible without reading any log.
+   */
+  lastProductiveSweepAt: string | null;
+  /**
    * ISO timestamp of the last sweep error (ingest OR embedding failure), or null.
    * NOTE: per redaction policy, the raw error message is NOT stored. Log surface carries it.
    */
@@ -70,6 +92,9 @@ export class TranscriptSweepTracker {
   private embedRuns = 0;
   private lastSweepAtMs: number | null = null;
   private lastErrorAtMs: number | null = null;
+  private sweepsAborted = 0;
+  private lastAbortAtMs: number | null = null;
+  private lastProductiveSweepAtMs: number | null = null;
 
   /** Process-lifetime singleton (created on first access). */
   static getInstance(): TranscriptSweepTracker {
@@ -93,11 +118,17 @@ export class TranscriptSweepTracker {
    * @param sessionsQuarantined - From ingestAll().sessionsQuarantined (mt#3278).
    *   Optional so the existing two-arg call shape keeps working; omitted means
    *   "this sweep reported none", which resets the gauge as it should.
+   * @param totalIngested - From ingestAll().totalIngested (mt#4480). Optional
+   *   for the same back-compat reason. Only a POSITIVE value advances
+   *   `lastProductiveSweepAt`; omitting it therefore reads as "this caller does
+   *   not report productivity", which correctly leaves the field alone rather
+   *   than asserting the sweep was unproductive.
    */
   recordSweepCompleted(
     sessionsProcessed: number,
     sessionsErrored: number,
-    sessionsQuarantined = 0
+    sessionsQuarantined = 0,
+    totalIngested?: number
   ): void {
     this.sweepsRun++;
     this.sessionsIngested += sessionsProcessed < 0 ? 0 : sessionsProcessed;
@@ -105,9 +136,27 @@ export class TranscriptSweepTracker {
     // Gauge, not an accumulator — see the field's doc comment.
     this.sessionsQuarantined = sessionsQuarantined < 0 ? 0 : sessionsQuarantined;
     this.lastSweepAtMs = Date.now();
+    if (typeof totalIngested === "number" && totalIngested > 0) {
+      this.lastProductiveSweepAtMs = Date.now();
+    }
     if (sessionsErrored > 0) {
       this.lastErrorAtMs = Date.now();
     }
+  }
+
+  /**
+   * Record a pass ABANDONED mid-flight because the connection died (mt#4480).
+   *
+   * Deliberately does NOT increment `sweepsRun`, and does NOT add to the
+   * per-session totals: the sessions it got through were not swept, they were
+   * failed at, and folding them into `sessionsIngested` is what made a
+   * zero-ingest pass read as 1,502 sessions' worth of work. Sets `lastErrorAt`
+   * because an abandoned pass IS a sweep-level error.
+   */
+  recordSweepAborted(): void {
+    this.sweepsAborted++;
+    this.lastAbortAtMs = Date.now();
+    this.lastErrorAtMs = Date.now();
   }
 
   /**
@@ -136,6 +185,12 @@ export class TranscriptSweepTracker {
       sessionsQuarantined: this.sessionsQuarantined,
       embedRuns: this.embedRuns,
       lastSweepAt: this.lastSweepAtMs === null ? null : new Date(this.lastSweepAtMs).toISOString(),
+      sweepsAborted: this.sweepsAborted,
+      lastAbortAt: this.lastAbortAtMs === null ? null : new Date(this.lastAbortAtMs).toISOString(),
+      lastProductiveSweepAt:
+        this.lastProductiveSweepAtMs === null
+          ? null
+          : new Date(this.lastProductiveSweepAtMs).toISOString(),
       lastErrorAt: this.lastErrorAtMs === null ? null : new Date(this.lastErrorAtMs).toISOString(),
     };
   }

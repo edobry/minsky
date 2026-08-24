@@ -15,7 +15,6 @@ import {
   startConversationTitleSweeper,
   startConversationSummarySweeper,
   startTopologySweeper,
-  startTranscriptSweepBackstop,
   startGuardEventsSweepBackstop,
   startInterceptorAggregatesSweeper,
   startDispatchWatchdogSweeper,
@@ -24,6 +23,8 @@ import {
   startConversationPresenceSweeper,
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
+// mt#4480: lifted out of sweepers.ts when that file hit the max-lines ceiling.
+import { startTranscriptSweepBackstop } from "../../cockpit/transcript-sweep-backstop";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
 import {
   classifyUncaughtException,

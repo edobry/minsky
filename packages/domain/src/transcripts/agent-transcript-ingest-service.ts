@@ -52,6 +52,10 @@ import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transc
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
+import {
+  classifyConnectionFailure,
+  type ConnectionFailureKind,
+} from "../persistence/connection-failure";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { isSidecarLineType } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
@@ -85,6 +89,48 @@ import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
  * uninterrupted run of failures.
  */
 export const INGEST_QUARANTINE_THRESHOLD = 3;
+
+/**
+ * Consecutive INFRASTRUCTURE failures after which `ingestAll` abandons the pass
+ * (mt#4480).
+ *
+ * A sweep pass holds one database handle across every discovered session. When
+ * that handle dies mid-pass — the cockpit's own pool recycler tearing it down
+ * is the measured cause — every remaining session fails its first query in
+ * microseconds, and the pass runs to completion reporting
+ * `sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0`. Five such
+ * passes ran back to back on 2026-08-24 before this existed. The waste is not
+ * the point; the point is that a pass shaped like that is indistinguishable
+ * from a healthy one in every counter a caller reads.
+ *
+ * Why an infrastructure-CLASSIFIED count rather than a plain failure count: a
+ * single session cannot cause a `CONNECTION_ENDED`. The classification is what
+ * makes a low threshold sound — these errors are properties of the connection,
+ * so consecutive ones are evidence about the connection and never about the
+ * sessions they happened to land on. `classifyConnectionFailure` returns
+ * `"unknown"` rather than guessing, and `"unknown"` deliberately does NOT count
+ * here, so an unrecognized per-session error can never trip this.
+ *
+ * Ten, not three: three is the QUARANTINE threshold, where the cost of being
+ * wrong is a conversation permanently given up on. Here a wrong abort costs one
+ * skipped pass on a 30-minute cadence, and the next pass re-collects everything
+ * — so the threshold is set for headroom over a brief flap rather than for
+ * caution. Against a 1,502-session pass it still salvages 99.3% of the work.
+ */
+export const INGEST_ABORT_AFTER_CONSECUTIVE_INFRA_FAILURES = 10;
+
+/**
+ * True when an error is about the CONNECTION rather than about the session.
+ *
+ * `"unknown"` is excluded on purpose. `connection-failure.ts` documents it as
+ * "no information, never a synonym for transient", and treating it as
+ * infrastructure here would let an ordinary unrecognized per-session error
+ * abort a pass that should have continued.
+ */
+function isInfrastructureFailure(err: unknown): ConnectionFailureKind | null {
+  const { kind } = classifyConnectionFailure(err);
+  return kind === "unknown" ? null : kind;
+}
 
 /**
  * Cap on the stored `ingest_last_error` text. The whole point of the column is
@@ -1066,6 +1112,30 @@ export class AgentTranscriptIngestService {
   }
 
   private async recordIngestFailure(agentSessionId: string, cause: Error): Promise<void> {
+    // mt#4480: a connection failure is a property of the CONNECTION, not of
+    // this session, so it must not advance a counter whose only effect is to
+    // give up on this session permanently. INGEST_QUARANTINE_THRESHOLD is 3, a
+    // sweep touches every session on every pass, and the cockpit's pool can be
+    // recycled mid-pass — so three unlucky passes would quarantine an
+    // arbitrary set of healthy conversations for an outage none of them caused.
+    // That is precisely the silent never-ingest condition SC4 exists to
+    // prevent, arriving through the mechanism built to prevent it.
+    //
+    // The row write is skipped ENTIRELY rather than kept-but-not-counted: it
+    // goes through the same dead connection, so during the outage that makes
+    // this branch fire it would fail anyway. Nothing is lost by not attempting
+    // it — the sweep-level abort is what reports this class, at `error`, with
+    // the failure kind, and this line covers the case where the connection
+    // recovers before the counter would have been written.
+    const infraKind = isInfrastructureFailure(cause);
+    if (infraKind !== null) {
+      log.debug(
+        `Not counting ${infraKind} failure toward quarantine for session ${agentSessionId}`,
+        { agentSessionId, infraKind }
+      );
+      return;
+    }
+
     try {
       const summary = getLoggableErrorSummary(cause);
       // safeTruncate, not `.slice`: a plain slice can cut a UTF-16 surrogate
@@ -1115,17 +1185,37 @@ export class AgentTranscriptIngestService {
    *
    * @returns Total number of new lines ingested across all sessions.
    */
-  async ingestAll(): Promise<IngestAllResult> {
+  async ingestAll(options?: IngestAllOptions): Promise<IngestAllResult> {
     let totalIngested = 0;
     let sessionsProcessed = 0;
     let sessionsErrored = 0;
     let sessionsQuarantined = 0;
+
+    const abortThreshold =
+      options?.abortAfterConsecutiveInfraFailures ?? INGEST_ABORT_AFTER_CONSECUTIVE_INFRA_FAILURES;
+    let consecutiveInfraFailures = 0;
+    let lastInfraKind: ConnectionFailureKind | null = null;
+    let aborted: IngestAllResult["aborted"];
 
     for await (const session of this.source.discoverSessions()) {
       sessionsProcessed++;
       try {
         const result = await this.ingestSession(session);
         totalIngested += result.ingested;
+
+        // mt#4480: track connection-level failures separately from
+        // session-level ones. Any outcome that is not an infrastructure
+        // failure — including a success, a quarantine skip, and an ordinary
+        // per-session error — is evidence the connection is alive, so it
+        // resets the run.
+        const infraKind = result.error !== undefined ? isInfrastructureFailure(result.error) : null;
+        if (infraKind === null) {
+          consecutiveInfraFailures = 0;
+        } else {
+          consecutiveInfraFailures++;
+          lastInfraKind = infraKind;
+        }
+
         if (result.quarantined === true) {
           // Not an error THIS pass — nothing was attempted. Counted separately
           // so an operator can tell "N sessions are failing right now" from
@@ -1147,17 +1237,46 @@ export class AgentTranscriptIngestService {
         // Defensive — ingestSession is documented as never throwing, but if
         // an unexpected throw escapes (e.g., an iterator boundary), still count it.
         sessionsErrored++;
+        const infraKind = isInfrastructureFailure(err);
+        if (infraKind === null) {
+          consecutiveInfraFailures = 0;
+        } else {
+          consecutiveInfraFailures++;
+          lastInfraKind = infraKind;
+        }
         log.warn(`Session ${session.agentSessionId} failed during sweep`, {
           error: getLoggableErrorSummary(err),
         });
       }
+
+      // mt#4480: the connection is gone, so every remaining session would fail
+      // its first query too. Stop here and let the next pass start from a
+      // freshly-resolved handle — an ingest sweep is idempotent and
+      // high-water-mark gated, so nothing is lost by abandoning a pass.
+      if (consecutiveInfraFailures >= abortThreshold) {
+        aborted = {
+          afterSessionsProcessed: sessionsProcessed,
+          consecutiveInfraFailures,
+          failureKind: lastInfraKind ?? "unknown",
+        };
+        log.error(
+          `Ingest sweep ABORTED after ${consecutiveInfraFailures} consecutive connection failures ` +
+            `(${aborted.failureKind}) — abandoning the pass at session ${sessionsProcessed}`,
+          aborted
+        );
+        break;
+      }
     }
 
-    log.info(`Ingest sweep complete`, {
+    // mt#4480: an abandoned pass must not log as a completed one. It shares
+    // every counter with a healthy pass except the ones nobody reads, which is
+    // exactly how five consecutive zero-ingest passes went unnoticed.
+    log.info(aborted ? `Ingest sweep ABORTED (partial)` : `Ingest sweep complete`, {
       totalIngested,
       sessionsProcessed,
       sessionsErrored,
       sessionsQuarantined,
+      ...(aborted ? { aborted } : {}),
     });
     // mt#3278: a standing quarantine is an operator-visible condition, not a
     // per-sweep event, so it is surfaced every sweep rather than only on the
@@ -1169,7 +1288,7 @@ export class AgentTranscriptIngestService {
         { sessionsQuarantined }
       );
     }
-    return { totalIngested, sessionsProcessed, sessionsErrored, sessionsQuarantined };
+    return { totalIngested, sessionsProcessed, sessionsErrored, sessionsQuarantined, aborted };
   }
 }
 
@@ -1209,6 +1328,29 @@ export interface IngestAllResult {
    * cannot also have failed. Both are counted within `sessionsProcessed`.
    */
   sessionsQuarantined: number;
+  /**
+   * Set when the pass was ABANDONED rather than finished (mt#4480) — the
+   * connection died and every remaining session would have failed identically.
+   *
+   * Absent on a normal pass. A caller that records sweep health MUST branch on
+   * this: the other counters cannot distinguish an abandoned pass from a
+   * completed one, because both report a processed count and an errored count
+   * and neither carries an outcome.
+   */
+  aborted?: {
+    /** How far into discovery the pass got before giving up. */
+    afterSessionsProcessed: number;
+    consecutiveInfraFailures: number;
+    failureKind: ConnectionFailureKind;
+  };
+}
+
+export interface IngestAllOptions {
+  /**
+   * Override {@link INGEST_ABORT_AFTER_CONSECUTIVE_INFRA_FAILURES}. Tests set
+   * this low; production should not set it at all.
+   */
+  abortAfterConsecutiveInfraFailures?: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
