@@ -84,14 +84,15 @@ the tracker now distinguishes (mt#1682):
    `serverName: "minsky-proxy"`. **Read `event.signal` for the actual signal
    name** — this generic bucket exists so these do not collapse into
    `"unknown"`, and the raw name is always recorded alongside.
-   **EXCLUDED from escalation** — `"signal"` is a member of
-   `SERVER_INITIATED_CAUSES` (`src/mcp/disconnect-tracker.ts`), so
-   `isEscalationEligible` returns false for it regardless of uptime or role.
-   **That exclusion is questionable and is tracked at mt#4499**: the set is
-   named "server-initiated by design," but this bucket carries SIGBUS /
-   SIGSEGV / SIGABRT — runtime crashes, which are neither server-initiated nor
-   by design. Documented here as the behavior that ships, not as the behavior
-   that is right. Worth opening when it appears: on the
+   **COUNTS toward escalation as of mt#4499** — these are runtime crashes, and
+   surfacing them is what the escalation signal is for. It was EXCLUDED until
+   then: `"signal"` sat in `SERVER_INITIATED_CAUSES`, placed there on
+   2026-05-08 by mt#1682 when the cause was a dormant backward-compat
+   placeholder with no producer and "a signal" meant SIGTERM / SIGINT /
+   SIGHUP. mt#2830 then adopted the dormant value for CRASH signals; the
+   meaning changed and the membership did not. Removing it reclassified no
+   historical record — no record ever carried the old meaning. Worth opening
+   when it appears: on the
    principal's machine every one of the 156 such records was a runtime crash
    of the inner server, including Bun panics whose `stderrTail` carries the
    full crash report. This cause has been emitted since mt#2830 but went
@@ -177,12 +178,19 @@ The tracker emits `escalation: "none" | "session" | "daily"` in the
 
 "Escalation-eligible" means ALL of:
 - `kind: "disconnect"`
-- `cause ∉ {staleness_exit, signal, signal_sigterm, signal_sigint, signal_sighup, server_close, idle_timeout}`
+- `cause ∉ {staleness_exit, signal_sigterm, signal_sigint, signal_sighup, server_close, idle_timeout}`
   — this list must match `SERVER_INITIATED_CAUSES` in
-  `src/mcp/disconnect-tracker.ts` exactly. The bare `signal` was added to the
-  code by mt#2830 and to this list by mt#4481; the gap in between is why the
-  cause-class entries above disagreed with the code. Note `signal_sigkill` and
-  `proxy_observed_crash` are deliberately NOT in the set — they DO escalate.
+  **`src/mcp/disconnect-escalation.ts`** exactly, and
+  `disconnect-tracker.test.ts` asserts it. Note `signal_sigkill`,
+  `proxy_observed_crash` and (since mt#4499) the bare `signal` are deliberately
+  NOT in the set — they DO escalate.
+  *History, corrected:* mt#4481 said "the bare `signal` was added to the code by
+  mt#2830 and to this list by mt#4481." Wrong on the first half — `git blame`
+  puts it in the set on 2026-05-08 via mt#1682 (`32283680c7`), two months before
+  mt#2830 gave the cause a producer. mt#4499 removed it and moved the
+  definition out of `disconnect-tracker.ts` into a dependency-free module,
+  because a THIRD hand-copy in `src/cockpit/widgets/s3-gauges.ts` had been
+  disagreeing with both.
 - `uptimeMs >= 5_000` (or `uptimeMs` absent — legacy mt#1645 events without
   uptime are counted conservatively)
 - `processRole !== "helper"` (mt#1705 — helper sessions never escalate;
