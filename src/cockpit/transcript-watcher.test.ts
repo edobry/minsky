@@ -231,15 +231,29 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
   let gate: Deferred | null;
   let clockMs: number;
   /**
-   * Resolves the moment the injected ingest is ENTERED.
+   * Entry-counting seam: resolves once N ingests have been ENTERED.
    *
    * Needed because `processFile` is async and parks at its first await
    * (`fileExists`) — so an unawaited call has not reached the ingest, and
    * asserting straight after it observes a watcher that has done nothing yet.
-   * Awaiting this makes "the ingest is now in flight" a fact rather than a
-   * number of microtasks guessed at.
+   * Awaiting this makes "N ingests are now in flight" a fact rather than a
+   * number of microtasks guessed at, and it counts rather than latching so the
+   * concurrent case can wait for both.
    */
-  let ingestEntered: Deferred | null;
+  let entriesSeen: number;
+  let entriesWanted: number;
+  let entriesDeferred: Deferred | null;
+
+  const onIngestEntry = () => {
+    entriesSeen++;
+    if (entriesDeferred && entriesSeen >= entriesWanted) entriesDeferred.resolve();
+  };
+  const waitForEntries = (n: number): Promise<void> => {
+    if (entriesSeen >= n) return Promise.resolve();
+    entriesWanted = n;
+    entriesDeferred = deferred();
+    return entriesDeferred.promise;
+  };
 
   /** A timeout arm that wins the race immediately — no real 90s wait. */
   const instantTimeout = async () => ({ timedOut: true }) as const;
@@ -251,7 +265,7 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
       now: () => clockMs,
       ingestFile: async (path: string) => {
         ingestCalls.push(path);
-        ingestEntered?.resolve();
+        onIngestEntry();
         if (gate) await gate.promise;
         return 1;
       },
@@ -263,7 +277,9 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
     tracker = TranscriptWatcherTracker.resetForTest();
     ingestCalls = [];
     gate = null;
-    ingestEntered = null;
+    entriesSeen = 0;
+    entriesWanted = 0;
+    entriesDeferred = null;
     clockMs = 1_000_000;
   });
 
@@ -291,9 +307,8 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
     const watcher = makeWatcher();
 
     gate = deferred();
-    ingestEntered = deferred();
     const first = watcher.processFile(session); // enters, holds inFlight, awaits the gate
-    await ingestEntered.promise; // the ingest is genuinely in flight now
+    await waitForEntries(1); // the ingest is genuinely in flight now
     // Drop the entry the first call registered, so the next assertion can only
     // pass if the SECOND call re-registers it from the in-flight guard branch.
     tracker.removeSession("busy");
@@ -315,9 +330,8 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
     const watcher = makeWatcher();
 
     gate = deferred();
-    ingestEntered = deferred();
     const pending = watcher.processFile(session);
-    await ingestEntered.promise;
+    await waitForEntries(1);
 
     // Read the summary 5s after the ingest started, with both clocks injected —
     // the age is the assertion, so it is derived, not slept for.
@@ -353,6 +367,67 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
     expect(s.ingestPausedUntil).toBeNull();
 
     gate.resolve();
+  });
+
+  /**
+   * PR #3282 R1 (BLOCKING). The tracker's in-flight map was keyed by
+   * `agentSessionId`, which is only the jsonl BASENAME — so two files under
+   * different project directories collapsed onto one entry: the second start
+   * overwrote the first's timestamp and the first settle deleted the shared
+   * entry while the other was still running. Both the count and the OLDEST age
+   * were wrong, which is precisely the observability this task adds.
+   *
+   * NEGATIVE CONTROL: keyed by session id, `ingestsInFlight` reads 1 here, not
+   * 2, and the age reflects the younger start.
+   */
+  test("two concurrent ingests sharing a session id are counted separately", async () => {
+    // Same basename under different project dirs → same agentSessionId ("dup"),
+    // different paths, so the per-path in-flight guard admits both.
+    const a = join(root, "proj-a", "dup.jsonl");
+    const b = join(root, "proj-b", "dup.jsonl");
+    await writeLines(a, [userLine("a", "2026-08-24T00:00:00.000Z")]);
+    await writeLines(b, [userLine("b", "2026-08-24T00:00:00.000Z")]);
+    const watcher = makeWatcher();
+
+    gate = deferred();
+    const p1 = watcher.processFile(a);
+    await waitForEntries(1);
+    // Advance the clock between the two starts so the reported age can only be
+    // right if the OLDER start survived.
+    clockMs += 30_000;
+    const p2 = watcher.processFile(b);
+    await waitForEntries(2);
+
+    const during = tracker.getSummary(clockMs + 1_000);
+    expect(during.ingestsInFlight).toBe(2);
+    // Oldest = the first start, 31s ago — not the second's 1s.
+    expect(during.oldestIngestInFlightAgeMs).toBe(31_000);
+
+    gate.resolve();
+    await Promise.all([p1, p2]);
+    expect(tracker.getSummary(clockMs).ingestsInFlight).toBe(0);
+  });
+
+  /**
+   * PR #3282 R1 (BLOCKING). The watcher clears its pause lazily, on the next
+   * event — correct for GATING, wrong for the health surface, which would keep
+   * reporting an expired pause indefinitely if no further event arrived. A
+   * field that misreports its own state is the defect class this task removes,
+   * so the surface derives it at read time.
+   *
+   * NEGATIVE CONTROL: echoing the stored timestamp, the third read below still
+   * returns the ISO string rather than null.
+   */
+  test("ingestPausedUntil goes null at read time once the window elapses, with no further events", () => {
+    const pausedUntil = clockMs + 5 * 60_000;
+    tracker.setIngestPausedUntil(pausedUntil);
+
+    expect(tracker.getSummary(clockMs).ingestPausedUntil).toBe(new Date(pausedUntil).toISOString());
+    // One ms before the horizon: still paused.
+    expect(tracker.getSummary(pausedUntil - 1).ingestPausedUntil).not.toBeNull();
+    // At and past the horizon: null, without any event having occurred.
+    expect(tracker.getSummary(pausedUntil).ingestPausedUntil).toBeNull();
+    expect(tracker.getSummary(pausedUntil + 60_000).ingestPausedUntil).toBeNull();
   });
 
   test("consecutive abandons pause the ingest path, and the pause lifts on its own", async () => {

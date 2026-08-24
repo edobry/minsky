@@ -106,6 +106,28 @@ const ABANDON_BACKOFF_THRESHOLD = 3;
  */
 const ABANDON_BACKOFF_MS = 5 * 60_000;
 
+/*
+ * WHY THESE THREE ARE MODULE CONSTANTS AND NOT CONFIG (PR #3282 R1, non-blocking).
+ *
+ * Deliberate, and recorded here because the reviewer asked for the decision
+ * rather than the outcome. The in-repo precedent for a bound of exactly this
+ * shape is mt#4103's `RECONCILE_STAGE_TIMEOUT_MS` / `RECONCILE_ROW_TIMEOUT_MS`,
+ * which are plain constants in `driven-session-launch.ts` with no config or env
+ * surface — and which are observably firing on the live daemon, so the pattern
+ * has been exercised rather than merely chosen.
+ *
+ * Two reasons not to surface them yet. Every value above is DERIVED from
+ * another layer's declared budget (`idle_timeout`, the recycle backoff ladder),
+ * so an operator tuning one in isolation would decouple it from the thing it is
+ * a ceiling over — the failure mode the derivation exists to prevent. And there
+ * is no evidence anyone has needed to: nothing has been tuned, because this is
+ * the first time the path has been bounded at all.
+ *
+ * The tell that would change this: an incident where the right move is to move
+ * one of these values, and it requires a deploy. Add config THEN, with the
+ * incident as the calibration input, rather than guessing a range now.
+ */
+
 export type DbGetter = () => Promise<PostgresJsDatabase | null>;
 
 export interface TranscriptWatcherDeps {
@@ -296,7 +318,12 @@ export class TranscriptWatcher {
       }
       if (!hasNew) return;
 
-      this.tracker.recordIngestStarted(sessionId, this.now());
+      // Keyed by PATH, matching `inFlight` above — not by session id (PR #3282
+      // R1). `sessionIdFromPath` is the jsonl BASENAME, so two files under
+      // different project directories share a session id while ingesting
+      // independently; keying the tracker by it collapsed them and under-
+      // reported both the count and the oldest age.
+      this.tracker.recordIngestStarted(jsonlPath, this.now());
       try {
         const outcome = await raceAgainstTimeout(
           this.ingestFileImpl(jsonlPath),
@@ -318,7 +345,7 @@ export class TranscriptWatcher {
         this.consecutiveAbandons = 0;
         throw err;
       } finally {
-        this.tracker.recordIngestSettled(sessionId);
+        this.tracker.recordIngestSettled(jsonlPath);
       }
     } finally {
       this.inFlight.delete(jsonlPath);

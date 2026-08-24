@@ -65,6 +65,9 @@ export interface TranscriptWatcherSummary {
    * Exposed rather than kept internal because a deliberately-paused watcher is
    * the same INERT-but-running shape this whole object exists to make legible —
    * pausing silently would reproduce the defect one layer up.
+   *
+   * Like {@link oldestIngestInFlightAgeMs}, DERIVED at read time: it goes null
+   * the moment the window elapses, whether or not any further event arrives.
    */
   ingestPausedUntil: string | null;
   // NOTE: the raw last-error MESSAGE is deliberately NOT exposed here. /api/health
@@ -155,13 +158,24 @@ export class TranscriptWatcherTracker {
   private ingestPausedUntilMs: number | null = null;
 
   /**
-   * Unsettled ingests, keyed by `agentSessionId` → start time (mt#4492).
+   * Unsettled ingests, keyed by the CALLER's in-flight key → start time (mt#4492).
    *
-   * Keyed by the SESSION id, never the absolute jsonl path: this map feeds the
-   * unauthenticated `/api/health`, and the reviewer-R1 rule that keeps paths out
-   * of `ActiveSessionInfo` applies with equal force to anything derived here.
-   * Only a COUNT and an AGE are ever serialized, so no key escapes at all — the
-   * keying just makes that structurally true rather than a convention.
+   * **The key must be whatever the caller's own in-flight guard serializes on**,
+   * because this map's whole job is to mirror that guard's occupancy. The
+   * watcher's guard is per-PATH, and `agentSessionId` is only the jsonl
+   * BASENAME — so two files under different project directories share a session
+   * id while ingesting independently. Keying this map by session id therefore
+   * collapsed them: the second `recordIngestStarted` overwrote the first's start
+   * time (losing the OLDER age, which is the one worth reporting) and the first
+   * `recordIngestSettled` deleted the entry while the other was still running,
+   * under-reporting the count. That defeats the observability this map exists
+   * for, and it was caught in review (PR #3282 R1).
+   *
+   * **No key is ever serialized.** `getSummary` emits only `size` and a derived
+   * age, so the reviewer-R1 rule that keeps absolute paths off the
+   * unauthenticated `/api/health` is satisfied by what is EMITTED, not by what
+   * is keyed — which is the correct place for that guarantee to live, and is
+   * pinned by `health-contract.test.ts`'s exact-field-set assertion.
    */
   private readonly inFlightIngests = new Map<string, number>();
 
@@ -215,13 +229,16 @@ export class TranscriptWatcherTracker {
   }
 
   /**
-   * Mark an ingest as started for `agentSessionId` (mt#4492).
+   * Mark an ingest as started under `ingestKey` (mt#4492).
+   *
+   * Pass the SAME key the caller's in-flight guard uses — see
+   * {@link inFlightIngests} for why a coarser key silently under-reports.
    *
    * `nowMs` is injectable for the same reason {@link getLiveSessions}'s is —
    * the age this feeds is the assertion, and pinning the clock beats sleeping.
    */
-  recordIngestStarted(agentSessionId: string, nowMs: number = Date.now()): void {
-    this.inFlightIngests.set(agentSessionId, nowMs);
+  recordIngestStarted(ingestKey: string, nowMs: number = Date.now()): void {
+    this.inFlightIngests.set(ingestKey, nowMs);
   }
 
   /**
@@ -229,11 +246,11 @@ export class TranscriptWatcherTracker {
    *
    * Deliberately indifferent to WHICH: the in-flight set answers "is something
    * stuck right now", and every one of those three outcomes means the answer is
-   * no longer yes for this session. The outcome itself is recorded by the
+   * no longer yes for this ingest. The outcome itself is recorded by the
    * `recordIngest*` counters.
    */
-  recordIngestSettled(agentSessionId: string): void {
-    this.inFlightIngests.delete(agentSessionId);
+  recordIngestSettled(ingestKey: string): void {
+    this.inFlightIngests.delete(ingestKey);
   }
 
   /** Record an ingest abandoned at its wall-clock bound (mt#4492). */
@@ -363,8 +380,17 @@ export class TranscriptWatcherTracker {
       oldestIngestInFlightAgeMs:
         oldestStartedAtMs === null ? null : Math.max(0, nowMs - oldestStartedAtMs),
       ingestsAbandoned: this.ingestsAbandoned,
+      // Derived against `nowMs`, not merely echoed (PR #3282 R1). The watcher
+      // clears its own pause lazily, on the next event — fine for GATING, and
+      // wrong here: with no further events the health surface would keep
+      // reporting a pause that had already expired, indefinitely. A field that
+      // misreports its own state is the exact defect class this object exists
+      // to remove, so BOTH time-dependent fields on it — this one and
+      // `oldestIngestInFlightAgeMs` — are now read-derived rather than stored.
       ingestPausedUntil:
-        this.ingestPausedUntilMs === null ? null : new Date(this.ingestPausedUntilMs).toISOString(),
+        this.ingestPausedUntilMs === null || nowMs >= this.ingestPausedUntilMs
+          ? null
+          : new Date(this.ingestPausedUntilMs).toISOString(),
       filesWatched: this.filesWatched,
       ingestsTriggered: this.ingestsTriggered,
       ingestsSucceeded: this.ingestsSucceeded,
