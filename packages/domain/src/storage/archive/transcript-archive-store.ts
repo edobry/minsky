@@ -1,11 +1,21 @@
 /**
- * Transcript raw-archive store — ADR-025 foundation (mt#2680).
+ * Transcript raw-archive store — built under ADR-025 (mt#2680), re-scoped by
+ * ADR-045.
  *
- * The object-store archive holds the raw transcript file for each agent
- * session as the immutable SYSTEM OF RECORD; Postgres is a rebuildable
- * derived index parsed from it. This module defines the domain-owned
- * interface (ADR-018 principle: interface + real impl + fake, DI-injected)
- * plus the content-addressed key layout shared by both implementations.
+ * The object-store archive is a COLD TIER: it seals a session's raw transcript
+ * after the session closes. It is NOT the system of record — ADR-045 (Accepted
+ * 2026-08-24, ask#8004) put the live landing zone in an insert-only Postgres
+ * `transcript_lines` table, reversing ADR-025's mechanism. This module is
+ * unchanged by that: what changed is what the bucket is FOR. It defines the
+ * domain-owned interface (ADR-018 principle: interface + real impl + fake,
+ * DI-injected) plus the content-addressed key layout shared by both
+ * implementations.
+ *
+ * Wiring status is deliberately not asserted here — it will drift, and a stale
+ * claim in a docblock is the exact defect mt#4522 cleaned up. Check it instead:
+ * `grep -rn 'putRaw' --include='*.ts' packages/ scripts/ src/` — as of
+ * 2026-08-24 that returned only this module, its tests, and
+ * scripts/transcript-archive/smoke.ts.
  *
  * Key layout (decision recorded on mt#2680):
  *
@@ -14,12 +24,19 @@
  * - Content-addressed: the object name is the SHA-256 of the object bytes,
  *   so keys are deterministic, uploads are structurally idempotent, and a
  *   downloaded object is integrity-checkable against its own key.
- * - Objects are IMMUTABLE. A growing session produces a new snapshot object
- *   per capture; nothing is ever overwritten.
+ * - Objects are IMMUTABLE; nothing is ever overwritten. Unchanged by ADR-045,
+ *   and the reason the bucket suits a cold tier.
+ * - RETIRED by ADR-045: "a growing session produces a new snapshot object per
+ *   capture". That was incremental capture, and combined with immutability it
+ *   meant retaining every prefix of every session — the contradiction that
+ *   forced ADR-025's supersession. Seal-at-close writes one object per session.
  * - "Newest complete version" = largest byte count (transcripts are
- *   append-only), created_at as tiebreak. See listVersions().
+ *   append-only), created_at as tiebreak. See listVersions(). Only reachable
+ *   when a session has multiple objects, which seal-at-close prevents; kept
+ *   because the backfill (mt#2682) may encounter multi-object sessions.
  *
- * @see docs/architecture/adr-025-transcript-storage-object-store-system-of-record.md
+ * @see docs/architecture/adr-045-transcript-lines-live-landing-zone-object-storage-cold-tier.md
+ * @see docs/architecture/adr-025-transcript-storage-object-store-system-of-record.md (superseded)
  * @see docs/architecture/transcript-archive.md
  */
 
