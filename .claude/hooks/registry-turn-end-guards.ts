@@ -281,9 +281,22 @@ export const TURN_END_GUARDS: readonly GuardRegistration[] = [
     // TRUE, unlike the phrase-keyed sibling: the whole signal is the turn's
     // tool calls, which live only in the transcript.
     needsTranscript: true,
-    // Measured, not estimated: 470 chars for the one-task canary below; the
-    // MAX_LISTED_IDS cap bounds the multi-task case at ~600. See that
-    // constant's docblock for why the cap exists.
+    // Measured, not estimated — and re-measured at mt#3784's restructure, which
+    // is when the old number here turned out to have drifted: it read "470 chars
+    // for the one-task canary" against an actual 519, because the canary below
+    // poses ONE task and no primary thread, so it never renders the id-list cap
+    // or the longer branch. That is the under-posing `guard-feedback-authoring`
+    // §"When you add a branch" warns about, and it is why `worstCaseCanary`
+    // below now exists: without it this ceiling was enforced against the SHORT
+    // pose and bounded nothing.
+    //
+    // Current renders, saturated on every axis at once:
+    //   - open branch (no primary thread detected), 4+ ids: 604  ← the worst case
+    //   - primary-thread branch, 4+ ids:                   466
+    //   - one-task open branch (the ordinary canary):      563
+    // The restructure ADDED a branch and still came in under the existing 620,
+    // so the ceiling is unchanged. The 76% branch got shorter (466 vs the old
+    // text's 560), so expected per-fire cost fell to ~499.
     attentionCost: { denialMessageSizeChars: 620, optionCount: 2 },
     canary: {
       input: {
@@ -327,6 +340,62 @@ export const TURN_END_GUARDS: readonly GuardRegistration[] = [
       setup: async () => {
         const store = await import("./turn-end-scan-store");
         store.clearFlagged("mt3536-unwalked-task-canary");
+      },
+    },
+    // mt#3784 — the SATURATING input, posed on EVERY axis at once rather than
+    // the one that changed. Two axes now exist and they interact: FOUR mints so
+    // the id list hits `MAX_LISTED_IDS` AND renders the "…and N more" line, and
+    // NO primary-thread call anywhere in the transcript, which selects the
+    // LONGER of the two directive branches. Posing only the branch would render
+    // 466 and posing only the id cap would still render the short branch —
+    // either alone measures a bound that does not exist.
+    //
+    // The absence is the load-bearing part of this fixture, so do not "fix" it
+    // by adding a session_start for realism: that flips it to the primary-thread
+    // branch and silently converts the worst-case canary into a second ordinary
+    // one, which is the exact failure `worstCaseCanary` was added to prevent.
+    worstCaseCanary: {
+      input: {
+        session_id: "mt3784-unwalked-task-worst-case",
+        transcript_path: "/nonexistent/mt3784-worst-case.jsonl",
+        last_assistant_message: "Filed four follow-ups from the audit.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "audit the ingest path" } },
+        ...[0, 1, 2, 3].flatMap((i) => [
+          {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: `toolu_mt3784_worst_${i}`,
+                  name: "mcp__minsky__tasks_create",
+                  input: { title: `Audit follow-up ${i}` },
+                },
+              ],
+            },
+          },
+          {
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: `toolu_mt3784_worst_${i}`,
+                  content: JSON.stringify({ success: true, taskId: `mt#99${90 + i}` }),
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3784-unwalked-task-worst-case");
       },
     },
   },

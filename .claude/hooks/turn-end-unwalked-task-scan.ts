@@ -53,6 +53,63 @@
 //   the final message — an ADR-024 ladder question, and a state-keyed guard
 //   that matches nothing is not on that ladder.
 //
+// WHY THE TEXT STOPPED ASSERTING A SINGLE DEFAULT (mt#3784):
+//   Three corrections landed on one enumeration in three weeks, in BOTH
+//   directions, and the third is what retired the shape rather than the entry.
+//
+//   The old closing paragraph welded a TRIGGER to a CONCLUSION: "incident
+//   response — a problem raised or found in this conversation — filing is not
+//   the deliverable". Those are independent. A principal can report a problem
+//   live and scope the response to filing a task about it, which is the most
+//   common way a problem gets reported; the trigger then matches perfectly and
+//   the conclusion is false. Two incidents reached that state by different
+//   routes — one where the principal's instruction was "file a task to
+//   investigate X" (the verb aimed at the AGENT was *file*), one where nobody
+//   instructed anything and the agent found the item itself while working a
+//   different task. Neither had a branch to land in, so both answered (a) and
+//   walked.
+//
+//   WHY NOT A FOURTH ESCAPE. mt#3699 answered the previous gap by appending an
+//   entry, and the next gap surfaced within 24 hours. Replaying every fire from
+//   2026-08-17 onward (210, each against its own transcript) showed why
+//   appending could not work here: the incidental-discovery case is 160 of 210
+//   fires — 76%. An entry in a list of escapes describes an exception, and this
+//   is the majority, so the list itself was the defect. The text now branches on
+//   the variable all three failures actually turn on — the filed task's
+//   relationship to the conversation's PRIMARY THREAD — and asserts a default
+//   only on the branch where one is detected.
+//
+//   WHY "PRINCIPAL ACTIVELY PRESENT" IS NOT THE DISCRIMINATOR. The mirror
+//   incident's own proposed remedy was: if the principal just responded in this
+//   conversation, treat filed tasks as walkable. It is NOT adopted, and the
+//   reason is that it does not discriminate — the principal was actively present
+//   in BOTH incidents, and in one of them stopping was correct. Adopting it
+//   verbatim trades this failure for its mirror. What separates those two is
+//   what the principal's instruction took as its OBJECT (an answered ask
+//   authorizes the WORK and names filing as its record-keeping step; "file a
+//   task to…" makes the filing the whole deliverable), and BOTH now appear —
+//   the answered ask under WALK, request-scope under STOP — so making the text
+//   safer in one direction does not make the mirror easier.
+//
+//   WHY THE CLOSING-QUESTION CASE IS PROSE, NOT DETECTION. A turn that ENDS by
+//   asking the principal how to route the task has not stopped silently; it has
+//   handed them a decision, and 150 of those same 210 fires (71%) named a minted
+//   id in the last 600 chars of the closing message, so this is the common shape
+//   rather than an edge case. Detecting it means parsing the final message for
+//   meaning, which is an ADR-024 ladder question, and that ladder stops at Rung 1
+//   (a deterministic prefilter) unless recall misses are MEASURED — "did this
+//   sentence pose a routing question" is not reliably decidable by one. So the
+//   advisory NAMES the case instead ("if you asked the principal how to route it,
+//   wait"), which is the fallback the task specified. Note the restructure
+//   already removes the walk-default from BOTH branches, so the requirement holds
+//   even where no primary thread is detected.
+//
+//   COST. Worst case measured saturated on every axis (the longer branch, the id
+//   list at its cap, plus the "…and N more" line): 604 chars against the declared
+//   620. The primary-thread branch — the 76% case — renders 466, DOWN from the
+//   old text's 560, so the expected per-fire cost falls to ~499. The ceiling was
+//   not raised; the restructure paid for itself.
+//
 // @see .minsky/hooks/turn-end-untaken-action-scan.ts — phrase-keyed sibling
 // @see .minsky/hooks/turn-end-retro-scan.ts — the other Stop guard; same shape
 // @see mt#3536 — this guard; mem#610 — the family record (R1-R4)
@@ -308,6 +365,99 @@ export function detectUnwalkedTasks(
 }
 
 /**
+ * Calls that name the task a conversation is ACTIVELY WORKING, paired with the
+ * param keys each spells it under and the status a transition must carry.
+ *
+ * Not a second copy of {@link WALK_FORWARD_TOOLS} with drift potential — the
+ * two answer different questions and deliberately differ. `tasks_dispatch` and
+ * `asks_create` are absent: handing a task to someone else, or routing a
+ * decision about it, is not evidence that THIS conversation is working it. And
+ * `tasks_status_set` counts only at IN-PROGRESS here, while it counts at any
+ * status as a walk — a transition into PLANNING is somebody starting to plan
+ * the task, not a thread being worked.
+ */
+const PRIMARY_THREAD_TOOLS: readonly {
+  tool: string;
+  keys: readonly string[];
+  status?: string;
+}[] = [
+  { tool: "mcp__minsky__session_start", keys: ["task", "taskId"] },
+  { tool: "mcp__minsky__tasks_status_set", keys: ["taskId"], status: "IN-PROGRESS" },
+  { tool: "mcp__minsky__session_pr_create", keys: ["task", "taskId"] },
+];
+
+/**
+ * Task ids that a DIFFERENT task is this conversation's active thread.
+ *
+ * **Scanned over the WHOLE conversation, not the final turn — that distinction
+ * is the entire mechanism (mt#3784).** Every other read in this guard is
+ * turn-scoped, because minting and walking are things a single turn does. This
+ * one is not: a conversation's primary thread is established when its session
+ * opens and stays true for hours of turns afterward, so the evidence for it is
+ * almost never in the turn that happens to file a side-task.
+ *
+ * Measured over the 210 fires from 2026-08-17 onward, replayed against each
+ * fire's own transcript: the final-turn window finds this signal in 71 (34%),
+ * the whole-conversation window in 160 (76%). The two fires from the incident
+ * that motivated this branch are in the second set and NOT the first — the
+ * turn that filed the side-task carried no trace of the mt#4492/mt#4502 work
+ * that had occupied the conversation for hours. A final-turn implementation
+ * would pass its own tests and miss the case it was written for.
+ *
+ * The wider window is free: `ctx.transcriptLines` is the whole parent
+ * transcript already (`dispatcher.ts` resolves it uncapped, and `run()`
+ * voluntarily slices it down for the turn-scoped reads). Re-measured after the
+ * PR #3292 R1 loop restructure, on the three largest transcripts in the corpus:
+ * 0.70 ms at 1683 lines (17.3 MB), 0.52 ms at 1433, 0.49 ms at 2004 — against a
+ * `timeoutMs` of 5000. What bounds this is the LINE count, not the byte size,
+ * and transcripts run to thousands of lines rather than millions. No extra I/O;
+ * the lines are already parsed by the time the guard is called.
+ *
+ * Ids the turn itself minted are excluded: a task filed and immediately
+ * session-started is this turn WALKING it, which is the one case that never
+ * reaches the reminder anyway.
+ */
+export function detectPrimaryThreadIds(
+  conversationLines: Parameters<typeof findToolUseInputs>[0],
+  mintedIds: readonly string[]
+): string[] {
+  // Iterate LINES on the outside and tools on the inside, so the result is in
+  // transcript order (PR #3292 R1). Tools-on-the-outside — the obvious shape,
+  // since `findToolUseInputs` takes one tool name — groups every `session_start`
+  // ahead of every status transition regardless of when each happened, which
+  // makes the tail "the last id of the last tool in the list" rather than the
+  // most recent id in the conversation. `buildReminder` reads that tail as the
+  // thread to name, so the wrong grouping surfaces the wrong task: a
+  // conversation that starts mt#A, moves to mt#B via IN-PROGRESS, then starts
+  // mt#C would have named mt#B.
+  //
+  // `findToolUseInputs([line], tool)` rather than a hand-rolled block walk: it
+  // handles BOTH transcript shapes (a top-level `tool_use` line and an assistant
+  // line whose `message.content` carries `tool_use` blocks), and re-implementing
+  // that here would be a second copy to drift.
+  const lastSeen = new Set<string>();
+  for (const line of conversationLines) {
+    for (const { tool, keys, status } of PRIMARY_THREAD_TOOLS) {
+      for (const input of findToolUseInputs([line], tool)) {
+        if (status !== undefined && input["status"] !== status) continue;
+        for (const key of keys) {
+          const value = input[key];
+          if (typeof value !== "string" || value.length === 0) continue;
+          if (mintedIds.includes(value)) continue;
+          // Re-insert on every mention. A Set preserves FIRST-insertion order,
+          // so without the delete a task named early and again late would stay
+          // at the head — and the tail, which is what gets named, would be some
+          // task the conversation had already moved on from.
+          lastSeen.delete(value);
+          lastSeen.add(value);
+        }
+      }
+    }
+  }
+  return [...lastSeen];
+}
+
+/**
  * Most ids to name in the reminder before collapsing the rest to a count.
  *
  * The point is that `attentionCost.denialMessageSizeChars` below is a REAL
@@ -325,10 +475,75 @@ export function detectUnwalkedTasks(
  */
 export const MAX_LISTED_IDS = 3;
 
-function buildReminder(unwalked: UnwalkedTask[]): string {
+/**
+ * The branch shown when a DIFFERENT task is this conversation's active thread.
+ *
+ * Asserts a default the other branch does not, and asserts the OPPOSITE of what
+ * this guard's text asserted for its whole life before mt#3784. That inversion
+ * is the point rather than a side effect: the case is 76% of fires, so naming
+ * it as one more escape in a list would have left the dominant case reading as
+ * an exception.
+ *
+ * The walk test is a SHIPPING-COST question, not a diff-size one. In a repo
+ * with a reviewer bot and a merge gate, session + review round + CI + merge is
+ * the floor cost of any PR, and eight changed lines do not reduce it — so
+ * "small fix, may as well do it now" is the reasoning this text exists to
+ * interrupt. The prose/doc corollary is stated outright because it settles the
+ * originating case on its own: a documentation fix cannot recur for THIS agent
+ * in THIS session, since the agent already holds the lesson its own context; the
+ * doc is for the next agent, who is exactly the reader a filed task serves.
+ */
+function primaryThreadDirective(primaryThreadId: string): string {
+  return (
+    `Default: keep working ${primaryThreadId} and surface this at the close for routing. ` +
+    "Walk it now only if you can name which holds — it blocks the current deliverable's " +
+    "correctness, or the same failure recurs in this session's remaining work before a " +
+    "farmed-out fix lands. A prose/doc fix meets neither: you already hold the lesson."
+  );
+}
+
+/**
+ * The branch shown when no other task is detectably this conversation's thread.
+ *
+ * Keeps a two-way choice, but the trigger is no longer welded to a conclusion.
+ * The retired text ran "incident response — a problem raised or found in this
+ * conversation — filing is not the deliverable", which infers what the agent
+ * was asked to DO from where the problem was RAISED. Those are independent: a
+ * principal can report a problem live and scope the response to filing a task
+ * about it, which is the single most common way a problem gets reported. The
+ * closing sentence now denies that inference explicitly rather than leaving it
+ * unstated, because the inference is what an agent supplies on its own.
+ *
+ * Both directions of the enumeration's history are represented. The STOP branch
+ * leads with request-scope — read the verb aimed at YOU, not the verb inside the
+ * artifact you were asked to create — and the WALK branch names an answered ask,
+ * so the mirror failure (stopping on approved work while the principal waits)
+ * does not get easier as this text gets safer.
+ */
+function openDirective(): string {
+  return (
+    "Say which holds, then act. WALK: it blocks the current deliverable's correctness, it " +
+    "recurs in this session's remaining work, or an ask answered here authorized the work. " +
+    'STOP: you were asked to file it ("file a task to…", "track this"), the principal ' +
+    'deferred it or claimed its dispatch/routing ("tell me what to farm out"), it needs ' +
+    "decomposition, or another actor holds it. Where it was raised settles neither; if you " +
+    "asked how to route it, wait."
+  );
+}
+
+function buildReminder(unwalked: UnwalkedTask[], primaryThreadIds: readonly string[]): string {
+  // The MOST RECENT id, not the first: a long conversation accumulates several,
+  // and the one the agent is holding right now is the one worth naming.
+  // `detectPrimaryThreadIds` guarantees the tail is the latest MENTION — it
+  // walks lines in transcript order and re-inserts on every mention. Do not
+  // weaken either property there without changing this read (PR #3292 R1).
+  const primary = primaryThreadIds.at(-1);
   const lines: string[] = [
-    `[turn-end-unwalked-task] You filed ${unwalked.length === 1 ? "this" : "these"} and ` +
-      "ended the turn with no status/session/dispatch/ask call:",
+    primary !== undefined
+      ? `[turn-end-unwalked-task] You filed ${unwalked.length === 1 ? "this" : "these"} ` +
+        `while ${primary} is this conversation's active thread:`
+      : `[turn-end-unwalked-task] You filed ${unwalked.length === 1 ? "this" : "these"} and ` +
+        "ended the turn with no status/session/dispatch/ask call:",
     "",
   ];
   for (const u of unwalked.slice(0, MAX_LISTED_IDS)) {
@@ -337,14 +552,7 @@ function buildReminder(unwalked: UnwalkedTask[]): string {
   if (unwalked.length > MAX_LISTED_IDS) {
     lines.push(`  - …and ${unwalked.length - MAX_LISTED_IDS} more`);
   }
-  lines.push(
-    "",
-    "Say in one line which holds, then act on it: (a) incident response — a problem raised " +
-      "or found in this conversation — filing is not the deliverable, so continue to " +
-      "/plan-task now; (b) it was filed for later by design, the principal deferred it or " +
-      'has claimed its dispatch/routing ("tell me what to farm out", "I\'ll dispatch ' +
-      'these"), it needs decomposition, or another actor holds it — name which and end.'
-  );
+  lines.push("", primary !== undefined ? primaryThreadDirective(primary) : openDirective());
   return lines.join("\n");
 }
 
@@ -376,7 +584,13 @@ export function run(
   // user-role `tool_result` lines this guard depends on fall INSIDE the span
   // rather than splitting it (the mt#2255 hazard `findToolUseInputs`'s own
   // docblock warns about applies to naive user-role slicing, not to this).
-  const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
+  // TWO windows, deliberately. `turnLines` answers "what did THIS turn do" —
+  // minting and walking are turn-scoped events. `conversationLines` answers
+  // "what has this conversation been working" — a primary thread is established
+  // once and persists across turns, so slicing to the final turn is what made
+  // the old detection miss it. See `detectPrimaryThreadIds`.
+  const conversationLines = ctx.transcriptLines ?? [];
+  const { turnLines } = extractFinalTurn(conversationLines);
   if (turnLines.length === 0) return null;
 
   const unwalked = detectUnwalkedTasks(turnLines);
@@ -392,6 +606,11 @@ export function run(
   }
   writeFlagged(sessionId, flagged, storeDir);
 
+  const primaryThreadIds = detectPrimaryThreadIds(
+    conversationLines,
+    fresh.map((u) => u.taskId)
+  );
+
   return {
     calibration: {
       source: "live",
@@ -400,11 +619,15 @@ export function run(
       session_id: input.session_id,
       stop_hook_active: input.stop_hook_active === true,
       unwalkedTaskIds: fresh.map((u) => u.taskId),
+      // Recorded so a later calibration pass can measure which branch each fire
+      // rendered without re-deriving it from transcripts, which is what this
+      // task's own planning pass had to do (210 fires replayed by hand).
+      primaryThreadIds,
       // Recorded so a reviewer classifying a false positive can see whether the
       // turn said anything about its own stop, without this guard keying on it.
       final_message_tail: (input.last_assistant_message ?? "").slice(-600),
       suppressionReasons: [],
     },
-    additionalContext: buildReminder(fresh),
+    additionalContext: buildReminder(fresh, primaryThreadIds),
   };
 }

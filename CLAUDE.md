@@ -800,10 +800,24 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Auto-walked transitions** (chain forward unless an explicit halt condition holds):
 
-- `/create-task` → `/plan-task` when the task was filed as **incident response** — a problem the
-  user reported in the live conversation, or one discovered during this conversation's work
-  (mt#2689). Filing the task is not the deliverable; the fix is. Background/tracking tasks filed
-  for later by design are exempt — say so explicitly when stopping there.
+- `/create-task` → `/plan-task` when the task was filed as **incident response** AND the response
+  was not scoped to filing (mt#2689, narrowed mt#3784). **Where the problem was raised does not
+  settle the second half** — this line read "a problem the user reported in the live conversation,
+  or one discovered during this conversation's work … filing is not the deliverable" and welded a
+  trigger to a conclusion. Read the verb aimed at YOU, not the verb inside the artifact: "file a
+  task to investigate X" makes investigation the task's CONTENT and filing your whole deliverable.
+  Three exemptions — name which when you stop:
+  - **Filed for later by design** — a background/tracking task.
+  - **Request-scope** — the instruction was to file it ("file a task to…", "make a task for…",
+    "track this"). No deferral language is needed for this to hold.
+  - **Incidental discovery** — a DIFFERENT task is this conversation's active thread and you found
+    this while working it. Default here is *keep working the primary thread and surface the filed
+    items at the close for routing* (`communication-contract.mdc §The terminal actionables block`),
+    NOT walk and not a bare stop. Walk only if it blocks the current deliverable's correctness or
+    would recur in this session's remaining work — a prose/doc fix meets neither.
+
+  Conversely, an ask answered in this conversation that authorized the work is evidence to WALK:
+  its "file tasks for X" phrasing names the record-keeping step, not a scope ceiling.
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)
