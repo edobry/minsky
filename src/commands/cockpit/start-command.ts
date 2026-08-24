@@ -39,6 +39,10 @@ import {
   getSharedProvider,
   PersistenceInitTimeoutError,
 } from "../../cockpit/shared-persistence";
+import {
+  isDbConditionSqlStateClass,
+  sqlStateClass,
+} from "@minsky/domain/persistence/connection-failure";
 import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
 import { registerEmbeddingsHealthEventEmitter } from "@minsky/domain/ai/embeddings-health-wiring";
 import { log } from "@minsky/shared/logger";
@@ -169,27 +173,21 @@ const CLIENT_SIDE_DEGRADATION_CODES = new Set([
   "CONNECTION_DESTROYED",
 ]);
 
-/**
- * SQLSTATE classes describing a condition AT THE DATABASE rather than a defect
- * in this process. Class names are PostgreSQL's own (Appendix A, Error Codes —
- * https://www.postgresql.org/docs/current/errcodes-appendix.html):
- *
- *   08 — Connection Exception
- *   40 — Transaction Rollback
- *   53 — Insufficient Resources
- *   57 — Operator Intervention
- *
- * Deliberately NOT called "transient" (mt#4100 planning): `57P04`
- * database_dropped, `53100` disk_full and `08P01` protocol_violation are
- * members that will not pass on their own. They belong here anyway, because
- * the question this classifier answers is **"is this a defect in THIS
- * process?"** — and killing a daemon that is serving live clients does not
- * undrop a database. It drops every in-flight page load, SSE stream and
- * driven-session websocket, and respawns straight back into the same
- * condition; ADR-014 raised `ThrottleInterval` to 60 s to survive exactly that
- * loop.
- */
-const DB_CONDITION_SQLSTATE_CLASSES = new Set(["08", "40", "53", "57"]);
+// `DB_CONDITION_SQLSTATE_CLASSES` and `sqlStateClass` now live in
+// `@minsky/domain/persistence/connection-failure` (imported above). mt#4519 found a
+// SECOND consumer of the same taxonomy — the transcript-ingest quarantine counter,
+// which had this exact code-space gap for this exact reason — so the definition
+// moved to one place rather than being copied a third time. The full class list,
+// PostgreSQL Appendix A citation, and the "NOT transient" reasoning travelled with
+// it; read the docblock there.
+//
+// What did NOT move is the reading of it below: for THIS handler the question is
+// "is this a defect in THIS PROCESS?", and killing a daemon serving live clients
+// does not undrop a database — it drops every in-flight page load, SSE stream and
+// driven-session websocket, and respawns into the same condition (ADR-014 raised
+// `ThrottleInterval` to 60 s to survive that loop). The ingest consumer asks a
+// different question of the same set: "is this a fact about the database rather
+// than about this session?" One taxonomy, two readings.
 
 /**
  * The subset of the above that failed ONE STATEMENT on a connection that is
@@ -208,11 +206,6 @@ const DB_CONDITION_SQLSTATE_CLASSES = new Set(["08", "40", "53", "57"]);
  */
 const STATEMENT_LEVEL_SQLSTATES = new Set(["57014", "57P05"]);
 const STATEMENT_LEVEL_SQLSTATE_CLASSES = new Set(["40"]);
-
-/** SQLSTATEs are exactly five characters; the first two are the class. */
-function sqlStateClass(code: string): string | undefined {
-  return code.length === 5 ? code.slice(0, 2) : undefined;
-}
 
 /**
  * What the `unhandledRejection` handler should do with `reason`.
@@ -262,7 +255,7 @@ export function classifyUnhandledRejection(reason: unknown): UnhandledRejectionD
   if (CLIENT_SIDE_DEGRADATION_CODES.has(code)) return "degrade";
 
   const stateClass = sqlStateClass(code);
-  if (stateClass === undefined || !DB_CONDITION_SQLSTATE_CLASSES.has(stateClass)) return "exit";
+  if (stateClass === undefined || !isDbConditionSqlStateClass(stateClass)) return "exit";
 
   return STATEMENT_LEVEL_SQLSTATES.has(code) || STATEMENT_LEVEL_SQLSTATE_CLASSES.has(stateClass)
     ? "survive"

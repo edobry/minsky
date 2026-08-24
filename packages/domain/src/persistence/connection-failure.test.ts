@@ -14,6 +14,7 @@ import { describe, expect, it } from "bun:test";
 import { connect } from "node:net";
 import {
   classifyConnectionFailure,
+  databaseConditionSqlStateClass,
   nextRecycleIntervalMs,
   ESCALATE_AFTER_CONSECUTIVE_RECYCLES,
   MAX_RECYCLE_INTERVAL_MS,
@@ -246,5 +247,80 @@ describe("nextRecycleIntervalMs (mt#3826)", () => {
     expect(recycles).toBeLessThan(50);
     // And the unbounded behaviour it replaces, for contrast.
     expect(Math.floor(windowMs / base)).toBeGreaterThan(500);
+  });
+});
+
+/**
+ * mt#4519 — the SQLSTATE-class predicate, and the boundary that keeps it from
+ * disturbing `classifyConnectionFailure`.
+ *
+ * `databaseConditionSqlStateClass` answers a DIFFERENT question from the
+ * classifier above it ("is this a fact about the database?" vs "is the
+ * connection unusable?"), which is why it is a separate export. The last
+ * describe block is the one that matters most: two live consumers depend on
+ * `classifyConnectionFailure` returning `"unknown"` for these codes, so a
+ * regression there is silent and expensive.
+ */
+describe("databaseConditionSqlStateClass (mt#4519)", () => {
+  const withCode = (code: string) => Object.assign(new Error(`error carrying ${code}`), { code });
+
+  it("recognizes every DB-condition class PostgreSQL Appendix A defines", () => {
+    // One member per class, named for what Postgres calls it.
+    expect(databaseConditionSqlStateClass(withCode("08006"))).toBe("08"); // connection_failure
+    expect(databaseConditionSqlStateClass(withCode("40001"))).toBe("40"); // serialization_failure
+    expect(databaseConditionSqlStateClass(withCode("53300"))).toBe("53"); // too_many_connections
+    expect(databaseConditionSqlStateClass(withCode("57014"))).toBe("57"); // query_canceled
+  });
+
+  it("covers a code the implementation never enumerates, because the rule is class-level", () => {
+    // The mt#4100 SC3 requirement, restated for this consumer: a literal list
+    // would need another incident to grow. `53400` and `08P01` appear nowhere
+    // in the source.
+    expect(databaseConditionSqlStateClass(withCode("53400"))).toBe("53");
+    expect(databaseConditionSqlStateClass(withCode("08P01"))).toBe("08");
+    expect(databaseConditionSqlStateClass(withCode("57P04"))).toBe("57");
+  });
+
+  it("rejects class 42 — a malformed query is OUR bug, not a database condition", () => {
+    // The boundary that stops this becoming "swallow everything". mt#4100 drew
+    // the same line for the daemon's exit path.
+    expect(databaseConditionSqlStateClass(withCode("42601"))).toBeNull();
+    expect(databaseConditionSqlStateClass(withCode("28P01"))).toBeNull(); // auth
+    expect(databaseConditionSqlStateClass(withCode("22021"))).toBeNull(); // encoding — mt#3278's class
+  });
+
+  it("rejects client-side driver codes, which are the OTHER code space", () => {
+    // These are postgres-js's own codes. They are handled by
+    // `classifyConnectionFailure`; conflating the two spaces is what mt#4100 was.
+    expect(databaseConditionSqlStateClass(withCode("CONNECTION_CLOSED"))).toBeNull();
+    expect(databaseConditionSqlStateClass(withCode("ECIRCUITBREAKER"))).toBeNull();
+  });
+
+  it("returns null for a code-less error, null, and a non-object", () => {
+    expect(databaseConditionSqlStateClass(new Error("no code"))).toBeNull();
+    expect(databaseConditionSqlStateClass(null)).toBeNull();
+    expect(databaseConditionSqlStateClass("57014")).toBeNull();
+  });
+
+  it("follows the cause chain, so a wrapped driver error still classifies", () => {
+    const wrapped = new Error("ingest failed", { cause: withCode("57014") });
+    expect(databaseConditionSqlStateClass(wrapped)).toBe("57");
+  });
+});
+
+describe("classifyConnectionFailure is UNCHANGED by mt#4519", () => {
+  // The regression this task's planning audit identified and deliberately
+  // avoided. `shared-persistence.ts`'s `noteFailure` will not let an `unknown`
+  // clobber a stronger classification — that guard is what preserves a real
+  // `CONNECT_TIMEOUT` verdict on `/api/health` during a degraded run (mt#3826).
+  // `ESCALATING_KINDS` is keyed on the same `kind`. Teaching the classifier to
+  // return a connection-ish kind for a SQLSTATE would silently change both, so
+  // this pins that it does not.
+  it("still returns 'unknown' for every server-side SQLSTATE", () => {
+    for (const code of ["57014", "57P01", "53300", "53400", "08006", "40001", "42601"]) {
+      expect(classifyConnectionFailure(Object.assign(new Error("x"), { code })).kind).toBe(
+        "unknown"
+      );
+    }
   });
 });

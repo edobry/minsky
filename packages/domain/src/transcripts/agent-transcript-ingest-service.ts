@@ -54,6 +54,7 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
 import {
   classifyConnectionFailure,
+  databaseConditionSqlStateClass,
   type ConnectionFailureKind,
 } from "../persistence/connection-failure";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
@@ -1132,6 +1133,37 @@ export class AgentTranscriptIngestService {
       log.debug(
         `Not counting ${infraKind} failure toward quarantine for session ${agentSessionId}`,
         { agentSessionId, infraKind }
+      );
+      return;
+    }
+
+    // mt#4519: the check above only sees postgres-js CLIENT-SIDE codes. A
+    // SERVER-side SQLSTATE matches none of them, so `classifyConnectionFailure`
+    // returns "unknown" — and mapping "unknown" to "the session's content is
+    // bad" is precisely what that module's docblock forbids ("no information,
+    // never a synonym for transient").
+    //
+    // Measured (mt#4500): three conversations were quarantined on
+    // `57014 query_canceled` — a statement timeout during a degraded-database
+    // window — and all three ingested cleanly on release with no code change.
+    // The counter had recorded a fact about the DATABASE as a verdict about
+    // them. `08006 connection_failure` reaches here identically, so this is not
+    // specific to timeouts.
+    //
+    // Class-level, not a literal list (mt#4100 SC3): a sibling code is covered
+    // without another incident.
+    //
+    // Deliberately NOT folded into `isInfrastructureFailure`, whose OTHER
+    // caller is `ingestAll`'s consecutive-infra abort. That threshold is sound
+    // only because a single session cannot cause a connection failure — but a
+    // single oversized transcript CAN cause a statement timeout, so counting
+    // these there would let one bad session abandon a whole pass. Two
+    // questions, two predicates.
+    const dbConditionClass = databaseConditionSqlStateClass(cause);
+    if (dbConditionClass !== null) {
+      log.debug(
+        `Not counting SQLSTATE class ${dbConditionClass} database-condition failure toward quarantine for session ${agentSessionId}`,
+        { agentSessionId, sqlStateClass: dbConditionClass }
       );
       return;
     }
