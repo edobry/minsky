@@ -10,6 +10,8 @@
  */
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { PendingButton } from "../components/PendingButton";
+import { ErrorState } from "../components/ErrorState";
 import { Prose } from "../components/Prose";
 import { CopyId } from "../components/CopyId";
 import { EntityRef } from "../components/EntityRef";
@@ -414,13 +416,66 @@ interface AskDetailBaseProps {
   onClose?: () => void;
 }
 
+/**
+ * Which control the operator clicked, for as long as its request is in flight
+ * (mt#4503).
+ *
+ * This replaced a bare `resolving: boolean`, and the reason is the whole point
+ * of the change: a boolean can say THAT something is saving but never WHICH
+ * answer, so every option button rendered identically and the only signal was
+ * `disabled`. An ask routinely offers three or four options whose labels the
+ * operator is choosing between — "did my click land on the one I meant?" is
+ * precisely the question the old shape could not answer.
+ */
+export type AskActionInFlight =
+  | { kind: "resolve"; optionLetter: string }
+  | { kind: "defer" }
+  | { kind: "escalate" };
+
+/** True when `acting` is this specific option's resolve. */
+export function isResolvingOption(
+  acting: AskActionInFlight | null | undefined,
+  optionLetter: string
+): boolean {
+  return acting?.kind === "resolve" && acting.optionLetter === optionLetter;
+}
+
+/**
+ * Plain words for the `role="status"` line rendered beside an acting control.
+ *
+ * The spinner carries WHICH; this carries WHAT, and it is what a screen reader
+ * actually announces — `PendingButton`'s spinner is `aria-hidden` precisely so
+ * this is the single announcement rather than one of three.
+ */
+export function describeActionInFlight(acting: AskActionInFlight): string {
+  switch (acting.kind) {
+    case "resolve":
+      return "Saving your response…";
+    case "defer":
+      return "Deferring…";
+    case "escalate":
+      return "Escalating…";
+  }
+}
+
 /** Actionable presentation — the ask is still open and the operator can settle it. */
 interface AskDetailActionableProps extends AskDetailBaseProps {
   readOnly?: false;
   onResolve: (ask: AskItem, optionLetter: string) => void;
   onDefer: (ask: AskItem) => void;
   onEscalate: (ask: AskItem) => void;
-  resolving: boolean;
+  /** The control whose request is in flight, or null when idle. */
+  acting: AskActionInFlight | null;
+  /**
+   * The last action's failure, when it failed.
+   *
+   * Optional so a caller that genuinely cannot fail need not pass it, but every
+   * caller wired to `/api/asks/:id/resolve` can: that endpoint answers 403 on a
+   * non-operator-routed ask, 404, 409 on a concurrent transition, 500, and 503
+   * when persistence is down. Before mt#4503 all five landed in a rejected
+   * mutation nobody read, and the operator saw the success rendering.
+   */
+  actionError?: unknown;
 }
 
 /**
@@ -443,6 +498,47 @@ interface AskDetailReadOnlyProps extends AskDetailBaseProps {
 }
 
 export type AskDetailProps = AskDetailActionableProps | AskDetailReadOnlyProps;
+
+/**
+ * The words beneath an action row: what is happening, or what went wrong
+ * (mt#4503).
+ *
+ * Renders nothing at rest, so an idle ask looks exactly as it did before. The
+ * two states are mutually exclusive by construction rather than by convention —
+ * a surface clears its error when it starts a new action, so `acting` winning
+ * the branch cannot leave a stale failure on screen underneath a live spinner.
+ */
+function AskActionStatus({
+  acting,
+  error,
+}: {
+  acting: AskActionInFlight | null;
+  error?: unknown;
+}) {
+  if (acting !== null) {
+    return (
+      <p
+        role="status"
+        className="pt-1.5 text-xs text-muted-foreground"
+        data-testid="ask-action-status"
+      >
+        {describeActionInFlight(acting)}
+      </p>
+    );
+  }
+  if (error != null) {
+    // Wrapped rather than given a testid directly: `ErrorState` takes a fixed
+    // prop set and does not spread the rest, so a `data-testid` on it would not
+    // compile. The wrapper is also what keeps the shared primitive's own markup
+    // (its `role="alert"`, its `text-destructive` token) untouched.
+    return (
+      <div data-testid="ask-action-error">
+        <ErrorState prefix="Your response was not saved" error={error} className="pt-1.5 text-xs" />
+      </div>
+    );
+  }
+  return null;
+}
 
 export function AskDetail(props: AskDetailProps) {
   const { ask, onClose } = props;
@@ -661,7 +757,8 @@ export function AskDetail(props: AskDetailProps) {
             {credentialRequest && actions && (
               <CredentialRequestForm
                 providerId={credentialRequest.provider}
-                declining={actions.resolving}
+                declining={isResolvingOption(actions.acting, "B")}
+                blocked={actions.acting !== null}
                 onDecline={() => actions.onResolve(ask, "B")}
               />
             )}
@@ -672,70 +769,81 @@ export function AskDetail(props: AskDetailProps) {
             )}
 
             {actions && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                {Array.from({ length: optionCount }, (_, i) => {
-                  const letter = letters[i] ?? "?";
-                  const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
-                  const optLabel = stripOptionLetterPrefix(rawLabel);
-                  return (
-                    <Button
-                      key={letter}
-                      variant="outline"
-                      size="sm"
-                      disabled={actions.resolving}
-                      onClick={() => actions.onResolve(ask, letter)}
-                    >
-                      {letter}) {optLabel}
-                    </Button>
-                  );
-                })}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={actions.resolving}
-                  onClick={() => actions.onDefer(ask)}
-                  className="text-muted-foreground"
-                >
-                  Defer
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={actions.resolving}
-                  onClick={() => actions.onEscalate(ask)}
-                  className="text-muted-foreground"
-                >
-                  Escalate
-                </Button>
-              </div>
+              <>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {Array.from({ length: optionCount }, (_, i) => {
+                    const letter = letters[i] ?? "?";
+                    const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                    const optLabel = stripOptionLetterPrefix(rawLabel);
+                    return (
+                      <PendingButton
+                        key={letter}
+                        variant="outline"
+                        size="sm"
+                        pending={isResolvingOption(actions.acting, letter)}
+                        disabled={actions.acting !== null}
+                        onClick={() => actions.onResolve(ask, letter)}
+                      >
+                        {letter}) {optLabel}
+                      </PendingButton>
+                    );
+                  })}
+                  <PendingButton
+                    variant="outline"
+                    size="sm"
+                    pending={actions.acting?.kind === "defer"}
+                    disabled={actions.acting !== null}
+                    onClick={() => actions.onDefer(ask)}
+                    className="text-muted-foreground"
+                  >
+                    Defer
+                  </PendingButton>
+                  <PendingButton
+                    variant="outline"
+                    size="sm"
+                    pending={actions.acting?.kind === "escalate"}
+                    disabled={actions.acting !== null}
+                    onClick={() => actions.onEscalate(ask)}
+                    className="text-muted-foreground"
+                  >
+                    Escalate
+                  </PendingButton>
+                </div>
+                <AskActionStatus acting={actions.acting} error={actions.actionError} />
+              </>
             )}
           </div>
         )}
 
         {!hasOptions && actions && (
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={actions.resolving}
-              onClick={() => actions.onDefer(ask)}
-              className="text-muted-foreground"
-            >
-              Defer
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={actions.resolving}
-              onClick={() => actions.onEscalate(ask)}
-              className="text-muted-foreground"
-            >
-              Escalate
-            </Button>
-            <p className="text-xs text-muted-foreground italic self-center">
-              No response options — defer/escalate or resolve via CLI.
-            </p>
-          </div>
+          <>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <PendingButton
+                variant="outline"
+                size="sm"
+                pending={actions.acting?.kind === "defer"}
+                disabled={actions.acting !== null}
+                onClick={() => actions.onDefer(ask)}
+                className="text-muted-foreground"
+              >
+                Defer
+              </PendingButton>
+              <PendingButton
+                variant="outline"
+                size="sm"
+                pending={actions.acting?.kind === "escalate"}
+                disabled={actions.acting !== null}
+                onClick={() => actions.onEscalate(ask)}
+                className="text-muted-foreground"
+              >
+                Escalate
+              </PendingButton>
+              <p className="text-xs text-muted-foreground italic self-center">
+                No response options — defer/escalate or resolve via CLI.
+              </p>
+            </div>
+            <AskActionStatus acting={actions.acting} error={actions.actionError} />
+          </>
         )}
       </CardContent>
     </Card>

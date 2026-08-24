@@ -18,7 +18,7 @@ import { describe, test, expect, afterEach, mock } from "bun:test";
 import { render, cleanup, waitFor, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AskDetail, type AskItem } from "./AskDetail";
+import { AskDetail, type AskItem, type AskActionInFlight } from "./AskDetail";
 
 const originalFetch = global.fetch;
 
@@ -50,7 +50,10 @@ function baseAsk(overrides: Partial<AskItem> = {}): AskItem {
   };
 }
 
-function renderAsk(ask: AskItem) {
+function renderAsk(
+  ask: AskItem,
+  actionState: { acting?: AskActionInFlight | null; actionError?: unknown } = {}
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -60,7 +63,8 @@ function renderAsk(ask: AskItem) {
           onResolve={() => {}}
           onDefer={() => {}}
           onEscalate={() => {}}
-          resolving={false}
+          acting={actionState.acting ?? null}
+          actionError={actionState.actionError}
           onClose={() => {}}
         />
       </MemoryRouter>

@@ -24,6 +24,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
+import { PendingButton } from "../components/PendingButton";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { CredentialValidationResult } from "../components/CredentialValidationResult";
@@ -41,8 +42,20 @@ export interface CredentialRequestFormProps {
   providerId: string;
   /** Rendered beside Save — the ask's own decline affordance, wired by the caller. */
   onDecline?: () => void;
-  /** True while the caller's decline mutation is in flight. */
+  /**
+   * True while THIS form's own Decline is in flight — labels the button and
+   * blocks input (mt#4503).
+   *
+   * Narrowed from "some caller action is in flight": the ask's Defer and
+   * Escalate controls also disable this form, and reporting those as "Declining…"
+   * would name the wrong action. `blocked` carries that case.
+   */
   declining?: boolean;
+  /**
+   * True while a DIFFERENT caller action (Defer / Escalate) is in flight
+   * (mt#4503). Blocks input without claiming the decline is what is happening.
+   */
+  blocked?: boolean;
 }
 
 /**
@@ -57,7 +70,10 @@ export function CredentialRequestForm({
   providerId,
   onDecline,
   declining = false,
+  blocked = false,
 }: CredentialRequestFormProps) {
+  /** Any caller action in flight — either one must stop this form accepting input. */
+  const callerBusy = declining || blocked;
   const [token, setToken] = useState("");
   const [validateResult, setValidateResult] = useState<CredentialCheckResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -128,7 +144,7 @@ export function CredentialRequestForm({
     );
   }
 
-  const canSubmit = token.length > 0 && !addMutation.isPending && !declining;
+  const canSubmit = token.length > 0 && !addMutation.isPending && !callerBusy;
   const inputId = `credential-request-token-${provider.id}`;
 
   function handleSave() {
@@ -164,7 +180,7 @@ export function CredentialRequestForm({
           ].join(" ")}
           placeholder="Paste the value here..."
           aria-label={`Paste the ${provider.displayName} credential`}
-          disabled={addMutation.isPending || declining}
+          disabled={addMutation.isPending || callerBusy}
           value={token}
           onChange={(e) => {
             setToken(e.target.value);
@@ -216,15 +232,16 @@ export function CredentialRequestForm({
           {addMutation.isPending ? "Saving..." : "Save credential"}
         </Button>
         {onDecline && (
-          <Button
+          <PendingButton
             variant="outline"
             size="sm"
-            disabled={addMutation.isPending || declining}
+            pending={declining}
+            disabled={addMutation.isPending || callerBusy}
             onClick={onDecline}
             data-testid="credential-request-decline"
           >
-            Decline
-          </Button>
+            {declining ? "Declining..." : "Decline"}
+          </PendingButton>
         )}
       </div>
     </div>
