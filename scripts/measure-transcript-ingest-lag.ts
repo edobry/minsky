@@ -220,6 +220,22 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx] as number;
 }
 
+const fmtSeconds = (s: number): string =>
+  Number.isNaN(s) ? "n/a" : s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${s.toFixed(1)}s`;
+
+function describe(lags: number[]): Record<string, unknown> {
+  const sorted = [...lags].sort((a, b) => a - b);
+  return {
+    p50: fmtSeconds(percentile(sorted, 50)),
+    p95: fmtSeconds(percentile(sorted, 95)),
+    worst: fmtSeconds(sorted[sorted.length - 1] ?? NaN),
+    p50Seconds: percentile(sorted, 50),
+    p95Seconds: percentile(sorted, 95),
+    worstSeconds: sorted[sorted.length - 1] ?? null,
+    n: sorted.length,
+  };
+}
+
 async function summarize(path: string): Promise<void> {
   const raw = await readFile(path, "utf8");
   const rows: Sample[] = [];
@@ -229,16 +245,39 @@ async function summarize(path: string): Promise<void> {
     rows.push(JSON.parse(t) as Sample);
   }
 
-  const lags = rows
-    .map((r) => r.lagSeconds)
-    .filter((v): v is number => typeof v === "number")
-    .sort((a, b) => a - b);
   const neverIngested = rows.filter((r) => r.neverIngested);
   const sampleTimes = new Set(rows.map((r) => r.sampledAt));
   const conversations = new Set(rows.map((r) => r.conversationId));
 
-  const fmt = (s: number) =>
-    Number.isNaN(s) ? "n/a" : s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${s.toFixed(1)}s`;
+  // ── Two strata, and the second is the one to quote ───────────────────────
+  //
+  // `activeWindow` counts every conversation whose FILE was touched inside
+  // `--active-window`. That set includes conversations touched once and already
+  // fully ingested, which contribute a lag of exactly 0 — so its p50 moves with
+  // how many conversations happened to be touched rather than with how far
+  // behind ingest is. Observed live: the same run's p50 read 376.1s at 10
+  // samples and 0.0s at 18, purely because a burst of already-caught-up
+  // conversations entered the window. A number that swings like that cannot
+  // support a before/after comparison.
+  //
+  // `writing` keeps only observations where the conversation's disk head
+  // ADVANCED since its previous sample — it actually produced content in the
+  // interval, which is the population "ingest latency" is about. Derived at
+  // summarize time from data already recorded, so a run captured before this
+  // distinction existed can still be re-summarized with it.
+  const previousHead = new Map<string, string | null>();
+  const writingLags: number[] = [];
+  const activeLags: number[] = [];
+
+  for (const row of [...rows].sort((a, b) => a.sampledAt.localeCompare(b.sampledAt))) {
+    if (typeof row.lagSeconds === "number") activeLags.push(row.lagSeconds);
+
+    const prior = previousHead.get(row.conversationId);
+    const advanced = prior !== undefined && prior !== row.diskHead;
+    previousHead.set(row.conversationId, row.diskHead);
+
+    if (advanced && typeof row.lagSeconds === "number") writingLags.push(row.lagSeconds);
+  }
 
   console.log(
     JSON.stringify(
@@ -249,15 +288,9 @@ async function summarize(path: string): Promise<void> {
         conversations: conversations.size,
         windowStart: rows[0]?.sampledAt ?? null,
         windowEnd: rows[rows.length - 1]?.sampledAt ?? null,
-        lag: {
-          p50: fmt(percentile(lags, 50)),
-          p95: fmt(percentile(lags, 95)),
-          worst: fmt(lags[lags.length - 1] ?? NaN),
-          p50Seconds: percentile(lags, 50),
-          p95Seconds: percentile(lags, 95),
-          worstSeconds: lags[lags.length - 1] ?? null,
-          n: lags.length,
-        },
+        // Quote this one. See the comment above.
+        writing: describe(writingLags),
+        activeWindow: describe(activeLags),
         neverIngestedObservations: neverIngested.length,
         neverIngestedConversations: [...new Set(neverIngested.map((r) => r.conversationId))],
       },
