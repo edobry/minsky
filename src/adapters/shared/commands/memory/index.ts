@@ -47,6 +47,7 @@ import {
   validateAssociations,
   summarizeAssociationIssues,
   TRACKS_TASK_ASSOCIATION,
+  ASSOCIATION_TYPE_TUPLE,
 } from "@minsky/domain/memory/associations";
 import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
 import { emitSystemEventBestEffort } from "../system-event-emit";
@@ -260,9 +261,12 @@ const memoryCreateParams = {
     required: false as const,
   },
   associations: {
-    schema: z.record(z.string(), z.array(z.string())),
-    description:
-      'Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). See ADR-012 for type-string conventions.',
+    // Key type is the CLOSED ADR-012 vocabulary (mt#4448), so the CLI/MCP parameter help
+    // lists the allowed keys and a bad one fails at the schema rather than at the runtime
+    // validator. The runtime check in `execute` still runs — it also validates id SHAPES,
+    // which a key enum cannot express. PR #3295 R1 (non-blocking).
+    schema: z.record(z.enum(ASSOCIATION_TYPE_TUPLE), z.array(z.string())),
+    description: `Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). Allowed keys: ${ASSOCIATION_TYPE_TUPLE.join(", ")}. See ADR-012.`,
     required: false as const,
   },
   force: {
@@ -330,9 +334,16 @@ const memoryUpdateParams = {
     required: false as const,
   },
   associations: {
+    // DELIBERATELY still `z.string()` keys, unlike create above (PR #3295 R1). This command's
+    // merge semantics make an empty array a key REMOVAL, and the keys most needing removal are
+    // precisely the out-of-vocabulary ones. An enum here would make the 26 divergent records
+    // uncleanable through the supported path — the schema would reject the very key you are
+    // trying to delete. The runtime validator enforces the vocabulary for non-empty writes and
+    // exempts removals; see `validateAssociations(..., "update")`.
     schema: z.record(z.string(), z.array(z.string())),
     description:
-      "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
+      "Merge associations: new keys added, existing keys replaced, keys set to [] removed. " +
+      "Non-empty values must use an ADR-012 type; any key may be set to [] to remove it.",
     required: false as const,
   },
 } satisfies CommandParameterMap;

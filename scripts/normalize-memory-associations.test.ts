@@ -6,8 +6,23 @@
  * reproduce the real record shapes measured on prod 2026-08-24.
  */
 
+/* eslint-disable custom/no-real-fs-in-tests -- the unit under test IS filesystem behaviour:
+   `writeSnapshotExclusive` exists to rely on the OS honouring O_EXCL. A mocked fs would test
+   the mock's `wx` semantics rather than the filesystem's, which is precisely the probe-that-
+   cannot-fail trap (mem#704) this test was written to close. Race-free by construction: each
+   case gets its own `mkdtempSync` directory and removes it. */
+
 import { describe, expect, test } from "bun:test";
-import { CROSSREF_MARKER, buildBodyAddition, planRecord } from "./normalize-memory-associations";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  CROSSREF_MARKER,
+  buildBodyAddition,
+  buildSnapshotPath,
+  planRecord,
+  writeSnapshotExclusive,
+} from "./normalize-memory-associations";
 
 const DROP = "drop-recoverable";
 
@@ -145,5 +160,25 @@ describe("buildBodyAddition", () => {
     const block = buildBodyAddition(["docs: a.md", "prs: 3225"]);
     expect(block).toContain("- docs: a.md");
     expect(block).toContain("- prs: 3225");
+  });
+});
+
+describe("pre-state snapshot safety (PR #3295 R1)", () => {
+  test("two paths built in the same millisecond are still distinct", () => {
+    // A timestamp-only name collides for two operators, or one retry, inside the same second.
+    const paths = new Set(Array.from({ length: 50 }, () => buildSnapshotPath()));
+    expect(paths.size).toBe(50);
+  });
+
+  test("writing to an existing path THROWS rather than overwriting", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mt4448-snap-"));
+    const path = join(dir, "snap.json");
+
+    expect(writeSnapshotExclusive(path, [{ id: "first" }])).toBe(path);
+    expect(() => writeSnapshotExclusive(path, [{ id: "second" }])).toThrow("Refusing to proceed");
+
+    // The original survived — this is the property that matters, not just that it threw.
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual([{ id: "first" }]);
+    rmSync(dir, { recursive: true, force: true });
   });
 });

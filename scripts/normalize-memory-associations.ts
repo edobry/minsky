@@ -42,6 +42,9 @@
 // first query (mt#3178 — the exact failure that left the mt#2071 backfill unrun for months).
 import "reflect-metadata";
 
+import { writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import { isKnownAssociationType } from "@minsky/domain/memory/associations";
 
@@ -173,6 +176,37 @@ export function buildBodyAddition(additions: string[]): string {
   return `\n\n${CROSSREF_MARKER}\n**Cross-references** (preserved from a non-ADR-012 association key):\n\n${lines}\n`;
 }
 
+/**
+ * A snapshot path that cannot collide: timestamp + pid + random suffix.
+ *
+ * A timestamp alone is not enough — two operators, or one retry, inside the same second
+ * produce the same name. Paired with the exclusive write below.
+ */
+export function buildSnapshotPath(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `associations-pre-normalize-${stamp}-pid${process.pid}-${randomUUID().slice(0, 8)}.json`;
+}
+
+/**
+ * Write the pre-state snapshot, REFUSING to overwrite an existing file.
+ *
+ * `Bun.write` (and a default `writeFileSync`) truncate silently, so a colliding run would
+ * destroy the previous run's snapshot with no error. Since the snapshot is the only thing
+ * that makes key removal reversible, losing it silently is the worst available failure —
+ * hence `wx`, which throws EEXIST. Caught in PR #3295 review.
+ */
+export function writeSnapshotExclusive(path: string, snapshot: unknown): string {
+  try {
+    writeFileSync(path, JSON.stringify(snapshot, null, 2), { flag: "wx" });
+  } catch (err) {
+    throw new Error(
+      `Refusing to proceed: could not exclusively create the pre-state snapshot at ${path} (${err}). ` +
+        "The snapshot is the only thing that makes key removal reversible, so the run stops rather than mutating without one."
+    );
+  }
+  return path;
+}
+
 async function main() {
   const execute = process.argv.includes("--execute");
 
@@ -224,13 +258,18 @@ async function main() {
   // from the post-state -- the key and its values are simply gone -- so the only thing that
   // makes this operation undoable is a record of what was there. Written before the first
   // mutation, not alongside it, so a crash mid-run still leaves a complete snapshot.
-  const snapshotPath = `associations-pre-normalize-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  //
+  // The filename carries pid + a random suffix, and the write is EXCLUSIVE (`wx`), so a
+  // collision throws EEXIST instead of silently replacing an existing snapshot. A
+  // timestamp alone is not enough: two operators — or one retry — inside the same second
+  // would collide, and `Bun.write` truncates without complaint, so the failure mode was
+  // losing the previous run's only record of the pre-state. Caught in PR #3295 review.
   const snapshot = plans.map((p) => ({
     id: p.id,
     name: p.name,
     associations: all.find((m) => m.id === p.id)?.associations ?? null,
   }));
-  await Bun.write(snapshotPath, JSON.stringify(snapshot, null, 2));
+  const snapshotPath = writeSnapshotExclusive(buildSnapshotPath(), snapshot);
   console.log(`Pre-state snapshot written: ${snapshotPath} (${snapshot.length} records)\n`);
 
   console.log("Applying...");

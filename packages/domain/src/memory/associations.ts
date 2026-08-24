@@ -107,6 +107,18 @@ export const TRACKS_TASK_ASSOCIATION: AssociationType = "tracksTask";
 
 export const ASSOCIATION_TYPE_NAMES = Object.keys(ASSOCIATION_TYPES) as AssociationType[];
 
+/**
+ * The same vocabulary as a non-empty tuple, for `z.enum` at the command boundary.
+ *
+ * Derived from `ASSOCIATION_TYPES` rather than written out a second time — a duplicate literal
+ * list is exactly the drift this module exists to prevent, and it would drift silently because
+ * both copies would still typecheck.
+ */
+export const ASSOCIATION_TYPE_TUPLE = ASSOCIATION_TYPE_NAMES as [
+  AssociationType,
+  ...AssociationType[],
+];
+
 export function isKnownAssociationType(key: string): key is AssociationType {
   return Object.hasOwn(ASSOCIATION_TYPES, key);
 }
