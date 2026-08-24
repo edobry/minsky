@@ -65,23 +65,41 @@ const DEFAULT_DEBOUNCE_MS = 400;
  * vendor leaves the caller as the only layer that can bound anything; this is
  * the documented-pattern default, not a deviation from it.
  *
- * WHY 90s, AND WHY NOT SMALLER. This is a CEILING over work whose own budget is
- * declared one layer down, so it derives from that declared maximum rather than
- * from a measured typical (`decision-defaults.mdc §Thresholds`, CEILING case).
- * The inner budget is `createBoundedSocket`'s inactivity bound, derived from
- * `idle_timeout` (60s by default, `postgres-provider.ts`). A wrapper BELOW that
- * would make the socket bound dead code and hand you this timeout instead of
- * its diagnosis. 90s clears it with headroom.
+ * WHY 300s, AND WHY THE FIRST ANSWER (90s) WAS WRONG (mt#4502).
  *
- * WHAT IT ACTUALLY CATCHES. Not a hung socket — that one is already severed at
- * ~60s. This catches the class the socket bound structurally cannot reach: a
- * wait for a pool slot, where no socket is assigned yet, and which postgres-js
- * documents no timeout for at all.
+ * The original derivation read this as a CEILING over `createBoundedSocket`'s
+ * inactivity bound (60s, from `idle_timeout`) and set 90s to clear it. **Wrong
+ * anchor.** That bound governs inactivity within ONE SOCKET; an ingest is a pool
+ * acquire plus several queries, so its total duration has no reason to sit under
+ * a per-socket inactivity window. `decision-defaults.mdc §Thresholds`'s CEILING
+ * case says to read the inner layer's declared maximum — right when the wrapper
+ * bounds THAT layer's work, misleading when it bounds a COMPOSITE operation the
+ * inner constant says nothing about.
+ *
+ * Measured four minutes after 90s shipped: a boot storm (~1,500 files seeded at
+ * once, contending for the pool) drove `oldestIngestInFlightAgeMs` to 86,208 ms
+ * with `ingestErrors 0` and `dbRecycle.recycleCount 0` — no wedge, just normal
+ * work. Nine ingests were abandoned and the backoff latched. 300s is ~3.5x that
+ * observed tail and still far under the 30-minute sweep interval, so the watcher
+ * path recovers faster than its own backstop.
+ *
+ * WHY LONGER IS THE SAFE DIRECTION. The bound's job is converting "never settles"
+ * into "settles eventually" — any finite value does that. Firing on the normal
+ * population is pure cost: the abandoned promise keeps running, the retry redoes
+ * the work, and freshness is delayed rather than improved. A wedge is already
+ * visible IMMEDIATELY via `oldestIngestInFlightAgeMs` climbing, which does not
+ * depend on this constant at all. So the tie-break is "never fire on healthy
+ * work", not "catch a wedge soonest".
+ *
+ * WHAT IT ACTUALLY CATCHES. The class the socket bound structurally cannot reach:
+ * the wait for a pool slot, where no socket is assigned yet. postgres-js has no
+ * checkout timeout at all — when `max` connections are busy, queries queue with
+ * no bound (mt#4473), which is also why a boot storm reaches tens of seconds.
  *
  * COST OF FIRING. One abandoned ingest for one path, retried on the next event.
  * Freshness only — completeness is the sweep's guarantee, per ADR-017.
  */
-const DEFAULT_INGEST_TIMEOUT_MS = 90_000;
+const DEFAULT_INGEST_TIMEOUT_MS = 300_000;
 
 /**
  * Consecutive abandons before the ingest path backs off (mt#4492).
@@ -386,6 +404,16 @@ export class TranscriptWatcher {
       consecutiveAbandons: this.consecutiveAbandons,
     });
     if (this.consecutiveAbandons < ABANDON_BACKOFF_THRESHOLD) return;
+    // Arm on the TRANSITION only — never re-arm while already paused (mt#4502).
+    //
+    // This re-armed unconditionally, and that latched the watcher. During a
+    // pause `processFile` returns before starting any ingest, so no success can
+    // occur to reset the streak — while ingests that started BEFORE the pause
+    // keep timing out, and each one pushed the horizon a further 5 minutes out.
+    // Measured on the live daemon: 15:13:44Z → 15:14:19Z → 15:14:24Z → 15:14:48Z,
+    // with `ingestsTriggered` and `ingestsSucceeded` frozen throughout. It ended
+    // only when the last pre-pause straggler drained, which is not a bound.
+    if (this.isIngestPaused()) return;
     this.ingestPausedUntilMs = this.now() + ABANDON_BACKOFF_MS;
     this.tracker.setIngestPausedUntil(this.ingestPausedUntilMs);
     log.warn("cockpit transcript-watcher: pausing ingest after consecutive abandons", {

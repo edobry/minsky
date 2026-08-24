@@ -430,6 +430,113 @@ describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", 
     expect(tracker.getSummary(pausedUntil + 60_000).ingestPausedUntil).toBeNull();
   });
 
+  /**
+   * mt#4502. `noteAbandonedIngest` re-armed the pause on EVERY abandon past the
+   * threshold. During a pause `processFile` returns before starting any ingest,
+   * so no success can reset the streak — while ingests started BEFORE the pause
+   * keep timing out, each pushing the horizon a further window out. Measured on
+   * the live daemon: 15:13:44Z → 15:14:19Z → 15:14:24Z → 15:14:48Z with
+   * `ingestsTriggered`/`ingestsSucceeded` frozen, ending only when the last
+   * straggler drained — which is not a bound.
+   *
+   * NEGATIVE CONTROL: re-arming unconditionally, the final horizon moves by the
+   * 60s the clock advances below.
+   */
+  test("an abandon while already paused does not extend the pause window", async () => {
+    const files = ["z", "a", "b", "c"].map((n) => join(root, "proj-a", `${n}.jsonl`));
+    for (const f of files) await writeLines(f, [userLine("x", "2026-08-24T00:00:00.000Z")]);
+
+    // A timeout arm whose firing this test controls, one gate per ingest, so a
+    // straggler can be made to time out AFTER the pause is already armed.
+    const gates: Deferred[] = [];
+    const gatedTimeout = async () => {
+      const d = deferred();
+      gates.push(d);
+      await d.promise;
+      return { timedOut: true } as const;
+    };
+
+    gate = deferred(); // ingests never settle on their own
+    const watcher = makeWatcher({ timeoutSignal: gatedTimeout });
+
+    // `z` starts first and stays in flight — the pre-pause straggler.
+    const zPending = watcher.processFile(files[0] as string);
+    await waitForEntries(1);
+
+    // a, b, c each abandon in turn, tripping the threshold.
+    for (let i = 1; i <= 3; i++) {
+      const p = watcher.processFile(files[i] as string);
+      await waitForEntries(i + 1);
+      gates[i]?.resolve();
+      await p;
+    }
+
+    const armed = tracker.getSummary(clockMs).ingestPausedUntil;
+    expect(armed).not.toBeNull();
+    expect(tracker.getSummary(clockMs).ingestsAbandoned).toBe(3);
+
+    // Time passes, then the straggler finally times out — still inside the pause.
+    clockMs += 60_000;
+    gates[0]?.resolve();
+    await zPending;
+
+    const after = tracker.getSummary(clockMs);
+    expect(after.ingestsAbandoned).toBe(4); // still counted
+    expect(after.ingestPausedUntil).toBe(armed); // but NOT extended
+  });
+
+  /**
+   * The streak must reset on a SETTLED ingest, or a busy stretch interleaved
+   * with successes eventually pauses a perfectly healthy watcher.
+   *
+   * `instantTimeout` cannot express this: `raceAgainstTimeout` adds a `.then`
+   * to the operation arm, so an immediately-resolving timeout always wins by a
+   * microtask and even an intended success abandons. The gated arm is what
+   * makes "the ingest won the race" constructible.
+   */
+  test("a settled ingest resets the abandon streak, so a busy stretch cannot pause", async () => {
+    const files = ["a", "b", "s", "c", "d"].map((n) => join(root, "proj-a", `${n}.jsonl`));
+    for (const f of files) await writeLines(f, [userLine("x", "2026-08-24T00:00:00.000Z")]);
+
+    const gates: Deferred[] = [];
+    const gatedTimeout = async () => {
+      const d = deferred();
+      gates.push(d);
+      await d.promise;
+      return { timedOut: true } as const;
+    };
+    const watcher = makeWatcher({ timeoutSignal: gatedTimeout });
+
+    /** Run one file to an ABANDON by firing its timeout gate. */
+    const abandonOne = async (file: string, nthEntry: number) => {
+      gate = deferred(); // this ingest never settles on its own
+      const p = watcher.processFile(file);
+      await waitForEntries(nthEntry);
+      gates[nthEntry - 1]?.resolve();
+      await p;
+    };
+
+    // Two abandons — one short of the threshold.
+    await abandonOne(files[0] as string, 1);
+    await abandonOne(files[1] as string, 2);
+    expect(tracker.getSummary(clockMs).ingestsAbandoned).toBe(2);
+
+    // One ingest that genuinely settles: clear the ingest gate so it resolves,
+    // and never fire its timeout gate, so the operation arm wins the race.
+    gate = null;
+    await watcher.processFile(files[2] as string);
+    expect(tracker.getSummary(clockMs).ingestsAbandoned).toBe(2);
+
+    // Two more abandons. Without the reset these would be the 3rd and 4th
+    // CONSECUTIVE and would pause; with it they are the 1st and 2nd.
+    await abandonOne(files[3] as string, 4);
+    await abandonOne(files[4] as string, 5);
+
+    const s = tracker.getSummary(clockMs);
+    expect(s.ingestsAbandoned).toBe(4);
+    expect(s.ingestPausedUntil).toBeNull();
+  });
+
   test("consecutive abandons pause the ingest path, and the pause lifts on its own", async () => {
     const files = ["a", "b", "c", "d"].map((n) => join(root, "proj-a", `${n}.jsonl`));
     for (const f of files) await writeLines(f, [userLine("x", "2026-08-24T00:00:00.000Z")]);
