@@ -36,6 +36,7 @@ import {
 import { getSurvivedExceptions } from "../daemon-error-policy";
 import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
+import { findRepoRoot } from "../web-dist";
 import type { WidgetModule } from "../types";
 
 const serverStartTime = Date.now();
@@ -232,6 +233,35 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // invariant governs sub-objects that assert an operational state, and a
       // pid asserts none, so this owes no `lastAttemptAt` sibling.
       pid: process.pid,
+      // mt#4489: does this process's working directory still resolve a Minsky
+      // repo root?
+      //
+      // The daemon is spawned as `bun run src/cli.ts` with cwd set to a repo
+      // root, so cwd and the process's module-resolution root are the same tree.
+      // Delete that tree under a live process — a session clone that gets
+      // cleaned up — and the daemon keeps serving on already-loaded modules
+      // while every not-yet-loaded `import()` fails with ENOENT. On 2026-08-24
+      // an orphan daemon sat in exactly that state; nothing on this endpoint
+      // could express it, and it took a log grep 19 hours later to find.
+      //
+      // `cwd` is therefore a PROXY for the module root, not the thing itself —
+      // exact because of how the daemon is spawned, and the check would need
+      // revisiting if it ever gained a `--cwd`-style flag that decoupled them.
+      // It is the right proxy to publish regardless: it is what an operator can
+      // compare against, and it is cheap.
+      //
+      // Re-checked per request rather than cached at boot, because the whole
+      // point is that the answer CHANGES under a running process. Cheap: a
+      // bounded `existsSync` walk (MAX_ASCEND 12), no IO beyond stat.
+      //
+      // Carries `checkedAt` per mt#4186's liveness-dating invariant — this
+      // sub-object asserts an operational state, so it owes a timestamp saying
+      // when that assertion was made.
+      workspaceRoot: {
+        cwd: process.cwd(),
+        resolved: findRepoRoot([process.cwd()]) ?? null,
+        checkedAt: new Date().toISOString(),
+      },
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
