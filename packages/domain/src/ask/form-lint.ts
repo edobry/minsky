@@ -171,6 +171,32 @@ export const META_LEDE_PATTERN =
 export const DATE_LEDE_PATTERN = /^\s*(?:\*\*)?\d{4}-\d{2}-\d{2}\b/;
 
 /**
+ * The body's first sentence talking ABOUT the ask (mt#4516).
+ *
+ * The third meta-lede shape, and the one that needs no label: *"This ask was
+ * filed on a misquote"* opens with the subject rather than a marker, so neither
+ * pattern above sees it. Scoped to the FIRST SENTENCE for the same reason those
+ * are anchored — an ask that mentions itself in passing further down is not
+ * leading with bookkeeping.
+ */
+export const SELF_REFERENTIAL_LEDE_PATTERN = /\bthis ask\b/i;
+
+/** Characters that end the opening sentence, for `SELF_REFERENTIAL_LEDE_PATTERN`'s scope. */
+const SENTENCE_END = /[.?!]/;
+
+/**
+ * The body's opening sentence — the window `SELF_REFERENTIAL_LEDE_PATTERN` reads.
+ *
+ * Capped at 200 characters so a body with no terminal punctuation at all cannot
+ * turn the "first sentence" check into a whole-body one.
+ */
+export function firstSentenceOf(question: string): string {
+  const head = question.trimStart().slice(0, 200);
+  const end = head.search(SENTENCE_END);
+  return end === -1 ? head : head.slice(0, end + 1);
+}
+
+/**
  * Word-count budget for the question body (spec Deliverable 2: "> 150
  * words"). This is the MECHANICAL lint threshold, not the authoring target.
  *
@@ -708,7 +734,11 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
 
   // mt#4516: the body opens with commentary about the ask rather than the
   // question. Anchored to the start; mid-body occurrences are ordinary prose.
-  if (META_LEDE_PATTERN.test(question) || DATE_LEDE_PATTERN.test(question)) {
+  if (
+    META_LEDE_PATTERN.test(question) ||
+    DATE_LEDE_PATTERN.test(question) ||
+    SELF_REFERENTIAL_LEDE_PATTERN.test(firstSentenceOf(question))
+  ) {
     matches.push({
       check: "meta-lede",
       message:

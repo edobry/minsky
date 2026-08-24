@@ -19,6 +19,7 @@ import {
   ASK_KIND_JARGON_PATTERN,
   META_LEDE_PATTERN,
   DATE_LEDE_PATTERN,
+  firstSentenceOf,
 } from "./form-lint";
 import type { AskKind } from "./types";
 import type { FormLintInput } from "./form-lint";
@@ -145,5 +146,25 @@ describe("meta-lede (mt#4516)", () => {
   test("catches a bare date opening, the other common shape", () => {
     expect(DATE_LEDE_PATTERN.test("2026-08-24: reopening this after the merge.")).toBe(true);
     expect(DATE_LEDE_PATTERN.test("Should we reopen this after the merge?")).toBe(false);
+  });
+
+  test("catches a first sentence talking ABOUT the ask, with no label to key on", () => {
+    expect(checksFor("This ask was filed on a misquote. Which option do you want?")).toContain(
+      CHECK_META_LEDE
+    );
+  });
+
+  test("does NOT fire when the ask refers to itself LATER in the body", () => {
+    expect(
+      checksFor(
+        "Which transport should a stuck agent use to reach you? Answering this ask also settles the shim work."
+      )
+    ).not.toContain(CHECK_META_LEDE);
+  });
+
+  test("first-sentence window is capped, so an unpunctuated body cannot widen it", () => {
+    const unpunctuated = `${"a".repeat(400)} this ask`;
+    expect(firstSentenceOf(unpunctuated).length).toBe(200);
+    expect(checksFor(unpunctuated)).not.toContain(CHECK_META_LEDE);
   });
 });
