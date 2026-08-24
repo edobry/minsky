@@ -653,9 +653,13 @@ async function startHttpServer(
       runProbeQuery: async () => {
         // The TAGGED-TEMPLATE path, deliberately — not `.unsafe()`. mt#2773's
         // guard wraps `.unsafe()` with its own FIFO, so a probe sent through it
-        // would report on that queue rather than on the pool every drizzle
-        // consumer contends for. This acquires a real pool connection exactly
-        // as an ordinary query does, which is what makes it end-to-end.
+        // would report on that queue rather than on the pool. Since mt#4473
+        // that queue also carries drizzle, which makes the distinction sharper
+        // rather than weaker: a probe behind the admission gate would be
+        // REFUSED after the admission deadline during exactly the condition it
+        // exists to measure, reporting our own backpressure instead of the
+        // pool's state. This acquires a real pool connection exactly as an
+        // ordinary query does, which is what makes it end-to-end.
         const raw = await (
           provider as PersistenceProvider & {
             getRawSqlConnection?: () => Promise<unknown>;

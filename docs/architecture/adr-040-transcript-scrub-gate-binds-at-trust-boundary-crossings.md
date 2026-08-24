@@ -106,7 +106,12 @@ branch to take; the reversal is mechanical.
 ## Cross-references
 
 - `docs/architecture/adr-025-transcript-storage-object-store-system-of-record.md` — the content-risk
-  premise this extends from storage to read surfaces.
+  premise this extends from storage to read surfaces. **ADR-025's MECHANISM was superseded by
+  ADR-045 (2026-08-24); the content-risk premise cited here is unaffected**, because it is about what
+  transcripts CONTAIN rather than where they are stored. One consequence worth noting: under ADR-045
+  the raw lines land in Postgres rather than a private bucket, so the content-risk surface moves
+  inside the database and is reachable by ordinary query paths. That widens who must not leak it; it
+  does not change where this gate binds.
 - mt#3268 (this decision) · mt#3262 (discovered the asymmetry) · mt#4023 (passkey gate) ·
   mt#4024 (share links) · mt#2763 / mt#2864 (the scrubber and the sweep that set the cutoff).
 - mt#3850 (PLANNING) — live secrets still reaching transcripts via `ps` output. Upstream of this

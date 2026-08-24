@@ -100,3 +100,27 @@ which is the growth the consolidation exists to stop.
 - **Ask-permission bridge** — approved-Ask → allow. none.
 - **Dispatch-intent write gate** — writes under read-only intent. none.
 - **Nested-fork dispatch** — undeclared nested fork. `MINSKY_ALLOW_NESTED_FORK`.
+
+## Adding a hook module: the registries it obliges (mt#4508)
+
+One new `.minsky/hooks/<name>.ts` obliges several registries, and they fail at DIFFERENT gates —
+so an author who fixes them one at a time learns the count by exhausting it. mt#4494 hit four
+across three separate signals; mem#1206 records the full sequence.
+
+- `.claude/settings.json` — registration (or `GUARD_REGISTRY`, for a dispatcher-routed guard).
+- `packages/domain/src/rules/enforcement-mapping.ts` — `ENFORCEMENT_MAPPINGS` if it DENIES, else
+  `NON_ENFORCEMENT_CLAUDE_HOOKS` with a non-empty reason. Pre-commit (mt#4367).
+- `interceptor-descriptions.ts` — description + failureClasses + provenance + stratum.
+- `interceptor-coordinates.ts` — required for every DESCRIBED interceptor, so describing a module
+  CREATES this obligation.
+- `docs/architecture/hook-module-inventory.md` — a classified row plus the count bumps.
+
+**The fast gate now selects the tree's census tests for any `.minsky/hooks/` change (mt#4508).**
+`hook-module-inventory.test.ts` fires on the mere ADDITION of a module; `interceptor-coordinates.test.ts`
+fires a step later, once it is described. Before mt#4508 a new module selected ZERO related tests, so
+every local check passed and the first signal was full CI on an already-approved PR. Check with
+`bun scripts/run-related-tests.ts .minsky/hooks/<name>.ts`.
+
+Still true, and not covered by that: `.minsky/hooks/**` is absent from `run-tests-main.ts`'s `ROOTS`,
+so the pre-PUSH gated runner cannot execute that tree at all — run `bun run test:hooks` before
+pushing a hook change (mem#1206).

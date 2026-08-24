@@ -172,6 +172,76 @@ export function classifyConnectionFailure(err: unknown): ConnectionFailure {
 }
 
 /**
+ * SQLSTATE classes describing a condition AT THE DATABASE rather than a defect
+ * in the calling process. Class names are PostgreSQL's own (Appendix A, Error
+ * Codes — https://www.postgresql.org/docs/current/errcodes-appendix.html):
+ *
+ *   08 — Connection Exception
+ *   40 — Transaction Rollback
+ *   53 — Insufficient Resources
+ *   57 — Operator Intervention
+ *
+ * Deliberately NOT called "transient" (mt#4100 planning): `57P04`
+ * database_dropped, `53100` disk_full and `08P01` protocol_violation are
+ * members that will not pass on their own. They belong here anyway, because the
+ * question is not whether the condition clears — it is **whose fault it is**.
+ *
+ * Moved here from `src/commands/cockpit/start-command.ts` by mt#4519, which
+ * found a SECOND consumer needing the same taxonomy. Keeping one definition is
+ * the point: mt#4100 fixed this code-space blind spot in the daemon's
+ * `unhandledRejection` handler, and the transcript-ingest quarantine counter had
+ * the identical gap for the identical reason. A third copy would have been the
+ * third rediscovery.
+ */
+const DB_CONDITION_SQLSTATE_CLASSES = new Set(["08", "40", "53", "57"]);
+
+/**
+ * Is `stateClass` one of the DB-condition classes above?
+ *
+ * A predicate rather than an exported `Set` because `custom/no-domain-singleton`
+ * forbids exporting instances from domain code — and the rule is right here even
+ * though this one is immutable data: a predicate is the narrower contract, and it
+ * keeps callers from mutating a shared set or iterating it into a second taxonomy.
+ */
+export function isDbConditionSqlStateClass(stateClass: string): boolean {
+  return DB_CONDITION_SQLSTATE_CLASSES.has(stateClass);
+}
+
+/** SQLSTATEs are exactly five characters; the first two are the class. */
+export function sqlStateClass(code: string): string | undefined {
+  return code.length === 5 ? code.slice(0, 2) : undefined;
+}
+
+/**
+ * The SQLSTATE class when `err` reports a condition at the DATABASE, else null.
+ *
+ * This is a DIFFERENT QUESTION from {@link classifyConnectionFailure}, not a
+ * widening of it — which is why it is a separate export rather than another
+ * branch inside that function. `classifyConnectionFailure` answers "is the
+ * CONNECTION unusable?", and two of its consumers depend on its `"unknown"`
+ * verdict meaning exactly "no information" (`shared-persistence.ts`'s
+ * `noteFailure` will not let an `unknown` clobber a stronger classification, and
+ * `ESCALATING_KINDS` is keyed on the same `kind`). Teaching it to return a
+ * connection-ish kind for `57014` would silently change both.
+ *
+ * This answers the weaker, wider question: **is this a fact about the database
+ * rather than about the caller's own request?** A statement timeout is — the
+ * database cancelled the statement under load. Callers that attribute BLAME to
+ * a specific unit of work (mt#4519's per-session quarantine counter) need this
+ * one; callers deciding whether to tear down a pool need the narrower one.
+ *
+ * Follows the `cause` chain via the same reader `classifyConnectionFailure`
+ * uses, so a wrapped driver error is classified rather than lost.
+ */
+export function databaseConditionSqlStateClass(err: unknown): string | null {
+  const { code } = readErrorCode(err);
+  if (code === null) return null;
+  const stateClass = sqlStateClass(code);
+  if (stateClass === undefined) return null;
+  return isDbConditionSqlStateClass(stateClass) ? stateClass : null;
+}
+
+/**
  * Futile recycles against one failure kind before the cadence starts backing off.
  *
  * Grounded in the apparatus's own existing evidence unit rather than a round

@@ -585,8 +585,25 @@ export class PostgresPersistenceProvider
         createdSql = sql;
       }
 
-      // Create Drizzle instance
-      const db = drizzle(sql);
+      // Create Drizzle instance over the POOLER-GUARDED view, not the raw
+      // client (mt#4473). drizzle-orm's postgres-js driver issues every query
+      // through `client.unsafe(query, params)`
+      // (`drizzle-orm/postgres-js/session.js:58,68,90,128,131`), so handing it
+      // the raw instance here was the entirety of mt#2773's "drizzle bypasses
+      // the guard" carve-out — not a property of drizzle at all. With every
+      // DB-backed MCP tool on this path, that bypass is what let eight
+      // concurrent long-running calls saturate the pool and hang the daemon
+      // for ~45 minutes on 2026-08-23 with no error and no log line.
+      //
+      // Cached into `this.guardedSql` alongside `this.sql` below so
+      // `getGuardedSql()` hands out this SAME instance: the cap is a shared
+      // in-flight counter and a second wrap would double it (mt#4298).
+      const guardedSql = guardRawSqlAgainstPoolerWedge(sql);
+
+      // GuardedRawSql narrows `.unsafe()`'s return type, which makes it structurally
+      // incompatible with postgres-js `Sql` even though the Proxy IS that instance at runtime.
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- deliberate boundary cast, above
+      const db = drizzle(guardedSql as unknown as ReturnType<typeof postgres>);
 
       // Verify connection — retry on pool saturation (mt#1193). Skip when
       // reusing the factory's pre-validated client: it already ran SELECT 1
@@ -606,6 +623,10 @@ export class PostgresPersistenceProvider
       // initialize() must not see isInitialized=true while migrations are
       // still running (race window where they could read pre-migration schema).
       this.sql = sql;
+      // mt#4473: publish the guard built above rather than letting
+      // getGuardedSql() lazily build a SECOND one — two guards would each
+      // admit `max` concurrent queries and double the bound (mt#4298).
+      this.guardedSql = guardedSql;
       this.db = db;
       // mt#2973: ownership of a reused probed client transfers fully to
       // this.sql now (createdSql tracks it for failure cleanup); clear the
@@ -708,23 +729,35 @@ export class PostgresPersistenceProvider
     // capacity wedge the Supavisor transaction pooler (connections destroyed
     // during ramp-up) and postgres-js never settles some of the destroyed
     // connection's promises. See raw-sql-pooler-guard.ts for the experiment
-    // matrix and rationale. The underlying `this.sql` (used by drizzle and
-    // sql.begin() transactions) is deliberately untouched.
-    return this.getGuardedSql(this.sql);
+    // matrix and rationale. As of mt#4473 the drizzle client is built over
+    // this SAME guarded instance, so both paths share one in-flight counter;
+    // only `sql.begin()` transactions still reach the raw instance untouched.
+    return this.getGuardedSql();
   }
 
   /**
-   * Memoized guarded view of `this.sql` (mt#2773; second consumer wired mt#4298).
+   * Memoized guarded view of `this.sql` (mt#2773; second consumer wired
+   * mt#4298; the drizzle client wired mt#4473).
    *
-   * Every `.unsafe()` consumer MUST come through here rather than wrapping
+   * Every guarded consumer MUST come through here rather than wrapping
    * `this.sql` itself. The guard's protection is a SHARED in-flight counter
    * bounded at the pool's `max`; two independently-constructed guards would
    * each admit `max` concurrent queries, so wrapping twice doubles the very
    * bound the cap exists to hold and reinstates the wedge it prevents.
+   *
+   * Takes no argument, deliberately (PR #3166 R1, carried via mt#4336): the
+   * memoization means a `sql` parameter would be silently discarded after the
+   * first call, so a caller could hand in a DIFFERENT client and receive a
+   * guard wrapped around the first one with nothing to indicate it — the
+   * wrong shape for an accessor whose entire purpose is that there is exactly
+   * one instance.
    */
-  protected getGuardedSql(sql: ReturnType<typeof postgres>): GuardedRawSql {
+  protected getGuardedSql(): GuardedRawSql {
+    if (!this.sql) {
+      throw new Error("Raw SQL connection not available");
+    }
     if (!this.guardedSql) {
-      this.guardedSql = guardRawSqlAgainstPoolerWedge(sql);
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
     }
     return this.guardedSql;
   }
@@ -991,9 +1024,10 @@ export class PostgresVectorPersistenceProvider
     // `this.sql` here left every tasks_search / *_similar / index write as
     // unguarded raw fan-out at the Supavisor transaction pooler, whose wedge
     // leaves postgres-js promises permanently unsettled — hangs with no error.
-    // The mt#2773 carve-out covers drizzle-driver traffic and sql.begin(), not
-    // this consumer.
-    return new PostgresVectorStorage(this.getGuardedSql(this.sql), this.db, dimension, {
+    // The mt#2773 carve-out covered drizzle-driver traffic and sql.begin(),
+    // not this consumer; as of mt#4473 the drizzle half is closed too and only
+    // sql.begin() remains outside the bound.
+    return new PostgresVectorStorage(this.getGuardedSql(), this.db, dimension, {
       tableName: config.tableName,
       idColumn: config.idColumn,
       embeddingColumn: config.vectorColumn,

@@ -637,13 +637,12 @@ async function resolveMemoryProjectScope(
     if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistence.getDatabaseConnection();
     if (!rawDb) return undefined;
-    const { type: _t, ...db } =
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb &
-        Record<string, unknown>;
-    const scope = await resolveProjectScope(
-      identity,
-      db as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-    );
+    // Pass the handle through UNCOPIED (mt#4509). This previously read
+    // `const { type: _t, ...db } = rawDb`, and an object rest-spread copies only own
+    // enumerable properties — drizzle defines `select` on the prototype, so every copy
+    // arrived without it and every call threw `db.select is not a function`. The stripped
+    // `type` key does not exist on the handle, so the destructuring bought nothing.
+    const scope = await resolveProjectScope(identity, rawDb, "memory");
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug("[memory] Project scope resolution failed; defaulting to all projects", {
