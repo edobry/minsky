@@ -180,7 +180,7 @@ export function describeHandle(value: unknown): string {
  */
 export async function resolveScopeOutcome(
   identity: ProjectIdentity,
-  db: ScopeResolverDb
+  db: unknown
 ): Promise<ScopeResolutionOutcome> {
   if (identity.kind === "unidentified") {
     return { kind: "unidentified", reason: identity.reason };
@@ -221,7 +221,7 @@ export async function resolveScopeOutcome(
  */
 export async function resolveProjectScope(
   identity: ProjectIdentity,
-  db: ScopeResolverDb,
+  db: unknown,
   caller = "unknown"
 ): Promise<ProjectScope> {
   const outcome = await resolveScopeOutcome(identity, db);

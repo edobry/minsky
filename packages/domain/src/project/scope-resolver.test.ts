@@ -59,9 +59,16 @@ function makeThrowingDb(): ScopeResolverDb {
   };
 }
 
-/** A type-valid handle carrying no `select` — the shape a stripped drizzle handle has. */
-function makeHandleWithoutSelect(): ScopeResolverDb {
-  return { query: {}, dialect: {} } as unknown as ScopeResolverDb;
+/**
+ * A handle carrying no `select` — the shape a stripped drizzle handle has.
+ *
+ * Returns `unknown` deliberately. `resolveProjectScope` takes `unknown` and validates the handle
+ * itself (PR #3288 R1), so a caller needs no cast — and callers must NOT narrow before calling,
+ * because narrowing at the call site skips the resolver and suppresses the very
+ * `invalid-db-handle` log this task added. The absence of a cast here is the assertion.
+ */
+function makeHandleWithoutSelect(): unknown {
+  return { query: {}, dialect: {} };
 }
 
 describe("isScopeResolverDb", () => {

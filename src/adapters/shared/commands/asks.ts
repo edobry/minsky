@@ -2192,11 +2192,7 @@ async function resolveCurrentProjectScope(
     if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistenceProvider.getDatabaseConnection();
     if (!rawDb) return undefined;
-    const scope = await resolveProjectScope(
-      identity,
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb,
-      `asks.${caller}`
-    );
+    const scope = await resolveProjectScope(identity, rawDb, caller);
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {

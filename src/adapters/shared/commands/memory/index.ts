@@ -636,11 +636,7 @@ async function resolveMemoryProjectScope(
     // enumerable properties — drizzle defines `select` on the prototype, so every copy
     // arrived without it and every call threw `db.select is not a function`. The stripped
     // `type` key does not exist on the handle, so the destructuring bought nothing.
-    const scope = await resolveProjectScope(
-      identity,
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb,
-      "memory"
-    );
+    const scope = await resolveProjectScope(identity, rawDb, "memory");
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug("[memory] Project scope resolution failed; defaulting to all projects", {
