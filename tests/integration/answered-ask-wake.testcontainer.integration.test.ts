@@ -136,6 +136,16 @@ async function bringUp(): Promise<PostgresJsDatabase> {
     }
   }
 
+  // NOT required on this image, and kept anyway (PR #3286 R2). `gen_random_uuid()`
+  // moved into core in PG13, so on `postgres:16-alpine` it resolves with only
+  // `plpgsql` installed — probed directly: `SELECT extname FROM pg_extension` returns
+  // `plpgsql` alone, and the CREATE TABLE + INSERT below still yield a real uuid.
+  // Production agrees: `wake_pending` has shipped on drizzle's `defaultRandom()`
+  // since migration 0032. The statement is idempotent and costs one round trip, so it
+  // stays as portability insurance for a pre-PG13 or stripped image — but do not read
+  // it as evidence that the default needs pgcrypto here, because it does not.
+  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
+
   // The exact shape mt#4476's two migrations produce. Written out rather than run
   // through the migrator so this harness pins the SHAPE the code expects — if a later
   // migration changes it, this fails and says so, instead of silently agreeing.
