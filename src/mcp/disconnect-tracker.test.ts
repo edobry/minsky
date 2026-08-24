@@ -29,6 +29,7 @@ import os from "os";
 import path from "path";
 import {
   DisconnectTracker,
+  SERVER_INITIATED_CAUSES,
   STDIO_SESSION_KEY,
   type McpDisconnectEvent,
 } from "./disconnect-tracker";
@@ -825,6 +826,51 @@ describe("DisconnectTracker persistence", () => {
     expect(loaded[1]?.kind).toBe("process_start");
     expect(loaded[1]?.pid).toBe(91211);
     expect(loaded[2]?.cause).toBe("staleness_exit");
+  });
+});
+
+// ===========================================================================
+// mt#4481 — the cadence rule's escalation-eligibility list must match the code
+//
+// `SERVER_INITIATED_CAUSES` is the code's exclusion set;
+// `.minsky/rules/mcp-disconnect-cadence.mdc` §Recurrence-threshold escalation
+// restates it in prose for operators. mt#2830 added `"signal"` to the set and
+// to neither the rule's list nor its cause-class entries, so the rule read
+// "counts toward escalation" for a cause the code silently excluded — for
+// months, until a reviewer caught it on PR #3280.
+//
+// A restatement that nothing checks is a restatement that drifts. This asserts
+// the two are the same set, so the next person to change one is told to change
+// the other.
+// ===========================================================================
+
+describe("cadence rule escalation list matches SERVER_INITIATED_CAUSES (mt#4481)", () => {
+  const RULE_PATH = path.resolve(__dirname, "../../.minsky/rules/mcp-disconnect-cadence.mdc");
+
+  test("the rule documents exactly the causes the code excludes", () => {
+    const rule = fs.readFileSync(RULE_PATH, "utf-8") as string;
+
+    // The rule states it as: `cause ∉ {a, b, c}` inside a bullet.
+    const match = rule.match(/`cause ∉ \{([^}]*)\}`/);
+    expect(match).not.toBeNull();
+
+    const documented = new Set(
+      (match?.[1] ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "")
+    );
+
+    // Compare as sorted arrays so a mismatch prints both sides rather than
+    // "expected Set to equal Set".
+    expect([...documented].sort()).toEqual([...SERVER_INITIATED_CAUSES].sort());
+  });
+
+  test("the two causes that DO escalate are absent from the set", () => {
+    // Guards the other direction: an over-eager future edit that "tidies" all
+    // the signal-shaped causes into one place would silence real crashes.
+    expect(SERVER_INITIATED_CAUSES.has("signal_sigkill")).toBe(false);
+    expect(SERVER_INITIATED_CAUSES.has("proxy_observed_crash")).toBe(false);
   });
 });
 

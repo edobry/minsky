@@ -325,16 +325,30 @@ export const DEFAULT_SESSION_KEY = "_default";
 /**
  * Causes whose disconnect events are server-initiated by design and excluded
  * from the escalation count regardless of uptime.
+ *
+ * Note `signal_sigkill` and `proxy_observed_crash` are deliberately ABSENT —
+ * an external actor caused those, so they escalate.
+ *
+ * The bare `"signal"` is a member and arguably should not be: it is the
+ * proxy's catch-all for SIGSEGV / SIGABRT / SIGBUS, which are runtime crashes
+ * rather than anything server-initiated. Tracked at mt#4499; documented as-is
+ * in `.minsky/rules/mcp-disconnect-cadence.mdc` cause class 7.
+ *
+ * Exported for `disconnect-tracker.test.ts`, which asserts this set is
+ * byte-equal to the list the cadence rule documents (mt#4481). The two drifted
+ * apart for months after mt#2830 added `"signal"` here and nowhere else.
  */
-const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>([
-  "staleness_exit",
-  "signal",
-  "signal_sigterm",
-  "signal_sigint",
-  "signal_sighup",
-  "server_close",
-  "idle_timeout",
-]);
+export const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>(
+  [
+    "staleness_exit",
+    "signal",
+    "signal_sigterm",
+    "signal_sigint",
+    "signal_sighup",
+    "server_close",
+    "idle_timeout",
+  ]
+);
 
 /** Directory where the persistent event log is written. */
 function getStateDir(): string {
