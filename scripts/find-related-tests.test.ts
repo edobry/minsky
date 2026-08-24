@@ -272,6 +272,29 @@ describe("censusTestsFor (mt#4508)", () => {
     expect(censusTestsFor("src/cockpit/web/main.tsx")).toEqual([]);
     expect(censusTestsFor("packages/domain/src/rules/enforcement-mapping.ts")).toEqual([]);
   });
+
+  // PR #3289 R1: membership is the census's OWN predicate, not "sits under the directory".
+  // `hook-module-inventory.test.ts` enumerates
+  // `readdirSync(HOOKS_DIR).filter(f => f.endsWith(".ts") && !f.endsWith(".test.ts"))`,
+  // so each kind below is outside the population and must not pull the census tests in.
+  test("a TEST file under the directory is not in the census population", () => {
+    expect(censusTestsFor(`${CENSUS_DIR}/some-guard.test.ts`)).toEqual([]);
+    expect(censusTestsFor(`${CENSUS_DIR}/some-widget.test.tsx`)).toEqual([]);
+  });
+
+  test("a NESTED path is not in it either — that readdirSync is non-recursive", () => {
+    expect(censusTestsFor(`${CENSUS_DIR}/fixtures/replay-prs.json`)).toEqual([]);
+    expect(censusTestsFor(`${CENSUS_DIR}/fixtures/nested-module.ts`)).toEqual([]);
+  });
+
+  test("a NON-TS direct child is not in it — the filter requires a .ts extension", () => {
+    expect(censusTestsFor(`${CENSUS_DIR}/notes.md`)).toEqual([]);
+    expect(censusTestsFor(`${CENSUS_DIR}/data.json`)).toEqual([]);
+  });
+
+  test("a non-test .ts direct child IS in it — the exclusions above are not over-broad", () => {
+    expect(censusTestsFor(`${CENSUS_DIR}/interceptor-descriptions.ts`)).toContain(CENSUS_TEST);
+  });
 });
 
 describe("findRelatedTestFiles census edge (mt#4508)", () => {
@@ -307,6 +330,18 @@ describe("findRelatedTestFiles census edge (mt#4508)", () => {
       fs: fakeFs(withoutCensus),
     });
 
+    expect(related).not.toContain(CENSUS_TEST);
+  });
+
+  test("editing a hook's OWN test selects itself but not the census tests (PR #3289 R1)", () => {
+    // End-to-end form of the membership rule. `unrelated.test.ts` must still be selected by
+    // the sibling heuristic — asserting a NON-empty result is what makes the census-test
+    // absence a real negative rather than the vacuous one an ignored path would give.
+    const related = findRelatedTestFiles([`${CENSUS_DIR}/unrelated.test.ts`], REPO, {
+      fs: fakeFs(files),
+    });
+
+    expect(related).toContain(`${CENSUS_DIR}/unrelated.test.ts`);
     expect(related).not.toContain(CENSUS_TEST);
   });
 

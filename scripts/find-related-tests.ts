@@ -515,14 +515,30 @@ export const DIRECTORY_CENSUS_TESTS: ReadonlyArray<{
 ];
 
 /**
- * Census tests owed by a changed repo-relative path, or `[]` if it is under no censused
- * directory. Matches on a path SEGMENT boundary so a sibling directory sharing a name
- * prefix (`.minsky/hooks-archive/x.ts`) does not match `.minsky/hooks`.
+ * Census tests owed by a changed repo-relative path, or `[]` if it is not a member of any
+ * censused POPULATION.
+ *
+ * Membership is narrower than "sits under the directory", and deliberately mirrors what the
+ * census actually enumerates (PR #3289 R1). `hook-module-inventory.test.ts` derives its
+ * population as `readdirSync(HOOKS_DIR).filter(f => f.endsWith(".ts") && !f.endsWith(".test.ts"))`,
+ * so three kinds of path under the directory are NOT in it and must not pull the census tests in:
+ *
+ *   - a **test file** — editing a hook's own `.test.ts` body changes neither census
+ *   - a **nested** path (`fixtures/x.json`) — that `readdirSync` is non-recursive
+ *   - a **non-TS** file — the filter requires a `.ts` extension
+ *
+ * Matching on a segment boundary also keeps a sibling directory sharing a name prefix
+ * (`.minsky/hooks-archive/x.ts`) from claiming `.minsky/hooks`.
  */
 export function censusTestsFor(changedFile: string): string[] {
   const out: string[] = [];
   for (const scope of DIRECTORY_CENSUS_TESTS) {
-    if (changedFile.startsWith(`${scope.dir}/`)) out.push(...scope.tests);
+    const prefix = `${scope.dir}/`;
+    if (!changedFile.startsWith(prefix)) continue;
+    const name = changedFile.slice(prefix.length);
+    if (name.includes("/")) continue;
+    if (!TS_EXT_RE.test(name) || TEST_SUFFIX_RE.test(name)) continue;
+    out.push(...scope.tests);
   }
   return out;
 }
@@ -597,10 +613,12 @@ export function findRelatedTestFiles(
   }
 
   // 0b. Directory-census edges (mt#4508): a test asserting over the whole population of
-  //     a declared directory. Runs over `allChanged` — the census is over the DIRECTORY,
-  //     so any change beneath it is in scope, not only a `.ts` one. Gated on existence
-  //     for the same reason every other edge here is: a declared test that has been
-  //     renamed or deleted must produce no edge rather than a path bun cannot run.
+  //     a declared directory. Seeded from `allChanged` rather than the TS-only
+  //     `normalizedChanged` because membership is decided by `censusTestsFor`, which
+  //     applies the census's OWN predicate (direct child, `.ts`, non-test) rather than
+  //     this function's admission filter. Gated on existence for the same reason every
+  //     other edge here is: a declared test that has been renamed or deleted must produce
+  //     no edge rather than a path bun cannot run.
   for (const file of allChanged) {
     for (const censusTest of censusTestsFor(file)) {
       if (fs.existsSync(join(repoRoot, censusTest))) related.add(censusTest);
