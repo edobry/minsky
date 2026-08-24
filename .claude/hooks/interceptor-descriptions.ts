@@ -979,6 +979,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "warn-peer-task-activity",
+    {
+      description:
+        "Reads the TASK EVENT LEDGER on `tasks_status_set` / `tasks_spec_patch` and injects an advisory naming any `session.started` (minus the caller's own) or recent `task.status_changed` — the one peer-presence signal keyed to the task rather than to an actor, so it does not inherit the attribution defect every probe in `user-preferences.mdc §Probe before claiming a shared resource` reads through. Never denies: prevention is a principal-owned question (substrate RFC Open question 4).",
+      failureClasses: ["duplicate-work"],
+      provenance: [hook("warn-peer-task-activity"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
     "validate-task-spec",
     {
       description:
