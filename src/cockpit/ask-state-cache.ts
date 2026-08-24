@@ -333,7 +333,15 @@ export async function buildAskStateSnapshot(
     const rows = (await sql.unsafe(
       "SELECT a.id, a.state, a.short_id, a.title, a.responded_at, a.response, " +
         "(SELECT max(w.drained_at) FROM public.wake_pending w " +
-        " WHERE w.ask_id = a.id AND w.drained_at IS NOT NULL) AS wake_delivered_at " +
+        // `a.id::text`, not a bare `=`. `asks.id` is `uuid` and
+        // `wake_pending.ask_id` is `text` (that table takes plain text refs by
+        // design — see its schema docblock), and Postgres has no implicit
+        // text=uuid operator, so an uncast comparison raises
+        // `operator does not exist: text = uuid` and takes THIS WHOLE QUERY down
+        // with it — not just the new column, but every field the ask-state cache
+        // produces. Cast direction matches the existing precedent in
+        // `embeddings-api.ts`, which casts the uuid side to text for the same reason.
+        " WHERE w.ask_id = a.id::text AND w.drained_at IS NOT NULL) AS wake_delivered_at " +
         "FROM public.asks a WHERE a.id = ANY($1::uuid[])",
       [askIds]
     )) as Array<{

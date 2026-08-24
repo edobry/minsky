@@ -44,6 +44,7 @@ import {
   UnaddressableWakeError,
 } from "../../packages/domain/src/ask/wake-pending-repository";
 import type { WakeSignalPayload } from "../../packages/domain/src/ask/wake-on-respond";
+import { buildAskStateSnapshot, type UnsafeSql } from "../../src/cockpit/ask-state-cache";
 
 const GATED =
   process.env.RUN_INTEGRATION_TESTS === "1" && process.env.RUN_TESTCONTAINER_TESTS === "1";
@@ -92,6 +93,25 @@ afterAll(async () => {
   });
 });
 
+let dbPromise: Promise<PostgresJsDatabase> | undefined;
+
+/**
+ * One container for the whole file, with the tables emptied between tests.
+ *
+ * The first draft called `bringUp()` per test. That started eight Postgres containers
+ * and, because `container`/`sql` are single slots, left seven of them running with
+ * only the last reachable by `afterAll` — so the suite both outran the MCP transport's
+ * timeout and leaked containers. Bring-up is the expensive part and nothing in these
+ * tests needs a private server; TRUNCATE gives the same isolation for the cost of a
+ * statement.
+ */
+async function getDb(): Promise<PostgresJsDatabase> {
+  dbPromise ??= bringUp();
+  const db = await dbPromise;
+  await conn()`TRUNCATE wake_pending, asks`;
+  return db;
+}
+
 async function bringUp(): Promise<PostgresJsDatabase> {
   container = await new GenericContainer("postgres:16-alpine")
     .withEnvironment({
@@ -132,6 +152,24 @@ async function bringUp(): Promise<PostgresJsDatabase> {
     )`;
   await sql`CREATE INDEX wake_pending_undelivered ON wake_pending (parent_session_id) WHERE drained_at IS NULL`;
   await sql`CREATE INDEX wake_pending_undelivered_by_agent ON wake_pending (agent_id) WHERE drained_at IS NULL`;
+  await sql`
+    ALTER TABLE wake_pending ADD CONSTRAINT wake_pending_addressable
+      CHECK (parent_session_id IS NOT NULL OR agent_id IS NOT NULL)`;
+
+  // `asks.id` is `uuid` while `wake_pending.ask_id` is `text`. That MISMATCH is the
+  // point of creating this table here at all: the cockpit sweep joins the two, and
+  // Postgres has no implicit text=uuid operator. Modelling `asks.id` as text would
+  // make the harness agree with a broken query — the exact failure this file's own
+  // docblock warns about one layer down.
+  await sql`
+    CREATE TABLE asks (
+      id uuid PRIMARY KEY,
+      state text NOT NULL,
+      short_id text,
+      title text,
+      responded_at timestamptz,
+      response jsonb
+    )`;
 
   return drizzle(sql);
 }
@@ -150,7 +188,7 @@ function answeredWake(askId: string, agentId: string): WakeSignalPayload {
 
 describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)", () => {
   test("the conversation-keyed round trip works end to end on real SQL", async () => {
-    const db = await bringUp();
+    const db = await getDb();
     const repo = new DrizzleWakePendingRepository(db);
 
     await repo.insert(answeredWake("ask-1", AGENT_A));
@@ -168,7 +206,7 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
   }, 180_000);
 
   test("a second conversation's drain does not take these rows", async () => {
-    const db = await bringUp();
+    const db = await getDb();
     const repo = new DrizzleWakePendingRepository(db);
 
     await repo.insert(answeredWake("ask-a", AGENT_A));
@@ -184,7 +222,7 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
   }, 180_000);
 
   test("concurrent drains deliver each row exactly once", async () => {
-    const db = await bringUp();
+    const db = await getDb();
     const repo = new DrizzleWakePendingRepository(db);
 
     await repo.insert(answeredWake("ask-x", AGENT_A));
@@ -202,7 +240,7 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
   }, 180_000);
 
   test("the session key still works, and the two keys do not cross", async () => {
-    const db = await bringUp();
+    const db = await getDb();
     const repo = new DrizzleWakePendingRepository(db);
 
     await repo.insert({
@@ -226,7 +264,7 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
   }, 180_000);
 
   test("an unaddressable row is refused before it reaches the table", async () => {
-    const db = await bringUp();
+    const db = await getDb();
     const repo = new DrizzleWakePendingRepository(db);
 
     await expect(
@@ -244,5 +282,65 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
     const rows =
       await conn()`SELECT count(*)::int AS n FROM wake_pending WHERE ask_id = 'ask-orphan'`;
     expect(rows[0]?.n).toBe(0);
+  }, 180_000);
+
+  test("the DB refuses an unaddressable row even when application code does not", async () => {
+    const db = await getDb();
+    void db;
+
+    // The constraint exists because this table has four producers and is reachable
+    // from a migration, a backfill, or a psql session — paths that never touch
+    // `DrizzleWakePendingRepository.insert`. Going around the repository is the whole
+    // point of the assertion, not a shortcut in the test.
+    //
+    // try/catch rather than `expect(...).rejects`: a postgres-js tagged template
+    // returns a lazy PendingQuery that only executes when it is awaited, and handing
+    // that object to `.rejects` hung the runner for the full 180s timeout instead of
+    // failing. Awaiting it explicitly is both the working form and the honest one —
+    // the query runs on the line that looks like it runs it.
+    let raised: unknown;
+    try {
+      await conn()`INSERT INTO wake_pending (ask_id, payload_json) VALUES ('ask-raw', '{}'::jsonb)`;
+    } catch (err: unknown) {
+      raised = err;
+    }
+
+    expect(raised).toBeDefined();
+    expect(String(raised)).toContain("wake_pending_addressable");
+  }, 180_000);
+
+  test("the cockpit sweep's real query runs against real asks + wake_pending", async () => {
+    const db = await getDb();
+    void db;
+    const askId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+    await conn()`
+      INSERT INTO asks (id, state, short_id, title, responded_at, response)
+      VALUES (${askId}::uuid, 'responded', 'ask#1', 'title',
+              now(), ${JSON.stringify({ responder: "operator", payload: "yes" })}::jsonb)`;
+    await conn()`
+      INSERT INTO wake_pending (ask_id, agent_id, payload_json, drained_at)
+      VALUES (${askId}, ${AGENT_A}, '{}'::jsonb, now())`;
+
+    // The REAL function, against REAL SQL. This is the test that was missing when the
+    // reviewer caught `w.ask_id = a.id` comparing text to uuid (PR #3286 R1): every
+    // unit test for this function passes a stub whose `unsafe()` returns canned rows
+    // without parsing the query, so the whole suite was green against a statement
+    // Postgres refuses outright — and the failure would not have been confined to the
+    // new column, it would have taken every field the ask-state cache produces.
+    // A forwarding adapter, not a cast. postgres-js's `Sql.unsafe` is generic over
+    // its row type where `UnsafeSql.unsafe` fixes it to `Record<string, unknown>`;
+    // the two are runtime-compatible (this test is the proof) but not structurally
+    // assignable. Forwarding keeps the production signature honest instead of
+    // silencing the mismatch with `as unknown as`.
+    const adapter: UnsafeSql = {
+      unsafe: async (query, params) =>
+        (await conn().unsafe(query, params as never)) as Array<Record<string, unknown>>,
+    };
+
+    const snapshot = await buildAskStateSnapshot(adapter, [askId]);
+
+    expect(snapshot?.[askId]).toMatchObject({ found: true, state: "responded" });
+    expect(snapshot?.[askId]).toHaveProperty("wakeDeliveredAt");
   }, 180_000);
 });

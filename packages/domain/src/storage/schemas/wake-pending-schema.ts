@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, jsonb, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { WakeSignalPayload } from "../../ask/wake-on-respond";
 
@@ -108,6 +108,22 @@ export const wakePendingTable = pgTable(
     undeliveredByAgent: index("wake_pending_undelivered_by_agent")
       .on(table.agentId)
       .where(sql`${table.drainedAt} IS NULL`),
+
+    /**
+     * The addressability invariant, enforced by the DATABASE (PR #3286 R1).
+     *
+     * `DrizzleWakePendingRepository.insert` already refuses an unaddressable payload,
+     * but that guard sits in one application path. This table is written by four
+     * producers and is reachable from a migration, a backfill, or a psql session — and
+     * the failure it guards against is silent by construction: a row addressed to
+     * neither grain matches no drain query, so it sits undelivered forever while every
+     * surface reports success. An invariant whose violation produces no error is
+     * exactly the kind that belongs in a constraint rather than in a code path.
+     */
+    addressable: check(
+      "wake_pending_addressable",
+      sql`${table.parentSessionId} IS NOT NULL OR ${table.agentId} IS NOT NULL`
+    ),
   })
 );
 

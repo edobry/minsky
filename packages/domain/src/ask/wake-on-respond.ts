@@ -105,6 +105,16 @@ export interface WakeSignalSink {
    * Deliver one wake signal. Errors propagate — the reconciler wraps the
    * dispatch in its own try/catch so a sink failure does not roll back the
    * already-recorded `respond()`.
+   *
+   * That contract is unchanged by mt#4476 and is load-bearing for it: the
+   * `"ask.answered"` producer needs a swallow, and takes it at ITS OWN call site
+   * (`asks-answered-wake.ts`) rather than here, because the three other producers
+   * rely on a persistence outage staying visible.
+   *
+   * A signal carries exactly one addressing key — `parentSessionId` for the
+   * `"ask.review"` and `"pr.watch"` kinds, `agentId` for `"ask.answered"`. A payload
+   * naming neither is rejected by `WakePendingRepository.insert`, because a row no
+   * drain can match fails silently rather than loudly.
    */
   emit(signal: WakeSignalPayload): Promise<void> | void;
 }
