@@ -130,9 +130,20 @@ export const MCP_TOOL_ID_PATTERN = /\bmcp__/;
  *
  * ALL THREE ARE ADVISORY, and this is the reason they are a separate check
  * rather than a widening of `internal-tool-id`: that check BLOCKS at the
- * `asks.create` / `asks.edit` boundary, so widening it would ship new hard
- * rejects with no measured fire history behind them — the inverse of the
- * calibration-first ladder every other check here went through (mt#2263).
+ * `asks.create` / `asks.edit` boundary — it is absent from
+ * `filterBlockingFormLintMatches`'s exclusion list — so widening it would ship
+ * new hard rejects with no measured fire history behind them, the inverse of
+ * the calibration-first ladder every other check here went through (mt#2263).
+ *
+ * Splitting the difference inside one check is not available:
+ * `filterBlockingFormLintMatches` keys on `m.check`, so every match carrying
+ * the name `internal-tool-id` blocks or none does. A separate check name IS
+ * the mechanism for "widen coverage without widening blocking."
+ *
+ * mt#4516's SC4 originally said to widen `internal-tool-id`, and was AMENDED
+ * to this shape during implementation after PR #3291 R1 flagged the
+ * divergence — see that criterion's own text for the reconciliation. The
+ * criterion, not this comment, is the record.
  */
 export const ASK_KIND_JARGON_PATTERN =
   /\b(?:capability\.escalate|information\.retrieve|authorization\.approve|direction\.decide|coordination\.notify|quality\.review|stuck\.unblock)\b/;
