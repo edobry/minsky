@@ -471,6 +471,63 @@ export function buildDataReadGraph(
 }
 
 /**
+ * Directories whose whole POPULATION is asserted over by a census test (mt#4508).
+ *
+ * The three edges above all key on an individual FILE: a sibling by name, an importer,
+ * or a test naming that file as a literal. A census test has none of those relationships
+ * to the module it would catch — it asserts over the directory's whole membership, so it
+ * is related to a file it has never heard of, precisely BECAUSE that file is new.
+ *
+ * That gap is why adding a `.minsky/hooks/<name>.ts` module selected ZERO tests
+ * (measured 2026-08-24: `find-related-tests .minsky/hooks/zz-scratch-probe.ts` → empty),
+ * so every local check passed and the first signal was a full CI run on an
+ * already-reviewed PR. Adding one hook module obliges several separate registries, and
+ * an author currently learns the count by exhausting it one CI round at a time.
+ *
+ * Deliberately a DECLARED scope rather than a repo-wide heuristic. A general
+ * "test that reads a directory" rule would fire for changes anywhere in the tree, and
+ * over-inclusion in this selector is not free — per `DEFAULT_MAX_DEPTH` below, a bloated
+ * related set overruns the pre-commit wall-clock budget and blocks the commit outright.
+ * Keying on a named directory bounds the cost to exactly the tree that needs it and
+ * leaves every other change's selection byte-identical.
+ *
+ * Note this list does NOT go stale the way the registries it guards do: adding a hook
+ * module requires no edit here — the edge fires on the DIRECTORY. Only adding a whole
+ * new censused tree would.
+ */
+export const DIRECTORY_CENSUS_TESTS: ReadonlyArray<{
+  readonly dir: string;
+  readonly tests: readonly string[];
+}> = [
+  {
+    dir: ".minsky/hooks",
+    // `hook-module-inventory.test.ts` is the one that fires on mere ADDITION — it walks
+    // the live tree and fails with the new module listed as `unclassified` plus a
+    // bucket-count mismatch. `interceptor-coordinates.test.ts` censuses the DESCRIPTION
+    // population rather than the tree, so it fires a step later, once the module is
+    // described; it is selected here too so the author sees the whole obligation in one
+    // run instead of discovering it on the next round.
+    tests: [
+      ".minsky/hooks/hook-module-inventory.test.ts",
+      ".minsky/hooks/interceptor-coordinates.test.ts",
+    ],
+  },
+];
+
+/**
+ * Census tests owed by a changed repo-relative path, or `[]` if it is under no censused
+ * directory. Matches on a path SEGMENT boundary so a sibling directory sharing a name
+ * prefix (`.minsky/hooks-archive/x.ts`) does not match `.minsky/hooks`.
+ */
+export function censusTestsFor(changedFile: string): string[] {
+  const out: string[] = [];
+  for (const scope of DIRECTORY_CENSUS_TESTS) {
+    if (changedFile.startsWith(`${scope.dir}/`)) out.push(...scope.tests);
+  }
+  return out;
+}
+
+/**
  * Default BFS hops over the reverse-dependency graph.
  *
  * Lowered 6 -> 3 by mt#3765. The header above states that over-inclusion "only
@@ -536,6 +593,17 @@ export function findRelatedTestFiles(
       const readers = dataReadGraph.get(file);
       if (!readers) continue;
       for (const reader of readers) related.add(reader);
+    }
+  }
+
+  // 0b. Directory-census edges (mt#4508): a test asserting over the whole population of
+  //     a declared directory. Runs over `allChanged` — the census is over the DIRECTORY,
+  //     so any change beneath it is in scope, not only a `.ts` one. Gated on existence
+  //     for the same reason every other edge here is: a declared test that has been
+  //     renamed or deleted must produce no edge rather than a path bun cannot run.
+  for (const file of allChanged) {
+    for (const censusTest of censusTestsFor(file)) {
+      if (fs.existsSync(join(repoRoot, censusTest))) related.add(censusTest);
     }
   }
 

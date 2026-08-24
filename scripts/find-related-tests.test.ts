@@ -21,6 +21,7 @@ import {
   buildDataReadGraph,
   toRepoRelative,
   findRelatedTestFiles,
+  censusTestsFor,
   type FsLike,
 } from "./find-related-tests";
 
@@ -240,5 +241,116 @@ describe("real-corpus selection (mt#4224 SC2/SC3)", () => {
     const related = findRelatedTestFiles([REAL_RULE], REPO_ROOT);
 
     expect(related).toContain("tests/domain/plan-task-halt-citation.test.ts");
+  });
+});
+
+// mt#4508: the DIRECTORY-CENSUS edge.
+//
+// The three edges above all key on an individual FILE. A census test asserts over a
+// directory's whole membership, so it is related to a module it has never heard of —
+// which is exactly the module a new-hook-module commit adds. Measured before this edge:
+// `find-related-tests .minsky/hooks/zz-scratch-probe.ts` returned EMPTY, so the
+// pre-commit gate had nothing to run and the first signal was full CI.
+
+const CENSUS_DIR = ".minsky/hooks";
+const CENSUS_TEST = `${CENSUS_DIR}/hook-module-inventory.test.ts`;
+
+describe("censusTestsFor (mt#4508)", () => {
+  test("matches a path under a censused directory", () => {
+    expect(censusTestsFor(`${CENSUS_DIR}/new-guard.ts`)).toContain(CENSUS_TEST);
+  });
+
+  test("matches on a SEGMENT boundary, not a name prefix", () => {
+    // `.minsky/hooks-archive/` shares a prefix with `.minsky/hooks` but is a different
+    // tree; a bare startsWith on the undelimited name would wrongly claim it.
+    expect(censusTestsFor(".minsky/hooks-archive/old-guard.ts")).toEqual([]);
+    // The directory itself is not a file under it either.
+    expect(censusTestsFor(CENSUS_DIR)).toEqual([]);
+  });
+
+  test("a path under no censused directory owes nothing", () => {
+    expect(censusTestsFor("src/cockpit/web/main.tsx")).toEqual([]);
+    expect(censusTestsFor("packages/domain/src/rules/enforcement-mapping.ts")).toEqual([]);
+  });
+});
+
+describe("findRelatedTestFiles census edge (mt#4508)", () => {
+  // `unrelated.test.ts` is the control: it lives in the same fixture and must NOT be
+  // selected, so a passing assertion cannot come from over-selection.
+  const files = {
+    [CENSUS_TEST]: `readdirSync(dirname(fileURLToPath(import.meta.url)))`,
+    [`${CENSUS_DIR}/interceptor-coordinates.test.ts`]: `import { X } from "./interceptor-descriptions";`,
+    [`${CENSUS_DIR}/unrelated.test.ts`]: `describe("unrelated", () => {});`,
+    [`${CENSUS_DIR}/new-guard.ts`]: `export function decide() {}`,
+  };
+
+  test("an ADDED module with no registry entries selects the census tests", () => {
+    // The headline case. The module is new, so nothing imports it, no sibling test
+    // exists, and no test names it as a literal — every pre-existing edge returns
+    // nothing, which is why this selected zero tests before the census edge.
+    const related = findRelatedTestFiles([`${CENSUS_DIR}/new-guard.ts`], REPO, {
+      fs: fakeFs(files),
+    });
+
+    expect(related).toContain(CENSUS_TEST);
+    expect(related).toContain(`${CENSUS_DIR}/interceptor-coordinates.test.ts`);
+    expect(related).not.toContain(`${CENSUS_DIR}/unrelated.test.ts`);
+  });
+
+  test("a declared census test that does not exist creates no edge", () => {
+    // The existence check is the bound here, as it is for the data-read edge: a renamed
+    // or deleted census test must drop out rather than become a path bun cannot run.
+    const withoutCensus = { ...files };
+    delete (withoutCensus as Record<string, string>)[CENSUS_TEST];
+
+    const related = findRelatedTestFiles([`${CENSUS_DIR}/new-guard.ts`], REPO, {
+      fs: fakeFs(withoutCensus),
+    });
+
+    expect(related).not.toContain(CENSUS_TEST);
+  });
+
+  test("a change outside the censused directory selects no census test", () => {
+    const withOutsider = { ...files, "scripts/thing.ts": `export const x = 1;` };
+
+    const related = findRelatedTestFiles(["scripts/thing.ts"], REPO, {
+      fs: fakeFs(withOutsider),
+    });
+
+    expect(related).not.toContain(CENSUS_TEST);
+  });
+});
+
+// SC3/AT2/AT3 over the REAL repository. Same rationale as the mt#4224 block above: a
+// fixture asserts against paths the fixture invented, so it cannot show that the edge
+// fires for the two tests this task exists for.
+describe("real-corpus census selection (mt#4508 SC3)", () => {
+  const REPO_ROOT = join(import.meta.dir, "..");
+
+  // AT2 below is also what keeps the DECLARATION honest, and no separate existence
+  // assertion is needed (nor allowed — `no-real-fs-in-tests` forbids a direct
+  // `existsSync` here). The edge is existence-gated, so a census test that had been
+  // renamed would silently drop out of the selection and AT2 would fail naming it.
+  // Asserting through the selector is the stronger check anyway: it exercises the edge
+  // end-to-end rather than the file's mere presence.
+  test("AT2: a real hook module selects both census tests", () => {
+    const related = findRelatedTestFiles([`${CENSUS_DIR}/registry.ts`], REPO_ROOT);
+
+    expect(related).toContain(`${CENSUS_DIR}/hook-module-inventory.test.ts`);
+    expect(related).toContain(`${CENSUS_DIR}/interceptor-coordinates.test.ts`);
+  });
+
+  test("AT3: a non-hook path selects neither — the widening is scoped", () => {
+    // Asserting on a path whose result is NON-empty: the sibling test proves the
+    // selector actually ran, so "no census tests" is a real negative rather than the
+    // vacuous one an unresolvable path would produce (mem#704).
+    const related = findRelatedTestFiles(
+      ["packages/domain/src/rules/enforcement-mapping.ts"],
+      REPO_ROOT
+    );
+
+    expect(related).toContain("packages/domain/src/rules/enforcement-mapping.test.ts");
+    expect(related).not.toContain(`${CENSUS_DIR}/hook-module-inventory.test.ts`);
+    expect(related).not.toContain(`${CENSUS_DIR}/interceptor-coordinates.test.ts`);
   });
 });
