@@ -265,7 +265,12 @@ const memoryCreateParams = {
     // lists the allowed keys and a bad one fails at the schema rather than at the runtime
     // validator. The runtime check in `execute` still runs — it also validates id SHAPES,
     // which a key enum cannot express. PR #3295 R1 (non-blocking).
-    schema: z.record(z.enum(ASSOCIATION_TYPE_TUPLE), z.array(z.string())),
+    // `partialRecord`, NOT `record` (mt#4528). In Zod 4 an enum-keyed `z.record` is
+    // EXHAUSTIVE: it requires every enum member to be present, so `z.record` here demanded
+    // all eight association types on every call and rejected every valid partial map —
+    // including `{tracksTask: ["mt#1"]}`. `partialRecord` keeps the property this schema is
+    // for (an out-of-vocabulary key is rejected) without the one it must not have.
+    schema: z.partialRecord(z.enum(ASSOCIATION_TYPE_TUPLE), z.array(z.string())),
     description: `Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). Allowed keys: ${ASSOCIATION_TYPE_TUPLE.join(", ")}. See ADR-012.`,
     required: false as const,
   },
