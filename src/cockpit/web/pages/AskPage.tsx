@@ -134,13 +134,27 @@ export function AskPage() {
    * is how the failure branch went unrendered for as long as it did. Reading
    * both off the mutation makes the two states arrive together.
    */
-  const acting: AskActionInFlight | null = resolveMutation.isPending
-    ? { kind: "resolve", optionLetter: resolveMutation.variables.optionLetter }
-    : deferMutation.isPending
-      ? { kind: "defer" }
-      : escalateMutation.isPending
-        ? { kind: "escalate" }
-        : null;
+  /**
+   * The resolve's variables, read ONCE and guarded (PR #3285 R1).
+   *
+   * `MutationObserverBaseResult.variables` is `TVariables | undefined`; the
+   * pending and error VARIANTS narrow it to `TVariables`, which is why the
+   * unguarded reads typechecked. The guard does not fix a reachable crash — it
+   * removes the dependency on that narrowing holding, since a discriminated
+   * union is a library-version detail and nothing here would fail loudly if a
+   * future version widened it. One read, one guard, used by both derivations
+   * below.
+   */
+  const resolveVars = resolveMutation.variables;
+
+  const acting: AskActionInFlight | null =
+    resolveMutation.isPending && resolveVars
+      ? { kind: "resolve", optionLetter: resolveVars.optionLetter }
+      : deferMutation.isPending
+        ? { kind: "defer" }
+        : escalateMutation.isPending
+          ? { kind: "escalate" }
+          : null;
 
   const actionError =
     resolveMutation.error ?? deferMutation.error ?? escalateMutation.error ?? null;
@@ -235,7 +249,7 @@ export function AskPage() {
                     // variables, so nothing extra has to be tracked.
                     confirming={
                       resolveMutation.isPending &&
-                      resolveMutation.variables.resolvedIn === RESOLVE_PROPOSAL_SURFACE
+                      resolveVars?.resolvedIn === RESOLVE_PROPOSAL_SURFACE
                     }
                     error={resolveMutation.error}
                     onConfirm={(optionLetter) =>

@@ -140,18 +140,38 @@ function useInlineAskActions() {
    * rebuilding it left the sibling `isError` unread, which is the whole reason
    * a failed inline action was invisible.
    */
-  const acting: { askId: string; optionLetter?: string } | null = resolveMutation.isPending
-    ? { askId: resolveMutation.variables.ask.id, optionLetter: resolveMutation.variables.optionLetter }
-    : deferMutation.isPending
-      ? { askId: deferMutation.variables }
-      : null;
+  /**
+   * Each mutation's variables, read ONCE and guarded (PR #3285 R1).
+   *
+   * `MutationObserverBaseResult.variables` is `TVariables | undefined`; the
+   * pending and error VARIANTS narrow it to `TVariables`, which is why the
+   * unguarded reads typechecked. The guard does not fix a reachable crash — it
+   * removes the dependency on that narrowing holding, since a discriminated
+   * union is a library-version detail and nothing here would fail loudly if a
+   * future version widened it.
+   *
+   * Note `deferMutation.variables` is the ask id itself (a bare string), so it
+   * needs the same guard for a different reason: `askId: undefined` would make
+   * `failure.askId === ask.id` false for every row and silently swallow the
+   * error rather than throw.
+   */
+  const resolveVars = resolveMutation.variables;
+  const deferVars = deferMutation.variables;
+
+  const acting: { askId: string; optionLetter?: string } | null =
+    resolveMutation.isPending && resolveVars
+      ? { askId: resolveVars.ask.id, optionLetter: resolveVars.optionLetter }
+      : deferMutation.isPending && deferVars
+        ? { askId: deferVars }
+        : null;
 
   /** Which ask the last failure belongs to, so only that row shows it. */
-  const failure = resolveMutation.error
-    ? { askId: resolveMutation.variables.ask.id, error: resolveMutation.error }
-    : deferMutation.error
-      ? { askId: deferMutation.variables, error: deferMutation.error }
-      : null;
+  const failure =
+    resolveMutation.error && resolveVars
+      ? { askId: resolveVars.ask.id, error: resolveMutation.error }
+      : deferMutation.error && deferVars
+        ? { askId: deferVars, error: deferMutation.error }
+        : null;
 
   return { resolveMutation, deferMutation, acting, failure, pendingId: acting?.askId ?? null };
 }
