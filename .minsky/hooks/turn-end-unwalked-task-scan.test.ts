@@ -19,6 +19,14 @@ const CREATED_ID = "mt#9999";
 /** A walk-forward tool named by more than one case. */
 const SESSION_START_TOOL = "mcp__minsky__session_start";
 
+/**
+ * Named by both questions this guard asks and answered differently by each: any
+ * status counts as a WALK, only IN-PROGRESS counts as a PRIMARY THREAD. Extracted
+ * at mt#3784, when the primary-thread cases took its occurrences past the
+ * duplication rule's threshold.
+ */
+const STATUS_SET_TOOL = "mcp__minsky__tasks_status_set";
+
 /** The operator prompt the CLI-transport cases open on. */
 const INCIDENT_PROMPT = "the cockpit isn't loading";
 
@@ -87,7 +95,7 @@ describe("detectUnwalkedTasks", () => {
 
   // AT2 — the same turn, walked. Must be silent.
   test.each([
-    ["mcp__minsky__tasks_status_set", { taskId: CREATED_ID, status: "PLANNING" }],
+    [STATUS_SET_TOOL, { taskId: CREATED_ID, status: "PLANNING" }],
     [SESSION_START_TOOL, { task: CREATED_ID }],
     ["mcp__minsky__tasks_dispatch", { taskId: CREATED_ID }],
     ["mcp__minsky__asks_create", { parentTaskId: CREATED_ID, question: "which approach?" }],
@@ -111,7 +119,7 @@ describe("detectUnwalkedTasks", () => {
   test("walking a DIFFERENT task does not excuse the unwalked one", () => {
     const lines = [
       ...turnThatFilesATask(),
-      toolUse("toolu_walk", "mcp__minsky__tasks_status_set", {
+      toolUse("toolu_walk", STATUS_SET_TOOL, {
         taskId: "mt#1111",
         status: "PLANNING",
       }),
@@ -212,11 +220,19 @@ describe("the injected guidance text (mt#3699)", () => {
   // The carve-out must name the shape that caused mt#3699: the principal has
   // claimed ROUTING of the filed work. That is not a deferral of the WORK, so
   // it had no branch to land in before this.
+  //
+  // mt#3784 narrowed the ILLUSTRATION, not the carve-out. The branch still names
+  // claimed routing explicitly, which is mt#3699's actual criterion, and keeps
+  // one of its two quoted examples; the second ("I'll dispatch these") was cut
+  // for the ceiling, which the restructure left 15 chars of headroom on. Both
+  // quotes plus the new awaiting-answer clause measured 619 against 620 — one
+  // character, which a five-digit task id (three of them in the saturated
+  // render) would have blown straight through. Cutting the redundant second
+  // example was the cheapest thing available that did not cost a carve-out.
   test("names principal-claimed dispatch/routing as a valid end state", () => {
     const text = render(1);
-    expect(text).toContain("has claimed its dispatch/routing");
+    expect(text).toContain("claimed its dispatch/routing");
     expect(text).toContain("tell me what to farm out");
-    expect(text).toContain("I'll dispatch these");
   });
 
   // A single-task fire is the common case in the calibration log, so the
@@ -231,14 +247,67 @@ describe("the injected guidance text (mt#3699)", () => {
 
   // The walk imperative keeps full force (that is the R4 containment this guard
   // shipped for) but must not LEAD — the agent is asked which branch holds
-  // before it is told to walk.
+  // before it is told to walk. mt#3784 kept the ask-first shape and replaced
+  // the "continue to /plan-task now" imperative with a WALK branch the agent has
+  // to satisfy a condition to select.
   test("asks which branch holds before naming the walk action", () => {
     const closing = closingParagraph(1);
-    expect(closing.startsWith("Say in one line which holds")).toBe(true);
-    expect(closing).toContain("continue to /plan-task now");
+    expect(closing.startsWith("Say which holds")).toBe(true);
+    expect(closing).toContain("WALK:");
+    expect(closing).toContain("STOP:");
     // Pins the regression directly: the pre-mt#3699 text opened with the
     // incident-response imperative.
     expect(closing).not.toMatch(/^If this was incident response/);
+  });
+
+  // AT3 / SC1. The retired text inferred what the agent was ASKED TO DO from
+  // where the problem was RAISED — "incident response — a problem raised or
+  // found in this conversation — filing is not the deliverable". The advisory
+  // must no longer carry that inference anywhere, and must say so outright,
+  // because the inference is what an agent supplies unprompted when the text is
+  // merely silent about it.
+  test("does not infer the deliverable from where the problem was raised", () => {
+    const text = render(1);
+    expect(text).not.toContain("filing is not the deliverable");
+    expect(text).not.toContain("incident response");
+    expect(text).toContain("Where it was raised settles neither");
+  });
+
+  // AT1 / SC2. The originating incident's principal said "file a task to
+  // investigate X" — the verb aimed at the AGENT was *file*. That end state has
+  // to be selectable WITHOUT claiming the principal deferred the work or that
+  // the task needs decomposition, which were the only escapes the old list
+  // offered and neither of which was true.
+  test("names request-scope — being asked only to file it — as an end state", () => {
+    const closing = closingParagraph(1);
+    expect(closing).toContain("you were asked to file it");
+    expect(closing).toContain("file a task to");
+    expect(closing).toContain("track this");
+  });
+
+  // SC3's fallback, chosen over detection. A turn that ends by asking the
+  // principal how to route the task has handed them a decision, not stopped
+  // silently — and the guard fires on tool-call state, so it cannot see that.
+  test("names an unanswered routing question as a reason to wait", () => {
+    expect(closingParagraph(1)).toContain("if you asked how to route it, wait");
+  });
+
+  // AT2 — the MIRROR failure, and the specific way a naive rewrite of this text
+  // fails. Making the STOP branch safer must not make it easier to park work the
+  // principal already approved: an ask answered in this conversation authorizes
+  // the WORK and names filing only as its record-keeping step. It belongs under
+  // WALK, on the same side as the blocking-correctness case.
+  test("keeps an answered ask on the WALK side, not the STOP side", () => {
+    const closing = closingParagraph(1);
+    expect(closing).toContain("an ask answered here authorized the work");
+    const walkAt = closing.indexOf("WALK:");
+    const stopAt = closing.indexOf("STOP:");
+    const askAt = closing.indexOf("an ask answered here");
+    expect(walkAt).toBeGreaterThan(-1);
+    expect(stopAt).toBeGreaterThan(walkAt);
+    // The clause sits between the two labels — i.e. inside WALK, not STOP.
+    expect(askAt).toBeGreaterThan(walkAt);
+    expect(askAt).toBeLessThan(stopAt);
   });
 
   // The budget. The registry canary is a ONE-task fire, so
@@ -452,5 +521,163 @@ describe("detectUnwalkedTasks — multi-backend ids over the CLI transport", () 
         } as TranscriptLine,
       ])
     ).toEqual(["gh#123"]);
+  });
+});
+
+describe("the primary-thread branch (mt#3784)", () => {
+  let storeDir: string;
+  let sessionCounter = 0;
+
+  beforeEach(() => {
+    storeDir = mkdtempSync(join(tmpdir(), "mt3784-"));
+  });
+  afterEach(() => {
+    rmSync(storeDir, { recursive: true, force: true });
+  });
+
+  const PRIMARY = "mt#4502";
+  const SIDE_FINDING = "mt#4512";
+
+  /**
+   * The 2026-08-24 incident's shape, and the one a final-turn implementation
+   * cannot see: the conversation opened a session on the primary task and
+   * created its PR in EARLIER turns, then a later turn filed a side-finding and
+   * ended. `extractFinalTurn` slices at the last real user prompt, so everything
+   * before `laterPrompt` is invisible to every turn-scoped read in this guard.
+   */
+  function conversationWithEarlierPrimaryWork(): TranscriptLine[] {
+    return [
+      userPrompt("the ingest is running behind"),
+      toolUse("toolu_start", SESSION_START_TOOL, { task: PRIMARY }),
+      toolResult("toolu_start", { success: true }),
+      toolUse("toolu_pr", "mcp__minsky__session_pr_create", { task: PRIMARY }),
+      toolResult("toolu_pr", { success: true }),
+      userPrompt("what did the retrospective turn up?"),
+      toolUse("toolu_side", MINTING_TOOL, { title: "Skill text addition" }),
+      toolResult("toolu_side", { success: true, taskId: SIDE_FINDING }),
+    ];
+  }
+
+  function render(lines: TranscriptLine[]): string {
+    const input = {
+      session_id: `mt3784-test-${sessionCounter++}`,
+      last_assistant_message: "filed it",
+    } as StopHookInput;
+    const text = run(input, ctxFor(lines), storeDir)?.additionalContext;
+    if (typeof text !== "string") throw new Error("guard produced no advisory text");
+    return text;
+  }
+
+  // THE regression test for this task. A final-turn-scoped implementation
+  // passes every other test in this file and fails this one — which is exactly
+  // what happened to the mechanism the spec originally proposed. Replayed
+  // against 210 real fires, the final-turn window found this signal in 34% of
+  // them and in NEITHER of the two fires from the incident above; the
+  // whole-conversation window found it in 76% and in both.
+  test("detects a primary thread established in an EARLIER turn", () => {
+    const text = render(conversationWithEarlierPrimaryWork());
+    expect(text).toContain(`while ${PRIMARY} is this conversation's active thread`);
+    expect(text).toContain(`keep working ${PRIMARY} and surface this at the close for routing`);
+    expect(text).toContain(`  - ${SIDE_FINDING}`);
+  });
+
+  // The inversion itself. On this branch the guard must NOT ask the agent to
+  // pick between walking and stopping — it asserts the default the principal
+  // named, and puts the burden of argument on walking instead.
+  test("asserts continue-and-surface as the default, not a choice to justify", () => {
+    const text = render(conversationWithEarlierPrimaryWork());
+    expect(text).toContain("Default: keep working");
+    expect(text).toContain("Walk it now only if you can name which holds");
+    // The open branch's ask-which-holds framing must not leak into this one.
+    expect(text).not.toContain("Say which holds");
+    expect(text).not.toContain("STOP:");
+  });
+
+  // The prose/doc corollary settles the originating case on its own, so it has
+  // to survive in the rendered text rather than living only in the docblock.
+  test("names the prose/doc corollary on the walk test", () => {
+    expect(render(conversationWithEarlierPrimaryWork())).toContain(
+      "A prose/doc fix meets neither: you already hold the lesson"
+    );
+  });
+
+  // Without a primary thread the guard falls back to the two-way branch, so a
+  // conversation whose only task activity is this turn's mint reads as the open
+  // case. This is the 24% the detector cannot classify.
+  test("falls back to the open branch when no other task is in play", () => {
+    const text = render([
+      userPrompt("something looks off in the parser"),
+      toolUse("toolu_only", MINTING_TOOL, { title: "Parser defect" }),
+      toolResult("toolu_only", { success: true, taskId: SIDE_FINDING }),
+    ]);
+    expect(text).toContain("ended the turn with no status/session/dispatch/ask call");
+    expect(text).toContain("Say which holds");
+    expect(text).not.toContain("active thread");
+  });
+
+  // A task minted THIS turn is the new work, not a pre-existing thread — so a
+  // turn that files two tasks and starts a session on one must not describe the
+  // just-minted id as the conversation's established thread when it is itself
+  // one of the ids being reported.
+  test("never names a reported task as the conversation's own primary thread", () => {
+    const text = render([
+      userPrompt("file these"),
+      toolUse("toolu_a", MINTING_TOOL, { title: "a" }),
+      toolResult("toolu_a", { success: true, taskId: SIDE_FINDING }),
+      toolUse("toolu_self", SESSION_START_TOOL, { task: SIDE_FINDING }),
+      toolResult("toolu_self", { success: true }),
+      toolUse("toolu_b", MINTING_TOOL, { title: "b" }),
+      toolResult("toolu_b", { success: true, taskId: "mt#4513" }),
+    ]);
+    // mt#4512 was minted AND walked, so only mt#4513 is reported — and mt#4512
+    // is a legitimate active thread for it, having been session-started here.
+    expect(text).toContain("  - mt#4513");
+    expect(text).not.toContain("  - mt#4512");
+    expect(text).toContain(`while ${SIDE_FINDING} is this conversation's active thread`);
+  });
+
+  // PLANNING is a walk for this guard (mt#4228) but is NOT evidence of an
+  // active thread — somebody starting to plan a task is not a conversation
+  // working one. The two questions read the same tool and diverge here.
+  test("a PLANNING transition on another task is not a primary thread", () => {
+    const text = render([
+      userPrompt("look at this"),
+      toolUse("toolu_plan", STATUS_SET_TOOL, {
+        taskId: PRIMARY,
+        status: "PLANNING",
+      }),
+      toolResult("toolu_plan", { success: true }),
+      toolUse("toolu_mint2", MINTING_TOOL, { title: "side" }),
+      toolResult("toolu_mint2", { success: true, taskId: SIDE_FINDING }),
+    ]);
+    expect(text).not.toContain("active thread");
+    expect(text).toContain("Say which holds");
+  });
+
+  // IN-PROGRESS, by contrast, IS the thread signal — same tool, different status.
+  test("an IN-PROGRESS transition on another task IS a primary thread", () => {
+    const text = render([
+      userPrompt("look at this"),
+      toolUse("toolu_ip", STATUS_SET_TOOL, {
+        taskId: PRIMARY,
+        status: "IN-PROGRESS",
+      }),
+      toolResult("toolu_ip", { success: true }),
+      toolUse("toolu_mint3", MINTING_TOOL, { title: "side" }),
+      toolResult("toolu_mint3", { success: true, taskId: SIDE_FINDING }),
+    ]);
+    expect(text).toContain(`while ${PRIMARY} is this conversation's active thread`);
+  });
+
+  // The calibration record carries the classification so a future tuning pass
+  // can measure branch distribution without replaying transcripts by hand,
+  // which is what this task's own planning pass had to do.
+  test("records the detected primary thread on the calibration record", () => {
+    const input = {
+      session_id: `mt3784-calib-${sessionCounter++}`,
+      last_assistant_message: "filed it",
+    } as StopHookInput;
+    const outcome = run(input, ctxFor(conversationWithEarlierPrimaryWork()), storeDir);
+    expect(outcome?.calibration?.["primaryThreadIds"]).toContain(PRIMARY);
   });
 });
