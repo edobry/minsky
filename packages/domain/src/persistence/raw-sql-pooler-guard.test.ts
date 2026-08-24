@@ -247,7 +247,9 @@ function fakePendingQuerySql(opts?: { max?: number; hold?: boolean }) {
       // would report a correct replay as a failure.
       await Promise.resolve();
       if (opts?.hold) await new Promise<void>((resolve) => held.push(resolve));
-      return mode === "values" ? [["row-as-array"]] : [{ row: "as-object" }];
+      if (mode === "values") return [["row-as-array"]];
+      if (mode === "raw") return [["row-as-raw"]];
+      return [{ row: "as-object" }];
     };
     const pending = run() as Promise<unknown> & Record<string, () => unknown>;
     for (const method of ["values", "raw", "simple", "describe"]) {
@@ -410,6 +412,39 @@ describe("bounded admission on the drizzle path (mt#4473)", () => {
 
     const objects = await guarded.unsafe("SELECT 1", []);
     expect(objects).toEqual([{ row: "as-object" }]);
+  });
+
+  // PR #3293 R1 non-blocking: `.raw()` is the other recorded mutator and was
+  // untested. Same record-and-replay path, different `isRaw` value.
+  test("`.raw()` is recorded and replayed too, independently of `.values()`", async () => {
+    const { sql } = fakePendingQuerySql({ max: 4 });
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+
+    expect(await guarded.unsafe("SELECT 1", []).raw()).toEqual([["row-as-raw"]]);
+    // Each query records its OWN chain — a shared recorder would leak the
+    // previous query's mode into this one.
+    expect(await guarded.unsafe("SELECT 1", []).values()).toEqual([["row-as-array"]]);
+    expect(await guarded.unsafe("SELECT 1", [])).toEqual([{ row: "as-object" }]);
+  });
+
+  // PR #3293 R1 BLOCKING, fixed at the class rather than the instance. The
+  // reviewer flagged `describe()`; `simple()` is its sibling and was flagged by
+  // nothing. Both mutate `options.simple` / `options.prepare` rather than the
+  // row shape, and the protocol shape is what mt#2773's guard exists to
+  // control — the simple protocol is one of the one-shot write shapes in its
+  // own experiment matrix. Neither is replayable; both must fail loudly.
+  test("protocol-mutating chaining (`simple`/`describe`) is REJECTED, not replayed", async () => {
+    const { sql } = fakePendingQuerySql({ max: 4 });
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+
+    const rows = guarded.unsafe("SELECT 1", []);
+    const asChainable = rows as unknown as { simple: () => unknown; describe: () => unknown };
+
+    expect(() => asChainable.simple()).toThrow(/pooler-guarded .unsafe\(\)/);
+    expect(() => asChainable.describe()).toThrow(/mt#2773/);
+    // The query itself is unaffected and still resolves as plain rows — a
+    // rejected chain must not poison the promise it was called on.
+    expect(await rows).toEqual([{ row: "as-object" }]);
   });
 
   // AT4 / SC5 — the bound must not degrade normal operation. Shown by a

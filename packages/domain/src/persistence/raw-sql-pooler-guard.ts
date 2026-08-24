@@ -161,16 +161,31 @@ export class PoolAdmissionTimeoutError extends Error {
 }
 
 /**
- * Builder methods that postgres-js implements as pure mutators returning
- * `this`, so the guard can RECORD them and replay them onto the real
- * `PendingQuery` at submission time (mt#4473).
+ * Builder methods the guard RECORDS and replays onto the real `PendingQuery`
+ * at submission time (mt#4473).
+ *
+ * The line is drawn at ROW SHAPE vs PROTOCOL, and it is drawn there for this
+ * guard's own reason. `values()` and `raw()` set `isRaw` and nothing else —
+ * they change how the returned rows are shaped and leave the wire protocol
+ * alone, so replaying them is invisible to the pacing invariant.
+ *
+ * `simple()` and `describe()` are NOT here even though both also return
+ * `this`, because both mutate `options.simple` / `options.prepare` — and the
+ * protocol shape is precisely what this guard exists to control. Per mt#2773's
+ * experiment matrix above, the simple protocol is one of the one-shot write
+ * shapes that wedges the transaction pooler; letting a caller flip it THROUGH
+ * the guard would hand them a way to re-create the condition the guard
+ * prevents. `describe()` additionally resolves to a statement description
+ * rather than rows, so replaying it would resolve this promise to a shape its
+ * own type denies (PR #3293 R1, BLOCKING). Both stay in the rejected set,
+ * where they fail loudly with a pointer.
  *
  * `values()` is the load-bearing member: drizzle's postgres-js driver calls
  * `client.unsafe(query, params).values()` on its main select path
  * (`drizzle-orm/postgres-js/session.js:68,128`), so a guard that threw on it
  * would break every select that maps fields.
  */
-const REPLAYABLE_CHAINING_METHODS = ["values", "raw", "simple", "describe"] as const;
+const REPLAYABLE_CHAINING_METHODS = ["values", "raw"] as const;
 
 type ReplayableChainingMethod = (typeof REPLAYABLE_CHAINING_METHODS)[number];
 
@@ -180,9 +195,13 @@ type ReplayableChainingMethod = (typeof REPLAYABLE_CHAINING_METHODS)[number];
  * here, so an untyped/casted caller fails loudly instead of crashing on an
  * undefined method (PR #1922 R1).
  *
- * These are the members that are NOT pure builder mutators — they start,
- * stream, or cancel execution, so they cannot be recorded and replayed the
- * way `REPLAYABLE_CHAINING_METHODS` can.
+ * Two groups, rejected for different reasons. `cursor` / `stream` / `forEach`
+ * / `execute` / `cancel` / `readable` / `writable` START, stream, or cancel
+ * execution, so they are not pure mutators and cannot be recorded at all.
+ * `simple` / `describe` ARE pure mutators and are still rejected, because they
+ * change the wire protocol rather than the row shape — see
+ * `REPLAYABLE_CHAINING_METHODS` for why that distinction is the one this guard
+ * cares about.
  */
 const REJECTED_CHAINING_METHODS = [
   "cursor",
@@ -192,6 +211,8 @@ const REJECTED_CHAINING_METHODS = [
   "cancel",
   "readable",
   "writable",
+  "simple",
+  "describe",
 ] as const;
 
 /**
@@ -207,10 +228,6 @@ export type GuardedPendingQuery<TRows = Record<string, unknown>[]> = Promise<TRo
   values(): GuardedPendingQuery<unknown[][]>;
   /** Rows as arrays of RAW (unparsed) column buffers — postgres-js's `isRaw = true`. */
   raw(): GuardedPendingQuery<unknown[][]>;
-  /** Forces the simple protocol; the row shape is unchanged. */
-  simple(): GuardedPendingQuery<TRows>;
-  /** Returns the statement description rather than rows. */
-  describe(): GuardedPendingQuery<unknown>;
 };
 
 /**
