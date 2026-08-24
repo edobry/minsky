@@ -281,3 +281,101 @@ describe("AskDetail — credential-request render mode (mt#4030)", () => {
     expect(screen.getByRole("button", { name: /Escalate/ })).toBeTruthy();
   });
 });
+
+describe("AskDetail — the in-flight action is visible and named (mt#4503)", () => {
+  const TWO_OPTIONS = {
+    state: "routed" as const,
+    options: [
+      { label: "Run it", value: "run" },
+      { label: "Hold off", value: "hold" },
+    ],
+  };
+
+  function optionButton(label: RegExp): HTMLButtonElement {
+    return screen.getByRole("button", { name: label }) as HTMLButtonElement;
+  }
+
+  test("at rest, no control claims to be working", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    renderAsk(baseAsk(TWO_OPTIONS));
+
+    expect(screen.queryByTestId("ask-action-status")).toBeNull();
+    expect(screen.queryByTestId("pending-spinner")).toBeNull();
+    expect(optionButton(/Run it/).disabled).toBe(false);
+  });
+
+  test("the spinner lands on the clicked option, and only on it", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    // The whole point of replacing the old `resolving: boolean`. A boolean could
+    // say the panel was busy; it could not say WHICH of these two answers is the
+    // one being saved, and that is the question an operator mid-click has.
+    renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "resolve", optionLetter: "B" } });
+
+    const chosen = optionButton(/Hold off/);
+    const sibling = optionButton(/Run it/);
+
+    expect(chosen.querySelector('[data-testid="pending-spinner"]')).not.toBeNull();
+    expect(chosen.getAttribute("aria-busy")).toBe("true");
+
+    // The sibling is disabled — a second answer must not be sendable — but it
+    // does NOT claim to be saving. Before mt#4503 both rendered identically.
+    expect(sibling.disabled).toBe(true);
+    expect(sibling.querySelector('[data-testid="pending-spinner"]')).toBeNull();
+    expect(sibling.getAttribute("aria-busy")).toBeNull();
+  });
+
+  test("the status line says what is happening, and is announced", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "resolve", optionLetter: "A" } });
+
+    const status = screen.getByTestId("ask-action-status");
+    expect(status.textContent).toBe("Saving your response…");
+    // Not merely visual: a screen reader has to be told too, which is why the
+    // button's own spinner is aria-hidden and this carries the announcement.
+    expect(status.getAttribute("role")).toBe("status");
+  });
+
+  test("defer and escalate name themselves rather than borrowing the resolve wording", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+
+    const { unmount } = renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "defer" } });
+    expect(screen.getByTestId("ask-action-status").textContent).toBe("Deferring…");
+    expect(optionButton(/Defer/).getAttribute("aria-busy")).toBe("true");
+    unmount();
+
+    renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "escalate" } });
+    expect(screen.getByTestId("ask-action-status").textContent).toBe("Escalating…");
+    expect(optionButton(/Escalate/).getAttribute("aria-busy")).toBe("true");
+  });
+
+  test("a failure is rendered where the operator clicked, with the server's own message", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    renderAsk(baseAsk(TWO_OPTIONS), {
+      acting: null,
+      actionError: new Error("resolve failed (409): Ask is in \"closed\" state"),
+    });
+
+    const error = screen.getByTestId("ask-action-error");
+    expect(error.textContent).toContain("Your response was not saved");
+    // The status code is what tells a 409 (someone else already answered) from a
+    // 503 (persistence is down) — two failures with very different remedies.
+    expect(error.textContent).toContain("409");
+    // ErrorState's role="alert": a failure the operator did not ask about must
+    // interrupt, where an in-progress status merely reports.
+    expect(error.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  test("an in-flight action supersedes a stale failure rather than stacking with it", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    // A retry after a failed attempt: the mutation has not cleared its previous
+    // error yet, and showing "not saved" beneath a live spinner would read as a
+    // second failure that has not happened.
+    renderAsk(baseAsk(TWO_OPTIONS), {
+      acting: { kind: "resolve", optionLetter: "A" },
+      actionError: new Error("resolve failed (500): boom"),
+    });
+
+    expect(screen.getByTestId("ask-action-status").textContent).toBe("Saving your response…");
+    expect(screen.queryByTestId("ask-action-error")).toBeNull();
+  });
+});
