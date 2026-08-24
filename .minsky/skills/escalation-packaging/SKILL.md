@@ -59,8 +59,15 @@ Originating incidents: ask `6807fb14` (2026-07-15) — routed correctly, package
 Before any of:
 
 - `mcp__minsky__asks_create` — a routed principal decision
+- `mcp__minsky__asks_edit` — a REWRITE of one. Everything above applies unchanged; an edited ask is exactly as principal-facing as a created one, and `asks_edit` appearing in form item 8 as the REPAIR tool does not exempt it from being checked as an ask.
 - `AskUserQuestion` — an inline decision in chat
 - Any turn-ending question that hands the principal a choice
+
+**On the edit path specifically: a correction is not a lede.** The rewrite is reached because something was already wrong, so the sentence that wants to come first is about the ask's own history — _"Correction, 2026-08-24: this ask was filed on a misquote…"_. That is bookkeeping occupying the field that must carry the question. The body's first sentence is the question, always; never commentary on the prior wording or on why the ask changed. `asks_edit` preserves each pre-edit field under `metadata.originalContent` automatically, so narrating the change in the body buys the reader nothing and costs them the lede.
+
+The word budget will not catch this. R4 (below) fired `over-word-budget`, the author trimmed to satisfy the count, and shipped — **a word budget is silent about whether the words are legible.** Re-run the cold-reader bar on the rewrite, not just the arithmetic.
+
+Originating incident: ask#9864 (2026-08-24) — R4 of the form family. `/escalation-packaging` had been invoked earlier in the SAME session with its full text in context; the trigger list above named only `asks_create`, so by the skill's own terms it did not apply to the rewrite. The principal: _"i dont really understand that ask, help me out, simplify and properly contextualize."_ Near-verbatim R3. Family record: mem#760; the generalization is that **a checklist ported into a skill inherits that skill's trigger list, and nothing in a porting step re-examines it.**
 
 ## Related
 
