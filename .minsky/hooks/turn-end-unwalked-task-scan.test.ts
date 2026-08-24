@@ -669,6 +669,55 @@ describe("the primary-thread branch (mt#3784)", () => {
     expect(text).toContain(`while ${PRIMARY} is this conversation's active thread`);
   });
 
+  // PR #3292 R1 (BLOCKING). Recency has to be TRANSCRIPT order, not the order
+  // the tools happen to sit in `PRIMARY_THREAD_TOOLS`. The pre-fix loop iterated
+  // tools on the outside, so every `session_start` was collected before every
+  // status transition no matter when each occurred — and the tail, which is the
+  // id the advisory names, became "last id of the last tool" instead. Here the
+  // conversation moves A -> B -> C, with C reached via a tool that sorts FIRST
+  // in the list, so a tool-major implementation names B.
+  test("names the most recent thread in transcript order, not tool order", () => {
+    const text = render([
+      userPrompt("start on the first one"),
+      toolUse("toolu_ord_a", SESSION_START_TOOL, { task: "mt#4001" }),
+      toolResult("toolu_ord_a", { success: true }),
+      userPrompt("actually switch"),
+      toolUse("toolu_ord_b", STATUS_SET_TOOL, { taskId: "mt#4002", status: "IN-PROGRESS" }),
+      toolResult("toolu_ord_b", { success: true }),
+      userPrompt("and now this one"),
+      toolUse("toolu_ord_c", SESSION_START_TOOL, { task: "mt#4003" }),
+      toolResult("toolu_ord_c", { success: true }),
+      userPrompt("what did you find?"),
+      toolUse("toolu_ord_mint", MINTING_TOOL, { title: "side" }),
+      toolResult("toolu_ord_mint", { success: true, taskId: SIDE_FINDING }),
+    ]);
+    expect(text).toContain("while mt#4003 is this conversation's active thread");
+    expect(text).not.toContain("mt#4002 is this conversation's active thread");
+  });
+
+  // The same bug's other half. A `Set` preserves FIRST-insertion order, so a
+  // task named early and again late stays at the head unless each mention
+  // re-inserts it — which would leave the advisory naming a thread the
+  // conversation had already moved on from and then returned FROM.
+  test("a re-mentioned thread moves to the tail, not stays at the head", () => {
+    const text = render([
+      userPrompt("start A"),
+      toolUse("toolu_re_a", SESSION_START_TOOL, { task: "mt#4001" }),
+      toolResult("toolu_re_a", { success: true }),
+      userPrompt("now B"),
+      toolUse("toolu_re_b", SESSION_START_TOOL, { task: "mt#4002" }),
+      toolResult("toolu_re_b", { success: true }),
+      userPrompt("back to A"),
+      toolUse("toolu_re_a2", SESSION_START_TOOL, { task: "mt#4001" }),
+      toolResult("toolu_re_a2", { success: true }),
+      userPrompt("anything else?"),
+      toolUse("toolu_re_mint", MINTING_TOOL, { title: "side" }),
+      toolResult("toolu_re_mint", { success: true, taskId: SIDE_FINDING }),
+    ]);
+    expect(text).toContain("while mt#4001 is this conversation's active thread");
+    expect(text).not.toContain("mt#4002 is this conversation's active thread");
+  });
+
   // The calibration record carries the classification so a future tuning pass
   // can measure branch distribution without replaying transcripts by hand,
   // which is what this task's own planning pass had to do.

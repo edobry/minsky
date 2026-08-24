@@ -406,10 +406,12 @@ const PRIMARY_THREAD_TOOLS: readonly {
  *
  * The wider window is free: `ctx.transcriptLines` is the whole parent
  * transcript already (`dispatcher.ts` resolves it uncapped, and `run()`
- * voluntarily slices it down for the turn-scoped reads). Measured on the
- * largest transcript in the corpus — 17.3 MB, 1683 lines — this scan costs
- * 0.6 ms against a `timeoutMs` of 5000, indistinguishable from the final-turn
- * scan it sits beside. No extra I/O; the lines are already parsed.
+ * voluntarily slices it down for the turn-scoped reads). Re-measured after the
+ * PR #3292 R1 loop restructure, on the three largest transcripts in the corpus:
+ * 0.70 ms at 1683 lines (17.3 MB), 0.52 ms at 1433, 0.49 ms at 2004 — against a
+ * `timeoutMs` of 5000. What bounds this is the LINE count, not the byte size,
+ * and transcripts run to thousands of lines rather than millions. No extra I/O;
+ * the lines are already parsed by the time the guard is called.
  *
  * Ids the turn itself minted are excluded: a task filed and immediately
  * session-started is this turn WALKING it, which is the one case that never
@@ -419,19 +421,40 @@ export function detectPrimaryThreadIds(
   conversationLines: Parameters<typeof findToolUseInputs>[0],
   mintedIds: readonly string[]
 ): string[] {
-  const ids = new Set<string>();
-  for (const { tool, keys, status } of PRIMARY_THREAD_TOOLS) {
-    for (const input of findToolUseInputs(conversationLines, tool)) {
-      if (status !== undefined && input["status"] !== status) continue;
-      for (const key of keys) {
-        const value = input[key];
-        if (typeof value === "string" && value.length > 0 && !mintedIds.includes(value)) {
-          ids.add(value);
+  // Iterate LINES on the outside and tools on the inside, so the result is in
+  // transcript order (PR #3292 R1). Tools-on-the-outside — the obvious shape,
+  // since `findToolUseInputs` takes one tool name — groups every `session_start`
+  // ahead of every status transition regardless of when each happened, which
+  // makes the tail "the last id of the last tool in the list" rather than the
+  // most recent id in the conversation. `buildReminder` reads that tail as the
+  // thread to name, so the wrong grouping surfaces the wrong task: a
+  // conversation that starts mt#A, moves to mt#B via IN-PROGRESS, then starts
+  // mt#C would have named mt#B.
+  //
+  // `findToolUseInputs([line], tool)` rather than a hand-rolled block walk: it
+  // handles BOTH transcript shapes (a top-level `tool_use` line and an assistant
+  // line whose `message.content` carries `tool_use` blocks), and re-implementing
+  // that here would be a second copy to drift.
+  const lastSeen = new Set<string>();
+  for (const line of conversationLines) {
+    for (const { tool, keys, status } of PRIMARY_THREAD_TOOLS) {
+      for (const input of findToolUseInputs([line], tool)) {
+        if (status !== undefined && input["status"] !== status) continue;
+        for (const key of keys) {
+          const value = input[key];
+          if (typeof value !== "string" || value.length === 0) continue;
+          if (mintedIds.includes(value)) continue;
+          // Re-insert on every mention. A Set preserves FIRST-insertion order,
+          // so without the delete a task named early and again late would stay
+          // at the head — and the tail, which is what gets named, would be some
+          // task the conversation had already moved on from.
+          lastSeen.delete(value);
+          lastSeen.add(value);
         }
       }
     }
   }
-  return [...ids];
+  return [...lastSeen];
 }
 
 /**
@@ -510,9 +533,10 @@ function openDirective(): string {
 
 function buildReminder(unwalked: UnwalkedTask[], primaryThreadIds: readonly string[]): string {
   // The MOST RECENT id, not the first: a long conversation accumulates several,
-  // and the one the agent is holding right now is the one worth naming. Set
-  // iteration is insertion-ordered and `findToolUseInputs` yields in document
-  // order, so the tail is the latest mention.
+  // and the one the agent is holding right now is the one worth naming.
+  // `detectPrimaryThreadIds` guarantees the tail is the latest MENTION — it
+  // walks lines in transcript order and re-inserts on every mention. Do not
+  // weaken either property there without changing this read (PR #3292 R1).
   const primary = primaryThreadIds.at(-1);
   const lines: string[] = [
     primary !== undefined
