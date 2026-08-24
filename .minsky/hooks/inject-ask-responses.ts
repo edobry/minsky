@@ -142,6 +142,13 @@ export type AskStateEntry =
       title?: string;
       respondedAt?: string;
       chosen?: string;
+      /**
+       * Set when the tool-call seam (mt#4476) already delivered this answer to the
+       * filing conversation. Present here because the two seams cannot share a
+       * watermark directly — this hook writes no DB by design (mem#672), so the
+       * cockpit sweep carries the tool-call seam's `drained_at` across for us.
+       */
+      wakeDeliveredAt?: string;
     }
   | { found: false };
 
@@ -220,6 +227,14 @@ export function selectSettledAsks(
     const answered = Boolean(entry.respondedAt) || entry.state === "responded";
     const marker = `${entry.state}:${entry.respondedAt ?? ""}:${entry.chosen ?? ""}`;
     if (alreadyInjected[askId] === marker) continue;
+    // Cross-seam dedupe (mt#4476). The tool-call seam already put this answer in
+    // front of the filing conversation mid-turn, so announcing it again at the next
+    // prompt is a duplicate. Deliberately checked AFTER the local watermark and
+    // BEFORE the push, so a wake-delivered ask is skipped without being recorded in
+    // this hook's own watermark — if the two seams ever diverge (a wake drained by a
+    // DIFFERENT conversation than the one this hook runs in), the local watermark is
+    // still unset and the next prompt can still announce it here.
+    if (entry.wakeDeliveredAt) continue;
 
     settled.push({
       askId,

@@ -63,6 +63,111 @@ function resolverThrowing(message: string): SessionResolver {
 }
 
 // ---------------------------------------------------------------------------
+// Conversation-keyed path (mt#4476) — the seam SC1 depends on
+// ---------------------------------------------------------------------------
+
+const AGENT_ID = "com.anthropic.claude-code:conv:c8fc3ca9-c3d6-4916-bbfe-99917f4ae596";
+
+const ANSWERED_ASK: WakeSignalPayload = {
+  kind: "ask.answered",
+  askId: "ask-answered",
+  agentId: AGENT_ID,
+  parentTaskId: "mt#4476",
+  reviewBody: "yes — ship it",
+  reviewState: "responded",
+  reviewAuthor: "operator",
+  prNumber: 0,
+};
+
+describe("conversation-keyed delivery (mt#4476)", () => {
+  test("delivers on a tool that is NOT on the session allowlist", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(ANSWERED_ASK);
+
+    const block = await enrichWakeResponse(
+      // A tool with no session/task args at all, and not on the allowlist. Under the
+      // v0 conjunction this call delivered nothing — which is why an agent running a
+      // long turn never learned its ask had been answered.
+      NOT_ALLOWLISTED_TOOL,
+      {},
+      repo,
+      undefined,
+      { callerAgentId: AGENT_ID }
+    );
+
+    expect(block).not.toBeNull();
+    expect(block?.text).toContain("ask-answered");
+    expect(block?.text).toContain("yes — ship it");
+  });
+
+  test("second call delivers nothing — drain is idempotent on this key too", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(ANSWERED_ASK);
+
+    await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+      callerAgentId: AGENT_ID,
+    });
+    const second = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+      callerAgentId: AGENT_ID,
+    });
+
+    expect(second).toBeNull();
+  });
+
+  test("a DIFFERENT conversation does not receive it", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(ANSWERED_ASK);
+
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+      callerAgentId: "com.anthropic.claude-code:conv:99999999-9999-4999-8999-999999999999",
+    });
+
+    // The isolation the whole design rests on. If this ever passes a wake to the
+    // wrong conversation, the key is not conversation-scoped — which is exactly what
+    // an ADR-006 Layer 1 process hash would be, and why the server withholds one.
+    expect(block).toBeNull();
+  });
+
+  test("no caller identity means no conversation-keyed drain at all", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(ANSWERED_ASK);
+
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {});
+
+    expect(block).toBeNull();
+    // Still undrained — a call that cannot name a conversation must not consume
+    // another conversation's pending wake.
+    expect(repo.listAll().every((r) => r.drainedAt === null)).toBe(true);
+  });
+
+  test("a failure on the agent key does not suppress the session key", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(PAYLOAD_A);
+    const halfFailing: WakeServiceSurface = {
+      drainBySession: (s, t) => repo.drainBySession(s, t),
+      async drainByAgent(): Promise<WakeSignalPayload[]> {
+        throw new Error("agent drain failed");
+      },
+    };
+
+    const block = await enrichWakeResponse(
+      ALLOWLISTED_TOOL,
+      {},
+      halfFailing,
+      resolverReturning("session-1"),
+      {
+        callerAgentId: AGENT_ID,
+      }
+    );
+
+    // The two keys are independent lookups; one failing is not a reason to withhold
+    // what the other found.
+    expect(block).not.toBeNull();
+    expect(block?.text).toContain("ask-a");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Allowlist gate
 // ---------------------------------------------------------------------------
 

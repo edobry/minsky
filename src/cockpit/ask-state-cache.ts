@@ -119,6 +119,23 @@ export type AskStateEntry =
        * text, never something a consumer should parse back.
        */
       chosen?: string;
+      /**
+       * ISO-8601 timestamp at which this ask's answer was already delivered to its
+       * filing conversation through the TOOL-CALL seam (mt#4476) — the `drained_at`
+       * of its `wake_pending` row. Absent when no wake was written (the ask predates
+       * mt#4476, or was filed with no resolvable conversation identity) or when one
+       * was written but not yet drained.
+       *
+       * This is the cross-seam dedupe, and it has to travel through this cache
+       * because the two seams cannot share a watermark directly: mt#3564's hook
+       * deliberately touches no DB (mem#672 — DB-writing hooks die silently at
+       * bootstrap), while the tool-call drain happens inside the MCP server process,
+       * which under ADR-038 may be a shared daemon and under an HTTP deployment is
+       * not co-located with the hook at all. The cockpit sweep is the one component
+       * holding both a DB connection and a line to the hook's cache file, so the
+       * watermark crosses here.
+       */
+      wakeDeliveredAt?: string;
     }
   | { found: false };
 
@@ -309,8 +326,15 @@ export async function buildAskStateSnapshot(
 ): Promise<Record<string, AskStateEntry> | null> {
   if (askIds.length === 0) return {};
   try {
+    // The correlated subquery carries the cross-seam dedupe (mt#4476). It is a
+    // subquery rather than a second round-trip because this runs per sweep over the
+    // whole tracked id-set — a per-ask lookup would be the N+1 shape
+    // `efficient-database-queries.mdc` exists to prevent.
     const rows = (await sql.unsafe(
-      "SELECT id, state, short_id, title, responded_at, response FROM public.asks WHERE id = ANY($1::uuid[])",
+      "SELECT a.id, a.state, a.short_id, a.title, a.responded_at, a.response, " +
+        "(SELECT max(w.drained_at) FROM public.wake_pending w " +
+        " WHERE w.ask_id = a.id AND w.drained_at IS NOT NULL) AS wake_delivered_at " +
+        "FROM public.asks a WHERE a.id = ANY($1::uuid[])",
       [askIds]
     )) as Array<{
       id?: unknown;
@@ -319,6 +343,7 @@ export async function buildAskStateSnapshot(
       title?: unknown;
       responded_at?: unknown;
       response?: unknown;
+      wake_delivered_at?: unknown;
     }>;
 
     // Seed every requested id as not-found, then overwrite the ones the query
@@ -342,6 +367,7 @@ export async function buildAskStateSnapshot(
           ? (row.response as { payload?: unknown }).payload
           : undefined
       );
+      const wakeDeliveredAt = toIsoOrUndefined(row.wake_delivered_at);
       asks[id] = {
         found: true,
         state,
@@ -350,6 +376,7 @@ export async function buildAskStateSnapshot(
         ...(title ? { title } : {}),
         ...(respondedAt ? { respondedAt } : {}),
         ...(chosen ? { chosen } : {}),
+        ...(wakeDeliveredAt ? { wakeDeliveredAt } : {}),
       };
     }
     return asks;

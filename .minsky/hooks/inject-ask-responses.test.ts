@@ -107,6 +107,64 @@ describe("selectSettledAsks", () => {
     expect(settled[0]?.answered).toBe(false);
   });
 
+  test("skips an ask the tool-call seam already announced (mt#4476 AT2)", () => {
+    // The whole cross-seam dedupe. The wake path put this answer in front of the
+    // filing conversation mid-turn; announcing it again at the next prompt is the
+    // double-notify SC3 forbids.
+    const settled = selectSettledAsks(
+      [ASK_A],
+      cache({
+        [ASK_A]: {
+          found: true,
+          state: "responded",
+          open: false,
+          respondedAt: NOW,
+          wakeDeliveredAt: NOW,
+        },
+      }),
+      {}
+    );
+    expect(settled).toEqual([]);
+  });
+
+  test("still announces an answered ask whose wake was written but NOT yet drained", () => {
+    // `wakeDeliveredAt` is the DRAIN timestamp, not the write. An ask whose wake row
+    // exists but has never been delivered — the conversation went idle before its next
+    // tool call — has not actually been told anything, so the prompt seam is still the
+    // only thing that will reach it. Keying the dedupe on the write instead of the
+    // drain would silently swallow exactly that case.
+    const settled = selectSettledAsks(
+      [ASK_A],
+      cache({
+        [ASK_A]: { found: true, state: "responded", open: false, respondedAt: NOW },
+      }),
+      {}
+    );
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.answered).toBe(true);
+  });
+
+  test("a wake-delivered ask is skipped WITHOUT consuming this hook's watermark", () => {
+    // Checked after the local watermark and before the push, so the returned set
+    // carries no marker for it. If the two seams ever diverge — a wake drained by a
+    // different conversation than the one this hook runs in — the local watermark is
+    // still unset and a later prompt can still announce it here.
+    const settled = selectSettledAsks(
+      [ASK_A],
+      cache({
+        [ASK_A]: {
+          found: true,
+          state: "responded",
+          open: false,
+          respondedAt: NOW,
+          wakeDeliveredAt: NOW,
+        },
+      }),
+      {}
+    );
+    expect(settled.some((s) => s.askId === ASK_A)).toBe(false);
+  });
+
   test("skips an ask absent from the snapshot — never looked up is not settled", () => {
     expect(selectSettledAsks([ASK_A], cache({}), {})).toEqual([]);
   });
