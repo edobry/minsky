@@ -357,6 +357,109 @@ mem#664 (`family:principal-altitude`, R1–R6, all fixes DONE) · mt#4439 (the c
 this is the interim of) · mt#4442 (the umbrella workstream) · `work-completion.mdc §Temporary
 mechanism budget` (the escalation-threshold discipline this follows).
 
+## The composition layer — register/volume vs channel/sort (mt#4439)
+
+The altitude register above is a **volume** dial: receipts / standard / executive control HOW MUCH
+gets said on one channel. A separate axis was never addressed — **which channel a given utterance
+belongs to at all.** This section records the distinction, and the principal's brief that produced
+it, so that a later reader cannot collapse the two and "fix" a sorting complaint by turning the
+register down.
+
+Full design: **RFC: The composition layer — a delivery boundary for the agent↔principal channel**
+(Notion `3c6937f0-3cb4-81dc-95d0-d6cdf59dfaee`), Draft 2026-08-24. Task record: mt#4439.
+
+### The two axes, stated so they cannot be conflated
+
+- **Register / volume (SHIPPED, mt#2867).** How much is said. A verbose report and a terse report
+  differ on this axis.
+- **Channel / sort (THIS, open).** Whether an utterance is working-noise or composed delivery. A
+  verbose composed report and a terse composed report are BOTH composed; a wall of
+  thinking-while-working is composed at NEITHER volume.
+
+**The one-sentence test** (an acceptance criterion of mt#4439): turning the register down makes the
+stream shorter without making it sorted — which is why the register shipping in July did not
+prevent the complaint that arrived on 2026-08-22.
+
+### The principal's brief, verbatim — including the correction
+
+The task was first filed on the diagnosis _"he reads to the end, so put actionables at the end."_
+**He corrected that himself, the same day**, and the correction is preserved here because inheriting
+the original framing would re-derive the wrong fix:
+
+> _"The fact that I read to the end is a consequence. It's a contingent consequence of the way that
+> I've been trained to interact with AI ... There's a big wall of text and my eyes kind of glaze
+> over it because a lot of it is thinking done while working versus a direct response to me."_
+
+**End-reading is an ADAPTATION to the defect, not a property of the reader.** A placement rule
+optimizing for it would cement the symptom and leave the cause.
+
+What he asked for instead is attunement:
+
+> _"Really on a higher level what I'm asking for here is more about attunement ... for the agent to
+> attune to what I, or honestly any supervisor or entities interacting with a counterparty
+> interlocutor, would want to know."_
+
+The managerial coaching he offered as the model — note that it is neither "say less" nor "reorder,"
+but _build a model of the counterparty and sort your material against it_:
+
+> _"Hey don't just dump all the technical context and all that stuff on to everybody there. Keep
+> that aside and then figure out what information is actually relevant to communicate."_
+
+And the structural diagnosis, which is a claim about the substrate rather than about discipline:
+
+> _"When the agent speaks, the agent does tool calls and then the agent sometimes does thinking.
+> All those are basically the same ... To me it feels like there's a sort of missing layer. There
+> isn't room for the agent to carve out some space explicitly to structure the communication with
+> the outside world within."_
+
+**Personal-register note.** The principal introduced the meetings analogy through his own
+description of his own history. Reuse it as HIS analogy if it is quoted; do not restate it as a
+characterization of anyone else, and do not treat it as a description of the agent's defect. The
+transferable content is the coaching, not the label.
+
+### Why two adjacent mechanisms do not cover it
+
+- **The heartbeat rule MANDATES the noise.** `user-preferences.mdc §Progress heartbeats` requires a
+  status line every 10 minutes or 15 tool calls, at _every_ register, explicitly as scroll lines.
+  That rule is correct — silent stretches left the principal blind — and it has nowhere to put its
+  output but chat. Part of the wall is a rule working as designed.
+- **The cockpit's fold cannot absorb it.** `turnIsFoldable`
+  (`src/cockpit/web/lib/conversation-action-bursts.ts:154`) folds only turns that are pure
+  machinery; its docblock states the rule outright — _"A turn holding BOTH prose and a tool call is
+  not foldable — it has speech in it, so it stays."_ Process narration IS prose, so it is exactly
+  the class that escapes the fold.
+
+### The three categories, and the one with no home
+
+|                       | what it is                                    | audience                              | home today                       |
+| --------------------- | --------------------------------------------- | ------------------------------------- | -------------------------------- |
+| Reasoning / CoT       | cognition that happens to be legible          | none — the model to itself            | yes; harnesses collapse it       |
+| **Process narration** | _"Let me check X." "Now wiring the handler."_ | the principal, live, for supervision  | **NO**                           |
+| Composed delivery     | the answer, the report, the packaged result   | the principal, at the decision moment | yes — chat, PR body, task record |
+
+The middle row is speech-shaped and addressed (so not CoT) and unsorted and uncomposed (so not
+delivery). **It enters the delivery channel because that is the only channel it can reach.**
+
+mt#4441's survey recut this by **value half-life** rather than audience, which exposes a fourth
+class the audience cut leaves homeless: **durable content emitted mid-work** ("the prod config was
+already broken") — not narration, because it does not expire; not composed delivery, because nobody
+packaged it. Under half-life it defines composition's job: **composition is the act of sweeping the
+durables out of the ephemeral stream into the package.**
+
+### The honest limit
+
+**Structure creates the room, not the attunement.** A boundary and a fold neither build nor apply a
+model of the counterparty. The mechanism guarantees the MOMENT of composition, not its QUALITY —
+and the RFC says so plainly rather than letting a reader infer that shipping the primitive
+discharges the brief.
+
+### Cross-references
+
+mt#4439 (the design) · mt#4441 (the CSCW / agent-framework survey that corrected it) · mt#4443
+(§The terminal actionables block — the interim this retires) · mt#4026 (surface declaration, a
+prerequisite for the two-renderer split) · mt#2531 (fatigued compressor) · mt#4444 (Suchman's
+double-edge, principal-reserved) · mem#903 (the 2026-08-08 narration-theatre correction).
+
 ## Cross-references
 
 `user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
