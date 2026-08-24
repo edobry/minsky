@@ -2194,7 +2194,8 @@ async function resolveCurrentProjectScope(
     if (!rawDb) return undefined;
     const scope = await resolveProjectScope(
       identity,
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb,
+      `asks.${caller}`
     );
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {

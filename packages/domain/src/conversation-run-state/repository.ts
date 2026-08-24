@@ -50,7 +50,7 @@ async function resolveRunStateProjectId(
   try {
     const identity = resolveProjectIdentity({ repoPath: cwd });
     if (identity.kind !== "resolved") return null;
-    const scope = await resolveProjectScope(identity, db);
+    const scope = await resolveProjectScope(identity, db, "run-state.ingest");
     return isAllProjects(scope) ? null : scope;
   } catch (err) {
     log.debug("[run-state] project id resolution failed; leaving unscoped", {

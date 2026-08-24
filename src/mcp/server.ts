@@ -2037,7 +2037,9 @@ export class MinskyMCPServer {
   private async resolveProjectIdBestEffort(): Promise<string | undefined> {
     try {
       const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+      const { resolveProjectScope, isScopeResolverDb } = await import(
+        "@minsky/domain/project/scope-resolver"
+      );
       const identity = resolveProjectIdentity({ repoPath: process.cwd() });
       if (identity.kind === "resolved" && this.container?.has("persistence")) {
         const persistence = this.container.get("persistence") as {
@@ -2045,11 +2047,11 @@ export class MinskyMCPServer {
         };
         if (persistence.getDatabaseConnection) {
           const rawDb = await persistence.getDatabaseConnection();
-          if (rawDb) {
-            const scope = await resolveProjectScope(
-              identity,
-              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-            );
+          // Check the shape rather than asserting it (mt#4509). `getDatabaseConnection()` is
+          // typed `Promise<unknown>`, so the `as ScopeResolverDb` cast this replaces was the
+          // only thing standing between a non-drizzle handle and a TypeError in the resolver.
+          if (isScopeResolverDb(rawDb)) {
+            const scope = await resolveProjectScope(identity, rawDb, "mcp.presence");
             const { isAllProjects } = await import("@minsky/domain/project/scope");
             // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
             if (!isAllProjects(scope)) {

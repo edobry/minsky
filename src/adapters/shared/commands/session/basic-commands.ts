@@ -83,7 +83,7 @@ export function createSessionListCommand(
             if (identity.kind === "resolved") {
               const db = await sqlProvider.getDatabaseConnection();
               if (db) {
-                const scope = await resolveProjectScope(identity, db);
+                const scope = await resolveProjectScope(identity, db, "session.list");
                 // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
                 const { isAllProjects } = await import("@minsky/domain/project/scope");
                 if (!isAllProjects(scope)) {
