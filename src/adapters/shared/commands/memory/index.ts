@@ -46,7 +46,9 @@ import { checkDerivation } from "@minsky/domain/memory/validation";
 import {
   validateAssociations,
   summarizeAssociationIssues,
+  TRACKS_TASK_ASSOCIATION,
 } from "@minsky/domain/memory/associations";
+import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
 import { emitSystemEventBestEffort } from "../system-event-emit";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
 import {
@@ -911,6 +913,34 @@ export function registerMemoryCommands(
         throw new Error(associationError);
       }
 
+      // Derive `tracksTask` from a retirement clause the author already wrote (mt#4448).
+      // The other half of the write-side criterion: rejecting bad keys stops the corpus
+      // getting worse, but the reason 1198 of 1226 records carry NO association is that
+      // setting one is a separate thing to remember. An author who writes "Tracking task:
+      // mt#X" in the body has already stated the relationship; making them restate it as a
+      // structured argument is the step that does not happen.
+      //
+      // Reuses `extractTrackingTaskRefs` — the CALIBRATED extractor mt#1709 shipped, which
+      // requires an explicit retirement RELATIONSHIP rather than a bare task mention. A
+      // looser pattern here would mint exactly the noise this task removed from the backfill.
+      //
+      // Only fires when the caller supplied no `tracksTask`: an explicit argument always wins,
+      // including an explicit empty array.
+      const associations = { ...(params.associations ?? {}) };
+      if (associations[TRACKS_TASK_ASSOCIATION] === undefined) {
+        const derived = extractTrackingTaskRefs({
+          content: params.content,
+          ...(params.description === undefined ? {} : { description: params.description }),
+        });
+        if (derived.source === "text" && derived.refs.length > 0) {
+          associations[TRACKS_TASK_ASSOCIATION] = derived.refs;
+          log.debug("[memory.create] derived tracksTask from a retirement clause", {
+            name: params.name,
+            refs: derived.refs,
+          });
+        }
+      }
+
       const service = await resolveMemoryService(deps, ctx ?? {});
 
       // ADR-021 / mt#2416: default projectId to the resolved current project
@@ -939,7 +969,7 @@ export function registerMemoryCommands(
         sourceAgentId: params.sourceAgentId ?? null,
         sourceSessionId: params.sourceSessionId ?? null,
         confidence: params.confidence ?? null,
-        associations: params.associations,
+        associations,
       };
 
       const record = await service.create(input);

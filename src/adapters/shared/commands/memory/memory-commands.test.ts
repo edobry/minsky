@@ -839,3 +839,133 @@ describe("resolveMemoryIdInput (mt#2966)", () => {
     await expect(resolveMemoryIdInput("mem#999", ctx)).rejects.toThrow(/not found/i);
   });
 });
+
+// ─── ADR-012 association vocabulary + tracksTask derivation (mt#4448) ─────────
+
+describe("memory.create — association vocabulary and derivation (mt#4448)", () => {
+  /**
+   * A fake that CAPTURES the create input, so the derived `associations` can be asserted.
+   * The shared `makeFakeMemoryService` above discards it. Injected rather than spied: the
+   * command takes its service through deps, so observing the call needs no patching.
+   */
+  const NOT_REGISTERED = "memory.create not registered";
+
+  /** Fetch the create command, failing loudly if registration regressed. */
+  function createCommand(deps: MemoryCommandsDeps) {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, deps);
+    const cmd = registry.getCommand(CREATE_CMD);
+    if (!cmd) throw new Error(NOT_REGISTERED);
+    return cmd;
+  }
+
+  function makeCapturingDeps(): {
+    deps: MemoryCommandsDeps;
+    captured: { input?: MemoryCreateInput };
+  } {
+    const captured: { input?: MemoryCreateInput } = {};
+    const base = makeFakeMemoryService();
+    const service: MemoryServiceSurface = {
+      ...base,
+      create: async (input) => {
+        captured.input = input;
+        return makeRecord();
+      },
+    };
+    return { deps: { memoryService: service }, captured };
+  }
+
+  async function runCreate(
+    params: Record<string, unknown>
+  ): Promise<{ input?: MemoryCreateInput }> {
+    const { deps, captured } = makeCapturingDeps();
+    const cmd = createCommand(deps);
+    await cmd.execute({ type: "user", name: "m", description: "d", scope: "user", ...params }, {});
+    return captured;
+  }
+
+  // AT4 — a retirement clause in the body populates tracksTask with no explicit argument.
+  test("AT4: a 'Tracking task: mt#N' clause derives tracksTask without an associations arg", async () => {
+    const captured = await runCreate({
+      content: "Bridge until the real fix lands. Tracking task: mt#4448",
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual(["mt#4448"]);
+  });
+
+  test("AT4: a 'Budget: retire when mt#N ships' clause also derives it", async () => {
+    const captured = await runCreate({
+      content: "Workaround for the flaky path. Budget: retire when mt#1709 ships.",
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual(["mt#1709"]);
+  });
+
+  // AT5 — the negative control for derivation: no clause, no association.
+  test("AT5: content with no retirement clause leaves associations empty", async () => {
+    const captured = await runCreate({
+      content: "edobry prefers incremental commits so failures are recoverable",
+    });
+    expect(captured.input?.associations ?? {}).toEqual({});
+  });
+
+  test("AT5: a BARE task mention is not a retirement clause and derives nothing", async () => {
+    // The precision half. A looser extractor would mint the same noise this task just
+    // removed from the backfill (9438 ids across 1146 records).
+    const captured = await runCreate({
+      content: "This came up while working on mt#4448 and mt#1709, but tracks neither.",
+    });
+    expect(captured.input?.associations ?? {}).toEqual({});
+  });
+
+  test("an explicit tracksTask argument always wins over derivation", async () => {
+    const captured = await runCreate({
+      content: "Tracking task: mt#4448",
+      associations: { tracksTask: ["mt#9999"] },
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual(["mt#9999"]);
+  });
+
+  test("an explicit EMPTY tracksTask suppresses derivation rather than being overwritten", async () => {
+    const captured = await runCreate({
+      content: "Tracking task: mt#4448",
+      associations: { tracksTask: [] },
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual([]);
+  });
+
+  test("an out-of-vocabulary key is rejected, naming the nearest valid type", async () => {
+    const cmd = createCommand(makeCapturingDeps().deps);
+    await expect(
+      cmd.execute(
+        {
+          type: "user",
+          name: "m",
+          description: "d",
+          scope: "user",
+          content: "a genuine insight worth keeping",
+          associations: { tasks: ["mt#4317"] },
+        },
+        {}
+      )
+    ).rejects.toThrow('Did you mean "relatedTask"');
+  });
+
+  test("force=true does NOT bypass the vocabulary check", async () => {
+    // force covers the mt#960 derivation heuristic only. An override here would restore
+    // the condition the mt#4448 census measured.
+    const cmd = createCommand(makeCapturingDeps().deps);
+    await expect(
+      cmd.execute(
+        {
+          type: "user",
+          name: "m",
+          description: "d",
+          scope: "user",
+          content: "a genuine insight worth keeping",
+          associations: { prs: ["3200"] },
+          force: true,
+        },
+        {}
+      )
+    ).rejects.toThrow("not an ADR-012 association type");
+  });
+});
