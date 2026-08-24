@@ -29,6 +29,7 @@ import os from "os";
 import path from "path";
 import {
   DisconnectTracker,
+  SERVER_INITIATED_CAUSES,
   STDIO_SESSION_KEY,
   type McpDisconnectEvent,
 } from "./disconnect-tracker";
@@ -726,6 +727,150 @@ describe("DisconnectTracker persistence", () => {
 
     const t = DisconnectTracker.resetForTest("srv", tmpPath);
     expect(t.getEvents().length).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4481 — the legacy→JSONL seam
+  //
+  // The hybrid test above builds its fixture as
+  //   `${JSON.stringify(legacy, null, 2)}\n${jsonl}`
+  // — with a newline between the two halves. That shape cannot occur in
+  // production: the mt#1645 writer emitted `JSON.stringify(events, null, 2)`,
+  // which ends in `]` with NO trailing newline, and `appendEvent` writes a
+  // trailing newline only. So the real file's first append is GLUED to the
+  // closing bracket, and the one shape that actually shipped was the one the
+  // fixture did not build.
+  //
+  // Consequence on the operator read path: `jq` aborts a stream at its first
+  // parse error, and `]{...}` is the first line a `"kind":"process_start"`
+  // grep matches — so the restart query dies at exit 5 with zero rows while
+  // the `disconnect` recipes, which never match that line, run clean.
+  // -------------------------------------------------------------------------
+
+  test("appending after a legacy array does not glue the first JSONL line to its closing bracket", () => {
+    const legacyEvents = [
+      {
+        timestamp: "2026-05-07T10:00:00.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+    ];
+    // Byte-for-byte what the mt#1645 writer left behind.
+    fs.writeFileSync(tmpPath, JSON.stringify(legacyEvents, null, 2), "utf-8");
+    // Precondition — if this ever ends in a newline the test proves nothing.
+    expect((fs.readFileSync(tmpPath, "utf-8") as string).endsWith("\n")).toBe(false);
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    t.recordProcessStart();
+    t.recordDisconnect("stdin_close");
+
+    const raw = fs.readFileSync(tmpPath, "utf-8") as string;
+    expect(raw).not.toContain("]{");
+
+    // Every line from the closing bracket onward must stand alone as JSON —
+    // that is exactly what a line-oriented `grep | jq` read requires.
+    const lines = raw.split("\n");
+    const bracketIndex = lines.findIndex((l) => l.trim() === "]");
+    expect(bracketIndex).toBeGreaterThanOrEqual(0);
+    const jsonlLines = lines.slice(bracketIndex + 1).filter((l) => l.trim() !== "");
+    expect(jsonlLines.length).toBe(2);
+    for (const line of jsonlLines) {
+      const obj = JSON.parse(line);
+      expect(typeof obj.kind).toBe("string");
+    }
+  });
+
+  test("loads a hybrid file whose first JSONL line is glued to the legacy closing bracket", () => {
+    // The shape that actually exists on disk today, reproduced exactly: no
+    // separator between `]` and the first appended record. The loader already
+    // handles this (its cursor advances past the matched bracket before it
+    // line-splits) — this pins that behavior so the append fix above cannot
+    // regress the read side for files already carrying a seam.
+    const legacyEvents = [
+      {
+        timestamp: "2026-05-07T10:00:00.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+    ];
+    const newEvents = [
+      {
+        timestamp: "2026-05-08T10:00:00.000Z",
+        serverName: "srv",
+        kind: "process_start",
+        cause: "process_start",
+        pid: 91211,
+      },
+      {
+        timestamp: "2026-05-08T10:00:01.000Z",
+        serverName: "srv",
+        kind: "disconnect",
+        cause: "staleness_exit",
+        uptimeMs: 1000,
+      },
+    ];
+    const glued = `${JSON.stringify(legacyEvents, null, 2)}${newEvents
+      .map((e) => JSON.stringify(e))
+      .join("\n")}\n`;
+    expect(glued).toContain("]{");
+    fs.writeFileSync(tmpPath, glued, "utf-8");
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    const loaded = t.getEvents();
+    expect(loaded.length).toBe(3);
+    expect(loaded[0]?.cause).toBe("unknown"); // from the legacy array
+    // The glued record is the one at risk: it must survive, not be swallowed
+    // by the loader's `startsWith("]")` bracket-residue skip.
+    expect(loaded[1]?.kind).toBe("process_start");
+    expect(loaded[1]?.pid).toBe(91211);
+    expect(loaded[2]?.cause).toBe("staleness_exit");
+  });
+});
+
+// ===========================================================================
+// mt#4481 — the cadence rule's escalation-eligibility list must match the code
+//
+// `SERVER_INITIATED_CAUSES` is the code's exclusion set;
+// `.minsky/rules/mcp-disconnect-cadence.mdc` §Recurrence-threshold escalation
+// restates it in prose for operators. mt#2830 added `"signal"` to the set and
+// to neither the rule's list nor its cause-class entries, so the rule read
+// "counts toward escalation" for a cause the code silently excluded — for
+// months, until a reviewer caught it on PR #3280.
+//
+// A restatement that nothing checks is a restatement that drifts. This asserts
+// the two are the same set, so the next person to change one is told to change
+// the other.
+// ===========================================================================
+
+describe("cadence rule escalation list matches SERVER_INITIATED_CAUSES (mt#4481)", () => {
+  const RULE_PATH = path.resolve(__dirname, "../../.minsky/rules/mcp-disconnect-cadence.mdc");
+
+  test("the rule documents exactly the causes the code excludes", () => {
+    const rule = fs.readFileSync(RULE_PATH, "utf-8") as string;
+
+    // The rule states it as: `cause ∉ {a, b, c}` inside a bullet.
+    const match = rule.match(/`cause ∉ \{([^}]*)\}`/);
+    expect(match).not.toBeNull();
+
+    const documented = new Set(
+      (match?.[1] ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "")
+    );
+
+    // Compare as sorted arrays so a mismatch prints both sides rather than
+    // "expected Set to equal Set".
+    expect([...documented].sort()).toEqual([...SERVER_INITIATED_CAUSES].sort());
+  });
+
+  test("the two causes that DO escalate are absent from the set", () => {
+    // Guards the other direction: an over-eager future edit that "tidies" all
+    // the signal-shaped causes into one place would silence real crashes.
+    expect(SERVER_INITIATED_CAUSES.has("signal_sigkill")).toBe(false);
+    expect(SERVER_INITIATED_CAUSES.has("proxy_observed_crash")).toBe(false);
   });
 });
 

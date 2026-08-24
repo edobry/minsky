@@ -325,16 +325,30 @@ export const DEFAULT_SESSION_KEY = "_default";
 /**
  * Causes whose disconnect events are server-initiated by design and excluded
  * from the escalation count regardless of uptime.
+ *
+ * Note `signal_sigkill` and `proxy_observed_crash` are deliberately ABSENT —
+ * an external actor caused those, so they escalate.
+ *
+ * The bare `"signal"` is a member and arguably should not be: it is the
+ * proxy's catch-all for SIGSEGV / SIGABRT / SIGBUS, which are runtime crashes
+ * rather than anything server-initiated. Tracked at mt#4499; documented as-is
+ * in `.minsky/rules/mcp-disconnect-cadence.mdc` cause class 7.
+ *
+ * Exported for `disconnect-tracker.test.ts`, which asserts this set is
+ * byte-equal to the list the cadence rule documents (mt#4481). The two drifted
+ * apart for months after mt#2830 added `"signal"` here and nowhere else.
  */
-const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>([
-  "staleness_exit",
-  "signal",
-  "signal_sigterm",
-  "signal_sigint",
-  "signal_sighup",
-  "server_close",
-  "idle_timeout",
-]);
+export const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>(
+  [
+    "staleness_exit",
+    "signal",
+    "signal_sigterm",
+    "signal_sigint",
+    "signal_sighup",
+    "server_close",
+    "idle_timeout",
+  ]
+);
 
 /** Directory where the persistent event log is written. */
 function getStateDir(): string {
@@ -944,17 +958,68 @@ export class DisconnectTracker {
   }
 
   /**
+   * True when the persist file exists, is non-empty, and its final byte is not
+   * a newline — i.e. appending directly would produce a line carrying two
+   * records' worth of text.
+   *
+   * Reads exactly one byte at the tail rather than the whole file: this log is
+   * megabytes after a few months (mt#4495), and the question is about the last
+   * byte only.
+   */
+  private lastByteIsNotNewline(): boolean {
+    if (!this.persistPath) return false;
+    let fd: number | undefined;
+    try {
+      const { size } = fs.statSync(this.persistPath);
+      if (size === 0) return false; // Nothing to separate from.
+      fd = fs.openSync(this.persistPath, "r");
+      // Uint8Array rather than Buffer: this repo's ambient Buffer type exposes
+      // only `from`, and readSync takes any ArrayBufferView.
+      const tail = new Uint8Array(1);
+      fs.readSync(fd, tail, 0, 1, size - 1);
+      return tail[0] !== 0x0a; // 0x0a === "\n"
+    } catch {
+      // intentional-swallow: the file is missing or unreadable, so there is no
+      // preceding byte to separate from. appendFileSync below reports the real
+      // failure if the path is genuinely broken — this probe must not turn a
+      // readability problem into a lost event.
+      return false;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+
+  /**
    * Durably append a single event as one JSON line to the persist file.
    * Uses `appendFileSync` (O_APPEND semantics) so the write is atomic at the
    * line boundary and complete before the call returns — even if the process
    * exits microseconds later.
+   *
+   * mt#4481 — why the leading separator. The mt#1645 writer emitted
+   * `JSON.stringify(events, null, 2)`, which ends in `]` with NO trailing
+   * newline. This method writes a TRAILING newline only, so the first append
+   * after that migration was glued onto the closing bracket, producing a
+   * single `]{"timestamp":...}` line. The loader below tolerates it (its
+   * cursor advances past the matched bracket before line-splitting), but the
+   * OPERATOR read path does not: `jq` aborts a stream at its first parse
+   * error, and that line is the first one a `"kind":"process_start"` grep
+   * matches — so the restart query dies at exit 5 emitting zero rows, which
+   * reads as "the tracker stopped recording" rather than as a malformed file.
+   *
+   * The check is unconditional rather than first-append-only. Every append
+   * writes a complete line ending in a newline, so after the first one the
+   * probe always answers false — including under concurrent writers, which is
+   * why no cross-process coordination is needed. Three syscalls on a path that
+   * fires a handful of times per process lifetime is not worth optimizing into
+   * a state flag that could go stale.
    */
   private appendEvent(event: McpDisconnectEvent): void {
     if (!this.persistPath) return; // In-memory-only mode (tests)
     try {
       const dir = path.dirname(this.persistPath);
       fs.mkdirSync(dir, { recursive: true });
-      const line = `${JSON.stringify(event)}\n`;
+      const separator = this.lastByteIsNotNewline() ? "\n" : "";
+      const line = `${separator}${JSON.stringify(event)}\n`;
       fs.appendFileSync(this.persistPath, line, "utf-8");
     } catch (err) {
       log.warn("mcp_disconnect_tracker: failed to append event log", {
