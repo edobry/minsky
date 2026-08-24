@@ -124,6 +124,23 @@ reads as a task-graph event rather than a corpus one.
   correction note pointing here has been added to ADR-044's `## Corrections`, leaving its decision
   and its lineage untouched.
 
+### What changes for the archive's reference doc
+
+`docs/architecture/transcript-archive.md` is the architecture reference for the store itself
+(mt#2680), and it opened by declaring the bucket the immutable system of record. **Re-scoped in the
+same change as this ADR**, rather than left to contradict it. The store, its key layout, its
+confirmation contract and its security posture are all unchanged and remain accurate; three claims
+that depended on the retired incremental-capture model are marked inline as retired — the
+per-capture snapshot object, the "newest complete version" tiebreak rule, and the DR section's
+premise that the bucket would become the only copy.
+
+Three code comments still assert the superseded framing —
+`packages/domain/src/storage/archive/transcript-archive-store.ts`,
+`packages/domain/src/configuration/schemas/transcript-archive.ts`, and
+`src/cockpit/web/lib/conversation-action-bursts.ts`. All three are deploy-surface files, so they are
+tracked separately rather than folded into a documentation change; the tracking task is named in
+`## Cross-references`.
+
 ### The second-store bar, re-derived for the cold tier
 
 `decision-defaults.mdc §Datastores` reads: _"**Datastores**: persistence/pubsub/state →
@@ -222,7 +239,9 @@ providers), ADR-040 and ADR-044 (both inherit ADR-025 — see `## Consequences`)
 **Decision record:** ask#8004 (the principal decision this ADR formalizes, answered 2026-08-24);
 ask#9995 (the open DR question this ADR does not settle).
 
-**Tasks:** mt#4501 (this record) · mt#2581 (umbrella) · mt#2681 (ingest rewrite — re-spec) · mt#2580
+**Tasks:** mt#4501 (this record) · **mt#4522** (the three code comments that still assert the
+superseded framing — split out because all three files are deploy surface) · mt#2581 (umbrella) ·
+mt#2681 (ingest rewrite — re-spec) · mt#2580
 (blob drop) · mt#2583 (tool-call columns) · mt#2682 (backfill — re-point) · mt#2715 (DR posture) ·
 mt#3954 (bucket provisioning) · mt#4447 (the bucket's non-transcript consumer) · mt#2585 (embedding
 granularity) · mt#4285 (ADR-025's two corrected premises) · mt#2680 (the bucket + client that
