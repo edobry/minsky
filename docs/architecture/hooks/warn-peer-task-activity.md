@@ -3,6 +3,12 @@
 Advisory PreToolUse observer on `mcp__minsky__tasks_status_set` and `mcp__minsky__tasks_spec_patch`. Reads the task event ledger and
 injects an advisory when it shows activity the caller may not have caused. **It never denies.**
 
+That matches mt#4494's `## Success Criteria`, whose fifth criterion was **amended 2026-08-24
+(PR #3281 R2)** from "a guard denies" to "a guard surfaces (advisory, never denies)". The original
+wording and both reasons for the change are recorded in the criterion itself, not only here — see
+§What it deliberately does NOT do below. A reader checking spec against implementation should find
+them agreeing; if they ever diverge again, the criterion is the side to fix.
+
 Source: `.minsky/hooks/warn-peer-task-activity.ts`. Task: mt#4494.
 
 ## Why it exists
