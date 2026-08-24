@@ -4243,12 +4243,17 @@
       "point": "PreToolUse",
       "pointSource": "settings",
       "trajectory": null,
-      "interventions": [],
-      "mechanism": null,
-      "role": null,
-      "coordinateGaps": ["interventions", "mechanism", "role"],
-      "families": [],
-      "familyState": "unclassified",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "warn-peer-task-activity"
     }
