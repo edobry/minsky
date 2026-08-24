@@ -36,6 +36,37 @@ export interface TranscriptWatcherSummary {
   lastIngestAt: string | null;
   /** ISO timestamp of the last ingest error, or null. */
   lastErrorAt: string | null;
+  /**
+   * Ingests started and not yet settled (mt#4492).
+   *
+   * `ingestsTriggered` counts STARTS — it is incremented before the ingest's
+   * first await — so a started-and-never-finished ingest reads identically to a
+   * quiet watcher on every other field here. That is not hypothetical: during a
+   * pooler wedge on 2026-08-24 this object read `ingestsTriggered: 1` and an
+   * EMPTY live-session list for four hours, which is exactly what an idle
+   * watcher looks like.
+   */
+  ingestsInFlight: number;
+  /**
+   * Age of the OLDEST unsettled ingest, or null when none is in flight.
+   *
+   * Derived at read time rather than stored, so it cannot go stale between
+   * polls. This is the field that discriminates "nothing to do" from "stuck":
+   * a healthy watcher reads null or single-digit seconds, a wedged one climbs
+   * without bound. Prefer it over `ingestsInFlight` alone — a non-zero COUNT is
+   * normal, a large AGE is not.
+   */
+  oldestIngestInFlightAgeMs: number | null;
+  /** Ingests abandoned at the wall-clock bound rather than completing (mt#4492). */
+  ingestsAbandoned: number;
+  /**
+   * When the ingest path is in backoff, the ISO time it resumes; else null.
+   *
+   * Exposed rather than kept internal because a deliberately-paused watcher is
+   * the same INERT-but-running shape this whole object exists to make legible —
+   * pausing silently would reproduce the defect one layer up.
+   */
+  ingestPausedUntil: string | null;
   // NOTE: the raw last-error MESSAGE is deliberately NOT exposed here. /api/health
   // is unauthenticated, and error strings can leak absolute paths / internals
   // (reviewer R1). The message is still emitted to the log surface by the
@@ -120,6 +151,19 @@ export class TranscriptWatcherTracker {
   private turnsIngested = 0;
   private lastIngestAtMs: number | null = null;
   private lastErrorAtMs: number | null = null;
+  private ingestsAbandoned = 0;
+  private ingestPausedUntilMs: number | null = null;
+
+  /**
+   * Unsettled ingests, keyed by `agentSessionId` → start time (mt#4492).
+   *
+   * Keyed by the SESSION id, never the absolute jsonl path: this map feeds the
+   * unauthenticated `/api/health`, and the reviewer-R1 rule that keeps paths out
+   * of `ActiveSessionInfo` applies with equal force to anything derived here.
+   * Only a COUNT and an AGE are ever serialized, so no key escapes at all — the
+   * keying just makes that structurally true rather than a convention.
+   */
+  private readonly inFlightIngests = new Map<string, number>();
 
   /** Per-session ingestion-freshness registry (SC2), keyed by agentSessionId. */
   private readonly sessions = new Map<string, ActiveSessionState>();
@@ -168,6 +212,38 @@ export class TranscriptWatcherTracker {
   recordIngestError(): void {
     this.ingestErrors++;
     this.lastErrorAtMs = Date.now();
+  }
+
+  /**
+   * Mark an ingest as started for `agentSessionId` (mt#4492).
+   *
+   * `nowMs` is injectable for the same reason {@link getLiveSessions}'s is —
+   * the age this feeds is the assertion, and pinning the clock beats sleeping.
+   */
+  recordIngestStarted(agentSessionId: string, nowMs: number = Date.now()): void {
+    this.inFlightIngests.set(agentSessionId, nowMs);
+  }
+
+  /**
+   * Mark an ingest as settled — completed, failed, or abandoned at the bound.
+   *
+   * Deliberately indifferent to WHICH: the in-flight set answers "is something
+   * stuck right now", and every one of those three outcomes means the answer is
+   * no longer yes for this session. The outcome itself is recorded by the
+   * `recordIngest*` counters.
+   */
+  recordIngestSettled(agentSessionId: string): void {
+    this.inFlightIngests.delete(agentSessionId);
+  }
+
+  /** Record an ingest abandoned at its wall-clock bound (mt#4492). */
+  recordIngestAbandoned(): void {
+    this.ingestsAbandoned++;
+  }
+
+  /** Set (or clear, with null) the time the ingest path resumes after backoff. */
+  setIngestPausedUntil(untilMs: number | null): void {
+    this.ingestPausedUntilMs = untilMs;
   }
 
   /**
@@ -261,10 +337,34 @@ export class TranscriptWatcherTracker {
     return live.sort(byMostRecentlyActive);
   }
 
-  /** Snapshot the current counters for the cockpit `/api/health` surface. */
-  getSummary(): TranscriptWatcherSummary {
+  /**
+   * Snapshot the current counters for the cockpit `/api/health` surface.
+   *
+   * `nowMs` is injectable so the derived in-flight age is assertable without a
+   * real wait — same seam, same reason, as {@link getLiveSessions}.
+   */
+  getSummary(nowMs: number = Date.now()): TranscriptWatcherSummary {
+    // Derived at read time, never stored: an age stamped at write time is wrong
+    // by however long it sat between polls, and "how long has this been stuck"
+    // is the entire question this field exists to answer.
+    let oldestStartedAtMs: number | null = null;
+    for (const startedAtMs of this.inFlightIngests.values()) {
+      if (oldestStartedAtMs === null || startedAtMs < oldestStartedAtMs) {
+        oldestStartedAtMs = startedAtMs;
+      }
+    }
+
     return {
       running: this.running,
+      ingestsInFlight: this.inFlightIngests.size,
+      // Clamped at 0 rather than allowed negative: an injected or skewed clock
+      // reading before the start stamp is a measurement artifact, and a
+      // negative age would read as a live defect.
+      oldestIngestInFlightAgeMs:
+        oldestStartedAtMs === null ? null : Math.max(0, nowMs - oldestStartedAtMs),
+      ingestsAbandoned: this.ingestsAbandoned,
+      ingestPausedUntil:
+        this.ingestPausedUntilMs === null ? null : new Date(this.ingestPausedUntilMs).toISOString(),
       filesWatched: this.filesWatched,
       ingestsTriggered: this.ingestsTriggered,
       ingestsSucceeded: this.ingestsSucceeded,

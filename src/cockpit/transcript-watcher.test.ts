@@ -223,3 +223,163 @@ describe("TranscriptWatcher DB handle across a pool recycle (mt#4480)", () => {
     expect(await resolve()).toBe(live);
   });
 });
+
+describe("TranscriptWatcher bounded ingest and in-flight visibility (mt#4492)", () => {
+  let root: string;
+  let tracker: TranscriptWatcherTracker;
+  let ingestCalls: string[];
+  let gate: Deferred | null;
+  let clockMs: number;
+  /**
+   * Resolves the moment the injected ingest is ENTERED.
+   *
+   * Needed because `processFile` is async and parks at its first await
+   * (`fileExists`) — so an unawaited call has not reached the ingest, and
+   * asserting straight after it observes a watcher that has done nothing yet.
+   * Awaiting this makes "the ingest is now in flight" a fact rather than a
+   * number of microtasks guessed at.
+   */
+  let ingestEntered: Deferred | null;
+
+  /** A timeout arm that wins the race immediately — no real 90s wait. */
+  const instantTimeout = async () => ({ timedOut: true }) as const;
+
+  const makeWatcher = (over: { timeoutSignal?: () => Promise<{ timedOut: true }> } = {}) =>
+    new TranscriptWatcher({
+      claudeProjectsDir: root,
+      tracker,
+      now: () => clockMs,
+      ingestFile: async (path: string) => {
+        ingestCalls.push(path);
+        ingestEntered?.resolve();
+        if (gate) await gate.promise;
+        return 1;
+      },
+      ...over,
+    });
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "transcript-watcher-bound-"));
+    tracker = TranscriptWatcherTracker.resetForTest();
+    ingestCalls = [];
+    gate = null;
+    ingestEntered = null;
+    clockMs = 1_000_000;
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * The defect this task exists for, at its narrowest.
+   *
+   * NEGATIVE CONTROL: on the pre-fix tree the in-flight guard's `return`
+   * preceded `recordSessionEvent`, so the second event stamped nothing and this
+   * assertion fails. Removing the registry entry between the two calls is the
+   * deterministic proxy for that: it makes "the second event stamped liveness"
+   * observable without racing two `Date.now()` reads a millisecond apart.
+   *
+   * Why it matters in production: the stamp feeds `lastEventAt`, and
+   * `getLiveSessions` drops any entry outside a 2-minute window. So a path whose
+   * ingest hung stopped refreshing its stamp and simply vanished from the live
+   * list — the conversation looked idle precisely because it was stuck.
+   */
+  test("an event arriving while an ingest is in flight still stamps liveness", async () => {
+    const session = join(root, "proj-a", "busy.jsonl");
+    await writeLines(session, [userLine("a", "2026-08-24T00:00:00.000Z")]);
+    const watcher = makeWatcher();
+
+    gate = deferred();
+    ingestEntered = deferred();
+    const first = watcher.processFile(session); // enters, holds inFlight, awaits the gate
+    await ingestEntered.promise; // the ingest is genuinely in flight now
+    // Drop the entry the first call registered, so the next assertion can only
+    // pass if the SECOND call re-registers it from the in-flight guard branch.
+    tracker.removeSession("busy");
+    expect(tracker.getActiveSessions().map((s) => s.agentSessionId)).not.toContain("busy");
+
+    await watcher.processFile(session); // hits the in-flight guard
+
+    expect(tracker.getActiveSessions().map((s) => s.agentSessionId)).toContain("busy");
+    // The ingest itself is still correctly skipped — exactly one call.
+    expect(ingestCalls).toEqual([session]);
+
+    gate.resolve();
+    await first;
+  });
+
+  test("an in-flight ingest reports a derived age on /api/health", async () => {
+    const session = join(root, "proj-a", "slow.jsonl");
+    await writeLines(session, [userLine("a", "2026-08-24T00:00:00.000Z")]);
+    const watcher = makeWatcher();
+
+    gate = deferred();
+    ingestEntered = deferred();
+    const pending = watcher.processFile(session);
+    await ingestEntered.promise;
+
+    // Read the summary 5s after the ingest started, with both clocks injected —
+    // the age is the assertion, so it is derived, not slept for.
+    const during = tracker.getSummary(clockMs + 5_000);
+    expect(during.ingestsInFlight).toBe(1);
+    expect(during.oldestIngestInFlightAgeMs).toBe(5_000);
+
+    gate.resolve();
+    await pending;
+
+    const after = tracker.getSummary(clockMs + 5_000);
+    expect(after.ingestsInFlight).toBe(0);
+    expect(after.oldestIngestInFlightAgeMs).toBeNull();
+  });
+
+  test("an ingest that never settles is abandoned at the bound and releases the path", async () => {
+    const session = join(root, "proj-a", "wedged.jsonl");
+    await writeLines(session, [userLine("a", "2026-08-24T00:00:00.000Z")]);
+    // Never resolves on its own — the injected timeout is the only way out.
+    gate = deferred();
+    const watcher = makeWatcher({ timeoutSignal: instantTimeout });
+
+    await watcher.processFile(session);
+
+    const s = tracker.getSummary(clockMs);
+    expect(s.ingestsAbandoned).toBe(1);
+    // Released, not leaked: the path is no longer reported in flight, so the
+    // next event can retry it rather than bouncing off a permanently-held guard.
+    expect(s.ingestsInFlight).toBe(0);
+    // NOT counted as an error — the abandoned operation may still succeed late,
+    // and would then record its own success from inside the ingest.
+    expect(s.ingestErrors).toBe(0);
+    expect(s.ingestPausedUntil).toBeNull();
+
+    gate.resolve();
+  });
+
+  test("consecutive abandons pause the ingest path, and the pause lifts on its own", async () => {
+    const files = ["a", "b", "c", "d"].map((n) => join(root, "proj-a", `${n}.jsonl`));
+    for (const f of files) await writeLines(f, [userLine("x", "2026-08-24T00:00:00.000Z")]);
+    gate = deferred();
+    const watcher = makeWatcher({ timeoutSignal: instantTimeout });
+
+    // Three abandons trips the threshold.
+    for (const f of files.slice(0, 3)) await watcher.processFile(f);
+
+    const paused = tracker.getSummary(clockMs);
+    expect(paused.ingestsAbandoned).toBe(3);
+    expect(paused.ingestPausedUntil).not.toBeNull();
+    expect(ingestCalls).toHaveLength(3);
+
+    // While paused: the event still stamps liveness, but no ingest is attempted.
+    await watcher.processFile(files[3] as string);
+    expect(ingestCalls).toHaveLength(3);
+    expect(tracker.getActiveSessions().map((s) => s.agentSessionId)).toContain("d");
+
+    // Once the window elapses the path resumes without any external prod.
+    clockMs += 5 * 60_000 + 1;
+    await watcher.processFile(files[3] as string);
+    expect(ingestCalls).toHaveLength(4);
+    expect(tracker.getSummary(clockMs).ingestPausedUntil).toBeNull();
+
+    gate.resolve();
+  });
+});
