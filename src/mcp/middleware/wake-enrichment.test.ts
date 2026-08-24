@@ -232,6 +232,9 @@ describe("enrichWakeResponse", () => {
       async drainBySession(): Promise<WakeSignalPayload[]> {
         throw new Error("DB query failed");
       },
+      async drainByAgent(): Promise<WakeSignalPayload[]> {
+        return [];
+      },
     };
     const block = await enrichWakeResponse(
       ALLOWLISTED_TOOL,
