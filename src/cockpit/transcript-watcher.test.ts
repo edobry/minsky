@@ -160,3 +160,66 @@ describe("TranscriptWatcher core (mt#2320)", () => {
     expect(ingestCalls).toEqual([session]);
   });
 });
+
+describe("TranscriptWatcher DB handle across a pool recycle (mt#4480)", () => {
+  /**
+   * The watcher cached its DB handle for the life of the process. A pool
+   * recycle (mt#3638) ENDS the old `Sql` instance and postgres-js then rejects
+   * every query on a handle derived from it with `CONNECTION_ENDED` forever, so
+   * one recycle silently killed the PRIMARY transcript-capture path and left
+   * freshness to the 30-minute sweep backstop. Measured on a live daemon before
+   * the fix: 47 ingests triggered, 16 succeeded, 31 errored, with `lastIngestAt`
+   * 75 minutes stale while `lastErrorAt` was current.
+   */
+  test("re-resolves the handle after the persistence epoch moves", async () => {
+    const first = { id: "before-recycle" } as unknown as Parameters<typeof Object.freeze>[0];
+    const second = { id: "after-recycle" } as unknown as Parameters<typeof Object.freeze>[0];
+
+    let epoch = 0;
+    const handedOut: unknown[] = [];
+    const watcher = new TranscriptWatcher({
+      claudeProjectsDir: "/nonexistent",
+      tracker: TranscriptWatcherTracker.resetForTest(),
+      getEpoch: () => epoch,
+      getDb: async () => {
+        const db = epoch === 0 ? first : second;
+        handedOut.push(db);
+        return db as never;
+      },
+    });
+
+    const resolve = (watcher as unknown as { resolveDb: () => Promise<unknown> }).resolveDb.bind(
+      watcher
+    );
+
+    expect(await resolve()).toBe(first);
+    // Cached within one epoch: the resolver is not called again.
+    expect(await resolve()).toBe(first);
+    expect(handedOut).toHaveLength(1);
+
+    // The recycle.
+    epoch = 1;
+
+    expect(await resolve()).toBe(second);
+    expect(handedOut).toHaveLength(2);
+  });
+
+  test("a null handle is not cached, so a not-yet-ready container is retried", async () => {
+    let ready = false;
+    const live = { id: "live" };
+    const watcher = new TranscriptWatcher({
+      claudeProjectsDir: "/nonexistent",
+      tracker: TranscriptWatcherTracker.resetForTest(),
+      getEpoch: () => 0,
+      getDb: async () => (ready ? (live as never) : null),
+    });
+
+    const resolve = (watcher as unknown as { resolveDb: () => Promise<unknown> }).resolveDb.bind(
+      watcher
+    );
+
+    expect(await resolve()).toBeNull();
+    ready = true;
+    expect(await resolve()).toBe(live);
+  });
+});

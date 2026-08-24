@@ -438,7 +438,9 @@ a small counter. Neither violates the endpoint's unauthenticated-access posture.
 The cockpit daemon also runs the **transcript sweep backstop** — the recovery
 layer behind the watcher (mt#2320), per ADR-017's watcher-primary +
 sweep-backstop design. On a configurable cadence (`startTranscriptSweepBackstop`
-in `src/cockpit/sweepers.ts`) it runs a full-discovery `ingestAll()` (idempotent /
+in `src/cockpit/transcript-sweep-backstop.ts` — lifted out of `sweepers.ts` by
+mt#4480, which is also where its test file already pointed) it runs a
+full-discovery `ingestAll()` (idempotent /
 HWM-gated) followed by the vector-only semantic-embedding backfill
 (`index-embeddings`), run off the critical path and fail-open — a missing or
 failing embedding provider does not crash the sweep. It recovers what the watcher
@@ -460,8 +462,13 @@ would read zero for cockpit-process state:
   "sweepsRun": 3,
   "sessionsIngested": 41,
   "sessionsErrored": 0,
+  "sessionsQuarantined": 0,
   "embedRuns": 3,
   "lastSweepAt": "2026-06-19T22:00:00.000Z",
+  // mt#4480 — see "Abandoned passes" below.
+  "sweepsAborted": 0,
+  "lastAbortAt": null,
+  "lastProductiveSweepAt": "2026-06-19T22:00:00.000Z",
   "lastErrorAt": null
 }
 ```
@@ -469,6 +476,40 @@ would read zero for cockpit-process state:
 Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint
 disclosure constraint).
+
+**Abandoned passes, and why `lastSweepAt` alone is not enough (mt#4480).** A pass
+holds ONE database handle across every discovered session. When the shared pool
+is recycled mid-pass (mt#3638), postgres-js rejects every subsequent query on
+that handle with `CONNECTION_ENDED`, so each remaining session fails its first
+query in microseconds and the pass reaches its end having ingested nothing.
+Measured before this shipped: five consecutive passes reporting
+`sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0` — and each
+one incremented `sweepsRun` and added 1,502 to `sessionsIngested`, so this
+payload read like a busy, healthy sweep throughout.
+
+`ingestAll` now abandons a pass after 10 consecutive failures that classify as
+INFRASTRUCTURE (`classifyConnectionFailure`; an `"unknown"` classification
+deliberately never counts, so ordinary per-session errors cannot trip it), and
+the three fields above make the outcome legible:
+
+- **`sweepsAborted` / `lastAbortAt`** — abandoned passes. **Disjoint from
+  `sweepsRun`**: an abandoned pass is not a sweep that happened, and its sessions
+  are NOT added to `sessionsIngested`/`sessionsErrored`, because they were failed
+  at rather than swept. The embedding backfill is skipped for such a pass too —
+  it needs the same dead connection. `lastErrorAt` is set, since an abandoned
+  pass is a sweep-level error.
+- **`lastProductiveSweepAt`** — the last pass that actually ingested something
+  (`totalIngested > 0`). This is the field to read for freshness, and the only
+  one here that a merely-RUNNING mechanism cannot satisfy: `lastSweepAt` advances
+  on every completed tick including ones that write nothing. **A widening gap
+  between `lastSweepAt` and `lastProductiveSweepAt` is the standing condition an
+  operator wants**, and it is visible here without reading a log.
+
+Note the sweep is a BACKSTOP — its cadence is 30 minutes, so
+`lastProductiveSweepAt` is not a latency signal. Capture freshness is the
+watcher's job (`transcriptWatcher`, previous section); since mt#4480 the watcher
+re-resolves its handle after a pool recycle rather than caching it for the life
+of the process.
 
 ## Scheduled follow-up sweeper (mt#2322)
 
