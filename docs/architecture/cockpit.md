@@ -399,6 +399,10 @@ under a `transcriptWatcher` object:
   "turnsIngested": 410,
   "lastIngestAt": "2026-06-18T20:00:00.000Z",
   "lastErrorAt": "2026-06-18T19:58:00.000Z",
+  "ingestsInFlight": 1,
+  "oldestIngestInFlightAgeMs": 240,
+  "ingestsAbandoned": 0,
+  "ingestPausedUntil": null,
   "activeSessions": [
     {
       "agentSessionId": "abc-123",
@@ -419,6 +423,29 @@ the absolute `jsonlPath` is never exposed) and **no raw error-message strings**
 text is emitted to the daemon log surface, not the API). Adding a field here
 that could leak a path or internal detail re-opens that disclosure — keep the
 redaction when extending it.
+
+**Bounded-ingest fields (mt#4492).** The four `ingest*` fields above the session
+list exist because `ingestsTriggered` counts ingest STARTS — it is incremented
+before the ingest's first await — so a started-and-never-finished ingest reads
+identically to a quiet watcher on every other field. During a pooler wedge on
+2026-08-24 this object read `ingestsTriggered: 1` with an EMPTY live-session
+list for four hours, which is exactly what an idle watcher looks like.
+
+- **`oldestIngestInFlightAgeMs` is the field to read**, not `ingestsInFlight`. A
+  non-zero COUNT is ordinary; a large AGE is not. It is derived at read time, so
+  it cannot go stale between polls, and is `null` when nothing is in flight.
+- **`ingestsAbandoned`** counts ingests dropped at the 90s wall-clock bound.
+  Abandoning costs FRESHNESS only — completeness is the sweep backstop's
+  guarantee, per ADR-017's division of the two.
+- **`ingestPausedUntil`** is non-null while the ingest path is backing off after
+  consecutive abandons. It is exposed rather than kept internal precisely
+  because a deliberately-paused watcher is the same inert-but-running shape this
+  object exists to make legible.
+
+The empty live-session list was not a separate symptom: until mt#4492 the
+per-path in-flight guard returned BEFORE stamping `lastEventAt`, so a path whose
+ingest hung stopped refreshing its stamp and dropped out of `activeSessions`
+entirely — the conversation looked idle because it was stuck.
 
 **Watchdog fields (mt#2578).** The tray-app supervisor's self-health watchdog
 (ADR-014 lifecycle extension) reads two additional top-level fields from

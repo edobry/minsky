@@ -42,6 +42,10 @@
     "turnsIngested": "number",
     "lastIngestAt": "object",
     "lastErrorAt": "object",
+    "ingestsInFlight": "number",
+    "oldestIngestInFlightAgeMs": "object",
+    "ingestsAbandoned": "number",
+    "ingestPausedUntil": "object",
     "activeSessionCount": "number",
     "activeSessions": "array"
   },

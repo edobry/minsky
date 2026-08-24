@@ -24,6 +24,10 @@ describe("TranscriptWatcherTracker", () => {
       turnsIngested: 0,
       lastIngestAt: null,
       lastErrorAt: null,
+      ingestsInFlight: 0,
+      oldestIngestInFlightAgeMs: null,
+      ingestsAbandoned: 0,
+      ingestPausedUntil: null,
     });
   });
 
