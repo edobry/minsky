@@ -139,9 +139,26 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
  * `credentials.request-status` — the agent-side read of a filed request.
  *
  * The awaitable half: a requesting agent polls this rather than ending its turn
- * and losing the thread. It is a POLL rather than a push because no push toward
- * an agent exists yet — mt#3564 owns that, and until it ships the durable handle
- * is the parent task, not the conversation.
+ * and losing the thread.
+ *
+ * **Why a poll.** The original reason was that no push toward an agent existed —
+ * mt#3564 owned that and had not shipped. **mt#3564 is now DONE**, so that
+ * justification is retired; the poll stays on its own merits, which are worth
+ * stating rather than inheriting. Resolution here is presence-based and driven by
+ * a sweep, so there is no single moment to push FROM: the credential can arrive
+ * through the cockpit form, through `config credentials add` in a terminal, or
+ * have been set before the request was ever filed. A poll reads the same answer in
+ * all three cases. Whether to ALSO deliver an answered-ask push is a real design
+ * question and deliberately not decided here.
+ *
+ * If it is adopted, the seam is the resolver's close — `satisfy()` in
+ * `@minsky/domain/credentials/request-resolver`, which is the one place that
+ * knows a request just became satisfied — feeding mt#3564's wake path
+ * (`src/mcp/middleware/wake-enrichment.ts`). Recorded so the next reader does not
+ * have to re-derive where a push would attach.
+ *
+ * Either way the durable handle when a conversation ends is the parent task, not
+ * the conversation.
  *
  * **The observable is a status plus a status LINE, never a value.** `satisfied`
  * carries the provider's own validation detail ("3 buckets visible"); there is no

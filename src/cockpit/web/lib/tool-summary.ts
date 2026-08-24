@@ -170,9 +170,150 @@ function querySummary(input: unknown, result: ToolResultInfo | undefined): strin
   return q ? `"${truncate(q, 40)}"${SEPARATOR}${digest}` : `→ ${digest}`;
 }
 
+// ── Consequence: what a call DID, not what its tool CAN do (mt#4437) ─────────
+
+/**
+ * Whether a call actually changed anything, read off its RESULT payload.
+ *
+ * `unknown` is the honest default and covers three distinct cases that must not
+ * be collapsed into `unchanged`: no result is paired to the call yet (the
+ * windowing case, mt#3481), the result is an error, or the tool's payload
+ * simply carries no delta to read. Rendering any of those as "nothing changed"
+ * would assert a fact the payload does not support — the inverse of the defect
+ * this exists to fix.
+ */
+export type ToolConsequence = "changed" | "unchanged" | "unknown";
+
+/** Parse a tool result whose content is a JSON object into that object. */
+function resultJson(content: unknown): Record<string, unknown> | undefined {
+  const direct = record(content);
+  if (direct) return direct;
+  const text = resultText(content);
+  if (text === null) return undefined;
+  const t = text.trim();
+  if (!t.startsWith("{") || !t.endsWith("}")) return undefined;
+  try {
+    return record(JSON.parse(t));
+  } catch {
+    return undefined;
+  }
+}
+
+function num(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Read a call's consequence from its result payload.
+ *
+ * Deliberately keyed on the PAYLOAD's own fields rather than on the tool name:
+ * the whole point is that a mutating name proves nothing about a given call.
+ * A tool absent from this map is `unknown`, never `unchanged`.
+ */
+type ConsequenceFn = (result: ToolResultInfo) => ToolConsequence;
+
+const CONSEQUENCE: Record<string, ConsequenceFn> = {
+  tasks_status_set: (r) => {
+    const j = resultJson(r.content);
+    if (!j) return "unknown";
+    if (typeof j.changed === "boolean") return j.changed ? "changed" : "unchanged";
+    const prev = str(j.previousStatus);
+    const next = str(j.newStatus);
+    if (prev && next) return prev === next ? "unchanged" : "changed";
+    return "unknown";
+  },
+  session_commit: (r) => {
+    const j = resultJson(r.content);
+    const files = j ? num(j.filesChanged) : undefined;
+    if (files === undefined) return "unknown";
+    return files > 0 ? "changed" : "unchanged";
+  },
+  memory_create: (r) => {
+    const j = resultJson(r.content);
+    if (!j) return "unknown";
+    return str(j.shortId) || str(j.id) ? "changed" : "unknown";
+  },
+};
+
+/**
+ * What this call DID — `unknown` unless its result payload actually says.
+ *
+ * An errored call is `unknown` rather than `unchanged`: a failure can still
+ * have mutated state before it failed, and the error is already rendered on its
+ * own channel.
+ */
+export function toolConsequence(
+  rawName: string,
+  result: ToolResultInfo | undefined
+): ToolConsequence {
+  if (!result || result.isError) return "unknown";
+  const { name } = parseToolName(rawName);
+  return CONSEQUENCE[name]?.(result) ?? "unknown";
+}
+
+// ── Consequence digests: report the DELTA, not the target (mt#4437) ──────────
+
+/** `mt#4437 · TODO → PLANNING`; a no-op shows the same value on both sides. */
+function statusSetSummary(input: unknown, result: ToolResultInfo | undefined): string | null {
+  const taskId = str(record(input)?.taskId);
+  if (!result) return taskId ? `${taskId}${SEPARATOR}pending` : null;
+  const j = resultJson(result.content);
+  const prev = j ? str(j.previousStatus) : undefined;
+  const next = j ? (str(j.newStatus) ?? str(record(j.result)?.status)) : undefined;
+  const id = taskId ?? (j ? str(j.taskId) : undefined);
+  if (!prev || !next) return null;
+  return `${id ? `${id} · ` : ""}${prev} → ${next}`;
+}
+
+/**
+ * `2 files +26/-2`; an empty commit reports `0 files` rather than a byte count.
+ *
+ * ASCII hyphen, not U+2212 MINUS SIGN (PR #3273 R1). This is diffstat notation,
+ * which is ASCII everywhere it appears — and the digest is text a reader copies
+ * into a search box or a commit message, where a lookalike glyph silently fails
+ * to match.
+ */
+function commitSummary(_input: unknown, result: ToolResultInfo | undefined): string | null {
+  if (!result) return null;
+  const j = resultJson(result.content);
+  const files = j ? num(j.filesChanged) : undefined;
+  if (files === undefined) return null;
+  const ins = j ? num(j.insertions) : undefined;
+  const del = j ? num(j.deletions) : undefined;
+  const delta = ins !== undefined && del !== undefined ? ` +${ins}/-${del}` : "";
+  return `${files} file${files === 1 ? "" : "s"}${files > 0 ? delta : ""}`;
+}
+
+/** `→ mem#1188` — the minted id IS the consequence. */
+function memoryCreateSummary(_input: unknown, result: ToolResultInfo | undefined): string | null {
+  if (!result) return null;
+  const j = resultJson(result.content);
+  const id = j ? (str(j.shortId) ?? str(j.id)) : undefined;
+  return id ? `${SEPARATOR.trim()} ${id}` : null;
+}
+
+/**
+ * `tasks_spec_patch` reports no delta, so this reports the TARGET and makes no
+ * consequence claim — the payload carries `success`/`taskId`/`message` and
+ * nothing about whether the stored content actually changed. That gap is real
+ * and is recorded rather than papered over (mt#4458 is the defect it enables;
+ * mt#2583 owns surfacing richer tool-result columns). Listing it here keeps the
+ * seed set honest instead of silently dropping the one member that cannot
+ * answer the question.
+ */
+function specPatchSummary(input: unknown, result: ToolResultInfo | undefined): string | null {
+  const taskId = str(record(input)?.taskId);
+  if (!taskId) return null;
+  return `${taskId}${SEPARATOR}${genericOutcomeDigest(result)}`;
+}
+
 // ── Seed registry (mt#2790 design direction: Bash/session_exec, Read/Edit/Write,
 //    git_diff/git_log, tasks_search/tasks_list, memory_search) ─────────────────
 const REGISTRY: Record<string, ToolSummaryFn> = {
+  tasks_status_set: statusSetSummary,
+  session_commit: commitSummary,
+  memory_create: memoryCreateSummary,
+  tasks_spec_patch: specPatchSummary,
   Bash: commandSummary,
   session_exec: commandSummary,
   Read: pathSummary,

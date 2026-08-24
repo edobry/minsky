@@ -23,6 +23,9 @@ import { buildMcpHealthResponse, MCP_HEALTH_SERVICE } from "./health-payload";
 interface HealthContract {
   fields: Record<string, string>;
   requiredFields: string[];
+  /** mt#4479 — emitted only when `persistence.mode === "connected"`. */
+  conditionalFields: Record<string, string>;
+  dbCheckFields: Record<string, string>;
   persistenceFields: Record<string, string>;
   sample: Record<string, unknown>;
 }
@@ -190,5 +193,154 @@ describe("readiness is an observation, not a type declaration (mt#4471)", () => 
   test("omitting the probe preserves pre-mt#4471 behaviour for non-route callers", () => {
     const { body } = buildMcpHealthResponse(CONNECTED, NOW);
     expect(body.ready).toBe(true);
+  });
+});
+
+describe("db / dbCheck — the machine-readable rendering (mt#4479)", () => {
+  const PROBE_OK: ReadinessResult = { ok: true, checkedAt: NOW, durationMs: 3 };
+
+  /**
+   * The `outstanding` shape, copied from `assessProbeOutcome`'s own branch: a
+   * PREVIOUS probe has not settled, so no new query was issued. `checkedAt` is
+   * still stamped — that is the trap this suite pins.
+   */
+  const PROBE_OUTSTANDING: ReadinessResult = {
+    ok: false,
+    reason:
+      "a previous persistence round-trip has not settled after 43000ms — no new query was " +
+      "issued, because the pool is already not serving one (mt#4471)",
+    checkedAt: "2026-08-22T00:59:00.000Z",
+    durationMs: 43_000,
+  };
+
+  test("AT1 — a satisfied probe renders db: ok with the probe's own timings", () => {
+    const { body } = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK);
+
+    expect(body.db).toBe("ok");
+    expect(body.dbCheck).toEqual({ checkedAt: NOW, durationMs: 3 });
+  });
+
+  test("AT1 — a failed probe renders db: degraded", () => {
+    const { body } = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OUTSTANDING);
+
+    expect(body.db).toBe("degraded");
+    expect(body.ready).toBe(false);
+  });
+
+  test("SC4 — db/dbCheck are rendered from the SAME result that decided ready", () => {
+    // Never re-derived or re-timed at the render site, so the three fields
+    // cannot disagree about which probe attempt they describe.
+    const { body } = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OUTSTANDING);
+
+    expect(body.dbCheck?.checkedAt).toBe(PROBE_OUTSTANDING.checkedAt);
+    expect(body.dbCheck?.durationMs).toBe(PROBE_OUTSTANDING.durationMs);
+    // `db` is exactly `ok` restated, so it agrees with `ready` by construction.
+    expect(body.db === "ok").toBe(body.ready);
+  });
+
+  test("AT3 — the prose form survives; the fields ADD to it rather than replace it", () => {
+    // mt#4471's `reason` names `outstandingForMs` for a human. This task adds a
+    // machine-readable sibling; displacing the prose would be a regression for
+    // the operator-at-3am reader it was written for.
+    const { body } = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OUTSTANDING);
+
+    expect(body.persistence.reason).toContain("43000ms");
+    expect(body.dbCheck?.durationMs).toBe(43_000);
+  });
+
+  test("checkedAt ADVANCES on an outstanding probe — it is NOT a wedge signal", () => {
+    // Pinned because the opposite is the intuitive reading, and mt#4479's own
+    // spec asserted it before being corrected. `assessProbeOutcome` stamps
+    // `checkedAt` on all four branches, so a reader must use `reason` or
+    // `durationMs` to detect a wedge — never a stale timestamp.
+    const first = buildMcpHealthResponse(CONNECTED, NOW, {
+      ...PROBE_OUTSTANDING,
+      checkedAt: "2026-08-22T01:00:00.000Z",
+    });
+    const second = buildMcpHealthResponse(CONNECTED, NOW, {
+      ...PROBE_OUTSTANDING,
+      checkedAt: "2026-08-22T01:00:05.000Z",
+    });
+
+    expect(first.body.db).toBe("degraded");
+    expect(second.body.db).toBe("degraded");
+    expect(first.body.dbCheck?.checkedAt).not.toBe(second.body.dbCheck?.checkedAt);
+  });
+
+  test("the conditional fields carry their declared contract types", () => {
+    const contract = loadContract();
+    const body = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK).body as unknown as Record<
+      string,
+      unknown
+    >;
+
+    for (const [field, declaredType] of Object.entries(contract.conditionalFields)) {
+      expect(body).toHaveProperty(field);
+      expect(typeOf(body[field])).toBe(declaredType);
+    }
+    for (const [field, declaredType] of Object.entries(contract.dbCheckFields)) {
+      expect(typeOf((body.dbCheck as Record<string, unknown>)[field])).toBe(declaredType);
+    }
+  });
+
+  test("the emitted key set is base + conditional, in both directions", () => {
+    const contract = loadContract();
+    const body = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK).body as unknown as Record<
+      string,
+      unknown
+    >;
+    const expected = [
+      ...Object.keys(contract.fields),
+      ...Object.keys(contract.conditionalFields),
+    ].sort();
+
+    expect(Object.keys(body).sort()).toEqual(expected);
+  });
+
+  test("AT2 — unconfigured emits NO db fields, even when a probe result is passed", () => {
+    // The bundle-boot-smoke invariant. An offline boot must keep emitting
+    // exactly what it emitted before mt#4479; a `db` field there would be an
+    // alarming-looking value on the expected path.
+    const { statusCode, body } = buildMcpHealthResponse(UNCONFIGURED, NOW, PROBE_OUTSTANDING);
+
+    expect(statusCode).toBe(200);
+    expect("db" in body).toBe(false);
+    expect("dbCheck" in body).toBe(false);
+  });
+
+  test("AT2 — unavailable emits no db fields and keeps its 503", () => {
+    // Initialization failed, so there is no pool a probe could have read.
+    const { statusCode, body } = buildMcpHealthResponse(UNAVAILABLE, NOW, PROBE_OUTSTANDING);
+
+    expect(statusCode).toBe(503);
+    expect("db" in body).toBe(false);
+  });
+
+  test("AT2 — the unconfigured key set is unchanged from the base contract", () => {
+    const contract = loadContract();
+    const body = buildMcpHealthResponse(UNCONFIGURED, NOW, PROBE_OK).body as unknown as Record<
+      string,
+      unknown
+    >;
+
+    expect(Object.keys(body).sort()).toEqual(Object.keys(contract.fields).sort());
+  });
+
+  test("omitting the probe emits no db fields — absence means 'not measured'", () => {
+    const { body } = buildMcpHealthResponse(CONNECTED, NOW);
+
+    expect("db" in body).toBe(false);
+    expect("dbCheck" in body).toBe(false);
+  });
+
+  test("`unreachable` is never emitted — the connected precondition excludes it", () => {
+    // The cockpit's third value cannot occur here: `db` is present only when a
+    // provider IS wired, so "no pool at all" is unrepresentable rather than
+    // merely unobserved. Pinned so a future edit does not add a value that
+    // cannot happen.
+    for (const probe of [PROBE_OK, PROBE_OUTSTANDING]) {
+      const { body } = buildMcpHealthResponse(CONNECTED, NOW, probe);
+      expect(["ok", "degraded"]).toContain(body.db);
+    }
   });
 });

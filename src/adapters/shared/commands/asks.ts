@@ -1326,6 +1326,39 @@ export interface CreateAskParams {
  *     populated for `"responded"` / `"closed"` states. The cancelled/
  *     suspended return values intentionally omit it.
  */
+/**
+ * Pick the capability registry that decides how THIS ask routes (mt#4451).
+ *
+ * Extracted as a pure function so the preference is directly assertable: the
+ * call site lives inside a `registerCommand` closure, and observing it there
+ * would mean patching a collaborator rather than reading a returned value.
+ *
+ * The order is the whole point:
+ *
+ * 1. **The caller's own connection**, when the request arrived over MCP.
+ *    `src/mcp/server.ts` builds a `SingleConnectionCapabilityRegistry` per
+ *    CallTool from the `Server` handling that request.
+ * 2. **The container's registry**, which since mt#4451 is the caller-agnostic
+ *    no-op in production — `createStartCommand` no longer overrides it with
+ *    the fleet-wide tracker. Tests may inject their own.
+ * 3. **Nothing**, leaving the router with no capability registry at all, which
+ *    it treats as "no elicitation".
+ *
+ * Steps 2 and 3 both mean "no elicitation" in production. That is deliberate:
+ * a caller whose connection cannot be resolved must not inherit some other
+ * connection's capabilities (SC3).
+ */
+export function selectCapabilityRegistry(
+  callerCapabilities: ClientCapabilityRegistry | undefined,
+  container: { has(key: string): boolean; get(key: string): unknown } | undefined
+): ClientCapabilityRegistry | undefined {
+  if (callerCapabilities) return callerCapabilities;
+  if (container?.has("clientCapabilityRegistry")) {
+    return container.get("clientCapabilityRegistry") as ClientCapabilityRegistry;
+  }
+  return undefined;
+}
+
 export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
@@ -2423,11 +2456,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
 
         // mt#1457: pull the capability registry from the container so the
-        // router consults it and the elicitation transport can dispatch
-        // through the active MCP Server.
-        const capabilityRegistry =
-          container?.has("clientCapabilityRegistry") &&
-          (container.get("clientCapabilityRegistry") as ClientCapabilityRegistry);
+        // mt#1457 pulled a capability registry from the container so the router
+        // could consult it. mt#4451 changed WHICH registry: the one describing
+        // the connection that filed THIS ask, never a fleet-wide view. See
+        // `selectCapabilityRegistry` for the order and why the fallback is
+        // caller-agnostic.
+        const capabilityRegistry = selectCapabilityRegistry(ctx?.callerCapabilities, container);
 
         const routerOptions: PolicyFirstRouteOptions = capabilityRegistry
           ? { capabilityRegistry }

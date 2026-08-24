@@ -267,6 +267,37 @@ describe("parseSearchOutput", () => {
     expect(parseSearchOutput(stdout)?.results[0]?.stalenessNote).toContain(OBSOLETE_MARKER);
   });
 
+  it("carries a measurement-decay note (mt#4452), which has no completed tracking tasks", () => {
+    // Trigger 2's verdict is `stale` with EMPTY completedTasks — mem#773's shape, a
+    // measurement record declaring no retirement clause. The parser must key on `outcome`
+    // and `note`, not on the tracking-task fields being populated.
+    const stdout = JSON.stringify({
+      results: [
+        {
+          record: VALID_RECORD,
+          score: 0.85,
+          staleness: {
+            outcome: "stale",
+            source: "text",
+            completedTasks: [],
+            unresolvedTasks: [],
+            note: "⚠️ MEASUREMENT MAY BE STALE — figures here were measured 23 days ago.",
+            measurement: {
+              measuredOn: "2026-07-30",
+              ageDays: 23,
+              matchedSentence: "Measured on prod 2026-07-30",
+              subsystems: ["turn-writer.ts"],
+              interveningTasks: [{ taskId: "mt#4345", title: "…" }],
+            },
+          },
+        },
+      ],
+      backend: "embeddings",
+      degraded: false,
+    });
+    expect(parseSearchOutput(stdout)?.results[0]?.stalenessNote).toContain("MEASUREMENT MAY BE");
+  });
+
   it.each(["current", "unresolved"])(
     "carries NO note for a %s verdict — the silence contract",
     (outcome) => {

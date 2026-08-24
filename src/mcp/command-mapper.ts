@@ -3,6 +3,7 @@ import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { MinskyMCPServer, ToolDefinition, ToolProgressReporter } from "./server";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 
 /**
  * Cross-cutting arg keys the framework itself reads even when a command does
@@ -272,7 +273,8 @@ export class CommandMapper {
     handler?: (
       args: Record<string, unknown>,
       context?: ProjectContext,
-      progress?: ToolProgressReporter
+      progress?: ToolProgressReporter,
+      callerCapabilities?: ClientCapabilityRegistry
     ) => Promise<string | Record<string, unknown>>;
     /**
      * mt#1792: lazy handler thunk. When provided (without `handler`), the tool
@@ -284,7 +286,8 @@ export class CommandMapper {
       (
         args: Record<string, unknown>,
         context?: ProjectContext,
-        progress?: ToolProgressReporter
+        progress?: ToolProgressReporter,
+        callerCapabilities?: ClientCapabilityRegistry
       ) => Promise<string | Record<string, unknown>>
     >;
     /**
@@ -343,7 +346,7 @@ export class CommandMapper {
         mutating: command.mutating,
         readsPresence: command.readsPresence,
         requiresInit: command.requiresInit,
-        handler: async (args, progress) => {
+        handler: async (args, progress, callerCapabilities) => {
           try {
             log.debug("Executing MCP command", {
               methodName: normalizedName,
@@ -354,7 +357,15 @@ export class CommandMapper {
             // mt#2778: reject undeclared params before the handler runs.
             enforceDeclaredParams(normalizedName, args || {}, declaredParamKeys);
 
-            const result = await eagerHandler(args || {}, capturedContext, progress);
+            // mt#4451: `callerCapabilities` rides the same request-scoped path
+            // as `progress` — forwarded, never captured at registration time,
+            // because it describes THIS call's connection.
+            const result = await eagerHandler(
+              args || {},
+              capturedContext,
+              progress,
+              callerCapabilities
+            );
 
             log.debug("MCP command executed successfully", {
               methodName: normalizedName,
@@ -391,7 +402,11 @@ export class CommandMapper {
           const resolvedFn = await lazyGetHandler();
           // Return a wrapped handler that injects project context + logging,
           // matching the eager path's behaviour exactly.
-          return async (args: Record<string, unknown>, progress?: ToolProgressReporter) => {
+          return async (
+            args: Record<string, unknown>,
+            progress?: ToolProgressReporter,
+            callerCapabilities?: ClientCapabilityRegistry
+          ) => {
             try {
               log.debug("Executing MCP command (lazy-resolved)", {
                 methodName: normalizedName,
@@ -400,7 +415,13 @@ export class CommandMapper {
               });
               // mt#2778: reject undeclared params before the handler runs.
               enforceDeclaredParams(normalizedName, args || {}, declaredParamKeys);
-              const result = await resolvedFn(args || {}, capturedContext, progress);
+              // mt#4451: same request-scoped forwarding as the eager path above.
+              const result = await resolvedFn(
+                args || {},
+                capturedContext,
+                progress,
+                callerCapabilities
+              );
               log.debug("MCP command executed successfully (lazy-resolved)", {
                 methodName: normalizedName,
                 resultType: typeof result,

@@ -228,9 +228,16 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
     return createWorkspaceUtils(c.get("sessionProvider"));
   });
 
-  // Default ClientCapabilityRegistry is the no-op implementation. Entry
-  // points that attach an MCP host (e.g., the MCP server) override this
-  // with a per-connection-aware registry after container creation.
+  // The no-op is not just a default any more — since mt#4451 it is what this
+  // key holds in production too. Nothing overrides it: the MCP server used to
+  // swap in a registry that answered for every connected client at once, which
+  // under ADR-038's shared daemon let one client's capabilities decide routing
+  // for asks filed by all the others.
+  //
+  // Real host capabilities now reach the router per REQUEST, as
+  // `CommandExecutionContext.callerCapabilities`, built from the connection that
+  // made the call. So a consumer reading THIS key is a consumer with no
+  // resolvable connection, and the no-op is the correct answer for it.
   container.register("clientCapabilityRegistry", () => new NoopClientCapabilityRegistry());
 
   // --- Composite: SessionDeps bundle ---

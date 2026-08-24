@@ -209,6 +209,19 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "knowledge.search": "reads",
   "knowledge.sources": "reads",
   "mcp.register": "mutates", // writes client configuration
+  "mcp.status": "reads", // reads the discovery record and probes /health (mt#4466)
+  // mt#4466. `mutates` here even though the command PREVIEWS by default: this
+  // table classifies what the tool can DO, and the `--execute` path SIGTERMs a
+  // daemon every conversation on the machine shares. Classifying on the safe
+  // default would be the argument-dependent trap this table's own `unclassified`
+  // category exists for, and erring toward `mutates` is the direction that
+  // cannot under-warn a reader.
+  //
+  // Deliberately NOT in the drift gate's `mutating: true` set — that set is
+  // scoped to irreversible/bulk/migrating effects (mt#3924), and a restart is
+  // transient and self-healing. See the command definition for why gating it
+  // would refuse the very recovery it exists to provide.
+  "mcp.restart": "mutates",
 
   // --- memory --------------------------------------------------------------
   "memory.create": "mutates",

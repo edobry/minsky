@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import { MinskyError } from "@minsky/domain/errors/index";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 import {
   validateCommandDefinition,
   validateCommandRegistrationOptions,
@@ -85,6 +86,20 @@ export interface CommandExecutionContext {
    * long-running wait produces transport activity instead of silence.
    */
   onProgress?: (message: string) => void;
+  /**
+   * mt#4451: capabilities of the connection that made THIS call, scoped to that
+   * connection alone. Present only on the MCP interface (built per CallTool
+   * request in `src/mcp/server.ts` from the `Server` handling the request);
+   * absent on the CLI and in tests.
+   *
+   * Consumers MUST treat absence as "no elicitation" rather than falling back to
+   * a process-wide view. Under ADR-038's shared daemon every conversation
+   * registers into one process, so a fleet-wide answer would let one connected
+   * client decide routing for asks filed by every other — the defect this field
+   * exists to fix. `MCPConnectionTracker` still answers the fleet-wide question
+   * under a name that says so.
+   */
+  callerCapabilities?: ClientCapabilityRegistry;
 }
 
 /**

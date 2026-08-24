@@ -49,7 +49,7 @@ export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { hasLocalGitCapability } from "@minsky/domain/utils/git-exec";
 import { isHostedMcpServer, resolveMcpTransport } from "../../cli-discriminators";
-import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
+import { MCPConnectionTracker } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { EventEmitterWithTryEmit } from "@minsky/domain/events/emitter";
@@ -1514,16 +1514,25 @@ export function createStartCommand(
 
         const projectContext = resolveProjectContext(options.repo);
 
-        // mt#1457: build the MCP-backed capability registry and wire it both
-        // into the container (for asks.create / router consumers) and into
-        // the MinskyMCPServer (for register/unregister of Server instances).
-        // The CLI composition root (`createCliContainer`) registers a no-op
-        // by default; this override replaces it for MCP-server execution so
-        // routing decisions reflect actual host capabilities.
-        const clientCapabilityRegistry = new MCPClientCapabilityRegistry();
-        if (container) {
-          container.set("clientCapabilityRegistry", clientCapabilityRegistry);
-        }
+        // mt#1457, rescoped by mt#4451: build the connection tracker and hand
+        // it to MinskyMCPServer for register/unregister of Server instances.
+        //
+        // It is deliberately NOT set into the container under
+        // `clientCapabilityRegistry` any more. That override existed so
+        // "routing decisions reflect actual host capabilities", and it did —
+        // but it reflected the capabilities of the WHOLE FLEET. Under ADR-038's
+        // shared daemon every conversation registers into this one process, so
+        // a single elicitation-capable client made `hasElicitation()` true for
+        // asks filed by every other connection, and the dispatch then targeted
+        // whichever `Server` the `Set` yielded first rather than the caller's.
+        //
+        // Host capabilities now reach the router per REQUEST instead:
+        // `src/mcp/server.ts` builds a `SingleConnectionCapabilityRegistry`
+        // from the connection handling each CallTool and passes it down as
+        // `CommandExecutionContext.callerCapabilities`. Leaving this key at the
+        // container's no-op default is what makes a caller with no resolvable
+        // connection resolve to "no elicitation".
+        const connectionTracker = new MCPConnectionTracker();
 
         // mt#1625 spike: compose the static memory bundle BEFORE the
         // MinskyMCPServer constructor so the SDK Server receives the bundle
@@ -1568,7 +1577,7 @@ export function createStartCommand(
           version: "1.0.0", // TODO: Import from package.json
           projectContext,
           transportType: transportType as "stdio" | "http",
-          clientCapabilityRegistry,
+          connectionTracker,
           ...(instructionsBundle && { instructions: instructionsBundle }),
           ...(transportType === "http" && {
             httpConfig: {

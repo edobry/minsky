@@ -126,10 +126,20 @@ through to the static kind→transport binding, so `direction.decide` goes to th
 operator inbox. That is Shape B's specified fallback ("async or host-doesn't-support-it
 → write to the Inbox queue"), not a degradation of it.
 
-Related, and NOT fixed by the above: `MCPClientCapabilityRegistry` answers for the
-whole daemon process rather than for the calling connection, so one connected
-elicitation-capable client still influences routing for asks filed by others.
-That is mt#4451.
+Related, and not fixed by the above but **fixed since, by mt#4451** (2026-08-23):
+`MCPClientCapabilityRegistry` answered for the whole daemon process rather than for the
+calling connection, so one connected elicitation-capable client influenced routing for
+asks filed by others. Capabilities are now resolved per CallTool request from the
+connection that made the call (`SingleConnectionCapabilityRegistry`); the fleet-wide
+class survives as `MCPConnectionTracker`, renamed so it cannot be reached by a caller
+expecting caller scope.
+
+Worth keeping the pair in view: the shim narrowing above and mt#4451 are two independent
+fixes for one symptom. The narrowing stops THIS client advertising a capability its
+transport cannot carry; mt#4451 stops ANOTHER client's advertisement deciding this
+caller's route. Either alone leaves the deadlock reachable — which is what the 2026-08-23
+measurement showed, with the narrowing already merged and `direction.decide` still
+hanging ~330s.
 
 ## Cross-references
 
