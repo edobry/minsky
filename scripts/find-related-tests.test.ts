@@ -287,9 +287,12 @@ describe("censusTestsFor (mt#4508)", () => {
     expect(censusTestsFor(`${CENSUS_DIR}/fixtures/nested-module.ts`)).toEqual([]);
   });
 
-  test("a NON-TS direct child is not in it — the filter requires a .ts extension", () => {
+  test("a non-`.ts` direct child is not in it — including .tsx (PR #3289 R2)", () => {
     expect(censusTestsFor(`${CENSUS_DIR}/notes.md`)).toEqual([]);
     expect(censusTestsFor(`${CENSUS_DIR}/data.json`)).toEqual([]);
+    // `.tsx` is the one an over-general `/\.tsx?$/` would wrongly admit. The census filters
+    // `.ts`-exact, and a hook is a node process rather than a component.
+    expect(censusTestsFor(`${CENSUS_DIR}/some-widget.tsx`)).toEqual([]);
   });
 
   test("a non-test .ts direct child IS in it — the exclusions above are not over-broad", () => {

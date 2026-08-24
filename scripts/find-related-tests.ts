@@ -525,7 +525,7 @@ export const DIRECTORY_CENSUS_TESTS: ReadonlyArray<{
  *
  *   - a **test file** — editing a hook's own `.test.ts` body changes neither census
  *   - a **nested** path (`fixtures/x.json`) — that `readdirSync` is non-recursive
- *   - a **non-TS** file — the filter requires a `.ts` extension
+ *   - a **non-`.ts`** file — `.tsx` included, since the filter is `.ts`-exact
  *
  * Matching on a segment boundary also keeps a sibling directory sharing a name prefix
  * (`.minsky/hooks-archive/x.ts`) from claiming `.minsky/hooks`.
@@ -537,7 +537,12 @@ export function censusTestsFor(changedFile: string): string[] {
     if (!changedFile.startsWith(prefix)) continue;
     const name = changedFile.slice(prefix.length);
     if (name.includes("/")) continue;
-    if (!TS_EXT_RE.test(name) || TEST_SUFFIX_RE.test(name)) continue;
+    // `.ts` exactly — deliberately NOT the module-level `TS_EXT_RE`, which also matches
+    // `.tsx` (PR #3289 R2). The census filters `f.endsWith(".ts") && !f.endsWith(".test.ts")`,
+    // and a hook is a node process rather than a component, so a `.tsx` under this tree
+    // would not be in the population it enumerates. Mirroring the predicate means mirroring
+    // its extension too, or the claim above is only approximately true.
+    if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
     out.push(...scope.tests);
   }
   return out;
