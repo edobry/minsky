@@ -328,7 +328,12 @@ const defaultReachabilityProbe: DbReachabilityProbe = async () => {
   // packages/domain/src/ask/attention-windows/notify.ts — at runtime this is
   // the pooler-guarded instance; the declared union is not narrow enough to
   // call through directly.
-  const sql = raw as import("postgres").Sql;
+
+  // mt#4473 widened GuardedRawSql's `.unsafe()` return to carry postgres-js's recordable builder
+  // methods, which makes it and `Sql` structurally non-overlapping; the double assertion is what
+  // the compiler now requires to say "this Proxy IS that instance at runtime".
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- deliberate boundary cast, above
+  const sql = raw as unknown as import("postgres").Sql;
   // Two deliberate choices here, both from mt#2773:
   //
   // 1. The query is PARAMETERIZED. Zero-bind queries are the shape that wedges
@@ -337,7 +342,12 @@ const defaultReachabilityProbe: DbReachabilityProbe = async () => {
   //    pool health must not be able to cause the condition it reports.
   // 2. It goes through `.unsafe()` rather than a tagged template, so it is
   //    subject to the pooler guard's in-flight cap like every other raw query
-  //    instead of reaching the unguarded underlying instance.
+  //    instead of reaching the unguarded underlying instance. Since mt#4473
+  //    that cap also bounds the WAIT: under saturation this probe now REJECTS
+  //    with PoolAdmissionTimeoutError after the admission deadline rather than
+  //    hanging. That is the intended outcome here — a rejected probe marks the
+  //    connection degraded exactly as a timed-out one did, and it does so with
+  //    a message naming the cause, so mt#3638's recycle trigger still fires.
   return sql.unsafe("select $1::int as reachable", [1]);
 };
 

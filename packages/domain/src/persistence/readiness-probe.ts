@@ -24,14 +24,20 @@
  * ## Why a round trip, and not the saturation counter we already have
  *
  * `getPoolerSaturation()` (mt#2773, `raw-sql-pooler-guard.ts`) looks like the
- * cheaper signal and is the wrong one HERE. Its own docblock states the bound:
- * it observes the `.unsafe()` path only, so *"a pool can be exhausted by
- * drizzle traffic while this reads all zeros."* Every DB-backed MCP tool
- * reaches Postgres through drizzle, which is precisely the traffic it cannot
- * see — keying readiness on it would rebuild the can't-fail probe in a new
- * place. A round trip is end-to-end: it has to acquire a real pool connection
- * like any other query, so it observes contention from drizzle, `.unsafe()` and
- * `sql.begin()` alike.
+ * cheaper signal and is still the wrong one HERE, though the reason narrowed
+ * when mt#4473 landed. It used to observe the `.unsafe()` path ONLY — *"a pool
+ * can be exhausted by drizzle traffic while this reads all zeros"* — and every
+ * DB-backed MCP tool reaches Postgres through drizzle, so keying readiness on
+ * it would have rebuilt the can't-fail probe in a new place. That blind spot is
+ * closed: drizzle now goes through the same guard and is counted.
+ *
+ * Two reasons it is still not the readiness signal. `sql.begin()` transactions
+ * remain outside the guard, so they consume pool capacity it cannot see. More
+ * fundamentally, those counters describe OUR ADMISSION QUEUE, not the pool's
+ * health: a connection wedged forever and a connection running a legitimate
+ * query are both simply "in flight" there. A round trip is end-to-end — it has
+ * to acquire a real pool connection like any other query — which is what makes
+ * it able to observe the difference.
  *
  * ## Why the probe itself cannot hang
  *

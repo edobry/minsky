@@ -197,6 +197,65 @@ To investigate persistent pool saturation:
 2. Check the Supabase/Supavisor pooler's global connection limit.
 3. Consider reducing `maxConnections` per process or restarting idle MCP servers.
 
+## In-process admission bound (mt#2773, extended mt#4473)
+
+Separate from the retry policy above, which handles a pooler that REFUSES a connection. This bounds
+what happens when the process's OWN pool is full.
+
+`postgres` (postgres.js) has no checkout timeout — with all `max` connections busy, a new query is
+either pipelined behind a running one or pushed onto an untimed queue, and in both cases it waits
+without bound. That is the mechanism behind the 2026-08-23 incident, where eight concurrent
+long-running MCP calls hung every subsequent DB-backed call for ~45 minutes with no error and no log
+line. Minsky therefore admits queries above the driver, in
+`packages/domain/src/persistence/raw-sql-pooler-guard.ts`.
+
+**What is bounded.** In-flight queries are capped at the pool's own `max`, and callers beyond the
+cap wait in an in-process FIFO for at most `POOL_ADMISSION_DEADLINE_MS` (30s) before being refused.
+Since mt#4473 this covers **drizzle traffic as well as `.unsafe()`** — drizzle's postgres-js driver
+issues every query through `client.unsafe()`, and the drizzle client is built over the same guarded
+instance, so both share one counter. `sql.begin()` transactions still bypass it.
+
+### Reading `debug_systemInfo.poolerSaturation`
+
+| Field                           | Means                                                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `limit` / `inFlight` / `queued` | The cap, what is executing now, and who is parked waiting now.                                                                 |
+| `peakInFlight` / `peakQueued`   | High-water marks for the process's lifetime — a burst is over by the time anyone looks.                                        |
+| `everSaturated`                 | The cap was reached at least once. Ordinary under load; not a fault on its own.                                                |
+| `refused` / `lastRefusedAt`     | **Read these first.** A caller waited the full admission deadline and got nothing. This is the outage shape, not a load level. |
+| `guardCount`                    | Should be `1`. Above 1 means something re-wrapped the client and the other fields understate demand.                           |
+
+Before mt#4473 these counters observed `.unsafe()` only, so a pool exhausted by drizzle traffic read
+all zeros. A zero reading is now meaningful for both paths (still not for `sql.begin()`).
+
+### `EPOOLADMISSIONTIMEOUT` / `PoolAdmissionTimeoutError`
+
+**This is not a database outage.** It means this process's pool was full and stayed full for the
+whole admission deadline — the queries holding it are long-running or wedged. The database is
+typically healthy throughout; the discriminator is that a CLI DB read (which opens its own
+connection) returns promptly while MCP calls hang.
+
+```bash
+minsky mcp status                # reports `db: degraded` for this condition
+minsky mcp restart --execute     # clears it; the tray respawns the daemon
+```
+
+Refusal is deliberately preferred over an unbounded wait: a bounded failure naming its cause is
+recoverable in seconds, and the unbounded one cost 45 minutes. A refusal under ORDINARY load would
+be a regression, not expected behaviour — `refused` climbing during normal use means the pool is
+undersized for real demand, which is a different question (mt#4360).
+
+### Checking the bound on a live system
+
+`scripts/verify-drizzle-pooler-bound.ts` exercises the real provider against whatever database is
+configured: it fires `3 x max` concurrent drizzle SELECTs and asserts they are counted, capped, and
+not refused. It is read-only, and it skips with exit 0 where no SQL-capable persistence is
+configured — which is also why CI does not run it (CI has no live pool to saturate).
+
+```bash
+bun scripts/verify-drizzle-pooler-bound.ts
+```
+
 ## Socket Inactivity Bound (mt#3592)
 
 Every pooled connection carries a bound on how long its socket may sit with **no bytes moving in
