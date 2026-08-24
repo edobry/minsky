@@ -68,16 +68,34 @@ const MODULE_LEVEL_LET = /^let\s+(\w+)/gm;
  * epoch check, so one pool recycle killed the primary transcript-capture path
  * for the rest of the daemon's life while this guard passed.
  *
- * Matches a non-readonly `private`/`protected`/`public` field whose name or
- * type suggests a cached provider-derived handle. Deliberately narrow on the
- * NAME: every class field would flood the guard with obvious non-offenders and
- * train people to add exemption markers without reading them, which is worse
- * than not asking. `readonly` is excluded because it cannot be reassigned, so
- * it cannot latch onto a NEW handle — an epoch-keyed cache assigned once in a
- * constructor is the intended shape and must not be flagged.
+ * Keyed on the declared TYPE, not on the field's name (PR #3278 R1). A
+ * name-based heuristic was tried first and is wrong in both directions: it
+ * overmatches benign fields that merely contain the substring (`debugLevel`,
+ * `poolSize`, `dbusClient`) and undermatches a real handle called `client`,
+ * `driver`, or `sql`. Forcing exemption markers onto obvious non-offenders is
+ * the worse half — it trains people to add the marker without reading it, which
+ * costs the guard its meaning.
+ *
+ * A provider-derived handle is nearly always declared with an explicit type,
+ * because it is initialised to `null` and needs one. That makes the type the
+ * precise signal, and it is already scoped: this only runs on files that
+ * resolve the persistence provider at all.
+ *
+ * `readonly` is excluded because it cannot be reassigned, so it cannot latch
+ * onto a NEW handle — an epoch-keyed cache assigned once in a constructor is
+ * the intended shape and must not be flagged.
+ *
+ * Residual gap, stated rather than papered over: a handle held with an inferred
+ * type is invisible here. That is the same trade the module-level check makes —
+ * this guard fires on a legible signal and asks a human, rather than pretending
+ * to decide what is provider-derived.
  */
-const INSTANCE_LEVEL_CACHE =
-  /^\s*(?:private|protected|public)\s+(?!readonly\b)(\w*(?:cached|Cached|db|Db|pool|Pool|conn|Conn)\w*)\s*[:=]/gm;
+const HANDLE_TYPE_NAMES =
+  "PostgresJsDatabase|PersistenceService|PersistenceProvider|SqlCapablePersistenceProvider|DatabaseConnection|Sql";
+const INSTANCE_LEVEL_CACHE = new RegExp(
+  String.raw`^\s*(?:private|protected|public)\s+(?!readonly\b)(\w+)\s*:\s*[^;\n=]*\b(?:${HANDLE_TYPE_NAMES})\b`,
+  "gm"
+);
 
 /** Opt-out marker carrying its own reason, e.g. `// epoch-exempt: warn rate-limit clock`. */
 const EXEMPT_MARKER = /epoch-exempt:/;
@@ -195,5 +213,35 @@ describe("persistence-epoch cache coverage (mt#3721)", () => {
       }
     `;
     expect([...fixed.matchAll(INSTANCE_LEVEL_CACHE)].length).toBe(0);
+  });
+
+  test("benign fields whose NAMES look cache-ish are not flagged (PR #3278 R1)", () => {
+    // The first draft keyed on the name and would have flagged every one of
+    // these, forcing exemption markers onto fields that hold no handle. The
+    // reviewer named these three exactly.
+    const benign = `
+      export class Thing {
+        private debugLevel: number = 0;
+        private poolSize: number = 15;
+        private dbusClient: string | null = null;
+        private cachedCount = 0;
+      }
+    `;
+    expect([...benign.matchAll(INSTANCE_LEVEL_CACHE)].length).toBe(0);
+  });
+
+  test("a real handle is flagged whatever it is NAMED (PR #3278 R1)", () => {
+    // The other direction the reviewer named: a name-based rule misses a handle
+    // called `client`, `driver`, or `sql`. Keying on the TYPE catches all of
+    // them without needing to enumerate naming habits.
+    const handles = `
+      export class Thing {
+        private client: PostgresJsDatabase | null = null;
+        private driver: Sql | null = null;
+        private store: PersistenceService | null = null;
+      }
+    `;
+    const found = [...handles.matchAll(INSTANCE_LEVEL_CACHE)].map((m) => m[1]);
+    expect(found).toEqual(["client", "driver", "store"]);
   });
 });
