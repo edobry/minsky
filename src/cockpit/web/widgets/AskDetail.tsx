@@ -263,8 +263,7 @@ export async function resolveAsk(id: string, payload: unknown): Promise<void> {
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`resolve failed (${res.status}): ${text}`);
+    throw new Error(`resolve failed (${res.status}): ${await readErrorBody(res)}`);
   }
 }
 
@@ -275,8 +274,7 @@ export async function deferAsk(id: string): Promise<void> {
     body: JSON.stringify({}),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`defer failed (${res.status}): ${text}`);
+    throw new Error(`defer failed (${res.status}): ${await readErrorBody(res)}`);
   }
 }
 
@@ -287,9 +285,37 @@ export async function escalateAsk(id: string): Promise<void> {
     body: JSON.stringify({}),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`escalate failed (${res.status}): ${text}`);
+    throw new Error(`escalate failed (${res.status}): ${await readErrorBody(res)}`);
   }
+}
+
+/**
+ * The operator-readable half of an error response (mt#4503).
+ *
+ * These three throws used to interpolate `res.text()` directly, which was
+ * invisible while nothing rendered them. Now that a failure is shown in the ask
+ * panel, the raw body IS the message the principal reads — and every one of
+ * these endpoints answers `{"error": "..."}`, so the un-parsed form put
+ * `{"error":"respondAndCloseAsk: Ask is in \"closed\" state"}`, escaped quotes
+ * and all, in front of them. Verified in a real browser against the running
+ * daemon before this was added.
+ *
+ * Falls back to the raw text on anything unexpected — a proxy's HTML 502 page, an
+ * empty body — because a mangled message is still better than an empty one.
+ */
+async function readErrorBody(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
+      const message = (parsed as { error?: unknown }).error;
+      if (typeof message === "string" && message !== "") return message;
+    }
+  } catch {
+    // intentional-swallow: a non-JSON body is expected on a proxy error page;
+    // the raw text below is the correct fallback, not an error to report.
+  }
+  return text;
 }
 
 // ---------------------------------------------------------------------------
