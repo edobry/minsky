@@ -1,4 +1,10 @@
-# ADR-025: Transcript Storage — Raw Archive in Object Storage as System of Record, Postgres as Rebuildable Derived Index
+# ADR-025 (SUPERSEDED by ADR-045): Transcript Storage — Raw Archive in Object Storage as System of Record, Postgres as Rebuildable Derived Index
+
+<!-- The filename deliberately still says "object-store-system-of-record": it is referenced by path
+     from ADR-040, ADR-044, transcript-archive.md, cockpit.md, several source comments and many task
+     specs, and renaming it would break every one of those for no gain. The marker rides in the
+     TITLE instead, so a reader who only ever sees a heading or a search result — never the Status
+     block below — still cannot mistake this for the current decision. -->
 
 ## Status
 
