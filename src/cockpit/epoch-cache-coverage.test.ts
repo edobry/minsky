@@ -58,6 +58,27 @@ const EPOCH_MACHINERY = /createEpochKeyedCache|getPersistenceEpoch/;
 /** Module-level mutable state: a top-of-file `let`, not one inside a function. */
 const MODULE_LEVEL_LET = /^let\s+(\w+)/gm;
 
+/**
+ * Mutable state held on a class INSTANCE rather than at module level (mt#4480).
+ *
+ * The original guard matched only `^let`, and a long-lived singleton's instance
+ * field caches across a recycle exactly as a module-level `let` does — the
+ * lifetime that matters is the object's, not the declaration's syntax. That gap
+ * was not theoretical: `TranscriptWatcher` held `private cachedDb` with no
+ * epoch check, so one pool recycle killed the primary transcript-capture path
+ * for the rest of the daemon's life while this guard passed.
+ *
+ * Matches a non-readonly `private`/`protected`/`public` field whose name or
+ * type suggests a cached provider-derived handle. Deliberately narrow on the
+ * NAME: every class field would flood the guard with obvious non-offenders and
+ * train people to add exemption markers without reading them, which is worse
+ * than not asking. `readonly` is excluded because it cannot be reassigned, so
+ * it cannot latch onto a NEW handle — an epoch-keyed cache assigned once in a
+ * constructor is the intended shape and must not be flagged.
+ */
+const INSTANCE_LEVEL_CACHE =
+  /^\s*(?:private|protected|public)\s+(?!readonly\b)(\w*(?:cached|Cached|db|Db|pool|Pool|conn|Conn)\w*)\s*[:=]/gm;
+
 /** Opt-out marker carrying its own reason, e.g. `// epoch-exempt: warn rate-limit clock`. */
 const EXEMPT_MARKER = /epoch-exempt:/;
 
@@ -85,13 +106,17 @@ describe("persistence-epoch cache coverage (mt#3721)", () => {
       if (!PROVIDER_RESOLVERS.test(source)) continue;
 
       const lets = [...source.matchAll(MODULE_LEVEL_LET)].map((m) => m[1]);
-      if (lets.length === 0) continue;
+      // mt#4480: an instance field on a long-lived object latches across a
+      // recycle exactly as a module-level `let` does.
+      const fields = [...source.matchAll(INSTANCE_LEVEL_CACHE)].map((m) => m[1]);
+      const state = [...lets, ...fields];
+      if (state.length === 0) continue;
 
       if (EPOCH_MACHINERY.test(source) || EXEMPT_MARKER.test(source)) continue;
 
       offenders.push(
-        `${file.replace(COCKPIT_DIR, "src/cockpit")} — module-level state ` +
-          `[${lets.join(", ")}] in a module that resolves the persistence provider, ` +
+        `${file.replace(COCKPIT_DIR, "src/cockpit")} — mutable state ` +
+          `[${state.join(", ")}] in a module that resolves the persistence provider, ` +
           `with no epoch check and no 'epoch-exempt:' marker.`
       );
     }
@@ -128,5 +153,47 @@ describe("persistence-epoch cache coverage (mt#3721)", () => {
     expect([...offending.matchAll(/^\s*let\s+(\w+)/gm)].length).toBeGreaterThan(0);
     expect(EPOCH_MACHINERY.test(offending)).toBe(false);
     expect(EXEMPT_MARKER.test(offending)).toBe(false);
+  });
+
+  test("an INSTANCE-field cache is detected too (mt#4480)", () => {
+    // Negative control for the widening, written from the real pre-fix source
+    // of `TranscriptWatcher.resolveDb` rather than from an invented shape. The
+    // guard passed on this for as long as it existed, because `cachedDb` is a
+    // class field and the original predicate matched only `^let`. One pool
+    // recycle then killed the primary transcript-capture path permanently.
+    const offending = `
+      import { getSharedPersistenceService } from "./shared-persistence";
+      export class Watcher {
+        private cachedDb: PostgresJsDatabase | null = null;
+        private async resolveDb(): Promise<PostgresJsDatabase | null> {
+          if (this.cachedDb) return this.cachedDb;
+          const db = await this.getDb();
+          if (db) this.cachedDb = db;
+          return db;
+        }
+      }
+    `;
+
+    expect(PROVIDER_RESOLVERS.test(offending)).toBe(true);
+    // The OLD predicate does not see it — this is the gap, stated as an assertion.
+    expect([...offending.matchAll(MODULE_LEVEL_LET)].length).toBe(0);
+    // The new one does.
+    const fields = [...offending.matchAll(INSTANCE_LEVEL_CACHE)].map((m) => m[1]);
+    expect(fields).toContain("cachedDb");
+    expect(EPOCH_MACHINERY.test(offending)).toBe(false);
+    expect(EXEMPT_MARKER.test(offending)).toBe(false);
+  });
+
+  test("a readonly epoch-keyed field is NOT flagged", () => {
+    // The shape the fix produces must not be an offender, or the widening would
+    // just push everyone toward exemption markers. `readonly` cannot be
+    // reassigned, so it cannot latch onto a new handle.
+    const fixed = `
+      import { createEpochKeyedCache } from "./shared-persistence";
+      export class Watcher {
+        private readonly resolveDbCached: () => Promise<PostgresJsDatabase | null>;
+      }
+    `;
+    expect([...fixed.matchAll(INSTANCE_LEVEL_CACHE)].length).toBe(0);
   });
 });

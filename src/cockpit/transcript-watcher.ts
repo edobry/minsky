@@ -48,6 +48,7 @@ import { log } from "@minsky/shared/logger";
 import { JsonlTailer } from "@minsky/domain/transcripts/jsonl-tailer";
 
 import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
+import { createEpochKeyedCache } from "./shared-persistence";
 
 const JSONL_EXT = ".jsonl";
 const DEFAULT_DEBOUNCE_MS = 400;
@@ -61,6 +62,12 @@ export interface TranscriptWatcherDeps {
   debounceMs?: number;
   /** DB getter for ingest. Defaults to the cockpit shared persistence provider. */
   getDb?: DbGetter;
+  /**
+   * Test seam: override the persistence-epoch read (mt#4480). Mirrors
+   * `createEpochKeyedCache`'s own `options.getEpoch`. Production never sets it —
+   * bumping the real epoch means recycling the real pool.
+   */
+  getEpoch?: () => number;
   /** Tracker singleton. Defaults to the process-lifetime singleton. */
   tracker?: TranscriptWatcherTracker;
   /**
@@ -83,13 +90,40 @@ export class TranscriptWatcher {
   private readonly getDb: DbGetter;
   private readonly ingestFileImpl: (jsonlPath: string) => Promise<number>;
   private readonly inFlight = new Set<string>();
-  private cachedDb: PostgresJsDatabase | null = null;
+  /**
+   * Epoch-keyed DB handle (mt#4480).
+   *
+   * This was a plain `private cachedDb` that, once set, was never invalidated.
+   * A pool recycle (mt#3638) ENDS the old `Sql` instance, and postgres-js then
+   * rejects every query on a handle derived from it with `CONNECTION_ENDED`
+   * forever — nothing clears the `ending` flag. So one recycle killed the
+   * PRIMARY transcript-capture path for the rest of the daemon's life, leaving
+   * freshness to the 30-minute sweep backstop. Measured on a live daemon before
+   * the fix: `ingestsTriggered: 47, ingestsSucceeded: 16, ingestErrors: 31`,
+   * with `lastIngestAt` 75 minutes stale while `lastErrorAt` was current, and
+   * actively-writing conversations 1.4h to 45h behind their on-disk head.
+   *
+   * `createEpochKeyedCache` is the mt#3721 primitive for exactly this and
+   * carries subtleties worth not re-deriving: it single-flights concurrent
+   * callers, requires the epoch to be STABLE ACROSS construction (a recycle
+   * landing mid-resolve would otherwise cache a handle onto the torn-down
+   * pool), and never caches a null so a not-yet-ready DI container is retried.
+   *
+   * Why mt#3721's structural guard did not catch this: `epoch-cache-coverage.test.ts`
+   * matches module-level `let` declarations, and this cache was an INSTANCE
+   * FIELD. The guard has been widened in the same change.
+   */
+  private readonly resolveDbCached: () => Promise<PostgresJsDatabase | null>;
 
   constructor(deps: TranscriptWatcherDeps = {}) {
     this.projectsDir = deps.claudeProjectsDir ?? join(homedir(), ".claude", "projects");
     this.tracker = deps.tracker ?? TranscriptWatcherTracker.getInstance();
     this.getDb = deps.getDb ?? (() => this.defaultGetDb());
     this.ingestFileImpl = deps.ingestFile ?? ((p) => this.defaultIngestFile(p));
+    this.resolveDbCached = createEpochKeyedCache(
+      () => this.getDb(),
+      deps.getEpoch ? { getEpoch: deps.getEpoch } : undefined
+    );
   }
 
   /** Absolute root being watched. */
@@ -172,11 +206,10 @@ export class TranscriptWatcher {
   }
 
   private async resolveDb(): Promise<PostgresJsDatabase | null> {
-    if (this.cachedDb) return this.cachedDb;
-    const db = await this.getDb();
-    // Cache only a live connection — a null (DI not ready yet) must be retried.
-    if (db) this.cachedDb = db;
-    return db;
+    // Caches only a live connection, and only for the persistence generation it
+    // was resolved under — both properties belong to the helper now. See
+    // `resolveDbCached`'s doc comment for what the un-keyed version cost.
+    return this.resolveDbCached();
   }
 
   private async defaultGetDb(): Promise<PostgresJsDatabase | null> {
