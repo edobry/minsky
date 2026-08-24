@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  callerSessionIdFromCwd,
   decidePeerActivity,
   STATUS_CHANGE_WINDOW_MS,
+  TARGET_TOOLS,
   type TaskEventRow,
 } from "./warn-peer-task-activity";
 import { PRESENCE_CLAIM_TTL_MS } from "../../packages/domain/src/presence/types";
@@ -108,20 +110,26 @@ describe("decidePeerActivity", () => {
 
     expect(result.fired).toBe(true);
     expect(result.message).toContain(PEER_SESSION_ID);
-    expect(result.message).toContain("TODO → PLANNING");
+
+    // 13:48:36 is 5m24s before 13:54 — inside the window.
     expect(result.message).toContain("PLANNING → READY");
+
+    // 13:38:45 is 15m15s before 13:54 — just OUTSIDE it. This assertion is the
+    // rounding bug's fingerprint on real data: the pre-fix comparison rounded
+    // 15m15s to 15m and included this row. PR #3281 R1.
+    expect(result.message).not.toContain("TODO → PLANNING");
   });
 
-  test("does not attribute — it reports the rows and says so", () => {
-    // Naming an actor is the axis mt#4440 is repairing; this guard's value is
-    // that it does not depend on it. Asserted so a later edit cannot quietly
-    // add attribution back.
+  test("says plainly that status-change rows are NOT attributed", () => {
+    // Attribution is partial by design: the caller's own session IS filtered
+    // out, but a status-change row carries no actor at all. Asserted so a later
+    // edit cannot quietly claim more attribution than the data supports.
     const result = decidePeerActivity(
       "mt#4439",
       [row("session.started", 1, { sessionId: "x" })],
       NOW
     );
-    expect(result.message).toContain("does not attribute");
+    expect(result.message).toContain("NOT attributed");
   });
 
   test("an unparseable timestamp is treated as infinitely old, not as now", () => {
@@ -132,6 +140,88 @@ describe("decidePeerActivity", () => {
       NOW
     );
     expect(result.fired).toBe(false);
+  });
+});
+
+describe("PR #3281 R1 — reviewer findings", () => {
+  test("the window boundary is exact: a row 29s past it does NOT fire", () => {
+    // Regression for the rounded-minutes bug. The old code compared
+    // Math.round(ageMs / 60000) * 60000, so 15m29s rounded DOWN to 15m and
+    // compared as inside the window — a silent ~29s widening.
+    const justPast = {
+      eventType: STATUS_CHANGED,
+      createdAt: new Date(NOW - (15 * 60 + 29) * 1000),
+    };
+    expect(decidePeerActivity("mt#4439", [justPast], NOW).fired).toBe(false);
+
+    // ...and one second inside it still does.
+    const justInside = {
+      eventType: STATUS_CHANGED,
+      createdAt: new Date(NOW - (15 * 60 - 1) * 1000),
+    };
+    expect(decidePeerActivity("mt#4439", [justInside], NOW).fired).toBe(true);
+  });
+
+  test("the caller's OWN session.started is suppressed", () => {
+    // Without this the guard warns every implementing agent about itself on
+    // every status transition, and is tuned out within a day.
+    const events = [row("session.started", 5, { sessionId: PEER_SESSION_ID })];
+    expect(decidePeerActivity("mt#4439", events, NOW, PEER_SESSION_ID).fired).toBe(false);
+  });
+
+  test("a DIFFERENT session is still reported when the caller has one of its own", () => {
+    const events = [
+      row("session.started", 5, { sessionId: PEER_SESSION_ID }),
+      row("session.started", 5, { sessionId: "mine-0000-0000-0000-000000000000" }),
+    ];
+    const result = decidePeerActivity("mt#4439", events, NOW, "mine-0000-0000-0000-000000000000");
+    expect(result.fired).toBe(true);
+    expect(result.message).toContain(PEER_SESSION_ID);
+    expect(result.message).not.toContain("mine-0000");
+  });
+
+  test("a caller outside any session suppresses nothing — the mt#4439 case", () => {
+    // The originating incident's agent worked in the MAIN workspace, so it has
+    // no session id to match. Failing toward warning is the safe direction.
+    const events = [row("session.started", 5, { sessionId: PEER_SESSION_ID })];
+    expect(decidePeerActivity("mt#4439", events, NOW, null).fired).toBe(true);
+  });
+});
+
+describe("callerSessionIdFromCwd", () => {
+  const SID = "05d8a3dd-f4f6-4b51-9d79-258fd621a5e5";
+
+  test("extracts the id from a session root", () => {
+    expect(callerSessionIdFromCwd(`/Users/e/.local/state/minsky/sessions/${SID}`)).toBe(SID);
+  });
+
+  test("extracts it from a SUBDIRECTORY — the shell cwd is routinely one", () => {
+    // types.ts §Repo-root resolution: input.cwd "is routinely a SUBDIRECTORY of
+    // the repo". The id is an ancestor segment, so it survives any cd.
+    expect(
+      callerSessionIdFromCwd(`/Users/e/.local/state/minsky/sessions/${SID}/src/cockpit/web`)
+    ).toBe(SID);
+  });
+
+  test("returns null in the main workspace", () => {
+    expect(callerSessionIdFromCwd("/Users/edobry/Projects/minsky")).toBeNull();
+  });
+
+  test("returns null for an undefined cwd", () => {
+    expect(callerSessionIdFromCwd(undefined)).toBeNull();
+  });
+
+  test("does not match a path segment that merely contains 'sessions'", () => {
+    expect(callerSessionIdFromCwd("/Users/e/my-sessions-backup/notes")).toBeNull();
+  });
+});
+
+describe("TARGET_TOOLS", () => {
+  test("covers BOTH write surfaces the spec names", () => {
+    // tasks_spec_patch is the surface that actually mattered in the originating
+    // incident — the harm was spec sections written into a peer's task.
+    expect(TARGET_TOOLS.has("mcp__minsky__tasks_status_set")).toBe(true);
+    expect(TARGET_TOOLS.has("mcp__minsky__tasks_spec_patch")).toBe(true);
   });
 });
 

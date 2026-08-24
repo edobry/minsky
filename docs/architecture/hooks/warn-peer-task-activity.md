@@ -1,6 +1,6 @@
 # `warn-peer-task-activity`
 
-Advisory PreToolUse observer on `mcp__minsky__tasks_status_set`. Reads the task event ledger and
+Advisory PreToolUse observer on `mcp__minsky__tasks_status_set` and `mcp__minsky__tasks_spec_patch`. Reads the task event ledger and
 injects an advisory when it shows activity the caller may not have caused. **It never denies.**
 
 Source: `.minsky/hooks/warn-peer-task-activity.ts`. Task: mt#4494.
@@ -70,11 +70,21 @@ its domain imports stay dynamic (`domain-bootstrap.ts` layer 1); a test asserts 
 
 ## What it deliberately does NOT do
 
-**It does not attribute.** `task.status_changed` rows carry no actor, and the hook cannot map its
-own Claude Code `session_id` onto a Minsky workspace session id — different id spaces. So it
-reports what the ledger shows and lets the reader recognise their own session. Naming an actor is
-precisely the axis that is broken; the guard's whole value is that it does not depend on it. A test
-asserts the "does not attribute" disclaimer survives future edits.
+**It attributes exactly one thing, and says so (revised in PR #3281 R1).** The first version
+attributed nothing, on the reasoning that the hook's Claude Code `session_id` and a Minsky
+workspace session id are different id spaces. The reviewer was right that this left the task's own
+acceptance test unmet — _"the guard does not fire when the caller is the actor that started the
+session"_ — and there IS a signal: a session workspace lives at
+`~/.local/state/minsky/sessions/<sessionId>/`, and `input.cwd` is that root or a subdirectory of
+it, so the id is an ancestor path segment (`callerSessionIdFromCwd`).
+
+So the caller's OWN `session.started` row is filtered out. Without that, the guard warns every
+implementing agent about itself on every transition and is tuned out within a day.
+
+`task.status_changed` rows are still NOT attributed — they carry no session or actor at all — and
+the advisory text says which is which rather than implying uniform attribution. A caller outside
+any session workspace (the mt#4439 case) matches nothing and suppresses nothing, which is the safe
+direction: it still warns.
 
 **It does not deny.** Denying is the _prevention_ side of the substrate RFC's Open question 4
 (Notion `367937f0`, Draft): _"Should the substrate detect contention (surface it to operators) or
