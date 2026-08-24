@@ -6,10 +6,16 @@
  * after the session closes. It is NOT the system of record — ADR-045 (Accepted
  * 2026-08-24, ask#8004) put the live landing zone in an insert-only Postgres
  * `transcript_lines` table, reversing ADR-025's mechanism. This module is
- * unchanged by that and has never had a production caller; what changed is what
- * the bucket is FOR. It defines the domain-owned interface (ADR-018 principle:
- * interface + real impl + fake, DI-injected) plus the content-addressed key
- * layout shared by both implementations.
+ * unchanged by that: what changed is what the bucket is FOR. It defines the
+ * domain-owned interface (ADR-018 principle: interface + real impl + fake,
+ * DI-injected) plus the content-addressed key layout shared by both
+ * implementations.
+ *
+ * Wiring status is deliberately not asserted here — it will drift, and a stale
+ * claim in a docblock is the exact defect mt#4522 cleaned up. Check it instead:
+ * `grep -rn 'putRaw' --include='*.ts' packages/ scripts/ src/` — as of
+ * 2026-08-24 that returned only this module, its tests, and
+ * scripts/transcript-archive/smoke.ts.
  *
  * Key layout (decision recorded on mt#2680):
  *
