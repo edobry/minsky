@@ -14,8 +14,10 @@
  *   - "tracking task: mt#XXXX"  → { tracksTask: ["mt#XXXX"] }
  *   - "Budget: ... tracking task: mt#XXXX" → { tracksTask: ["mt#XXXX"] }
  *   - Bridge tag + "mt#XXXX" in content → { tracksTask: ["mt#XXXX"] }
- *   - "see mt#XXXX" / "See mt#XXXX" in cross-references → { relatedTask: ["mt#XXXX"] }
- *   - General "mt#XXXX" references → { relatedTask: ["mt#XXXX"] }
+ *
+ * NOT extracted (removed mt#4448): "see mt#XXXX" and bare "mt#XXXX" mentions. They minted
+ * `relatedTask` for every incidental reference -- 9438 ids across 1146 records on the live
+ * corpus -- which is out of scope and duplicates the body text. See extractAssociations().
  *
  * Idempotent: uses merge semantics (existing associations preserved).
  *
@@ -104,10 +106,7 @@ async function main() {
     const bodyRefCount = countTaskRefs(mem.content);
     totalBodyRefs += bodyRefCount;
 
-    const extractedTaskIds = new Set([
-      ...(extracted.tracksTask ?? []),
-      ...(extracted.relatedTask ?? []),
-    ]);
+    const extractedTaskIds = new Set(extracted.tracksTask ?? []);
     capturedRefs += extractedTaskIds.size;
 
     extractions.push({
@@ -129,10 +128,18 @@ async function main() {
   );
   console.log(`Memories needing update: ${toUpdate.length}`);
   console.log(`Already up-to-date: ${allMemories.length - toUpdate.length}`);
-  console.log(`\nUnique task IDs referenced in body text: ${totalBodyRefs}`);
-  console.log(`Unique task IDs captured as associations: ${capturedRefs}`);
-  const coverage = totalBodyRefs > 0 ? ((capturedRefs / totalBodyRefs) * 100).toFixed(1) : "N/A";
-  console.log(`Coverage (unique IDs captured / unique IDs found): ${coverage}%`);
+  // mt#2071's "coverage" metric is NOT reported here, and the omission is deliberate.
+  // It divided the ids the extractor captured by the ids a `\bmt#(\d+)\b` scan found -- but
+  // the extractor's own catch-all used that identical regex over that identical text, so the
+  // two sets were equal BY CONSTRUCTION and the figure was 100.0% on every possible input.
+  // Measured 2026-08-24: 9438 / 9438. A number that cannot fall is not evidence, and mt#2071's
+  // ">=80% coverage" acceptance bar was satisfied by arithmetic rather than by extraction.
+  //
+  // The meaningful measure is tracksTask RECALL against hand-audited retirement clauses, which
+  // needs a labelled sample this script does not have. Reporting the raw counts instead.
+  console.log(`\nUnique task IDs referenced anywhere in body text: ${totalBodyRefs}`);
+  console.log(`Task IDs captured as tracksTask associations:      ${capturedRefs}`);
+  console.log("(No coverage ratio: see the comment above -- the mt#2071 ratio was vacuous.)");
   console.log();
 
   if (toUpdate.length > 0) {
@@ -174,7 +181,6 @@ async function main() {
 
 function extractAssociations(content: string, tags: string[]): Record<string, string[]> {
   const tracksTask = new Set<string>();
-  const relatedTask = new Set<string>();
 
   const trackingPattern = /[Tt]racking\s+task:\s*mt#(\d+)/g;
   for (const match of content.matchAll(trackingPattern)) {
@@ -196,25 +202,19 @@ function extractAssociations(content: string, tags: string[]): Record<string, st
     }
   }
 
-  const seePattern = /[Ss]ee\s+mt#(\d+)/g;
-  for (const match of content.matchAll(seePattern)) {
-    const taskId = `mt#${match[1]}`;
-    if (!tracksTask.has(taskId)) {
-      relatedTask.add(taskId);
-    }
-  }
-
-  const generalPattern = /\bmt#(\d+)\b/g;
-  for (const match of content.matchAll(generalPattern)) {
-    const taskId = `mt#${match[1]}`;
-    if (!tracksTask.has(taskId) && !relatedTask.has(taskId)) {
-      relatedTask.add(taskId);
-    }
-  }
+  // REMOVED (mt#4448): a `see mt#X` pattern and a catch-all `\bmt#(\d+)\b` pattern, both
+  // minting `relatedTask`. Measured on the live corpus 2026-08-24, they would have written
+  // **9438 task ids across 1146 of 1226 records** -- a `relatedTask` entry for every incidental
+  // task mention in every memory body. That is a different KIND of change from the tracksTask
+  // population this script's task was scoped to, it duplicates text already in the body
+  // (against ADR-012's own derivation discipline), and it was never approved. The scope was
+  // re-confirmed with the principal on 2026-08-24: tracksTask only.
+  //
+  // If a future task genuinely wants an indexed mention-graph, build it as a DERIVED index at
+  // write time -- not as a hand-maintained field a human is expected to keep true.
 
   const result: Record<string, string[]> = {};
   if (tracksTask.size > 0) result.tracksTask = [...tracksTask].sort();
-  if (relatedTask.size > 0) result.relatedTask = [...relatedTask].sort();
   return result;
 }
 

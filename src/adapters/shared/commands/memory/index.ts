@@ -43,6 +43,10 @@ import type {
 } from "@minsky/domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
+import {
+  validateAssociations,
+  summarizeAssociationIssues,
+} from "@minsky/domain/memory/associations";
 import { emitSystemEventBestEffort } from "../system-event-emit";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
 import {
@@ -897,6 +901,16 @@ export function registerMemoryCommands(
         });
       }
 
+      // ADR-012 vocabulary check (mt#4448). Deliberately NOT gated on `force`: that flag
+      // bypasses the derivation heuristic above, which is a judgment call about content.
+      // The association vocabulary is a closed set, and an override would restore the exact
+      // condition the mt#4448 census measured — 26 of 28 records keyed on invented strings.
+      const associationIssues = validateAssociations(params.associations);
+      const associationError = summarizeAssociationIssues(associationIssues);
+      if (associationError) {
+        throw new Error(associationError);
+      }
+
       const service = await resolveMemoryService(deps, ctx ?? {});
 
       // ADR-021 / mt#2416: default projectId to the resolved current project
@@ -960,6 +974,17 @@ export function registerMemoryCommands(
       // error rather than letting a non-uuid reach the driver as a cast.
       const { id: rawId, ...updateFields } = params;
       const id = await resolveMemoryIdInput(rawId, ctx ?? {});
+
+      // ADR-012 vocabulary check (mt#4448), in `update` mode: an empty value array is a
+      // key REMOVAL under this command's merge semantics and stays legal for any key, so
+      // the divergent keys can be cleaned up through the supported path. A non-empty value
+      // under an unknown key is rejected exactly as it is on create.
+      const associationError = summarizeAssociationIssues(
+        validateAssociations(updateFields.associations, "update")
+      );
+      if (associationError) {
+        throw new Error(associationError);
+      }
 
       const service = await resolveMemoryService(deps, ctx ?? {});
       const record = await service.update(id, updateFields);

@@ -56,6 +56,7 @@
  */
 
 import { renderMeasurementNote, type MeasurementDecay } from "./measurement-decay";
+import { TRACKS_TASK_ASSOCIATION } from "./associations";
 
 /**
  * Task statuses that mean the tracked work has landed.
@@ -69,8 +70,15 @@ export const COMPLETED_TASK_STATUSES = ["DONE", "CLOSED"] as const;
 
 const COMPLETED_STATUSES = new Set<string>(COMPLETED_TASK_STATUSES);
 
-/** The association key ADR-012 assigns to memory -> tracking-task links. */
-export const TRACKS_TASK_ASSOCIATION = "tracksTask";
+/**
+ * The association key ADR-012 assigns to memory -> tracking-task links.
+ *
+ * Re-exported from `./associations.ts` rather than redeclared (mt#4448). Same reasoning as
+ * `COMPLETED_TASK_STATUSES` above: a second hand-maintained copy is a divergence risk, and this
+ * one would be worse — the write seam validates against the vocabulary module, so a drifted
+ * literal here would read a key the validator refuses to let anyone write.
+ */
+export { TRACKS_TASK_ASSOCIATION };
 
 /**
  * Retirement-clause patterns, each capturing a task id.
