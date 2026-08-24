@@ -244,11 +244,22 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // an orphan daemon sat in exactly that state; nothing on this endpoint
       // could express it, and it took a log grep 19 hours later to find.
       //
-      // `cwd` is therefore a PROXY for the module root, not the thing itself —
-      // exact because of how the daemon is spawned, and the check would need
-      // revisiting if it ever gained a `--cwd`-style flag that decoupled them.
-      // It is the right proxy to publish regardless: it is what an operator can
-      // compare against, and it is cheap.
+      // The cwd is a PROXY for the module root, not the thing itself — exact
+      // because of how the daemon is spawned, and worth revisiting if the
+      // command ever gains a `--cwd`-style flag that decouples them.
+      //
+      // A BOOLEAN, not the path (PR #3296 R1). This endpoint is unauthenticated,
+      // and every sibling field carries counts and ISO timestamps only — the
+      // redaction policy stated at `transcript-sweep-tracker.ts:18` and
+      // inherited by `routes/sweeps.ts:32`. An absolute path would publish the
+      // operator's username and directory layout to any unauthenticated caller,
+      // which nothing else on this surface does.
+      //
+      // Nothing operational is lost. The standing condition an operator needs is
+      // whether the cwd still resolves, which is exactly what this says; and
+      // `pid` is already on this payload, so `lsof -p <pid> -a -d cwd` recovers
+      // the actual path — from a caller who has already proven local access,
+      // rather than from the wire.
       //
       // Re-checked per request rather than cached at boot, because the whole
       // point is that the answer CHANGES under a running process. Cheap: a
@@ -258,8 +269,7 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // sub-object asserts an operational state, so it owes a timestamp saying
       // when that assertion was made.
       workspaceRoot: {
-        cwd: process.cwd(),
-        resolved: findRepoRoot([process.cwd()]) ?? null,
+        resolves: findRepoRoot([process.cwd()]) !== undefined,
         checkedAt: new Date().toISOString(),
       },
       // consecutiveDegraded: how many consecutive /api/health calls have seen

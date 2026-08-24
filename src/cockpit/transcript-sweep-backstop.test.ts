@@ -383,6 +383,17 @@ describe("transcript-sweep-backstop module resolution (mt#4489)", () => {
   // verification in the PR body. It proves only that the regression cannot
   // silently return — which is exactly what a grep-shaped invariant is good for,
   // and it fails against the pre-fix file.
+  //
+  // THIS IS A STOPGAP, and it is bounded (PR #3296 R1, non-blocking). A
+  // lint rule is the right tier for a source-shaped invariant, and the reason
+  // there isn't one is mt#4523: `.minsky/rules/no-dynamic-imports.mdc` claims
+  // `eslint.config.js` enforces this mechanically, and it does not — that option
+  // belongs to the test-scoped `custom/no-real-fs-in-tests`, and no
+  // `no-dynamic-imports` rule exists in `eslint-rules/`. **Delete this describe
+  // block when mt#4523 ships a real rule covering this file.** Escalation
+  // threshold: if a second module needs the same hand-written guard before
+  // mt#4523 lands, that is the signal the rule is overdue — raise it rather than
+  // copying this block a third time.
   // Buffer + `toString()` rather than an encoding argument: this checker
   // resolves `readFileSync`'s encoding overload to `string | Buffer`, so
   // `.match` below would not typecheck, and its `Buffer.toString` accepts no
