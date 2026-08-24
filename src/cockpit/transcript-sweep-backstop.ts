@@ -18,6 +18,39 @@
 
 import { log } from "@minsky/shared/logger";
 
+// mt#4489 — STATIC, deliberately, and this is the fix rather than a tidy-up.
+//
+// These five were `await import(...)` inside `buildRealSweepDeps`, which defers
+// module resolution to the first sweep tick — potentially hours after boot.
+//
+// The daemon is spawned as `bun run src/cli.ts cockpit start` with cwd set to a
+// repo root (`cockpit-tray/src-tauri/src/supervisor.rs`), so the process's
+// module-resolution root is THAT TREE: `@minsky/*` specifiers resolve through
+// its `package.json` workspaces to `<tree>/packages/...`. Note the anchor is the
+// tree the entry script came from, not a `process.cwd()` re-read on each import.
+// Either way the consequence is the same, and it is why deferring matters: if
+// that tree is deleted while the process lives — a session clone that gets
+// cleaned up — already-loaded modules keep working and every not-yet-loaded
+// import fails with ENOENT.
+//
+// That is exactly what happened on 2026-08-24: an orphan daemon whose session
+// workspace had been deleted logged `embedding backfill failed (non-fatal)
+// BuildMessage: ENOENT` reading
+// `<deleted-workspace>/packages/domain/src/transcripts/per-turn-embedding-pipeline.ts`
+// on the ticks it served, having booted and run fine beforehand.
+//
+// Resolving at LOAD time closes the window: the workspace is necessarily present
+// when the daemon starts, so there is no later moment at which resolution can
+// fail. Verified safe to hoist — none of these modules opens a connection or
+// performs IO at import (`shared-persistence`'s top level is state declarations
+// plus one env read), and `packages/domain` imports nothing from `src/cockpit`,
+// so there is no cycle.
+import { getSharedPersistenceService } from "./shared-persistence";
+import { ClaudeCodeTranscriptSource } from "@minsky/domain/transcripts/claude-code-transcript-source";
+import { AgentTranscriptIngestService } from "@minsky/domain/transcripts/agent-transcript-ingest-service";
+import { createEmbeddingServiceFromConfig } from "@minsky/domain/ai/embedding-service-factory";
+import { PerTurnEmbeddingPipeline } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
+
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import {
   getSchemaReadiness,
@@ -124,7 +157,6 @@ export interface TranscriptSweepBackstopOptions {
  * Returns null when the provider is not SQL-capable.
  */
 async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
-  const { getSharedPersistenceService } = await import("./shared-persistence");
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
@@ -152,12 +184,6 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
     totalIngested: number;
     aborted?: TranscriptSweepAbort;
   }> => {
-    const { ClaudeCodeTranscriptSource } = await import(
-      "@minsky/domain/transcripts/claude-code-transcript-source"
-    );
-    const { AgentTranscriptIngestService } = await import(
-      "@minsky/domain/transcripts/agent-transcript-ingest-service"
-    );
     const source = new ClaudeCodeTranscriptSource();
     const svcIngest = new AgentTranscriptIngestService(
       db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -178,14 +204,10 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
     // configured or reachable. The tick's outer try/catch (fail-open) handles
     // that case: the sweep ingest counters are already recorded, and only the
     // embedding backfill is skipped — per SC2's requirement that a missing
-    // embedding provider must not crash the sweep.
-    const { createEmbeddingServiceFromConfig } = await import(
-      "@minsky/domain/ai/embedding-service-factory"
-    );
+    // embedding provider must not crash the sweep. Note this is a CALL-time
+    // throw and is unrelated to the mt#4489 import hoist above: the factory is
+    // resolved at load, then invoked here.
     const embeddingService = await createEmbeddingServiceFromConfig();
-    const { PerTurnEmbeddingPipeline } = await import(
-      "@minsky/domain/transcripts/per-turn-embedding-pipeline"
-    );
     const pipeline = new PerTurnEmbeddingPipeline(
       db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
       embeddingService

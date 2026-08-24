@@ -18,6 +18,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+// mt#4489: scanning the real source tree IS the contract here (same rationale as
+// epoch-cache-coverage.test.ts). Scoped to this import and the single read below
+// rather than the whole file, because every other test here uses injected deps and
+// should stay covered by the rule.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import * as fs from "fs";
+import * as path from "path";
 import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./transcript-sweep-backstop";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
@@ -359,6 +366,62 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
   });
 });
 
+// ── mt#4489: dependencies must resolve at LOAD, not at first tick ────────────
+
+describe("transcript-sweep-backstop module resolution (mt#4489)", () => {
+  // Why this is a SOURCE assertion rather than a behavioural one, stated plainly
+  // so the next reader can judge it: the defect is that a bare `@minsky/*`
+  // specifier resolves against a module tree that may be DELETED by the time a
+  // deferred import runs. Reproducing that behaviourally means starting a daemon
+  // from a throwaway repo tree and deleting it mid-flight — real, but far too
+  // heavy for a unit test. What this asserts instead is the invariant that makes
+  // the failure impossible: nothing in this module defers a bare-specifier
+  // import past load.
+  //
+  // What it does NOT prove: that the module actually loads, or that the sweep
+  // works. Those are covered by the injected-deps tests below and by the live
+  // verification in the PR body. It proves only that the regression cannot
+  // silently return — which is exactly what a grep-shaped invariant is good for,
+  // and it fails against the pre-fix file.
+  //
+  // THIS IS A STOPGAP, and it is bounded (PR #3296 R1, non-blocking). A
+  // lint rule is the right tier for a source-shaped invariant, and the reason
+  // there isn't one is mt#4523: `.minsky/rules/no-dynamic-imports.mdc` claims
+  // `eslint.config.js` enforces this mechanically, and it does not — that option
+  // belongs to the test-scoped `custom/no-real-fs-in-tests`, and no
+  // `no-dynamic-imports` rule exists in `eslint-rules/`. **Delete this describe
+  // block when mt#4523 ships a real rule covering this file.** Escalation
+  // threshold: if a second module needs the same hand-written guard before
+  // mt#4523 lands, that is the signal the rule is overdue — raise it rather than
+  // copying this block a third time.
+  // Buffer + `toString()` rather than an encoding argument: this checker
+  // resolves `readFileSync`'s encoding overload to `string | Buffer`, so
+  // `.match` below would not typecheck, and its `Buffer.toString` accepts no
+  // arguments. The default decoding is utf8, which is what this file is.
+  const SELF = path.join(import.meta.dir, "transcript-sweep-backstop.ts");
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import above
+  const SOURCE = fs.readFileSync(SELF).toString();
+
+  test("no bare-specifier dynamic imports remain in this module", () => {
+    // Matches `await import("@minsky/...")` across line breaks, which is how
+    // the five removed calls were formatted after prettier wrapped them.
+    const deferredBareImports = SOURCE.match(/await\s+import\(\s*["']@minsky\//g) ?? [];
+    expect(deferredBareImports).toEqual([]);
+  });
+
+  test("the modules the sweep needs are imported statically", () => {
+    for (const specifier of [
+      "@minsky/domain/transcripts/claude-code-transcript-source",
+      "@minsky/domain/transcripts/agent-transcript-ingest-service",
+      "@minsky/domain/ai/embedding-service-factory",
+      "@minsky/domain/transcripts/per-turn-embedding-pipeline",
+    ]) {
+      // A top-level `import ... from "<specifier>"`, not an `await import(...)`.
+      expect(SOURCE).toContain(`from "${specifier}"`);
+    }
+  });
+});
+
 // ── TranscriptSweepTracker unit tests ────────────────────────────────────────
 
 describe("TranscriptSweepTracker (mt#2321)", () => {
@@ -409,6 +472,31 @@ describe("TranscriptSweepTracker (mt#2321)", () => {
     tracker.recordEmbedRunCompleted();
     tracker.recordEmbedRunCompleted();
     expect(tracker.getSummary().embedRuns).toBe(2);
+  });
+
+  // mt#4489 — the whole value of this field is that it SEPARATES two states the
+  // raw counters render identically, so the three cases are asserted together.
+  // A test that only checked the true case would pass against a hardcoded
+  // `embedNeverSucceeded: true`.
+  test("embedNeverSucceeded is false before any sweep has run", () => {
+    // embedRuns is 0 here, but nothing is owed yet — the daemon has not swept.
+    // This is the case that made a bare `embedRuns: 0` unreadable.
+    expect(tracker.getSummary().embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedNeverSucceeded is true once a sweep ran with no successful embed", () => {
+    tracker.recordSweepCompleted(5, 0);
+    const s = tracker.getSummary();
+    expect(s.sweepsRun).toBe(1);
+    expect(s.embedRuns).toBe(0);
+    expect(s.embedNeverSucceeded).toBe(true);
+  });
+
+  test("embedNeverSucceeded goes false as soon as one embed run succeeds", () => {
+    tracker.recordSweepCompleted(5, 0);
+    expect(tracker.getSummary().embedNeverSucceeded).toBe(true);
+    tracker.recordEmbedRunCompleted();
+    expect(tracker.getSummary().embedNeverSucceeded).toBe(false);
   });
 
   test("recordSweepError sets lastErrorAt without changing sweep counters", () => {

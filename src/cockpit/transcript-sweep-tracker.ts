@@ -80,6 +80,23 @@ export interface TranscriptSweepSummary {
    * NOTE: per redaction policy, the raw error message is NOT stored. Log surface carries it.
    */
   lastErrorAt: string | null;
+  /**
+   * True when the embedding backfill has NEVER succeeded in this process's
+   * lifetime, on a daemon that HAS swept (mt#4489).
+   *
+   * Derived, not counted — `sweepsRun > 0 && embedRuns === 0`. It exists
+   * because the two raw counters cannot express this on their own:
+   * `embedRuns: 0` reads identically on a daemon that has never swept (fine,
+   * nothing owed yet) and on one whose every backfill has thrown (a standing
+   * failure). Distinguishing them required reading the log, which is what made
+   * the mt#4489 ENOENT invisible for 19 hours despite both counters being on
+   * `/api/health` the whole time.
+   *
+   * Scoped to the PROCESS, like every other field here: a restart resets it,
+   * which is correct — the failure class it exposes (a lazy import resolving
+   * against a cwd that no longer exists) is itself process-scoped.
+   */
+  embedNeverSucceeded: boolean;
 }
 
 export class TranscriptSweepTracker {
@@ -192,6 +209,7 @@ export class TranscriptSweepTracker {
           ? null
           : new Date(this.lastProductiveSweepAtMs).toISOString(),
       lastErrorAt: this.lastErrorAtMs === null ? null : new Date(this.lastErrorAtMs).toISOString(),
+      embedNeverSucceeded: this.sweepsRun > 0 && this.embedRuns === 0,
     };
   }
 }
