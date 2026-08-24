@@ -68,6 +68,20 @@ the tracker now distinguishes (mt#1682):
    deliberately NOT duplicated here; the inner already records those with a
    more specific cause. **Counts toward escalation** (not by-design — an
    external actor caused it).
+7. **Signals with no dedicated taxonomy entry (mt#4481)** — the bare
+   `cause: "signal"`, emitted by `classifyExitForDisconnectLog`'s `default:`
+   branch (`src/mcp/stdio-proxy/proxy.ts`) for any signal outside
+   SIGKILL/SIGTERM/SIGINT/SIGHUP: SIGBUS, SIGSEGV, SIGABRT, SIGTRAP, and so
+   on. Like class 6 it is proxy-observed and carries
+   `serverName: "minsky-proxy"`. **Read `event.signal` for the actual signal
+   name** — this generic bucket exists so these do not collapse into
+   `"unknown"`, and the raw name is always recorded alongside. Treated the
+   same as class 6 for escalation. Worth opening when it appears: on the
+   principal's machine every one of the 156 such records was a runtime crash
+   of the inner server, including Bun panics whose `stderrTail` carries the
+   full crash report. This cause has been emitted since mt#2830 but went
+   undocumented here until mt#4481, so a reader classifying a cause
+   distribution had no entry for roughly 2% of it.
 
 ## Staleness-exit drain semantics (mt#2701, mt#2830)
 
@@ -179,6 +193,54 @@ The legacy mt#1645 single-array JSON format is still readable on load
 (backward-compat migration). After upgrade, new events append as JSONL
 lines after the legacy array; both halves load on the next restart.
 
+### The legacy seam, and why a zero-row read is not silence (mt#4481)
+
+A log that predates the mt#1682 migration has a **hybrid** shape: a
+pretty-printed `[ … ]` array, then JSONL. Until mt#4481 the two halves were
+GLUED — the mt#1645 writer ended its file with `]` and no trailing newline,
+and `appendEvent` wrote only a trailing one, so the first appended record
+landed on the same line as the closing bracket:
+
+```
+]{"timestamp":"…","serverName":"…","kind":"process_start","cause":"process_start","pid":91211}
+```
+
+`appendEvent` now writes a leading newline when the file does not already end
+in one, so no new seam can form — but **a file that already carries one keeps
+it**, and the tracker's own loader tolerates it, so nothing repairs it for you.
+
+**What it breaks, and only this:** `jq` aborts a stream at its first parse
+error, and the seam line is the FIRST line a `"kind":"process_start"` grep
+matches (the legacy array is pretty-printed, so `"kind": "process_start"` with
+a space never matches the compact pattern). So the *restart* query — and no
+other — dies with `jq: parse error: Unmatched ']'` at **exit 5, emitting zero
+rows**. The `disconnect` recipes below are unaffected because that line is not
+a `disconnect`.
+
+**Do not read that zero as "the tracker stopped recording."** It is the shape
+that produced exactly that misreading on 2026-08-23, costing a task filed
+against a healthy subsystem. Two ways to tell in one command each:
+
+```bash
+# Is there a seam? Exactly one hit means yes; zero means the file is clean.
+grep -c '^\]' ~/.local/state/minsky/mcp-disconnect-log.json
+
+# Read it anyway: jq's slurp parser treats `]{` as two documents, so this
+# works with or without a seam. Slower (loads the whole file), always correct.
+jq -s -r '[.[] | if type=="array" then .[] else . end]
+  | map(select(type=="object" and .kind=="process_start"))
+  | sort_by(.timestamp) | .[-5:] | .[] | "\(.timestamp) pid=\(.pid)"' \
+  ~/.local/state/minsky/mcp-disconnect-log.json
+```
+
+To repair a seamed file in place — splitting the line, changing nothing else:
+
+```bash
+perl -0pi -e 's/\]\{/]\n{/' ~/.local/state/minsky/mcp-disconnect-log.json
+```
+
+Confirm with `jq -s length` before and after; the counts must match.
+
 Quick consumer commands:
 
 ```bash
@@ -196,6 +258,19 @@ grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
 
 # Process count today
 grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
+
+# Most recent restarts (timestamp + pid) — the "why did the daemon go down?" query.
+# Correlate the newest pid against `minsky mcp status` to confirm it is the live one.
+# NOTE: this is the recipe the seam breaks. If it exits 5 with `Unmatched ']'`,
+# the file has a seam — see "The legacy seam" above; do NOT read it as silence.
+grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq -r '"\(.timestamp) pid=\(.pid)"' | tail -5
+
+# Restarts per day — the input to a cadence question (mt#4487). Report the
+# per-day counts, never a pooled average: this cadence is strongly bimodal
+# (quiet periods vs active src/ merging) and a mean describes neither regime.
+grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq -r '.timestamp[0:10]' | sort | uniq -c
 
 # Proxy-observed exits with full diagnostics (mt#2830) — SIGKILL/crash cases
 grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log.json \
@@ -226,6 +301,13 @@ grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
   fields this task adds are exactly the missing signal their diagnosis needs;
   neither task is closed by this work, but both should be revisited with the
   richer log now available.
+- `mt#4481` — the legacy→JSONL seam: `appendEvent` now writes a leading
+  newline when the file lacks one, the generic `signal` cause class (7) is
+  documented, and the restart-query recipes above are the ones the seam broke
+- `mt#4495` — the same file has no rotation: ~4.2 MB and growing, fully
+  re-parsed on every process start to retain 500 in-memory events
+- `mt#4487` — restart cadence per regime; consumes the `process_start` recipes
+  above and is the reason the per-day recipe warns against pooling
 - `src/mcp/disconnect-tracker.ts` — implementation
 - `src/mcp/stdio-proxy/proxy.ts` — proxy-side child-close observation,
   `classifyExitForDisconnectLog`, stderr-tail capture (mt#2830)
