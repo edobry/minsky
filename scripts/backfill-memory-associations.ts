@@ -9,15 +9,19 @@
  *   bun scripts/backfill-memory-associations.ts              # dry-run (default)
  *   bun scripts/backfill-memory-associations.ts --execute     # apply changes
  *
- * Patterns extracted:
- *   - "Tracking task: mt#XXXX"  → { tracksTask: ["mt#XXXX"] }
- *   - "tracking task: mt#XXXX"  → { tracksTask: ["mt#XXXX"] }
- *   - "Budget: ... tracking task: mt#XXXX" → { tracksTask: ["mt#XXXX"] }
- *   - Bridge tag + "mt#XXXX" in content → { tracksTask: ["mt#XXXX"] }
+ * Patterns extracted: NONE of its own. This script owns no pattern set — it delegates to
+ * `extractTrackingTaskRefs` (`packages/domain/src/memory/staleness.ts`), the calibrated
+ * extractor the READ path uses, so what is written and what is read agree by construction.
+ * The authoritative list therefore lives there, and is deliberately not restated here: a
+ * second copy is what let a removed pattern keep being documented (PR #3295 R2).
  *
- * NOT extracted (removed mt#4448): "see mt#XXXX" and bare "mt#XXXX" mentions. They minted
- * `relatedTask` for every incidental reference -- 9438 ids across 1146 records on the live
- * corpus -- which is out of scope and duplicates the body text. See extractAssociations().
+ * THREE catch-alls were removed in mt#4448, all minting associations from incidental mentions:
+ *   - bare "mt#XXXX"  and  "see mt#XXXX"  -> relatedTask; 9438 ids across 1146 records.
+ *   - a BRIDGE-TAG sweep: for any memory tagged `bridge`, every "mt#XXXX" in the body ->
+ *     tracksTask. 43 of 66 records were receiving >3 ids, some 14. Worse than the other two,
+ *     because `computeStaleness` marks a memory stale when ANY ref completes and
+ *     `extractTrackingTaskRefs` PREFERS a stored association over its own text scan.
+ * See extractAssociations().
  *
  * Idempotent: uses merge semantics (existing associations preserved).
  *
@@ -104,7 +108,10 @@ async function main() {
     const merged = mergeAssociations(existing, extracted);
     const changed = JSON.stringify(merged) !== JSON.stringify(existing);
 
-    const bodyRefCount = countTaskRefs(mem.content);
+    // description AND content — the same fields `extractAssociations` feeds the extractor.
+    // Counting only `content` made the denominator smaller than the population the numerator
+    // was drawn from, so the two figures below described different corpora (PR #3295 R2).
+    const bodyRefCount = countTaskRefs(`${mem.description ?? ""}\n${mem.content}`);
     totalBodyRefs += bodyRefCount;
 
     const extractedTaskIds = new Set(extracted.tracksTask ?? []);
@@ -138,7 +145,7 @@ async function main() {
   //
   // The meaningful measure is tracksTask RECALL against hand-audited retirement clauses, which
   // needs a labelled sample this script does not have. Reporting the raw counts instead.
-  console.log(`\nUnique task IDs referenced anywhere in body text: ${totalBodyRefs}`);
+  console.log(`\nUnique task IDs referenced anywhere in description+content: ${totalBodyRefs}`);
   console.log(`Task IDs captured as tracksTask associations:      ${capturedRefs}`);
   console.log("(No coverage ratio: see the comment above -- the mt#2071 ratio was vacuous.)");
   console.log();
@@ -227,6 +234,7 @@ function mergeAssociations(
   return merged;
 }
 
+/** Count distinct task ids in a haystack. Callers pass description+content, matching the extractor. */
 function countTaskRefs(content: string): number {
   const refs = new Set<string>();
   const pattern = /\bmt#(\d+)\b/g;
