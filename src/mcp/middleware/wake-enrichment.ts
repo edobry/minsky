@@ -30,6 +30,11 @@ import { log } from "@minsky/shared/logger";
  */
 export interface WakeServiceSurface {
   drainBySession(parentSessionId: string, drainedForTool: string): Promise<WakeSignalPayload[]>;
+  /**
+   * Conversation-grain drain (mt#4476). Keyed on the ADR-006 caller identity the
+   * server already resolves for every tool call, so it needs no args to match on.
+   */
+  drainByAgent(agentId: string, drainedForTool: string): Promise<WakeSignalPayload[]>;
 }
 
 /**
@@ -90,10 +95,25 @@ const TAG_FAILED = "wake.enrichment.failed";
 
 export interface WakeEnrichmentOptions {
   charBudget?: number;
+  /**
+   * The caller's conversation-grain identity (ADR-006 `{kind}:{scope}:{id}`), when
+   * the server resolved one at Layer 2 or 3 (mt#4476).
+   *
+   * MUST be omitted for a Layer 1 ascribed id. Layer 1 is a hash of
+   * (hostname, user, pid, start-time) — ADR-006 says it "is not a conversation-scoped
+   * distinction" — so every conversation sharing a server process would resolve the
+   * SAME value and drain each other's wakes. Omitting is not a lost optimization;
+   * it is the correctness boundary.
+   */
+  callerAgentId?: string;
 }
 
 /**
- * Returns true when this tool is in the v0 wake-enrichment allowlist.
+ * Returns true when this tool is in the SESSION-keyed wake-enrichment allowlist.
+ *
+ * Scope note (mt#4476): this gates the session-keyed path ONLY. The
+ * conversation-keyed path deliberately has no allowlist — see
+ * {@link enrichWakeResponse}.
  */
 export function shouldEnrichWake(toolName: string): boolean {
   return WAKE_ENRICHMENT_ALLOWLIST.has(toolName);
@@ -117,49 +137,90 @@ export async function enrichWakeResponse(
   sessionResolver: SessionResolver | undefined,
   options: WakeEnrichmentOptions = {}
 ): Promise<WakeEnrichmentBlock | null> {
-  if (!shouldEnrichWake(toolName)) return null;
-  if (!wakeService || !sessionResolver) return null;
+  if (!wakeService) return null;
 
   const charBudget = options.charBudget ?? DEFAULT_CHAR_BUDGET;
+  const payloads: WakeSignalPayload[] = [];
+  let label: string | null = null;
 
-  let parentSessionId: string | null;
-  try {
-    parentSessionId = await sessionResolver.resolveParentSessionId(args);
-  } catch (err: unknown) {
-    log.debug("[wake-enrichment] session resolver failed; skipping", {
-      tool: toolName,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
+  // ---- Conversation-keyed path (mt#4476). NO allowlist, by design. ----
+  //
+  // The session path below needs an allowlist because it reads the key out of the
+  // tool's ARGS, so a tool without them can only ever miss. This path reads the key
+  // from the caller's `_meta` (ADR-006), which every tool call carries equally — so
+  // an allowlist here would reintroduce exactly the conjunction that made an answered
+  // ask undeliverable in the first place, and SC1 ("within one tool call, without an
+  // intervening prompt") would hold only for five tools out of ~200.
+  //
+  // `callerAgentId` is supplied ONLY when the server resolved a conversation-SCOPED
+  // identity (ADR-006 Layer 2/3). A Layer 1 ascribed id is a process hash — the
+  // server passes undefined rather than have us query on a key no producer writes.
+  const callerAgentId = options.callerAgentId;
+  if (callerAgentId) {
+    try {
+      const agentPayloads = await wakeService.drainByAgent(callerAgentId, toolName);
+      if (agentPayloads.length > 0) {
+        payloads.push(...agentPayloads);
+        label = callerAgentId;
+      }
+    } catch (err: unknown) {
+      log.cli(
+        `${TAG_FAILED} ${JSON.stringify({
+          event: TAG_FAILED,
+          tool: toolName,
+          key: "agent",
+          error: err instanceof Error ? err.message : String(err),
+        })}`
+      );
+      // Fall through — a failure on one key must not suppress the other.
+    }
   }
 
-  if (!parentSessionId) {
-    log.cli(
-      `${TAG_NO_SESSION_ID} ${JSON.stringify({
-        event: TAG_NO_SESSION_ID,
-        tool: toolName,
-      })}`
-    );
-    return null;
-  }
-
-  let payloads: WakeSignalPayload[];
-  try {
-    payloads = await wakeService.drainBySession(parentSessionId, toolName);
-  } catch (err: unknown) {
-    log.cli(
-      `${TAG_FAILED} ${JSON.stringify({
-        event: TAG_FAILED,
+  // ---- Session-keyed path (mt#1661, unchanged). ----
+  if (shouldEnrichWake(toolName) && sessionResolver) {
+    let parentSessionId: string | null = null;
+    try {
+      parentSessionId = await sessionResolver.resolveParentSessionId(args);
+    } catch (err: unknown) {
+      log.debug("[wake-enrichment] session resolver failed; skipping", {
         tool: toolName,
         error: err instanceof Error ? err.message : String(err),
-      })}`
-    );
-    return null;
+      });
+    }
+
+    if (parentSessionId) {
+      try {
+        const sessionPayloads = await wakeService.drainBySession(parentSessionId, toolName);
+        if (sessionPayloads.length > 0) {
+          payloads.push(...sessionPayloads);
+          label = label ?? parentSessionId;
+        }
+      } catch (err: unknown) {
+        log.cli(
+          `${TAG_FAILED} ${JSON.stringify({
+            event: TAG_FAILED,
+            tool: toolName,
+            key: "session",
+            error: err instanceof Error ? err.message : String(err),
+          })}`
+        );
+      }
+    } else if (!callerAgentId) {
+      // The v0-inadequacy signal (mt#1661) — kept, but now only when the
+      // conversation-keyed path ALSO had nothing to go on. With a resolved agent id
+      // the caller is addressable, so the old "no session id" reading would be
+      // wrong: nothing about this call is undeliverable.
+      log.cli(
+        `${TAG_NO_SESSION_ID} ${JSON.stringify({
+          event: TAG_NO_SESSION_ID,
+          tool: toolName,
+        })}`
+      );
+    }
   }
 
-  // Session resolved but no pending wakes — silent no-op. This is the common case
-  // and emitting telemetry per call would be noisy.
-  if (payloads.length === 0) return null;
+  // Addressable but nothing pending — silent no-op, the common case.
+  if (payloads.length === 0 || label === null) return null;
 
   log.cli(
     `${TAG_DELIVERED} ${JSON.stringify({
@@ -169,7 +230,7 @@ export async function enrichWakeResponse(
     })}`
   );
 
-  return buildBlock(toolName, parentSessionId, payloads, charBudget);
+  return buildBlock(toolName, label, payloads, charBudget);
 }
 
 /**
@@ -180,11 +241,15 @@ export async function enrichWakeResponse(
  */
 function buildBlock(
   toolName: string,
-  parentSessionId: string,
+  addressedTo: string,
   payloads: WakeSignalPayload[],
   charBudget: number
 ): WakeEnrichmentBlock | null {
-  const envelope = `<wake-events tool="${toolName}" session="${parentSessionId}" count="${payloads.length}">\n`;
+  // Attribute kept as `session=` for wire compatibility: stored transcripts and any
+  // downstream parser already match on that attribute name, and mt#4476 widened what
+  // the VALUE can be (a workspace session id, or an ADR-006 agent id) rather than
+  // adding a second attribute.
+  const envelope = `<wake-events tool="${toolName}" session="${addressedTo}" count="${payloads.length}">\n`;
   const closing = `\n</wake-events>`;
   let bodyBudget = charBudget - envelope.length - closing.length;
   if (bodyBudget <= 0) return null;

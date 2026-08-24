@@ -39,6 +39,7 @@ import {
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import { APPROVAL_TOKEN_EXAMPLES, isApproveShapedToken } from "@minsky/shared/ask-approval";
+import { emitAnsweredAskWakeBestEffort } from "./asks-answered-wake";
 import {
   DrizzleAskRepository,
   type AskRepository,
@@ -836,6 +837,24 @@ export const asksCreateParams = {
     description: "AgentId of the requestor; defaults to a session-unknown marker",
     required: false,
   },
+  callerActorId: {
+    schema: z.string(),
+    description:
+      "mt#4476: the caller's resolved conversation-grain agentId (ADR-006), persisted as " +
+      "`Ask.filedByAgentId` so an answer to this ask can be delivered back to the " +
+      "conversation that filed it on its next tool call. Server-injected from the resolved " +
+      "MCP identity (src/mcp/server.ts) — never supplied by hand, and any hand-supplied " +
+      "value is overwritten there. That overwrite is the point: `requestor` above is the " +
+      "same nominal thing accepted from the caller, and is why it cannot be used as a " +
+      "delivery key. Absent on the CLI path and whenever identity falls back to ADR-006 " +
+      "Layer 1 (a process hash, which is not conversation-scoped); an ask filed without it " +
+      "still works, it just cannot be woken on the tool-call seam.",
+    required: false,
+    // Server-injected only — hide from the CLI surface so it is not advertised as a
+    // hand-passable flag (mirrors observability.calibration-review and
+    // tasks.dispatch-recover).
+    cliHidden: true,
+  },
   // Service-window fields (mt#1411 spine — mt#1488)
   serviceStrategy: {
     schema: z.enum(["asap", "scheduled", "deadline-bound"] as const).optional(),
@@ -1272,6 +1291,8 @@ export interface CreateAskParams {
   metadata?: Record<string, unknown>;
   classifierVersion?: string;
   requestor?: string;
+  /** Server-injected caller identity (mt#4476) — see the `callerActorId` param. */
+  callerActorId?: string;
   /** Service-window routing strategy (mt#1411 spine — mt#1488). When absent, per-kind default applies. */
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
   /** Named window to target when strategy is "scheduled". When absent, per-kind default applies. */
@@ -1385,6 +1406,9 @@ export async function createAsk(
     kind: params.kind,
     classifierVersion: params.classifierVersion ?? "v1.0.0",
     requestor: params.requestor ?? "minsky.agent:unknown",
+    // mt#4476: server-injected, never caller-supplied. Trimmed-empty is treated as
+    // absent so a blank injection cannot become a key nothing can match.
+    filedByAgentId: params.callerActorId?.trim() ? params.callerActorId.trim() : undefined,
     title: params.title,
     question: params.question,
     options: params.options,
@@ -2372,6 +2396,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
               responder: (params.responder as string | undefined) ?? null,
             },
           });
+          // mt#4476: the same event, addressed to the conversation that filed the ask
+          // rather than to the activity stream. Until this existed, `asks.respond`
+          // emitted the line above and nothing else — an agent mid-turn learned of its
+          // own answer only when its turn ended and a new prompt fired mt#3564's hook.
+          await emitAnsweredAskWakeBestEffort(() => buildCompositeWakeSink(container), result.ask);
           return result;
         });
       },
@@ -2485,6 +2514,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             metadata: params.metadata as Record<string, unknown> | undefined,
             classifierVersion: params.classifierVersion as string | undefined,
             requestor: params.requestor as string | undefined,
+            // mt#4476: the MCP server overwrote this with the resolved caller identity
+            // before the handler ran, so it is trustworthy in a way `requestor` is not.
+            callerActorId: params.callerActorId as string | undefined,
             // Service-window fields (mt#1411 spine — mt#1488)
             serviceStrategy: params.serviceStrategy as
               | "asap"

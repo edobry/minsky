@@ -106,6 +106,7 @@ export function toAsk(row: AskRecord): Ask {
     routingTarget: row.routingTarget ?? undefined,
     parentTaskId: row.parentTaskId ?? undefined,
     parentSessionId: row.parentSessionId ?? undefined,
+    filedByAgentId: row.filedByAgentId ?? undefined,
     projectId: row.projectId ?? undefined,
     title: row.title,
     question: row.question,
@@ -171,6 +172,7 @@ export function toInsert(input: CreateAskInput): AskInsert {
     routingTarget: input.routingTarget ?? null,
     parentTaskId: input.parentTaskId ?? null,
     parentSessionId: input.parentSessionId ?? null,
+    filedByAgentId: input.filedByAgentId ?? null,
     projectId: input.projectId ?? null,
     title: input.title,
     question: input.question,
@@ -227,6 +229,13 @@ export interface CreateAskInput {
   routingTarget?: Ask["routingTarget"];
   parentTaskId?: string;
   parentSessionId?: string;
+  /**
+   * Conversation-grain identity of the caller filing this Ask (mt#4476). Supplied
+   * at the `asks.create` execute callsite from the MCP server's server-injected
+   * `callerActorId`, NOT from caller input — see `Ask.filedByAgentId`. Omitted on
+   * paths that resolve no declared identity (CLI, or an ADR-006 Layer 1 fallback).
+   */
+  filedByAgentId?: string;
   /**
    * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). Omitted
    * when the project is unidentified — the Ask is then unscoped (NULL). Resolved
@@ -1658,6 +1667,7 @@ export class FakeAskRepository implements AskRepository {
       routingTarget: input.routingTarget,
       parentTaskId: input.parentTaskId,
       parentSessionId: input.parentSessionId,
+      filedByAgentId: input.filedByAgentId,
       projectId: input.projectId,
       title: input.title,
       question: input.question,

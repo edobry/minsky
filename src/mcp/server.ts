@@ -203,6 +203,19 @@ const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 const CALIBRATION_REVIEW_TOOL_NAME = "observability.calibration-review";
 
 /**
+ * The tool whose ROW records caller identity for later delivery (mt#4476).
+ *
+ * A third reason, distinct from the two above: the other members read the caller's
+ * identity to decide something DURING the call, while this one persists it so an
+ * answer can be routed back to that conversation later. `Ask.filedByAgentId` is the
+ * only addressing key an ordinary ask has — a main-workspace conversation has no
+ * workspace session — and it has to be server-stamped rather than caller-supplied,
+ * because the adjacent caller-supplied field (`requestor`) demonstrates what happens
+ * otherwise: its docblock promises an AgentId and a live sample held `"claude-opus-5"`.
+ */
+const ASKS_CREATE_TOOL_NAME = "asks.create";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -217,10 +230,9 @@ const CALIBRATION_REVIEW_TOOL_NAME = "observability.calibration-review";
  * cannot disagree with itself.
  */
 const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
-  [DISPATCH_RECOVER_TOOL_NAME, CALIBRATION_REVIEW_TOOL_NAME].flatMap((name) => [
-    name,
-    toClaudeDesktopName(name),
-  ])
+  [DISPATCH_RECOVER_TOOL_NAME, CALIBRATION_REVIEW_TOOL_NAME, ASKS_CREATE_TOOL_NAME].flatMap(
+    (name) => [name, toClaudeDesktopName(name)]
+  )
 );
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -1265,7 +1277,8 @@ export class MinskyMCPServer {
       });
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
-      const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
+      const callerIdentity = this.resolveCallerIdentity(server, extra as RequestExtras | undefined);
+      const agentId = callerIdentity.agentId;
 
       // mt#1884: per-tool dispatch latency instrumentation (flat Braintrust event).
       // Start timestamp captured at dispatch entry; the event is emitted once in the
@@ -1458,11 +1471,19 @@ export class MinskyMCPServer {
           // carried no resolvable session arg, or there were no pending wakes.
           // Errors are logged at `wake.enrichment.failed` and suppressed —
           // enrichment failure must NEVER break the underlying tool call.
+          // mt#4476: also pass the caller's conversation-grain identity, so an
+          // answered ask reaches the conversation that filed it on ANY tool call
+          // rather than only on the five that carry a session argument. Layer 1 is
+          // withheld deliberately — it is a process hash, so every conversation on
+          // this server would resolve the same value and drain each other's wakes.
           const wakeBlock = await enrichWakeResponse(
             request.params.name,
             request.params.arguments || {},
             this.wakeService,
-            this.wakeSessionResolver
+            this.wakeSessionResolver,
+            {
+              callerAgentId: callerIdentity.layer === 1 ? undefined : callerIdentity.agentId,
+            }
           );
 
           // Return MCP-compliant tool response
@@ -1716,6 +1737,22 @@ export class MinskyMCPServer {
    * each session has its own Server and thus its own clientVersion.
    */
   private resolveCallerAgentId(server: Server, extras: RequestExtras | undefined): string {
+    return this.resolveCallerIdentity(server, extras).agentId;
+  }
+
+  /**
+   * As {@link resolveCallerAgentId}, but keeps the LAYER alongside the id.
+   *
+   * The layer is what tells a conversation-SCOPED identity (Layer 2/3 — declared in
+   * `_meta`, or stamped there by the stdio proxy) apart from an ascribed Layer 1
+   * process hash. Callers that address something to a conversation need that
+   * distinction; callers that only need a "who touched this last" label do not,
+   * which is why the plain wrapper above still exists.
+   */
+  private resolveCallerIdentity(
+    server: Server,
+    extras: RequestExtras | undefined
+  ): { agentId: string; layer: 1 | 2 | 3 } {
     let clientInfoName: string | undefined;
     try {
       const clientVersion = server.getClientVersion();
@@ -1723,12 +1760,13 @@ export class MinskyMCPServer {
     } catch {
       // getClientVersion() may throw if called before initialize completes
     }
-    return resolveAgentIdWithLayer({
+    const resolved = resolveAgentIdWithLayer({
       extras,
       clientInfo: clientInfoName ? { name: clientInfoName } : undefined,
       declaredKeys: buildDeclaredIdentityKeys(this.options.protocolConversationIdKey),
       onFallback: (event) => this.reportIdentityFallback(event),
-    }).agentId;
+    });
+    return { agentId: resolved.agentId, layer: resolved.layer };
   }
 
   /**

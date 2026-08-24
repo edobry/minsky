@@ -1,0 +1,1 @@
+ALTER TABLE "asks" ADD COLUMN "filed_by_agent_id" text;

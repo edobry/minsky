@@ -131,6 +131,17 @@ export const asksTable = pgTable(
     /** Parent session UUID when the Ask originated in an active session. */
     parentSessionId: text("parent_session_id"),
 
+    /**
+     * Conversation-grain identity of the caller that FILED this Ask, in ADR-006
+     * `{kind}:{scope}:{id}` AgentId form (mt#4476). SERVER-STAMPED — see the
+     * `Ask.filedByAgentId` docblock in `../../ask/types.ts` for why this exists
+     * alongside `requestor`, which is caller-supplied despite its own docblock.
+     *
+     * The addressing key for answered-ask wake delivery: a main-workspace
+     * conversation has no `parent_session_id`, but always has this.
+     */
+    filedByAgentId: text("filed_by_agent_id"),
+
     /** Short summary line used for list rendering and notifications. */
     title: text("title").notNull(),
 
