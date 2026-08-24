@@ -10,10 +10,15 @@
  *   read directly from the append-only JSONL log
  *   (`~/.local/state/minsky/mcp-disconnect-log.json`) documented in
  *   CLAUDE.md "MCP disconnect cadence and escalation threshold". This widget
- *   deliberately does NOT import `src/mcp/disconnect-tracker.ts` (a different
- *   process's singleton, with heavier transitive imports); it re-implements
- *   the small "escalation-eligible" predicate directly from the documented
- *   log contract, matching the CLAUDE.md "Quick consumer commands" pattern.
+ *   still deliberately does NOT import `src/mcp/disconnect-tracker.ts` (a
+ *   different process's singleton, with heavier transitive imports) — but as
+ *   of mt#4499 it no longer RE-IMPLEMENTS the "escalation-eligible" predicate
+ *   either. It imports `src/mcp/disconnect-escalation.ts`, which exists to
+ *   satisfy both constraints at once: it is the single definition of the
+ *   predicate AND it imports nothing, so none of the tracker's weight comes
+ *   with it. The re-implementation was not free — the copy silently lost
+ *   `"signal"`, and this gauge and `debug_systemInfo` gave different answers
+ *   about the same 128 events in the same file.
  * - `subagentDispatches` — partial-uncommitted-no-handoff count for the most
  *   recently active parent session, via the exact SQL pattern documented in
  *   CLAUDE.md "Subagent dispatch cadence and escalation threshold" (SQL
@@ -26,6 +31,7 @@
  *   (flat needle, "—" sublabel) for this one instrument rather than fake it.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
+import { isEscalationEligible } from "../../mcp/disconnect-escalation";
 import { promises as fsPromises, existsSync } from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -60,15 +66,12 @@ const MCP_DISCONNECT_DAILY_THRESHOLD = 3;
 /** CLAUDE.md "Escalation rule": session fires above 2 partial-uncommitted dispatches. */
 const SUBAGENT_SESSION_THRESHOLD = 2;
 
-const SERVER_INITIATED_CAUSES = new Set([
-  "staleness_exit",
-  "signal_sigterm",
-  "signal_sigint",
-  "signal_sighup",
-  "server_close",
-  "idle_timeout",
-]);
-const SHORT_LIVED_THRESHOLD_MS = 5000;
+// mt#4499: this file used to hand-copy SERVER_INITIATED_CAUSES and
+// SHORT_LIVED_THRESHOLD_MS from the cadence rule. The copy drifted — it was
+// missing `"signal"`, so this gauge and `debug_systemInfo` disagreed about the
+// same events in the same file. Both now read one dependency-free module,
+// which is importable here precisely because it pulls in nothing (see the
+// header note above about not importing the tracker itself).
 
 export interface DisconnectLogEvent {
   kind: string;
@@ -96,14 +99,12 @@ export function isDisconnectLogEvent(value: unknown): value is DisconnectLogEven
   return true;
 }
 
-export function isEscalationEligible(event: DisconnectLogEvent): boolean {
-  if (event.kind !== "disconnect") return false;
-  if (typeof event.cause === "string" && SERVER_INITIATED_CAUSES.has(event.cause)) return false;
-  if (typeof event.uptimeMs === "number" && event.uptimeMs < SHORT_LIVED_THRESHOLD_MS) return false;
-  // Legacy events without processRole are counted conservatively as eligible (CLAUDE.md).
-  if (event.processRole === "helper") return false;
-  return true;
-}
+/**
+ * Re-exported from the shared module (mt#4499) rather than re-implemented, so
+ * this widget cannot drift from the tracker again. Kept as a named export
+ * because this file's tests and callers already import it from here.
+ */
+export { isEscalationEligible };
 
 /**
  * Bound on how many trailing lines of the (unbounded, append-only) JSONL log

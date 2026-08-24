@@ -608,6 +608,11 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["wall-of-text-detector", lexicalRecorder],
+  // Reads the task event ledger — a structured artifact, no phrase matching —
+  // then injects. `judge` because it does classify before intervening (is any
+  // of this activity not the caller's own?), even though its intervention is
+  // only ever advisory: it has no deny path at all (mt#4494).
+  ["warn-peer-task-activity", structuralInjector],
 
   // -------------------------------------------------------------------------
   // Standalone stratum — registered directly in .claude/settings.json

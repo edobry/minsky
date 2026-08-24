@@ -70,6 +70,10 @@ import os from "os";
 import { log } from "@minsky/shared/logger";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { scrubText } from "@minsky/domain/transcripts/credential-scrubber";
+// Only the predicate is imported: nothing here reads the set directly any more
+// (the predicate owns that), and `SERVER_INITIATED_CAUSES` is re-exported below
+// via `export … from`, which needs no local binding.
+import { isEscalationEligible as isSharedEscalationEligible } from "./disconnect-escalation";
 
 /**
  * The kind of event recorded.
@@ -115,7 +119,14 @@ export type McpEventKind = "process_start" | "disconnect" | "reconnect" | "trans
  * Other:
  * - `transport_error`: error on the underlying transport stream.
  * - `process_start`: synthetic cause for `process_start` events (no actual disconnect).
- * - `signal`: legacy signal cause (kept for backward compatibility with logs from mt#1645).
+ * - `signal`: a signal with no dedicated cause above — SIGSEGV, SIGABRT, SIGBUS
+ *   and friends. Emitted ONLY by the stdio proxy's `classifyExitForDisconnectLog`
+ *   `default:` branch (mt#2830); read `event.signal` for the actual name. These
+ *   are runtime CRASHES and DO count toward escalation (mt#4499).
+ *   Declared by mt#1645 as a backward-compat placeholder and described here as
+ *   one until mt#4499 — but no mt#1645-era record ever carried it (that log's
+ *   causes are `stdin_close` and `unknown` only), so the compat case it was
+ *   named for never existed.
  * - `unknown`: no cause information was available.
  */
 export type McpDisconnectCause =
@@ -285,12 +296,9 @@ const ESCALATION_THRESHOLD_SESSION = 1;
 /** 24-hour escalation-eligible disconnect threshold. */
 const ESCALATION_THRESHOLD_24H = 3;
 
-/**
- * Process-uptime threshold below which a disconnect is treated as a short-lived
- * harness probe (class 1) and excluded from escalation. 5 seconds is well above
- * the 1.8–2.1s typical handshake time observed in Claude Code's MCP logs.
- */
-const SHORT_LIVED_THRESHOLD_MS = 5000;
+// `SHORT_LIVED_THRESHOLD_MS` (5s — well above the 1.8-2.1s typical handshake
+// observed in Claude Code's MCP logs) moved to `./disconnect-escalation`
+// alongside the predicate that reads it (mt#4499).
 
 /**
  * Hard size bounds for the mt#2830 diagnostic fields (R1 review finding 3).
@@ -323,32 +331,15 @@ export const STDIO_SESSION_KEY = "stdio";
 export const DEFAULT_SESSION_KEY = "_default";
 
 /**
- * Causes whose disconnect events are server-initiated by design and excluded
- * from the escalation count regardless of uptime.
+ * The escalation set and its predicate now live in `./disconnect-escalation`,
+ * a dependency-free module (mt#4499). They had three hand-written copies —
+ * here, the cadence rule, and the cockpit's S3-gauge widget — and the widget's
+ * disagreed. That module's header carries the full history, including the
+ * correction to mt#4481's account of when `"signal"` joined the set.
  *
- * Note `signal_sigkill` and `proxy_observed_crash` are deliberately ABSENT —
- * an external actor caused those, so they escalate.
- *
- * The bare `"signal"` is a member and arguably should not be: it is the
- * proxy's catch-all for SIGSEGV / SIGABRT / SIGBUS, which are runtime crashes
- * rather than anything server-initiated. Tracked at mt#4499; documented as-is
- * in `.minsky/rules/mcp-disconnect-cadence.mdc` cause class 7.
- *
- * Exported for `disconnect-tracker.test.ts`, which asserts this set is
- * byte-equal to the list the cadence rule documents (mt#4481). The two drifted
- * apart for months after mt#2830 added `"signal"` here and nowhere else.
+ * Re-exported so existing importers of this module are unaffected.
  */
-export const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>(
-  [
-    "staleness_exit",
-    "signal",
-    "signal_sigterm",
-    "signal_sigint",
-    "signal_sighup",
-    "server_close",
-    "idle_timeout",
-  ]
-);
+export { SERVER_INITIATED_CAUSES } from "./disconnect-escalation";
 
 /** Directory where the persistent event log is written. */
 function getStateDir(): string {
@@ -936,18 +927,13 @@ export class DisconnectTracker {
   // Private helpers
   // -------------------------------------------------------------------------
 
+  /**
+   * Delegates to the shared predicate (mt#4499) so this tracker and the
+   * cockpit's S3-gauge widget cannot answer differently about the same event.
+   * The eligibility rules and their rationale live in `./disconnect-escalation`.
+   */
   private isEscalationEligible(event: McpDisconnectEvent): boolean {
-    if (event.kind !== "disconnect") return false;
-    if (SERVER_INITIATED_CAUSES.has(event.cause)) return false;
-    // Legacy events without uptimeMs (from mt#1645 logs) are counted as
-    // eligible — we have no way to know whether they were short-lived.
-    if (event.uptimeMs !== undefined && event.uptimeMs < SHORT_LIVED_THRESHOLD_MS) return false;
-    // mt#1705: helper sessions (0 tool calls before disconnect) are excluded
-    // from escalation regardless of uptime. Legacy events without processRole
-    // are treated conservatively as "main_session" (eligible) — we have no
-    // tool-call count to discriminate them.
-    if (event.processRole === "helper") return false;
-    return true;
+    return isSharedEscalationEligible(event);
   }
 
   private push(event: McpDisconnectEvent): void {

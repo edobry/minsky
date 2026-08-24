@@ -29,10 +29,13 @@ import os from "os";
 import path from "path";
 import {
   DisconnectTracker,
-  SERVER_INITIATED_CAUSES,
   STDIO_SESSION_KEY,
   type McpDisconnectEvent,
 } from "./disconnect-tracker";
+// mt#4499: the set and predicate moved out of the tracker into this
+// dependency-free module so the cockpit widget could import them too.
+import { SERVER_INITIATED_CAUSES, isEscalationEligible } from "./disconnect-escalation";
+import { isEscalationEligible as widgetIsEscalationEligible } from "../cockpit/widgets/s3-gauges";
 
 const SHAPE_TEST_LABEL = "emits event with correct shape";
 
@@ -866,11 +869,46 @@ describe("cadence rule escalation list matches SERVER_INITIATED_CAUSES (mt#4481)
     expect([...documented].sort()).toEqual([...SERVER_INITIATED_CAUSES].sort());
   });
 
-  test("the two causes that DO escalate are absent from the set", () => {
+  test("the crash causes that DO escalate are absent from the set", () => {
     // Guards the other direction: an over-eager future edit that "tidies" all
     // the signal-shaped causes into one place would silence real crashes.
+    // `signal` joined this list in mt#4499 — it is the proxy's catch-all for
+    // SIGSEGV / SIGABRT / SIGBUS, which is a crash, not a clean shutdown.
     expect(SERVER_INITIATED_CAUSES.has("signal_sigkill")).toBe(false);
     expect(SERVER_INITIATED_CAUSES.has("proxy_observed_crash")).toBe(false);
+    expect(SERVER_INITIATED_CAUSES.has("signal")).toBe(false);
+  });
+
+  test("a crash-signal disconnect is escalation-eligible end to end (mt#4499)", () => {
+    // The membership assertions above are about a Set. This one goes through
+    // the predicate, which is what actually decides escalation — and it is the
+    // behaviour 156 recorded crashes did not get before mt#4499.
+    const crash = {
+      kind: "disconnect",
+      cause: "signal",
+      uptimeMs: 515_356,
+      processRole: "main_session",
+    };
+    expect(isEscalationEligible(crash)).toBe(true);
+
+    // The three clean-shutdown signals stay excluded — this change is scoped to
+    // the catch-all, not to signals generally.
+    for (const cause of ["signal_sigterm", "signal_sigint", "signal_sighup"]) {
+      expect(isEscalationEligible({ ...crash, cause })).toBe(false);
+    }
+
+    // And the other filters still apply to a crash: a sub-5s helper probe that
+    // happens to crash is still not a reliability signal.
+    expect(isEscalationEligible({ ...crash, uptimeMs: 44 })).toBe(false);
+    expect(isEscalationEligible({ ...crash, processRole: "helper" })).toBe(false);
+  });
+
+  test("the cockpit S3-gauge widget uses the same predicate, not a copy (mt#4499)", () => {
+    // The widget re-implemented this and its copy drifted — it was missing
+    // `signal`, so the gauge and debug_systemInfo disagreed about the same
+    // events in the same file. Identity is a stronger guarantee than equal
+    // behaviour on sampled inputs, and cheaper: there is nothing left to drift.
+    expect(widgetIsEscalationEligible).toBe(isEscalationEligible);
   });
 });
 

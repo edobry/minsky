@@ -4225,6 +4225,37 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "wall-of-text-detector"
+    },
+    {
+      "guardName": "warn-peer-task-activity",
+      "description": "Reads the TASK EVENT LEDGER on `tasks_status_set` / `tasks_spec_patch` and injects an advisory naming any `session.started` (minus the caller's own) or recent `task.status_changed` — the one peer-presence signal keyed to the task rather than to an actor, so it does not inherit the attribution defect every probe in `user-preferences.mdc §Probe before claiming a shared resource` reads through. Never denies: prevention is a principal-owned question (substrate RFC Open question 4).",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [
+        ".minsky/hooks/warn-peer-task-activity.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-peer-task-activity"
     }
   ]
 }

@@ -783,6 +783,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "mt#3257 subagent model-tier verification — PostToolUse observer that warns on requested-vs-resolved mismatch; no permission decision, fail-open (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/warn-peer-task-activity.ts",
+    reason:
+      "mt#4494 peer-activity advisory — reads the task event ledger on tasks_status_set and injects additionalContext naming any session.started / recent status change; never denies, fail-open on a degraded DB path. Deliberately advisory rather than blocking: denying is the prevention side of the substrate RFC's Open question 4 (Notion 367937f0, Draft), a principal-level design-philosophy question this hook must not settle as a side effect",
+  },
+  {
     configPath: ".claude/hooks/record-subagent-invocation.ts",
     reason:
       "SubagentStop recording — writes dispatch-row columns, makes no permission decision (hook-observers.mdc)",

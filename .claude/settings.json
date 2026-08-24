@@ -192,6 +192,17 @@
       },
       {
         "_comment": "mt#4168: the spec-WRITE seam. These three tools rewrite an EXISTING task spec and carried NO PreToolUse guard of any kind before claim-provenance-scan — which is exactly where both of that guard's originating incidents wrote, since /implement-task §0a and /plan-task both operate on a task that already exists. Timeout is DERIVED (mt#3981) from the one guard routed here (claim-provenance-scan 5s) plus the 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block.",
+        "matcher": "mcp__minsky__tasks_spec_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the task event ledger for peer activity..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit|mcp__minsky__tasks_spec_search_replace",
         "hooks": [
           {
@@ -232,6 +243,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tasks-status-set-guard.ts",
             "timeout": 10,
             "statusMessage": "Validating task status transition..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the task event ledger for peer activity..."
           }
         ]
       },

@@ -1,0 +1,320 @@
+#!/usr/bin/env bun
+// PreToolUse hook on mcp__minsky__tasks_status_set: surface another actor's
+// activity on this task, read from the TASK EVENT LEDGER (mt#4494).
+//
+// Why this exists, and why it is not another probe in a checklist.
+// `user-preferences.mdc §Probe before claiming a shared resource` prescribes a
+// five-step sequence, and on 2026-08-24 an agent ran it against mt#4439, got the
+// right signal from probe 0, and still concluded "no peer" while a peer walked
+// that task TODO -> PLANNING -> READY -> session.started. It then ran a parallel
+// /plan-task and wrote into the peer's spec. The rule's own originating incident
+// (mt#1965, 2026-05-20) is the same shape, described in the same words: "the
+// status change was a visible signal not interpreted as evidence."
+//
+// The sequence's problem is structural rather than dispositional: every probe in
+// it reads an ACTOR-side artifact — a claim's id, a conversation's transcript
+// mtime, a session list — so each returns something that must be INTERPRETED,
+// and the attribution axis those artifacts sit on is the one mt#3889 / mt#3900 /
+// mt#4440 have spent three tasks repairing. Measured the same session: a task 24
+// seconds old, known to no other actor, carried a presence claim under a
+// DIFFERENT conversation's id 190ms after its author's own write. So the claims
+// table can invent a peer as readily as it can hide one (mem#952 measured the
+// hiding direction; mem#1231 the inventing one).
+//
+// Task events are keyed to the TASK and written by the backend. The row exists
+// whether or not any process can name itself correctly, which is what makes this
+// the one signal in the family that answers instead of suggesting.
+//
+// ADVISORY, deliberately — this hook never denies.
+// Denying is the *prevention* side of the substrate RFC's Open question 4
+// (Notion 367937f0, Draft): "Should the substrate detect contention (surface it
+// to operators) or prevent it (block a second agent from claiming a task already
+// claimed)? ... This is a design philosophy question with significant UX
+// implications." That question is queued for principal discussion and must not
+// be settled as a side effect of adding a probe. Detection is also what the
+// existing hook model does for this class.
+//
+// Not the mechanism ADR-042 row (g) assigns, and that is the point. That row
+// specifies a TRANSCRIPT JOIN at the `ready` seam — did the three probe calls
+// happen — which would have PASSED the originating incident, because they did.
+// A join over calls covers the SKIPPED-probe failure and is structurally blind
+// to the WRONG-CONCLUSION failure. This reads the ledger instead.
+//
+// Standalone rather than dispatcher-registered: `tasks_status_set` already
+// carries standalone PreToolUse hooks (`tasks-status-set-guard.ts`,
+// `check-task-spec-read.ts`), so this follows that seam's existing convention
+// and does NOT incur the new `registry-status-set-guards.ts` wiring ADR-042
+// books to mt#4172.
+//
+// @see mt#4494 — this hook
+// @see mem#1231 — the originating incident and the measurement
+// @see mem#952, mem#595 — the two prior measurements of the actor-side axis
+// @see docs/rules-rationale/user-preferences.md §The sequence had no member that could answer the question
+
+import { readInput, writeOutput } from "./types";
+import type { ToolHookInput } from "./types";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
+import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
+import { recordFireLogEntry } from "./fire-log";
+
+/**
+ * Both write surfaces the spec names, not just the status one (PR #3281 R1).
+ *
+ * `tasks_spec_patch` is the one that actually mattered in the originating
+ * incident: the harm on mt#4439 was two SECTIONS written into a spec a peer was
+ * mid-flight on, not a status transition. Shipping the status surface alone
+ * would have left the guard blind to its own founding case.
+ */
+export const TARGET_TOOLS: ReadonlySet<string> = new Set([
+  "mcp__minsky__tasks_status_set",
+  "mcp__minsky__tasks_spec_patch",
+]);
+
+/** This guard's fire-log identifier. */
+const GUARD_NAME = "warn-peer-task-activity";
+
+/**
+ * Recency window for a `task.status_changed` row.
+ *
+ * Reuses `PRESENCE_CLAIM_TTL_MS` (15 minutes) rather than picking a number.
+ * That constant answers the SAME question this one does — how long a liveness
+ * signal stays believable — and its own grounding is already recorded at
+ * `packages/domain/src/presence/types.ts:106`: "A working agent touches the task
+ * well inside 15m (grounded per decision-defaults §Thresholds)." Duplicating the
+ * value here rather than importing it keeps this module's domain imports dynamic
+ * (see `domain-bootstrap.ts` layer 1); the test asserts the two agree.
+ */
+export const STATUS_CHANGE_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Overall deadline for the DB read.
+ *
+ * ADR-042: "a registration's `timeoutMs` is declarative and unenforced ... bound
+ * it yourself." Sized against `domain-bootstrap.ts`'s own measurement of a cold
+ * hook-shaped `resolvePersistenceProvider()` — 4.3-5.5s cold, 3.3-3.7s warmed —
+ * so this admits a cold resolve plus a small query and still fails open well
+ * inside the harness's patience. It is a CEILING over a measured maximum, not a
+ * typical (`decision-defaults.mdc §Thresholds`, CEILING case).
+ */
+const READ_DEADLINE_MS = 8000;
+
+/** The subset of a `SystemEvent` this guard reads. */
+export interface TaskEventRow {
+  eventType: string;
+  createdAt: Date | string;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface PeerDecision {
+  /** Whether an advisory should be emitted. */
+  fired: boolean;
+  /** The advisory text, when `fired`. */
+  message?: string;
+  /**
+   * Whether this guard's CHECK actually ran, for guard-health's recovery join
+   * (the `tasks-status-set-guard.ts` convention):
+   * - "decided" — the ledger was read and evaluated.
+   * - "crashed" — the read failed. A DEGRADED probe failing open, which must
+   *   never count as clean: if the DB path breaks, every call is silently
+   *   quiet, and that is indistinguishable from "no peer" without this marker.
+   * - UNSET — the guard did not run (different tool, or no usable taskId).
+   */
+  outcome?: "decided" | "crashed";
+}
+
+/**
+ * Age in MILLISECONDS. This is what the window compares against.
+ *
+ * Kept separate from `ageMinutes` deliberately: rounding is a DISPLAY concern,
+ * and letting it reach the comparison widened the window by up to 29s
+ * (`Math.round` maps 15m29s to 15m, so a row past the window compared as
+ * inside it). Caught by PR #3281 R1.
+ */
+function ageMs(at: Date | string, nowMs: number): number {
+  const ms = at instanceof Date ? at.getTime() : Date.parse(String(at));
+  if (Number.isNaN(ms)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, nowMs - ms);
+}
+
+/** Age in whole minutes, for RENDERING only — never for the window check. */
+function ageMinutes(at: Date | string, nowMs: number): number {
+  const ms = ageMs(at, nowMs);
+  return ms === Number.POSITIVE_INFINITY ? ms : Math.round(ms / 60000);
+}
+
+/**
+ * The caller's own Minsky workspace session id, extracted from the hook's `cwd`.
+ *
+ * A session workspace lives at `~/.local/state/minsky/sessions/<sessionId>/`, and
+ * `input.cwd` is that root or a subdirectory of it (`types.ts` §Repo-root
+ * resolution: the shell cwd "is routinely a SUBDIRECTORY of the repo"). The id
+ * is therefore an ancestor path segment, which survives any `cd` into the tree.
+ *
+ * Returns null when the caller is NOT inside a session workspace — an agent
+ * working in the main workspace, which is the mt#4439 case. That is the safe
+ * direction: nothing is suppressed, so the advisory still fires.
+ */
+export function callerSessionIdFromCwd(cwd: string | undefined): string | null {
+  if (!cwd) return null;
+  const m = /[/\\]sessions[/\\]([0-9a-fA-F-]{36})(?:[/\\]|$)/.exec(cwd);
+  return m?.[1] ?? null;
+}
+
+/**
+ * PURE decision: does this task's event ledger show another actor?
+ *
+ * Extracted so the rule can be tested without patching a collaborator the hook
+ * reaches itself (`testing-standards.mdc §Testable Design`): the IO is the
+ * caller's problem and this function's inputs are values.
+ *
+ * Two independent triggers, deliberately asymmetric:
+ *
+ * - **`session.started` fires with NO window.** A session is a durable claim on
+ *   the task — a workspace exists on disk and its branch is checked out — so an
+ *   old one is still a peer, not a stale signal. This is the row that resolved
+ *   the originating incident.
+ * - **`task.status_changed` fires only inside the window.** Every task has these
+ *   from its own lifecycle, so an unwindowed version would fire on literally
+ *   every call and immediately be tuned out.
+ *
+ * Note what this deliberately does NOT do: attribute. The rows carry no actor
+ * for `task.status_changed`, and this hook cannot map its own Claude Code
+ * `session_id` onto a Minsky workspace session id — they are different id
+ * spaces. So it reports WHAT the ledger shows and lets the reader recognise
+ * their own session. Naming an actor is exactly the axis that is broken
+ * (mt#4440); this guard's whole value is that it does not depend on it.
+ */
+export function decidePeerActivity(
+  taskId: string,
+  events: TaskEventRow[],
+  nowMs: number,
+  callerSessionId: string | null = null,
+  windowMs: number = STATUS_CHANGE_WINDOW_MS
+): PeerDecision {
+  // Self-attribution, as far as it honestly goes (PR #3281 R1). When the caller
+  // runs inside a session workspace, its own `session.started` row is not a
+  // peer and must not be reported — the guard would otherwise warn every
+  // implementing agent about itself and be tuned out within a day.
+  //
+  // This suppresses ONE row by exact id. It does NOT attribute
+  // `task.status_changed`, which carries no session or actor at all; those stay
+  // reported-not-attributed, and the advisory says so.
+  const sessions = events.filter(
+    (e) =>
+      e.eventType === "session.started" &&
+      (callerSessionId === null || e.payload?.["sessionId"] !== callerSessionId)
+  );
+  const recentStatus = events.filter(
+    (e) => e.eventType === "task.status_changed" && ageMs(e.createdAt, nowMs) <= windowMs
+  );
+
+  if (sessions.length === 0 && recentStatus.length === 0) {
+    return { fired: false, outcome: "decided" };
+  }
+
+  const lines: string[] = [
+    `[warn-peer-task-activity] The event ledger for ${taskId} shows activity you may not have caused.`,
+    "",
+  ];
+
+  for (const s of sessions) {
+    const sid = (s.payload?.["sessionId"] as string | undefined) ?? "(unnamed)";
+    lines.push(`  - session.started ${ageMinutes(s.createdAt, nowMs)}m ago — session ${sid}`);
+  }
+  for (const c of recentStatus) {
+    const from = (c.payload?.["previousStatus"] as string | undefined) ?? "?";
+    const to = (c.payload?.["newStatus"] as string | undefined) ?? "?";
+    lines.push(`  - task.status_changed ${ageMinutes(c.createdAt, nowMs)}m ago — ${from} → ${to}`);
+  }
+
+  lines.push(
+    "",
+    "If any of that is not yours, another agent is working this task: surface the",
+    "collision rather than proceeding (`user-preferences.mdc §Probe before claiming",
+    "a shared resource`). If it IS yours — a session you started, a transition you",
+    "made — this is expected and needs nothing.",
+    "",
+    "Attribution here is partial and deliberately so: a `session.started` you",
+    "yourself started is already filtered out (matched on the session id in this",
+    "process's cwd), but a `task.status_changed` row carries no actor at all, so",
+    "those are reported and NOT attributed. Actor attribution is the axis mt#4440",
+    "is repairing; this guard is useful precisely because it needs so little of it."
+  );
+
+  return { fired: true, message: lines.join("\n"), outcome: "decided" };
+}
+
+/** Read this task's event rows. Returns null on any failure (fail open). */
+async function readTaskEvents(taskId: string): Promise<TaskEventRow[] | null> {
+  const bootstrap = await ensureHookDomainBootstrap();
+  if (!bootstrap.ok) return null;
+
+  const { resolvePersistenceProviderOrError } = await import(
+    "../../packages/domain/src/persistence/factory"
+  );
+  const resolution = await resolvePersistenceProviderOrError();
+  if (!resolution.ok) {
+    process.stderr.write(
+      `[${GUARD_NAME}] ${describeProviderResolutionFailure(resolution)} — failing open\n`
+    );
+    return null;
+  }
+  const provider = resolution.provider;
+  if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
+    return null;
+  }
+  const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+  // A SQL-capable provider can still hand back null (ADR-035: "configured but
+  // failing" is not "not configured"). Caught by typecheck, not by review.
+  if (!db) return null;
+  const { listEvents } = await import("../../packages/domain/src/events/query");
+  return (await listEvents(db, { relatedTaskId: taskId, limit: 50 })) as TaskEventRow[];
+}
+
+if (import.meta.main) {
+  const startMs = Date.now();
+  const input = await readInput<ToolHookInput>();
+  const taskId = (input.tool_input?.["taskId"] as string | undefined)?.trim();
+
+  let result: PeerDecision = { fired: false };
+
+  if (TARGET_TOOLS.has(input.tool_name) && taskId) {
+    try {
+      const events = await Promise.race([
+        readTaskEvents(taskId),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), READ_DEADLINE_MS)),
+      ]);
+      result =
+        events === null
+          ? { fired: false, outcome: "crashed" }
+          : decidePeerActivity(taskId, events, Date.now(), callerSessionIdFromCwd(input.cwd));
+    } catch (err) {
+      // Fail open — an advisory guard must never block a lifecycle write. The
+      // stderr line is the only account a reader gets; the process exits next.
+      process.stderr.write(
+        `[${GUARD_NAME}] ledger read threw: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+      result = { fired: false, outcome: "crashed" };
+    }
+  }
+
+  if (result.fired && result.message) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: result.message,
+      },
+    });
+  }
+
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PreToolUse",
+    decision: "allow",
+    ...(result.outcome !== undefined ? { guardOutcome: result.outcome } : {}),
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
+  process.exit(0);
+}
