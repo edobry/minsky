@@ -35,7 +35,23 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat, appendFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+
+/**
+ * Repo root and CLI entrypoint, resolved from THIS FILE rather than from
+ * `process.cwd()` (PR #3278 R2). The measurement is meant to be run again
+ * post-fix and compared against the pre-fix baseline, quite possibly from a
+ * different directory.
+ *
+ * BOTH are needed, which running it from `/tmp` is what established: resolving
+ * the entrypoint alone gets the CLI to start and it then fails with
+ * *"This project hasn't been initialized. Run `minsky init` first."* — because
+ * the CLI resolves its configuration from the CURRENT WORKING DIRECTORY, not
+ * from where its own source lives. So the child is spawned with the repo root
+ * as its cwd.
+ */
+const REPO_ROOT = resolve(import.meta.dir, "..");
+const CLI_ENTRYPOINT = resolve(REPO_ROOT, "src", "cli.ts");
 
 interface Sample {
   sampledAt: string;
@@ -152,8 +168,8 @@ async function findActiveTranscripts(
  */
 async function fetchIngestMarks(limit: number): Promise<Map<string, string | null>> {
   const proc = Bun.spawn(
-    ["bun", "run", "./src/cli.ts", "transcripts", "list", "--limit", String(limit)],
-    { stdout: "pipe", stderr: "pipe" }
+    ["bun", "run", CLI_ENTRYPOINT, "transcripts", "list", "--limit", String(limit)],
+    { stdout: "pipe", stderr: "pipe", cwd: REPO_ROOT }
   );
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
