@@ -23,8 +23,12 @@
  * TRACKER, not to sharing a constant — so this module imports nothing at all,
  * and both sides can depend on it without taking any of that weight.
  *
- * Keep it that way. An import here re-creates the reason the copies existed.
+ * Keep it that way. A VALUE import here re-creates the reason the copies
+ * existed. The `import type` below is not one: TypeScript erases it entirely,
+ * so it costs nothing at runtime and buys back the compile-time specificity
+ * that a bare `ReadonlySet<string>` would have thrown away (PR #3283 R1).
  */
+import type { McpDisconnectCause } from "./disconnect-tracker";
 
 /**
  * Causes whose disconnect events are initiated by design and excluded from the
@@ -56,14 +60,28 @@
  * and every one of the 156 bare-`signal` records carries
  * `serverName: "minsky-proxy"`.
  */
-export const SERVER_INITIATED_CAUSES: ReadonlySet<string> = new Set<string>([
-  "staleness_exit",
-  "signal_sigterm",
-  "signal_sigint",
-  "signal_sighup",
-  "server_close",
-  "idle_timeout",
-]);
+export const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>(
+  [
+    "staleness_exit",
+    "signal_sigterm",
+    "signal_sigint",
+    "signal_sighup",
+    "server_close",
+    "idle_timeout",
+  ]
+);
+
+/**
+ * The same set widened for lookup only.
+ *
+ * `ReadonlySet<McpDisconnectCause>.has()` accepts only union members, but the
+ * predicate below is deliberately fed arbitrary strings — the cockpit widget
+ * passes a `cause` it parsed out of a JSONL line, which can be anything a
+ * past or future writer put there. Widening at the lookup keeps the EXPORTED
+ * type strict for consumers while letting the predicate stay honest about what
+ * it actually receives.
+ */
+const CAUSE_LOOKUP: ReadonlySet<string> = SERVER_INITIATED_CAUSES as ReadonlySet<string>;
 
 /**
  * Disconnects shorter than this are harness probes and hook subprocesses, not
@@ -102,7 +120,7 @@ export interface EscalationCandidate {
  */
 export function isEscalationEligible(event: EscalationCandidate): boolean {
   if (event.kind !== "disconnect") return false;
-  if (typeof event.cause === "string" && SERVER_INITIATED_CAUSES.has(event.cause)) return false;
+  if (typeof event.cause === "string" && CAUSE_LOOKUP.has(event.cause)) return false;
   if (typeof event.uptimeMs === "number" && event.uptimeMs < SHORT_LIVED_THRESHOLD_MS) return false;
   if (event.processRole === "helper") return false;
   return true;
