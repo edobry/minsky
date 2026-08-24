@@ -33,6 +33,7 @@
 import "reflect-metadata";
 
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
+import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
 
 async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
@@ -97,7 +98,7 @@ async function main() {
   let capturedRefs = 0;
 
   for (const mem of allMemories) {
-    const extracted = extractAssociations(mem.content, mem.tags);
+    const extracted = extractAssociations(mem.content, mem.description, mem.tags);
     const existing = mem.associations ?? {};
 
     const merged = mergeAssociations(existing, extracted);
@@ -179,43 +180,38 @@ async function main() {
   }
 }
 
-function extractAssociations(content: string, tags: string[]): Record<string, string[]> {
-  const tracksTask = new Set<string>();
-
-  const trackingPattern = /[Tt]racking\s+task:\s*mt#(\d+)/g;
-  for (const match of content.matchAll(trackingPattern)) {
-    tracksTask.add(`mt#${match[1]}`);
-  }
-
-  const budgetPattern = /Budget:.*?tracking\s+task:\s*mt#(\d+)/gi;
-  for (const match of content.matchAll(budgetPattern)) {
-    tracksTask.add(`mt#${match[1]}`);
-  }
-
-  const isBridge = tags.some(
-    (t) => t === "bridge" || t.includes("bridge-memory") || t.includes("bridge_memory")
-  );
-  if (isBridge) {
-    const taskRefPattern = /mt#(\d+)/g;
-    for (const match of content.matchAll(taskRefPattern)) {
-      tracksTask.add(`mt#${match[1]}`);
-    }
-  }
-
-  // REMOVED (mt#4448): a `see mt#X` pattern and a catch-all `\bmt#(\d+)\b` pattern, both
-  // minting `relatedTask`. Measured on the live corpus 2026-08-24, they would have written
-  // **9438 task ids across 1146 of 1226 records** -- a `relatedTask` entry for every incidental
-  // task mention in every memory body. That is a different KIND of change from the tracksTask
-  // population this script's task was scoped to, it duplicates text already in the body
-  // (against ADR-012's own derivation discipline), and it was never approved. The scope was
-  // re-confirmed with the principal on 2026-08-24: tracksTask only.
+function extractAssociations(
+  content: string,
+  description: string | null,
+  _tags: string[]
+): Record<string, string[]> {
+  // Delegates to `extractTrackingTaskRefs` — the SAME extractor the read path uses
+  // (`packages/domain/src/memory/staleness.ts`, mt#1709). One extractor, so what this script
+  // WRITES and what the detector READS agree by construction.
   //
-  // If a future task genuinely wants an indexed mention-graph, build it as a DERIVED index at
-  // write time -- not as a hand-maintained field a human is expected to keep true.
-
-  const result: Record<string, string[]> = {};
-  if (tracksTask.size > 0) result.tracksTask = [...tracksTask].sort();
-  return result;
+  // Three patterns were removed here (mt#4448):
+  //   - a catch-all `\bmt#(\d+)\b` and a `see mt#X`, which minted `relatedTask` for every
+  //     incidental mention — 9438 ids across 1146 records.
+  //   - a BRIDGE-TAG catch-all: for any memory tagged `bridge`, it swept every `mt#(\d+)` in
+  //     the body into `tracksTask`. That was the same defect at smaller scale, and worse in
+  //     effect: `computeStaleness` marks a memory stale when ANY ref is complete, and
+  //     `extractTrackingTaskRefs` PREFERS the stored association over the text scan. So a
+  //     bridge memory citing 14 tasks would have had a 14-way association written over a
+  //     precise clause scan, and flagged POSSIBLY OBSOLETE the moment any one of the 14
+  //     landed. Measured pre-fix: 43 of 66 records would have received >3 ids.
+  //
+  // `_tags` is retained in the signature for call-site compatibility and is deliberately
+  // unused: a tag is not a retirement clause.
+  // BOTH content and description, because the READ path does (`extractTrackingTaskRefs`
+  // scans `${description}\n${content}`). Passing only `content` here was a real divergence:
+  // mem#1205 carries "Tracking: mt#1709" in its DESCRIPTION and nothing matching in its body,
+  // so it was skipped entirely — the record AT2 names by id. Delegating to the shared
+  // extractor is only half the fix; it has to be fed the same fields too.
+  const { refs } = extractTrackingTaskRefs({
+    content,
+    ...(description === null ? {} : { description }),
+  });
+  return refs.length > 0 ? { tracksTask: [...refs].sort() } : {};
 }
 
 function mergeAssociations(
