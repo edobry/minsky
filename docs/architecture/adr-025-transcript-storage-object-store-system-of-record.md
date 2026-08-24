@@ -2,7 +2,26 @@
 
 ## Status
 
-**ACCEPTED** — 2026-07-08
+**SUPERSEDED** by
+[ADR-045](./adr-045-transcript-lines-live-landing-zone-object-storage-cold-tier.md) — 2026-08-24.
+Originally **ACCEPTED** 2026-07-08.
+
+**Do not implement from this record.** ADR-045 reverses the mechanism below: an insert-only
+`transcript_lines` table in Postgres becomes the live landing zone, and object storage is re-scoped
+from the immutable system of record to a one-way cold seal-at-close tier. The principal decided this
+in answer to ask#8004 on 2026-08-24; mt#4501 wrote the successor record.
+
+**What is superseded, and what still stands.** Superseded: `## Decision`, the upload-then-parse
+capture path, and the `## Consequences` items that depend on the archive being the live landing zone.
+Still current and still worth reading: `## Context` (the 2026-06-30 size investigation and the mt#2584
+spike, which remain the evidence base for the six-reader inventory and the two-blob-schema finding),
+the `## Corrections` below, and the `## Promoted-column register`, which ADR-045 carries forward
+intact along with both properties it requires. The text is retained in full as decision lineage; the
+two mt#4285 corrections are unaltered.
+
+Why a new record rather than an amendment: this ADR's own text declares archive objects immutable
+while capture is incremental, so resolving that contradiction means abandoning either no-delete or
+capture-time upload — a new decision either way. mem#1107 records that conclusion.
 
 ## Corrections
 
