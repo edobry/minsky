@@ -7,7 +7,7 @@
     ".minsky/hooks/registry.ts"
   ],
   "divergence": {
-    "declaredButNotDescribed": [],
+    "declaredButNotDescribed": ["warn-peer-task-activity"],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -4225,6 +4225,29 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "wall-of-text-detector"
+    },
+    {
+      "guardName": "warn-peer-task-activity",
+      "description": null,
+      "failureClasses": [],
+      "provenance": [],
+      "stratum": null,
+      "subject": "trajectory",
+      "provenanceStatus": "none",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": true,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     }
   ]
 }
