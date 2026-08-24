@@ -15,6 +15,7 @@ import type {
   MemorySearchResult,
 } from "@minsky/domain/memory/types";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { ASSOCIATION_TYPE_NAMES } from "@minsky/domain/memory/associations";
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
 
@@ -967,5 +968,70 @@ describe("memory.create — association vocabulary and derivation (mt#4448)", ()
         {}
       )
     ).rejects.toThrow("not an ADR-012 association type");
+  });
+});
+
+// ─── The PARAMETER SCHEMA itself (mt#4528) ───────────────────────────────────
+
+describe("memory.create associations PARAMETER SCHEMA (mt#4528)", () => {
+  /**
+   * These parse the registered parameter's Zod schema DIRECTLY, and that is the whole point.
+   *
+   * Every test above calls `cmd.execute(...)`, which runs the handler body — and the handler
+   * body is BENEATH the shared registry's parameter parse. So the runtime validator had 21
+   * tests while the schema had none, and when mt#4448 tightened the schema to
+   * `z.record(z.enum(...))` nothing here could see that Zod 4 treats an enum-keyed `record`
+   * as EXHAUSTIVE. Every valid partial map was rejected in production; typecheck, lint, 445
+   * tests and a reviewer APPROVE all passed over it.
+   *
+   * The defect lived in the one layer with no coverage. These tests are that layer.
+   */
+  function associationsSchema() {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, makeDeps());
+    const cmd = registry.getCommand(CREATE_CMD);
+    const schema = cmd?.parameters["associations"]?.schema;
+    if (!schema) throw new Error("memory.create has no associations parameter schema");
+    return schema;
+  }
+
+  test("a single valid key is ACCEPTED — the regression case", () => {
+    expect(associationsSchema().safeParse({ tracksTask: ["mt#4448"] }).success).toBe(true);
+  });
+
+  test("several valid keys are accepted", () => {
+    const r = associationsSchema().safeParse({
+      tracksTask: ["mt#1"],
+      relatedTask: ["mt#2"],
+      citedInReview: ["PR#3"],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  test("an empty map is accepted", () => {
+    expect(associationsSchema().safeParse({}).success).toBe(true);
+  });
+
+  test("every vocabulary key is individually accepted on its own", () => {
+    // Guards the exhaustiveness bug directly: under `z.record` each of these fails because
+    // the other seven are absent.
+    for (const key of ASSOCIATION_TYPE_NAMES) {
+      const r = associationsSchema().safeParse({ [key]: ["mt#1"] });
+      expect({ key, ok: r.success }).toEqual({ key, ok: true });
+    }
+  });
+
+  test("an out-of-vocabulary key is still REJECTED", () => {
+    // The property the tightening was for — it must survive the fix.
+    expect(associationsSchema().safeParse({ tasks: ["mt#4317"] }).success).toBe(false);
+  });
+
+  test("a valid key alongside an invalid one is rejected", () => {
+    const r = associationsSchema().safeParse({ tracksTask: ["mt#1"], tasks: ["mt#2"] });
+    expect(r.success).toBe(false);
+  });
+
+  test("a non-array value under a valid key is rejected", () => {
+    expect(associationsSchema().safeParse({ tracksTask: "mt#1" }).success).toBe(false);
   });
 });
