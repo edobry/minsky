@@ -49,7 +49,10 @@ import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service"
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
 import {
+  DEADLINE_EXCEEDED,
+  ENRICHMENT_DEADLINE_MS,
   enrichWakeResponse,
+  raceEnrichmentDeadline,
   type SessionResolver as WakeSessionResolver,
   type WakeServiceSurface,
 } from "./middleware/wake-enrichment";
@@ -1458,11 +1461,28 @@ export class MinskyMCPServer {
           // memoryService is unset, or when the env-var kill switch is set
           // (used by the benchmark script). Errors and degraded results are
           // silently dropped — enrichment must never break the tool call.
-          const enrichmentBlock = await enrichToolResponse(
-            request.params.name,
-            request.params.arguments || {},
-            this.memoryService
+          // mt#4526: bounded like the wake drain below. Memory enrichment is the OTHER
+          // awaited DB-backed step on this path, so a deadline scoped to the wake drain
+          // alone would leave an identical hang right here. On expiry the tool call
+          // proceeds without the block — enrichment is additive by contract.
+          const enrichmentResult = await raceEnrichmentDeadline(
+            enrichToolResponse(
+              request.params.name,
+              request.params.arguments || {},
+              this.memoryService
+            ),
+            ENRICHMENT_DEADLINE_MS
           );
+          if (enrichmentResult === DEADLINE_EXCEEDED) {
+            log.cli(
+              `memory.enrichment.timed_out ${JSON.stringify({
+                event: "memory.enrichment.timed_out",
+                tool: request.params.name,
+                budgetMs: ENRICHMENT_DEADLINE_MS,
+              })}`
+            );
+          }
+          const enrichmentBlock = enrichmentResult === DEADLINE_EXCEEDED ? null : enrichmentResult;
 
           // mt#1661 v0: wake-enrichment middleware. For allowlisted tools, drains
           // undelivered wake_pending rows for the calling session and appends a
