@@ -1046,6 +1046,35 @@ pub(crate) struct SupervisedDaemon {
     /// Last time a sustained-HTTP-failure alert was fired; reset when health
     /// returns (condition cleared → next episode re-alerts immediately).
     pub(crate) last_http_alert: Option<Instant>,
+
+    // --- Not-ready watchdog state (mt#4472). ---
+    //
+    // The sibling of `consecutive_http_failed` / `last_http_alert` directly
+    // above, for the case those two cannot see: the daemon ANSWERS, identifies
+    // itself, returns 2xx — and says in the body that it cannot serve
+    // DB-backed work. HTTP-failure counting is blind to it by construction.
+    //
+    // Generic rather than cockpit-policy state, per ADR-014's 2026-08-12
+    // amendment ("every decision this ADR records still holds — now PER
+    // ENTRY"). It lived in `CockpitPolicy` until mt#4472 for a reason its own
+    // comment gave — "only the cockpit daemon's health body carries a `db`
+    // field at all" — which mt#4471 retired by giving the MCP daemon `db` and
+    // `ready`. The MCP daemon is also the entry where the 2026-08-23 incident
+    // happened, so the axis it was excluded from is the one it needed.
+    /// Consecutive polls where this daemon answered but reported it cannot
+    /// serve DB-backed work. Reset to 0 on the first serving poll.
+    pub(crate) consecutive_not_ready: u32,
+    /// Last time a not-ready alert was fired; reset when the condition clears,
+    /// so a new episode alerts immediately.
+    pub(crate) last_not_ready_alert: Option<Instant>,
+    /// Last time this watchdog RESTARTED the daemon for being not-ready.
+    ///
+    /// Deliberately separate from `last_not_ready_alert` rather than reusing
+    /// it: an alert is a toast, and a restart drops whatever every conversation
+    /// on this machine has in flight (ADR-038). They earn different cooldowns,
+    /// and collapsing them would silently give the expensive action the cheap
+    /// one's cadence.
+    pub(crate) last_not_ready_restart: Option<Instant>,
     /// Set when this supervisor SIGKILLed the current child for breaching
     /// [`MEMORY_CEILING_BYTES`], and read by [`classify_exit`] on the poll that
     /// observes the exit (mt#4105).
@@ -1087,6 +1116,9 @@ impl SupervisedDaemon {
             last_process_started_at_ms: None,
             consecutive_http_failed: 0,
             last_http_alert: None,
+            consecutive_not_ready: 0,
+            last_not_ready_alert: None,
+            last_not_ready_restart: None,
             killed_for_ceiling: false,
             last_ceiling_alert: None,
         }
