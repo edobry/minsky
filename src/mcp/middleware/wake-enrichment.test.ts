@@ -11,7 +11,9 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  DEADLINE_EXCEEDED,
   enrichWakeResponse,
+  raceEnrichmentDeadline,
   shouldEnrichWake,
   type SessionResolver,
   type WakeServiceSurface,
@@ -348,5 +350,142 @@ describe("enrichWakeResponse", () => {
       resolverReturning("session-1")
     );
     expect(block).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deadline on the awaited drain (mt#4526)
+// ---------------------------------------------------------------------------
+
+/** A drain that never settles — the hang the deadline exists to bound. */
+function hangingService(): WakeServiceSurface {
+  return {
+    drainBySession: () => new Promise<WakeSignalPayload[]>(() => {}),
+    drainByAgent: () => new Promise<WakeSignalPayload[]>(() => {}),
+  };
+}
+
+/**
+ * A drain that settles LATE, after the deadline has already fired — the case that
+ * distinguishes "bounded" from "bounded without losing anything". The returned
+ * `settle` resolves the pending drain on demand so the test controls the ordering
+ * instead of racing a real timer.
+ */
+function lateSettlingService(payloads: WakeSignalPayload[]): {
+  service: WakeServiceSurface;
+  settle: () => void;
+} {
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const drain = async (): Promise<WakeSignalPayload[]> => {
+    await gate;
+    return payloads;
+  };
+  return {
+    service: { drainBySession: drain, drainByAgent: drain },
+    settle: () => release?.(),
+  };
+}
+
+describe("raceEnrichmentDeadline", () => {
+  test("returns the work's value when it finishes inside the budget", async () => {
+    const result = await raceEnrichmentDeadline(Promise.resolve("done"), 1000);
+    expect(result).toBe("done");
+  });
+
+  test("returns DEADLINE_EXCEEDED when the budget elapses first", async () => {
+    const result = await raceEnrichmentDeadline(new Promise<string>(() => {}), 5);
+    expect(result).toBe(DEADLINE_EXCEEDED);
+  });
+
+  test("propagates a rejection that lands inside the budget", async () => {
+    const boom = Promise.reject(new Error("drain failed"));
+    await expect(raceEnrichmentDeadline(boom, 1000)).rejects.toThrow("drain failed");
+  });
+});
+
+describe("enrichWakeResponse deadline (mt#4526)", () => {
+  test("a never-settling conversation-keyed drain returns null within the bound", async () => {
+    const startedAt = performance.now();
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, hangingService(), undefined, {
+      callerAgentId: AGENT_ID,
+      deadlineMs: 20,
+    });
+    const elapsedMs = performance.now() - startedAt;
+
+    // Fail-open: the tool call proceeds without the block rather than hanging.
+    expect(block).toBeNull();
+    // Bounded: generous upper bound so the assertion is about the deadline firing at
+    // all, not about scheduler precision on a loaded machine.
+    expect(elapsedMs).toBeLessThan(2000);
+  });
+
+  test("a never-settling session-keyed drain returns null within the bound", async () => {
+    const startedAt = performance.now();
+    const block = await enrichWakeResponse(
+      ALLOWLISTED_TOOL,
+      { session: "session-1" },
+      hangingService(),
+      resolverReturning("session-1"),
+      { deadlineMs: 20 }
+    );
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(block).toBeNull();
+    expect(elapsedMs).toBeLessThan(2000);
+  });
+
+  test("reports the payloads an abandoned drain took with it", async () => {
+    // The drain marks rows delivered as it reads them, so a drain we stopped waiting
+    // for can still commit — stamping wakes nobody rendered. mt#4517 owns closing that;
+    // this asserts the loss is REPORTED rather than silent.
+    const { service, settle } = lateSettlingService([ANSWERED_ASK]);
+    const dropped: Array<{ key: string; droppedCount: number; askIds: string[] }> = [];
+
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, service, undefined, {
+      callerAgentId: AGENT_ID,
+      deadlineMs: 5,
+      onDroppedAfterTimeout: (info) => dropped.push(info),
+    });
+    expect(block).toBeNull();
+    expect(dropped).toHaveLength(0); // nothing lost yet — the drain has not settled
+
+    settle();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(dropped).toEqual([{ key: "agent", droppedCount: 1, askIds: ["ask-answered"] }]);
+  });
+
+  test("does not report a drop when the abandoned drain resolves empty", async () => {
+    const { service, settle } = lateSettlingService([]);
+    const dropped: unknown[] = [];
+
+    await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, service, undefined, {
+      callerAgentId: AGENT_ID,
+      deadlineMs: 5,
+      onDroppedAfterTimeout: (info) => dropped.push(info),
+    });
+
+    settle();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(dropped).toHaveLength(0);
+  });
+
+  test("control: a drain inside the budget still delivers (mt#4476 SC1 unregressed)", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(ANSWERED_ASK);
+
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+      callerAgentId: AGENT_ID,
+      deadlineMs: 2000,
+    });
+
+    expect(block).not.toBeNull();
+    expect(block?.text).toContain("ask-answered");
   });
 });
