@@ -139,6 +139,12 @@ export interface Row {
   /** The registry arm this row's configuration came from (mt#4409); groups a replicate pair. */
   armBase?: string;
   /**
+   * Hash of the rendered prompt (PR #3339 R1). Written by the harness so its replicate-identity
+   * check can compare CONTENT rather than length; absent on datasets that predate it. Nothing
+   * in this file reads it — it is declared so the reader's model of a row matches the writer's.
+   */
+  promptHash?: string;
+  /**
    * Which call of a replicate group this row is, 1-based (mt#4409).
    *
    * OPTIONAL like `mode` and `truncateChars`, but the missing-key case is handled DIFFERENTLY
@@ -692,10 +698,20 @@ function replicateAnalysis(rows: Row[], callErrorCount: number): NoiseFloor[] {
       // than argued for afterwards.
       const kappaCIIncludesZero = kappaCI !== null && kappaCI.lo <= 0 && kappaCI.hi >= 0;
       const width = hi - lo;
+      // An UNDEFINED kappa is not a firing condition, and reading it as one was this
+      // function's own inconsistency (PR #3339 R1). `cohensKappa` returns null when neither
+      // call ever said yes, and its docblock gives the reason: a rater that never fires
+      // agrees perfectly with another that never fires, so the sample is evidence about
+      // NOTHING. Reporting 1.0 there would overclaim reliability — which that function
+      // refuses — and reporting FIRES here overclaims UNRELIABILITY from the same empty
+      // sample. SC5's condition A is "the interval INCLUDES zero"; with no positives there
+      // is no interval to read. So it is UNDETERMINED: the run cannot decide it, and the
+      // remedy is a sample containing findings, not a docblock warning.
       console.log(
         `  SC5 condition A (kappa CI includes zero): ${
-          kappa === null
-            ? "FIRES — kappa is undefined, which is not distinguishable from independence"
+          kappa === null || kappaCI === null
+            ? "UNDETERMINED — no finding-bearing pair at this grain, so there is no interval " +
+              "to read. Re-run on a sample containing findings before dispositioning SC5."
             : kappaCIIncludesZero
               ? "FIRES"
               : "does not fire"

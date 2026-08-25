@@ -253,8 +253,16 @@ const SELECTED_ARMS: readonly Arm[] = (() => {
  */
 const REPLICATES: number = (() => {
   const raw = parseStringArg("--replicate", "1").trim();
+  // Matched on SHAPE, not on round-tripping through `String(parsed)` (PR #3339 R1). The
+  // round-trip form rejected `02` — a numerically valid way to write 2 — while the thing
+  // actually worth rejecting is a value that is not a positive integer at all. This still
+  // throws on `2.5`, `abc`, `-1`, `2x` and the empty string, which is the whole point of
+  // validating here rather than letting `parseIntArg` silently substitute its fallback.
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`--replicate must be a positive integer (got "${raw}")`);
+  }
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || String(parsed) !== raw) {
+  if (!Number.isFinite(parsed) || parsed < 1) {
     throw new Error(`--replicate must be a positive integer (got "${raw}")`);
   }
   return parsed;
@@ -389,6 +397,19 @@ interface ResultRow {
   armBase: string;
   /** Which call of the replicate group this is, 1-based. 1 on every non-replicate run. */
   replicateIndex: number;
+  /**
+   * Hash of the rendered user prompt actually sent (PR #3339 R1).
+   *
+   * `promptChars` is a LENGTH, and the replicate check used to compare lengths while calling
+   * the result `identicalPromptRender` — two different prompts of equal length would have
+   * passed. Byte-identity IS guaranteed upstream by `renderFor`'s memo, which hands both
+   * twins the same object; this records the evidence for it on the row so the claim rests on
+   * a measurement rather than on trusting the mechanism the check exists to verify.
+   *
+   * Within-run comparison only — a non-cryptographic hash is enough to distinguish two
+   * prompts, and nothing compares these across processes.
+   */
+  promptHash: string;
   totalMessages: number;
   analyzedMessages: number;
   /** The Amendment-1 bucket: a full window failed ~44% against a partial window's ~10%. */
@@ -571,6 +592,7 @@ async function main(): Promise<void> {
         arm: arm.name,
         armBase: arm.baseName,
         replicateIndex: arm.replicateIndex,
+        promptHash: Bun.hash(userPrompt).toString(16),
         totalMessages: sampling.totalMessages,
         analyzedMessages: sampling.analyzedMessages,
         fullWindow,
@@ -722,6 +744,11 @@ async function main(): Promise<void> {
           (r) =>
             r.truncateChars === first.truncateChars &&
             r.mode === first.mode &&
+            // The prompt is compared by HASH, not by length (PR #3339 R1). `promptChars`
+            // alone would pass two different prompts that happen to be the same size — a
+            // check that cannot distinguish the failure it exists to catch. Rows are built
+            // in this process, so the hash is always present here; no absent-key case.
+            r.promptHash === first.promptHash &&
             r.promptChars === first.promptChars
         );
       });
