@@ -11,7 +11,12 @@
 // is mt#4380's guard. The control caught it before the table shipped.
 
 import { describe, test, expect } from "bun:test";
-import { runSweep } from "./sweep-guard-cli-blindness";
+import {
+  runSweep,
+  matcherAlternatives,
+  observesCommandStrings,
+  readRepoJson,
+} from "./sweep-guard-cli-blindness";
 
 describe("guard CLI-blindness sweep (mt#4536)", () => {
   const rows = runSweep();
@@ -61,5 +66,51 @@ describe("guard CLI-blindness sweep (mt#4536)", () => {
   test("a harness-only tool is classified N/A rather than blind", () => {
     const found = byGuard("record-agent-dispatch");
     expect(found[0]?.verdict).toBe("N/A");
+  });
+});
+
+// PR #3343 R1. Three findings, all about the sweep degrading QUIETLY: a matcher it
+// cannot parse, a matcher tested by string equality rather than by the dispatcher's
+// own regex, and an input it cannot read. Each would have produced a table that
+// looks clean and under-reports blind guards — this task's own failure mode.
+describe("the sweep fails loudly rather than under-reporting (PR #3343 R1)", () => {
+  test("a non-literal matcher throws instead of splitting into non-tool fragments", () => {
+    // `split("|")` on this yields "mcp__minsky__(tasks_create" and "tasks_edit)",
+    // neither of which is a tool name. Both would fail to resolve and read as
+    // "no CLI route" — a false clean result for that guard.
+    expect(() => matcherAlternatives("mcp__minsky__(tasks_create|tasks_edit)")).toThrow(
+      /not a literal alternation/
+    );
+  });
+
+  test("every matcher shipping TODAY is literal, so the check fires on nothing", () => {
+    // The assertion above is only worth having if it does not fire on the live
+    // population — otherwise the sweep would be throwing on every run. This pins
+    // the measurement the docblock cites rather than leaving it as a claim.
+    expect(() => runSweep()).not.toThrow();
+  });
+
+  test("command-string reach is decided by RegExp, matching the dispatcher", () => {
+    // `getGuardsForEvent` does `new RegExp(matcher).test(toolName)`. String equality
+    // against split fragments is a PARALLEL notion of matching that can diverge from
+    // what actually dispatches.
+    expect(observesCommandStrings("Bash|mcp__minsky__session_exec", ["Bash"])).toBe(true);
+    expect(observesCommandStrings("mcp__minsky__tasks_create", ["mcp__minsky__tasks_create"])).toBe(
+      false
+    );
+    // An absent matcher means "every tool", which includes the command-string ones.
+    expect(observesCommandStrings(undefined, ["*"])).toBe(true);
+  });
+
+  test("an unreadable input throws naming the file, rather than returning a partial table", () => {
+    expect(() => readRepoJson("src/generated/does-not-exist.json")).toThrow(
+      /cannot read src\/generated\/does-not-exist\.json/
+    );
+  });
+
+  test("a malformed input is distinguished from a missing one", () => {
+    // Different remedies: regenerate vs repair. A single opaque failure would
+    // conflate them.
+    expect(() => readRepoJson("README.md")).toThrow(/is not valid JSON/);
   });
 });

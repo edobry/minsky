@@ -44,23 +44,100 @@ import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
-/** Every literal alternative of a matcher regex. `*` and an absent matcher mean "all tools". */
-function matcherAlternatives(matcher: string | undefined): string[] {
+/**
+ * Read and parse a repo JSON file, failing LOUDLY with the path and cause.
+ *
+ * Both of this sweep's inputs are generated or hand-maintained files that can be
+ * absent (a fresh clone before `build-completion-manifest`) or malformed (a
+ * half-written settings.json). Unwrapped, either produces a raw `ENOENT` or
+ * `SyntaxError` naming no context (PR #3343 R1).
+ *
+ * **It throws rather than degrading to a partial result, and that is the point.**
+ * A sweep that silently skipped an unreadable input would under-report blind
+ * guards and read as a clean table — the same silent-coverage-loss failure this
+ * whole task is about. Applied to BOTH inputs, not only the one flagged: the
+ * settings.json read is the identical shape and would have been the next instance.
+ */
+export function readRepoJson(relPath: string): unknown {
+  const abs = resolve(REPO_ROOT, relPath);
+  let raw: string;
+  try {
+    raw = readFileSync(abs, "utf8");
+  } catch (err) {
+    throw new Error(
+      `sweep-guard-cli-blindness: cannot read ${relPath} (${abs}): ` +
+        `${err instanceof Error ? err.message : String(err)}. The sweep needs it to classify ` +
+        `guards; refusing to emit a partial table that would under-report blind guards.`
+    );
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `sweep-guard-cli-blindness: ${relPath} is not valid JSON: ` +
+        `${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/** Regex syntax a plain `split("|")` would mis-handle. `|` and a bare `*` are excluded deliberately. */
+const NON_LITERAL_SYNTAX = /[()[\]\\.+?^${}]/;
+
+/**
+ * Every literal alternative of a matcher. `*` and an absent matcher mean "all tools".
+ *
+ * **Splitting on `|` is sound only for a LITERAL alternation, so that assumption is
+ * asserted rather than assumed (PR #3343 R1).** A matcher using a group, an escape or
+ * a quantifier would split into fragments that are not tool names, and every verdict
+ * for that guard would be wrong — SILENTLY, because a fragment simply fails to
+ * resolve and reads as "no CLI route". A sweep whose coverage claim degrades without
+ * saying so is this task's own subject, so it throws instead of guessing.
+ *
+ * Measured 2026-08-25: all 20 distinct matchers across both populations are plain `|`
+ * alternations or `*`, and none carries other regex syntax. This check therefore
+ * fires on nothing today; it exists for the matcher that changes that.
+ */
+export function matcherAlternatives(matcher: string | undefined): string[] {
   if (matcher === undefined || matcher === "*") return ["*"];
+  if (NON_LITERAL_SYNTAX.test(matcher)) {
+    throw new Error(
+      `sweep-guard-cli-blindness: matcher ${JSON.stringify(matcher)} is not a literal ` +
+        `alternation. Splitting it on "|" yields fragments that are not tool names, so every ` +
+        `verdict for this guard would be silently wrong. Teach the sweep this syntax before ` +
+        `trusting its table.`
+    );
+  }
   return matcher
     .split("|")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
 
+/** The two tool names through which a subprocess command string reaches a hook. */
+const COMMAND_STRING_TOOLS = ["Bash", "mcp__minsky__session_exec"];
+
 /**
  * Does this matcher put the guard on the CLI's path?
  *
- * `Bash` and `mcp__minsky__session_exec` are the two ways a subprocess command
- * string reaches a hook. `*` reaches everything.
+ * Tested with **`RegExp`, not string equality** (PR #3343 R1), so this reproduces
+ * what the dispatcher actually does — `new RegExp(reg.matcher).test(toolName)` in
+ * `getGuardsForEvent` — rather than a parallel notion of matching that could diverge
+ * from it. Note the dispatcher's test is UNANCHORED and this inherits that on
+ * purpose: reproducing the real dispatch behaviour, including its quirks, is the
+ * point of a sweep about what guards actually see.
+ *
+ * A matcher that will not compile is treated as matching nothing, which is also
+ * `getGuardsForEvent`'s behaviour for a malformed matcher.
  */
-function observesCommandStrings(alts: string[]): boolean {
-  return alts.some((a) => a === "*" || a === "Bash" || a === "mcp__minsky__session_exec");
+export function observesCommandStrings(matcher: string | undefined, alts: string[]): boolean {
+  if (matcher === undefined || alts.includes("*")) return true;
+  let re: RegExp;
+  try {
+    re = new RegExp(matcher);
+  } catch {
+    return false;
+  }
+  return COMMAND_STRING_TOOLS.some((t) => re.test(t));
 }
 
 /**
@@ -72,7 +149,7 @@ function observesCommandStrings(alts: string[]): boolean {
  * each manifest leaf; this reads that stamp rather than re-deriving the mapping.
  */
 function cliCommandKeys(): Set<string> {
-  const raw = readFileSync(resolve(REPO_ROOT, "src/generated/completion-manifest.json"), "utf8");
+  const manifest = readRepoJson("src/generated/completion-manifest.json");
   const keys = new Set<string>();
   const walk = (node: unknown): void => {
     if (!node || typeof node !== "object") return;
@@ -81,7 +158,7 @@ function cliCommandKeys(): Set<string> {
     const subs = rec["subcommands"];
     if (Array.isArray(subs)) for (const s of subs) walk(s);
   };
-  walk(JSON.parse(raw));
+  walk(manifest);
   return keys;
 }
 
@@ -134,7 +211,7 @@ function classify(
   const alts = matcherAlternatives(matcher);
   const shown = matcher ?? "(none — all tools)";
 
-  if (observesCommandStrings(alts)) {
+  if (observesCommandStrings(matcher, alts)) {
     return {
       guard,
       route,
@@ -181,8 +258,7 @@ function classify(
 
 /** PreToolUse hooks registered directly in settings.json (not via a dispatcher). */
 function directRegistrations(): Array<{ guard: string; matcher: string }> {
-  const raw = readFileSync(resolve(REPO_ROOT, ".claude/settings.json"), "utf8");
-  const parsed = JSON.parse(raw) as {
+  const parsed = readRepoJson(".claude/settings.json") as {
     hooks?: { PreToolUse?: Array<{ matcher?: string; hooks?: Array<{ command?: string }> }> };
   };
   const out: Array<{ guard: string; matcher: string }> = [];
