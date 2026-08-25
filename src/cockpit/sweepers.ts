@@ -21,6 +21,7 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
@@ -2468,18 +2469,10 @@ async function buildRealTitleSweepDeps(): Promise<ConversationTitleSweepDeps | n
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
@@ -2609,18 +2602,10 @@ async function buildRealSummarySweepDeps(): Promise<ConversationSummarySweepDeps
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
@@ -2752,17 +2737,9 @@ async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | n
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 

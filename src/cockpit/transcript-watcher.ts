@@ -45,6 +45,7 @@ import { basename, join } from "node:path";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import { JsonlTailer } from "@minsky/domain/transcripts/jsonl-tailer";
 
@@ -444,16 +445,9 @@ export class TranscriptWatcher {
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      if (
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
-        return null;
-      }
-      const db = await (
-        provider as { getDatabaseConnection: () => Promise<PostgresJsDatabase> }
-      ).getDatabaseConnection();
+      // Capability + method, via the one guard (mt#4543); the cast goes with it.
+      if (!isSqlCapable(provider)) return null;
+      const db = await provider.getDatabaseConnection();
       return db ?? null;
     } catch (err) {
       log.warn("cockpit transcript-watcher: DB acquisition failed", { message: messageOf(err) });
