@@ -25,6 +25,7 @@ import {
   readDocPoints,
   readFacetPoints,
   readSpinePoints,
+  parseFacetPoints,
 } from "../../scripts/interception-point-sources";
 
 /** The six mt#4129 added; named so deleting them from all three still fails. */
@@ -114,6 +115,41 @@ describe("InterceptionPoint stays identical across its three declarations", () =
     for (const point of ADDED_BY_MT4129) {
       expect(spine, `${point} must NOT have a spine station (mt#4129)`).not.toContain(point);
     }
+  });
+
+  test("parseFacetPoints survives benign formatting changes (PR #3361 R1)", () => {
+    // The reviewer's finding, turned into an assertion. The first version of
+    // this parser required a trailing comma on the last key and a newline
+    // before the closing brace. Under a formatter that drops the final comma it
+    // would have parsed 14 of 15 keys and the census would have reported a
+    // mismatch that is an artifact of formatting — a FALSE NEGATIVE in the one
+    // assertion whose job is catching a genuinely missing point. Worse than a
+    // plain bug: it would look exactly like the defect mt#4603 fixed.
+    const canonical = [
+      "const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = {",
+      "  UserPromptSubmit: true,",
+      '  "pre-commit": true,',
+      "  PostCompact: true,",
+      "};",
+    ].join("\n");
+    const expected = ["PostCompact", "UserPromptSubmit", "pre-commit"];
+    expect(parseFacetPoints(canonical)).toEqual(expected);
+
+    // No trailing comma on the last entry.
+    expect(
+      parseFacetPoints(canonical.replace("  PostCompact: true,", "  PostCompact: true"))
+    ).toEqual(expected);
+
+    // Closing brace on the same line as the last entry — no preceding newline.
+    expect(
+      parseFacetPoints(
+        "const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = {" +
+          ' UserPromptSubmit: true, "pre-commit": true, PostCompact: true };'
+      )
+    ).toEqual(expected);
+
+    // A shape change it SHOULD still reject rather than silently return [].
+    expect(() => parseFacetPoints("const SOMETHING_ELSE = { a: true };")).toThrow();
   });
 
   test("the runtime VALID_POINTS validator matches the union", () => {

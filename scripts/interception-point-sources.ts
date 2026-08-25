@@ -133,15 +133,21 @@ export function readValidPoints(): string[] {
  * `bunfig.toml` (mem#1189).
  */
 export function parseFacetPoints(source: string): string[] {
+  // Terminates on the first `}` (optionally spaced before `;`) rather than on a
+  // NEWLINE before it, and the trailing comma is OPTIONAL (PR #3361 R1). Both
+  // fragilities were real: a formatter that drops the last entry's comma would
+  // have silently parsed 14 of 15 keys, and the census would then report a
+  // MISMATCH that is an artifact of formatting — a false negative in the one
+  // assertion whose whole job is catching a missing point. Non-greedy is safe
+  // here because the declared type is `Record<InterceptionPoint, true>`, so
+  // every value is the literal `true` and the object cannot nest.
   const block =
-    /const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = \{([\s\S]*?)\n\};/.exec(
+    /const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = \{([\s\S]*?)\}\s*;/.exec(
       stripComments(source)
     );
   if (!block?.[1]) throw new Error("no `INTERCEPTION_POINT_PRESENCE` declaration found");
   // Sorted, like every sibling parser here — these lists are compared as sets.
-  return [...block[1].matchAll(/^\s*"?([A-Za-z-]+)"?\s*:\s*true\s*,/gm)]
-    .map((m) => m[1] ?? "")
-    .sort();
+  return [...block[1].matchAll(/"?([A-Za-z-]+)"?\s*:\s*true\s*,?/g)].map((m) => m[1] ?? "").sort();
 }
 
 export function readFacetPoints(): string[] {
