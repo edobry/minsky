@@ -3423,6 +3423,37 @@
       "sourceFile": "spec-criterion-claim-detector"
     },
     {
+      "guardName": "spec-scope-execution-check",
+      "description": "Records when the bound task's spec enumerates in-scope file paths that the session never edited — the author's own gate-(h) enumeration, compared against what the PR actually changed. Nothing read that list before: the execution-evidence gate reads `## Acceptance Tests`, `tasks_spec_freshness` compares ref STATES, and the sibling `enumeration-scope-check` joins sweep-call arguments. Originating instance mt#4531 / PR #3310, where the spec named `guard-calibration-stream-inventory.md` explicitly, the implementation added three fields to that record and never touched the doc, and the reviewer caught it BLOCKING one round late by re-deriving the impact rather than reading the enumeration. Parses STRICTLY — the shared extractor's `## Context` / whole-document fallback would collect every path a spec merely mentions, which for this join is a false positive by construction. A spec with no parseable in-scope paths records `skipped` (\"nothing to compare\"), never `clean`. Record-only; the known dominant false positive is a CONDITIONAL enumeration line whose condition did not fire.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/spec-scope-execution-check.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "spec-scope-execution-check"
+    },
+    {
       "guardName": "sql-capability-message-check",
       "description": "Blocks a commit whose persistence-gated error says only that the database is unavailable, without naming which of the two opposite causes it is — never configured, or configured and failed at boot (ADR-035 rule 3). The check itself predates this registration by a long way and had no caller at all until mt#4398, so it sat exiting non-zero against three real sites that nothing surfaced.",
       "failureClasses": ["broken-main"],

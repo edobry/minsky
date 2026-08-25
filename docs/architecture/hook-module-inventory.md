@@ -60,12 +60,12 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 11      |
-| movable        | 84      |
+| movable        | 85      |
 | immovable      | 79      |
-| **total**      | **174** |
+| **total**      | **175** |
 
-Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
+Of the 85 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 69 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -146,13 +146,13 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (84)
+## movable (85)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (68)
+### ADR-026 tier 2 — no persistence reach (69)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
@@ -184,6 +184,7 @@ bootstrap requirement.
 | `duplicate-check-candidate-read.ts`            | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
 | `duplicate-check-search-provenance.ts`         | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
 | `enumeration-scope-check.ts`                   | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
+| `spec-scope-execution-check.ts`                | dispatcher-guard | `untouchedEnumeratedPaths`                                        | side-effecting (recorder)                     | plant | advisory   |
 | `evidence-record-provenance.ts`                | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
 | `guard-health-escalation-detector.ts`          | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
 | `inject-current-time.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |

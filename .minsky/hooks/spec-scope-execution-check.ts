@@ -1,0 +1,289 @@
+#!/usr/bin/env bun
+// ---------------------------------------------------------------------------
+// spec-scope-execution-check (mt#4544) — did the PR execute the enumeration the
+// spec already wrote?
+//
+// `/plan-task` gate (h) makes an author enumerate the consumers of a contract
+// before changing it, and the enumeration lands in the spec's `## Scope` →
+// in-scope list. NOTHING COMPARED THAT LIST AGAINST WHAT THE PR ACTUALLY
+// CHANGED. So an enumeration could be complete, correct, recorded — and
+// partially executed, with no signal.
+//
+// Originating instance (mt#4531 / PR #3310): the spec named
+// `docs/architecture/guard-calibration-stream-inventory.md` explicitly — "row
+// 119 documents the calibration record's field set; update if SC3's measurement
+// adds fields to it." The implementation added three fields to that record and
+// never touched the doc. Every local gate passed, because none of them reads the
+// spec. `minsky-reviewer[bot]` caught it as BLOCKING on R2 — one full round
+// late, and by RE-DERIVING the doc impact rather than by reading the
+// enumeration the author had already written. The author's own list is the
+// cheapest available oracle and it was write-only.
+//
+// WHY THIS IS A SIBLING OF `enumeration-scope-check` AND NOT PART OF IT. That
+// guard asks whether the SWEEP THE AUTHOR RAN covered the directories gate (h)
+// prescribes — a transcript join over sweep-call arguments, which is the row
+// ADR-042's table assigns to gate (h). This one asks whether the FILE LIST THE
+// SPEC NAMED was touched. Same family, same seam, different join: ADR-042's
+// table has no row for `in-scope paths ∩ changed files`, and the ADR is amended
+// by this task to record it.
+//
+// SEAM: `session_pr_create`, decided from ADR-042 rather than re-derived. Its
+// §Sibling reconciliation records mt#4171's re-scope from `ready` to `pr`
+// (mt#4293) with measured per-seam rates, and notes that joining the existing
+// `registry-pr-create-guards.ts` family costs zero additional wiring. Both of
+// mt#4544's original candidates (pr-create, merge gate) are post-diff, so that
+// analysis does not decide between them — but the family, the registry and the
+// wiring cost all point here, and the merge gate's only advantage (a complete
+// file list rather than this session's edits) is left to be measured against
+// that cost rather than assumed.
+//
+// POSTURE: recorder only, `advisory`, per ADR-042 §Posture — every new row ships
+// calibration-first under ADR-024's ladder. The reason is specific rather than
+// ritual, and it is this check's DOMINANT false-positive source: an enumeration
+// line is frequently CONDITIONAL ("update **if** SC3 adds fields"), and whether
+// the condition fired is a judgment a path comparison cannot make.
+// ---------------------------------------------------------------------------
+
+import { findToolCallsWithResults } from "./transcript";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import type { ToolHookInput } from "./types";
+import { editedPaths } from "./enumeration-scope-check";
+import { extractInScopeFiles, fetchTaskSpec } from "./parallel-work-guard";
+
+export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SPEC_SCOPE_EXECUTION";
+
+/**
+ * Injected seams, so the guard is hermetically testable without the CLI
+ * (`custom/no-real-fs-in-tests`; `/implement-task` §6 testable-design
+ * checkpoint — these are handed in, not reached for).
+ */
+export interface SpecScopeDeps {
+  /** Defaults to the real `minsky tasks spec get` shell-out. */
+  fetchSpec?: (taskId: string) => string | null;
+}
+
+/**
+ * The bound task id, read off the `session_pr_create` call.
+ *
+ * `session_pr_create` accepts `task` or `sessionId`; only the first names a task
+ * directly. When the call carries only a session id the guard records `skipped`
+ * rather than guessing — resolving session→task would need a DB round trip this
+ * seam deliberately avoids, and a wrong task id would compare a real diff
+ * against someone else's enumeration.
+ */
+export function boundTaskId(toolInput: Record<string, unknown>): string | null {
+  const task = toolInput["task"];
+  return typeof task === "string" && task.trim() !== "" ? task.trim() : null;
+}
+
+/**
+ * Normalize a path for comparison: strip a leading `./`, strip surrounding
+ * whitespace, and drop any absolute session-workspace prefix so a session's
+ * absolute edit path compares against a spec's repo-relative one.
+ *
+ * The suffix rule is deliberate rather than lazy. Edit tool calls record
+ * whatever path the caller passed — repo-relative for the session-scoped tools,
+ * absolute for the harness-native ones — and the spec always writes
+ * repo-relative. Comparing on the repo-relative TAIL is the only rule that
+ * matches across both without knowing the workspace root.
+ */
+export function normalizePath(path: string): string {
+  return path.trim().replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+/**
+ * True when `edited` covers `enumerated`.
+ *
+ * Covers three shapes an enumeration uses in practice:
+ *   - an exact file path
+ *   - a DIRECTORY (`.minsky/hooks/`), satisfied by any edit beneath it
+ *   - a repo-relative path against an ABSOLUTE edit path (suffix match)
+ *
+ * The suffix match is anchored at a path separator so `hooks/registry.ts` is
+ * not satisfied by an edit to `other-hooks/registry.ts`.
+ */
+export function pathIsCovered(enumerated: string, edited: readonly string[]): boolean {
+  const target = normalizePath(enumerated);
+  if (target === "") return false;
+  for (const raw of edited) {
+    const candidate = normalizePath(raw);
+    if (candidate === target) return true;
+    if (candidate.endsWith(`/${target}`)) return true;
+    // Directory enumeration: any edit beneath it counts.
+    if (candidate.startsWith(`${target}/`)) return true;
+    if (candidate.includes(`/${target}/`)) return true;
+  }
+  return false;
+}
+
+/**
+ * The spec line that named `path`, for quoting back at the author.
+ *
+ * SC3 asks for the author's OWN words rather than a generic nag, and the line
+ * is where the CONDITION lives ("update **if** SC3 adds fields") — which is
+ * precisely the information a reader needs to dismiss a conditional-enumeration
+ * false positive in one glance instead of re-reading the spec.
+ */
+export function enumerationLineFor(specContent: string, path: string): string | null {
+  const target = normalizePath(path);
+  for (const line of specContent.split("\n")) {
+    if (line.includes(target)) return line.trim();
+  }
+  return null;
+}
+
+export interface UntouchedPath {
+  path: string;
+  line: string | null;
+}
+
+/**
+ * The comparison, as a pure function over its two inputs.
+ *
+ * Extracted rather than left inline so the whole decision is observable from a
+ * return value — no collaborator to patch to see what it decided.
+ */
+export function untouchedEnumeratedPaths(
+  specContent: string,
+  enumerated: readonly string[],
+  edited: readonly string[]
+): UntouchedPath[] {
+  const out: UntouchedPath[] = [];
+  for (const path of enumerated) {
+    if (pathIsCovered(path, edited)) continue;
+    out.push({ path, line: enumerationLineFor(specContent, path) });
+  }
+  return out;
+}
+
+export function run(
+  input: ToolHookInput,
+  ctx: DispatchContext,
+  deps: SpecScopeDeps = {}
+): GuardOutcome | null {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  if (
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes"
+  ) {
+    return {
+      auditLines: [
+        `[spec-scope-execution-check] OVERRIDE: ack=${overrideVal} session=${
+          input.session_id ?? "unknown"
+        } ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  const base = {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+    toolName: input.tool_name ?? null,
+  };
+
+  const lines = ctx.transcriptLines;
+  if (!lines || lines.length === 0) {
+    // Not adjudicable is `skipped`, never `clean` — a guard whose no-transcript
+    // path returned a pass would report an outage as a run of correct behavior.
+    return {
+      calibration: { ...base, outcome: "skipped", reason: "no transcript lines available" },
+    };
+  }
+
+  const taskId = boundTaskId(input.tool_input ?? {});
+  if (!taskId) {
+    return {
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason: "session_pr_create carried no `task` parameter — no spec to compare against",
+      },
+    };
+  }
+
+  const fetchSpec = deps.fetchSpec ?? fetchTaskSpec;
+  const specContent = fetchSpec(taskId);
+  if (!specContent) {
+    return {
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason: `could not fetch spec for ${taskId}`,
+        taskId,
+      },
+    };
+  }
+
+  // STRICT: no fallback chain. See `ExtractInScopeFilesOptions` — a whole-spec
+  // backtick scan collects paths the spec merely MENTIONS, and every one would
+  // be reported here as an unkept promise.
+  const { files: enumerated } = extractInScopeFiles(specContent, { strict: true });
+
+  if (enumerated.length === 0) {
+    // SC5: "nothing to compare" is NOT a clean pass. A zero from an unparseable
+    // section and a zero from a fully-executed enumeration are different
+    // findings, and collapsing them is how a check reports coverage it does not
+    // have.
+    return {
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason:
+          "spec has no parseable in-scope path list (no '**In scope:**' block or " +
+          "'### In scope' heading carrying paths) — nothing to compare",
+        taskId,
+      },
+    };
+  }
+
+  const calls = findToolCallsWithResults(lines);
+  const edited = editedPaths(calls);
+  if (edited.length === 0) {
+    return {
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason: "no edit calls recorded since the last session_pr_create",
+        taskId,
+        enumeratedCount: enumerated.length,
+      },
+    };
+  }
+
+  const untouched = untouchedEnumeratedPaths(specContent, enumerated, edited);
+
+  if (untouched.length === 0) {
+    return {
+      calibration: {
+        ...base,
+        outcome: "clean",
+        taskId,
+        enumeratedCount: enumerated.length,
+        editedCount: edited.length,
+      },
+    };
+  }
+
+  return {
+    calibration: {
+      ...base,
+      outcome: "flagged",
+      taskId,
+      enumeratedCount: enumerated.length,
+      editedCount: edited.length,
+      // SC3's content lives HERE rather than in injected text: the path plus
+      // the spec's own line that named it, so a calibration reader sees the
+      // author's words and — critically — whether the line was CONDITIONAL,
+      // which is the one thing that distinguishes a real finding from this
+      // check's dominant false positive.
+      untouched: untouched.map((u) => ({ path: u.path, line: u.line })),
+    },
+    // RECORD-ONLY for v1, matching the sibling `enumeration-scope-check`
+    // exactly ("no injected text today, so the frame is the calibration record
+    // rather than a rendered message"). ADR-042 §Posture puts every new
+    // claim-provenance row at calibration-first, and injecting before the
+    // false-positive rate is measured is what trains a reader to skip the
+    // output (mem#719). SC6's measurement is the gate on adding injection.
+  };
+}

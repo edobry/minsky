@@ -283,7 +283,37 @@ export interface ExtractInScopeFilesResult {
  * heading or end of content. Extract lines that look like file paths
  * (contain `/` or start with `.`).
  */
-export function extractInScopeFiles(specContent: string): ExtractInScopeFilesResult {
+/**
+ * Options for {@link extractInScopeFiles} (mt#4544).
+ *
+ * `strict` disables the fallback chain. It exists because the fallback is
+ * CORRECT for this module's own consumer and WRONG for a spec-to-diff
+ * comparison, and the difference is not a preference:
+ *
+ *   - The parallel-work check asks "which files might collide?" An over-broad
+ *     candidate set costs at most a spurious collision warning, so reaching
+ *     into `## Context` and then the whole document is a sensible widening.
+ *   - A spec-to-diff check asks "which files did the author PROMISE to touch?"
+ *     A whole-document backtick scan collects every path the spec MENTIONS —
+ *     prior art, siblings, cited incidents, and paths listed as explicitly OUT
+ *     of scope — and each would be reported as an unkept promise. That is a
+ *     false positive by construction, not a tuning problem.
+ *
+ * Default `false`, so every existing caller is byte-identical.
+ */
+export interface ExtractInScopeFilesOptions {
+  /** Skip the `## Context` / whole-document fallback chain. Default false. */
+  strict?: boolean;
+}
+
+export function extractInScopeFiles(
+  specContent: string,
+  options: ExtractInScopeFilesOptions = {}
+): ExtractInScopeFilesResult {
+  const strict = options.strict === true;
+  /** In strict mode there is no fallback — an absent block means "nothing to compare". */
+  const fallbackOrEmpty = (content: string, warnings: string[]): ExtractInScopeFilesResult =>
+    strict ? { files: [], warnings } : extractWithFallback(content, warnings);
   // Format A (mt#2811): the exact shape session_generate_prompt's
   // renderScopeSection emits for a subagent prompt ("## Scope Constraints" +
   // bare bullet list). Tried first, unconditionally — a task spec's own
@@ -306,7 +336,7 @@ export function extractInScopeFiles(specContent: string): ExtractInScopeFilesRes
   if (!scopeMatch) {
     warnings.push("No '## Scope' section found in spec — parallel-work check skipped");
     // Routine: no scope structure present at all — not a parser failure.
-    return extractWithFallback(specContent, warnings);
+    return fallbackOrEmpty(specContent, warnings);
   }
 
   const scopeStart = (scopeMatch.index ?? 0) + scopeMatch[0].length;
@@ -324,22 +354,40 @@ export function extractInScopeFiles(specContent: string): ExtractInScopeFilesRes
   // (e.g., mt#1305-style). The `[^*]*?` allows any non-asterisk chars between
   // "In scope" and ":**", capturing both forms.
   const inScopeMatch = scopeContent.match(/\*\*In scope[^*]*?:\*\*/i);
-  if (!inScopeMatch) {
+
+  // Format C (mt#4544): a `### In scope` SUB-HEADING instead of a bold marker.
+  // Measured over 1,314 specs created in the 30 days to 2026-08-25: 788 use the
+  // bold form and 171 use this one, with 668 and 155 of those respectively
+  // carrying backticked paths — so the heading form is ~19% of the specs that
+  // actually enumerate anything. Before this, every one of them missed the
+  // strict path and landed in the fallback chain, which for a spec-to-diff
+  // consumer means a whole-document backtick scan. No spec in that corpus used
+  // both forms, so trying bold first and this second cannot mis-order.
+  const headingMatch = inScopeMatch ? null : scopeContent.match(/^#{3,4}[ \t]+In scope[^\n]*$/im);
+
+  if (!inScopeMatch && !headingMatch) {
     warnings.push(
-      "No '**In scope:**' block found in ## Scope section — parallel-work check skipped"
+      "No '**In scope:**' block or '### In scope' heading found in ## Scope section — " +
+        "parallel-work check skipped"
     );
-    // Routine: has a '## Scope' section but no '**In scope:**' sub-block —
-    // still not a parser failure (nothing to extract from).
-    return extractWithFallback(specContent, warnings);
+    // Routine: has a '## Scope' section but no in-scope sub-block — still not a
+    // parser failure (nothing to extract from).
+    return fallbackOrEmpty(specContent, warnings);
   }
 
-  const inScopeStart = (inScopeMatch.index ?? 0) + inScopeMatch[0].length;
-  // Find next bold section or end of scope content
-  const nextBoldMatch = scopeContent.slice(inScopeStart).match(/\*\*\w/);
+  const marker = (inScopeMatch ?? headingMatch) as RegExpMatchArray;
+  const inScopeStart = (marker.index ?? 0) + marker[0].length;
+  const rest = scopeContent.slice(inScopeStart);
+  // The bold form ends at the next bold run-in; the heading form ends at the
+  // next sub-heading (`### Out of scope`). Take whichever terminator comes
+  // first so a spec mixing a bold run-in INSIDE a heading block still stops.
+  const nextBoldMatch = rest.match(/\*\*\w/);
+  const nextHeadingMatch2 = rest.match(/^#{2,4}[ \t]+\S/m);
+  const candidates = [nextBoldMatch?.index, nextHeadingMatch2?.index].filter(
+    (i): i is number => typeof i === "number"
+  );
   const inScopeEnd =
-    nextBoldMatch !== null && nextBoldMatch.index !== undefined
-      ? inScopeStart + nextBoldMatch.index
-      : scopeContent.length;
+    candidates.length > 0 ? inScopeStart + Math.min(...candidates) : scopeContent.length;
 
   const inScopeContent = scopeContent.slice(inScopeStart, inScopeEnd);
 
@@ -386,7 +434,7 @@ export function extractInScopeFiles(specContent: string): ExtractInScopeFilesRes
     // fallback chain; only report as a genuine failure if the fallback ALSO
     // recovers nothing (if it recovers files, the check runs — no
     // degradation to report).
-    const fallback = extractWithFallback(specContent, warnings);
+    const fallback = fallbackOrEmpty(specContent, warnings);
     return { ...fallback, genuineExtractionFailure: fallback.files.length === 0 };
   }
 
