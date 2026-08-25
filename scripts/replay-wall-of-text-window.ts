@@ -50,6 +50,7 @@ import {
 } from "../.minsky/hooks/transcript";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
 import { safeTruncate } from "../packages/shared/src/safe-truncate";
+import { detectLengthComplaint } from "./lib/length-complaint";
 import {
   collectTurnProse,
   measureWallOfText,
@@ -103,6 +104,22 @@ interface TurnMetrics {
   suppressionReasons: string[];
   /** First 220 chars of the largest block — for hand classification. */
   largestBlockLead: string;
+  /**
+   * What the principal typed AFTER reading this turn (mt#4540).
+   *
+   * This is the prompt at the turn's CLOSING boundary. The detector runs at
+   * `UserPromptSubmit` and measures the turn before the prompt, so that same
+   * prompt is the principal's reaction to the measured turn — which makes it
+   * the only outcome signal available without asking them.
+   */
+  reactionText: string;
+  /**
+   * The reacting prompt's ISO timestamp, or `undefined` when the line carried
+   * none. Used for ADR-032's provenance boundary; a turn with no readable
+   * timestamp is EXCLUDED from a cutoff-filtered population rather than
+   * assumed recent.
+   */
+  reactionAt: string | undefined;
 }
 
 function countWords(text: string): number {
@@ -143,6 +160,18 @@ function parseTranscript(path: string): TranscriptLine[] {
     }
   }
   return lines;
+}
+
+/** A user-role line's text, string- and content-array shapes alike. */
+function promptTextOf(line: TranscriptLine | undefined): string {
+  const content = (line as { message?: { content?: unknown } } | undefined)?.message?.content;
+  if (typeof content === "string") return content.replace(/\s+/g, " ");
+  if (!Array.isArray(content)) return "";
+  return (content as Array<{ type?: string; text?: string }>)
+    .filter((b) => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string)
+    .join(" ")
+    .replace(/\s+/g, " ");
 }
 
 function replaySession(sessionId: string, lines: TranscriptLine[]): TurnMetrics[] {
@@ -195,6 +224,8 @@ function replaySession(sessionId: string, lines: TranscriptLine[]): TurnMetrics[
       suppressed: suppressionReasons.length > 0,
       suppressionReasons,
       largestBlockLead: safeTruncate((texts[largestIdx] ?? "").replace(/\s+/g, " "), 220, "head"),
+      reactionText: promptTextOf(lines[closingIdx]),
+      reactionAt: (lines[closingIdx] as { timestamp?: string } | undefined)?.timestamp,
     });
   }
 
@@ -322,6 +353,10 @@ function main(): void {
     );
   }
 
+  if (args.includes("--suppression-accuracy")) {
+    reportSuppressionAccuracy(all, !args.includes("--no-provenance-cutoff"));
+  }
+
   if (jsonPath) {
     writeFileSync(
       jsonPath,
@@ -331,4 +366,102 @@ function main(): void {
   }
 }
 
-main();
+/**
+ * ADR-032 D1's provenance boundary: calibration records written before this
+ * date are discarded from any tuning basis, because mt#3280 found
+ * `extractLastAssistantTurn` could hand a `UserPromptSubmit` detector the
+ * PREVIOUS turn — so a pre-fix record's measured value may belong to text the
+ * guard never fired on.
+ */
+export const PROVENANCE_CUTOFF_ISO = "2026-07-29T00:00:00Z";
+
+/** ADR-032 D1's cold-start floor: fewer labeled observations decides nothing. */
+export const COLD_START_FLOOR = 5;
+
+/**
+ * Do the suppression gates withhold the reminder on the turns the principal
+ * then complains about? (mt#4540 SC1)
+ *
+ * The gates' premise is that a report long BECAUSE depth was requested is not a
+ * violation. This measures that against the only outcome signal available: what
+ * the principal typed next. A rate ABOVE the delivered-reminder population is
+ * evidence the gates are selecting for the wrong turns.
+ *
+ * **Reports CANDIDATES, never a verdict.** `detectLengthComplaint` is a loose
+ * screen (see its module doc — a first cut over-reported by 2x), so every
+ * candidate is printed with its context for hand classification and the summary
+ * says so. A caller quoting these numbers as classified rates without reading
+ * the contexts is misusing the output.
+ */
+export function reportSuppressionAccuracy(all: TurnMetrics[], applyCutoff: boolean): void {
+  const cutoffMs = Date.parse(PROVENANCE_CUTOFF_ISO);
+  const inWindow = (t: TurnMetrics): boolean => {
+    if (!applyCutoff) return true;
+    if (t.reactionAt === undefined) return false;
+    const ms = Date.parse(t.reactionAt);
+    return !Number.isNaN(ms) && ms >= cutoffMs;
+  };
+
+  const firing = all.filter((t) => t.firesMax && inWindow(t));
+  const by = (pred: (t: TurnMetrics) => boolean) => firing.filter(pred);
+
+  const populations: Array<[string, TurnMetrics[]]> = [
+    [
+      "suppressed: depth-request",
+      by((t) => t.suppressionReasons.includes("depth-request-override")),
+    ],
+    [
+      "suppressed: question-answer",
+      by(
+        (t) =>
+          t.suppressionReasons.includes("question-answer-override") &&
+          !t.suppressionReasons.includes("depth-request-override")
+      ),
+    ],
+    ["DELIVERED (reminder injected)", by((t) => !t.suppressed)],
+  ];
+  const control = all.filter((t) => !t.firesMax && inWindow(t));
+
+  process.stdout.write(
+    `\n=== suppression accuracy (mt#4540) ===\n` +
+      `provenance cutoff: ${applyCutoff ? `>= ${PROVENANCE_CUTOFF_ISO} (ADR-032 D1)` : "DISABLED — includes pre-mt#3280 records whose measured turn may be wrong"}\n` +
+      `\nlength-complaint CANDIDATES in the principal's reacting prompt.\n` +
+      `These are NOT classified results — read each context below before quoting a rate.\n\n`
+  );
+
+  let suppressedCandidates = 0;
+  for (const [label, set] of populations) {
+    const hits = set.filter((t) => detectLengthComplaint(t.reactionText).isCandidate);
+    if (label.startsWith("suppressed")) suppressedCandidates += hits.length;
+    const pct = set.length > 0 ? ((hits.length / set.length) * 100).toFixed(1) : "n/a";
+    process.stdout.write(
+      `  ${label.padEnd(32)} ${String(hits.length).padStart(3)} / ${String(set.length).padStart(4)}  (${pct}%)\n`
+    );
+  }
+  const controlHits = control.filter((t) => detectLengthComplaint(t.reactionText).isCandidate);
+  const controlPct =
+    control.length > 0 ? ((controlHits.length / control.length) * 100).toFixed(1) : "n/a";
+  process.stdout.write(
+    `  ${"control: does not fire".padEnd(32)} ${String(controlHits.length).padStart(3)} / ${String(control.length).padStart(4)}  (${controlPct}%)\n`
+  );
+
+  process.stdout.write(
+    `\npooled suppressed candidates: ${suppressedCandidates}` +
+      ` (ADR-032 cold-start floor: ${COLD_START_FLOOR})\n` +
+      `  ${suppressedCandidates >= COLD_START_FLOOR ? "at or over the floor — a direction may be read, a magnitude may not" : "UNDER the floor — this population decides nothing on its own"}\n`
+  );
+
+  process.stdout.write(`\n--- candidates, for hand classification ---\n`);
+  for (const [label, set] of populations) {
+    for (const t of set) {
+      const c = detectLengthComplaint(t.reactionText);
+      if (!c.isCandidate) continue;
+      process.stdout.write(
+        `  [${label}] ${t.sessionId.slice(0, 8)} turn#${t.turnIndex} max=${t.maxWords} sum=${t.sumWords} patterns=${c.patterns.join(",")}\n` +
+          `      ${c.context}\n`
+      );
+    }
+  }
+}
+
+if (import.meta.main) main();
