@@ -43,29 +43,63 @@ import {
 // for per-process fan-out. That ceiling was never measured — it came from an
 // agent-authored memory, not from the vendor.
 //
-// MEASURED 2026-08-19: this project reports `max_connections = 60`, which
-// Supabase's published compute table maps to the Nano/Micro tier, whose pooler
-// ceiling is 200 CLIENT connections (both tiers are 200, so the tier ambiguity
-// does not change the number). At the old default of 15, FOURTEEN processes
-// saturate the pooler; the fleet was measured at 70-84 processes on 2026-08-18
-// and 33-40 on 2026-08-19. The budget was being oversubscribed several times
-// over.
+// MEASURED 2026-08-24 (mt#4360): this project reports `max_connections = 120`
+// (PostgreSQL 17.6, read through the transaction pooler on :6543). Supabase's
+// published compute table maps 120 direct connections to the MEDIUM tier, whose
+// pooler ceiling is 600 CLIENT connections:
+//   https://supabase.com/docs/guides/platform/compute-and-disk
+//   Nano/Micro 60 -> 200 | Small 90 -> 400 | Medium 120 -> 600 | Large 160 -> 800
+//
+// TO RE-CHECK, run this against the configured connection string — it is one
+// query and it is the whole provenance of this constant:
+//   select current_setting('max_connections')
+// then look the result up in the table above. Do NOT re-derive this from a
+// memory, a doc, or another comment; all three have been wrong here before.
+//
+// BOUND ON THE TIER CLAIM, stated because the constant depends on it: the
+// Supabase page calls these "recommended values [that] can be customized", so
+// `max_connections = 120` implies Medium via the published table rather than by
+// reading the tier itself. That is strong evidence, not a direct read. The
+// falsifier is the tier as reported by the Supabase dashboard or Management API.
+//
+// HISTORY, kept because the number moved twice for different reasons and the
+// next reader needs to tell a stale value from a wrong one:
+//   - Pre-mt#4308 the comment claimed a "practical ceiling in the thousands",
+//     sourced from an agent-authored memory (63fbc195) rather than the vendor.
+//     Never measured; simply false.
+//   - mt#4308 measured `max_connections = 60` on 2026-08-19 -> Nano/Micro -> 200.
+//     Correct then. mt#3497 independently measured 60 on 2026-08-05.
+//   - The project was upgraded to Medium between then and 2026-08-24, so 200 was
+//     STALE rather than wrong. This is the failure mode to expect here: a
+//     correctly-derived value quietly outliving its measurement.
 //
 // WHY DERIVED. mt#2224 set 15 correctly for the fleet IT measured, and nothing
 // re-examined it when the fleet grew by an order of magnitude, because the
 // assumption lived in prose rather than in code. Naming the three inputs makes
 // the assumption checkable: if any of them changes, the default follows, and a
 // reader can see WHICH one to re-measure.
-const POOLER_CLIENT_BUDGET = 200;
+const POOLER_CLIENT_BUDGET = 600;
 // Share of that budget this fleet's long-lived local pools may claim. The rest
 // is left for the hosted services (Railway MCP, reviewer, cockpit), ephemeral
-// probes, and burst headroom — all of which contend for the same 200.
+// probes, and burst headroom — all of which contend for the same 600.
 const POOL_BUDGET_FRACTION = 0.5;
 // How many processes are assumed to hold an OPEN pool at once. Grounded in
-// measurement, not process count: on 2026-08-18, 31 established connections came
-// from 8 distinct pids (~4 each) while 70-84 `bun` processes were alive — pools
-// open lazily, so holders are far fewer than processes. 12 carries ~50% headroom
-// over that observation. THIS is the number to re-measure when the fleet changes.
+// measurement, not process count — pools open lazily, so holders are far fewer
+// than processes. Re-measure with:
+//   lsof -nP -iTCP -sTCP:ESTABLISHED | awk '$9 ~ /:6543$/ {print $2}' | sort -u
+//
+//   2026-08-18 (mt#4308): 31 connections from 8 distinct pids, 70-84 processes.
+//   2026-08-24 (mt#4360): 32 connections from  2 distinct pids, 59 processes.
+//
+// HOLDERS FELL, AND THE VALUE IS DELIBERATELY NOT FOLLOWING IT DOWN. ADR-038
+// consolidated the fleet behind one shared local MCP daemon, so the 8 peer
+// holders became ~2 long-lived ones. Tracking that literally would put the
+// derived default at 150 and hand a single process a quarter of the tenant's
+// client budget — a large behavioural change bought with no evidence that
+// anything needs it. 12 is retained as HEADROOM against the consolidation
+// partially reversing (a second cockpit, a preview daemon, a burst of one-shot
+// CLI invocations), not as a claim that 12 pools exist. The measurement above is
+// what is true; this constant is what we are willing to provision for.
 const ASSUMED_CONCURRENT_POOL_HOLDERS = 12;
 // Floor: below this, a widget that fans out queues on itself. mt#2224 raised the
 // old value of 3 because it "starved widgets that fan out, e.g. the 4-parallel-
@@ -84,9 +118,10 @@ const DEFAULT_POSTGRES_MAX_CONNECTIONS = Math.max(
 
 // Upper bound matching the config schema's .max(100). The env-var path
 // (MINSKY_POSTGRES_MAX_CONNECTIONS) bypasses Zod validation, so this clamp is
-// the only thing bounding it. NOTE (mt#4308): this ceiling is NOT safe to use
-// fleet-wide — at 100 per process, THREE processes exceed the 200-client pooler
-// budget. It bounds a deliberate single-process override (a migration runner, a
+// the only thing bounding it. NOTE (mt#4308, renumbered mt#4360): this ceiling
+// is NOT safe to use fleet-wide — at 100 per process, SIX processes exceed the
+// 600-client pooler budget (it was THREE against the old 200-client figure).
+// It bounds a deliberate single-process override (a migration runner, a
 // one-off backfill), and the mt#2224-era claim that "the transaction pooler is
 // no longer easy to saturate" that previously justified it is false. Kept at 100
 // to stay consistent with the schema's .max(100) rather than because 100 is safe.
