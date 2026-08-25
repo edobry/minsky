@@ -53,6 +53,8 @@ import { createEmbeddingServiceFromConfig } from "@minsky/domain/ai/embedding-se
 import { PerTurnEmbeddingPipeline } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 
 import { deriveEmbedOverdueBoundMs, TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import type { TranscriptSweepJournalRecorder } from "./transcript-sweep-journal";
+import { isProcessAlive } from "./port-recovery";
 import {
   getSchemaReadiness,
   isSchemaBehind,
@@ -231,10 +233,20 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
  *
  * Deps are injectable so the sweep core can be unit-tested without a real DB or filesystem.
  *
+ * `journal` is REQUIRED, not optional-with-a-default (mt#4532). ADR-026 rule 3
+ * bans the `opts?.journal ?? createRealOne()` shape regardless of tier, and the
+ * reason applies exactly here: the fallback would silently write to the
+ * operator's real state dir the moment a test forgot to inject one. The
+ * composition root — `src/commands/cockpit/start-command.ts` — constructs the
+ * file-backed recorder; tests construct a memory-backed one.
+ *
  * @see docs/architecture/cockpit.md — Transcript sweep backstop (cadence + /api/health payload)
  * @returns stop function (clears the interval).
  */
-export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptions): () => void {
+export function startTranscriptSweepBackstop(
+  journal: TranscriptSweepJournalRecorder,
+  opts?: TranscriptSweepBackstopOptions
+): () => void {
   const resolvedInterval = opts?.intervalMs ?? resolveSweepIntervalMs();
 
   // mt#4524: the overdue bound is derived from THIS sweeper's actual budgets,
@@ -246,11 +258,25 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
     deriveEmbedOverdueBoundMs(resolvedInterval, TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS)
   );
 
+  // mt#4532 — fold any tick the previous process was still running when it was
+  // replaced. Runs BEFORE the boot tick, so it reconciles the PREVIOUS process's
+  // record rather than one this process just wrote.
+  // This is the ONLY place an `interrupted` outcome can be recorded: a process
+  // that is killed cannot write its own terminal record (`supervisor.rs`'s
+  // `do_stop` sends SIGTERM and SIGKILL with no wait between them, so a
+  // shutdown handler races a SIGKILL arriving microseconds later — verified in
+  // `cockpit-tray/src-tauri/src/supervisor.rs` and recorded on mt#4040).
+  journal.reconcileAtBoot(isProcessAlive);
+
   return createIntervalSweeper({
     name: "transcript sweep backstop",
     intervalMs: resolvedInterval,
     tickTimeoutMs: TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS,
     tick: async (): Promise<SweepTickResult> => {
+      // mt#4532 — mark the tick STARTED before any work, so a process replaced
+      // at any point below leaves a record that a tick was in flight. This is
+      // the whole mechanism: nothing written at shutdown can be relied on.
+      journal.tickStarted();
       try {
         // Resolve deps: injected (for tests) or real (for production).
         let sweepDeps: TranscriptSweepDeps | null;
@@ -263,6 +289,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         if (!sweepDeps) {
           // mt#4412 — cannot sweep, so not a healthy no-op.
           log.debug("cockpit: transcript sweep: no SQL-capable DB, skipping tick");
+          journal.tickEnded("skipped");
           return { ok: false };
         }
 
@@ -289,6 +316,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             log.debug("cockpit: transcript sweep skipped — schema behind", {
               pending: getSchemaReadiness().pending,
             });
+            journal.tickEnded("skipped");
             // mt#4412: a domain failure, even though the pause is DELIBERATE
             // and correct. The sweep is not doing its work, and a daemon left
             // schema-behind indefinitely is exactly the standing inertness
@@ -314,6 +342,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
           const message = err instanceof Error ? err.message : String(err);
           log.warn("cockpit: transcript sweep: ingest failed", { message });
           sweepDeps.tracker.recordSweepError();
+          journal.tickEnded("failed");
           // Can't meaningfully record a completed sweep if ingest threw.
           return { ok: false };
         }
@@ -332,6 +361,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             totalIngested: ingestResult.totalIngested,
           });
           tracker.recordSweepAborted();
+          journal.tickEnded("aborted");
           return { ok: false };
         }
 
@@ -368,6 +398,9 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         // "backfill never succeeded" for the entire duration of Phase 2 — which
         // over ~1500 sessions is minutes, not milliseconds.
         tracker.recordEmbedRunStarted();
+        // mt#4532 — the same reasoning, one level up: the journal marks Phase 2
+        // ENTERED here, so `reachedPhase2` counts a tick killed mid-backfill.
+        journal.phase2Started();
         try {
           await runEmbeddings();
           tracker.recordEmbedRunCompleted();
@@ -393,11 +426,13 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         // that would be the contradiction this task exists to remove.
         // `sessionsErrored` is included for the same reason: a sweep that
         // processes every session and errors on all of them did not succeed.
+        journal.tickEnded(embeddingsOk ? "completed" : "embed-failed");
         return { ok: embeddingsOk && ingestResult.sessionsErrored === 0 };
       } catch (err) {
         // Outermost safety net — unexpected throw escaping either phase.
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: transcript sweep: unexpected error in tick", { message });
+        journal.tickEnded("failed");
         // If we have injected deps, at least record an error.
         if (opts?.deps) {
           opts.deps.tracker.recordSweepError();

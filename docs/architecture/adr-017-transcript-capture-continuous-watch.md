@@ -121,6 +121,21 @@ Implemented under the mt#2234 umbrella:
   MCP-server process and would read zero for cockpit-process state). See
   `docs/architecture/cockpit.md` for the operational detail.
 
+- **Cross-restart tick journal — mt#4532:** the `transcriptSweep` counters above
+  are all PROCESS-scoped, and the tray restarts the daemon on every merge
+  touching `src/cockpit/**` or `packages/**` — measured 2026-08-25 at 23 boots in
+  one working day, a median 13.4 minutes apart, against a 30-minute cadence whose
+  Phase 1 alone takes ~12 minutes. `transcriptSweep.acrossRestarts` records every
+  tick's start, whether it entered the embedding backfill, and how it ended, in a
+  local state file that outlives the process. Two notes on this ADR's own terms.
+  **The redaction convention holds** — counts, ISO timestamps, a pid and an
+  outcome enum; no paths, no raw error strings. **And the two-mechanism
+  redundancy above covers INGEST only:** the embedding backfill has no
+  watcher-side path, so the sweep is its ONLY mechanism and a starved sweep is
+  total loss for it rather than degraded coverage. That asymmetry is not a
+  departure from this ADR — it is a consequence of it that was not previously
+  written down.
+
 Both compose with the mt#2051 MCP boot sweep and the mt#2192 SessionEnd
 fast-path; overlap is harmless (per-`turn_index` upsert + timestamp HWM). The
 mt#1418 single-writer guard remains the soft prerequisite for the overlap.
