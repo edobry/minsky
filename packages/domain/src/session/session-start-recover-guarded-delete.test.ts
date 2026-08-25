@@ -95,7 +95,7 @@ function createDeps(sessionDB: FakeSessionProvider): StartSessionDependencies {
 
   const taskService = new FakeTaskService();
   taskService.getTaskStatus = mock(async () => "READY");
-  taskService.setTaskStatus = mock(async () => {});
+  taskService.setTaskStatus = mock(async () => ({ recordsAffected: 1 }));
   taskService.getTask = mock(async () => ({ id: "md#999" })) as never;
 
   return {

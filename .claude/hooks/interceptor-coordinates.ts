@@ -526,6 +526,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "spec-scope-execution-check",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads with no paraphrase axis: the path list the spec's own in-scope section names, against the session's edit-call paths over the same PR window. Both sides are paths, so there is nothing to paraphrase — the judgment it stands in for is whether a CONDITIONAL enumeration line's condition fired, which is why it records rather than denies. Sibling of `enumeration-scope-check` at the same seam: that one joins sweep-call ARGUMENTS against a prescribed directory list, this one joins the SPEC'S OWN list against the diff. Parses strictly, because the shared extractor's fallback chain answers a different question (which files might collide?) and would supply paths the spec only mentions.",
+    },
+  ],
+  [
     "gate-walk-provenance",
     {
       ...structuralRecorder,

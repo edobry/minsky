@@ -443,6 +443,30 @@ export interface AskRepository {
   transition(id: string, to: AskState): Promise<Ask>;
 
   /**
+   * Merge ONE key into `metadata` atomically, leaving every other key intact.
+   *
+   * The general form of {@link recordCancellation} below, extracted when a
+   * second caller needed the same shape (mt#4486: a credential request records
+   * its parent's entry status at ask-creation time, from a read taken BEFORE
+   * the ask existed, and has to correct it from the authoritative read the
+   * block itself takes). Both share the property that matters and the reason it
+   * matters — see that docblock: the read and the write are ONE statement, so a
+   * concurrent edit to another key cannot be lost, and the read-merge-write
+   * alternative was already caught as BLOCKING once (PR #3190 R1).
+   *
+   * Replaces the key WHOLESALE. The merge is top-level only, so a caller
+   * changing one field of a nested payload passes the whole payload — ideally
+   * from the same builder that wrote it, so the two cannot drift.
+   *
+   * Only touches a NON-TERMINAL row, matching `updateContent`.
+   *
+   * @returns true when a row was updated; false on a miss (already terminal, or
+   *          gone) — never throws, because a provenance write must not fail the
+   *          operation it rides on.
+   */
+  mergeMetadataKey(id: string, key: string, value: unknown): Promise<boolean>;
+
+  /**
    * Merge a cancellation-provenance record into `metadata` ATOMICALLY (mt#3353).
    *
    * Exists because `transition(id, "cancelled")` writes `state` and `closedAt`
@@ -1199,12 +1223,12 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
-  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+  async mergeMetadataKey(id: string, key: string, value: unknown): Promise<boolean> {
     // jsonb `||` merges right-into-left server-side, so the read and the write
     // are one statement and no concurrent edit can be lost. COALESCE covers a
     // NULL metadata column, where `||` would otherwise yield NULL and erase the
     // record we are trying to write.
-    const merged = sanitizeForPostgresDeep({ [CANCELLATION_METADATA_KEY]: record }).value;
+    const merged = sanitizeForPostgresDeep({ [key]: value }).value;
     const rows = await this.db
       .update(asksTable)
       .set({
@@ -1215,6 +1239,13 @@ export class DrizzleAskRepository implements AskRepository {
       )
       .returning();
     return rows.length > 0;
+  }
+
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    // Delegates rather than repeating the statement: mt#4486 needed the same
+    // atomic single-key merge, and two copies of a jsonb `||` whose exact shape
+    // is what keeps a concurrent edit from being lost is two chances to drift.
+    return this.mergeMetadataKey(id, CANCELLATION_METADATA_KEY, record);
   }
 
   async respond(id: string, rawInput: RespondAskInput): Promise<Ask> {
@@ -1835,7 +1866,7 @@ export class FakeAskRepository implements AskRepository {
     return { ...updated };
   }
 
-  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+  async mergeMetadataKey(id: string, key: string, value: unknown): Promise<boolean> {
     const existing = this.store.get(id);
     // Mirrors the Drizzle `where`: non-terminal rows only, and a miss is a
     // `false` return rather than a throw.
@@ -1846,9 +1877,13 @@ export class FakeAskRepository implements AskRepository {
     // interleave with another caller.
     this.store.set(id, {
       ...existing,
-      metadata: { ...(existing.metadata ?? {}), [CANCELLATION_METADATA_KEY]: record },
+      metadata: { ...(existing.metadata ?? {}), [key]: value },
     });
     return true;
+  }
+
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    return this.mergeMetadataKey(id, CANCELLATION_METADATA_KEY, record);
   }
 
   async respond(id: string, input: RespondAskInput): Promise<Ask> {
