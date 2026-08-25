@@ -432,6 +432,10 @@ tests).
 
 Four acceptance tests are covered (mt#1205):
 
+Every test first holds `poolSize + 5` connections, which consumes the server's whole ceiling
+regardless of what that ceiling actually is, then releases them ~300ms in so the consumer under
+test can succeed on a retry.
+
 1. **Concurrent retry** — `poolSize + 5` clients race to connect; all eventually succeed and at
    least one retry is observed.
 2. **CRUD idempotency** — a mutating `INSERT … ON CONFLICT DO NOTHING` issued concurrently from
@@ -440,6 +444,13 @@ Four acceptance tests are covered (mt#1205):
    saturation resolves; `getConnectionInfo()` shows `"connected"`.
 4. **Vector search backoff** — `PostgresVectorStorage.search()` returns results under saturation
    (skipped gracefully when `pgvector` is not installed on the branch).
+
+Tests 3 and 4 open a SINGLE consumer rather than racing many, so they are the two that depend on
+the ceiling being fully consumed. Both call `assertSaturated()` first — one more connection must
+be REFUSED — and log the denominator they achieved (`held 10/13, further connection refused
+(code=53300)`). Read that line before trusting a pass: until mt#4347 these two held exactly
+`poolSize`, which left free slots on the testcontainer target, and test 4 failed its elapsed-time
+guard for 119 days while test 3 reported green having exercised no retry at all.
 
 ### Provisioning a Supabase Preview Branch
 
@@ -498,9 +509,19 @@ Delete the branch via the dashboard or `mcp__supabase__delete_branch` when no lo
 **durable contract test** for the pool-saturation retry path: a single Postgres container
 (`pgvector/pgvector:pg16`) started with `max_connections = 10`, managed by Testcontainers, with
 the same `runSaturationSuite` helper from mt#1364 driving the four acceptance tests against the
-container's connection string. The shared helper holds 8 long-lived clients to consume the
-ceiling and races 13 more that must retry — saturation is guaranteed even with a few
-connections taken by Postgres background workers (autovacuum, superuser-reserved slots).
+container's connection string. The shared helper holds 13 long-lived clients (`poolSize + 5`)
+against that ceiling of 10 — it establishes the 10 the server will give and discards the
+overflow — then either races 13 consumers that must retry (tests 1-2) or opens a single one
+(tests 3-4). Asking for MORE than the ceiling is what makes saturation guaranteed: the harness
+never has to know the effective ceiling, so background workers taking a slot cannot change the
+outcome.
+
+This corrects a claim that stood here from 2026-04-28 to mt#4347: "holds 8 long-lived clients to
+consume the ceiling." Holding 8 does not consume a ceiling of 10, and the constants only agreed
+until mt#1365's final review-response commit raised `max_connections` from 5 to 10 without
+raising `POOL_SIZE` past 8. Note that `superuser_reserved_connections` was never a hazard for this
+harness in the first place — it reserves slots FOR superusers, and the harness connects as
+`postgres`.
 
 ### Why this exists alongside the Supabase harness
 
