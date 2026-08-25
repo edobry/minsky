@@ -1458,6 +1458,14 @@ export class MinskyMCPServer {
           // memoryService is unset, or when the env-var kill switch is set
           // (used by the benchmark script). Errors and degraded results are
           // silently dropped — enrichment must never break the tool call.
+          // mt#4526 SC2 asks that EVERY awaited enrichment step on this path be bounded.
+          // This one already is, and deliberately not by us: `enrichToolResponse` races
+          // its own `MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS` deadline (5s default,
+          // `memory-enrichment.ts:83`) internally. Wrapping a SECOND, shorter bound around
+          // it would make that configurable timeout dead code and emit a duplicate late
+          // log after the request had already returned — the wrapper-below-inner-timeout
+          // corollary in `decision-defaults.mdc §Thresholds`, which this task cites about
+          // postgres-js and then nearly repeated here. Caught in PR #3301 review.
           const enrichmentBlock = await enrichToolResponse(
             request.params.name,
             request.params.arguments || {},

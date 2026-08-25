@@ -22,6 +22,7 @@
  */
 
 import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
+import { POOL_ADMISSION_DEADLINE_MS } from "@minsky/domain/persistence/raw-sql-pooler-guard";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -92,9 +93,144 @@ const DEFAULT_CHAR_BUDGET = 4000;
 const TAG_DELIVERED = "wake.enrichment.delivered";
 const TAG_NO_SESSION_ID = "wake.enrichment.no_session_id";
 const TAG_FAILED = "wake.enrichment.failed";
+const TAG_TIMED_OUT = "wake.enrichment.timed_out";
+const TAG_DROPPED_AFTER_TIMEOUT = "wake.enrichment.dropped_after_timeout";
+
+/**
+ * Deadline for a single awaited enrichment step, in milliseconds (mt#4526).
+ *
+ * 10x the measured p99 of the real drain path against prod (156.5ms; 30 iterations,
+ * warm pool, zero-row drain through `DrizzleWakePendingRepository.drainByAgent`), so it
+ * cannot fire on a healthy database — the warm-path spread was min 150.1 / max 156.5, a
+ * 4% band.
+ *
+ * Deliberately well BELOW postgres-js's own `connect_timeout` (10s) and mt#4473's
+ * `POOL_ADMISSION_DEADLINE_MS` (30s). That makes both of those unreachable through this
+ * path, which is the intent — here we want to abandon fast rather than wait for a
+ * diagnosis. The cost is that mt#4473's `PoolAdmissionTimeoutError`, which exists
+ * precisely so an operator can tell pool saturation from a slow query, would be masked;
+ * {@link classifyEnrichmentTimeout} keeps that distinction in the telemetry instead of
+ * losing it.
+ */
+export const ENRICHMENT_DEADLINE_MS = 1600;
+
+/** Returned by {@link raceEnrichmentDeadline} when the budget elapsed before the work did. */
+export const DEADLINE_EXCEEDED = Symbol("enrichment-deadline-exceeded");
+
+/**
+ * Notified when a drain we abandoned at the deadline later resolves carrying payloads —
+ * i.e. rows it had already marked delivered and nobody rendered.
+ *
+ * An injected seam rather than a logger spy: the loss is the behaviour SC3 is about, so it
+ * should be observable as a VALUE. Production passes nothing and the log line is the record.
+ */
+export type DroppedAfterTimeoutObserver = (info: {
+  key: "agent" | "session";
+  droppedCount: number;
+  askIds: string[];
+}) => void;
+
+/**
+ * Race a single enrichment step against a deadline, fail-open.
+ *
+ * Exported because the wake drain is NOT the only awaited enrichment step on the MCP
+ * response path — `enrichToolResponse` (memory enrichment) is awaited one call earlier
+ * in `src/mcp/server.ts`, and a bound scoped to the wake drain alone would leave an
+ * identical hang immediately above it (mt#4526 SC2).
+ *
+ * The timer is always cleared, so a fast step does not hold the event loop open for the
+ * remainder of the budget.
+ */
+export async function raceEnrichmentDeadline<T>(
+  work: Promise<T>,
+  budgetMs: number
+): Promise<T | typeof DEADLINE_EXCEEDED> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<typeof DEADLINE_EXCEEDED>((resolve) => {
+    timer = setTimeout(() => resolve(DEADLINE_EXCEEDED), budgetMs);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Watch a drain we stopped waiting for, and record what it took with it.
+ *
+ * `drainByAgent` / `drainBySession` are a single `UPDATE … RETURNING` that MARKS ROWS
+ * DELIVERED AS IT READS THEM, and abandoning the JavaScript promise does not roll back
+ * the statement — it commits on the server regardless. So a drain that loses the race can
+ * still stamp a batch of wakes as delivered whose payloads nobody will ever render.
+ *
+ * That is NOT a new defect class: it is a new TRIGGER for the one mt#4517 owns (today's
+ * trigger is `buildBlock`'s character budget). mt#4517's select-then-mark split is what
+ * closes it. Until then this handler is the difference between a silent loss and a logged
+ * one — it names the asks that went missing, so the loss is greppable rather than
+ * invisible.
+ */
+function observeAbandonedDrain(
+  pending: Promise<WakeSignalPayload[]>,
+  toolName: string,
+  key: "agent" | "session",
+  onDropped?: DroppedAfterTimeoutObserver
+): void {
+  void pending.then(
+    (payloads) => {
+      if (payloads.length === 0) return;
+      const askIds = payloads.map((p) => p.askId);
+      log.cli(
+        `${TAG_DROPPED_AFTER_TIMEOUT} ${JSON.stringify({
+          event: TAG_DROPPED_AFTER_TIMEOUT,
+          tool: toolName,
+          key,
+          droppedCount: payloads.length,
+          askIds,
+        })}`
+      );
+      onDropped?.({ key, droppedCount: payloads.length, askIds });
+    },
+    () => {
+      // Rejected after we stopped waiting. A failed UPDATE marks nothing, so there is no
+      // loss to report — and the handler exists so the late rejection is not unhandled.
+    }
+  );
+}
+
+/**
+ * Preserve the cause an inner layer already diagnosed, instead of flattening it to "slow".
+ *
+ * mt#4473 shipped `PoolAdmissionTimeoutError` specifically so an operator could tell pool
+ * saturation from a slow query. This deadline sits below its 30s bound, so that error can
+ * no longer surface through this path — carrying the classification in the timeout event
+ * is what keeps the distinction mt#4473 built.
+ */
+function classifyEnrichmentTimeout(budgetMs: number): string {
+  return budgetMs < POOL_ADMISSION_DEADLINE_MS ? "deadline-below-pool-admission-bound" : "deadline";
+}
+
+function logEnrichmentTimeout(toolName: string, key: "agent" | "session", budgetMs: number): void {
+  log.cli(
+    `${TAG_TIMED_OUT} ${JSON.stringify({
+      event: TAG_TIMED_OUT,
+      tool: toolName,
+      key,
+      budgetMs,
+      classification: classifyEnrichmentTimeout(budgetMs),
+    })}`
+  );
+}
 
 export interface WakeEnrichmentOptions {
   charBudget?: number;
+  /**
+   * Per-drain deadline in ms; defaults to {@link ENRICHMENT_DEADLINE_MS} (mt#4526).
+   * Injected by tests so a hang can be asserted without waiting out the real budget.
+   */
+  deadlineMs?: number;
+  /** See {@link DroppedAfterTimeoutObserver}. Unset in production. */
+  onDroppedAfterTimeout?: DroppedAfterTimeoutObserver;
   /**
    * The caller's conversation-grain identity (ADR-006 `{kind}:{scope}:{id}`), when
    * the server resolved one at Layer 2 or 3 (mt#4476).
@@ -140,6 +276,7 @@ export async function enrichWakeResponse(
   if (!wakeService) return null;
 
   const charBudget = options.charBudget ?? DEFAULT_CHAR_BUDGET;
+  const deadlineMs = options.deadlineMs ?? ENRICHMENT_DEADLINE_MS;
   const payloads: WakeSignalPayload[] = [];
   let label: string | null = null;
 
@@ -158,8 +295,12 @@ export async function enrichWakeResponse(
   const callerAgentId = options.callerAgentId;
   if (callerAgentId) {
     try {
-      const agentPayloads = await wakeService.drainByAgent(callerAgentId, toolName);
-      if (agentPayloads.length > 0) {
+      const pendingAgentDrain = wakeService.drainByAgent(callerAgentId, toolName);
+      const agentPayloads = await raceEnrichmentDeadline(pendingAgentDrain, deadlineMs);
+      if (agentPayloads === DEADLINE_EXCEEDED) {
+        logEnrichmentTimeout(toolName, "agent", deadlineMs);
+        observeAbandonedDrain(pendingAgentDrain, toolName, "agent", options.onDroppedAfterTimeout);
+      } else if (agentPayloads.length > 0) {
         payloads.push(...agentPayloads);
         label = callerAgentId;
       }
@@ -190,8 +331,17 @@ export async function enrichWakeResponse(
 
     if (parentSessionId) {
       try {
-        const sessionPayloads = await wakeService.drainBySession(parentSessionId, toolName);
-        if (sessionPayloads.length > 0) {
+        const pendingSessionDrain = wakeService.drainBySession(parentSessionId, toolName);
+        const sessionPayloads = await raceEnrichmentDeadline(pendingSessionDrain, deadlineMs);
+        if (sessionPayloads === DEADLINE_EXCEEDED) {
+          logEnrichmentTimeout(toolName, "session", deadlineMs);
+          observeAbandonedDrain(
+            pendingSessionDrain,
+            toolName,
+            "session",
+            options.onDroppedAfterTimeout
+          );
+        } else if (sessionPayloads.length > 0) {
           payloads.push(...sessionPayloads);
           label = label ?? parentSessionId;
         }
