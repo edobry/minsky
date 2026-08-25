@@ -98,19 +98,134 @@ export function normalizePath(path: string): string {
 }
 
 /**
+ * A path segment carrying a glob metacharacter.
+ *
+ * `*` and `?` ONLY — `[` and `]` are deliberately EXCLUDED (PR #3351 R1). They
+ * are legal literal filename characters, and a Next.js-style `[id].tsx` route
+ * is the ordinary case; treating them as glob syntax would route a path like
+ * `docs/Guide [Draft]/index.md` down the glob branch. No spec in the measured
+ * corpus uses a character-class glob, so excluding them costs nothing and
+ * removes the misclassification rather than heuristically working around it.
+ * `globToRegExp` escapes them as literals.
+ */
+const GLOB_CHARS = /[*?]/;
+
+/**
+ * Strip a trailing line reference from an ENUMERATED path (mt#4591).
+ *
+ * Specs cite a file at a location constantly — `types.ts:83`,
+ * `start-session-operations.ts:229-230`, `asks.ts:2426-2432`,
+ * `session-approve-legacy-operations.ts:66,326` — while a changed-file list,
+ * from the forge or from a transcript edit call, never carries one. Comparing
+ * the two literally reports the file as untouched no matter what the PR did.
+ *
+ * Measured over the 100 most recently merged PRs: 12 of 32 flagged entries
+ * carried a line reference or a glob. Four were checked against the forge's own
+ * file list and every one of those files HAD been changed — PR #3342
+ * (`types.ts:83` and 8 siblings), #3272 (`asks.ts:2426-2432`), #3265
+ * (`start-command.ts:617-636`), #3267 (a `src/cockpit` glob, 39 files beneath).
+ *
+ * Applied to the ENUMERATED side ONLY, deliberately. A changed-file path is
+ * ground truth and is compared verbatim; stripping it too would let a spec
+ * naming `a.ts` be satisfied by an edit to a file genuinely named `a.ts:83`.
+ * The asymmetry is asserted by a test rather than left to this comment.
+ *
+ * NOT reused from `duplicate-signature-tokens.ts`, which has a same-named
+ * helper: measured this session, that module's only call site feeds it
+ * `PATH_RE` matches, and `PATH_RE` terminates at the file extension — so its
+ * copy is a no-op on every input it can receive. Joining a primitive that runs
+ * on nothing is not reuse.
+ */
+function stripLineSuffix(path: string): string {
+  // Optional whitespace around the separators (PR #3351 R1): specs are
+  // hand-written, so `a.ts:66, 326` and `a.ts:2426 - 2432` occur alongside the
+  // compact forms.
+  //
+  // POSIX / repo-relative paths are assumed. The pattern is anchored at `$` and
+  // requires DIGITS after the colon, so a Windows drive letter (`C:\repo\a.ts`)
+  // cannot be mis-stripped — asserted by a test rather than left to this note.
+  // A POSIX filename ending literally in `:<digits>` would be mis-stripped; no
+  // such file exists in this repo and none is expected.
+  return path.replace(/:\d+(?:\s*[-,:]\s*\d+)*$/, "");
+}
+
+/**
+ * Compile a glob entry into an anchored matcher, or `null` when `target`
+ * carries no glob metacharacter.
+ *
+ * Supported syntax, which is what in-scope lists actually use:
+ *   - `**\/` — zero or more directories
+ *   - a trailing `**` — anything beneath
+ *   - `*` — within a single segment
+ *   - `?` — exactly one character
+ * Everything else is escaped and matched LITERALLY.
+ *
+ * Anchored with `(?:^|/)` … `$`, mirroring the non-glob branch's suffix rule,
+ * so a repo-relative glob still matches an ABSOLUTE edit path.
+ *
+ * **PR #3351 R1 (BLOCKING) replaced a literal-prefix implementation here.**
+ * That version reduced every glob to its literal directory prefix and treated
+ * any change beneath it as coverage — so `src/**\/x.ts` was satisfied by ANY
+ * edit under `src/`, and `src/*-gen/*.ts` by any edit under `src/`. That is a
+ * silent FALSE PASS: it hides exactly the unkept promise this check exists to
+ * surface, which makes it strictly worse than the false FLAG the task set out
+ * to remove. Prefix matching is only ever correct for the `dir/**` shape; it is
+ * wrong for every narrower one, and nothing in the type or the tests
+ * distinguished the two.
+ */
+function globToRegExp(target: string): RegExp | null {
+  if (!GLOB_CHARS.test(target)) return null;
+  let out = "";
+  for (let i = 0; i < target.length; i++) {
+    const ch = target[i] ?? "";
+    if (ch === "*") {
+      if (target[i + 1] === "*") {
+        if (target[i + 2] === "/") {
+          out += "(?:.*/)?";
+          i += 2;
+        } else {
+          out += ".*";
+          i += 1;
+        }
+      } else {
+        out += "[^/]*";
+      }
+      continue;
+    }
+    if (ch === "?") {
+      out += "[^/]";
+      continue;
+    }
+    out += ch.replace(/[.*+?^${}()|[\]\\]/, "\\$&");
+  }
+  return new RegExp(`(?:^|/)${out}$`);
+}
+
+/**
  * True when `edited` covers `enumerated`.
  *
- * Covers three shapes an enumeration uses in practice:
+ * Covers five shapes an enumeration uses in practice:
  *   - an exact file path
  *   - a DIRECTORY (`.minsky/hooks/`), satisfied by any edit beneath it
  *   - a repo-relative path against an ABSOLUTE edit path (suffix match)
+ *   - a path carrying a LINE REFERENCE (`types.ts:83`, `asks.ts:2426-2432`)
+ *   - a GLOB with a literal directory prefix
  *
  * The suffix match is anchored at a path separator so `hooks/registry.ts` is
  * not satisfied by an edit to `other-hooks/registry.ts`.
  */
 export function pathIsCovered(enumerated: string, edited: readonly string[]): boolean {
-  const target = normalizePath(enumerated);
+  const target = stripLineSuffix(normalizePath(enumerated));
   if (target === "") return false;
+
+  const globMatcher = globToRegExp(target);
+  if (globMatcher !== null) {
+    for (const raw of edited) {
+      if (globMatcher.test(normalizePath(raw))) return true;
+    }
+    return false;
+  }
+
   for (const raw of edited) {
     const candidate = normalizePath(raw);
     if (candidate === target) return true;

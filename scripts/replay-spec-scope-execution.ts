@@ -26,6 +26,7 @@
 
 import { writeFileSync } from "node:fs";
 import { extractInScopeFiles } from "../.minsky/hooks/parallel-work-guard";
+import { normalizePath, pathIsCovered } from "../.minsky/hooks/spec-scope-execution-check";
 
 const args = process.argv.slice(2);
 const limitIdx = args.indexOf("--limit");
@@ -59,18 +60,16 @@ interface Row {
   untouched: { path: string; line: string | null }[];
 }
 
-function normalize(p: string): string {
-  return p.trim().replace(/^\.\//, "").replace(/\/+$/, "");
-}
-
-function covered(enumerated: string, changed: readonly string[]): boolean {
-  const t = normalize(enumerated);
-  if (t === "") return false;
-  return changed.some((c) => {
-    const n = normalize(c);
-    return n === t || n.endsWith(`/${t}`) || n.startsWith(`${t}/`) || n.includes(`/${t}/`);
-  });
-}
+/*
+ * The comparison is IMPORTED from the guard, not reimplemented here (mt#4591).
+ *
+ * This script previously carried its own `normalize` + `covered` pair, a copy
+ * of the guard's. That is a measurement instrument that does not exercise the
+ * thing it measures: mt#4591 fixed `pathIsCovered` to resolve `path.ts:83` and
+ * directory globs, and re-running this replay would have reported ZERO change —
+ * a null result attributable to the duplicate, not to the fix. Same
+ * class-not-instance shape the guard itself exists to catch (mem#1060).
+ */
 
 /**
  * The IN-SCOPE line naming `path` — the block, never the whole spec.
@@ -83,7 +82,7 @@ function covered(enumerated: string, changed: readonly string[]): boolean {
  */
 function lineFor(inScopeBlock: string | undefined, path: string): string | null {
   if (!inScopeBlock) return null;
-  const t = normalize(path);
+  const t = normalizePath(path);
   for (const l of inScopeBlock.split("\n")) if (l.includes(t)) return l.trim();
   return null;
 }
@@ -177,7 +176,7 @@ for (const pr of prs) {
   }
 
   const untouched = enumerated
-    .filter((e) => !covered(e, changed))
+    .filter((e) => !pathIsCovered(e, changed))
     .map((p) => ({ path: p, line: lineFor(inScopeBlock, p) }));
 
   rows.push({ pr: pr.number, taskId, enumerated, changed: changed.length, untouched });

@@ -181,6 +181,138 @@ Prior art for this lives in \`${GAMMA}\`, which we are NOT changing for that rea
   });
 });
 
+// --------------------------------------------------------------------------
+// mt#4591 — a `path:line` or glob entry can never match a changed file.
+//
+// AT1 — a line-suffixed entry resolves to its file.
+// AT2 — a glob entry resolves against its literal directory prefix.
+// AT3 — the replay measurement; not a unit test, see the PR body.
+// AT4 — the ENUMERATED side is stripped, the CHANGED side is not.
+// --------------------------------------------------------------------------
+
+const TYPES_TS = "packages/domain/src/tasks/types.ts";
+const COCKPIT_DIR_GLOB = "src/cockpit/**";
+const COCKPIT_FILE = "src/cockpit/web/pages/x.tsx";
+const DYNAMIC_ROUTE = "src/cockpit/web/pages/[id].tsx";
+const INVENTORY_DOC = "docs/architecture/hook-module-inventory.md";
+const INTERCEPTORS_DOC = "docs/architecture/interceptors.md";
+
+describe("mt#4591 — AT1: a line-suffixed entry resolves to its file", () => {
+  test("every suffix form measured in the corpus strips to the same path", () => {
+    // Verbatim from the flagged specs: PR #3342, #3272, #3265.
+    expect(pathIsCovered(`${TYPES_TS}:83`, [TYPES_TS])).toBe(true);
+    expect(pathIsCovered("a/b.ts:229-230", ["a/b.ts"])).toBe(true);
+    expect(pathIsCovered("a/b.ts:66,326", ["a/b.ts"])).toBe(true);
+    expect(pathIsCovered("a/b.ts:2426-2432", ["a/b.ts"])).toBe(true);
+    // line:col, the form the pre-existing regex already handled.
+    expect(pathIsCovered("a/b.ts:66:12", ["a/b.ts"])).toBe(true);
+  });
+
+  test("stripping does not make an UNRELATED file match", () => {
+    expect(pathIsCovered(`${TYPES_TS}:83`, ["packages/domain/src/tasks/other.ts"])).toBe(false);
+  });
+
+  test("a suffixed entry still resolves through the absolute-path suffix rule", () => {
+    expect(pathIsCovered("a/b.ts:83", [`/Users/x/sessions/s1/a/b.ts`])).toBe(true);
+  });
+});
+
+describe("mt#4591 — AT2: a glob matches by its actual pattern, not a prefix", () => {
+  test("a directory glob is covered by any changed file beneath it", () => {
+    expect(pathIsCovered(COCKPIT_DIR_GLOB, [COCKPIT_FILE])).toBe(true);
+    expect(pathIsCovered(COCKPIT_DIR_GLOB, ["src/mcp/x.ts"])).toBe(false);
+  });
+
+  // PR #3351 R1 (BLOCKING) regression. The first implementation reduced a glob
+  // to its literal directory prefix, so each `false` below was a `true`: a
+  // narrower glob was satisfied by ANY edit under `src/`. That is a silent
+  // false PASS — it hides the unkept promise the check exists to surface.
+  test("a narrower glob is NOT satisfied by an unrelated file under its prefix", () => {
+    expect(pathIsCovered("src/**/x.ts", ["src/a/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/**/x.ts", ["src/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/**/x.ts", ["src/a/y.ts"])).toBe(false);
+    expect(pathIsCovered("src/**/x.ts", ["src/unrelated/deep/z.md"])).toBe(false);
+  });
+
+  // PR #3351 R2 asserted that `**/` compiles to at-most-ONE directory and so
+  // could not match `src/a/b/x.ts`. Verified false: `.` matches `/` in a JS
+  // regex, so `(?:.*/)?` already spans any depth. Pinning the semantics with a
+  // test rather than answering the finding with an argument — the claim is
+  // reasonable on the face of the fragment, and a test is what makes the next
+  // reader's version of it cheap to settle.
+  test("`**/` spans zero or MORE directories, at any depth", () => {
+    expect(pathIsCovered("src/**/x.ts", ["src/a/b/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/**/x.ts", ["src/a/b/c/d/x.ts"])).toBe(true);
+    expect(pathIsCovered("a/**/b/**/c.ts", ["a/one/two/b/three/four/c.ts"])).toBe(true);
+    expect(pathIsCovered("a/**/b/**/c.ts", ["a/one/two/c.ts"])).toBe(false);
+  });
+
+  test("a single-segment star does not cross a directory boundary", () => {
+    expect(pathIsCovered("src/*-gen/a.ts", ["src/proto-gen/a.ts"])).toBe(true);
+    expect(pathIsCovered("src/*-gen/a.ts", ["src/proto-gen/nested/a.ts"])).toBe(false);
+    expect(pathIsCovered("src/*/x.ts", ["src/a/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/*/x.ts", ["src/a/b/x.ts"])).toBe(false);
+  });
+
+  test("`?` matches exactly one character", () => {
+    expect(pathIsCovered("src/a?.ts", ["src/ab.ts"])).toBe(true);
+    expect(pathIsCovered("src/a?.ts", ["src/abc.ts"])).toBe(false);
+  });
+
+  test("a prefix-less glob is adjudicated by its pattern, not waved through", () => {
+    expect(pathIsCovered("**/*.ts", ["a/b.ts"])).toBe(true);
+    expect(pathIsCovered("**/*.ts", ["a/b.tsx"])).toBe(false);
+  });
+
+  test("a glob still resolves against an ABSOLUTE edit path", () => {
+    expect(pathIsCovered(COCKPIT_DIR_GLOB, [`/Users/x/sessions/s1/${COCKPIT_FILE}`])).toBe(true);
+  });
+});
+
+describe("mt#4591 — PR #3351 R1 hardening", () => {
+  test("literal brackets in a filename are NOT treated as a glob", () => {
+    // A Next.js-style dynamic route is the ordinary case for this shape.
+    expect(pathIsCovered(DYNAMIC_ROUTE, [DYNAMIC_ROUTE])).toBe(true);
+    expect(pathIsCovered("docs/Guide [Draft]/index.md", ["docs/Guide [Draft]/index.md"])).toBe(
+      true
+    );
+    // ...and a bracket path does NOT become a glob that swallows a sibling.
+    expect(pathIsCovered(DYNAMIC_ROUTE, ["src/cockpit/web/pages/other.tsx"])).toBe(false);
+  });
+
+  test("a line suffix with incidental whitespace still strips", () => {
+    expect(pathIsCovered("a/b.ts:66, 326", ["a/b.ts"])).toBe(true);
+    expect(pathIsCovered("a/b.ts:2426 - 2432", ["a/b.ts"])).toBe(true);
+  });
+
+  test("a Windows-style drive letter is not mis-stripped", () => {
+    // The pattern requires DIGITS after the colon and is anchored at `$`, so a
+    // drive letter cannot be consumed. Asserted rather than asserted-in-prose.
+    expect(pathIsCovered("C:\\repo\\a.ts", ["C:\\repo\\a.ts"])).toBe(true);
+  });
+});
+
+describe("mt#4591 — AT4: the enumerated side is stripped, the changed side is not", () => {
+  test("a changed-file path is compared verbatim, so the rule is asymmetric", () => {
+    // Enumerated side stripped -> matches.
+    expect(pathIsCovered("a/b.ts:83", ["a/b.ts"])).toBe(true);
+    // Changed side NOT stripped -> a file genuinely named `a/b.ts:83` does not
+    // satisfy an enumeration of `a/b.ts`.
+    expect(pathIsCovered("a/b.ts", ["a/b.ts:83"])).toBe(false);
+  });
+});
+
+describe("mt#4591 — SC5: the founding incident stays flagged", () => {
+  test("PR #3310's two surviving entries are plain paths, untouched by this change", () => {
+    const untouched = untouchedEnumeratedPaths(
+      undefined,
+      [INVENTORY_DOC, INTERCEPTORS_DOC],
+      [".minsky/hooks/wall-of-text-detector.ts"]
+    );
+    expect(untouched.map((u) => u.path)).toEqual([INVENTORY_DOC, INTERCEPTORS_DOC]);
+  });
+});
+
 describe("mt#4544 — AT1: an enumerated path the PR never touched", () => {
   test("three enumerated, two touched -> exactly one finding, quoting its line", () => {
     const { inScopeBlock } = extractInScopeFiles(SPEC_THREE_PATHS, { strict: true });
