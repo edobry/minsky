@@ -750,10 +750,22 @@ async function startHttpServer(
 
   // mt#4604: https → minsky:// deeplink bridge. Public like /health — the whole
   // point is that a link pasted into Notion/GitHub/Slack works for a reader who
-  // holds no bearer token; the page carries only the entity URI, no state.
+  // holds no bearer token. Posture this route must keep (PR #3362 R1): no auth,
+  // no per-request or per-user state in the body (only the entity URI and the
+  // id-derived label), no host self-reference, and Cache-Control: no-store on
+  // every response so an intermediary never caches whatever a future edit
+  // emits. Express percent-decodes params, so an id containing an encoded `/`
+  // (%2F) would be split by the router and truncate req.params.id — fine for
+  // every current id shape (task short ids, uuids, PR numbers, guard names),
+  // none of which may contain `/`; revisit with a wildcard param if one ever
+  // can.
   app.get("/r/:type/:id", (req, res) => {
     const result = resolveDeeplinkBridge(req.params.type, req.params.id);
-    res.status(result.status).type(result.contentType).send(result.body);
+    res
+      .status(result.status)
+      .type(result.contentType)
+      .set("Cache-Control", result.cacheControl)
+      .send(result.body);
   });
 
   // OAuth discovery + Dynamic Client Registration (mt#1634c).

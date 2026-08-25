@@ -32,6 +32,13 @@ import {
 export interface DeeplinkBridgeResult {
   status: 200 | 404;
   contentType: "text/html" | "text/plain";
+  /**
+   * Always "no-store" (PR #3362 R1): the route is public and un-authed, so an
+   * intermediary caching a 200 is harmless today only because the page carries
+   * no per-request state. Locking the header into the contract keeps a future
+   * edit that adds request-derived content from becoming cacheable by default.
+   */
+  cacheControl: "no-store";
   body: string;
 }
 
@@ -59,6 +66,7 @@ export function resolveDeeplinkBridge(rawType: string, rawId: string): DeeplinkB
     return {
       status: 404,
       contentType: "text/plain",
+      cacheControl: "no-store",
       body: "Unknown Minsky entity reference.",
     };
   }
@@ -73,6 +81,7 @@ export function resolveDeeplinkBridge(rawType: string, rawId: string): DeeplinkB
     return {
       status: 404,
       contentType: "text/plain",
+      cacheControl: "no-store",
       body: "Unknown Minsky entity reference.",
     };
   }
@@ -113,5 +122,5 @@ export function resolveDeeplinkBridge(rawType: string, rawId: string): DeeplinkB
 </html>
 `;
 
-  return { status: 200, contentType: "text/html", body };
+  return { status: 200, contentType: "text/html", cacheControl: "no-store", body };
 }

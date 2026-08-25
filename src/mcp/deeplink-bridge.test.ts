@@ -42,6 +42,13 @@ describe("resolveDeeplinkBridge", () => {
     expect(result.contentType).toBe("text/plain");
   });
 
+  test("every response carries the no-store cache contract", () => {
+    // Public, un-authed route: the no-store posture is part of the result type
+    // so an intermediary can never cache what a future edit emits (PR #3362 R1).
+    expect(resolveDeeplinkBridge("task", "mt#2865").cacheControl).toBe("no-store");
+    expect(resolveDeeplinkBridge("bogus", "x").cacheControl).toBe("no-store");
+  });
+
   test("empty id is a 404", () => {
     expect(resolveDeeplinkBridge("task", "").status).toBe(404);
   });
