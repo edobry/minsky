@@ -3232,6 +3232,37 @@
       "sourceFile": null
     },
     {
+      "guardName": "secret-request-in-chat-detector",
+      "description": "Records the assistant asking the principal to hand over a secret through the conversation — 'paste your bot token here'. The transcript is persisted and ingested, so the value becomes durable searchable data; the correct surface is credentials.request. Suppresses the agent REFUSING, and prose describing the antipattern rather than committing it. Log-only.",
+      "failureClasses": ["secret-exposure"],
+      "provenance": [
+        ".minsky/hooks/secret-request-in-chat-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "secret-request-in-chat-detector"
+    },
+    {
       "guardName": "secret-scanning",
       "description": "Blocks a commit whose staged content matches a known credential shape.",
       "failureClasses": ["secret-exposure"],

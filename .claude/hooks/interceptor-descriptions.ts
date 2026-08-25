@@ -636,6 +636,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "secret-request-in-chat-detector",
+    {
+      description:
+        "Records the assistant asking the principal to hand over a secret through the conversation — 'paste your bot token here'. The transcript is persisted and ingested, so the value becomes durable searchable data; the correct surface is credentials.request. Suppresses the agent REFUSING, and prose describing the antipattern rather than committing it. Log-only.",
+      failureClasses: ["secret-exposure"],
+      provenance: [hook("secret-request-in-chat-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "code-mechanism-assertion-detector",
     {
       description:

@@ -576,7 +576,7 @@
             "_comment": "ADR-028 D1 guard-dispatcher UserPromptSubmit entrypoint: the SOLE settings.json entry for EVERY UserPromptSubmit guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered UserPromptSubmit guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block, which fails naming this entry if a guard's budget changes without this value following. This replaces the hand-recomputed-comment convention (prior history: mem#746 found the comment's own prose disagreeing with its own arithmetic) with a checked derivation.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 220,
+            "timeout": 230,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]

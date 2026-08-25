@@ -66,6 +66,12 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "pre-narration-detector",
       "causal-premise-detector",
       "negative-existence-claim-detector",
+      // mt#2428 — appended after its nearest sibling rather than at the block's
+      // end. This list pins RELATIVE order against the pre-migration
+      // settings.json block; a guard registered after that migration has no
+      // pre-migration position to preserve, so placement beside the detector it
+      // most resembles is the readable choice.
+      "secret-request-in-chat-detector",
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
       // mt#3125 — root-tier sibling of the guidance-detector family above

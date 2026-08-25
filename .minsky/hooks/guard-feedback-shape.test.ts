@@ -304,6 +304,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "pre-narration-detector",
         "require-duplicate-check-record",
         "retrospective-trigger-scanner",
+        "secret-request-in-chat-detector",
         "silent-stretch-detector",
         "skill-staleness-detector",
         "spec-criterion-claim-detector",
@@ -453,6 +454,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "pre-narration-detector": "capped", // one line per category, phrase at 200
   "require-duplicate-check-record": "fixed",
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)
+  // One line per matched pattern PER SURFACE, and neither the match count nor
+  // the surface count is capped — a turn with many matching sentences exceeds
+  // the posed render. A saturated sample, not a proved ceiling; an `…and N more`
+  // cap is owed before injection is enabled (mt#2428).
+  "secret-request-in-chat-detector": RENDER_PROBE_SAMPLE,
   "silent-stretch-detector": "fixed",
   "skill-staleness-detector": "capped", // MAX_FILES_LISTED
   // One block per flagged criterion and a spec may carry many, so the
