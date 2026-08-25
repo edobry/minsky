@@ -165,7 +165,12 @@ export function pruneEntries(
     if (nowMs - recordedMs > maxAgeMs) continue;
     dated.push([askId, entry, recordedMs]);
   }
-  dated.sort((a, b) => b[2] - a[2]);
+  // Sort ONLY when the cap actually binds (PR #3321 R1). The age filter above is O(N);
+  // the sort is O(N log N) and exists solely to decide WHICH entries survive `maxEntries`.
+  // When the surviving set already fits, every order produces the same result, so the
+  // sort is pure waste — and since mt#4541 this runs on the READ path, i.e. on every
+  // UserPromptSubmit, where the dispatcher budget is real (ADR-028 D7(5)).
+  if (dated.length > maxEntries) dated.sort((a, b) => b[2] - a[2]);
   const kept: Record<string, AskConversationEntry> = {};
   for (const [askId, entry] of dated.slice(0, maxEntries)) kept[askId] = entry;
   return kept;

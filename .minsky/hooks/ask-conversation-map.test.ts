@@ -170,6 +170,54 @@ describe("readAskConversationMap", () => {
       expect(kept["ask-0"]).toBeDefined();
       expect(kept[`ask-${MAX_ENTRIES + 4}`]).toBeUndefined();
     });
+
+    // PR #3321 R1 raised per-read cost on a large on-disk map. Three tests answer it:
+    // the read is bounded, the sort is skipped when it cannot matter, and — the one that
+    // scopes the concern — the WRITE path is what bounds N in the first place.
+
+    test("a pathologically large on-disk map is still bounded to MAX_ENTRIES on read", () => {
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < 5000; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      const kept = readAskConversationMap(mapPath, nowMs).entries;
+      expect(Object.keys(kept)).toHaveLength(MAX_ENTRIES);
+      expect(kept["ask-0"]).toBeDefined();
+      expect(kept["ask-4999"]).toBeUndefined();
+    });
+
+    test("under the cap every surviving entry is returned — the skipped sort changes nothing", () => {
+      // `pruneEntries` now sorts only when `maxEntries` binds. This pins the property
+      // that makes skipping safe: the result is a SET, and order was only ever used to
+      // decide WHICH entries survive the cap.
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < 25; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      const kept = readAskConversationMap(mapPath, nowMs).entries;
+      expect(Object.keys(kept).sort()).toEqual(Object.keys(entries).sort());
+    });
+
+    test("the WRITE path is what bounds N: the file never exceeds MAX_ENTRIES", () => {
+      // R1 reasoned that on a quiet machine "N can grow arbitrarily large". It cannot —
+      // growth requires a write, and every write prunes to MAX_ENTRIES before the atomic
+      // rename. A machine that stops filing asks freezes the file at whatever the last
+      // write left, which is <= MAX_ENTRIES by construction. So an oversized file is only
+      // reachable by something other than this module writing it, which is why the read
+      // is defensive (test above) rather than the write being the sole guard.
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < MAX_ENTRIES + 500; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      recordAskConversation("ask-new", entry("conv-1", now), now, mapPath);
+      const onDisk = JSON.parse(readFileSync(mapPath, "utf-8")) as {
+        entries: Record<string, unknown>;
+      };
+      expect(Object.keys(onDisk.entries).length).toBeLessThanOrEqual(MAX_ENTRIES);
+    });
   });
 });
 

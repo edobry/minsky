@@ -341,6 +341,13 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 Every module below is inside mt#4368's `60` and reaches no domain code. Listed per mt#4372 SC3, which
 requires the grep figure to be carried as a cross-check with its divergences named.
 
+**Scope: the `.minsky/hooks/` source-of-truth twin only** (PR #3321 R1 asked). Every module name in
+this document — this table and the three bucket tables alike — refers to `.minsky/hooks/<name>`,
+which is what mt#4368 defines as the unit ("`.claude/hooks/**` generated output — the source tree
+`.minsky/hooks/**` is the unit"). The census test agrees structurally rather than by convention: it
+enumerates `HOOKS_DIR`, which resolves to `.minsky/hooks`, so a generated twin is never counted and
+a change to the generator's naming cannot silently add or drop rows here.
+
 | Module                                         | Bucket    |
 | ---------------------------------------------- | --------- |
 | `ask-conversation-map.ts`                      | immovable |
