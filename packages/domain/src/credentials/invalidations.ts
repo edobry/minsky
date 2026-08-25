@@ -16,6 +16,7 @@ import { existsSync, readFileSync, chmodSync } from "fs";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { getUserConfigDir } from "../configuration/sources/user";
+import { hasRawSqlConnection } from "../persistence/types";
 
 interface InvalidationEntry {
   /** Provider id (e.g., "github"). */
@@ -171,20 +172,16 @@ async function emitPgNotify(provider: string, observedAt: string, reason: string
     const persistence = _persistenceProviderFactoryOverride
       ? await _persistenceProviderFactoryOverride()
       : await getRealPersistenceProvider();
-    if (
-      persistence === null ||
-      typeof persistence !== "object" ||
-      !("getRawSqlConnection" in persistence) ||
-      typeof (persistence as { getRawSqlConnection?: unknown }).getRawSqlConnection !== "function"
-    ) {
-      return;
-    }
-    const sqlProvider = persistence as { getRawSqlConnection: () => Promise<unknown> };
-    const sql = await sqlProvider.getRawSqlConnection();
+    // Capability first, then the optional accessor (mt#4543). The null/object checks the
+    // old form spelled out are inside the guard, which fails closed on both.
+    if (!hasRawSqlConnection(persistence)) return;
+    const sql = await persistence.getRawSqlConnection();
     if (!sql) return;
-    const pgSql = sql as import("postgres").Sql;
+    // No `as postgres.Sql` (mt#4543). That cast predates the guard narrowing the return
+    // type properly, and it was claiming this is a raw postgres-js client when it is
+    // mt#2773's pooler-GUARDED wrapper — whose own `.unsafe` is the capped one we want.
     const payload = JSON.stringify({ provider, observedAt, reason });
-    await pgSql.unsafe("SELECT pg_notify($1, $2)", [CHANNEL_CREDENTIAL_INVALIDATED, payload]);
+    await sql.unsafe("SELECT pg_notify($1, $2)", [CHANNEL_CREDENTIAL_INVALIDATED, payload]);
   } catch {
     // Best-effort; cockpit clients fall back to polling via the credentials widget's
     // existing useQuery refetch behavior. The sentinel file remains authoritative.

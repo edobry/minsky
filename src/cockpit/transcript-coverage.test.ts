@@ -26,6 +26,10 @@ function providerWithRow(row: {
 }): TranscriptCoverageDeps {
   return {
     getProvider: async () => ({
+      // `capabilities` as of mt#4543 — the branch under test asks the capability now,
+      // not merely whether the method exists. The subject here is the aggregate maths;
+      // the provider shape is scaffolding.
+      capabilities: { sql: true },
       getDatabaseConnection: async () => ({
         select: () => ({ from: async () => [row] }),
       }),

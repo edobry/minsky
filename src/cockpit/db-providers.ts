@@ -29,6 +29,7 @@
  *     on EVERY call until the first success (`cacheNegative: false`).
  */
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
@@ -481,19 +482,13 @@ export function createCachedSqlDbGetter(options: {
     if (options.cacheNegative && probedAndFailed) return null;
     try {
       const provider = await getProvider();
-      if (
-        typeof provider !== "object" ||
-        provider === null ||
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
+      if (!isSqlCapable(provider)) {
         probedAndFailed = true;
         return null;
       }
-      const sqlProvider = provider as {
-        getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
-      };
+      // The null/typeof checks the old form spelled out are inside the guard (mt#4543),
+      // which fails closed on both; the cast goes with the narrowing.
+      const sqlProvider = provider;
       const db = await sqlProvider.getDatabaseConnection();
       if (!db) {
         probedAndFailed = true;
