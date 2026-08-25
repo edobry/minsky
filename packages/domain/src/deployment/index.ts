@@ -13,6 +13,7 @@
 // Side-effect imports register adapters with the registry.
 import "./railway";
 
+export * from "./build-identity";
 export * from "./config";
 export * from "./deploy-surface";
 export * from "./registry";
