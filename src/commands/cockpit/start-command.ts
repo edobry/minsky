@@ -25,6 +25,8 @@ import {
 } from "../../cockpit/sweepers";
 // mt#4480: lifted out of sweepers.ts when that file hit the max-lines ceiling.
 import { startTranscriptSweepBackstop } from "../../cockpit/transcript-sweep-backstop";
+// mt#4537: same reason — a sweep of its own rather than more of sweepers.ts.
+import { startWakePendingRetentionSweeper } from "../../cockpit/wake-pending-retention-sweeper";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
 import {
   classifyUncaughtException,
@@ -649,6 +651,12 @@ export function createStartCommand(): Command {
       // close failed-commit orphans superseded by a later landed commit,
       // expire abandoned commit-auth asks past the TTL. 15-minute cadence.
       const stopStaleAskCloseSweeper = startStaleAskCloseSweeper();
+      // wake_pending retention sweep (mt#4537): nothing deleted from that table
+      // until this shipped, and the growth was undelivered rows addressed to
+      // sessions that no longer exist — 11 of 12 rows when measured. Deletes
+      // delivered rows past the retention window and undeliverable ones at any
+      // age; never an undelivered row whose addressee is still live.
+      const stopWakePendingRetentionSweeper = startWakePendingRetentionSweeper();
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
@@ -751,6 +759,7 @@ export function createStartCommand(): Command {
         shuttingDown = true;
         stopAskSweeper();
         stopStaleAskCloseSweeper();
+        stopWakePendingRetentionSweeper();
         stopProdStateSweeper();
         stopShortIdMapSweeper();
         stopAskStateSweeper();

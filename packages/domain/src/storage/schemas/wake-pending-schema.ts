@@ -110,6 +110,33 @@ export const wakePendingTable = pgTable(
       .where(sql`${table.drainedAt} IS NULL`),
 
     /**
+     * The DELIVERED-by-ask index (mt#4537).
+     *
+     * The two indexes above serve the drain — "what is undelivered for this
+     * addressee?" This one serves the opposite question, asked by the cockpit's
+     * ask-state sweep: "was a wake for this ask already delivered to a
+     * conversation?" (`buildAskStateSnapshot`, `src/cockpit/ask-state-cache.ts`).
+     * Its correlated subquery filters `ask_id = X AND drained_at IS NOT NULL AND
+     * agent_id IS NOT NULL` once per tracked ask, and until this index existed each
+     * one was a sequential scan — measured on production 2026-08-25 as `Seq Scan on
+     * wake_pending, loops=40, Rows Removed by Filter: 12` per outer row.
+     *
+     * `ask_id` has no index of its own because it carries no constraint: this table
+     * takes plain text refs by design, so unlike a FK it got nothing for free
+     * (ADR-029 names `wake_pending.ask_id` as the only column anywhere referencing an
+     * ask id, precisely because it is unconstrained).
+     *
+     * Partial on the same predicate the subquery carries, matching the convention the
+     * two indexes above set — the planner can use it because the query's `WHERE`
+     * implies the index's. `drained_at` rides along as a second column so
+     * `max(drained_at)` for one ask is answerable from the index alone rather than by
+     * visiting the heap.
+     */
+    deliveredByAsk: index("wake_pending_delivered_by_ask")
+      .on(table.askId, table.drainedAt)
+      .where(sql`${table.drainedAt} IS NOT NULL AND ${table.agentId} IS NOT NULL`),
+
+    /**
      * The addressability invariant, enforced by the DATABASE (PR #3286 R1).
      *
      * `DrizzleWakePendingRepository.insert` already refuses an unaddressable payload,
