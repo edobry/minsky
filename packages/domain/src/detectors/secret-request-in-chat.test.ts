@@ -43,6 +43,33 @@ describe("secret-request-in-chat — AT1: a real request fires", () => {
   });
 });
 
+describe("secret-request-in-chat — overlapping patterns count once", () => {
+  /**
+   * `paste` appears in two of the three patterns, so "Paste your bot token"
+   * matches twice. Reporting both counts ONE request as two in the calibration
+   * log — the same double-count the carve against `operator-deferral` exists to
+   * prevent, reappearing inside one detector. Caught by the adapter's
+   * both-surfaces test before it could reach a log.
+   */
+  test("a phrase two patterns both match yields ONE match", () => {
+    const r = detectSecretRequestInProse("Paste your bot token here.");
+    expect(r.matched).toBe(true);
+    expect(r.matches).toHaveLength(1);
+  });
+
+  test("two genuinely separate requests still yield two matches", () => {
+    const r = detectSecretRequestInProse(
+      "Paste your bot token here. Then give me the API key as well."
+    );
+    expect(r.matches).toHaveLength(2);
+  });
+
+  test("the longest span at a shared start is the one reported", () => {
+    const r = detectSecretRequestInProse("Paste your bot token here.");
+    expect(r.matches[0]?.matchedPhrase.toLowerCase()).toBe("paste your bot token");
+  });
+});
+
 describe("secret-request-in-chat — AT2: routing to a masked surface is suppressed", () => {
   test("names credentials.request", () => {
     const r = detectSecretRequestInProse(

@@ -281,29 +281,54 @@ export function detectSecretRequestInProse(prose: string): SecretRequestResult {
   const routed = routesToMaskedSurface(prose);
 
   for (const sentence of sentencesWithOffsets(prose)) {
+    // Collect every pattern's hits FIRST, then accept only non-overlapping
+    // spans. The patterns overlap by construction — "paste" appears in two of
+    // them — so a single phrase like "Paste your bot token" is matched twice.
+    // Reporting both would count ONE request as two in the calibration log,
+    // inflating the very rate this detector exists to make trustworthy, and it
+    // is the same double-count the phrase-space carve against
+    // `operator-deferral` exists to prevent, reappearing inside one detector.
+    const candidates: Array<{ index: number; text: string }> = [];
     for (const pattern of SECRET_REQUEST_PATTERNS) {
       const re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : "gi");
       let m: RegExpExecArray | null;
       while ((m = re.exec(sentence.text)) !== null) {
-        const idx = m.index;
-        if (hasNegationLead(sentence.text, idx)) {
-          suppressedBy.push("negation");
-          continue;
-        }
-        if (hasDescribingFrame(sentence.text, idx)) {
-          suppressedBy.push("describes-rather-than-requests");
-          continue;
-        }
-        if (routed) {
-          suppressedBy.push("routes-to-masked-surface");
-          continue;
-        }
-        matches.push({
-          surface: "assistant-prose",
-          matchedPhrase: m[0].trim(),
-          context: contextAround(sentence.text, idx, m[0].length),
-        });
+        candidates.push({ index: m.index, text: m[0] });
+        // A zero-length match would spin forever; none of the patterns can
+        // produce one, but the guard costs nothing and the failure mode is a
+        // hung UserPromptSubmit dispatch.
+        if (m[0].length === 0) re.lastIndex += 1;
       }
+    }
+
+    // Earliest span wins, longest first at the same start — so the report keeps
+    // the most specific phrasing rather than whichever pattern is listed first.
+    candidates.sort((a, b) => a.index - b.index || b.text.length - a.text.length);
+
+    const acceptedEnds: Array<{ start: number; end: number }> = [];
+    for (const c of candidates) {
+      const start = c.index;
+      const end = start + c.text.length;
+      if (acceptedEnds.some((s) => start < s.end && end > s.start)) continue;
+      acceptedEnds.push({ start, end });
+
+      if (hasNegationLead(sentence.text, start)) {
+        suppressedBy.push("negation");
+        continue;
+      }
+      if (hasDescribingFrame(sentence.text, start)) {
+        suppressedBy.push("describes-rather-than-requests");
+        continue;
+      }
+      if (routed) {
+        suppressedBy.push("routes-to-masked-surface");
+        continue;
+      }
+      matches.push({
+        surface: "assistant-prose",
+        matchedPhrase: c.text.trim(),
+        context: contextAround(sentence.text, start, c.text.length),
+      });
     }
   }
 
