@@ -49,6 +49,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
+import { type NewTranscriptLineRecord } from "../storage/schemas/transcript-lines-schema";
+import { readCapturedOrdinalHighWater, writeCapturedLines } from "./transcript-line-capture";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
@@ -409,12 +411,54 @@ export class AgentTranscriptIngestService {
     // this batch, logged once below rather than per line.
     let unsafeCodepointsReplaced = 0;
     let sanitizeKeyCollisions = 0;
+    // mt#4573: full-fidelity capture into `transcript_lines`. This is a SECOND,
+    // independent destination alongside the two below, and it is deliberately
+    // upstream of every gate in the loop — the retention filter, the sidecar
+    // check, and the timestamp high-water-mark each drop lines that the
+    // reconstruction path needs. `rawOrdinal` counts EVERY parsed line, so it
+    // is a different counter from `lineIndex` (which counts only retained
+    // non-sidecar lines and must keep its exact meaning — it is half of the
+    // attachments primary key).
+    const newCaptureRows: NewTranscriptLineRecord[] = [];
+    let rawOrdinal = -1;
+    const capturedOrdinalHighWater = await readCapturedOrdinalHighWater(this.db, agentSessionId);
 
     try {
       // mt#3288: pass the path this session was discovered at. Without it a
       // discovery-backed source re-scans every transcript in the corpus to
       // resolve the id, which made `ingestAll` quadratic.
-      for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
+      for await (const line of this.source.readSessionRaw(agentSessionId, jsonlPath)) {
+        rawOrdinal++;
+
+        // mt#4573: scrub + sanitize ONCE, here, and reuse the result for every
+        // destination below. Both transforms are mandatory before any Postgres
+        // write — mt#2763 for credentials, mt#3278 for U+0000, which `jsonb`
+        // cannot represent and which permanently freezes a session's ingest if
+        // it reaches the insert (mem#750).
+        const { value: scrubbedLine, redactions } = scrubValueDeep(line);
+        const { value: safeLine, replaced, keyCollisions } = sanitizeForPostgresDeep(scrubbedLine);
+        if (redactions.length > 0) allRedactions.push(...redactions);
+        unsafeCodepointsReplaced += replaced;
+        sanitizeKeyCollisions += keyCollisions;
+
+        // mt#4573: capture EVERY line, upstream of every filter below. The
+        // ordinal high-water makes this incremental over an append-only file;
+        // the PK is the backstop against a concurrent writer.
+        if (capturedOrdinalHighWater !== null && rawOrdinal > capturedOrdinalHighWater) {
+          newCaptureRows.push({
+            agentSessionId,
+            lineOrdinal: rawOrdinal,
+            line: safeLine as Record<string, unknown>,
+            lineType: typeof line.type === "string" ? line.type : "",
+          });
+        }
+
+        // mt#4573: this restores exactly the filter `readSession` used to apply
+        // upstream, so everything below sees the same population it always has.
+        // The switch to `readSessionRaw` widens what CAPTURE sees, and nothing
+        // else — in particular the divergence scanner's input is unchanged.
+        if (!this.source.isRetainedLine(line)) continue;
+
         // mt#3656: feed EVERY line to the divergence scanner before any gate
         // below can drop it. This must precede the timestamp check: a
         // `last-prompt` row — the only writer-identity trace the format offers
@@ -450,35 +494,17 @@ export class AgentTranscriptIngestService {
         if (highWaterMark !== null && tsDate <= highWaterMark) continue;
 
         const lineType = typeof line.type === "string" ? line.type : "";
+        // mt#4573: `safeLine` was scrubbed (mt#2763) and sanitized (mt#3278)
+        // once at the top of this loop, and the counters were accumulated
+        // there — so these branches consume the result rather than repeating
+        // either transform. Both durable-copy write paths still receive a
+        // scrubbed, storable line; only the place the work happens moved.
         if (lineType === "user" || lineType === "assistant") {
-          // mt#2763: scrub BEFORE the line is retained — this is the
-          // durable-copy write path (agent_transcripts.transcript JSONB).
-          const { value: scrubbedLine, redactions } = scrubValueDeep(line);
-          if (redactions.length > 0) allRedactions.push(...redactions);
-          // mt#3278: and make it storable. Postgres cannot hold U+0000 in a
-          // text-derived column, so a line carrying one fails the upsert
-          // identically on every retry — permanently freezing the transcript.
-          const {
-            value: safeLine,
-            replaced,
-            keyCollisions,
-          } = sanitizeForPostgresDeep(scrubbedLine);
-          unsafeCodepointsReplaced += replaced;
-          sanitizeKeyCollisions += keyCollisions;
+          // agent_transcripts.transcript JSONB.
           newLines.push(safeLine);
         } else if (lineType === "attachment" || lineType === "system") {
-          // mt#2763: scrub BEFORE buildAttachmentRow captures `content: line`
-          // verbatim (attachment-row-builder.ts) — the other durable-copy
-          // write path (agent_transcript_attachments.content).
-          const { value: scrubbedLine, redactions } = scrubValueDeep(line);
-          if (redactions.length > 0) allRedactions.push(...redactions);
-          const {
-            value: safeLine,
-            replaced,
-            keyCollisions,
-          } = sanitizeForPostgresDeep(scrubbedLine);
-          unsafeCodepointsReplaced += replaced;
-          sanitizeKeyCollisions += keyCollisions;
+          // agent_transcript_attachments.content, captured verbatim by
+          // buildAttachmentRow (attachment-row-builder.ts).
           const row = buildAttachmentRow(agentSessionId, lineIndex, safeLine, tsDate);
           if (row !== null) newAttachmentRows.push(row);
         }
@@ -558,7 +584,25 @@ export class AgentTranscriptIngestService {
       );
     }
 
-    if (newLines.length === 0 && newAttachmentRows.length === 0) {
+    // mt#4573 (PR #3346 R1, BLOCKING): capture rows join the early-return
+    // condition, so a batch carrying ONLY un-timestamped lines falls through to
+    // the main path instead of returning here.
+    //
+    // The reviewer was right that the previous shape lost them permanently. A
+    // brand-new conversation's first lines can be `bridge-session` / `mode` /
+    // `permission-mode` — all un-timestamped — so both timestamped paths are
+    // empty and there is no parent row yet. Guarding the capture write on
+    // `parentRowExists`, as this branch used to, therefore skipped it; and
+    // because the ordinal high-water only advances when rows land, every later
+    // sweep rebuilt the same batch and re-reached the same guard. The old
+    // comment claimed "the next sweep loses nothing", which assumed a parent
+    // row that only a timestamped line can create.
+    //
+    // Falling through fixes it without widening §3a: the §4 upsert creates the
+    // parent row, and §4a2 captures after it. Steady state is unaffected —
+    // a fully-captured session has no new capture rows, so it still returns here
+    // and writes nothing.
+    if (newLines.length === 0 && newAttachmentRows.length === 0 && newCaptureRows.length === 0) {
       // The transcript upsert below is skipped, so the verdict has to be
       // written on its own here or it is lost for every already-ingested
       // conversation. Conditional in SQL rather than unconditional: the WHERE
@@ -865,6 +909,34 @@ export class AgentTranscriptIngestService {
       });
       await this.recordIngestFailure(agentSessionId, upsertError);
       return { ingested: 0, error: upsertError };
+    }
+
+    // ── 4a2. Capture raw lines into transcript_lines (mt#4573) ───────────────
+    // Deliberately AFTER the upsert, which is the opposite of §3b's ordering —
+    // and for a reason that does not apply here. §3b must precede the upsert
+    // because attachments are gated by the TIMESTAMP watermark the upsert
+    // advances: a row lost after it moves is never re-collected.
+    //
+    // Capture has its own independent idempotency key. `newCaptureRows` is
+    // built from the ORDINAL high-water, which only moves when rows are
+    // actually written — so if this insert fails, the timestamp watermark has
+    // advanced but the ordinal one has not, and the next sweep rebuilds exactly
+    // the same batch and retries it. Capture self-heals across the watermark,
+    // which is what lets it run here where the parent row is guaranteed to
+    // exist (the upsert just created or updated it) rather than needing §3a to
+    // be widened to cover it.
+    //
+    // Failure is therefore logged, not fatal: aborting would discard a
+    // successful transcript+attachment ingest to retry a write that is going to
+    // be retried anyway.
+    if (newCaptureRows.length > 0) {
+      const captureError = await writeCapturedLines(this.db, newCaptureRows);
+      if (captureError) {
+        log.warn(
+          `transcript_lines capture FAILED for session ${agentSessionId} (${newCaptureRows.length} rows) — the ordinal high-water did not advance, so the next sweep retries this batch`,
+          { agentSessionId, error: getLoggableErrorSummary(captureError) }
+        );
+      }
     }
 
     // ── 4b. Materialize per-turn rows for FTS (ADR-019, mt#2381) ──────────────

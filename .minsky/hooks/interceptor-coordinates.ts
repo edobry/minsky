@@ -463,6 +463,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "warn-unwired-task-relationship",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "`structural` on the strength of the DISCHARGE half, which has no paraphrase axis at all: at `tasks_create` it is a field on the call (`dependsOn` / `parent`), and at the edit seams a row in `task_relationships`. That is what keeps this off ADR-024's ladder — precision is bounded by the RECOGNITION half alone, and a phrase that half misses is a false negative, i.e. the status quo. `recordReview` only, matching `claim-provenance-scan` and for the same reason: the recognition half is unsized until a replay measures it, and an advisory that fires at careful authors trains its reader to discount the fire that matters (mem#719). What makes this guard worth its budget rather than a fifth memory (mem#530 R1-R4, 84 days) is that the failure is a CONFIDENT WRONG ANSWER rather than silence — an unwired edge makes `tasks_orchestrate` report blocked work as dispatchable, so the cost rises exactly as orchestration is trusted more.",
+    },
+  ],
+  [
     "evidence-record-provenance",
     {
       interventions: [recordReview],
@@ -622,6 +631,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // then injects. `judge` because it does classify before intervening (is any
   // of this activity not the caller's own?), even though its intervention is
   // only ever advisory: it has no deny path at all (mt#4494).
+  ["warn-main-workspace-mutation", structuralInjector],
   ["warn-peer-task-activity", structuralInjector],
   ["warn-stale-forward-reference", structuralInjector],
 

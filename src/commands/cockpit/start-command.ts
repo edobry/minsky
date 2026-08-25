@@ -18,6 +18,7 @@ import {
   startGuardEventsSweepBackstop,
   startInterceptorAggregatesSweeper,
   startDispatchWatchdogSweeper,
+  startTaskSupervisionSweeper,
   startDeploySmokeSweeper,
   startFollowUpSweeper,
   startConversationPresenceSweeper,
@@ -25,6 +26,10 @@ import {
 } from "../../cockpit/sweepers";
 // mt#4480: lifted out of sweepers.ts when that file hit the max-lines ceiling.
 import { startTranscriptSweepBackstop } from "../../cockpit/transcript-sweep-backstop";
+import {
+  createFileJournalStore,
+  TranscriptSweepJournalRecorder,
+} from "../../cockpit/transcript-sweep-journal";
 // mt#4537: same reason — a sweep of its own rather than more of sweepers.ts.
 import { startWakePendingRetentionSweeper } from "../../cockpit/wake-pending-retention-sweeper";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
@@ -685,7 +690,13 @@ export function createStartCommand(): Command {
       // Transcript sweep backstop (mt#2321): BACKSTOP half of ADR-017 — periodic
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
-      const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // mt#4532: the cross-restart tick journal is constructed HERE, at the
+      // composition root, and passed in as a required dependency — the sweep
+      // deliberately has no default (ADR-026 rule 3), so this is the only place
+      // the real file-backed store is named.
+      const stopTranscriptSweep = startTranscriptSweepBackstop(
+        new TranscriptSweepJournalRecorder(createFileJournalStore())
+      );
       // Guard-events sweep backstop (mt#4035, mt#3334 phase 3): THE
       // CORRECTNESS LAYER for the guard/calibration exhaust ingest — the
       // SessionEnd hook is a latency optimization only (SessionEnd does not
@@ -719,6 +730,20 @@ export function createStartCommand(): Command {
       // event/subagent_invocations progress) and write the flagged set to the
       // local cache that inject-dispatch-watchdog.ts injects each turn.
       const stopDispatchWatchdogSweeper = startDispatchWatchdogSweeper();
+      // Unattended task supervision (mt#4571): the tick that makes assigning
+      // an umbrella actually start a workstream. Settles children that
+      // finished (from pr.merged, with a graph re-read as the backstop),
+      // recomputes the umbrella's frontier, and spawns a genuine `claude`
+      // child for whatever is now unblocked, up to the supervision's WIP
+      // limit. Registered HERE rather than anywhere else because the Accepted
+      // RFC "Conversation-first drive" already decides the daemon is the
+      // actuator host — the same host that already spawns driven sessions
+      // (mt#2750) and reconciles them across restarts (mt#3038).
+      //
+      // Does nothing until an operator starts a supervision
+      // (`tasks_supervise`); with no active rows the tick is one indexed
+      // lookup returning zero.
+      const stopTaskSupervisionSweeper = startTaskSupervisionSweeper();
       // deploy.smoke sweep (mt#2599): periodically check whether the
       // bundle-boot-smoke GitHub Actions check-run for the commit THIS
       // cockpit process was deployed from has completed, emitting a
@@ -771,6 +796,7 @@ export function createStartCommand(): Command {
         stopConversationTitleSweeper();
         stopConversationSummarySweeper();
         stopDispatchWatchdogSweeper();
+        stopTaskSupervisionSweeper();
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
         stopConversationPresenceSweeper();

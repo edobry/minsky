@@ -112,7 +112,15 @@ async function main(): Promise<void> {
 
   // The boot tick fires immediately (void tick()); set a very long interval so
   // only one tick runs during the smoke. We wait for the tracker to record it.
-  const stop = startTranscriptSweepBackstop({
+  // mt#4532: an in-MEMORY journal, deliberately. The smoke asserts the tick
+  // reports its outcome to the journal seam; it must not write into the
+  // operator's real `~/.local/state/minsky/transcript-sweep-journal.json` and
+  // pollute the very counters this change exists to make trustworthy.
+  const { createMemoryJournalStore, summarizeJournal, TranscriptSweepJournalRecorder } =
+    await import("../src/cockpit/transcript-sweep-journal");
+  const journalStore = createMemoryJournalStore();
+
+  const stop = startTranscriptSweepBackstop(new TranscriptSweepJournalRecorder(journalStore), {
     intervalMs: 24 * 60 * 60 * 1000, // 24h — effectively one tick only.
     deps,
   });
@@ -156,6 +164,29 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // ── 4b. mt#4532: the tick reported its outcome to the cross-restart journal ──
+  //
+  // The unit tests cover this against injected deps. What is verified HERE is
+  // that the wiring holds on the REAL path — the same distinction §7a draws for
+  // the tracker above, and the reason this script exists at all.
+  const journal = summarizeJournal(journalStore.read());
+
+  if (journal.totals.started < 1) {
+    console.error(
+      `FAIL: the tick ran (sweepsRun=${summary.sweepsRun}) but the journal recorded no start. ` +
+        `Journal: ${JSON.stringify(journal.totals)}`
+    );
+    process.exit(1);
+  }
+
+  if (journal.inFlight !== null) {
+    console.error(
+      "FAIL: the journal still shows a tick in flight after the sweep concluded — " +
+        "some exit path did not report its outcome."
+    );
+    process.exit(1);
+  }
+
   // ── 5. Output (redacted: no absolute paths, no raw error strings) ────────────
   console.log(
     JSON.stringify(
@@ -167,6 +198,11 @@ async function main(): Promise<void> {
         embedRuns: summary.embedRuns,
         lastSweepAt: summary.lastSweepAt,
         lastErrorAt: summary.lastErrorAt,
+        journal: {
+          totals: journal.totals,
+          phase2ReachRate: journal.phase2ReachRate,
+          lastOutcome: journal.lastOutcome,
+        },
       },
       null,
       2

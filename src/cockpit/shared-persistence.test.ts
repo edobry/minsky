@@ -935,6 +935,54 @@ describe("failure classification on the health payload (mt#3826)", () => {
     expect(getDbHealth().lastAttemptAt).toBeDefined();
   });
 
+  test("lastSuccessAt dates the CONFIRMATION and holds across a failed probe (mt#4538 AT2)", async () => {
+    // The distinction this field exists to make. `dbCheck.checkedAt` is stamped
+    // on a failed probe too, so it dates the look; `lastSuccessAt` dates the
+    // outcome, which is what makes "unreachable for how long" derivable at all.
+    expect(getDbHealth().lastSuccessAt).toBeUndefined();
+
+    await getSharedPersistenceService(1_000, okFactory);
+    const afterInit = getDbHealth().lastSuccessAt;
+    // Narrows for the comparisons below, and fails with a readable message
+    // rather than a type error if the field ever stops being stamped.
+    if (afterInit === undefined) throw new Error("expected lastSuccessAt after a successful init");
+
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+
+    const degraded = getDbHealth();
+    expect(degraded.mode).toBe("unavailable");
+    // The look advanced...
+    expect(getDbCheck().checkedAt).toBeDefined();
+    // ...and the confirmation did NOT.
+    expect(degraded.lastSuccessAt).toBe(afterInit);
+  });
+
+  test("lastSuccessAt advances on recovery while lastAttemptAt holds (mt#4538)", async () => {
+    // The two fields move on different events, which is the whole reason both
+    // exist: no re-init happens here, so lastAttemptAt must not move.
+    await getSharedPersistenceService(1_000, okFactory);
+    const firstSuccess = getDbHealth().lastSuccessAt;
+    const attemptAt = getDbHealth().lastAttemptAt;
+    if (firstSuccess === undefined)
+      throw new Error("expected lastSuccessAt after a successful init");
+    if (attemptAt === undefined) throw new Error("expected lastAttemptAt after a successful init");
+
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+    // ISO timestamps are millisecond-resolution, so two stamps inside the same
+    // millisecond would compare equal and make this assertion vacuous.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await refreshDbReachability(() => Promise.resolve("ok"), 50);
+
+    const recovered = getDbHealth();
+    expect(recovered.mode).toBe("connected");
+    const secondSuccess = recovered.lastSuccessAt;
+    if (secondSuccess === undefined) throw new Error("expected lastSuccessAt after recovery");
+
+    expect(secondSuccess).not.toBe(firstSuccess);
+    expect(Date.parse(secondSuccess)).toBeGreaterThan(Date.parse(firstSuccess));
+    expect(recovered.lastAttemptAt).toBe(attemptAt);
+  });
+
   test("a code-less error does not overwrite a real classification", async () => {
     // Load-bearing, not defensive: the 5s probe deadline fires BEFORE
     // postgres-js's 10s connect_timeout, so a code-less deadline Error routinely

@@ -1,0 +1,911 @@
+#!/usr/bin/env bun
+// PreToolUse observer: a task spec ASSERTS a relationship to another task in
+// prose while the matching structural edge is absent (mt#2264).
+//
+// THE FAILURE IS NOT SILENCE — IT IS A CONFIDENT WRONG ANSWER. That is what
+// separates this from an ordinary "nice to have" hygiene check, and it is worth
+// carrying because it decides the guard's priority and its seam.
+// `tasks_orchestrate` derives `blockedBy` from graph edges ALONE
+// (`orchestrate-command.ts:96-114`), and `tasks_available` scores readiness as
+// `completedDeps / totalDeps`, defaulting a task with NO edges to a perfect
+// 1.0 (`task-routing-service.ts:130`). So an unwired dependency does not make
+// the graph quiet about a task — it makes the graph assert that BLOCKED work is
+// dispatchable. On 2026-08-25 (mem#530 R4) `tasks_orchestrate mt#4553` reported
+// "2 of 2 subtask(s) ready for dispatch" with `blockedBy: []` for two children
+// that were both blocked; after four `tasks_deps_add` calls the same command
+// returned "0 of 2". An agent doing precisely the right thing — consulting the
+// graph instead of reading specs — is the one this failure targets.
+//
+// FOUR RECURRENCES OVER 84 DAYS, and mem#530's own access log shows the memory
+// tier had its chance 15 minutes before R4 and the class recurred anyway. That
+// is the argument for a guard rather than a fifth memory.
+//
+// DIRECTION OF ERROR — the two halves are deliberately asymmetric, per
+// `evidence-provenance-table.ts`'s framing:
+//
+//   - RECOGNIZING an assertion in prose. A phrase this misses is a false
+//     NEGATIVE — an unwired edge goes unflagged, which is exactly today's
+//     status quo. Safe, and where the narrowness lives.
+//   - DISCHARGING it. An edge shape missed HERE fires at an author who wired
+//     the edge correctly. Dangerous — mem#719's failure mode — so the discharge
+//     is exact at every seam rather than heuristic.
+//
+// THE PHRASE SET IS SAMPLED, NOT INVENTED (mem#530 R4 design note 2). Every
+// entry below appears verbatim in a real spec or in mem#530's own examples. A
+// guessed vocabulary is how a detector ends up with high recall against text
+// nobody writes and none against the text that produced the incident.
+//
+// WHY BOTH SEAM CLASSES. At `tasks_create` the discharge needs no IO at all:
+// the call carries `dependsOn` and `parent`, so the edges-to-be are in the
+// payload. That is the seam R4 happened on — four creates, the parameter empty
+// on all four. The three EDIT seams need the live graph, and they are covered
+// anyway because both of mt#3806's originating incidents wrote their claim into
+// an EXISTING spec, which cannot go through `tasks_create`.
+//
+// Never denies. Calibration-first per ADR-024 — the recognition half is a
+// Rung-1 deterministic prefilter (markdown + quoted-span elision, plus negation
+// suppression) and the discharge half has no paraphrase axis at all, so neither
+// climbs the ladder.
+//
+// OVERRIDE: `MINSKY_HOOK_OVERRIDE=warn-unwired-task-relationship`. This module
+// deliberately contains NO override check of its own — `dispatcher.ts:1062`
+// calls `checkOverride(reg.name, ...)` for every registered guard before
+// invoking it. Minting a bespoke `MINSKY_SKIP_*` var here would violate
+// ADR-028 D3, whose consolidation the operator re-confirmed on 2026-08-20
+// (ask#9323, "Consolidate to one variable"); execution is mt#4428, and the
+// `operator-override` population has already gone 34 → 99 since D3 was
+// accepted.
+//
+// @see mem#530 — the family root (imprecise-structure-encoding), R1-R4
+// @see .minsky/hooks/claim-provenance-scan.ts — same seam, same shape
+// @see .minsky/hooks/elision.ts — the Rung-1 prefilter
+// @see docs/architecture/hooks/warn-unwired-task-relationship.md — mechanism + calibration
+
+import { readInput } from "./types";
+import type { ToolHookInput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import { readAuthoredSpecText } from "./authored-spec-text";
+import type { SpecTextRead } from "./authored-spec-text";
+import { elideQuotedAndCodeContexts } from "./elision";
+import { normalizeTaskId } from "./evidence-provenance-table";
+import { ensureHookDomainBootstrap, describeProviderResolutionFailure } from "./domain-bootstrap";
+import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
+// Spec prose is not known-ASCII — em dashes and backticked identifiers are
+// routine — so an excerpt cannot use a bare `.slice`, which may split a
+// surrogate pair (`custom/no-unsafe-string-truncation`).
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
+// ---------------------------------------------------------------------------
+// Which tools carry an authored spec body
+// ---------------------------------------------------------------------------
+
+/**
+ * Tool → the `tool_input` key carrying the spec body inline.
+ *
+ * Its own map rather than a shared one, for the reason `authored-spec-text.ts`
+ * records in its header: folding the callers' tool sets together would silently
+ * WIDEN each guard's corpus, and a widened corpus changes fire rates, which
+ * confounds the before/after replay each guard is calibrated by.
+ */
+export const SPEC_TEXT_FIELD_BY_TOOL: Readonly<Record<string, string>> = {
+  tasks_create: "spec",
+  tasks_spec_patch: "content",
+  tasks_edit: "specContent",
+  tasks_spec_search_replace: "replace",
+};
+
+/** The authored prose this call is about to write, with the read outcome attached. */
+export function readSpecTextForCall(
+  toolName: string | undefined,
+  toolInput: Record<string, unknown> | undefined,
+  readFile?: (path: string) => string | null
+): SpecTextRead {
+  return readAuthoredSpecText(toolName, toolInput, SPEC_TEXT_FIELD_BY_TOOL, readFile);
+}
+
+// ---------------------------------------------------------------------------
+// Recognition — the phrase set, sampled from real text
+// ---------------------------------------------------------------------------
+
+/** Which structural edge a phrase implies. mem#530's two orthogonal axes. */
+export type RelationshipAxis = "dependency" | "decomposition" | "unclear";
+
+/**
+ * What a phrase asserts about its SUBJECT and OBJECT — "S <phrase> O".
+ *
+ * Load-bearing, and its absence was a shipped logic error (PR #3347 R1). English
+ * relationship phrases come in inverse pairs: "S depends on O" and "S is a
+ * prerequisite for O" describe the SAME edge from opposite ends, and so do "S is
+ * part of O" and "S is the parent of O". A matcher that records only the axis
+ * cannot tell them apart, so it demands the edge that would exist if the
+ * sentence had been written the other way round — and fires at an author who
+ * wired the relationship correctly.
+ */
+export type PhraseRelation =
+  /** "S depends on O" — the edge runs subject → object. */
+  | "subject-depends-on-object"
+  /** "S is a prerequisite for O" — the SAME edge, stated from the other end. */
+  | "object-depends-on-subject"
+  /** "S is part of O" — S is the child. */
+  | "subject-child-of-object"
+  /** "S is the parent of O" — O is the child. */
+  | "object-child-of-subject"
+  /** The phrase does not settle it. */
+  | "unclear";
+
+/**
+ * The edge an assertion requires, once the matched id's ROLE is resolved.
+ *
+ * Derived from {@link PhraseRelation} plus the id's POSITION: an id after the
+ * phrase is its object, an id before it is its subject. That position is the
+ * only subject/object signal available without parsing, and for these phrases it
+ * is enough — which is why R4's own `"(mt#4556, hard prerequisite for SC2)"`
+ * resolves correctly: the id PRECEDES, so it is the subject, so THIS task
+ * depends on it, which is what the author meant.
+ */
+export type RequiredEdge =
+  | "this-depends-on-other"
+  | "other-depends-on-this"
+  | "this-child-of-other"
+  | "other-child-of-this"
+  | "unclear";
+
+/** Resolve the required edge from the phrase's relation and the id's role. */
+export function requiredEdgeFor(relation: PhraseRelation, idIsSubject: boolean): RequiredEdge {
+  switch (relation) {
+    case "subject-depends-on-object":
+      return idIsSubject ? "other-depends-on-this" : "this-depends-on-other";
+    case "object-depends-on-subject":
+      return idIsSubject ? "this-depends-on-other" : "other-depends-on-this";
+    case "subject-child-of-object":
+      return idIsSubject ? "other-child-of-this" : "this-child-of-other";
+    case "object-child-of-subject":
+      return idIsSubject ? "this-child-of-other" : "other-child-of-this";
+    case "unclear":
+      return "unclear";
+  }
+}
+
+/**
+ * Relationship phrases, each tagged with the axis it implies.
+ *
+ * **Every entry is text someone actually wrote.** The `dependency` set comes
+ * from mem#530 R4's three real phrasings (`hard prerequisite for`, `waits on`,
+ * `prerequisite for … arm of`) plus mem#530's own examples (`feeds`,
+ * `is gated on`); the `decomposition` set from mem#530's worked example and
+ * this task's original spec. Nothing here was invented to round out a category
+ * — an unwritten phrase costs a false negative, which is the safe direction,
+ * whereas an invented one that happens to match ordinary prose costs a false
+ * positive at an author who did nothing wrong.
+ *
+ * Ordered longest-first within each axis so the alternation prefers the more
+ * specific reading: `hard prerequisite for` must win over `prerequisite for`,
+ * because the reported phrase is what the author sees in the advisory and the
+ * shorter match would misquote them.
+ */
+export const RELATIONSHIP_PHRASES: ReadonlyArray<{
+  readonly pattern: string;
+  readonly axis: RelationshipAxis;
+  readonly relation: PhraseRelation;
+}> = [
+  // ── dependency, subject → object: "S waits for O" ───────────────────────
+  {
+    pattern: String.raw`waits?\s+on`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  {
+    pattern: String.raw`depends?\s+on`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  {
+    pattern: String.raw`depending\s+on`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  {
+    pattern: String.raw`blocked\s+by`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  { pattern: String.raw`gated\s+on`, axis: "dependency", relation: "subject-depends-on-object" },
+  { pattern: String.raw`fed\s+by`, axis: "dependency", relation: "subject-depends-on-object" },
+
+  // ── dependency, object → subject: the SAME edge stated from the far end ──
+  //
+  // "S is a prerequisite for O" and "O depends on S" are one relationship. A
+  // matcher blind to the difference demands the inverse edge and fires at a
+  // correct author — the shipped defect PR #3347 R1 caught on `parent of`, of
+  // which these are the dependency-axis members.
+  {
+    pattern: String.raw`hard\s+prerequisite\s+for`,
+    axis: "dependency",
+    relation: "object-depends-on-subject",
+  },
+  {
+    pattern: String.raw`prerequisite\s+for`,
+    axis: "dependency",
+    relation: "object-depends-on-subject",
+  },
+  { pattern: String.raw`feeds`, axis: "dependency", relation: "object-depends-on-subject" },
+  { pattern: String.raw`blocks`, axis: "dependency", relation: "object-depends-on-subject" },
+
+  // ── decomposition, subject is the child: "S is part of O" ───────────────
+  {
+    pattern: String.raw`subtask\s+of`,
+    axis: "decomposition",
+    relation: "subject-child-of-object",
+  },
+  { pattern: String.raw`child\s+of`, axis: "decomposition", relation: "subject-child-of-object" },
+  { pattern: String.raw`part\s+of`, axis: "decomposition", relation: "subject-child-of-object" },
+
+  // ── decomposition, object is the child: "S is the parent of O" ──────────
+  {
+    pattern: String.raw`umbrella\s+for`,
+    axis: "decomposition",
+    relation: "object-child-of-subject",
+  },
+  { pattern: String.raw`parent\s+of`, axis: "decomposition", relation: "object-child-of-subject" },
+
+  // ── unclear: real, common, and genuinely ambiguous ──────────────────────
+  //
+  // "follow-up to mt#N" asserts an ordering without saying whether the author
+  // means data-flow or decomposition. Reporting it as `unclear` and naming BOTH
+  // axes is the honest rendering — guessing an axis here would be this guard
+  // committing the very imprecision mem#530 is about.
+  { pattern: String.raw`follow[-\s]?ups?\s+to`, axis: "unclear", relation: "unclear" },
+];
+
+/** One alternation over every phrase, with the axis recoverable per match. */
+function phraseMatcher(): RegExp {
+  const alternation = RELATIONSHIP_PHRASES.map((p) => `(?:${p.pattern})`).join("|");
+  return new RegExp(`\\b(?:${alternation})`, "gi");
+}
+
+/** The table entry a matched phrase came from, or null if the table has drifted. */
+function entryForPhrase(phrase: string): (typeof RELATIONSHIP_PHRASES)[number] | null {
+  const normalized = phrase.toLowerCase().replace(/\s+/g, " ").trim();
+  for (const entry of RELATIONSHIP_PHRASES) {
+    if (new RegExp(`^(?:${entry.pattern})$`, "i").test(normalized)) return entry;
+  }
+  // Unreachable via `phraseMatcher`, which only produces matches of these
+  // patterns. Returning null rather than throwing keeps the guard fail-open on a
+  // future edit that widens the alternation without the table.
+  return null;
+}
+
+/** Resolve a matched phrase back to its axis. */
+export function axisForPhrase(phrase: string): RelationshipAxis {
+  return entryForPhrase(phrase)?.axis ?? "unclear";
+}
+
+/** Resolve a matched phrase back to its subject/object relation. */
+export function relationForPhrase(phrase: string): PhraseRelation {
+  return entryForPhrase(phrase)?.relation ?? "unclear";
+}
+
+/** A qualified task id, either backend's prefix. */
+const TASK_ID_RE = /\b((?:mt|md)#\d+)\b/gi;
+
+/**
+ * How far apart a phrase and a task id may sit and still be one assertion.
+ *
+ * Bidirectional, because real text puts the id on either side: R4's own
+ * `"(mt#4556, hard prerequisite for SC2)"` has the id BEFORE the phrase, while
+ * mem#530's `"mt#2257 feeds mt#2258"` has one on each side. A single-direction
+ * window would have missed the incident that motivated this guard.
+ *
+ * 80 characters is roughly a clause. Wider starts pairing a phrase in one
+ * sentence with an id in the next, which is how a proximity heuristic
+ * manufactures assertions nobody made.
+ */
+export const ASSERTION_WINDOW_CHARS = 80;
+
+/**
+ * A negation LEADING the phrase — "no longer depends on mt#N".
+ *
+ * Adapted from `operator-deferral-detector.ts`'s `NEGATION_LEAD_PATTERN` rather
+ * than imported: that constant deliberately omits a bare `no`/`not`, which is
+ * right for its subject matter and wrong here. This guard's own originating
+ * spec contains `"**No dependency edge to mt#2258**"` — a deliberate non-edge
+ * stated as a bare determiner — so the bare form is exactly the case that must
+ * be covered.
+ */
+export const NEGATION_LEAD_RE =
+  /\b(?:no|not|never|neither|nor|without|isn'?t|is\s+not|aren'?t|are\s+not|doesn'?t|does\s+not|don'?t|do\s+not|no\s+longer)\b[^.;!?]{0,40}$/i;
+
+/**
+ * A negation FOLLOWING the phrase — "depends on nothing in mt#N".
+ *
+ * The complement direction, which a lookback alone cannot see. Precedent:
+ * mt#4483 fixed the same blind spot in `ask-routing-deferral-detector.ts`,
+ * whose `NEGATING_COMPLEMENT_RE` is module-private and tuned to that detector's
+ * own verbs (`on|for|about` + `nothing`), so it is re-derived here for these
+ * verbs rather than imported.
+ */
+export const NEGATING_COMPLEMENT_RE = /^[\s\-—–,:]*(?:on|upon|for|about)?\s*nothing\b/i;
+
+/** Trailing characters a negating complement can occupy. */
+export const COMPLEMENT_LOOKAHEAD_CHARS = 24;
+
+/** One recognized assertion: a relationship phrase naming another task. */
+export interface RelationshipAssertion {
+  /** The task id as written, e.g. `mt#4556`. */
+  readonly taskId: string;
+  /** Comparison form, per `normalizeTaskId` — `mt#4556` and `mt4556` are one id. */
+  readonly normalizedTaskId: string;
+  /** The phrase as written, so the advisory quotes the author rather than a pattern. */
+  readonly phrase: string;
+  readonly axis: RelationshipAxis;
+  /** True when the id sits BEFORE the phrase, making it the phrase's subject. */
+  readonly idIsSubject: boolean;
+  /** The edge this assertion actually requires, direction resolved. */
+  readonly required: RequiredEdge;
+}
+
+/**
+ * Relationship assertions in a spec body.
+ *
+ * Rung-1 prefilter first: `elideQuotedAndCodeContexts` blanks fenced blocks,
+ * inline code spans, blockquotes and double-quoted prose with SAME-LENGTH
+ * whitespace, so offsets survive and a spec DISCUSSING a relationship — a gate
+ * report, a quoted incident narrative, this module's own documentation — does
+ * not read as asserting one.
+ *
+ * `ownTaskId` is excluded: a spec naming its own id in a relationship phrase is
+ * describing itself, and no self-edge exists to wire.
+ */
+export function findRelationshipAssertions(
+  specText: string,
+  ownTaskId: string | null
+): RelationshipAssertion[] {
+  const scanned = elideQuotedAndCodeContexts(specText);
+  const ownNormalized = ownTaskId === null ? null : normalizeTaskId(ownTaskId);
+
+  // Task ids first, so each phrase can look both ways over one index.
+  const ids: Array<{ id: string; start: number; end: number }> = [];
+  for (const m of scanned.matchAll(TASK_ID_RE)) {
+    if (m.index === undefined) continue;
+    ids.push({ id: m[1] as string, start: m.index, end: m.index + (m[1] as string).length });
+  }
+  if (ids.length === 0) return [];
+
+  const seen = new Set<string>();
+  const found: RelationshipAssertion[] = [];
+
+  for (const m of scanned.matchAll(phraseMatcher())) {
+    if (m.index === undefined) continue;
+    const phrase = m[0];
+    const phraseStart = m.index;
+    const phraseEnd = phraseStart + phrase.length;
+
+    // Negation in either direction cancels the phrase. Checked BEFORE the id
+    // pairing so a negated phrase costs no further work and — more to the point
+    // — can never contribute an assertion via a nearby unrelated id.
+    const lead = scanned.slice(Math.max(0, phraseStart - 60), phraseStart);
+    if (NEGATION_LEAD_RE.test(lead)) continue;
+    const trail = scanned.slice(phraseEnd, phraseEnd + COMPLEMENT_LOOKAHEAD_CHARS);
+    if (NEGATING_COMPLEMENT_RE.test(trail)) continue;
+
+    // NEAREST id only, not every id in the window.
+    //
+    // A relationship phrase has exactly ONE object. Pairing with every id in
+    // range cross-multiplies: the live sentence
+    //
+    //   "This work is a hard prerequisite for mt#4556, and it is part of mt#2230."
+    //
+    // has two phrases and two ids, all four within the window, and produced
+    // FOUR assertions — `dependency:mt#4556` and `decomposition:mt#2230`
+    // (both correct) plus `dependency:mt#2230` and `decomposition:mt#4556`
+    // (both invented). Half the output was an artifact of the pairing rule, and
+    // it would have told an author to wire two edges nobody asserted.
+    //
+    // Found by running the real dispatcher, not by the unit tests: every
+    // fixture there was one phrase and one id, so none of them could exhibit a
+    // defect that only appears at two of each (mem#1020's "right inputs" —
+    // a test proves the probe can fire, not that it covers the defect CLASS).
+    let nearest: { id: string; gap: number; isSubject: boolean } | null = null;
+    for (const { id, start, end } of ids) {
+      const after = start >= phraseEnd;
+      const gap = after ? start - phraseEnd : phraseStart - end;
+      if (gap < 0 || gap > ASSERTION_WINDOW_CHARS) continue;
+      // An id BEFORE the phrase is its subject; one after it is its object.
+      // That position is the whole subject/object signal, and for these phrases
+      // it is enough — see `RequiredEdge`.
+      if (nearest === null || gap < nearest.gap) nearest = { id, gap, isSubject: !after };
+    }
+    if (nearest === null) continue;
+
+    const normalized = normalizeTaskId(nearest.id);
+    if (ownNormalized !== null && normalized === ownNormalized) continue;
+
+    const axis = axisForPhrase(phrase);
+    const required = requiredEdgeFor(relationForPhrase(phrase), nearest.isSubject);
+    // Keyed on the REQUIRED EDGE, not the axis: "prerequisite for mt#X" and
+    // "depends on mt#X" share an axis but demand opposite edges, and collapsing
+    // them would silently drop one of two genuinely different assertions.
+    const key = `${normalized}:${required}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({
+      taskId: nearest.id,
+      normalizedTaskId: normalized,
+      phrase,
+      axis,
+      idIsSubject: nearest.isSubject,
+      required,
+    });
+  }
+
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// Discharge — exact at every seam, never heuristic
+// ---------------------------------------------------------------------------
+
+/** The edges a call declares or the graph already holds. */
+export interface DeclaredEdges {
+  /** Normalized ids this task depends on (outgoing `depends`). */
+  readonly deps: ReadonlySet<string>;
+  /** Normalized parent id, if any (outgoing `parent`). */
+  readonly parent: string | null;
+  /** Normalized ids that depend on this task (incoming `depends`). */
+  readonly dependents: ReadonlySet<string>;
+  /** Normalized ids whose parent is this task (incoming `parent`). */
+  readonly children: ReadonlySet<string>;
+  /**
+   * Whether the INCOMING sets above are known, as opposed to merely empty.
+   *
+   * The distinction is load-bearing and is why this is a field rather than an
+   * emptiness test. At `tasks_create` the payload can express only OUTGOING
+   * edges — `dependsOn` and `parent` are about the task being created — so an
+   * assertion like "this is a prerequisite for mt#N" is UNDISCHARGEABLE there
+   * by construction, not merely unwired. Treating "no incoming edges declared"
+   * as "no incoming edges exist" would fire on every correct inverse statement
+   * in a new spec, which is the same defect PR #3347 R1 caught one axis over.
+   */
+  readonly inverseKnown: boolean;
+}
+
+const NO_EDGES: DeclaredEdges = {
+  deps: new Set(),
+  parent: null,
+  dependents: new Set(),
+  children: new Set(),
+  inverseKnown: false,
+};
+
+/**
+ * Edges declared on a `tasks_create` payload.
+ *
+ * This is the whole discharge at that seam, and it is EXACT — the task does not
+ * exist yet, so `dependsOn` and `parent` on the call are the complete set of
+ * edges it will have. No database, no transcript, nothing to time out. That is
+ * why the create seam is the one this guard is strongest at, and it is the seam
+ * R4 happened on.
+ *
+ * `dependsOn` accepts a string or an array
+ * (`task-parameters.ts:55`), so both are read.
+ */
+export function edgesFromCreatePayload(
+  toolInput: Record<string, unknown> | undefined
+): DeclaredEdges {
+  if (!toolInput) return NO_EDGES;
+
+  const deps = new Set<string>();
+  const raw = toolInput["dependsOn"];
+  const list = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
+  for (const entry of list) {
+    if (typeof entry === "string" && entry.trim() !== "") deps.add(normalizeTaskId(entry));
+  }
+
+  const parentRaw = toolInput["parent"];
+  const parent =
+    typeof parentRaw === "string" && parentRaw.trim() !== "" ? normalizeTaskId(parentRaw) : null;
+
+  // `inverseKnown: false` — a create payload cannot express an edge pointing AT
+  // the task being created, so incoming edges are unknown here rather than
+  // absent. See `DeclaredEdges.inverseKnown`.
+  return { deps, parent, dependents: new Set(), children: new Set(), inverseKnown: false };
+}
+
+/** The task id an EDIT-seam call targets — the subject of "this task". */
+export function targetTaskId(toolInput: Record<string, unknown> | undefined): string | null {
+  const raw = toolInput?.["taskId"];
+  return typeof raw === "string" && raw.trim() !== "" ? raw : null;
+}
+
+/** Bound on the edit-seam graph read. Kept well under the registration's `timeoutMs`. */
+export const GRAPH_READ_TIMEOUT_MS = 8_000;
+
+/** What a graph read produced, or why it produced nothing. */
+export type GraphReadResult =
+  | { readonly ok: true; readonly edges: DeclaredEdges }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Edges the live graph already holds for a task.
+ *
+ * One query, because `task_relationships` stores both axes in one table
+ * discriminated by `type` (`depends` / `parent`), with the edge always written
+ * child→parent and task→dependency (`from_task_id` → `to_task_id`).
+ *
+ * **A failure here is `{ ok: false }`, never an empty edge set.** The
+ * difference is the whole reliability of the guard: an unreachable database
+ * that returned "no edges" would make every assertion look unwired, so an
+ * outage would render as a burst of confident false positives at exactly the
+ * moment nobody can check them. The caller records `skipped`.
+ */
+export async function readGraphEdges(taskId: string): Promise<GraphReadResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const TIMED_OUT = Symbol("warn-unwired-task-relationship-timeout");
+  const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), GRAPH_READ_TIMEOUT_MS);
+  });
+
+  const query = (async (): Promise<GraphReadResult> => {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) return { ok: false, reason: `domain bootstrap failed: ${bootstrap.error}` };
+
+    const { resolvePersistenceProviderOrError } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      return { ok: false, reason: describeProviderResolutionFailure(resolution) };
+    }
+
+    const provider = resolution.provider;
+    if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
+      return { ok: false, reason: `provider ${provider.constructor.name} is not SQL-capable` };
+    }
+    const db = (await (provider as SqlCapablePersistenceProvider).getDatabaseConnection()) as {
+      execute: (q: unknown) => Promise<unknown>;
+    } | null;
+    if (!db) return { ok: false, reason: "no database connection" };
+
+    const { sql } = await import("drizzle-orm");
+    // `db.execute` is already typed `Promise<unknown>` above, so an `as unknown`
+    // here would assert nothing. The shape narrowing happens below, against
+    // BOTH result shapes drizzle returns depending on driver.
+    // BOTH directions in one query. Reading only `from_task_id` was the shipped
+    // defect (PR #3347 R1): `parent` edges are stored child→parent, so a task
+    // that IS a parent has no outgoing `parent` row at all, and "parent of
+    // mt#N" could never be discharged no matter how correctly the author had
+    // reparented the child. The same holds on the dependency axis for every
+    // `object-depends-on-subject` phrase.
+    const rows = await db.execute(
+      sql`SELECT from_task_id, to_task_id, type FROM task_relationships
+          WHERE from_task_id = ${taskId} OR to_task_id = ${taskId}`
+    );
+
+    const list: Array<Record<string, unknown>> = Array.isArray(rows)
+      ? (rows as Array<Record<string, unknown>>)
+      : Array.isArray((rows as { rows?: unknown }).rows)
+        ? (rows as { rows: Array<Record<string, unknown>> }).rows
+        : [];
+
+    const self = normalizeTaskId(taskId);
+    const deps = new Set<string>();
+    const dependents = new Set<string>();
+    const children = new Set<string>();
+    let parent: string | null = null;
+
+    for (const row of list) {
+      const from = row["from_task_id"];
+      const to = row["to_task_id"];
+      const type = row["type"];
+      if (typeof from !== "string" || typeof to !== "string") continue;
+      const fromN = normalizeTaskId(from);
+      const toN = normalizeTaskId(to);
+      // The `OR` above can return a self-edge only if one were ever written;
+      // the schema forbids it, and skipping keeps a corrupt row from reading as
+      // both directions at once.
+      if (fromN === toN) continue;
+
+      if (fromN === self) {
+        // Outgoing: this task → other.
+        if (type === "parent") parent = toN;
+        else deps.add(toN);
+      } else if (toN === self) {
+        // Incoming: other → this task.
+        if (type === "parent") children.add(fromN);
+        else dependents.add(fromN);
+      }
+    }
+    return { ok: true, edges: { deps, parent, dependents, children, inverseKnown: true } };
+  })();
+
+  // Rejection sink: `query` converts most failures to values, but an
+  // after-deadline rejection would otherwise surface as an unhandled rejection.
+  const settled = query.catch(
+    (err): GraphReadResult => ({
+      ok: false,
+      reason: `graph read failed: ${err instanceof Error ? err.message : String(err)}`,
+    })
+  );
+
+  try {
+    const winner = await Promise.race([settled, deadline]);
+    return winner === TIMED_OUT ? { ok: false, reason: "graph read timed out" } : winner;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Whether this assertion can be ADJUDICATED against the edges available here.
+ *
+ * Separate from {@link isDischarged}, and the separation is the point: "the edge
+ * is absent" and "I cannot see edges of this direction" are different findings,
+ * and reporting the second as the first is what PR #3347 R1 caught. An inverse
+ * assertion at the `tasks_create` seam is the standing case — the payload
+ * expresses only outgoing edges, so no correct author could ever discharge it
+ * there.
+ */
+export function isAdjudicable(assertion: RelationshipAssertion, edges: DeclaredEdges): boolean {
+  if (edges.inverseKnown) return true;
+  switch (assertion.required) {
+    case "other-depends-on-this":
+    case "other-child-of-this":
+      return false;
+    // An `unclear` phrase is discharged by ANY edge, and the outgoing ones are
+    // known here, so a positive verdict is still reachable. It is only reported
+    // when every direction we can see is empty, which stays conservative.
+    default:
+      return true;
+  }
+}
+
+/** True when the edge this assertion implies is already present. */
+export function isDischarged(assertion: RelationshipAssertion, edges: DeclaredEdges): boolean {
+  const id = assertion.normalizedTaskId;
+  switch (assertion.required) {
+    case "this-depends-on-other":
+      return edges.deps.has(id);
+    case "other-depends-on-this":
+      return edges.dependents.has(id);
+    case "this-child-of-other":
+      return edges.parent === id;
+    case "other-child-of-this":
+      return edges.children.has(id);
+    case "unclear":
+      // ANY edge in ANY direction discharges an ambiguous phrase. The guard
+      // cannot tell which relationship the author meant, so it must not demand
+      // the one it happened to guess — an author who wired a different one did
+      // exactly what mem#530 asks.
+      return (
+        edges.deps.has(id) ||
+        edges.dependents.has(id) ||
+        edges.parent === id ||
+        edges.children.has(id)
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Advisory text
+// ---------------------------------------------------------------------------
+
+/** Assertions rendered per advisory before the overflow line. */
+export const MAX_RENDERED_ASSERTIONS = 4;
+
+/** Per-axis remedy, rendered ONCE beneath the list rather than per line. */
+const REMEDY: Readonly<Record<RequiredEdge, string>> = {
+  "this-depends-on-other": 'dependency → `tasks_deps_add(taskId: "<this>", dependsOn: "<other>")`',
+  "other-depends-on-this":
+    'dependency, the other way round → `tasks_deps_add(taskId: "<other>", dependsOn: "<this>")`',
+  "this-child-of-other": "decomposition → `parent:` at create, or `tasks_reparent` this under it",
+  "other-child-of-this":
+    "decomposition, the other way round → reparent the OTHER task under this one",
+  unclear:
+    "unclear → pick one: dependency if one must finish first, parent/child if one is a component of the other",
+};
+
+/**
+ * The advisory.
+ *
+ * It names the AXIS rather than just saying "wire an edge", because the axis
+ * confusion is half the family (mem#530 R3): dependency and parent/child are
+ * orthogonal, and picking "should B be a child of A?" when the real relationship
+ * is "A feeds B" is its own error. An advisory that said only "an edge is
+ * missing" would leave the reader to make exactly that mistake.
+ */
+export function buildAdvisory(assertions: readonly RelationshipAssertion[]): string {
+  const shown = assertions.slice(0, MAX_RENDERED_ASSERTIONS);
+  const lines = shown.map((a) => `  - "${a.phrase}" → ${a.taskId}  [${a.required}]`);
+  const overflow =
+    assertions.length > shown.length ? `\n  …and ${assertions.length - shown.length} more.` : "";
+
+  // Remedies for the axes ACTUALLY present, once each. Rendering them per line
+  // made the saturated advisory 1280 chars of near-identical repetition — the
+  // shape that gets skimmed, which for an advisory is the same as not firing.
+  const edgesPresent = [...new Set(assertions.map((a) => a.required))];
+  const remedies = edgesPresent.map((edge) => `  ${REMEDY[edge]}`).join("\n");
+
+  return (
+    `[warn-unwired-task-relationship] This spec states a task relationship in prose ` +
+    `with no matching edge in the graph:\n${lines.join("\n")}${overflow}\n\nWire it:\n${
+      remedies
+    }\n\nProse is invisible to the graph, and worse than invisible: \`tasks_orchestrate\` ` +
+    `reports a task with no edges as \`ready: true, blockedBy: []\`, so an unwired ` +
+    `prerequisite reads as dispatchable rather than as unknown (mem#530 R4). Wire the ` +
+    `edge in the same action that writes the sentence, or say in the spec why no edge ` +
+    `belongs.`
+  );
+}
+
+/**
+ * The advisory at its rendered ceiling, for the registration's `renderProbe`.
+ *
+ * A PROVED ceiling rather than a sample, because all THREE rendered dimensions
+ * are bounded and all three are saturated here at once:
+ *
+ *   1. the list, capped at {@link MAX_RENDERED_ASSERTIONS};
+ *   2. the overflow suffix, one line, present only past that cap;
+ *   3. the remedy block, one line per axis PRESENT — so its ceiling is all
+ *      three axes, which is the dimension the per-line render did not have.
+ *
+ * Saturating every dimension at once is mt#3767's under-posing lesson: posing
+ * only the count measures the shorter branch and understates the render. The
+ * third dimension is the one that would be easy to miss, because it was
+ * introduced by the very edit that shortened the other two.
+ *
+ * The longest phrase in the table and the corpus's widest id scale
+ * (`mt#NNNNNN`) are both posed.
+ */
+export function renderWorstCase(): string {
+  const edges: RequiredEdge[] = [
+    "this-depends-on-other",
+    "other-depends-on-this",
+    "this-child-of-other",
+    "other-child-of-this",
+    "unclear",
+  ];
+  const worst: RelationshipAssertion[] = Array.from(
+    { length: MAX_RENDERED_ASSERTIONS + 1 },
+    (_, i) => ({
+      taskId: `mt#99999${i}`,
+      normalizedTaskId: `mt99999${i}`,
+      phrase: "hard prerequisite for",
+      axis: "dependency" as const,
+      idIsSubject: false,
+      // Cycle so EVERY required edge is present in the remedy block regardless
+      // of the render cap — the remedy block is keyed on this, and there are
+      // now five of them rather than three axes.
+      required: edges[i % edges.length] as RequiredEdge,
+    })
+  );
+  return buildAdvisory(worst);
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher entry point (ADR-028 D1/D2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set true to graduate this guard from record-only to injecting.
+ *
+ * OFF until the pre-ship replay measures the recognition half's precision
+ * against ADR-024 sign-off (b)'s 0-known-false-positive bar. Shipping the
+ * advisory unmeasured is mem#719's failure mode — a detector that fires at
+ * careful authors trains its reader to discount the fire that matters. The
+ * builder above is wired to this flag rather than left unreferenced, so it is
+ * exercised by tests today and cannot rot into the "present, tested, green, and
+ * inert" shape this tree keeps having to diagnose.
+ */
+export const INJECTION_ENABLED = false;
+
+export async function run(
+  input: ToolHookInput,
+  _ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  const base = {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+    toolName: input.tool_name ?? null,
+  };
+
+  const specRead = readSpecTextForCall(input.tool_name, input.tool_input);
+  if (specRead.text === null) {
+    // A named-but-unreadable spec file is a MISS and must not share a reason
+    // string with "this call carries no spec" (mt#4295 SC2). Both are `skipped`
+    // — a guard that could not read its input has not adjudicated it — but only
+    // one means coverage was lost, and one string would hide that in the log.
+    return {
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason: specRead.specFileUnreadable
+          ? "spec file named on this call could not be read"
+          : "no authored spec text on this call",
+      },
+    };
+  }
+
+  const ownTaskId = targetTaskId(input.tool_input);
+  const assertions = findRelationshipAssertions(specRead.text, ownTaskId);
+  if (assertions.length === 0) {
+    return { calibration: { ...base, outcome: "clean", reason: "no relationship assertion" } };
+  }
+
+  // Seam split. A create carries its edges on the call; an edit's task already
+  // exists, so the graph is the only place its edges live.
+  let edges: DeclaredEdges;
+  if (ownTaskId === null) {
+    edges = edgesFromCreatePayload(input.tool_input);
+  } else {
+    const read = await readGraphEdges(ownTaskId);
+    if (!read.ok) {
+      // NOT `clean`. See `readGraphEdges` — a pass here would render an outage
+      // as a run of correct behavior.
+      return { calibration: { ...base, outcome: "skipped", reason: read.reason } };
+    }
+    edges = read.edges;
+  }
+
+  // Un-adjudicable assertions are dropped BEFORE the discharge test, never
+  // reported as unwired. At `tasks_create` that is every inverse assertion:
+  // the payload cannot express an edge pointing at the task being created, so
+  // firing there would flag an author who has no way to comply.
+  const adjudicable = assertions.filter((a) => isAdjudicable(a, edges));
+  const undecidable = assertions.length - adjudicable.length;
+
+  const unwired = adjudicable.filter((a) => !isDischarged(a, edges));
+  if (unwired.length === 0) {
+    return {
+      calibration: {
+        ...base,
+        outcome: "clean",
+        // Recorded on the CLEAN path too, and this is where it matters most: a
+        // clean verdict reached by DROPPING every assertion is a different fact
+        // from one reached by finding every edge, and without this field the
+        // calibration log renders them identically.
+        undecidable,
+        reason:
+          undecidable > 0
+            ? `every adjudicable assertion has a matching edge (${undecidable} inverse, not decidable at this seam)`
+            : "every assertion has a matching edge",
+      },
+    };
+  }
+
+  const outcome: GuardOutcome = {
+    calibration: {
+      ...base,
+      outcome: "matched",
+      // The REQUIRED EDGE, not the axis: the axis alone cannot distinguish
+      // "this depends on X" from "X depends on this", and those are the pairs
+      // a calibration reader has to be able to tell apart.
+      pairs: unwired.map((a) => `${a.required}:${a.taskId}`),
+      // Recorded even when zero, so the replay can size how much of the corpus
+      // this seam structurally cannot adjudicate.
+      undecidable,
+      excerpt: safeTruncate(specRead.text, 300, "head"),
+    },
+  };
+  if (INJECTION_ENABLED) outcome.additionalContext = buildAdvisory(unwired);
+  return outcome;
+}
+
+// ---------------------------------------------------------------------------
+// Standalone CLI entry point (fail-open: any error allows the call)
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  try {
+    const input = await readInput<ToolHookInput>();
+    const result = await run(input, {} as DispatchContext);
+    if (result?.additionalContext) process.stderr.write(`${result.additionalContext}\n`);
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write(
+      `[warn-unwired-task-relationship] fail-open: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
+    process.exit(0);
+  }
+}

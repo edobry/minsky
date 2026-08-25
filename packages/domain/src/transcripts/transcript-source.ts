@@ -73,6 +73,32 @@ export interface TranscriptSource {
    * id-only lookup where no path is available.
    */
   readSession(agentSessionId: AgentSessionId, jsonlPath?: string): AsyncIterable<RawTurnLine>;
+  /**
+   * Stream EVERY line for one session, in file order, with NO retention filter
+   * (mt#4573).
+   *
+   * `readSession` above yields only the types a source chooses to retain, and
+   * that choice is lossy in a way no downstream consumer can undo: for Claude
+   * Code the dropped set is ~24% of lines and is exactly the un-timestamped
+   * ones, so a timestamp-keyed reader cannot even observe that they are
+   * missing. This method is what `transcript_lines` captures from, and it is
+   * the only path by which a `.jsonl` can be reconstructed faithfully enough
+   * for the harness to resume the conversation.
+   *
+   * Implementations MUST yield in file order and MUST NOT filter by type. A
+   * line that cannot be parsed is skipped (it is unstorable as `jsonb`), and so
+   * consumes no ordinal.
+   */
+  readSessionRaw(agentSessionId: AgentSessionId, jsonlPath?: string): AsyncIterable<RawTurnLine>;
+  /**
+   * Does this line pass the source's own retention filter — i.e. would
+   * `readSession` have yielded it (mt#4573)?
+   *
+   * Exposed so a caller iterating `readSessionRaw` can drive BOTH destinations
+   * from one read: capture every line, and apply the legacy retained-only logic
+   * to the subset, without hard-coding a harness's type set at the call site.
+   */
+  isRetainedLine(line: RawTurnLine): boolean;
   /** Extract the ISO timestamp from a raw line; undefined if missing/invalid. */
   getJsonlTimestamp(line: RawTurnLine): TimestampISO | undefined;
 }

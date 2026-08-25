@@ -46,6 +46,14 @@ class StubSource implements TranscriptSource {
     for (const s of this.sessions) yield s;
   }
 
+  async *readSessionRaw(): AsyncIterable<RawTurnLine> {
+    // Never reached: every session in this file aborts at the HWM read.
+  }
+
+  isRetainedLine(): boolean {
+    return true;
+  }
+
   async *readSession(): AsyncIterable<RawTurnLine> {
     // Never reached: every session in this file aborts at the HWM read.
   }

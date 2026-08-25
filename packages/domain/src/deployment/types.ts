@@ -48,6 +48,19 @@ export interface DeploymentRecord {
   commitHash: string | null;
   /** Commit message deployed, when known. */
   commitMessage: string | null;
+  /**
+   * Container image digest deployed, when the platform reports one (mt#4583).
+   *
+   * Present for image-source services, which are exactly the ones where
+   * `commitHash` is null — the platform deploys a pushed image and never sees
+   * the commit. It does NOT identify which commit produced the image, so it is
+   * not a substitute for `commitHash`; it distinguishes a genuine release from
+   * a redeploy of the SAME image (mem#551), which is a different question.
+   *
+   * Railway already returns this inside the deployment's `meta` object; it was
+   * being dropped at the mapping boundary rather than being unavailable.
+   */
+  imageDigest: string | null;
   /** ISO8601 timestamp the deployment was created. */
   createdAt: string;
   /** ISO8601 timestamp the deployment reached a terminal state, when known. */
@@ -123,6 +136,20 @@ export interface WaitForLatestOptions {
    * carries no `commitHash` (verified on the reviewer service, whose working
    * deploys have a null hash while its older repo-source builds have one), so
    * commit comparison is not available on the path that matters.
+   *
+   * **That caveat is necessary and was not sufficient (mt#4583).** Bounding
+   * time does not identify WHICH change deployed, so on a busy branch a
+   * NEIGHBOURING merge's deployment lands inside the window and satisfies this
+   * bound — observed 2026-08-25: a deployment created ten seconds after a merge
+   * returned SUCCESS and belonged to the previous merge's workflow run.
+   *
+   * This bound alone cannot tell you whose deploy you got, and an adapter
+   * cannot tell you either: it reports what the platform says. Identity is a
+   * JUDGEMENT over that report, made by the caller — pass the merge commit to
+   * `deployment.wait-for-latest`'s `expectCommitSha` (or
+   * `session.pr.drive --postMerge`'s `mergedCommitSha`) and read the
+   * `buildIdentity` verdict those surfaces return. `assessBuildIdentity` in
+   * `./build-identity` is the shared classifier.
    */
   notBefore?: string;
 }

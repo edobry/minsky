@@ -79,6 +79,46 @@ function unwrapToObjectShape(schema: unknown, depth = 0): Record<string, unknown
  * duplicate-zod-instance reasons documented in shared-command-integration.ts
  * (monorepo/pnpm dedupe).
  */
+/**
+ * Remove server-injected parameters from an ADVERTISED JSON Schema (mt#4579).
+ *
+ * Pure: schema in, schema out, no IO — so the advertising rule is testable
+ * without registering a tool or standing up a server.
+ *
+ * Returns the input unchanged when there is nothing to hide, so the common case
+ * allocates nothing. Otherwise copies rather than mutating: the caller's object
+ * comes from `zodToJsonSchema` and is not ours to edit in place.
+ *
+ * `required` is filtered alongside `properties` deliberately. A key listed as
+ * required but absent from properties is a malformed JSON Schema, and a client
+ * that validates against it would demand a parameter it cannot see.
+ */
+export function omitAdvertisedParams(
+  jsonSchema: Record<string, unknown>,
+  hiddenKeys: readonly string[] | undefined
+): Record<string, unknown> {
+  if (!hiddenKeys || hiddenKeys.length === 0) return jsonSchema;
+
+  const hidden = new Set(hiddenKeys);
+  const next: Record<string, unknown> = { ...jsonSchema };
+
+  const properties = next.properties;
+  if (properties != null && typeof properties === "object") {
+    const kept = Object.fromEntries(
+      Object.entries(properties as Record<string, unknown>).filter(([key]) => !hidden.has(key))
+    );
+    next.properties = kept;
+  }
+
+  if (Array.isArray(next.required)) {
+    const kept = (next.required as string[]).filter((key) => !hidden.has(key));
+    if (kept.length === 0) delete next.required;
+    else next.required = kept;
+  }
+
+  return next;
+}
+
 function getDeclaredParamKeys(
   schema: z.ZodType | undefined,
   toolName: string
@@ -309,6 +349,25 @@ export class CommandMapper {
      * Opt out only for handlers that demonstrably don't touch DI services.
      */
     requiresInit?: boolean;
+    /**
+     * Parameter names to omit from the ADVERTISED input schema (mt#4579).
+     *
+     * These are server-injected parameters — `callerActorId` is the whole
+     * population today — which the server overwrites on every call, so
+     * advertising them in `tools/list` invites a caller to pass a value that is
+     * silently discarded.
+     *
+     * **Advertising only.** The keys stay in `command.parameters`, so
+     * `declaredParamKeys` below still contains them and `enforceDeclaredParams`
+     * still ACCEPTS the injected value. Filtering them out of the Zod schema
+     * instead would remove them from that key set too, and the server's own
+     * injection would be rejected as an undeclared parameter — the schema is
+     * built with `z.strictObject`, so there is no slack there.
+     *
+     * Carried through from `CommandParameterDefinition.mcpHidden`, which lives
+     * on the parameter map and is gone by the time a `z.ZodType` arrives here.
+     */
+    mcpHiddenParamKeys?: readonly string[];
   }): void {
     // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
@@ -322,6 +381,7 @@ export class CommandMapper {
 
     if (command.parameters) {
       inputSchema = this.zodToJsonSchema(command.parameters);
+      inputSchema = omitAdvertisedParams(inputSchema, command.mcpHiddenParamKeys);
     }
 
     // Track registered method names for debugging

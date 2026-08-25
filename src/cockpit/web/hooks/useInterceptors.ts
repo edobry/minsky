@@ -221,6 +221,16 @@ export const COVERAGE_GAP_LABELS: Record<InterceptorCoverageGap, string> = {
  * So do NOT "fix" this to match the union — `interceptor-points.test.ts`
  * deliberately does not assert equality here, and does assert it for the four
  * lists that must be complete.
+ *
+ * AND DO NOT USE IT AS THE POINT DOMAIN (mt#4603). This is a spine-station
+ * order, not "the interception points". A consumer that needs every point a
+ * catalog entry can carry — a filter, a facet, a grouping — wants
+ * `ALL_INTERCEPTION_POINTS` below. The `/interceptors` point facet read THIS
+ * list for its options while its predicate compared against `entry.point`,
+ * whose domain is the full union, so six points were unselectable and the two
+ * with live members (`session-start` at `SessionStart`,
+ * `record-conversation-run-state` at `PostCompact`) could not be filtered to
+ * by any choice a reader could make.
  */
 export const INTERCEPTION_POINT_ORDER: InterceptionPoint[] = [
   "UserPromptSubmit",
@@ -233,6 +243,52 @@ export const INTERCEPTION_POINT_ORDER: InterceptionPoint[] = [
   "pre-commit",
   "merge-time",
 ];
+
+/**
+ * EVERY point a catalog entry can carry, in reader order (mt#4603).
+ *
+ * The complete domain, as distinct from `INTERCEPTION_POINT_ORDER`'s deliberate
+ * spine subset above. Anything that enumerates points to compare against an
+ * entry's `point` field — the `/interceptors` facet, any future grouping —
+ * belongs here; only the spine's trajectory placement belongs there.
+ *
+ * DELIBERATELY NOT `[...INTERCEPTION_POINT_ORDER, ...therest]`. Deriving one
+ * from the other re-creates the coupling this constant exists to break: the
+ * spine's subset is a design choice that may legitimately change, and a point
+ * dropped from the trajectory must not vanish from the filter as a side effect.
+ * The two lists are independent, and `interceptor-points.test.ts` asserts THIS
+ * one against the union.
+ *
+ * Exhaustiveness is TYPE-enforced, not just tested: a point added to
+ * `InterceptionPoint` without a key here is a compile error, so the drift is
+ * caught before any test runs. `Object.keys` preserves insertion order for
+ * non-integer keys per ES2015+, which is why the declaration order below is the
+ * render order. Ordering: the nine trajectory points first, in the spine's
+ * order so the familiar ones lead, then the six that have no trajectory
+ * position — a reader scanning for `PreToolUse` finds it where they expect,
+ * and `PostCompact` is present rather than missing.
+ */
+const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = {
+  UserPromptSubmit: true,
+  PreToolUse: true,
+  PostToolUse: true,
+  Stop: true,
+  SubagentStop: true,
+  SessionEnd: true,
+  MessageDisplay: true,
+  "pre-commit": true,
+  "merge-time": true,
+  SessionStart: true,
+  StopFailure: true,
+  Notification: true,
+  PermissionRequest: true,
+  PreCompact: true,
+  PostCompact: true,
+};
+
+export const ALL_INTERCEPTION_POINTS = Object.keys(
+  INTERCEPTION_POINT_PRESENCE
+) as InterceptionPoint[];
 
 export const MECHANISM_ORDER: DecisionMechanism[] = [
   "constant",

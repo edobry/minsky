@@ -268,13 +268,15 @@ describe("ProtectionPage — health rendering", () => {
     );
     // The anti-pattern this guards: a grid of green chips, one per class.
     expect(screen.queryByTestId("protection-health-degraded")).toBeNull();
-    expect(screen.queryByTestId("protection-health-unknown")).toBeNull();
+    expect(screen.queryByTestId("protection-health-never-verified")).toBeNull();
+    expect(screen.queryByTestId("protection-health-source-unavailable")).toBeNull();
     // Scoped to the ROWS, not the whole body: the ordering caption says
     // "anything not working first" by design, and asserting over the body
     // matched that caption rather than the per-class chips this is about.
     for (const row of screen.getAllByTestId("protection-class-row")) {
       expect(row.textContent).not.toContain("not working");
-      expect(row.textContent).not.toContain("Can't confirm");
+      expect(row.textContent).not.toContain("never been verified");
+      expect(row.textContent).not.toContain("couldn't be read");
     }
   });
 
@@ -293,17 +295,103 @@ describe("ProtectionPage — health rendering", () => {
     expect(screen.queryByTestId("protection-health-working")).toBeNull();
   });
 
-  test("a failed source renders UNKNOWN, never zero or working (SC6)", async () => {
+  test("a failed source keeps the refresh wording — that cause really is transient (SC3)", async () => {
     renderWith(
       ProtectionPage,
       payload({ entries: [entry({ guardName: "a", failureClasses: ["broken-main"] })] }),
       READY(snapshot({ rows: [aggregateRow({ guardName: "a" })], sourceFailures: ["canary"] }))
     );
-    await screen.findByTestId("protection-health-unknown");
-    expect(screen.getByTestId("protection-health-unknown").textContent).toContain(
+    await screen.findByTestId("protection-health-source-unavailable");
+    const banner = screen.getByTestId("protection-health-source-unavailable");
+    expect(banner.textContent).toContain("last refresh");
+    expect(banner.textContent).toContain("1 check of 1");
+    expect(screen.queryByTestId("protection-health-never-verified")).toBeNull();
+    expect(screen.queryByTestId("protection-health-working")).toBeNull();
+  });
+
+  test("checks with no verdict at all say SO, and do not blame a refresh (SC2)", async () => {
+    // The mt#4605 regression, as the live 2026-08-25 snapshot produced it:
+    // `sourceFailures` empty, every check simply never verified. The old
+    // single-`unknown` banner rendered "that history wasn't available on the
+    // last refresh" here, which is false and describes a state that clears.
+    renderWith(
+      ProtectionPage,
+      payload({
+        entries: [
+          entry({ guardName: "a", failureClasses: ["broken-main"] }),
+          entry({ guardName: "b", failureClasses: ["broken-main"] }),
+        ],
+      }),
+      READY(
+        snapshot({
+          rows: [
+            aggregateRow({ guardName: "a", canary: { state: "never-verified" } }),
+            aggregateRow({ guardName: "b", canary: { state: "never-verified" } }),
+          ],
+        })
+      )
+    );
+    await screen.findByTestId("protection-health-never-verified");
+    const banner = screen.getByTestId("protection-health-never-verified");
+    expect(banner.textContent).toContain("2 checks of 2");
+    expect(banner.textContent).toContain("never been verified");
+    expect(banner.textContent).not.toContain("last refresh");
+    expect(screen.queryByTestId("protection-health-source-unavailable")).toBeNull();
+    expect(screen.queryByTestId("protection-health-working")).toBeNull();
+    // The line that survives from the old copy — it was the only true half of it.
+    expect(screen.getByTestId("protection-page").textContent).toContain(
       "not the same as everything being fine"
     );
-    expect(screen.queryByTestId("protection-health-working")).toBeNull();
+  });
+
+  test("both at once renders BOTH facts, neither standing in for the other (SC4)", async () => {
+    renderWith(
+      ProtectionPage,
+      payload({
+        entries: [
+          entry({ guardName: "unreadable", failureClasses: ["broken-main"] }),
+          entry({ guardName: "untested", failureClasses: ["secret-exposure"] }),
+        ],
+      }),
+      READY(
+        snapshot({
+          rows: [
+            aggregateRow({ guardName: "unreadable", canary: null }),
+            aggregateRow({ guardName: "untested", canary: { state: "never-verified" } }),
+          ],
+        })
+      )
+    );
+    await screen.findByTestId("protection-health-source-unavailable");
+    expect(screen.getByTestId("protection-health-source-unavailable").textContent).toContain(
+      "1 check of 2"
+    );
+    expect(screen.getByTestId("protection-health-never-verified").textContent).toContain(
+      "1 check of 2"
+    );
+  });
+
+  test("a broken check still outranks an unverified one — degraded alone (SC / AT4)", async () => {
+    renderWith(
+      ProtectionPage,
+      payload({
+        entries: [
+          entry({ guardName: "broken", failureClasses: ["secret-exposure"] }),
+          entry({ guardName: "untested", failureClasses: ["broken-main"] }),
+        ],
+      }),
+      READY(
+        snapshot({
+          rows: [
+            aggregateRow({ guardName: "broken", canary: { state: "broken" } }),
+            aggregateRow({ guardName: "untested", canary: { state: "never-verified" } }),
+          ],
+        })
+      )
+    );
+    await screen.findByTestId("protection-health-degraded");
+    expect(screen.queryByTestId("protection-health-never-verified")).toBeNull();
+    expect(screen.queryByTestId("protection-health-source-unavailable")).toBeNull();
   });
 
   test("the pending state makes no claim about whether checks are working", async () => {

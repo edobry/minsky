@@ -22,6 +22,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
+import { readJournalSummary } from "../transcript-sweep-journal";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import { getSweepLivenessSnapshot } from "../sweepers";
@@ -313,7 +314,22 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // green. `current: null` means the check could not run, and is
       // deliberately NOT reported as current.
       schema: getSchemaReadiness(),
-      transcriptSweep: sweepTracker.getSummary(),
+      // mt#4532: the tracker's counters are PROCESS-scoped and reset on every
+      // restart, which on a working day is a median 13.4 minutes — shorter than
+      // one sweep tick. `acrossRestarts` is the durable journal beside them, and
+      // it is nested here rather than made a top-level sibling deliberately: a
+      // reader asking "is the sweep working" must not be able to read the
+      // process-scoped counters WITHOUT the lifetime ones, which is exactly the
+      // misread `sweepLiveness`'s own field note had to warn about after being
+      // separated. `phase2ReachRate` is the one number that answers it.
+      //
+      // The read is memoized on the journal file's `(mtimeMs, size)`, so the
+      // steady-state cost here is one `stat` rather than a read plus a parse
+      // (PR #3357 R1). Keyed on file identity rather than a TTL, so it is never
+      // stale by construction — including when the writer is another daemon.
+      // Unlike the `db` probe above it is not out-of-band, and does not need to
+      // be: that one crosses the network and can wedge, this one cannot.
+      transcriptSweep: { ...sweepTracker.getSummary(), acrossRestarts: readJournalSummary() },
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),
       // mt#4384: the three sweep fields above are DOMAIN trackers, and a domain
