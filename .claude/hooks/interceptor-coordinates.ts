@@ -617,6 +617,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // of this activity not the caller's own?), even though its intervention is
   // only ever advisory: it has no deny path at all (mt#4494).
   ["warn-peer-task-activity", structuralInjector],
+  ["warn-stale-forward-reference", structuralInjector],
 
   // -------------------------------------------------------------------------
   // Standalone stratum — registered directly in .claude/settings.json

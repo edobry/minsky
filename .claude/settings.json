@@ -249,6 +249,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
             "timeout": 15,
             "statusMessage": "Checking the task event ledger for peer activity..."
+          },
+          {
+            "_comment": "mt#4535: on a DONE transition only, surface decision records that still describe this task's work as future work. Standalone rather than dispatcher-routed, following this matcher's existing convention (tasks-status-set-guard, warn-peer-task-activity). Timeout 15s covers the 8s title-read deadline plus the corpus scan; advisory, never denies.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-stale-forward-reference.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for decision records that call this work pending..."
           }
         ]
       },
