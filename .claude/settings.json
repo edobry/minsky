@@ -3,6 +3,18 @@
   "hooks": {
     "PreToolUse": [
       {
+        "_comment": "mt#2358 main-workspace mutation observer, RECORDING half. Captures the MAIN workspace's dirty-file set immediately before a Bash call so the PostToolUse half can diff an exact before/after around THAT call. Without this the 'before' was inferred from the previous call's 'after', which is right in steady state and wrong exactly once — on the first call after a fresh checkout, where a real mutation is indistinguishable from pre-existing dirt and gets silently absorbed into the baseline (PR #3354 R1, BLOCKING). Records only; never injects, never denies. Matcher is Bash ALONE, not session_exec: session_exec runs in the session workspace, which is the correct destination, so observing it would flag the right behaviour.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-main-workspace-mutation.ts",
+            "timeout": 10,
+            "statusMessage": "Recording main-workspace baseline..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_pr_merge",
         "hooks": [
           {

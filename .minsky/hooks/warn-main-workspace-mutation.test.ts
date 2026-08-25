@@ -16,6 +16,7 @@ import { describe, test, expect } from "bun:test";
 import {
   buildAdvisory,
   decideMutation,
+  hasSessionWorkspace,
   parseModifiedTracked,
 } from "./warn-main-workspace-mutation";
 
@@ -128,6 +129,38 @@ describe("decideMutation — the baseline diff", () => {
   test("the persisted baseline is sorted, so it does not churn on ordering alone", () => {
     const decision = decideMutation([], [CREDENTIALS_TSX, ASK_DETAIL_TSX]);
     expect(decision.nextBaseline).toEqual([ASK_DETAIL_TSX, CREDENTIALS_TSX]);
+  });
+});
+
+describe("hasSessionWorkspace — the no-session narrowing (PR #3354 R1)", () => {
+  const SESSION_ROOT = "/Users/x/.local/state/minsky/sessions";
+
+  test("an empty session root means no session is open", () => {
+    expect(hasSessionWorkspace(SESSION_ROOT, () => [])).toBe(false);
+  });
+
+  test("a session directory present means one may be open", () => {
+    expect(hasSessionWorkspace(SESSION_ROOT, () => ["44e51685-76b6-47b1-97e3-cdbd84a1b099"])).toBe(
+      true
+    );
+  });
+
+  test("an unreadable root fails OPEN — absence of evidence is not evidence", () => {
+    // Silence should require positive evidence that no session exists. An
+    // unreadable root is not that, and treating it as "no session" would turn a
+    // transient fs error into a permanently silent detector — the failure mode
+    // that makes a probe worthless (mem#704).
+    expect(
+      hasSessionWorkspace(SESSION_ROOT, () => {
+        throw new Error("ENOENT");
+      })
+    ).toBe(true);
+  });
+
+  test("the lister returns DIRECTORIES only, so a stray file is not a session", () => {
+    // `defaultListDirs` filters on isDirectory(); this pins the contract the
+    // injected lister must honour.
+    expect(hasSessionWorkspace(SESSION_ROOT, () => [])).toBe(false);
   });
 });
 

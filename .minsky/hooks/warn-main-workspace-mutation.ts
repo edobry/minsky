@@ -57,7 +57,8 @@
 // @see mt#2358 — this hook
 // @see .minsky/hooks/require-session-for-main-workspace-edits.ts — the Edit/Write half
 
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, readdirSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
 
 import { readInput, writeOutput, deriveHookRepoRoot } from "./types";
@@ -66,6 +67,29 @@ import { recordFireLogEntry } from "./fire-log";
 
 /** This guard's fire-log identifier. */
 const GUARD_NAME = "warn-main-workspace-mutation";
+
+/**
+ * Where Minsky keeps session workspaces.
+ *
+ * DUPLICATED from `require-session-for-main-workspace-edits.deriveSessionWorkspaceRoot`
+ * rather than imported, deliberately. Importing that module for one path constant
+ * pulls its whole transitive graph into a hook that runs on EVERY Bash call — and
+ * measurably so: adding the import moved this module from tier 2 to ADR-026 tier 1
+ * (persistence-reaching) in the hook-module census, which is the census telling us
+ * the cost is real rather than theoretical. Four lines of env lookup is the cheaper
+ * duplication.
+ *
+ * Env-injectable so the derivation is assertable without touching a real HOME.
+ */
+export function deriveSessionRoot(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  const stateDir = env.MINSKY_STATE_DIR
+    ? env.MINSKY_STATE_DIR
+    : join(env.XDG_STATE_HOME || join(env.HOME || home, ".local", "state"), "minsky");
+  return join(stateDir, "sessions");
+}
 
 /** Where the last-observed modified-tracked set is kept, relative to the repo root. */
 export const BASELINE_RELATIVE_PATH = ".minsky/main-workspace-mutation-baseline.json";
@@ -182,6 +206,60 @@ export function buildAdvisory(newlyModified: readonly string[]): string {
   );
 }
 
+/**
+ * Is any Minsky session workspace present on this machine?
+ *
+ * A cheap, DB-free narrowing for the false positive PR #3354 R1 flagged: a
+ * DELIBERATE main-workspace edit made when no session is open at all. Session
+ * workspaces are REMOVED at merge (`session_pr_merge`'s cleanup), so an empty
+ * session root is a reliable "no session is open" — and in that state a
+ * main-workspace write is by definition not a misrouted session write.
+ *
+ * **What this does NOT establish**, stated rather than implied: that a session
+ * which DOES exist belongs to this conversation, or that this particular write
+ * was meant for it. Answering that needs the session record keyed by conversation
+ * id, which means going through the hook domain-bootstrap path — a 3.3-5.5s
+ * connect per the accepted thin-hooks RFC, on a hook that fires on EVERY Bash
+ * call under a 10s timeout. (Named indirectly on purpose: the hook-module census
+ * classifies ADR-026 tier 1 by grepping module source for that bootstrap
+ * function's NAME, so writing it here — in a comment explaining why this module
+ * does NOT call it — would classify the module as persistence-reaching on the
+ * strength of its own prose.) That trade is refused deliberately: the residual
+ * false positive costs
+ * one line of advisory text that names the legitimate case, and every fire is
+ * logged so the rate is measurable rather than argued.
+ *
+ * Fails OPEN (returns true) on an unreadable root: silence should require
+ * positive evidence that no session exists, not the absence of evidence.
+ */
+export function hasSessionWorkspace(
+  sessionRoot: string,
+  listDirs: (root: string) => string[] = defaultListDirs
+): boolean {
+  try {
+    return listDirs(sessionRoot).length > 0;
+  } catch {
+    // intentional-swallow: an unreadable or absent session root is not evidence
+    // that no session is open — see the docblock's fail-open note.
+    return true;
+  }
+}
+
+/**
+ * Production directory lister. Injected above rather than reached for, so the
+ * decision is testable without touching a real filesystem
+ * (`testing-standards.mdc §Testable Design`, and `custom/no-real-fs-in-tests`).
+ *
+ * Must THROW when the root is unreadable, so the fail-open branch above is
+ * reachable — swallowing here would turn an fs error into a confident "no
+ * session", which is the one answer that silences the detector.
+ */
+export function defaultListDirs(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+}
+
 /** Read the persisted baseline, or null when there is none / it is unreadable. */
 function readBaseline(repoRoot: string): string[] | null {
   try {
@@ -239,16 +317,36 @@ async function main(): Promise<void> {
       outcome = "crashed";
     } else {
       const current = parseModifiedTracked(proc.stdout.toString());
-      const decision = decideMutation(readBaseline(repoRoot), current);
-      writeBaseline(repoRoot, decision.nextBaseline);
 
-      if (decision.fired && decision.message) {
-        writeOutput({
-          hookSpecificOutput: {
-            hookEventName: "PostToolUse",
-            additionalContext: decision.message,
-          },
-        });
+      if (input.hook_event_name === "PreToolUse") {
+        // RECORD ONLY. This is the half that closes PR #3354 R1's first-run
+        // blindness: the baseline is captured immediately BEFORE the command
+        // runs, so the PostToolUse diff is an exact before/after around THIS
+        // call. The previous design inferred the "before" from the last call's
+        // "after", which is right in steady state and wrong exactly once — on
+        // the first call after a fresh checkout, where a real mutation was
+        // indistinguishable from the tree's pre-existing dirt and was silently
+        // absorbed into the baseline.
+        writeBaseline(repoRoot, [...current].sort());
+      } else if (hasSessionWorkspace(deriveSessionRoot())) {
+        // COMPARE. Gated on a session existing at all — see
+        // `hasSessionWorkspace` for what that does and does not establish.
+        const decision = decideMutation(readBaseline(repoRoot), current);
+        writeBaseline(repoRoot, decision.nextBaseline);
+
+        if (decision.fired && decision.message) {
+          writeOutput({
+            hookSpecificOutput: {
+              hookEventName: "PostToolUse",
+              additionalContext: decision.message,
+            },
+          });
+        }
+      } else {
+        // No session anywhere on the machine, so this write cannot be a
+        // misrouted session write. Keep the baseline current so the first call
+        // after a session IS started compares against a fresh reading.
+        writeBaseline(repoRoot, [...current].sort());
       }
     }
   } catch (err) {
@@ -260,7 +358,10 @@ async function main(): Promise<void> {
 
   recordFireLogEntry({
     guardName: GUARD_NAME,
-    event: "PostToolUse",
+    // The ACTUAL surface this invocation arrived on. Hardcoding "PostToolUse"
+    // would make the PreToolUse baseline-recording half invisible in the fire
+    // log, and the two halves have different denominators.
+    event: input.hook_event_name,
     decision: "allow",
     guardOutcome: outcome,
     durationMs: Date.now() - startMs,
