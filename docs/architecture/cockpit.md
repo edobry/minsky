@@ -496,9 +496,44 @@ would read zero for cockpit-process state:
   "sweepsAborted": 0,
   "lastAbortAt": null,
   "lastProductiveSweepAt": "2026-06-19T22:00:00.000Z",
-  "lastErrorAt": null
+  "lastErrorAt": null,
+  // mt#4489 / mt#4524 — the embedding phase; see "Reading the embedding phase" below.
+  "embedFailures": 0,
+  "embedPhase": "succeeded",
+  "embedInFlightAgeMs": null,
+  "embedOverdueBoundMs": 1800000,
+  "lastEmbedAttemptAt": "2026-06-19T22:00:00.000Z",
+  "embedNeverSucceeded": false
 }
 ```
+
+**Reading the embedding phase (mt#4524).** The sweep tick has two phases, and the
+counters above describe the FIRST one. `embedRuns` counts only backfills that
+CONCLUDED successfully, so on its own it cannot say whether a backfill is
+running, has never started, or has been failing — which is what `embedPhase`
+is for:
+
+| `embedPhase`           | Meaning                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `never-attempted`      | No backfill has started in this process's lifetime. Healthy on a daemon that has not swept yet.                                            |
+| `in-flight`            | A backfill is running and within its bound. **Normal**, and over ~1500 sessions it lasts minutes.                                          |
+| `in-flight-overdue`    | A backfill is running and has exceeded `embedOverdueBoundMs`. Its own condition, because a hang concludes nothing and so moves no counter. |
+| `succeeded` / `failed` | The last attempt concluded, with that outcome.                                                                                             |
+
+`embedNeverSucceeded` means _at least one attempt has CONCLUDED without success
+and none has succeeded_ — a standing failure. It was originally derived as
+`sweepsRun > 0 && embedRuns === 0`, which also fired for the entire duration of
+every healthy first backfill, because `recordSweepCompleted` ends Phase 1 before
+Phase 2 begins. Prefer `embedInFlightAgeMs` over `embedPhase` alone when judging
+severity: in-flight is normal, a large age is not — the same posture as
+`transcriptWatcher.oldestIngestInFlightAgeMs`.
+
+`embedOverdueBoundMs` is derived from this sweeper's own budgets rather than
+hardcoded: the resolved sweep interval (past which ticks start being skipped),
+capped by the per-tick timeout (past which `createIntervalSweeper` abandons the
+tick and `/api/sweeps` is the surface that says so). With the shipped defaults
+that is `min(30m, 60m)` = 30 minutes, and an
+`MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` override moves it too.
 
 Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint

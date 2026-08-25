@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "fs";
 import * as path from "path";
 import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./transcript-sweep-backstop";
-import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import { deriveEmbedOverdueBoundMs, TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
 
 // Helper: wait for an async condition to become true (polls at 5ms intervals).
@@ -101,6 +101,75 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       expect(summary.embedRuns).toBe(1);
       expect(summary.lastSweepAt).not.toBeNull();
       expect(summary.lastErrorAt).toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  // mt#4524 — the PRODUCTION-WIRING assertion, and the one that actually covers
+  // the reported defect. The tracker unit tests below prove the tracker CAN
+  // report in-flight; only this one proves the sweep tick actually marks it,
+  // because it samples the health summary from INSIDE the awaited backfill —
+  // the exact window in which the live daemon reported a standing failure.
+  test("the health summary reads in-flight DURING the backfill, not never-succeeded", async () => {
+    let duringBackfill: ReturnType<TranscriptSweepTracker["getSummary"]> | null = null;
+
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 1494, sessionsErrored: 0 }),
+      runEmbeddings: async () => {
+        // Phase 1 has completed by now (`recordSweepCompleted` already fired),
+        // which is precisely the state that made the old derivation misreport.
+        duringBackfill = tracker.getSummary();
+      },
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+
+    try {
+      await waitFor(() => tracker.getSummary().sweepsRun >= 1);
+
+      expect(duringBackfill).not.toBeNull();
+      const during = duringBackfill as unknown as ReturnType<TranscriptSweepTracker["getSummary"]>;
+      // Phase 1 done, Phase 2 running.
+      expect(during.sweepsRun).toBe(1);
+      expect(during.embedRuns).toBe(0);
+      expect(during.lastErrorAt).toBeNull();
+      // The defect, now correct on all three of its faces.
+      expect(during.embedPhase).toBe("in-flight");
+      expect(during.embedInFlightAgeMs).not.toBeNull();
+      expect(during.embedNeverSucceeded).toBe(false);
+
+      // And it concludes cleanly once the await returns.
+      const after = tracker.getSummary();
+      expect(after.embedPhase).toBe("succeeded");
+      expect(after.embedInFlightAgeMs).toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  test("a failed backfill concludes as failed, and sets embedNeverSucceeded (mt#4524)", async () => {
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 3, sessionsErrored: 0 }),
+      runEmbeddings: async () => {
+        throw new Error("embedding provider unreachable");
+      },
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+
+    try {
+      await waitFor(() => tracker.getSummary().embedFailures >= 1);
+
+      const s = tracker.getSummary();
+      expect(s.embedPhase).toBe("failed");
+      expect(s.embedInFlightAgeMs).toBeNull();
+      expect(s.embedRuns).toBe(0);
+      expect(s.embedNeverSucceeded).toBe(true);
+      // The sweep-level error timestamp is still set by the same catch block.
+      expect(s.lastErrorAt).not.toBeNull();
     } finally {
       stop();
     }
@@ -484,19 +553,142 @@ describe("TranscriptSweepTracker (mt#2321)", () => {
     expect(tracker.getSummary().embedNeverSucceeded).toBe(false);
   });
 
-  test("embedNeverSucceeded is true once a sweep ran with no successful embed", () => {
+  // mt#4524 — these two cases previously asserted `embedNeverSucceeded: true`
+  // after nothing more than `recordSweepCompleted`. That WAS the defect: the old
+  // `sweepsRun > 0 && embedRuns === 0` derivation fires the moment Phase 1 ends,
+  // for the whole duration of a Phase 2 that is working correctly. The tests
+  // encoded the bug as the invariant, which is why every gate stayed green.
+  test("a completed sweep alone does NOT make embedNeverSucceeded true (mt#4524)", () => {
     tracker.recordSweepCompleted(5, 0);
     const s = tracker.getSummary();
     expect(s.sweepsRun).toBe(1);
     expect(s.embedRuns).toBe(0);
-    expect(s.embedNeverSucceeded).toBe(true);
+    // Nothing has been ATTEMPTED yet, so nothing has failed.
+    expect(s.embedNeverSucceeded).toBe(false);
+    expect(s.embedPhase).toBe("never-attempted");
   });
 
   test("embedNeverSucceeded goes false as soon as one embed run succeeds", () => {
     tracker.recordSweepCompleted(5, 0);
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunFailed();
     expect(tracker.getSummary().embedNeverSucceeded).toBe(true);
+    tracker.recordEmbedRunStarted();
     tracker.recordEmbedRunCompleted();
     expect(tracker.getSummary().embedNeverSucceeded).toBe(false);
+  });
+
+  // ── mt#4524: the four phase states, plus the overdue condition ─────────────
+  // SC1/SC4. Asserted together rather than one per case: the field's whole
+  // purpose is to SEPARATE states the raw counters render identically, so a
+  // suite that checked one state in isolation would pass against a constant.
+
+  test("embedPhase is never-attempted before any attempt starts", () => {
+    const s = tracker.getSummary();
+    expect(s.embedPhase).toBe("never-attempted");
+    expect(s.embedInFlightAgeMs).toBeNull();
+    expect(s.lastEmbedAttemptAt).toBeNull();
+    expect(s.embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedPhase is in-flight while an attempt runs, and reports its age", () => {
+    const t0 = 1_000_000;
+    tracker.recordSweepCompleted(1494, 0);
+    tracker.recordEmbedRunStarted(t0);
+
+    const s = tracker.getSummary(t0 + 90_000);
+    expect(s.embedPhase).toBe("in-flight");
+    expect(s.embedInFlightAgeMs).toBe(90_000);
+    expect(s.lastEmbedAttemptAt).not.toBeNull();
+    // The defect window, now correct: an attempt in flight is not a failure.
+    expect(s.embedNeverSucceeded).toBe(false);
+    expect(s.embedRuns).toBe(0);
+    expect(s.embedFailures).toBe(0);
+  });
+
+  test("embedPhase becomes in-flight-overdue past the bound, and not before", () => {
+    const t0 = 1_000_000;
+    tracker.setEmbedOverdueBoundMs(60_000);
+    tracker.recordEmbedRunStarted(t0);
+
+    // Exactly at the bound is still in-flight — the comparison is strict.
+    expect(tracker.getSummary(t0 + 60_000).embedPhase).toBe("in-flight");
+    expect(tracker.getSummary(t0 + 60_001).embedPhase).toBe("in-flight-overdue");
+    // Overdue is its OWN state: it must not be folded into never-succeeded,
+    // because a hang concludes nothing (mem#862).
+    expect(tracker.getSummary(t0 + 600_000).embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedPhase is succeeded after a concluded successful attempt", () => {
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunCompleted();
+
+    const s = tracker.getSummary();
+    expect(s.embedPhase).toBe("succeeded");
+    expect(s.embedInFlightAgeMs).toBeNull();
+    expect(s.embedRuns).toBe(1);
+    expect(s.embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedPhase is failed, and embedNeverSucceeded true, after a concluded failure", () => {
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunFailed();
+
+    const s = tracker.getSummary();
+    expect(s.embedPhase).toBe("failed");
+    expect(s.embedInFlightAgeMs).toBeNull();
+    expect(s.embedFailures).toBe(1);
+    expect(s.embedRuns).toBe(0);
+    expect(s.embedNeverSucceeded).toBe(true);
+  });
+
+  // SC4 names the in-flight→concluded transition in BOTH directions explicitly.
+  test("the in-flight→concluded transition is observable in both directions", () => {
+    const t0 = 2_000_000;
+
+    tracker.recordEmbedRunStarted(t0);
+    expect(tracker.getSummary(t0 + 1_000).embedPhase).toBe("in-flight");
+    tracker.recordEmbedRunCompleted();
+    expect(tracker.getSummary(t0 + 2_000).embedPhase).toBe("succeeded");
+
+    tracker.recordEmbedRunStarted(t0 + 3_000);
+    expect(tracker.getSummary(t0 + 4_000).embedPhase).toBe("in-flight");
+    tracker.recordEmbedRunFailed();
+    expect(tracker.getSummary(t0 + 5_000).embedPhase).toBe("failed");
+  });
+
+  test("embedPhase reports the LAST outcome, not whichever counter is non-zero", () => {
+    // Once a process has one of each, `embedRuns > 0` and `embedFailures > 0`
+    // are both true and cannot order themselves — which is why the tracker
+    // stores the last outcome rather than inferring it.
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunCompleted();
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunFailed();
+
+    const s = tracker.getSummary();
+    expect(s.embedRuns).toBe(1);
+    expect(s.embedFailures).toBe(1);
+    expect(s.embedPhase).toBe("failed");
+    // A backfill HAS succeeded in this process, so this stays false even though
+    // the most recent attempt failed.
+    expect(s.embedNeverSucceeded).toBe(false);
+  });
+
+  test("setEmbedOverdueBoundMs ignores non-positive and non-finite values", () => {
+    const before = tracker.getSummary().embedOverdueBoundMs;
+    tracker.setEmbedOverdueBoundMs(0);
+    tracker.setEmbedOverdueBoundMs(-1);
+    tracker.setEmbedOverdueBoundMs(Number.NaN);
+    // A zero bound would report every attempt overdue the instant it started.
+    expect(tracker.getSummary().embedOverdueBoundMs).toBe(before);
+  });
+
+  test("deriveEmbedOverdueBoundMs takes the sweep interval, capped by the tick timeout", () => {
+    // The interval is the operationally meaningful line (ticks start being
+    // skipped past it); the tick timeout caps it so the bound is never dead code.
+    expect(deriveEmbedOverdueBoundMs(30 * 60 * 1000, 60 * 60 * 1000)).toBe(30 * 60 * 1000);
+    expect(deriveEmbedOverdueBoundMs(2 * 60 * 60 * 1000, 60 * 60 * 1000)).toBe(60 * 60 * 1000);
   });
 
   test("recordSweepError sets lastErrorAt without changing sweep counters", () => {
