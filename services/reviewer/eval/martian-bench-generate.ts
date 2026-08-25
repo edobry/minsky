@@ -109,6 +109,14 @@ interface ResolvedPr {
   repo: string;
   prNumber: number;
   sourceFile: string;
+  /** Carried straight through into the output artifact (see `main()`'s output construction) —
+   * `step2_extract_comments.py`/`step3_judge_comments.py` read `golden_comments`/`pr_title` off
+   * the SAME per-PR entry that carries `reviews[]` (offline/README.md -> "Data format"); an
+   * entry with `reviews` but no `golden_comments` scores every candidate against zero golden
+   * comments, which is not "unscored" but silently wrong (recall trivially undefined/skipped,
+   * precision computed against nothing). */
+  prTitle: string;
+  goldenComments: GoldenComment[];
 }
 
 /** Parse a GitHub PR URL into {owner, repo, prNumber}. Throws on an unrecognized shape rather
@@ -133,7 +141,15 @@ function loadGoldenPrs(goldenDir: string): ResolvedPr[] {
     const entries: GoldenEntry[] = JSON.parse(readFileSync(join(goldenDir, file), "utf-8"));
     for (const entry of entries) {
       const { owner, repo, prNumber } = parsePrUrl(entry.url);
-      resolved.push({ goldenUrl: entry.url, owner, repo, prNumber, sourceFile: file });
+      resolved.push({
+        goldenUrl: entry.url,
+        owner,
+        repo,
+        prNumber,
+        sourceFile: file,
+        prTitle: entry.pr_title,
+        goldenComments: entry.comments,
+      });
     }
   }
   return resolved;
@@ -246,6 +262,18 @@ interface MartianReview {
   review_comments: MartianReviewComment[];
 }
 
+/** One entry of `benchmark_data.json`, keyed by golden-comment PR URL — the shape
+ * `step1_download_prs.py` writes and `step2_extract_comments.py`/`step3_judge_comments.py` read
+ * (offline/README.md -> "Data format"). `golden_comments`/`pr_title`/`source_repo` live on the
+ * SAME entry as `reviews[]`; an entry missing them scores against zero golden comments. */
+interface MartianBenchmarkEntry {
+  pr_title: string;
+  original_url: string;
+  source_repo: string;
+  golden_comments: GoldenComment[];
+  reviews: MartianReview[];
+}
+
 /** `submit_finding`'s args always carry `file` + `line` (both required —
  * `SubmitFindingArgsSchema` in `output-tools.ts`), so every finding maps to a "line-specific"
  * Martian comment, which offline/README.md's step2 treats as a direct candidate (no LLM
@@ -332,7 +360,7 @@ async function main() {
 
   const octokit = new Octokit({ auth: githubToken });
 
-  const output: Record<string, { reviews: MartianReview[] }> = {};
+  const output: Record<string, MartianBenchmarkEntry> = {};
   const generationMeta: Array<{ pr: string; tokensUsed?: number; roundsUsed?: number }> = [];
 
   for (const [idx, pr] of prs.entries()) {
@@ -360,6 +388,10 @@ async function main() {
     );
 
     output[pr.goldenUrl] = {
+      pr_title: pr.prTitle,
+      original_url: pr.goldenUrl,
+      source_repo: pr.repo,
+      golden_comments: pr.goldenComments,
       reviews: [
         {
           tool: "minsky",
@@ -381,13 +413,9 @@ async function main() {
   const outDir = dirname(args.out);
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
-  // benchmark_data.json's real schema also carries golden_comments/pr_title/source_repo per
-  // entry (offline/README.md -> "Data format") — those come from the golden file itself and are
-  // deliberately NOT duplicated here; step2/step2.5/step3 read `reviews[]` off whatever entry
-  // already exists in the file the pinned checkout's own step1 would have produced. This script
-  // writes a reviews-only overlay; merging it onto step1's golden-comment-carrying shape (or
-  // producing the full shape directly) is remaining implementation work — see the mt#4577 spec's
-  // "Remaining implementation work" list, item 2.
+  // Writes the FULL benchmark_data.json shape (golden_comments + reviews per entry), not a
+  // reviews-only overlay — so step2_extract_comments.py/step3_judge_comments.py can run against
+  // this file directly, without a separate merge step against step1's output.
   writeFileSync(args.out, JSON.stringify(output, null, 2));
   writeFileSync(
     args.out.replace(/\.json$/, "-generation-meta.json"),
