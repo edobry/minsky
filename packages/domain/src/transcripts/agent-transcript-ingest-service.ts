@@ -584,7 +584,25 @@ export class AgentTranscriptIngestService {
       );
     }
 
-    if (newLines.length === 0 && newAttachmentRows.length === 0) {
+    // mt#4573 (PR #3346 R1, BLOCKING): capture rows join the early-return
+    // condition, so a batch carrying ONLY un-timestamped lines falls through to
+    // the main path instead of returning here.
+    //
+    // The reviewer was right that the previous shape lost them permanently. A
+    // brand-new conversation's first lines can be `bridge-session` / `mode` /
+    // `permission-mode` — all un-timestamped — so both timestamped paths are
+    // empty and there is no parent row yet. Guarding the capture write on
+    // `parentRowExists`, as this branch used to, therefore skipped it; and
+    // because the ordinal high-water only advances when rows land, every later
+    // sweep rebuilt the same batch and re-reached the same guard. The old
+    // comment claimed "the next sweep loses nothing", which assumed a parent
+    // row that only a timestamped line can create.
+    //
+    // Falling through fixes it without widening §3a: the §4 upsert creates the
+    // parent row, and §4a2 captures after it. Steady state is unaffected —
+    // a fully-captured session has no new capture rows, so it still returns here
+    // and writes nothing.
+    if (newLines.length === 0 && newAttachmentRows.length === 0 && newCaptureRows.length === 0) {
       // The transcript upsert below is skipped, so the verdict has to be
       // written on its own here or it is lost for every already-ingested
       // conversation. Conditional in SQL rather than unconditional: the WHERE
@@ -599,31 +617,6 @@ export class AgentTranscriptIngestService {
       // re-derived rather than lost. This path is the only one where "the next
       // pass" never comes.
       await this.persistDivergenceVerdict(agentSessionId, divergenceVerdict.divergentTips);
-
-      // mt#4573: capture can have new rows even when BOTH paths above have
-      // none. The types it newly retains are exactly the un-timestamped ones,
-      // which the timestamp high-water-mark cannot see — so a metadata-only
-      // append (a `mode` / `bridge-session` / `ai-title` line with no content
-      // beside it) lands precisely here. Without this write those lines would
-      // be skipped by every subsequent sweep too, since each one re-reaches
-      // this same early return: a permanent, silent loss.
-      //
-      // Guarded on the parent row because `transcript_lines` carries an FK to
-      // `agent_transcripts`. When no parent exists there is nothing else stored
-      // for this session either, and the ordinal high-water has not advanced,
-      // so the next sweep re-reads the file from ordinal 0 and loses nothing.
-      if (newCaptureRows.length > 0 && parentRowExists) {
-        const captureError = await writeCapturedLines(this.db, newCaptureRows);
-        if (captureError) {
-          // Logged, not returned: this branch's contract is an idempotent
-          // no-op re-run, and the ordinal high-water has not moved, so the
-          // next sweep retries these same rows.
-          log.warn(
-            `transcript_lines capture FAILED for session ${agentSessionId} (${newCaptureRows.length} rows) — will retry next sweep`,
-            { agentSessionId, error: getLoggableErrorSummary(captureError) }
-          );
-        }
-      }
 
       log.debug(
         `No new lines for session ${agentSessionId} (high-water-mark: ${highWaterMark?.toISOString() ?? "none"})`

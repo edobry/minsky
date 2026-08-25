@@ -381,7 +381,19 @@ describe("AgentTranscriptIngestService", () => {
       expect(state.size).toBe(0);
     });
 
-    test("returns 0 for lines without timestamps", async () => {
+    test("ingests 0 for lines without timestamps, but no longer DISCARDS them (mt#4573)", async () => {
+      // Behavior change, made deliberately — the previous assertion was
+      // `state.size === 0`, i.e. a session whose lines all lack timestamps
+      // produced no row at all.
+      //
+      // Look at what these lines ARE: `user` and `assistant` turns carrying real
+      // message content, dropped on the floor because they had no timestamp.
+      // That is precisely the silent loss this task exists to end, so capturing
+      // them is the point rather than a side effect — and capture needs a parent
+      // row, because `transcript_lines` carries an FK to `agent_transcripts`.
+      //
+      // `ingested` still reports 0: that counts the TIMESTAMPED ingest path,
+      // which genuinely took nothing, and it is unchanged.
       const lines: RawTurnLine[] = [
         { type: "user", message: { role: "user", content: "hello" } },
         { type: "assistant", message: { role: "assistant", content: "world" } },
@@ -397,7 +409,9 @@ describe("AgentTranscriptIngestService", () => {
 
       expect(result.ingested).toBe(0);
       expect(result.error).toBeUndefined();
-      expect(state.size).toBe(0);
+      // The content survives now, which it did not before.
+      expect(db._capturedLines.map((r) => r.lineType)).toEqual(["user", "assistant"]);
+      expect(state.size).toBe(1);
     });
 
     test("stores lastIngestedJsonlTimestamp equal to the latest line timestamp", async () => {

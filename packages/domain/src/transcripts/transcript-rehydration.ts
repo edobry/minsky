@@ -27,7 +27,7 @@
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -112,7 +112,10 @@ export const realRehydrationFs: RehydrationFs = {
     }
   },
   async ensureDir(path) {
-    await mkdir(join(path, ".."), { recursive: true });
+    // `dirname`, not `join(path, "..")` (PR #3346 R1): both resolve here, but
+    // the latter produces a path containing a literal `..` segment and relies
+    // on the caller normalizing it.
+    await mkdir(dirname(path), { recursive: true });
   },
   async writeNew(path, contents) {
     await writeFile(path, contents, { flag: "wx" });

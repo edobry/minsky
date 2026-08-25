@@ -99,6 +99,54 @@ describe("full-fidelity capture into transcript_lines (mt#4573)", () => {
     expect(dbB._capturedLines.length).toBeGreaterThan(dbA._capturedLines.length);
   });
 
+  test("captures a brand-new session whose lines are ALL un-timestamped", async () => {
+    // PR #3346 R1, BLOCKING. A new conversation's first lines can be
+    // `bridge-session` / `mode` / `permission-mode` — every one un-timestamped —
+    // so both timestamped paths are empty and no parent row exists yet. The
+    // original shape guarded the capture write on `parentRowExists` and hit the
+    // early return, and because the ordinal high-water only advances when rows
+    // land, every later sweep rebuilt the same batch and re-reached the same
+    // guard: a permanent, silent loss rather than a deferred one.
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [
+      makeUnretainedLine("bridge-session"),
+      makeUnretainedLine("mode"),
+      makeUnretainedLine("permission-mode"),
+    ]);
+    const db = makeDb(new Map<string, FakeRow>());
+    db._primeSession(SESSION_A);
+
+    const result = await makeSvc(db, source).ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    expect(db._capturedLines.map((r) => r.lineType)).toEqual([
+      "bridge-session",
+      "mode",
+      "permission-mode",
+    ]);
+  });
+
+  test("a fully-captured session with nothing new still writes nothing", async () => {
+    // The other half of the same change: widening the early-return condition
+    // must not cost a write on every steady-state sweep. A session whose lines
+    // are all already captured has no new capture rows, so it still returns
+    // early — this is the guard against reintroducing the per-tick write
+    // amplification that early return exists to avoid.
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [...makeLines([TS1]), makeUnretainedLine("mode")]);
+    const db = makeDb(new Map<string, FakeRow>());
+    db._primeSession(SESSION_A);
+    const svc = makeSvc(db, source);
+
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    const writesAfterFirst = db._writeOrder.length;
+
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(db._writeOrder.length).toBe(writesAfterFirst);
+    expect(db._capturedLines.length).toBe(2);
+  });
+
   test("re-ingest captures only the appended lines, not the whole file again", async () => {
     const source = new FakeTranscriptSource();
     const firstBatch = [...makeLines([TS1]), makeUnretainedLine("mode")];
