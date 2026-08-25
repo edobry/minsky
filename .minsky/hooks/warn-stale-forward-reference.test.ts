@@ -12,6 +12,7 @@ import {
   MERGE_TOOL,
   TRIGGER_STATUS,
   resolveTrigger,
+  toEventPhase,
   type CorpusDoc,
 } from "./warn-stale-forward-reference";
 import { deriveHookRepoRoot } from "./types";
@@ -63,35 +64,83 @@ describe("resolveTrigger (mt#4545) — the reachability half", () => {
   const MERGE_OK = { success: true };
 
   test("fires on a SUCCESSFUL merge, as PostToolUse", () => {
-    const t = resolveTrigger(MERGE_TOOL, { task: TASK_ID }, MERGE_OK, TASK_ID);
+    const t = resolveTrigger(MERGE_TOOL, { task: TASK_ID }, MERGE_OK, TASK_ID, "PostToolUse");
     expect(t.taskId).toBe(TASK_ID);
     expect(t.event).toBe("PostToolUse");
   });
 
   test("does NOT fire on a failed merge — a failed merge is not a DONE transition", () => {
-    const t = resolveTrigger(MERGE_TOOL, { task: TASK_ID }, { success: false }, TASK_ID);
+    const t = resolveTrigger(
+      MERGE_TOOL,
+      { task: TASK_ID },
+      { success: false },
+      TASK_ID,
+      "PostToolUse"
+    );
     expect(t.taskId).toBeNull();
   });
 
   test("does not fire on a merge whose task could not be resolved", () => {
-    const t = resolveTrigger(MERGE_TOOL, {}, MERGE_OK, null);
+    const t = resolveTrigger(MERGE_TOOL, {}, MERGE_OK, null, "PostToolUse");
     expect(t.taskId).toBeNull();
   });
 
   test("still fires on an EXPLICIT status_set to DONE, as PreToolUse (SC2)", () => {
-    const t = resolveTrigger(TARGET_TOOL, { taskId: TASK_ID, status: "DONE" }, undefined, null);
+    const t = resolveTrigger(
+      TARGET_TOOL,
+      { taskId: TASK_ID, status: "DONE" },
+      undefined,
+      null,
+      "PreToolUse"
+    );
     expect(t.taskId).toBe(TASK_ID);
     expect(t.event).toBe("PreToolUse");
   });
 
   test("does not fire on a non-DONE status_set", () => {
-    const t = resolveTrigger(TARGET_TOOL, { taskId: TASK_ID, status: "READY" }, undefined, null);
+    const t = resolveTrigger(
+      TARGET_TOOL,
+      { taskId: TASK_ID, status: "READY" },
+      undefined,
+      null,
+      "PreToolUse"
+    );
     expect(t.taskId).toBeNull();
   });
 
   test("does not fire on an unrelated tool", () => {
-    const t = resolveTrigger("mcp__minsky__tasks_get", { taskId: TASK_ID }, MERGE_OK, TASK_ID);
+    const t = resolveTrigger(
+      "mcp__minsky__tasks_get",
+      { taskId: TASK_ID },
+      MERGE_OK,
+      TASK_ID,
+      "PostToolUse"
+    );
     expect(t.taskId).toBeNull();
+  });
+
+  test("PR #3316 R1: an unmatched tool reports its REAL phase, not a hardcoded default", () => {
+    // The PostToolUse block's matcher is
+    // `mcp__minsky__session_pr_merge|mcp__github__merge_pull_request`, so the
+    // bypass-merge tool DOES reach the default branch. It must not fire, and it
+    // must not log a PostToolUse invocation as PreToolUse — that would corrupt
+    // the fire-log this task relies on as its coverage receipt.
+    const t = resolveTrigger(
+      "mcp__github__merge_pull_request",
+      { pullNumber: 1 },
+      MERGE_OK,
+      null,
+      "PostToolUse"
+    );
+    expect(t.taskId).toBeNull();
+    expect(t.event).toBe("PostToolUse");
+  });
+
+  test("toEventPhase narrows the harness field, defaulting to PreToolUse", () => {
+    expect(toEventPhase("PostToolUse")).toBe("PostToolUse");
+    expect(toEventPhase("PreToolUse")).toBe("PreToolUse");
+    expect(toEventPhase(undefined)).toBe("PreToolUse");
+    expect(toEventPhase("SomethingElse")).toBe("PreToolUse");
   });
 
   test("NEGATIVE CONTROL: the pre-fix trigger was blind to the merge surface", () => {
@@ -113,7 +162,9 @@ describe("resolveTrigger (mt#4545) — the reachability half", () => {
     expect(preFixTrigger(TARGET_TOOL, { taskId: TASK_ID, status: TRIGGER_STATUS })).toBe(true);
 
     // And the fixed trigger fires on the merge input the old one missed.
-    expect(resolveTrigger(MERGE_TOOL, { task: TASK_ID }, MERGE_OK, TASK_ID).taskId).toBe(TASK_ID);
+    expect(
+      resolveTrigger(MERGE_TOOL, { task: TASK_ID }, MERGE_OK, TASK_ID, "PostToolUse").taskId
+    ).toBe(TASK_ID);
   });
 });
 

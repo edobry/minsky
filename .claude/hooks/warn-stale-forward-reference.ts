@@ -507,14 +507,15 @@ export function resolveTrigger(
   toolName: string,
   toolInput: Record<string, unknown> | undefined,
   toolResult: Record<string, unknown> | undefined,
-  mergeTaskId: string | null
+  mergeTaskId: string | null,
+  eventPhase: "PreToolUse" | "PostToolUse"
 ): Trigger {
   if (toolName === TARGET_TOOL) {
     const taskId = (toolInput?.["taskId"] as string | undefined)?.trim();
     const status = (toolInput?.["status"] as string | undefined)?.trim();
     return {
       taskId: taskId && status === TRIGGER_STATUS ? taskId : null,
-      event: "PreToolUse",
+      event: eventPhase,
     };
   }
   if (toolName === MERGE_TOOL) {
@@ -522,9 +523,31 @@ export function resolveTrigger(
     // guard's own claim ("this task is going DONE") true — the same accuracy
     // the advisory asks its reader to restore in the corpus.
     const succeeded = toolResult?.["success"] === true;
-    return { taskId: succeeded ? mergeTaskId : null, event: "PostToolUse" };
+    return { taskId: succeeded ? mergeTaskId : null, event: eventPhase };
   }
-  return { taskId: null, event: "PreToolUse" };
+
+  // Any OTHER tool this hook is registered on: do not fire, but report the
+  // lifecycle point HONESTLY (PR #3316 R1).
+  //
+  // This is not hypothetical. The PostToolUse block's matcher is
+  // `mcp__minsky__session_pr_merge|mcp__github__merge_pull_request`, so the
+  // bypass-merge tool reaches here — and hardcoding `"PreToolUse"` logged a
+  // PostToolUse invocation as PreToolUse, corrupting the very fire-log this
+  // task depends on for its coverage receipt.
+  //
+  // Not firing on `mcp__github__merge_pull_request` is CORRECT, not a second
+  // coverage gap: the raw-bypass path does not set DONE at the merge call. It
+  // reaches DONE later through `/verify-task`'s explicit `tasks_status_set`,
+  // which the PreToolUse surface above already covers.
+  //
+  // Deriving the phase from the input rather than branching per tool also means
+  // a future widening of either matcher cannot reintroduce this mislabel.
+  return { taskId: null, event: eventPhase };
+}
+
+/** Narrow the harness's `hook_event_name` to the two phases this guard runs at. */
+export function toEventPhase(hookEventName: string | undefined): "PreToolUse" | "PostToolUse" {
+  return hookEventName === "PostToolUse" ? "PostToolUse" : "PreToolUse";
 }
 
 if (import.meta.main) {
@@ -546,7 +569,8 @@ if (import.meta.main) {
     input.tool_name,
     input.tool_input,
     input.tool_result as Record<string, unknown> | undefined,
-    mergeTaskId
+    mergeTaskId,
+    toEventPhase(input.hook_event_name)
   );
   const taskId = trigger.taskId;
 
