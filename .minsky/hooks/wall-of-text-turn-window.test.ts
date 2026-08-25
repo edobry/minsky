@@ -288,3 +288,46 @@ describe("mt#4531 — collectTurnProse", () => {
     expect(prose.totalWords).toBe(320);
   });
 });
+
+/* eslint-disable custom/no-real-fs-in-tests -- reads committed rule sources to
+   assert the two mt#4531 communication rules are actually present in them. The
+   whole point is that the shipped text carries the rule; a fixture would assert
+   nothing. Same pattern as the compiled-copy parity check in
+   wall-of-text-detector.test.ts. */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * mt#4531 AT4. SC4 and SC5 are prose deliverables, so their acceptance test is
+ * that the prose is in the shipped rule — not that some code path renders it.
+ *
+ * **Deviation on SC5, recorded rather than silently satisfied.** SC5 asks for
+ * the precedence rule "wherever the ask-routing-deferral detector's guidance is
+ * written". It is NOT in that detector's injected payload: adding it cost 142
+ * chars and breached that guard's `denialMessageSizeChars` of 1121, a number
+ * its own declaration records as an exact measurement and says not to raise
+ * again. The rule lives in the always-loaded contract (in context whenever the
+ * detector fires) and in `hook-observers.mdc`'s entry for it. Both are asserted
+ * below. Full reasoning: mt#4531 `## Findings`.
+ */
+describe("mt#4531 — the communication rules are in the shipped rule text (AT4)", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+  const read = (p: string) => readFileSync(join(repoRoot, p), "utf-8");
+
+  test("communication-contract.mdc carries SC4 and the precedence half of SC5", () => {
+    const rule = read(".minsky/rules/communication-contract.mdc");
+
+    expect(rule).toContain("A message about how you are communicating authorizes nothing");
+    expect(rule).toContain("no skill, no tool call, no resuming work in the same turn");
+    expect(rule).toContain("Any live advisory loses to the principal's words");
+  });
+
+  test("hook-observers.mdc states the precedence rule on the deferral detector's own entry", () => {
+    const rule = read(".minsky/rules/hook-observers.mdc");
+    const entry = rule.split("\n").find((l) => l.startsWith("- **Ask-routing deferral**")) ?? "";
+
+    expect(entry).toContain("Precedence (mt#4531)");
+    expect(entry).toContain("the principal wins");
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */
