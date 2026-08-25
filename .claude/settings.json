@@ -182,16 +182,16 @@
             "statusMessage": "Validating task spec structure..."
           },
           {
-            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the SIX guards registered on this matcher (require-duplicate-check-record 5s, duplicate-signature-scan 18s, duplicate-check-search-provenance 5s per mt#4004, flakiness-control-detector 5s per mt#3658, claim-provenance-scan 5s per mt#4168, duplicate-check-candidate-read 5s per mt#4167) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart.",
+            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the EIGHT guards registered on this matcher (require-duplicate-check-record 5s, duplicate-signature-scan 18s, duplicate-check-search-provenance 5s per mt#4004, flakiness-control-detector 5s per mt#3658, claim-provenance-scan 5s per mt#4168, duplicate-check-candidate-read 5s per mt#4167, spec-criterion-claim-detector 10s per mt#4153, warn-unwired-task-relationship 12s per mt#2264) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart. Do NOT hand-maintain this number: it is the SEQUENTIAL worst case, and registry.test.ts recomputes it from the registrations on every run.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 58,
+            "timeout": 70,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
       },
       {
-        "_comment": "mt#4168: the spec-WRITE seam. These three tools rewrite an EXISTING task spec and carried NO PreToolUse guard of any kind before claim-provenance-scan — which is exactly where both of that guard's originating incidents wrote, since /implement-task §0a and /plan-task both operate on a task that already exists. Timeout is DERIVED (mt#3981) from the one guard routed here (claim-provenance-scan 5s) plus the 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block.",
+        "_comment": "mt#4168: the spec-WRITE seam. These three tools rewrite an EXISTING task spec and carried NO PreToolUse guard of any kind before claim-provenance-scan — which is exactly where both of that guard's originating incidents wrote, since /implement-task §0a and /plan-task both operate on a task that already exists. Timeout is DERIVED (mt#3981) from the THREE guards routed here (claim-provenance-scan 5s, spec-criterion-claim-detector 10s per mt#4153, warn-unwired-task-relationship 12s per mt#2264) plus the 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block. mt#2264's budget dominates because it is the only guard here that reads the live task graph; it consumes that budget ONLY when the spec actually states a relationship, and returns before any IO otherwise.",
         "matcher": "mcp__minsky__tasks_spec_patch",
         "hooks": [
           {
@@ -208,7 +208,7 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 20,
+            "timeout": 32,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]

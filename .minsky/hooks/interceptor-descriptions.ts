@@ -366,6 +366,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "warn-unwired-task-relationship",
+    {
+      description:
+        'Records when a task spec STATES a relationship to another task in prose — "hard prerequisite for mt#N", "feeds mt#N", "is part of mt#N" — while the matching structural edge is absent. Fires across the whole spec-authoring seam: at `tasks_create` the discharge is exact from the payload (`dependsOn` / `parent`), at the three edit seams it reads the live `task_relationships` graph. Distinguishes the two axes mem#530 keeps apart — dependency (data-flow / blocking) vs parent/child (decomposition) — because conflating them is half the family. The failure is not that the graph goes quiet: `tasks_orchestrate` derives `blockedBy` from edges alone, so an unwired prerequisite renders as `ready: true, blockedBy: []`, and the agent this targets is the one consulting the graph instead of reading specs. Record-only at ship; graduation gated on a replay measuring the recognition half.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("warn-unwired-task-relationship"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
