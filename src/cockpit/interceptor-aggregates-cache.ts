@@ -59,6 +59,7 @@ import { buildSweptEntries } from "../domain/calibration/swept-entries";
 import { describeServerPersistenceUnavailability } from "./db-providers";
 import { GuardHealthTracker } from "../mcp/guard-health-tracker";
 import { createCachedSqlDbGetter } from "./db-providers";
+import { describeSourceFailure } from "./source-failure-log";
 import { findRepoRoot } from "./web-dist";
 import { parseCatalog } from "./widgets/interceptors";
 import catalogJson from "../generated/interceptor-catalog.json";
@@ -99,7 +100,7 @@ async function guarded<T>(source: string, read: () => Promise<T>): Promise<T | n
     return await read();
   } catch (err) {
     log.warn(`cockpit: interceptor-aggregates: ${source} source failed this refresh`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: describeSourceFailure(err),
     });
     return null;
   }
