@@ -72,16 +72,42 @@ function covered(enumerated: string, changed: readonly string[]): boolean {
   });
 }
 
-function lineFor(spec: string, path: string): string | null {
+/**
+ * The IN-SCOPE line naming `path` — the block, never the whole spec.
+ *
+ * PR #3340 R1 flagged the whole-spec form in the guard; this was the same code
+ * copied here, so it carried the same defect (class-not-instance). A path also
+ * cited in `## Context` or under `Out of scope` would have been quoted from
+ * there, which for a measurement whose entire purpose is hand classification is
+ * worse than in the guard: the quoted line IS the classification evidence.
+ */
+function lineFor(inScopeBlock: string | undefined, path: string): string | null {
+  if (!inScopeBlock) return null;
   const t = normalize(path);
-  for (const l of spec.split("\n")) if (l.includes(t)) return l.trim();
+  for (const l of inScopeBlock.split("\n")) if (l.includes(t)) return l.trim();
   return null;
 }
+
+/**
+ * `owner/repo`, derived from the git remote rather than hard-coded (PR #3340
+ * R1). Fails loudly instead of silently measuring the wrong repository.
+ */
+function repoSlug(): string {
+  const out = sh(["git", "remote", "get-url", "origin"], 10_000);
+  const m = out?.match(/github\.com[:/]([^/]+\/[^/\s]+?)(?:\.git)?\s*$/);
+  if (!m?.[1]) {
+    console.error("FAIL: could not derive owner/repo from `git remote get-url origin`.");
+    process.exit(1);
+  }
+  return m[1];
+}
+
+const REPO = repoSlug();
 
 const listRaw = sh([
   "gh",
   "api",
-  `repos/edobry/minsky/pulls?state=closed&per_page=${LIMIT}&sort=updated&direction=desc`,
+  `repos/${REPO}/pulls?state=closed&per_page=${LIMIT}&sort=updated&direction=desc`,
 ]);
 if (!listRaw) {
   console.error("FAIL: `gh api` did not return a PR list — cannot measure.");
@@ -110,18 +136,18 @@ for (const pr of prs) {
     noSpec++;
     continue;
   }
-  const { files: enumerated } = extractInScopeFiles(spec, { strict: true });
+  const { files: enumerated, inScopeBlock } = extractInScopeFiles(spec, { strict: true });
   if (enumerated.length === 0) {
     nothingToCompare++;
     continue;
   }
-  const filesRaw = sh(["gh", "api", `repos/edobry/minsky/pulls/${pr.number}/files?per_page=100`]);
+  const filesRaw = sh(["gh", "api", `repos/${REPO}/pulls/${pr.number}/files?per_page=100`]);
   if (!filesRaw) continue;
   const changed = (JSON.parse(filesRaw) as Array<{ filename: string }>).map((f) => f.filename);
 
   const untouched = enumerated
     .filter((e) => !covered(e, changed))
-    .map((p) => ({ path: p, line: lineFor(spec, p) }));
+    .map((p) => ({ path: p, line: lineFor(inScopeBlock, p) }));
 
   rows.push({ pr: pr.number, taskId, enumerated, changed: changed.length, untouched });
 }

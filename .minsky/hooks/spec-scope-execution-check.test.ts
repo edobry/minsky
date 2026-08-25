@@ -22,6 +22,7 @@ import {
   enumerationLineFor,
   untouchedEnumeratedPaths,
 } from "./spec-scope-execution-check";
+import { extractInScopeFiles } from "./parallel-work-guard";
 import type { TranscriptLine } from "./transcript";
 import type { DispatchContext } from "./registry";
 import type { ToolHookInput } from "./types";
@@ -143,18 +144,47 @@ describe("mt#4544 — pure helpers", () => {
   });
 
   test("enumerationLineFor returns the spec's own line, so a CONDITIONAL is visible", () => {
-    const line = enumerationLineFor(SPEC_THREE_PATHS, GAMMA);
+    const { inScopeBlock } = extractInScopeFiles(SPEC_THREE_PATHS, { strict: true });
+    const line = enumerationLineFor(inScopeBlock, GAMMA);
     expect(line).toContain(GAMMA_CONDITIONAL);
+  });
+
+  // PR #3340 R1 (BLOCKING + its non-blocking sibling). The earlier form scanned
+  // the WHOLE spec and returned the first line containing the path — so for a
+  // path the spec also cites earlier, in `## Summary` or `## Context`, it
+  // quoted that line instead of the in-scope one. Quoting a non-promise as
+  // though it were a promise inverts the finding.
+  test("quotes the IN-SCOPE line, not an earlier mention of the same path", () => {
+    const spec = `## Summary
+
+Prior art for this lives in \`${GAMMA}\`, which we are NOT changing for that reason.
+
+## Scope
+
+**In scope:**
+
+- \`${GAMMA}\` — ${GAMMA_CONDITIONAL} to it.
+
+**Out of scope:**
+
+- \`${OUT_OF_SCOPE_PATH}\`
+`;
+    const { inScopeBlock } = extractInScopeFiles(spec, { strict: true });
+    const line = enumerationLineFor(inScopeBlock, GAMMA);
+    expect(line).toContain(GAMMA_CONDITIONAL);
+    expect(line).not.toContain("Prior art");
+  });
+
+  test("returns null rather than falling back to a whole-document scan", () => {
+    // A missing quote is a smaller failure than a misattributed one.
+    expect(enumerationLineFor(undefined, GAMMA)).toBeNull();
   });
 });
 
 describe("mt#4544 — AT1: an enumerated path the PR never touched", () => {
   test("three enumerated, two touched -> exactly one finding, quoting its line", () => {
-    const untouched = untouchedEnumeratedPaths(
-      SPEC_THREE_PATHS,
-      [ALPHA, BETA, GAMMA],
-      [ALPHA, BETA]
-    );
+    const { inScopeBlock } = extractInScopeFiles(SPEC_THREE_PATHS, { strict: true });
+    const untouched = untouchedEnumeratedPaths(inScopeBlock, [ALPHA, BETA, GAMMA], [ALPHA, BETA]);
     expect(untouched).toHaveLength(1);
     expect(untouched[0]?.path).toBe(GAMMA);
     expect(untouched[0]?.line).toContain(GAMMA_CONDITIONAL);

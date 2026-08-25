@@ -77,15 +77,21 @@ export function boundTaskId(toolInput: Record<string, unknown>): string | null {
 }
 
 /**
- * Normalize a path for comparison: strip a leading `./`, strip surrounding
- * whitespace, and drop any absolute session-workspace prefix so a session's
- * absolute edit path compares against a spec's repo-relative one.
+ * Normalize a path for comparison: strip surrounding whitespace, a leading
+ * `./`, and any trailing slashes. That is ALL it does.
  *
- * The suffix rule is deliberate rather than lazy. Edit tool calls record
- * whatever path the caller passed — repo-relative for the session-scoped tools,
- * absolute for the harness-native ones — and the spec always writes
- * repo-relative. Comparing on the repo-relative TAIL is the only rule that
- * matches across both without knowing the workspace root.
+ * **It does NOT strip an absolute workspace prefix (PR #3340 R1).** An earlier
+ * revision of this comment said it did, which was false — the absolute-vs-
+ * relative reconciliation lives in {@link pathIsCovered}'s suffix rule, not
+ * here. Recording the correction rather than quietly rewording it, because a
+ * comment describing a normalization the function does not perform is exactly
+ * the kind of claim a caller would rely on without re-reading the body.
+ *
+ * The suffix rule over in `pathIsCovered` is deliberate rather than lazy. Edit
+ * tool calls record whatever path the caller passed — repo-relative for the
+ * session-scoped tools, absolute for the harness-native ones — and the spec
+ * always writes repo-relative. Comparing on the repo-relative TAIL is the only
+ * rule that matches across both without knowing the workspace root.
  */
 export function normalizePath(path: string): string {
   return path.trim().replace(/^\.\//, "").replace(/\/+$/, "");
@@ -117,16 +123,29 @@ export function pathIsCovered(enumerated: string, edited: readonly string[]): bo
 }
 
 /**
- * The spec line that named `path`, for quoting back at the author.
+ * The IN-SCOPE line that named `path`, for quoting back at the author.
  *
  * SC3 asks for the author's OWN words rather than a generic nag, and the line
  * is where the CONDITION lives ("update **if** SC3 adds fields") — which is
  * precisely the information a reader needs to dismiss a conditional-enumeration
  * false positive in one glance instead of re-reading the spec.
+ *
+ * **Searches the in-scope BLOCK, not the whole spec (PR #3340 R1, BLOCKING).**
+ * An earlier revision scanned the entire document and returned the FIRST line
+ * containing the path. For any path the spec ALSO cites — in `## Context` as
+ * prior art, or under `Out of scope` — that first line is the wrong one, and
+ * quoting an out-of-scope line as though it were an in-scope promise inverts
+ * the finding's meaning. It is not a cosmetic slip: the qualifier tune this
+ * check's own follow-up (mt#4582) will run reads exactly this line, so a wrong
+ * line would silently mis-suppress.
+ *
+ * Falls back to `null` rather than to a whole-document scan when no block is
+ * available — a missing quote is a smaller failure than a misattributed one.
  */
-export function enumerationLineFor(specContent: string, path: string): string | null {
+export function enumerationLineFor(inScopeBlock: string | undefined, path: string): string | null {
+  if (!inScopeBlock) return null;
   const target = normalizePath(path);
-  for (const line of specContent.split("\n")) {
+  for (const line of inScopeBlock.split("\n")) {
     if (line.includes(target)) return line.trim();
   }
   return null;
@@ -144,14 +163,14 @@ export interface UntouchedPath {
  * return value — no collaborator to patch to see what it decided.
  */
 export function untouchedEnumeratedPaths(
-  specContent: string,
+  inScopeBlock: string | undefined,
   enumerated: readonly string[],
   edited: readonly string[]
 ): UntouchedPath[] {
   const out: UntouchedPath[] = [];
   for (const path of enumerated) {
     if (pathIsCovered(path, edited)) continue;
-    out.push({ path, line: enumerationLineFor(specContent, path) });
+    out.push({ path, line: enumerationLineFor(inScopeBlock, path) });
   }
   return out;
 }
@@ -218,7 +237,7 @@ export function run(
   // STRICT: no fallback chain. See `ExtractInScopeFilesOptions` — a whole-spec
   // backtick scan collects paths the spec merely MENTIONS, and every one would
   // be reported here as an unkept promise.
-  const { files: enumerated } = extractInScopeFiles(specContent, { strict: true });
+  const { files: enumerated, inScopeBlock } = extractInScopeFiles(specContent, { strict: true });
 
   if (enumerated.length === 0) {
     // SC5: "nothing to compare" is NOT a clean pass. A zero from an unparseable
@@ -251,7 +270,7 @@ export function run(
     };
   }
 
-  const untouched = untouchedEnumeratedPaths(specContent, enumerated, edited);
+  const untouched = untouchedEnumeratedPaths(inScopeBlock, enumerated, edited);
 
   if (untouched.length === 0) {
     return {

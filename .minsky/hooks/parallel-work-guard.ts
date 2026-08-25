@@ -273,6 +273,17 @@ export interface ExtractInScopeFilesResult {
    * matching pre-mt#2811 behavior.
    */
   genuineExtractionFailure?: boolean;
+  /**
+   * The raw text of the in-scope block the paths were extracted FROM (mt#4544,
+   * PR #3340 R1). Present only when a block was located.
+   *
+   * A consumer that wants to quote the line which named a path must search
+   * THIS, not the whole spec. Searching the whole document finds the FIRST
+   * mention, which for a path also cited in `## Context` or listed under
+   * `Out of scope` is the wrong line — and quoting an out-of-scope line as if
+   * it were an in-scope promise inverts the finding's meaning.
+   */
+  inScopeBlock?: string;
 }
 
 /**
@@ -438,7 +449,7 @@ export function extractInScopeFiles(
     return { ...fallback, genuineExtractionFailure: fallback.files.length === 0 };
   }
 
-  return { files, warnings };
+  return { files, warnings, inScopeBlock: inScopeContent };
 }
 
 // ---------------------------------------------------------------------------
