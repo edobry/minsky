@@ -476,6 +476,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/deploy-verification-after-merge.ts",
             "timeout": 30,
             "statusMessage": "Checking for deploy-surface changes needing post-merge verification..."
+          },
+          {
+            "_comment": "mt#4545: the REAL DONE seam. This hook is also registered PreToolUse on tasks_status_set, but that surface is near-dead by policy — at merge, session-merge-status-sync.ts calls taskService.setTaskStatus() directly, which no tool-level hook observes. Verified by fire log before this registration existed: 1 record, guardOutcome unset. ADR-042's discriminator — fire where the trace first exists. PostToolUse so it fires on a merge that actually succeeded. Timeout 15s covers the 8s title-read deadline plus the corpus scan; advisory, never blocks.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-stale-forward-reference.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for decision records that call this work pending..."
           }
         ]
       },

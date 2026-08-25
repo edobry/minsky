@@ -9,10 +9,19 @@ import {
   MIN_TITLE_TOKEN_HITS,
   MAX_RENDERED_HITS,
   TARGET_TOOL,
+  MERGE_TOOL,
   TRIGGER_STATUS,
+  resolveTrigger,
   type CorpusDoc,
 } from "./warn-stale-forward-reference";
 import { deriveHookRepoRoot } from "./types";
+// The SC4 registration test below asserts the hook is wired in the REAL
+// settings.json. Injecting a mock fs would assert a fixture, and asserting a
+// fixture instead of reality is precisely how mt#4535 shipped an unreachable
+// hook with a fully green suite. Hermeticity is the wrong property here.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { readFileSync } from "fs";
+import { join } from "path";
 
 /** Hoisted so repeated literals do not trip `custom/no-magic-string-duplication`. */
 const ADR_FILE = "docs/architecture/adr-006-agent-identity.md";
@@ -43,6 +52,90 @@ describe("trigger surface", () => {
   test("targets the status-set tool and the DONE transition only", () => {
     expect(TARGET_TOOL).toBe("mcp__minsky__tasks_status_set");
     expect(TRIGGER_STATUS).toBe("DONE");
+  });
+
+  test("also targets the merge tool — the seam where DONE is actually written", () => {
+    expect(MERGE_TOOL).toBe("mcp__minsky__session_pr_merge");
+  });
+});
+
+describe("resolveTrigger (mt#4545) — the reachability half", () => {
+  const MERGE_OK = { success: true };
+
+  test("fires on a SUCCESSFUL merge, as PostToolUse", () => {
+    const t = resolveTrigger(MERGE_TOOL, { task: TASK_ID }, MERGE_OK, TASK_ID);
+    expect(t.taskId).toBe(TASK_ID);
+    expect(t.event).toBe("PostToolUse");
+  });
+
+  test("does NOT fire on a failed merge — a failed merge is not a DONE transition", () => {
+    const t = resolveTrigger(MERGE_TOOL, { task: TASK_ID }, { success: false }, TASK_ID);
+    expect(t.taskId).toBeNull();
+  });
+
+  test("does not fire on a merge whose task could not be resolved", () => {
+    const t = resolveTrigger(MERGE_TOOL, {}, MERGE_OK, null);
+    expect(t.taskId).toBeNull();
+  });
+
+  test("still fires on an EXPLICIT status_set to DONE, as PreToolUse (SC2)", () => {
+    const t = resolveTrigger(TARGET_TOOL, { taskId: TASK_ID, status: "DONE" }, undefined, null);
+    expect(t.taskId).toBe(TASK_ID);
+    expect(t.event).toBe("PreToolUse");
+  });
+
+  test("does not fire on a non-DONE status_set", () => {
+    const t = resolveTrigger(TARGET_TOOL, { taskId: TASK_ID, status: "READY" }, undefined, null);
+    expect(t.taskId).toBeNull();
+  });
+
+  test("does not fire on an unrelated tool", () => {
+    const t = resolveTrigger("mcp__minsky__tasks_get", { taskId: TASK_ID }, MERGE_OK, TASK_ID);
+    expect(t.taskId).toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: the pre-fix trigger was blind to the merge surface", () => {
+    // mt#4535's trigger, replayed verbatim as a predicate over the same inputs.
+    // Written as a function taking `string` so this is a real evaluation, not a
+    // literal-type comparison the compiler folds to a constant — the first
+    // version of this control WAS that, and typecheck (TS2367) rejected it.
+    const preFixTrigger = (toolName: string, ti: Record<string, unknown>): boolean =>
+      toolName === TARGET_TOOL &&
+      Boolean((ti["taskId"] as string | undefined)?.trim()) &&
+      (ti["status"] as string | undefined)?.trim() === TRIGGER_STATUS;
+
+    // A successful merge — the path that carries essentially every DONE
+    // transition. The old trigger yields nothing on it, which is why the shipped
+    // hook logged one record with `guardOutcome` unset and never evaluated.
+    expect(preFixTrigger(MERGE_TOOL, { task: TASK_ID })).toBe(false);
+
+    // Control that the predicate CAN fire, so the assertion above is not vacuous.
+    expect(preFixTrigger(TARGET_TOOL, { taskId: TASK_ID, status: TRIGGER_STATUS })).toBe(true);
+
+    // And the fixed trigger fires on the merge input the old one missed.
+    expect(resolveTrigger(MERGE_TOOL, { task: TASK_ID }, MERGE_OK, TASK_ID).taskId).toBe(TASK_ID);
+  });
+});
+
+describe("registration reachability (SC4)", () => {
+  test("settings.json registers this hook on BOTH surfaces", () => {
+    // The check mt#4535 lacked. Its tests all exercised the pure matcher, which
+    // was correct — nothing asserted the hook was wired where the event occurs.
+    // Reading the REAL registration is the assertion; a mock would make this
+    // test vacuous.
+    // eslint-disable-next-line custom/no-real-fs-in-tests
+    const settings = readFileSync(join(deriveHookRepoRoot(), ".claude/settings.json"), "utf8");
+    const parsed = JSON.parse(settings) as {
+      hooks: Record<string, { matcher?: string; hooks: { command?: string }[] }[]>;
+    };
+
+    const surfacesFor = (event: string): string[] =>
+      (parsed.hooks[event] ?? [])
+        .filter((b) => b.hooks.some((h) => h.command?.includes("warn-stale-forward-reference")))
+        .map((b) => b.matcher ?? "");
+
+    expect(surfacesFor("PreToolUse").join(" ")).toContain(TARGET_TOOL);
+    expect(surfacesFor("PostToolUse").join(" ")).toContain(MERGE_TOOL);
   });
 });
 

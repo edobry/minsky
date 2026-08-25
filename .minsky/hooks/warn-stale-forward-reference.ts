@@ -63,17 +63,47 @@ import type { ToolHookInput } from "./types";
 import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
 import { recordFireLogEntry } from "./fire-log";
+import { resolveMergeGateTaskId } from "./merge-gate-task-resolution";
+import { normalizeTaskId } from "./gate-walk-provenance";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
 /** This guard's fire-log identifier. */
 const GUARD_NAME = "warn-stale-forward-reference";
 
-/** The tool whose input carries the terminal transition. */
+/**
+ * The EXPLICIT surface: an agent calling `tasks_status_set` with `status: DONE`.
+ *
+ * Rare by policy — `task-status-workflow-protocol.mdc` says "never manually set
+ * DONE from a session; DONE is set only at PR merge." Kept because an agent that
+ * DOES set it explicitly should still be covered (mt#4545 SC2), not because it is
+ * the common case.
+ */
 export const TARGET_TOOL = "mcp__minsky__tasks_status_set";
 
 /**
- * The status this fires on. DONE only — see the CLOSED note in the file header.
+ * The REAL surface: the merge, which is where DONE is actually written.
+ *
+ * mt#4535 registered on `TARGET_TOOL` alone and therefore never fired on a real
+ * transition: at merge, `session-merge-status-sync.ts:239` calls
+ * `taskService.setTaskStatus()` — a DIRECT domain-service call that no
+ * tool-level hook can observe. Verified by fire log (one record, `guardOutcome`
+ * unset) against 249 for the sibling on the same matcher.
+ *
+ * This is ADR-042's own discriminator applied to an observer: "each backstop
+ * fires at the seam where that trace first exists." For a DONE transition that
+ * seam is the merge tool call, not the status-set tool call.
+ *
+ * PostToolUse rather than PreToolUse, so it fires on a transition that actually
+ * HAPPENED — `deploy-verification-after-merge.ts` is the precedent for both the
+ * event and the `tool_result.success` check.
+ */
+export const MERGE_TOOL = "mcp__minsky__session_pr_merge";
+
+/**
+ * The status this fires on at the explicit surface. DONE only — see the CLOSED
+ * note in the file header. The merge surface needs no status check: a successful
+ * merge IS the DONE transition.
  */
 export const TRIGGER_STATUS = "DONE";
 
@@ -452,15 +482,74 @@ async function readTaskTitle(taskId: string): Promise<string | null> {
   return rows[0]?.title ?? null;
 }
 
+/** Which surface a hook invocation came in on, and the task it names. */
+export interface Trigger {
+  /** The task whose DONE transition this is, or null when the guard should not run. */
+  taskId: string | null;
+  /** Which lifecycle event to echo back in the injection envelope. */
+  event: "PreToolUse" | "PostToolUse";
+}
+
+/**
+ * PURE: does this invocation represent a task reaching DONE, and on which surface?
+ *
+ * Extracted so BOTH surfaces are testable without a live hook process — the gap
+ * that let mt#4535 ship unreachable was precisely that nothing tested the
+ * trigger, only the matching logic downstream of it.
+ *
+ * `mergeTaskId` is passed IN rather than resolved here so this stays pure;
+ * the caller supplies `resolveMergeGateTaskId`'s answer.
+ */
+export function resolveTrigger(
+  toolName: string,
+  toolInput: Record<string, unknown> | undefined,
+  toolResult: Record<string, unknown> | undefined,
+  mergeTaskId: string | null
+): Trigger {
+  if (toolName === TARGET_TOOL) {
+    const taskId = (toolInput?.["taskId"] as string | undefined)?.trim();
+    const status = (toolInput?.["status"] as string | undefined)?.trim();
+    return {
+      taskId: taskId && status === TRIGGER_STATUS ? taskId : null,
+      event: "PreToolUse",
+    };
+  }
+  if (toolName === MERGE_TOOL) {
+    // A FAILED merge is not a DONE transition. Checking this is what keeps the
+    // guard's own claim ("this task is going DONE") true — the same accuracy
+    // the advisory asks its reader to restore in the corpus.
+    const succeeded = toolResult?.["success"] === true;
+    return { taskId: succeeded ? mergeTaskId : null, event: "PostToolUse" };
+  }
+  return { taskId: null, event: "PreToolUse" };
+}
+
 if (import.meta.main) {
   const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
-  const taskId = (input.tool_input?.["taskId"] as string | undefined)?.trim();
-  const status = (input.tool_input?.["status"] as string | undefined)?.trim();
+
+  // Resolved for the merge surface only — three channels (tool_input.task, the
+  // cwd branch, a sessionId workspace), reusing the merge-gate resolver rather
+  // than re-deriving them.
+  const mergeTaskId =
+    input.tool_name === MERGE_TOOL
+      ? (() => {
+          const r = resolveMergeGateTaskId(input);
+          return r.taskId ? normalizeTaskId(r.taskId) : null;
+        })()
+      : null;
+
+  const trigger = resolveTrigger(
+    input.tool_name,
+    input.tool_input,
+    input.tool_result as Record<string, unknown> | undefined,
+    mergeTaskId
+  );
+  const taskId = trigger.taskId;
 
   let result: ForwardReferenceDecision = { fired: false };
 
-  if (input.tool_name === TARGET_TOOL && taskId && status === TRIGGER_STATUS) {
+  if (taskId) {
     try {
       const title = await Promise.race([
         readTaskTitle(taskId),
@@ -494,7 +583,9 @@ if (import.meta.main) {
   if (result.fired && result.message) {
     writeOutput({
       hookSpecificOutput: {
-        hookEventName: "PreToolUse",
+        // Echoes the surface this invocation actually arrived on — a PostToolUse
+        // injection labelled PreToolUse is not delivered.
+        hookEventName: trigger.event,
         additionalContext: result.message,
       },
     });
@@ -502,7 +593,7 @@ if (import.meta.main) {
 
   recordFireLogEntry({
     guardName: GUARD_NAME,
-    event: "PreToolUse",
+    event: trigger.event,
     decision: "allow",
     ...(result.outcome !== undefined ? { guardOutcome: result.outcome } : {}),
     durationMs: Date.now() - startMs,

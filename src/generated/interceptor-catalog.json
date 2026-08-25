@@ -4271,7 +4271,7 @@
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
       "undescribed": false,
-      "point": "PreToolUse",
+      "point": "PostToolUse",
       "pointSource": "settings",
       "trajectory": null,
       "interventions": [
