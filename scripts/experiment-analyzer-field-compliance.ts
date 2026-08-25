@@ -52,6 +52,19 @@
  * **This harness does not decide anything.** mt#4370 SC5 keeps the lever itself
  * principal-owned; what ships from here is a pair of numbers.
  *
+ * ## The replicate arm (mt#4409) — the one arm that varies NOTHING
+ *
+ * Every arm above varies something, and none repeats. So arm-to-arm disagreement has always
+ * conflated the treatment effect with call-to-call nondeterminism, and no comparison this
+ * harness produced had a noise floor to be judged against. `--replicate N` runs each selected
+ * arm N times against the SAME rendered prompt: the difference between two such calls is the
+ * instrument's own variance with the treatment held fixed, and its expected value is zero.
+ * A run whose replicate pair differs significantly did not measure noise — it means the two
+ * calls were not actually identical, which voids the run rather than reporting a finding.
+ *
+ * Per mem#1182: any arm-based experiment over a non-deterministic responder should carry one,
+ * and it costs a single extra call per input.
+ *
  * Env-gated like the replay: exits 0 with SKIP when persistence or AI providers are absent.
  *
  * Usage:
@@ -59,6 +72,8 @@
  *   bun scripts/experiment-analyzer-field-compliance.ts --limit 30 --out /tmp/run.jsonl
  *   bun scripts/experiment-analyzer-field-compliance.ts --limit 200 \
  *     --arms window-400,window-200,window-150 --out .tmp/mt4370-window.jsonl
+ *   bun scripts/experiment-analyzer-field-compliance.ts --limit 250 \
+ *     --arms window-400,window-150 --replicate 2 --out .tmp/mt4409-replicate.jsonl
  */
 
 import "reflect-metadata";
@@ -211,7 +226,7 @@ const DEFAULT_ARMS: readonly Arm[] = ALL_ARMS.filter((a) => a.truncateChars === 
  * a harness-written user line is labelled, so the corpus the model reads today is not the
  * one the original run read, and the comparison has to be re-taken rather than quoted.
  */
-const ARMS: readonly Arm[] = (() => {
+const SELECTED_ARMS: readonly Arm[] = (() => {
   const requested = parseStringArg("--arms", "");
   if (requested === "") return DEFAULT_ARMS;
   const names = requested
@@ -228,6 +243,63 @@ const ARMS: readonly Arm[] = (() => {
   });
   return selected;
 })();
+
+/**
+ * How many times each selected arm RUNS (mt#4409). 1 — the default — is the prior behavior.
+ *
+ * Validated here rather than through `parseIntArg`, which returns its fallback for anything
+ * non-positive: `--replicate 0` would silently become 1 and the run would look like a normal
+ * single-call run that measured no noise at all. Same reason a typo'd arm name throws.
+ */
+const REPLICATES: number = (() => {
+  const raw = parseStringArg("--replicate", "1").trim();
+  // Matched on SHAPE, not on round-tripping through `String(parsed)` (PR #3339 R1). The
+  // round-trip form rejected `02` — a numerically valid way to write 2 — while the thing
+  // actually worth rejecting is a value that is not a positive integer at all. This still
+  // throws on `2.5`, `abc`, `-1`, `2x` and the empty string, which is the whole point of
+  // validating here rather than letting `parseIntArg` silently substitute its fallback.
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`--replicate must be a positive integer (got "${raw}")`);
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error(`--replicate must be a positive integer (got "${raw}")`);
+  }
+  return parsed;
+})();
+
+/** A registry arm as ACTUALLY RUN — the same configuration, plus which copy of it this is. */
+interface RunArm extends Arm {
+  /** The registry arm this run is a copy of. Identical across a replicate group. */
+  baseName: string;
+  /** 1-based; 1 is the original. Recorded per row, so nothing downstream parses a name. */
+  replicateIndex: number;
+}
+
+/**
+ * The arms this invocation actually calls, replicates expanded.
+ *
+ * The copies are minted by SPREADING the base arm and overriding only `name`, so
+ * "identical in every dimension except the label" is guaranteed by construction — a
+ * replicate cannot drift from its twin the way two hand-typed `--arms` entries could. That
+ * matters because the replicate's whole job is to be a negative control: if the two arms
+ * differ in any respect, the difference it measures is not noise.
+ *
+ * `--arms window-400,window-400` was already accepted and already issued two calls (names
+ * resolve through `.map`, so duplicates survive). What it could not do is produce
+ * DISTINGUISHABLE data: both rows carried `arm: "window-400"`, and the per-arm summary —
+ * `rows.filter((r) => r.arm === arm.name)` — then scored each twin over the union of both.
+ */
+const ARMS: readonly RunArm[] = SELECTED_ARMS.flatMap((arm) =>
+  Array.from({ length: REPLICATES }, (_unused, i) => ({
+    ...arm,
+    // `~2` rather than `-r2`: every registry name is hyphenated, so a hyphen suffix could be
+    // mistaken for a registry arm, while `~` cannot appear in one.
+    name: i === 0 ? arm.name : `${arm.name}~${i + 1}`,
+    baseName: arm.name,
+    replicateIndex: i + 1,
+  }))
+);
 
 // ---------------------------------------------------------------------------
 // Outcome classification
@@ -314,6 +386,30 @@ async function buildCompletionService(): Promise<DefaultAICompletionService | nu
 interface ResultRow {
   conversationId: string;
   arm: string;
+  /**
+   * The registry arm this row's configuration came from (mt#4409).
+   *
+   * Equal to `arm` for a first call and to the twin's name for a replicate, so the analysis
+   * can group a replicate pair WITHOUT parsing the `~2` suffix out of a name. Same discipline
+   * as `mode` and `truncateChars` below: the grouping is read off the data, never off a
+   * naming convention that a later arm could break.
+   */
+  armBase: string;
+  /** Which call of the replicate group this is, 1-based. 1 on every non-replicate run. */
+  replicateIndex: number;
+  /**
+   * Hash of the rendered user prompt actually sent (PR #3339 R1).
+   *
+   * `promptChars` is a LENGTH, and the replicate check used to compare lengths while calling
+   * the result `identicalPromptRender` — two different prompts of equal length would have
+   * passed. Byte-identity IS guaranteed upstream by `renderFor`'s memo, which hands both
+   * twins the same object; this records the evidence for it on the row so the claim rests on
+   * a measurement rather than on trusting the mechanism the check exists to verify.
+   *
+   * Within-run comparison only — a non-cryptographic hash is enough to distinguish two
+   * prompts, and nothing compares these across processes.
+   */
+  promptHash: string;
   totalMessages: number;
   analyzedMessages: number;
   /** The Amendment-1 bucket: a full window failed ~44% against a partial window's ~10%. */
@@ -494,6 +590,9 @@ async function main(): Promise<void> {
       const row: ResultRow = {
         conversationId,
         arm: arm.name,
+        armBase: arm.baseName,
+        replicateIndex: arm.replicateIndex,
+        promptHash: Bun.hash(userPrompt).toString(16),
         totalMessages: sampling.totalMessages,
         analyzedMessages: sampling.analyzedMessages,
         fullWindow,
@@ -619,6 +718,54 @@ async function main(): Promise<void> {
           })
         );
 
+  // The replicate group's own receipt (mt#4409). Two things a reader must be able to SEE
+  // rather than infer: that each copy produced its own rows (a collapsed pair shows as a
+  // halved count, not as a plausible-looking table), and that the twins were handed the same
+  // prompt. The second is guaranteed by `renderFor`'s memo — which is exactly why it is worth
+  // asserting on the data instead of trusting the mechanism, since a future edit to the
+  // render path would break the replicate silently and nothing else would notice.
+  const replicateIdentity = (() => {
+    const bases = [...new Set(ARMS.filter((a) => a.replicateIndex > 1).map((a) => a.baseName))];
+    if (bases.length === 0) return null;
+    return bases.map((base) => {
+      const names = ARMS.filter((a) => a.baseName === base).map((a) => a.name);
+      const byConversation = new Map<string, ResultRow[]>();
+      for (const r of rows) {
+        if (!names.includes(r.arm)) continue;
+        const bucket = byConversation.get(r.conversationId) ?? [];
+        bucket.push(r);
+        byConversation.set(r.conversationId, bucket);
+      }
+      const complete = [...byConversation.values()].filter((rs) => rs.length === names.length);
+      const identical = complete.filter((rs) => {
+        const first = rs[0];
+        if (!first) return false;
+        return rs.every(
+          (r) =>
+            r.truncateChars === first.truncateChars &&
+            r.mode === first.mode &&
+            // The prompt is compared by HASH, not by length (PR #3339 R1). `promptChars`
+            // alone would pass two different prompts that happen to be the same size — a
+            // check that cannot distinguish the failure it exists to catch. Rows are built
+            // in this process, so the hash is always present here; no absent-key case.
+            r.promptHash === first.promptHash &&
+            r.promptChars === first.promptChars
+        );
+      });
+      return {
+        base,
+        arms: names,
+        rowsPerArm: Object.fromEntries(
+          names.map((n) => [n, rows.filter((r) => r.arm === n).length])
+        ),
+        completeTuples: complete.length,
+        // AT1's check, computed rather than asserted in prose: every paired row identical on
+        // the three dimensions that define the configuration actually sent.
+        identicalPromptRender: `${identical.length}/${complete.length}`,
+      };
+    });
+  })();
+
   console.log("");
   console.log(
     JSON.stringify(
@@ -631,6 +778,7 @@ async function main(): Promise<void> {
           unusable,
           arms: perArm,
           dosage,
+          ...(replicateIdentity === null ? {} : { replicateIdentity }),
         },
       },
       null,
