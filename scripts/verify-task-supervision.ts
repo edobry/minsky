@@ -329,6 +329,10 @@ async function main(): Promise<void> {
         return out;
       },
       drivenSessionLiveness: () => "live" as const,
+      // No driven session exists for the fixture children — the real reader is
+      // `listNonTerminalDrivenSessions`, exercised by the daemon rather than
+      // here, since this script never spawns.
+      hasLiveWriterForTask: async () => false,
       // Records instead of spawning. Everything ELSE in this call is real: the
       // store writes to the live database, the frontier reads the live graph.
       dispatchChild: async (input: { taskId: string }) => {

@@ -14,6 +14,7 @@ import { describe, test, expect } from "bun:test";
 import {
   HOLD_ALL_BLOCKED,
   HOLD_FRONTIER_EMPTY,
+  HOLD_LIVE_WRITER,
   HOLD_WIP_LIMIT,
   SUPERVISION_STALL_THRESHOLD_MS,
   isSupervisionStalled,
@@ -60,6 +61,7 @@ function buildDeps(
       }),
     getTaskStatuses: graph.getTaskStatuses,
     drivenSessionLiveness: spawner.drivenSessionLiveness,
+    hasLiveWriterForTask: spawner.hasLiveWriterForTask,
     dispatchChild: spawner.dispatchChild,
     now: () => now,
     logWarn: (m) => warnings.push(m),
@@ -286,6 +288,67 @@ describe("runSupervisionTick — failure and completion records (AT4, SC10)", ()
 });
 
 describe("runSupervisionTick — single actuator (SC6)", () => {
+  test("refuses to spawn onto a task that already has a live driven session", async () => {
+    // The supervisor never resumes, so mt#3038's conversation-keyed resume lock
+    // guards nothing for it. The multi-writer hazard arrives the other way:
+    // resolveTaskWorkspace REUSES an existing workspace, so spawning onto a
+    // task an operator is already driving by hand puts two claude processes in
+    // one working tree.
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph([
+      { id: "mt#900", title: "umbrella", status: "IN-PROGRESS" },
+      { id: "mt#901", title: "A", status: "READY", parent: "mt#900" },
+      { id: "mt#902", title: "B", status: "READY", parent: "mt#900" },
+    ]);
+    const spawner = new FakeSpawner();
+    spawner.liveWriterFor.add("mt#901");
+    store.addSupervision({ umbrellaTaskId: "mt#900", statusFilter: ["READY"] });
+
+    const tick = await runSupervisionTick(buildDeps(store, graph, spawner));
+
+    // B still goes out — a live session on one child says nothing about its
+    // siblings, so the check is per candidate rather than once.
+    expect(tick.advances[0]?.dispatched).toEqual(["mt#902"]);
+    expect(spawner.calls.map((c) => c.taskId)).toEqual(["mt#902"]);
+    // And no dispatch row was written for the skipped one, so a later tick can
+    // still pick it up once the operator's session ends.
+    expect(store.dispatches.map((d) => d.taskId)).toEqual(["mt#902"]);
+  });
+
+  test("says why it dispatched nothing when every candidate has a live writer", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph([
+      { id: "mt#900", title: "umbrella", status: "IN-PROGRESS" },
+      { id: "mt#901", title: "A", status: "READY", parent: "mt#900" },
+    ]);
+    const spawner = new FakeSpawner();
+    spawner.liveWriterFor.add("mt#901");
+    store.addSupervision({ umbrellaTaskId: "mt#900", statusFilter: ["READY"] });
+
+    const tick = await runSupervisionTick(buildDeps(store, graph, spawner));
+
+    expect(tick.advances[0]?.dispatched).toEqual([]);
+    // A silent empty tick here would read identically to having nothing to do.
+    expect(tick.advances[0]?.holdReason).toBe(HOLD_LIVE_WRITER);
+  });
+
+  test("a skipped candidate does not consume a WIP slot", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph([
+      { id: "mt#900", title: "umbrella", status: "IN-PROGRESS" },
+      { id: "mt#901", title: "A", status: "READY", parent: "mt#900" },
+      { id: "mt#902", title: "B", status: "READY", parent: "mt#900" },
+    ]);
+    const spawner = new FakeSpawner();
+    spawner.liveWriterFor.add("mt#901");
+    store.addSupervision({ umbrellaTaskId: "mt#900", statusFilter: ["READY"], wipLimit: 1 });
+
+    const tick = await runSupervisionTick(buildDeps(store, graph, spawner));
+
+    // With a limit of 1, skipping A must not burn the only slot — B goes out.
+    expect(tick.advances[0]?.dispatched).toEqual(["mt#902"]);
+  });
+
   test("does nothing and says so when another actuator holds the lock", async () => {
     const store = new FakeSupervisionStore();
     const graph = new FakeTaskGraph(twoNodeDag());

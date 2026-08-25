@@ -224,6 +224,8 @@ export class FakeSpawner {
   readonly calls: DispatchChildInput[] = [];
   /** Task ids whose dispatch should throw, simulating a spawn failure. */
   failFor = new Set<string>();
+  /** Task ids that already have a live driven session started by someone else. */
+  liveWriterFor = new Set<string>();
   private seq = 0;
   /** Liveness reported per driven-session local id. Default "live". */
   readonly liveness = new Map<string, DrivenSessionLiveness>();
@@ -237,6 +239,8 @@ export class FakeSpawner {
     this.liveness.set(localId, "live");
     return { drivenSessionLocalId: localId, minskySessionId: `ws-${localId}` };
   };
+
+  hasLiveWriterForTask = async (taskId: string): Promise<boolean> => this.liveWriterFor.has(taskId);
 
   drivenSessionLiveness = (localId: string): DrivenSessionLiveness =>
     this.liveness.get(localId) ?? "unknown";

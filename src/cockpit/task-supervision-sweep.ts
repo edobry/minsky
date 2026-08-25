@@ -201,6 +201,21 @@ export async function buildSupervisionTickDeps(): Promise<SupervisionTickDeps | 
       return out;
     },
     drivenSessionLiveness: (localId) => livenessFromRecord(drivenSessionRegistry.get(localId)),
+    // Read from `driven_sessions`, NOT `drivenSessionRegistry` (mt#4571 SC6).
+    // The registry is this process's memory; the session the supervisor would
+    // collide with is frequently one another process started — an operator
+    // driving the same child by hand from a second daemon, or one this daemon
+    // started before its last restart. An in-process check would miss both and
+    // put two `claude` processes in one working tree, because
+    // `resolveTaskWorkspace` reuses an existing workspace rather than making a
+    // second one.
+    hasLiveWriterForTask: async (taskId) => {
+      const { listNonTerminalDrivenSessions } = await import(
+        "@minsky/domain/transcripts/driven-session-registry-store"
+      );
+      const live = await listNonTerminalDrivenSessions(db);
+      return live.some((row) => row.taskId === taskId);
+    },
     dispatchChild: dispatchSupervisedChild,
     now: () => new Date(),
     logWarn: (message) => log.warn(message),

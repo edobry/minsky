@@ -78,6 +78,8 @@ export const HOLD_WIP_LIMIT = "wip-limit";
 export const HOLD_FRONTIER_EMPTY = "frontier-empty";
 export const HOLD_ALL_BLOCKED = "all-children-blocked";
 export const HOLD_ALREADY_DISPATCHED = "frontier-already-dispatched";
+/** Every dispatchable child already has a live driven session on it (SC6). */
+export const HOLD_LIVE_WRITER = "live-writer-on-every-candidate";
 
 /** True when a supervision has gone longer than the threshold without advancing. */
 export function isSupervisionStalled(
@@ -210,7 +212,25 @@ export async function runSupervisionPass(
     // up when a slot frees.
     advance.holdReason = HOLD_WIP_LIMIT;
   } else {
-    for (const candidate of candidates.slice(0, freeSlots)) {
+    let skippedForLiveWriter = 0;
+    let dispatchAttempts = 0;
+    for (const candidate of candidates) {
+      if (dispatchAttempts >= freeSlots) break;
+
+      // SC6's single-actuator invariant, at the point it actually binds here.
+      // The supervisor never resumes a conversation, so mt#3038's
+      // conversation-keyed resume lock guards nothing for it — but
+      // `resolveTaskWorkspace` REUSES an existing workspace, so spawning onto a
+      // task that already has a live child puts two `claude` processes in one
+      // working tree. Checked per candidate rather than once, because the
+      // answer differs per task and a live session on one child says nothing
+      // about its siblings.
+      if (await deps.hasLiveWriterForTask(candidate.taskId)) {
+        skippedForLiveWriter += 1;
+        continue;
+      }
+
+      dispatchAttempts += 1;
       try {
         const result = await deps.dispatchChild({
           taskId: candidate.taskId,
@@ -232,6 +252,12 @@ export async function runSupervisionPass(
         );
         advance.error = advance.error ?? message;
       }
+    }
+
+    // Say WHY nothing went out, rather than reporting a silent empty tick that
+    // reads identically to having nothing to do.
+    if (advance.dispatched.length === 0 && skippedForLiveWriter > 0) {
+      advance.holdReason = HOLD_LIVE_WRITER;
     }
   }
 

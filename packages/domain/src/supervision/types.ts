@@ -152,6 +152,23 @@ export interface SupervisionTickDeps {
   getTaskStatuses(taskIds: string[]): Promise<Map<string, string>>;
   /** What the daemon knows about a driven session's process. */
   drivenSessionLiveness(localId: string): DrivenSessionLiveness;
+  /**
+   * True when SOME driven session is already live on this task — whoever
+   * started it (mt#4571 SC6).
+   *
+   * The supervisor never resumes a conversation, so mt#3038's
+   * conversation-keyed resume lock has nothing to guard here. The multi-writer
+   * hazard it exists to prevent still arrives by a different route:
+   * `resolveTaskWorkspace` REUSES an existing workspace for a task, so spawning
+   * into one that already has a live child puts two `claude` processes in one
+   * working tree. That happens whenever an operator launched a session on a
+   * child by hand — routine, not exotic.
+   *
+   * Must be answered from a CROSS-PROCESS source (the `driven_sessions` table),
+   * not an in-process registry: the session the supervisor would collide with is
+   * frequently one another process started.
+   */
+  hasLiveWriterForTask(taskId: string): Promise<boolean>;
   /** Spawn a `claude` child on a task and hand it its prompt. */
   dispatchChild(input: DispatchChildInput): Promise<DispatchChildResult>;
   now(): Date;
