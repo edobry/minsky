@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  CONSUMER_ACCOUNT_SKIP_ENV_VAR,
   extractConsumerAccountDeferral,
   findRemovedSignalCalls,
   hasConsumerAccount,
@@ -33,7 +32,6 @@ function run(patches: PrFilePatch[], body: string) {
     patches,
     "fix(mt#4493): x",
     body,
-    {},
     () => new Date("2026-08-25T00:00:00Z")
   );
 }
@@ -216,19 +214,6 @@ describe("posture", () => {
       NO_ACCOUNT_BODY
     );
     expect(result.calibrationRecord?.decision).toBe("warn");
-  });
-
-  test("the documented override suppresses the check entirely", () => {
-    const result = runConsumerAccountCalibration(
-      "mt#4493",
-      3331,
-      [{ filename: DAEMON_FILE, patch: removalPatch(EXIT_LINE) }],
-      "fix(mt#4493): x",
-      NO_ACCOUNT_BODY,
-      { [CONSUMER_ACCOUNT_SKIP_ENV_VAR]: "1" }
-    );
-    expect(result.ranCheck).toBe(false);
-    expect(result.calibrationRecord).toBeNull();
   });
 
   test("a tracked deferral marker suppresses the fire and prose does not", () => {

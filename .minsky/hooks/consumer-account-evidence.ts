@@ -212,17 +212,20 @@ export function extractConsumerAccountDeferral(prBody: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** Documented escape hatch. Registered in `HOOK_ONLY_ENV_VAR_CATEGORIES` per mt#1788. */
-export const CONSUMER_ACCOUNT_SKIP_ENV_VAR = "MINSKY_SKIP_CONSUMER_ACCOUNT";
-
-/** Calibration log, sibling of the test-first / render-path / SC-coverage logs. */
+/**
+ * Calibration log, sibling of the test-first / render-path / SC-coverage logs.
+ *
+ * **No per-surface `MINSKY_SKIP_*` override, deliberately (SC4).** Each of the four
+ * siblings has one, and copying that would mint a 100th `MINSKY_*` name into exactly the
+ * population ADR-028 D3 exists to shrink — CLAUDE.md §Hook Files says outright not to.
+ * Nothing here needs escaping either: this surface is log-only, so there is no decision
+ * to bypass; it appends a record and pushes a WARN string. If a calibration window shows
+ * it noisy enough to want silencing, that is a tune with evidence behind it, not a hatch
+ * shipped speculatively. `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge`
+ * remains available and covers the whole gate.
+ */
 export const CONSUMER_ACCOUNT_CALIBRATION_LOG =
   ".minsky/execution-evidence-consumer-account-calibration.jsonl";
-
-export function isConsumerAccountSkipped(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = env[CONSUMER_ACCOUNT_SKIP_ENV_VAR];
-  return v === "1" || v === "true" || v === "yes";
-}
 
 /**
  * One calibration record. `decision` is always `warn` — this surface never denies.
@@ -262,7 +265,12 @@ export type ConsumerAccountCalibrationRecord = {
 };
 
 export interface ConsumerAccountRunResult {
-  /** False when the documented override suppressed the check. */
+  /**
+   * Always `true` for this surface — kept so the caller reads all five calibration
+   * results through one shape. The siblings set it false when their per-surface override
+   * fires; this one has no override to fire (see {@link CONSUMER_ACCOUNT_CALIBRATION_LOG}),
+   * so there is no path that skips the check.
+   */
   ranCheck: boolean;
   /** WARN string for `additionalContext`, or null when nothing to report. */
   warning: string | null;
@@ -282,13 +290,8 @@ export function runConsumerAccountCalibration(
   patches: PrFilePatch[],
   prTitle: string,
   prBody: string,
-  env: NodeJS.ProcessEnv = process.env,
   now: () => Date = () => new Date()
 ): ConsumerAccountRunResult {
-  if (isConsumerAccountSkipped(env)) {
-    return { ranCheck: false, warning: null, calibrationRecord: null };
-  }
-
   const removedSignals = findRemovedSignalCalls(patches);
   if (removedSignals.length === 0) {
     return { ranCheck: true, warning: null, calibrationRecord: null };
@@ -320,8 +323,7 @@ export function runConsumerAccountCalibration(
     `name what CONSUMED it and what replaces it, or add ` +
     `\`[consumer-account-deferred: mt#NNNN]\`. Removing it may well be right; the finding ` +
     `is that nothing says who was listening.\n\n` +
-    `Merge is NOT blocked by this — it is a calibration signal only. Override: set ` +
-    `${CONSUMER_ACCOUNT_SKIP_ENV_VAR}=1.`;
+    `Merge is NOT blocked by this — it is a calibration signal only.`;
 
   return {
     ranCheck: true,
