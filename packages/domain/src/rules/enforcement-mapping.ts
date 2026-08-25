@@ -740,6 +740,11 @@ export interface NonEnforcementHook {
  * fails the test instead of rotting silently.
  */
 export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
+  {
+    configPath: ".claude/hooks/warn-main-workspace-mutation.ts",
+    reason:
+      "PostToolUse observer (mt#2358); injects an advisory naming tracked MAIN-workspace files that became modified during a Bash call, and records a fire-log entry. Enforces no rule — it cannot block a write that already happened, and it ships advisory because a deliberate main-workspace edit is an unmeasured false-positive class",
+  },
   // ── Guard-dispatcher entrypoints (ADR-028): fan out to GUARD_REGISTRY, not 1:1 with a rule ──
   {
     configPath: ".claude/hooks/dispatch-pretooluse.ts",

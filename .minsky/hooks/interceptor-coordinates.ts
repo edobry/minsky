@@ -631,6 +631,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // then injects. `judge` because it does classify before intervening (is any
   // of this activity not the caller's own?), even though its intervention is
   // only ever advisory: it has no deny path at all (mt#4494).
+  ["warn-main-workspace-mutation", structuralInjector],
   ["warn-peer-task-activity", structuralInjector],
   ["warn-stale-forward-reference", structuralInjector],
 

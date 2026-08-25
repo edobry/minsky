@@ -60,12 +60,12 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 11      |
-| movable        | 86      |
+| movable        | 87      |
 | immovable      | 80      |
-| **total**      | **177** |
+| **total**      | **178** |
 
 Of the 86 movable, **17** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 69 are tier 2 —
+`ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -146,7 +146,7 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (86)
+## movable (87)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
@@ -228,6 +228,7 @@ bootstrap requirement.
 | `validate-task-spec.ts`                        | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `verify-subagent-model.ts`                     | standalone-hook  | decideModelCheck                                                                                | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `wall-of-text-detector.ts`                     | dispatcher-guard | measureWallOfText, findOpeningPromptIndex                                                       | side-effecting (recorder)                     | plant | preference |
+| `warn-main-workspace-mutation.ts`              | standalone-hook  | parseModifiedTracked, decideMutation, buildAdvisory                                             | side-effecting (injector+recorder)            | plant | advisory   |
 
 ### ADR-026 tier 1 — reaches persistence (17)
 

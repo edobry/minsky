@@ -1005,6 +1005,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "warn-main-workspace-mutation",
+    {
+      description:
+        "After every `Bash` call, reads the MAIN workspace's `git status` and injects an advisory naming tracked files that became modified DURING that call — the mutation style is irrelevant, because it observes git STATE rather than the command string. That is the point: the recurrence it was built for used `sed -i`, `cat >>` and a `python3` heredoc, none of which any destructive-verb list contains, and a heredoc that writes is not statically distinguishable from one that prints. The channel is uncovered because `require-session-for-main-workspace-edits` matches only Edit/Write/NotebookEdit while the harness's auto mode routes file changes to Bash. Fires at most once per file: the reported set is a diff against the last observation, so the tree's pre-existing modifications never flag. Untracked files are exempt — legitimate main-workspace scratch writes exist. Advisory and log-only; a deliberate main-workspace edit is the residual false-positive class and the advisory text says so.",
+      failureClasses: ["wrong-workspace"],
+      provenance: [hook("warn-main-workspace-mutation"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
     "warn-peer-task-activity",
     {
       description:
