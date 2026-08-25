@@ -260,6 +260,29 @@ export function pathIsCovered(enumerated: string, edited: readonly string[]): bo
  * Falls back to `null` rather than to a whole-document scan when no block is
  * available — a missing quote is a smaller failure than a misattributed one.
  */
+/**
+ * Is `line` a CONTINUATION of the bullet above it?
+ *
+ * A continuation is INDENTED and opens nothing of its own. Every clause below is
+ * a stop, and the indentation requirement is the load-bearing one (PR #3360 R1):
+ * without it the joiner absorbed any non-empty, non-`-`/`*` line, so an
+ * unindented paragraph, an ordered-list item or a heading following the block's
+ * last bullet was swallowed into that entry. Two consequences, and the second is
+ * the serious one: the calibration record quotes text the author never wrote
+ * about this path, and a qualifier-like phrase in that absorbed text can
+ * SUPPRESS A REAL FINDING.
+ */
+function isBulletContinuation(line: string): boolean {
+  if (line.trim() === "") return false;
+  // Must be indented — an unindented line starts something new, whatever it is.
+  if (!/^\s+\S/.test(line)) return false;
+  if (/^\s*[-*+]\s/.test(line)) return false; // a nested or sibling bullet
+  if (/^\s*\d+[.)]\s/.test(line)) return false; // an ordered-list item
+  if (/^\s*#{1,6}\s/.test(line)) return false; // a heading
+  if (/^\s*(?:[-=*_]\s*){3,}$/.test(line)) return false; // a thematic break
+  return true;
+}
+
 export function enumerationLineFor(inScopeBlock: string | undefined, path: string): string | null {
   if (!inScopeBlock) return null;
   const target = normalizePath(path);
@@ -272,8 +295,7 @@ export function enumerationLineFor(inScopeBlock: string | undefined, path: strin
     const parts = [line.trim()];
     for (let j = i + 1; j < lines.length; j++) {
       const next = lines[j] ?? "";
-      if (next.trim() === "") break;
-      if (/^\s*[-*]\s/.test(next)) break;
+      if (!isBulletContinuation(next)) break;
       parts.push(next.trim());
     }
     return parts.join(" ");
@@ -302,7 +324,12 @@ export function enumerationLineFor(inScopeBlock: string | undefined, path: strin
  * paraphrase axis, no learned stage.
  */
 export const QUALIFIER_PATTERNS: readonly RegExp[] = [
-  /\bREAD[-\s]ONLY\b/i,
+  // HYPHENATED only (PR #3360 R1). A bare `read only` appears in ordinary prose
+  // — "a read only reference for the fields" — and matching it would suppress a
+  // real finding on an incidental mention. Both measured instances in the
+  // corpus are hyphenated (`READ-ONLY:` and `READ-ONLY.`), so requiring the
+  // hyphen costs no coverage and removes the whole ambiguity.
+  /\bREAD-ONLY\b/i,
   /\bonly insofar as\b/i,
   /\bonly to the extent of\b/i,
   /\bno behaviou?r change\b/i,

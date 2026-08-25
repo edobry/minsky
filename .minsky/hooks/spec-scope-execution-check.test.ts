@@ -324,6 +324,7 @@ describe("mt#4591 — SC5: the founding incident stays flagged", () => {
 
 const WRAPPED_SCRIPT = "scripts/replay-thing.ts";
 const DELTA = ".minsky/hooks/delta.ts";
+const DELTA_NOTE = "the guard itself";
 
 /** alpha READ-ONLY, beta "only insofar as", gamma plain. Prose mentions READ-ONLY. */
 const SPEC_QUALIFIED = `## Summary
@@ -350,7 +351,7 @@ const SPEC_WRAPPED_QUALIFIER = `## Scope
 - \`${WRAPPED_SCRIPT}\` — imports the helper, so SC3 changes what its
   \`--accuracy\` pass measures. In scope only to the extent of re-running it and
   recording the shifted numbers; no behavior change to the script is required.
-- \`${DELTA}\` — the guard itself.
+- \`${DELTA}\` — ${DELTA_NOTE}.
 
 **Out of scope:**
 `;
@@ -406,7 +407,7 @@ describe("mt#4582 — SC7: the qualifier is read from the whole ENTRY, not one l
   test("the recorded entry carries the continuation, so a reader sees the qualifier", () => {
     const { inScopeBlock } = extractInScopeFiles(SPEC_WRAPPED_QUALIFIER, { strict: true });
     const entry = enumerationLineFor(inScopeBlock, DELTA);
-    expect(entry).toContain("the guard itself");
+    expect(entry).toContain(DELTA_NOTE);
     const wrapped = enumerationLineFor(inScopeBlock, WRAPPED_SCRIPT);
     expect(wrapped).toContain("only to the extent of");
     expect(wrapped).toContain("no behavior change");
@@ -414,7 +415,7 @@ describe("mt#4582 — SC7: the qualifier is read from the whole ENTRY, not one l
 
   test("joining stops at the next bullet — an entry does not absorb its sibling", () => {
     const { inScopeBlock } = extractInScopeFiles(SPEC_WRAPPED_QUALIFIER, { strict: true });
-    expect(enumerationLineFor(inScopeBlock, WRAPPED_SCRIPT)).not.toContain("the guard itself");
+    expect(enumerationLineFor(inScopeBlock, WRAPPED_SCRIPT)).not.toContain(DELTA_NOTE);
   });
 });
 
@@ -434,10 +435,66 @@ describe("mt#4582 — SC5: a CONDITIONAL is not a qualifier and keeps firing", (
 
   test("isQualifiedEntry accepts each measured unconditional form", () => {
     expect(isQualifiedEntry("- `a.ts` — READ-ONLY: the registry.")).toBe(true);
-    expect(isQualifiedEntry("- `a.ts` — read only reference")).toBe(true);
+    expect(isQualifiedEntry("- `a.ts` — read-only reference")).toBe(true);
     expect(isQualifiedEntry("- `a.ts` — only insofar as it spreads the helper.")).toBe(true);
     expect(isQualifiedEntry("- `a.ts` — in scope only to the extent of re-running it")).toBe(true);
     expect(isQualifiedEntry("- `a.ts` — no behavior change is required")).toBe(true);
+  });
+
+  // PR #3360 R1 (non-blocking). An UNHYPHENATED "read only" is ordinary prose,
+  // and matching it would suppress a real finding on an incidental mention.
+  // Both measured instances are hyphenated, so requiring the hyphen costs
+  // nothing. Class check: the other three phrases are distinctive enough that
+  // no equivalent prose collision exists for them.
+  test("a bare unhyphenated `read only` in prose does NOT qualify", () => {
+    expect(isQualifiedEntry("- `a.ts` — we read only the first line of each entry")).toBe(false);
+    expect(isQualifiedEntry("- `a.ts` — read only reference data lives here")).toBe(false);
+  });
+});
+
+describe("mt#4582 — PR #3360 R1: the joiner absorbs only genuine continuations", () => {
+  // The indentation requirement is load-bearing: without it the joiner swallowed
+  // any non-empty, non-bullet line, so a qualifier in absorbed text could
+  // SUPPRESS A REAL FINDING.
+  const SPEC_TRAILING_PROSE = `## Scope
+
+**In scope:**
+
+- \`${DELTA}\` — ${DELTA_NOTE}.
+Unindented prose that follows, mentioning READ-ONLY in passing.
+
+**Out of scope:**
+`;
+
+  test("an UNINDENTED following line is not absorbed, so its qualifier cannot suppress", () => {
+    const { inScopeBlock } = extractInScopeFiles(SPEC_TRAILING_PROSE, { strict: true });
+    const entry = enumerationLineFor(inScopeBlock, DELTA);
+    expect(entry).toContain(DELTA_NOTE);
+    expect(entry).not.toContain("READ-ONLY");
+    const { untouched, qualified } = untouchedEnumeratedPaths(inScopeBlock, [DELTA], []);
+    expect(untouched.map((u) => u.path)).toEqual([DELTA]);
+    expect(qualified).toBe(0);
+  });
+
+  test("an indented ordered-list item, heading or thematic break stops the join", () => {
+    const block = [
+      "- `a/one.ts` — the first entry.",
+      "  1. an indented ordered item mentioning READ-ONLY",
+      "- `a/two.ts` — the second entry.",
+      "  ### an indented heading mentioning READ-ONLY",
+      "- `a/three.ts` — the third entry.",
+      "  --- ",
+    ].join("\n");
+    expect(enumerationLineFor(block, "a/one.ts")).not.toContain("READ-ONLY");
+    expect(enumerationLineFor(block, "a/two.ts")).not.toContain("READ-ONLY");
+    expect(enumerationLineFor(block, "a/three.ts")).toBe("- `a/three.ts` — the third entry.");
+  });
+
+  test("a genuinely indented continuation is still joined", () => {
+    const block = ["- `a/one.ts` — the first entry,", "  continued here.", ""].join("\n");
+    expect(enumerationLineFor(block, "a/one.ts")).toBe(
+      "- `a/one.ts` — the first entry, continued here."
+    );
   });
 });
 
