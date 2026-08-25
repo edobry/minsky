@@ -956,14 +956,21 @@ describe("per-process pool default (mt#4308)", () => {
       const { factory, getCapturedArgs } = makeMockPostgresFactory();
       buildPostgresClient({ connectionString: TEST_CONNECTION_STRING }, factory as any);
 
-      // floor(POOLER_CLIENT_BUDGET 200 * POOL_BUDGET_FRACTION 0.5 /
-      //       ASSUMED_CONCURRENT_POOL_HOLDERS 12) = 8, above the floor of 4.
+      // floor(POOLER_CLIENT_BUDGET 600 * POOL_BUDGET_FRACTION 0.5 /
+      //       ASSUMED_CONCURRENT_POOL_HOLDERS 12) = 25, above the floor of 4.
+      //
+      // Was 8 until mt#4360: the budget input moved 200 -> 600 because
+      // `max_connections` measured 120 (Medium tier) rather than the 60
+      // (Nano/Micro) mt#4308 measured on 2026-08-19. Only that one input moved
+      // — holders stayed at 12 deliberately, see the constant's comment.
       //
       // Asserting the NUMBER, not the formula: the point of mt#4308 is that the
       // value follows from measured inputs, so a future change to any input
       // should land here and force a reader to re-check the arithmetic rather
-      // than silently re-tune the fleet's connection demand.
-      expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(8);
+      // than silently re-tune the fleet's connection demand. That worked as
+      // designed here — this assertion failed with "Expected: 8, Received: 25"
+      // the moment the budget changed, which is the negative control for mt#4360.
+      expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(25);
     } finally {
       if (prior === undefined) delete process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
       else process.env.MINSKY_POSTGRES_MAX_CONNECTIONS = prior;
