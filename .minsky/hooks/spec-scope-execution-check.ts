@@ -97,20 +97,91 @@ export function normalizePath(path: string): string {
   return path.trim().replace(/^\.\//, "").replace(/\/+$/, "");
 }
 
+/** A path segment carrying a glob metacharacter. */
+const GLOB_CHARS = /[*?[\]]/;
+
+/**
+ * Strip a trailing line reference from an ENUMERATED path (mt#4591).
+ *
+ * Specs cite a file at a location constantly — `types.ts:83`,
+ * `start-session-operations.ts:229-230`, `asks.ts:2426-2432`,
+ * `session-approve-legacy-operations.ts:66,326` — while a changed-file list,
+ * from the forge or from a transcript edit call, never carries one. Comparing
+ * the two literally reports the file as untouched no matter what the PR did.
+ *
+ * Measured over the 100 most recently merged PRs: 12 of 32 flagged entries
+ * carried a line reference or a glob. Four were checked against the forge's own
+ * file list and every one of those files HAD been changed — PR #3342
+ * (`types.ts:83` and 8 siblings), #3272 (`asks.ts:2426-2432`), #3265
+ * (`start-command.ts:617-636`), #3267 (a `src/cockpit` glob, 39 files beneath).
+ *
+ * Applied to the ENUMERATED side ONLY, deliberately. A changed-file path is
+ * ground truth and is compared verbatim; stripping it too would let a spec
+ * naming `a.ts` be satisfied by an edit to a file genuinely named `a.ts:83`.
+ * The asymmetry is asserted by a test rather than left to this comment.
+ *
+ * NOT reused from `duplicate-signature-tokens.ts`, which has a same-named
+ * helper: measured this session, that module's only call site feeds it
+ * `PATH_RE` matches, and `PATH_RE` terminates at the file extension — so its
+ * copy is a no-op on every input it can receive. Joining a primitive that runs
+ * on nothing is not reuse.
+ */
+function stripLineSuffix(path: string): string {
+  return path.replace(/:\d+(?:[-,:]\d+)*$/, "");
+}
+
+/**
+ * The literal directory prefix of a glob entry: a `src/cockpit` star-glob
+ * yields `src/cockpit`.
+ *
+ * Returns `null` when `target` is not a glob at all, and the empty string when
+ * it is a glob with no literal prefix to anchor on (a leading star segment).
+ *
+ * The empty case stays FLAGGED rather than quietly passing. It genuinely cannot
+ * be adjudicated, and there were ZERO such entries in the measured corpus —
+ * suppressing it would be engineering against a case that has never occurred,
+ * and passing it would hide a real miss.
+ */
+function literalGlobPrefix(target: string): string | null {
+  if (!GLOB_CHARS.test(target)) return null;
+  const literal: string[] = [];
+  for (const segment of target.split("/")) {
+    if (GLOB_CHARS.test(segment)) break;
+    literal.push(segment);
+  }
+  return literal.join("/");
+}
+
 /**
  * True when `edited` covers `enumerated`.
  *
- * Covers three shapes an enumeration uses in practice:
+ * Covers five shapes an enumeration uses in practice:
  *   - an exact file path
  *   - a DIRECTORY (`.minsky/hooks/`), satisfied by any edit beneath it
  *   - a repo-relative path against an ABSOLUTE edit path (suffix match)
+ *   - a path carrying a LINE REFERENCE (`types.ts:83`, `asks.ts:2426-2432`)
+ *   - a GLOB with a literal directory prefix
  *
  * The suffix match is anchored at a path separator so `hooks/registry.ts` is
  * not satisfied by an edit to `other-hooks/registry.ts`.
  */
 export function pathIsCovered(enumerated: string, edited: readonly string[]): boolean {
-  const target = normalizePath(enumerated);
+  const target = stripLineSuffix(normalizePath(enumerated));
   if (target === "") return false;
+
+  const globPrefix = literalGlobPrefix(target);
+  if (globPrefix !== null) {
+    // A glob with no literal prefix cannot be anchored — stays flagged.
+    if (globPrefix === "") return false;
+    for (const raw of edited) {
+      const candidate = normalizePath(raw);
+      if (candidate === globPrefix) return true;
+      if (candidate.startsWith(`${globPrefix}/`)) return true;
+      if (candidate.includes(`/${globPrefix}/`)) return true;
+    }
+    return false;
+  }
+
   for (const raw of edited) {
     const candidate = normalizePath(raw);
     if (candidate === target) return true;
