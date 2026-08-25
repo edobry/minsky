@@ -59,6 +59,8 @@ import {
   resolveQuestionAnswerCheck,
   WORD_COUNT_THRESHOLD,
   LEAD_WORD_BUDGET,
+  SUPPRESSION_DEPTH_REQUEST,
+  SUPPRESSION_QUESTION_ANSWER,
 } from "../.minsky/hooks/wall-of-text-detector";
 
 const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
@@ -216,8 +218,8 @@ function replaySession(sessionId: string, lines: TranscriptLine[]): TurnMetrics[
     const depth = resolveDepthCheck(prefix);
     const question = resolveQuestionAnswerCheck(prefix);
     const suppressionReasons: string[] = [];
-    if (depth.matched) suppressionReasons.push("depth-request-override");
-    if (question.matched) suppressionReasons.push("question-answer-override");
+    if (depth.matched) suppressionReasons.push(SUPPRESSION_DEPTH_REQUEST);
+    if (question.matched) suppressionReasons.push(SUPPRESSION_QUESTION_ANSWER);
 
     out.push({
       sessionId,
@@ -387,6 +389,61 @@ export const PROVENANCE_CUTOFF_ISO = "2026-07-29T00:00:00Z";
 /** ADR-032 D1's cold-start floor: fewer labeled observations decides nothing. */
 export const COLD_START_FLOOR = 5;
 
+/** The disjoint populations a suppression-accuracy report compares. */
+export interface SuppressionPartition {
+  /** `[label, turns]`, DISJOINT by construction. */
+  populations: Array<[string, TurnMetrics[]]>;
+  /** In-window turns that did not fire under metric B. */
+  control: TurnMetrics[];
+  /** In-window turns excluded for having no readable reacting prompt. */
+  droppedNoReaction: number;
+}
+
+/**
+ * Split the corpus into the populations a suppression-accuracy rate compares.
+ *
+ * Extracted as a pure function rather than left inline (PR #3317 R1): both of
+ * that round's population defects were arithmetic on set membership, invisible
+ * in a report that prints only totals, and one of them moved the headline rate
+ * by half. A void function that writes to stdout cannot be asserted against;
+ * this can. (`/implement-task` §6 testable-design checkpoint.)
+ *
+ * Two invariants the tests pin, because both were violated in the first cut:
+ *
+ * - **The suppressed populations are DISJOINT.** A turn both gates suppressed
+ *   used to count in the depth population and be excluded from the
+ *   question-answer one, so the two were not comparable — on exactly the axis
+ *   the finding rested on. It now has its own row.
+ * - **A turn with no readable reacting prompt is EXCLUDED, not counted as
+ *   "no complaint."** It can never be a candidate, so leaving it in the
+ *   denominator biases every rate downward, and unevenly, since harness-opened
+ *   turns are not spread evenly across the populations.
+ */
+export function partitionBySuppression(
+  all: TurnMetrics[],
+  inWindow: (t: TurnMetrics) => boolean
+): SuppressionPartition {
+  const hasReaction = (t: TurnMetrics): boolean => t.reactionText.trim().length > 0;
+  const windowed = all.filter(inWindow);
+  const scored = windowed.filter(hasReaction);
+  const droppedNoReaction = windowed.length - scored.length;
+
+  const firing = scored.filter((t) => t.firesMax);
+  const depth = (t: TurnMetrics) => t.suppressionReasons.includes(SUPPRESSION_DEPTH_REQUEST);
+  const qa = (t: TurnMetrics) => t.suppressionReasons.includes(SUPPRESSION_QUESTION_ANSWER);
+
+  return {
+    populations: [
+      ["suppressed: depth-request only", firing.filter((t) => depth(t) && !qa(t))],
+      ["suppressed: question-answer only", firing.filter((t) => qa(t) && !depth(t))],
+      ["suppressed: BOTH gates", firing.filter((t) => depth(t) && qa(t))],
+      ["DELIVERED (reminder injected)", firing.filter((t) => !t.suppressed)],
+    ],
+    control: scored.filter((t) => !t.firesMax),
+    droppedNoReaction,
+  };
+}
+
 /**
  * Do the suppression gates withhold the reminder on the turns the principal
  * then complains about? (mt#4540 SC1)
@@ -411,32 +468,7 @@ export function reportSuppressionAccuracy(all: TurnMetrics[], applyCutoff: boole
     return !Number.isNaN(ms) && ms >= cutoffMs;
   };
 
-  // PR #3317 R1 (BLOCKING): a turn with NO reacting prompt text can never be a
-  // candidate but was still counted in the denominator, biasing every rate
-  // downward — and unevenly, since harness-opened turns are not spread evenly
-  // across the populations. Excluded here and REPORTED, because a silently
-  // narrowed corpus is the failure this whole script exists to avoid.
-  const hasReaction = (t: TurnMetrics): boolean => t.reactionText.trim().length > 0;
-  const windowed = all.filter(inWindow);
-  const droppedNoReaction = windowed.length - windowed.filter(hasReaction).length;
-  const scored = windowed.filter(hasReaction);
-
-  const firing = scored.filter((t) => t.firesMax);
-  const depth = (t: TurnMetrics) => t.suppressionReasons.includes("depth-request-override");
-  const qa = (t: TurnMetrics) => t.suppressionReasons.includes("question-answer-override");
-
-  // PR #3317 R1 (BLOCKING): the first cut counted a BOTH-gates turn in the
-  // depth population and excluded it from the question-answer one, so the two
-  // were not comparable — and the asymmetry sat on exactly the axis the finding
-  // rests on. The suppressed populations are now DISJOINT, with the both-gates
-  // row reported rather than folded into either.
-  const populations: Array<[string, TurnMetrics[]]> = [
-    ["suppressed: depth-request only", firing.filter((t) => depth(t) && !qa(t))],
-    ["suppressed: question-answer only", firing.filter((t) => qa(t) && !depth(t))],
-    ["suppressed: BOTH gates", firing.filter((t) => depth(t) && qa(t))],
-    ["DELIVERED (reminder injected)", firing.filter((t) => !t.suppressed)],
-  ];
-  const control = scored.filter((t) => !t.firesMax);
+  const { populations, control, droppedNoReaction } = partitionBySuppression(all, inWindow);
 
   process.stdout.write(
     `\n=== suppression accuracy (mt#4540) ===\n` +
