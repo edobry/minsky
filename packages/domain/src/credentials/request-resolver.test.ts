@@ -61,6 +61,57 @@ describe("resolveSatisfiedCredentialRequests", () => {
     expect(closed).toEqual([{ id: "a", detail: "8 repos visible" }]);
   });
 
+  it("releases the parent task after closing a satisfied request (mt#4486)", async () => {
+    // The INVOCATION-PATH test. `parent-task-gate.test.ts` proves the release
+    // decides correctly; this proves the resolver actually CALLS it — the half
+    // that, missing, ships a correct function nothing invokes
+    // (`work-completion.mdc §Invocation path`).
+    const released: string[] = [];
+    const { deps, closed } = makeDeps(
+      [requestAsk("a", "github")],
+      [{ provider: "github", configured: true, detail: "ok" }]
+    );
+    deps.releaseParent = async (ask) => {
+      released.push(ask.id);
+    };
+
+    await resolveSatisfiedCredentialRequests(deps);
+
+    expect(closed.map((c) => c.id)).toEqual(["a"]);
+    expect(released).toEqual(["a"]);
+  });
+
+  it("does NOT release the parent of a request that stays open", async () => {
+    // The control. Without it the test above passes just as well if the release
+    // ran unconditionally — which would return tasks whose credential never came.
+    const released: string[] = [];
+    const { deps } = makeDeps(
+      [requestAsk("a", "github")],
+      [{ provider: "github", configured: false }]
+    );
+    deps.releaseParent = async (ask) => {
+      released.push(ask.id);
+    };
+
+    await resolveSatisfiedCredentialRequests(deps);
+
+    expect(released).toEqual([]);
+  });
+
+  it("a resolver with no task gate still closes requests (mt#4486)", async () => {
+    // `releaseParent` is optional; a caller that cannot resolve a task service
+    // gets the pre-mt#4486 behaviour rather than a crash.
+    const { deps, closed } = makeDeps(
+      [requestAsk("a", "github")],
+      [{ provider: "github", configured: true, detail: "ok" }]
+    );
+    expect(deps.releaseParent).toBeUndefined();
+
+    await resolveSatisfiedCredentialRequests(deps);
+
+    expect(closed.map((c) => c.id)).toEqual(["a"]);
+  });
+
   it("leaves a request open while its credential is absent", async () => {
     const { deps, closed } = makeDeps(
       [requestAsk("a", "github")],

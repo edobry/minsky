@@ -31,6 +31,20 @@ export const CREDENTIAL_REQUEST_METADATA_KEY = "credentialRequest";
 export interface CredentialRequestPayload {
   /** Registry id of the provider whose credential is being requested. */
   readonly provider: string;
+  /**
+   * The parent task's status at the moment the request blocked it (mt#4486).
+   *
+   * Absent when there is no parent task, or when the parent could not be blocked
+   * (a TODO parent has no `→ BLOCKED` edge; a `state-ops` parent has no BLOCKED
+   * state at all). Its absence therefore means "nothing to release", which is
+   * exactly what the resolver needs to know.
+   *
+   * Recorded here rather than re-derived at release time because by then the
+   * task IS blocked — the prior status is gone, and `BLOCKED` has no edge back
+   * to IN-PROGRESS or IN-REVIEW, so where it returns depends on where it came
+   * from.
+   */
+  readonly parentEntryStatus?: string;
 }
 
 /** The subset of an ask this reader needs — kept structural so both sides fit it. */
@@ -51,5 +65,19 @@ export function readCredentialRequest(
   if (!raw || typeof raw !== "object") return null;
   const provider = (raw as { provider?: unknown }).provider;
   if (typeof provider !== "string" || provider.length === 0) return null;
-  return { provider };
+
+  // Every field must be lifted EXPLICITLY: this reader constructs a fresh object
+  // rather than returning `raw`, so a payload field added above and not added
+  // here is silently dropped — no error, no missing-key warning, just a value
+  // that reads as absent at every call site. `parentEntryStatus`'s absence is
+  // meaningful ("nothing to release"), which is precisely the case where a
+  // silent drop would be indistinguishable from the real thing.
+  const parentEntryStatus = (raw as { parentEntryStatus?: unknown }).parentEntryStatus;
+
+  return {
+    provider,
+    ...(typeof parentEntryStatus === "string" && parentEntryStatus.length > 0
+      ? { parentEntryStatus }
+      : {}),
+  };
 }

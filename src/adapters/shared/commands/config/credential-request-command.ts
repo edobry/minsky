@@ -30,8 +30,42 @@ import {
   classifyCredentialRequest,
   isPolicyResolved,
 } from "@minsky/domain/credentials/request";
+import { decideParentBlock } from "@minsky/domain/credentials/parent-task-block";
+import { blockParentTask } from "@minsky/domain/credentials/parent-task-gate";
+import type { ParentTaskGateDeps } from "@minsky/domain/credentials/parent-task-gate";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { createAskWithFormLint, requireAskRepository } from "../asks";
+
+/**
+ * The narrowest slice of the task service the parent-task gate needs (mt#4486).
+ *
+ * Reads `container.taskService` — the same instance every other task-touching
+ * command uses — rather than constructing one. A first draft called
+ * `createConfiguredTaskService` directly and did not typecheck: that factory
+ * requires a `persistenceProvider` the command has no business resolving, which
+ * is the type system pointing at the container that already holds a wired
+ * service.
+ *
+ * Returns `undefined` when there is no container, so the block is SKIPPED rather
+ * than failing the request — the same soft posture as every other branch here.
+ */
+function taskGateDeps(container?: AppContainerInterface): ParentTaskGateDeps | undefined {
+  // `has` before `get`: the container THROWS on an unresolved key, and an
+  // unresolved task service is a skip here, not an error.
+  if (!container?.has("taskService")) return undefined;
+  const service = container.get("taskService");
+  if (!service) return undefined;
+  return {
+    async readTask(taskId: string) {
+      const task = await service.getTask(taskId);
+      if (!task) return null;
+      return { status: task.status, kind: (task as { kind?: string | null }).kind ?? null };
+    },
+    async setStatus(taskId: string, status: string) {
+      await service.setTaskStatus(taskId, status);
+    },
+  };
+}
 
 /** Path named in the refusal below, so the fix is one file away from the error. */
 const REGISTRY_PATH = "packages/domain/src/credentials/providers/index.ts";
@@ -90,10 +124,37 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
       }
 
       const repo = await requireAskRepository(container, "credentials.request");
+
+      // Peek at the parent BEFORE building the draft, because the entry status
+      // has to be embedded in the payload the ask is created with — by release
+      // time the task IS blocked and the prior status is gone (mt#4486).
+      //
+      // Deliberately does NOT write yet: the ask is created first, so a failed
+      // create cannot strand a task in BLOCKED with no request explaining why.
+      // The cost is that the status is read twice and could change in between;
+      // `blockParentTask` re-reads and re-decides, so the WRITE is always
+      // correct, and only the recorded entry status could be stale — worst case
+      // a released task lands on READY instead of PLANNING.
+      const gate = params.parentTaskId ? taskGateDeps(container) : undefined;
+      let plannedEntryStatus: string | undefined;
+      if (params.parentTaskId && gate) {
+        try {
+          const peek = await gate.readTask(params.parentTaskId);
+          if (peek) {
+            const decision = decideParentBlock(peek);
+            if (decision.block) plannedEntryStatus = decision.entryStatus;
+          }
+        } catch {
+          // A task-service failure must not fail the request — the credential is
+          // the deliverable. `parentBlock` below re-reads and reports the miss.
+        }
+      }
+
       const draft = buildCredentialRequestAsk({
         provider,
         reason: params.reason,
         parentTaskId: params.parentTaskId,
+        parentEntryStatus: plannedEntryStatus,
       });
 
       const { ask } = await createAskWithFormLint(repo, draft);
@@ -120,6 +181,18 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
         );
       }
 
+      // Block the parent LAST, so nothing above can leave a task marked blocked
+      // by a request that does not exist. Soft-fails by construction — see
+      // `parent-task-gate`'s module docblock for why this must not fail the
+      // request.
+      const parentBlock =
+        params.parentTaskId && gate
+          ? await blockParentTask(gate, params.parentTaskId, {
+              id: ask.id,
+              shortId: ask.shortId ?? undefined,
+            })
+          : undefined;
+
       return {
         success: true,
         json: params.json || false,
@@ -128,6 +201,20 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
         provider: provider.id,
         configPath: provider.configPath,
         state: persisted.state,
+        // Reported rather than silent: a caller that passed `parentTaskId` needs
+        // to know whether the task actually got marked, because a TODO or
+        // state-ops parent is skipped and that is not a failure (mt#4486).
+        ...(params.parentTaskId
+          ? {
+              parentTaskId: params.parentTaskId,
+              parentBlocked: parentBlock?.outcome === "blocked",
+              parentBlockOutcome: parentBlock?.outcome ?? "failed",
+              ...(parentBlock?.outcome === "skipped"
+                ? { parentBlockSkipped: parentBlock.why }
+                : {}),
+              ...(parentBlock?.outcome === "failed" ? { parentBlockError: parentBlock.error } : {}),
+            }
+          : {}),
         // No value, and no field that could hold one — the agent's observable is
         // the request's identity plus where it will land.
       };
