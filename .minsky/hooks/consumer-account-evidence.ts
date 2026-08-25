@@ -76,7 +76,32 @@ export interface RemovedSignal {
   line: string;
 }
 
-export type SignalKind = "process-exit" | "event-emit" | "connection-close" | "state-write";
+export type SignalKind =
+  | "process-exit"
+  | "event-emit"
+  | "connection-close"
+  | "state-write"
+  | "newly-guarded";
+
+/**
+ * Control-flow introduced by an ADDED line (mt#4493, PR #3335 R1).
+ *
+ * SC1 covers "REMOVE **or newly guard**", and the two reach the diff differently:
+ *
+ *   - WRAPPING an existing call (`process.exit(0)` → `if (c) process.exit(0)`) rewrites
+ *     the call's own line, so it appears as a REMOVAL and `findRemovedSignalCalls` already
+ *     sees it. That is the common form and needs nothing extra.
+ *   - INSERTING a guard ABOVE an untouched call (`if (!x) return;` on a new line) touches
+ *     no existing line, so there is no removal to find. That is this pattern's job.
+ *
+ * Deliberately narrow — an added `if`/`return`/`else`/`continue` only counts when the SAME
+ * hunk also carries a signal call, added or unchanged. A guard added anywhere else in the
+ * file is not evidence about that call. This half is more false-positive-prone than the
+ * removal half by construction, which is an argument for the calibration-first posture
+ * rather than against shipping it: a log-only surface is where an FP-prone trigger belongs
+ * until a window says otherwise.
+ */
+const ADDED_GUARD_RE = /^\s*(?:\}\s*)?(?:if\s*\(|else\b|return\s*;|continue\s*;|switch\s*\()/;
 
 /** Cap on a captured line, so one minified file cannot bloat the log. */
 const LINE_CAP = 200;
@@ -175,6 +200,65 @@ export function findRemovedSignalCalls(patches: PrFilePatch[]): RemovedSignal[] 
         });
         break;
       }
+    }
+  }
+  return found;
+}
+
+/** True when a line contains any signal-producing call. */
+function matchesAnySignal(line: string): boolean {
+  return SIGNAL_CALL_PATTERNS.some(({ re }) => re.test(line));
+}
+
+/**
+ * Signal calls that a diff newly GUARDS without removing (mt#4493, SC1's second half).
+ *
+ * Hunk-scoped: an added control-flow line counts only when the same hunk also carries a
+ * signal call on a line that SURVIVES the change (added or context). A removed line is
+ * excluded here on purpose — that case is `findRemovedSignalCalls`'s, and counting it
+ * twice would report one edit as two findings.
+ */
+export function findNewlyGuardedSignalCalls(patches: PrFilePatch[]): RemovedSignal[] {
+  const found: RemovedSignal[] = [];
+
+  for (const file of patches) {
+    if (typeof file.patch !== "string" || file.patch.length === 0) continue;
+    if (!IN_SCOPE_ROOT_RE.test(file.filename)) continue;
+    if (TEST_FILE_RE.test(file.filename) || EXCLUDED_PATH_RE.test(file.filename)) continue;
+
+    // `@@` opens a hunk; everything until the next `@@` belongs to it.
+    const hunks: string[][] = [];
+    let current: string[] | null = null;
+    for (const raw of file.patch.split("\n")) {
+      if (raw.startsWith("@@")) {
+        current = [];
+        hunks.push(current);
+        continue;
+      }
+      current?.push(raw);
+    }
+
+    for (const hunk of hunks) {
+      const addedGuard = hunk.some(
+        (l) => l.startsWith("+") && !l.startsWith("+++") && ADDED_GUARD_RE.test(l.slice(1))
+      );
+      if (!addedGuard) continue;
+
+      const surviving = hunk.find(
+        (l) =>
+          (l.startsWith("+") ? !l.startsWith("+++") : l.startsWith(" ")) &&
+          matchesAnySignal(l.slice(1))
+      );
+      if (!surviving) continue;
+
+      found.push({
+        filename: file.filename,
+        kind: "newly-guarded",
+        line: safeTruncate(surviving.slice(1).trim(), LINE_CAP, "head"),
+      });
+      // One finding per file: a refactor adding several guards around one call site is
+      // one thing to account for, not N.
+      break;
     }
   }
   return found;
@@ -292,7 +376,14 @@ export function runConsumerAccountCalibration(
   prBody: string,
   now: () => Date = () => new Date()
 ): ConsumerAccountRunResult {
-  const removedSignals = findRemovedSignalCalls(patches);
+  // SC1's two halves. A file appearing in both is reported once — the removal entry wins,
+  // because it names the actual removed line rather than the surviving one.
+  const removed = findRemovedSignalCalls(patches);
+  const removedFiles = new Set(removed.map((s) => s.filename));
+  const removedSignals = [
+    ...removed,
+    ...findNewlyGuardedSignalCalls(patches).filter((s) => !removedFiles.has(s.filename)),
+  ];
   if (removedSignals.length === 0) {
     return { ranCheck: true, warning: null, calibrationRecord: null };
   }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   extractConsumerAccountDeferral,
+  findNewlyGuardedSignalCalls,
   findRemovedSignalCalls,
   hasConsumerAccount,
   runConsumerAccountCalibration,
@@ -100,6 +101,66 @@ describe("findRemovedSignalCalls", () => {
       { filename: "src/mcp/daemon.test.ts", patch: removalPatch(EXIT_LINE) },
     ]);
     expect(found).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SC1's second half — "or newly guard" (PR #3335 R1)
+// ---------------------------------------------------------------------------
+
+describe("findNewlyGuardedSignalCalls", () => {
+  test("a guard inserted ABOVE an untouched signal call fires", () => {
+    const patch = [
+      "@@ -10,2 +10,3 @@",
+      " function shutdown() {",
+      "+  if (!shouldExit) return;",
+      `   ${EXIT_LINE.trim()}`,
+    ].join("\n");
+    const found = findNewlyGuardedSignalCalls([{ filename: DAEMON_FILE, patch }]);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.kind).toBe("newly-guarded");
+  });
+
+  test("an added guard in a hunk with NO signal call does not fire", () => {
+    const patch = [
+      "@@ -1,2 +1,3 @@",
+      " const a = 1;",
+      "+  if (!ready) return;",
+      " const b = 2;",
+    ].join("\n");
+    expect(findNewlyGuardedSignalCalls([{ filename: DAEMON_FILE, patch }])).toHaveLength(0);
+  });
+
+  test("a signal call on a REMOVED line is not counted as newly guarded", () => {
+    const patch = ["@@ -1,2 +1,1 @@", "+  if (!ready) return;", `-${EXIT_LINE}`].join("\n");
+    expect(findNewlyGuardedSignalCalls([{ filename: DAEMON_FILE, patch }])).toHaveLength(0);
+  });
+
+  /**
+   * The WRAP form reaches the diff as a removal, so it was already covered before this
+   * half existed. What must not happen is reporting it twice.
+   */
+  test("wrapping a call reports ONE finding, not one per half", () => {
+    const patch = [
+      "@@ -10,1 +10,3 @@",
+      `-${EXIT_LINE}`,
+      "+  if (stale) {",
+      `+  ${EXIT_LINE.trim()}`,
+      "+  }",
+    ].join("\n");
+    const result = run([{ filename: DAEMON_FILE, patch }], NO_ACCOUNT_BODY);
+    expect(result.calibrationRecord?.removedSignals).toHaveLength(1);
+    expect(result.calibrationRecord?.kinds).toEqual(["process-exit"]);
+  });
+
+  test("a newly-guarded call with a Consumer account section does not fire", () => {
+    const patch = [
+      "@@ -10,2 +10,3 @@",
+      " function shutdown() {",
+      "+  if (!shouldExit) return;",
+      `   ${EXIT_LINE.trim()}`,
+    ].join("\n");
+    expect(run([{ filename: DAEMON_FILE, patch }], ACCOUNT_BODY).calibrationRecord).toBeNull();
   });
 });
 
