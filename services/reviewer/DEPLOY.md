@@ -24,16 +24,23 @@ Stateless Node service. Railway is the documented default because webhooks are f
 
 ### Operator follow-up required after this PR merges
 
-> **Verified 2026-08-25 — step 1 DONE, step 2 UNVERIFIED. Mechanism still correct for both.**
+> **Verified 2026-08-25 — step 1 DONE, step 2 UNVERIFIED. Settles with: per-step, below.**
+>
 > Per `documentation-taxonomy.mdc §Operator-instruction blocks carry a verification stamp`, an
 > instruction has two truth-values and this block's differ, so read the per-step status below
-> before acting on either.
+> before acting on either. Both steps' mechanisms remain correct; only their status differs.
 >
 > - **Step 1 (Source flip) — mechanism CORRECT, and already PERFORMED (2026-07-24).** Do not
 >   redo it. It was carried out as the mt#3142 recovery (mem#700/mem#717), and the live service
 >   deploys from an image today. Settles with:
 >   `railway deployment list --json --service 3913e8a4-81ab-465a-aad8-b76b5e3f66ed --environment b3ea3f5d-8560-40ea-8824-17fe3ca0b32a | jq -r '.[0].meta.image'`
->   — a non-null image means the flip is in effect. Corroborating: mt#1815's 2026-08-25 closeout
+>   — a non-null image means the flip is in effect. The `--environment` flag is REQUIRED:
+>   without it the CLI falls back to the linked context, which may target a different
+>   environment and produce a false read. This command matches the one in `infra/index.ts`'s
+>   stamp character-for-character once that comment's `//` wrapping is removed, deliberately —
+>   a settler that differs between two artifacts is not deterministic, which is the property
+>   the convention exists to provide.
+>   Corroborating: mt#1815's 2026-08-25 closeout
 >   measured ~180 commits to `main` producing only 16 reviewer deploys, each 1:1 with a
 >   `deploy-reviewer.yml` run, so Railway's native repo trigger is demonstrably not firing —
 >   which is what step 1's own "confirm the trigger is actually gone" clause asks for.

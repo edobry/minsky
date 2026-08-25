@@ -88,6 +88,18 @@ Verified <YYYY-MM-DD> — <status>. Settles with: <command>
 
 A block can be correct on the first and stale on the second, and that combination reads exactly like a block that is simply correct. Record both, and name the command a reader can run to re-settle each.
 
+**Multi-step blocks.** When a block contains several steps whose statuses differ, keep the single line as a greppable header carrying the combined status, and give one `Settles with:` per step beneath it:
+
+```
+Verified <YYYY-MM-DD> — step 1 DONE, step 2 UNVERIFIED. Settles with: per-step, below.
+  - Step 1 — <status>. Settles with: <command>
+  - Step 2 — <status>. Settles with: <command>
+```
+
+Both worked examples have this shape, because a block whose steps all share one status turned out to be the rarer case.
+
+**A settler must be RUNNABLE and IDENTICAL wherever it appears.** No placeholders standing in for ids, and no omitted flags that let a tool fall back to ambient context — a command that silently targets the wrong environment produces a confident false reading, which is worse than no stamp at all. When two artifacts stamp the same fact, their settlers are the same command character-for-character once any comment wrapping is removed; a settler that differs between artifacts is not deterministic, and determinism is the whole property being bought. (Caught by review on this convention's own first two examples: one named `<reviewer>` as a placeholder and omitted `--environment`, while its counterpart carried concrete ids and the flag.)
+
 ### What a MISSING stamp means
 
 An unstamped block is **unverified in both directions**. It is not licence to trust it, and it is not licence to discard it.
