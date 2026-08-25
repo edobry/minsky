@@ -734,9 +734,13 @@ fires a step later, once it is described. Before mt#4508 a new module selected Z
 every local check passed and the first signal was full CI on an already-approved PR. Check with
 `bun scripts/run-related-tests.ts .minsky/hooks/<name>.ts`.
 
-Still true, and not covered by that: `.minsky/hooks/**` is absent from `run-tests-main.ts`'s `ROOTS`,
-so the pre-PUSH gated runner cannot execute that tree at all — run `bun run test:hooks` before
-pushing a hook change (mem#1206).
+**mt#4521 then closed the general case:** the selector's graph scope is now `GRAPH_ROOTS`
+(`ROOTS` + `./.minsky/hooks`), separate from the runner's `ROOTS`, so a hooks change selects its
+real IMPORTERS too — not just its sibling and the two census tests.
+
+Still true, and narrowed rather than retired: `ROOTS` deliberately still excludes the tree, so the
+pre-PUSH gated runner cannot execute it — run `bun run test:hooks` before pushing a hook change,
+for the residue no edge reaches (mem#1206).
 
 # Design Principle: Humility
 
