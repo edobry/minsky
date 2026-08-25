@@ -307,10 +307,7 @@ export async function enrichWakeResponse(
   const callerAgentId = options.callerAgentId;
   if (callerAgentId) {
     try {
-      // Created here rather than above the branch so the envelope is measured against
-      // the label this block will actually carry (`label` becomes callerAgentId when the
-      // agent drain yields, else parentSessionId). Reused by the session drain below.
-      ledger ??= createBudgetLedger(charBudget, toolName, callerAgentId);
+      ledger ??= createBudgetLedger(charBudget, toolName);
       const pendingAgentDrain = wakeService.drainByAgent(callerAgentId, toolName, ledger);
       const agentPayloads = await raceEnrichmentDeadline(pendingAgentDrain, deadlineMs);
       if (agentPayloads === DEADLINE_EXCEEDED) {
@@ -347,7 +344,7 @@ export async function enrichWakeResponse(
 
     if (parentSessionId) {
       try {
-        ledger ??= createBudgetLedger(charBudget, toolName, parentSessionId);
+        ledger ??= createBudgetLedger(charBudget, toolName);
         const pendingSessionDrain = wakeService.drainBySession(parentSessionId, toolName, ledger);
         const sessionPayloads = await raceEnrichmentDeadline(pendingSessionDrain, deadlineMs);
         if (sessionPayloads === DEADLINE_EXCEEDED) {
@@ -397,7 +394,7 @@ export async function enrichWakeResponse(
     })}`
   );
 
-  return buildBlock(toolName, label, payloads, charBudget);
+  return buildBlock(toolName, label, payloads);
 }
 
 /**
@@ -423,14 +420,8 @@ export async function enrichWakeResponse(
  * Returns references from `claimed` — never clones. The repository identifies released
  * rows by matching these against what it claimed, so a clone would release everything.
  */
-export function createBudgetLedger(
-  charBudget: number,
-  toolName: string,
-  addressedTo: string
-): DeliverableFilter {
-  // Reserve the envelope up front. `count` is not known until both drains have run, so
-  // reserve for a 3-digit one — two characters of slack, against a 4000-char budget.
-  let remaining = charBudget - envelopeFor(toolName, addressedTo, 999).length;
+export function createBudgetLedger(charBudget: number, toolName: string): DeliverableFilter {
+  let remaining = charBudget - toolName.length - MAX_ENVELOPE_OVERHEAD_CHARS;
 
   return (claimed: WakeSignalPayload[]): WakeSignalPayload[] => {
     if (remaining <= 0) return [];
@@ -447,41 +438,49 @@ export function createBudgetLedger(
   };
 }
 
-/** Envelope + closing tag, whose length the body budget must account for. */
-function envelopeFor(toolName: string, addressedTo: string, count: number): string {
-  return `<wake-events tool="${toolName}" session="${addressedTo}" count="${count}">\n\n</wake-events>`;
-}
+/**
+ * Envelope allowance the ledger reserves, EXCLUDING the tool name (added by the caller,
+ * which knows it) — the fixed tag text, the `count`, and a bound on the addressee label.
+ *
+ * **Deliberately independent of which label the block ends up carrying (PR #3306 R1).**
+ * The first version reserved against `callerAgentId` in the agent branch, but `label`
+ * becomes `parentSessionId` when the agent drain yields nothing and the session drain
+ * yields something — so the reservation could be measured against a label the block does
+ * not use. A longer actual label would then overflow the budget and `buildBlock` would
+ * drop the overflow, reintroducing the exact loss this task removes. Reserving a bound
+ * that covers ANY label removes the mismatch rather than correcting one branch of it.
+ *
+ * 256 covers the two real label shapes with a wide margin — an ADR-006 agent id
+ * (`com.anthropic.claude-code:conv:<uuid>`, ~55 chars) and a workspace session UUID (36)
+ * — plus the ~70 chars of fixed tag text and a 3-digit count. Against a 4000-char budget
+ * the over-reservation costs well under one payload of room, which is the right trade
+ * against a silent drop.
+ */
+const MAX_ENVELOPE_OVERHEAD_CHARS = 256;
 
 function buildBlock(
   toolName: string,
   addressedTo: string,
-  payloads: WakeSignalPayload[],
-  charBudget: number
-): WakeEnrichmentBlock | null {
+  payloads: WakeSignalPayload[]
+): WakeEnrichmentBlock {
   // Attribute kept as `session=` for wire compatibility: stored transcripts and any
   // downstream parser already match on that attribute name, and mt#4476 widened what
   // the VALUE can be (a workspace session id, or an ADR-006 agent id) rather than
   // adding a second attribute.
   const envelope = `<wake-events tool="${toolName}" session="${addressedTo}" count="${payloads.length}">\n`;
   const closing = `\n</wake-events>`;
-  let bodyBudget = charBudget - envelope.length - closing.length;
-  if (bodyBudget <= 0) return null;
 
-  const lines: string[] = [];
-  for (const p of payloads) {
-    const line = JSON.stringify(p);
-    if (line.length + 1 > bodyBudget) {
-      // Budget exceeded mid-payload; stop appending so we don't truncate JSON
-      // (operators rely on each line being valid JSON for downstream parsing).
-      break;
-    }
-    lines.push(line);
-    bodyBudget -= line.length + 1;
-  }
-  if (lines.length === 0) return null;
-
+  // Renders EVERY payload it is given — no budget decision here (mt#4517).
+  //
+  // This function used to run its own budget loop and drop the overflow, which is the
+  // defect this task exists to fix: what it dropped had already been marked delivered.
+  // Now `createBudgetLedger` decides what fits BEFORE the drain settles, and the
+  // repository releases the rest, so by the time we get here every payload has been
+  // both selected and marked. A second budget check would be a second place to disagree
+  // — and any disagreement can only take the form of a silent drop, which is exactly
+  // what PR #3306 R1 caught in the reservation logic.
   return {
     type: "text",
-    text: `${envelope}${lines.join("\n")}${closing}`,
+    text: `${envelope}${payloads.map((p) => JSON.stringify(p)).join("\n")}${closing}`,
   };
 }
