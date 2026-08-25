@@ -227,9 +227,25 @@ fails, the error is propagated to the caller.
 
 To investigate persistent pool saturation:
 
-1. Check how many Minsky MCP processes are running and their per-process pool size (default 15).
-2. Check the Supabase/Supavisor pooler's global connection limit.
-3. Consider reducing `maxConnections` per process or restarting idle MCP servers.
+1. **Count the actual pool HOLDERS, not the processes** — most processes never open a pool, so a
+   process count overstates demand by an order of magnitude:
+
+   ```
+   lsof -nP -iTCP -sTCP:ESTABLISHED | awk '$9 ~ /:6543$/ {print $2}' | sort | uniq -c
+   ```
+
+   That gives connections per pid. A pid holding more than the derived default is itself the
+   finding — it means something opened more than one pool (see mt#4515).
+
+2. **Read the pool size in force, rather than assuming the default applies** — a config or env
+   override may be in play: `debug_systemInfo` reports `poolerSaturation.limit`, which is the
+   pool's own `max`, alongside `inFlight` / `queued` / `peakQueued` / `refused`.
+
+3. **Check the pooler's client ceiling** with the query and table at the top of this document
+   (`select current_setting('max_connections')`) — do not carry a remembered figure into the
+   arithmetic; that is how this document was wrong twice.
+
+4. Then consider reducing `maxConnections` per process or restarting idle MCP servers.
 
 ## In-process admission bound (mt#2773, extended mt#4473)
 
