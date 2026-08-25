@@ -220,7 +220,31 @@ export const CAPABILITY_DEFERRAL_PATTERNS: RegExp[] = [
   /\bdeferred?\s+to\s+(the\s+)?(operator|user|principal|you)\b/i,
   /\brequires?\s+(?:\w+[\s-]){0,3}(access|credentials?|permissions?|token|secret)\b/i,
   /\b(you|the\s+operator|the\s+user)(?:'?ll|\s+will)?\s+(need|have)\s+to\s+(provide|grant|supply|set|add)\b/i,
-  /\b(provide|give|paste|share)\s+(me\s+)?(the|your|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
+  // NARROWED by mt#2428. This used to read
+  //   (provide|give|paste|share) (me )?(the|your|a) ... (token|credential|...)
+  // which did double duty: it caught genuine capability DEFERRALS ("I will not
+  // be able to provide the token", "until you provide the token") AND the
+  // imperative request for the value itself ("give me the token", "paste the
+  // token here"). The second belongs to `secret-request-in-chat-detector`
+  // (mt#2428) — it is a transcript-leak concern whose remedy, "file a
+  // credentials.request", is the OPPOSITE advice from this detector's "run the
+  // capability probe". Keeping both would double-fire and double-count across
+  // two calibration logs, the discipline this file imposes on itself against
+  // mt#2303 a few lines up.
+  //
+  // The split is by VERB CLASS plus recipient, and the tests are what forced
+  // it: deleting the whole pattern regressed mt#3865's and mt#4111's negation
+  // controls, which are real deferrals that happen to say "provide the token".
+  //   - DEPOSIT verbs (paste/enter/type/post/drop) -> always the sibling's.
+  //   - GENERIC verbs WITH a recipient (`me`/`us`/`your`) -> the sibling's.
+  //   - GENERIC verbs with a bare `the` and no recipient -> a deferral, kept
+  //     here. That is the pattern below.
+  // Verb set is EXACTLY the original's minus what moved — no new verbs. A carve
+  // must not widen the surface it carves from: a first draft here read
+  // (provide|supply|grant|generate|obtain), and replaying the live calibration
+  // log showed it firing on records the original never matched. Recall changes
+  // to this detector are its own decision, with its own evidence.
+  /\bprovide\s+(the|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
   /\b(outside|not\s+available\s+(from|in|to))\s+(the\s+)?agent\s+context\b/i,
   /\boperator\s+follow-?up\b/i,
   /\b(user|operator|you)\s+must\s+(do|run|handle|perform|fix|restart|deploy)\b/i,
@@ -988,7 +1012,11 @@ export function detectAskJustificationAbsence(turnLines: TranscriptLine[]): Defe
  */
 export const ASK_PRINCIPAL_ACTION_PATTERNS: RegExp[] = [
   /\byou\s+(restart|recover|redeploy|reprovision|provision|fix|run|re-?run|rebuild|reinstall|restore|deploy|grant)\b/i,
-  /\b(provide|give|paste|share|hand)\s+(me\s+)?(the|your|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
+  // MOVED OUT by mt#2428, same carve as Surface A's — see the comment in
+  // CAPABILITY_DEFERRAL_PATTERNS. An option label offering to hand over a
+  // secret VALUE is `secret-request-in-chat-detector`'s; the infra-action
+  // labels around it ("you restart the reviewer service") stay here, which is
+  // this surface's actual subject.
   /\b(recover|restart|redeploy|reprovision)\s+(the\s+)?[\w-]+\s+(service|server|deployment|container)\b/i,
   /\b(operator|principal|you)\s+(handles?|takes?\s+care\s+of|does)\s+(the\s+)?(deploy|restart|recovery|provisioning|fix)\b/i,
 ];

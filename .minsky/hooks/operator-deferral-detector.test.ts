@@ -695,12 +695,38 @@ describe("does not fire on trigger phrases quoted in prose (mt#3273)", () => {
 
   // The ask surface deliberately does NOT elide — a label does not quote a
   // deferral, it IS one, so quotes there name the thing being handed over.
-  test("ask-option-label surface still fires when the label contains quotes", () => {
+  test("a quoted CREDENTIAL label is no longer this detector's (carve to mt#2428)", () => {
+    // Was: "ask-option-label surface still fires when the label contains
+    // quotes". mt#3273's finding was that quote CHARACTERS silently broke
+    // matching; that intent did not disappear, it MOVED — the equivalent
+    // assertion now lives in
+    // `packages/domain/src/detectors/secret-request-in-chat.test.ts`
+    // ("a quote-decorated label still fires"), because a label offering to hand
+    // over a secret VALUE is `secret-request-in-chat-detector`'s subject.
+    //
+    // Kept here as a carve-boundary regression test rather than deleted: if
+    // someone re-adds the credential pattern to this surface, both detectors
+    // fire on one label and the double-count returns.
     const quotedLabelAsk: Record<string, unknown> = {
       questions: [
         {
           question: "Retrigger needs credentials.",
           options: [{ label: 'Provide me the "MCP auth token"' }, { label: "Hold the PR" }],
+        },
+      ],
+    };
+    expect(detectAskDeferral(quotedLabelAsk, [])).toHaveLength(0);
+  });
+
+  test("but an INFRA-action label with quotes still fires here", () => {
+    // The quote-tolerance itself is still this surface's property — only the
+    // credential vocabulary left. Without this control the assertion above
+    // would pass just as well if option-label matching were broken outright.
+    const quotedLabelAsk: Record<string, unknown> = {
+      questions: [
+        {
+          question: "The reviewer is down.",
+          options: [{ label: 'You restart the "reviewer" service' }, { label: "Hold the PR" }],
         },
       ],
     };
@@ -1440,11 +1466,25 @@ describe("mt#3865 — real positives the tune must preserve (AT2)", () => {
 });
 
 describe("mt#3865 — the negation guard is bounded (AT1 controls)", () => {
-  test("an UNNEGATED request for the same secret still fires", () => {
+  test("an UNNEGATED DEFERRAL for the same secret still fires", () => {
+    // Was posed on "Paste the token into this chat so I can use it." — a
+    // DEPOSIT verb, which mt#2428 carved to `secret-request-in-chat-detector`
+    // (the assertion moved there as AT1). Re-posed on the deferral shape this
+    // surface still owns, so mt#3865's actual control — that the negation guard
+    // does not swallow the unnegated case — keeps a subject here.
     const matches = detectCapabilityDeferral([
-      assistantText("Paste the token into this chat so I can use it."),
+      assistantText("I cannot proceed until you provide the token."),
     ]);
     expect(matches).toHaveLength(1);
+  });
+
+  test("the deposit-verb form is no longer this detector's (carve to mt#2428)", () => {
+    // The sentence the test above used to carry. Pinned so re-adding the
+    // pattern here — which would double-count every fire across two
+    // calibration logs — fails loudly.
+    expect(
+      detectCapabilityDeferral([assistantText("Paste the token into this chat so I can use it.")])
+    ).toHaveLength(0);
   });
 
   test("a negated CAPABILITY claim is not a prohibition — 'will not be able to' still fires", () => {

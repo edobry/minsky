@@ -144,11 +144,26 @@ const SECRET_NOUN = "(?:token|credential|key|secret|password|passphrase|pat|api[
  * is on record.
  */
 export const SECRET_REQUEST_PATTERNS: readonly RegExp[] = [
+  // (1) DEPOSIT verbs — paste / enter / type / post / drop. These name the act
+  // of putting a value INTO the conversation, so they need no recipient marker:
+  // "paste the token" is already a request to receive it here.
   new RegExp(
-    `\\b(provide|give|paste|share|hand)\\s+(me\\s+)?(the|your|a)\\s+(?:[\\w-]+\\s+){0,3}${SECRET_NOUN}\\b`,
+    `\\b(paste|enter|type|post|drop)\\s+(the|your|a)\\s+(?:[\\w-]+\\s+){0,3}${SECRET_NOUN}\\b`,
     "i"
   ),
-  new RegExp(`\\b(enter|paste|type)\\s+(the|your|a)\\s+(?:[\\w-]+\\s+){0,3}${SECRET_NOUN}\\b`, "i"),
+  // (2) GENERIC verbs with an explicit recipient — "give me the API key".
+  new RegExp(
+    `\\b(provide|give|hand|send|pass|share)\\s+(me|us)\\s+(the|your|a)\\s+(?:[\\w-]+\\s+){0,3}${SECRET_NOUN}\\b`,
+    "i"
+  ),
+  // (3) GENERIC verbs addressed at the principal's OWN secret — "share your
+  // API key". `your` is the recipient marker here: the value is theirs and the
+  // sentence asks them to surrender it.
+  new RegExp(
+    `\\b(provide|give|hand|send|pass|share)\\s+(?:me\\s+)?your\\s+(?:[\\w-]+\\s+){0,3}${SECRET_NOUN}\\b`,
+    "i"
+  ),
+  // (4) The reply form.
   new RegExp(`\\breply\\s+with\\s+(the|your|a)\\s+(?:[\\w-]+\\s+){0,3}${SECRET_NOUN}\\b`, "i"),
 ];
 

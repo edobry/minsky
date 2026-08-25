@@ -41,6 +41,41 @@ describe("secret-request-in-chat — AT1: a real request fires", () => {
     const r = detectSecretRequestInProse("Paste the token here and I'll do the rest.");
     expect(r.matched).toBe(true);
   });
+
+  /**
+   * Inherited from `operator-deferral-detector.test.ts` when mt#2428 carved the
+   * deposit-verb form over. That suite's mt#3865 control was posed on this
+   * sentence; it is re-posed there on a deferral shape, and the coverage lands
+   * here so nothing is lost in the transfer.
+   */
+  test("mt#3865's carried-over control sentence", () => {
+    const r = detectSecretRequestInProse("Paste the token into this chat so I can use it.");
+    expect(r.matched).toBe(true);
+  });
+});
+
+describe("secret-request-in-chat — the carve against operator-deferral", () => {
+  /**
+   * The split is by VERB CLASS plus recipient. These are the sentences that
+   * must stay the SIBLING's — a generic verb with a bare `the` and no recipient
+   * is a capability deferral, not a request to receive a value in chat. If this
+   * detector starts matching them, both fire on one sentence and the
+   * calibration logs double-count, which is the whole thing the carve prevents.
+   */
+  test.each([
+    "I will not be able to provide the token myself.",
+    "I cannot proceed until you provide the token.",
+    "You'll need to supply the credential before I can retrigger.",
+  ])("stays operator-deferral's: %s", (sentence) => {
+    expect(detectSecretRequestInProse(sentence).matched).toBe(false);
+  });
+
+  test.each(["Paste the token here.", "Give me the API key.", "Share your API key with me."])(
+    "is this detector's: %s",
+    (sentence) => {
+      expect(detectSecretRequestInProse(sentence).matched).toBe(true);
+    }
+  );
 });
 
 describe("secret-request-in-chat — overlapping patterns count once", () => {
