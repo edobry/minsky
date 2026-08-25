@@ -1041,6 +1041,11 @@ export class MinskyMCPServer {
       // mt#1705: pass the per-session sessionKey so the disconnect reads the
       // correct per-session tool-call count.
       this.wireDisconnectHooks(server, "unknown", sessionKey);
+      // mt#4511: stamp this session's start so its disconnect reports the SESSION's
+      // lifetime rather than the daemon's uptime. Many short HTTP sessions live inside
+      // one long-running process, so without this every one of them looked long-lived
+      // and the escalation filter's short-lived-probe exclusion could never fire.
+      this.disconnectTracker.noteSessionStart(sessionKey);
       this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
