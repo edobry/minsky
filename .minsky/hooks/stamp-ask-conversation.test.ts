@@ -134,7 +134,10 @@ describe("stampAskConversation", () => {
     const input = productionPayload({ id: ASK_ID, shortId: "ask#8014" });
     expect(stampAskConversation(input, NOW, mapPath, {})).toBe("written");
 
-    const entry = readAskConversationMap(mapPath).entries[ASK_ID];
+    // Clock passed explicitly (mt#4541): the reader prunes by age now, and NOW is a
+    // fixed past instant — without it this readback would age out on its own once NOW
+    // drifts past ENTRY_MAX_AGE_MS.
+    const entry = readAskConversationMap(mapPath, Date.parse(NOW)).entries[ASK_ID];
     expect(entry?.conversationId).toBe(CONVERSATION_ID);
     expect(entry?.shortId).toBe("ask#8014");
     expect(entry?.recordedAt).toBe(NOW);
@@ -156,7 +159,9 @@ describe("stampAskConversation", () => {
     expect(stampAskConversation(input, NOW, mapPath, { MINSKY_HOOK_OVERRIDE: "all" })).toBe(
       "overridden"
     );
-    expect(readAskConversationMap(mapPath).entries[ASK_ID]).toBeUndefined();
+    // Same fixed clock as above — the entry must be absent because the override skipped
+    // the write, not because the reader aged it out.
+    expect(readAskConversationMap(mapPath, Date.parse(NOW)).entries[ASK_ID]).toBeUndefined();
   });
 
   test("reports write-failed rather than throwing when the map path is unwritable", () => {
