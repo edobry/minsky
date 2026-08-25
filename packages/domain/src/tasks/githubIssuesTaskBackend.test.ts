@@ -493,5 +493,33 @@ This is a test task description.
         recordsAffected: 1,
       });
     });
+
+    test("a failed GitHub read surfaces as an error, not as an empty list or a null task", async () => {
+      // mt#4457 (PR #3342 R1, BLOCKING). `getTaskStatus` was changed to rethrow,
+      // but that guarantee was unreachable: it reads through `getTask`, which
+      // reads through `listTasks`, and BOTH swallowed and returned `null` / `[]`.
+      // An API outage therefore still rendered as "this task has no status".
+      const apiOutage = new Error("GitHub API unavailable (503)");
+      const mockOctokitFailingRead = {
+        rest: { issues: { get: mock(() => Promise.reject(apiOutage)) } },
+        paginate: mock(() => Promise.reject(apiOutage)),
+      };
+
+      const failingBackend = createGitHubIssuesTaskBackend({
+        name: "github",
+        workspacePath: "/test/workspace",
+        githubToken: "test-token",
+        owner: "test-owner",
+        repo: "test-repo",
+        octokit: mockOctokitFailingRead as any,
+        createGitHubLabelsFn: mockCreateGitHubLabels,
+      }) as GitHubIssuesTaskBackend;
+
+      // All three levels must propagate. Asserting each one separately is the
+      // point: a fix applied only at the top is what R1 caught.
+      await expect(failingBackend.listTasks()).rejects.toThrow();
+      await expect(failingBackend.getTask("gh#1")).rejects.toThrow();
+      await expect(failingBackend.getTaskStatus("gh#1")).rejects.toThrow();
+    });
   });
 });

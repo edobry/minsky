@@ -22,6 +22,7 @@ import {
   TaskServiceInterface,
 } from "../taskService";
 import type { Task, StatusWriteOutcome } from "../types";
+import { StatusWriteDidNotPersistError } from "../types";
 import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import {
   taskStatusSetParamsSchema,
@@ -285,11 +286,12 @@ export async function setTaskStatusFromParams(
     // UPDATE reached it, and those are different moments.
     const outcome = await taskService.setTaskStatus(validParams.taskId, validParams.status);
     if (outcome.recordsAffected === 0) {
-      throw new Error(
-        `Status write for ${validParams.taskId} did not persist: the update matched 0 records ` +
-          `(intended ${task.status} -> ${validParams.status}). The task's status is unchanged. ` +
-          `This is a failed write, not a no-op — do not treat it as success.`
-      );
+      throw new StatusWriteDidNotPersistError({
+        taskId: validParams.taskId,
+        fromStatus: task.status,
+        toStatus: validParams.status,
+        recordsAffected: outcome.recordsAffected,
+      });
     }
 
     // Auto-commit functionality was removed - no backend-specific handling needed

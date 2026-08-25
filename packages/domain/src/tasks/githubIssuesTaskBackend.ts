@@ -212,7 +212,23 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     try {
       const result = await this.getTasksData();
-      if (!result.success || !result.content) {
+      if (!result.success) {
+        // mt#4457 (PR #3342 R1, BLOCKING). `fetchIssuesData` does not throw — it
+        // returns `{success: false, error}` — so this early return was a THIRD
+        // place the same read failure got converted into an empty list, below
+        // the two catches. `TaskReadOperationResult` carries the distinction;
+        // collapsing it here is what made the rethrow above unreachable.
+        //
+        // A successful fetch of a repo with no issues is `{success: true,
+        // content: "[]"}` and still returns an empty list, which is correct.
+        throw result.error instanceof Error
+          ? result.error
+          : new Error(
+              `Failed to read GitHub issues for ${this.owner}/${this.repo}: ` +
+                `${result.error ?? "no reason reported"}`
+            );
+      }
+      if (!result.content) {
         return [];
       }
 
@@ -247,8 +263,14 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       return tasks;
     } catch (error) {
+      // mt#4457 (PR #3342 R1, BLOCKING): rethrow rather than returning `[]`.
+      // An API outage, a rate limit, or an auth failure is not an empty task
+      // list, and a caller cannot tell those apart from a repo that genuinely
+      // has no issues. This was also what made `getTaskStatus`'s rethrow
+      // unreachable — it reads through here, so swallowing at this level
+      // defeated the guarantee one level up.
       log.error("Failed to list tasks", { error: getErrorMessage(error) });
-      return [];
+      throw error;
     }
   }
 
@@ -257,8 +279,11 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const tasks = await this.listTasks({ all: true });
       return tasks.find((task) => task.id === id) || null;
     } catch (error) {
+      // mt#4457: same reasoning as `listTasks`. `null` must mean "this repo has
+      // no such issue", never "the read failed" — those call for opposite
+      // responses in every caller.
       log.error("Failed to get task", { id, error: getErrorMessage(error) });
-      return null;
+      throw error;
     }
   }
 
@@ -295,6 +320,15 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     await updateIssueStatus(this.octokit, this.owner, this.repo, id, status, this.statusLabels);
     // `updateIssueStatus` throws on a failed API call, so reaching here means the
     // one addressed issue was updated. GitHub has no rowcount to report (mt#4457).
+    //
+    // KNOWN LIMITATION (PR #3342 R1, non-blocking): this is `1` even when the
+    // issue was ALREADY at the target status, so an idempotent no-op is reported
+    // identically to a real transition. Anything deriving `changed` from this
+    // over-reports for GitHub-backed tasks. Detecting the no-op would need a
+    // read-before-write, which costs an extra API round trip on every status
+    // write; not worth it until a consumer actually depends on the distinction.
+    // The Postgres backend does NOT share this limitation — its count comes from
+    // `.returning()`, which reflects the real UPDATE.
     return { recordsAffected: 1 };
   }
 

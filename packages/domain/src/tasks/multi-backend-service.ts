@@ -497,6 +497,13 @@ export class TaskServiceImpl implements TaskService {
 
     // 1b. Backend list-scan fallback for partial-implementation mocks where
     //     getTaskStatus is unimplemented but listTasks populates rows.
+    //
+    // The narrowing here is INTENTIONAL (PR #3342 R1, non-blocking). The old
+    // `catch` also absorbed a THROWING `listTasks`, not just a missing one. That
+    // tolerance is deliberately not restored: a list read that fails is a failed
+    // read, and converting it into "no status" is the same defect as the one
+    // above it. The capability check preserves the tolerance that was actually
+    // needed — a backend that does not implement the method.
     if (typeof backend.listTasks === "function") {
       const list = await backend.listTasks();
       const found = list.find((t) => {

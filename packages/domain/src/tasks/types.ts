@@ -30,6 +30,40 @@ export interface StatusWriteOutcome {
 }
 
 /**
+ * A status write that returned without error and did not persist (mt#4457).
+ *
+ * A distinct class rather than a bare `Error` (PR #3342 R1) so callers can
+ * discriminate it from a validation failure, a Zod error, or a backend fault —
+ * the three have different remedies, and a caller that cannot tell them apart
+ * will retry the ones it should surface and surface the ones it should retry.
+ */
+export class StatusWriteDidNotPersistError extends Error {
+  readonly taskId: string;
+  readonly fromStatus: string;
+  readonly toStatus: string;
+  readonly recordsAffected: number;
+
+  constructor(args: {
+    taskId: string;
+    fromStatus: string;
+    toStatus: string;
+    recordsAffected: number;
+  }) {
+    super(
+      `Status write for ${args.taskId} did not persist: the update matched ` +
+        `${args.recordsAffected} records (intended ${args.fromStatus} -> ${args.toStatus}). ` +
+        `The task's status is unchanged. This is a failed write, not a no-op — ` +
+        `do not treat it as success.`
+    );
+    this.name = "StatusWriteDidNotPersistError";
+    this.taskId = args.taskId;
+    this.fromStatus = args.fromStatus;
+    this.toStatus = args.toStatus;
+    this.recordsAffected = args.recordsAffected;
+  }
+}
+
+/**
  * Simple backend capabilities interface
  * Defines what basic operations each backend supports
  */
