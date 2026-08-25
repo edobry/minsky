@@ -1277,7 +1277,31 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
         // its own timer: same repository, same cadence, and the same job of
         // reconciling pending asks against what is true now. It swallows its own
         // failures, so neither pass can mask the other's.
-        await runCredentialRequestResolutionTick(repo);
+        //
+        // The task gate (mt#4486) reuses the service the parent-terminal pass
+        // above already resolved — it is what returns a BLOCKED parent to a
+        // walkable status once its credential arrives. Absent service means
+        // requests still resolve and parents stay BLOCKED, which is the
+        // pre-mt#4486 behaviour rather than a failure.
+        const credentialTaskService = await getServerTaskService();
+        await runCredentialRequestResolutionTick(
+          repo,
+          credentialTaskService
+            ? {
+                async readTask(taskId: string) {
+                  const task = await credentialTaskService.getTask(taskId);
+                  if (!task) return null;
+                  return {
+                    status: task.status,
+                    kind: (task as { kind?: string | null }).kind ?? null,
+                  };
+                },
+                async setStatus(taskId: string, status: string) {
+                  await credentialTaskService.setTaskStatus(taskId, status);
+                },
+              }
+            : undefined
+        );
 
         return { ok: true };
       } catch (err) {
