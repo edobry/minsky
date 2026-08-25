@@ -486,3 +486,43 @@ Outbound model and GitHub API calls are wrapped with `AbortController` timeouts.
 **Observing timeouts:** when a call exceeds its budget, a structured-shape JSON log is emitted to stderr with `event: "timeout"`, the operation name (e.g. `openai.chat.completions.create.toolloop`, `github.pulls.listFiles`), the configured `timeoutMs`, and elapsed `durationMs`. Then a typed `TimeoutError` propagates through `runReview` where `callReviewerWithRetry` retries once (mt#2083). If the retry also fails, the error is caught by the detached-review handler in `server.ts` and logged as `review_error`. The webhook returns 200 immediately on receipt regardless (ack-immediate per mt#1191); the sweeper (mt#1260) catches missed reviews on its next pass, so GitHub-level retry is not required here.
 
 **Tuning advice:** start with the defaults. If model timeouts fire on legitimate review activity, the right move is usually to lower `reasoning_effort` rather than to raise the timeout — a model that needs >2 min on a Tier-3 PR is usually exhausting reasoning budget without producing useful output. If GitHub timeouts fire, check that the reviewer App's installation token is current and that you aren't rate-limited.
+
+## Running a model A/B on production traffic (mt#4569)
+
+`REVIEWER_EXPERIMENT_MODEL` runs a second model alongside the incumbent so the two can be compared. **Unset — the default — no experiment runs and every PR uses `REVIEWER_MODEL`.**
+
+### How the split works
+
+Even-numbered PRs are reviewed by `REVIEWER_EXPERIMENT_MODEL`; odd-numbered PRs keep `REVIEWER_MODEL`. Both arms occupy the same window, which is the whole point: a cohort comparison needs no time predicate, so week-to-week traffic shifts hit both arms equally instead of masquerading as a model effect.
+
+The unit is the **PR**, not the review. A PR is reviewed once per push (measured mean 1.94 rounds, max 13), and every round of one PR stays in the same arm — otherwise `$/converged-PR` and rounds-to-convergence, the metrics this exists to produce, would be uncomputable. Assignment is recomputed from the PR number in each process rather than stored, so it survives restarts with nothing to keep in sync.
+
+### Starting and stopping one
+
+Set the env var and redeploy to start; unset it and redeploy to stop. Neither is a code change, and there is no in-between state — a review either finds the var set or it does not.
+
+```bash
+REVIEWER_EXPERIMENT_MODEL=gpt-5.6-luna   # even PRs on luna, odd on REVIEWER_MODEL
+```
+
+### The one way to get this wrong
+
+**The candidate must belong to the same vendor as `REVIEWER_PROVIDER`.** Setting a `gpt-` model while the provider is `google` would send half of all reviews to the Google client with an OpenAI model string, failing every one of them.
+
+The service refuses that rather than honouring it: a candidate that plainly belongs to another vendor is dropped, the incumbent is kept, and an `error`-level `reviewer_config_arm_rejected` log fires on every review. **Check for that log after starting an experiment** — a refused candidate means the experiment is not running and the corpus you are collecting is all-incumbent, which otherwise only surfaces as a one-armed cohort table weeks later. To change vendors, change `REVIEWER_PROVIDER` and `REVIEWER_MODEL` together instead.
+
+An unrecognized model name is _not_ refused — the check only detects known foreign families, so a model that ships tomorrow is not blocked because nobody has added its prefix yet. That means a typo'd model name of the right vendor still reaches the API and fails there.
+
+### Reading the results
+
+The arm is recoverable from each `review_timing` row on its own, via `model` and `config_fingerprint` (mt#4556). No time predicate belongs in a cohort query:
+
+```sql
+select case when pr_number % 2 = 0 then 'candidate' else 'incumbent' end as arm,
+       count(distinct (pr_owner||'/'||pr_repo||'#'||pr_number)) as prs,
+       round(avg(iteration_index)::numeric,2)                   as avg_rounds,
+       round(sum(cost_usd)::numeric,2)                          as spend
+from review_timing group by 1;
+```
+
+**A noise floor, measured on this same query before any experiment ran** (an A/A test — both arms on `gpt-5`): rounds-to-convergence came out identical at 1.91 vs 1.91, while `$/PR` differed by ~10% ($0.797 vs $0.721) across 1,720 PRs. A cost difference smaller than that is noise, not effect.
