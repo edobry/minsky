@@ -280,10 +280,10 @@
             "statusMessage": "Checking branch freshness..."
           },
           {
-            "_comment": "mt#4044: the FIRST dispatcher entry on the commit/PR-body seam. These three tool names already appeared in this file, but only on standalone hooks (check-branch-fresh here, dispatch-intent-write-gate below), so no GUARD_REGISTRY guard could reach a commit message or a PR body until this entry existed — the mt#3823 defect class, caught in advance by registry.test.ts's parity block. Register new guards in .minsky/hooks/registry.ts, not as new commands here. Timeout is DERIVED (mt#3981): sum of the routed guards' budgets + DISPATCH_TIMEOUT_MARGIN_MS, asserted for equality by that same parity block.",
+            "_comment": "mt#4044: the FIRST dispatcher entry on the commit/PR-body seam. These three tool names already appeared in this file, but only on standalone hooks (check-branch-fresh here, dispatch-intent-write-gate below), so no GUARD_REGISTRY guard could reach a commit message or a PR body until this entry existed — the mt#3823 defect class, caught in advance by registry.test.ts's parity block. Register new guards in .minsky/hooks/registry.ts, not as new commands here. Timeout is DERIVED (mt#3981): sum of the routed guards' budgets + DISPATCH_TIMEOUT_MARGIN_MS, asserted for equality by that same parity block. It moved 65 -> 80 when mt#4544 added spec-scope-execution-check (15s: one `minsky tasks spec get` shell-out on top of the transcript pass its siblings already do). Re-derive rather than guess — the parity block prints the full per-guard sum in its failure message.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 65,
+            "timeout": 80,
             "statusMessage": "Checking evidence-record provenance..."
           }
         ]
@@ -322,10 +322,10 @@
             "statusMessage": "Surfacing the task's success criteria..."
           },
           {
-            "_comment": "mt#3959: the ADR-028 D1 dispatcher's slot in the session_pr_create block. This is what makes session_pr_create a dispatcher-spawning tool — the sibling _comment above and the dispatch-intent gate's both record that it was NOT one, and that is the state this entry changed; a guard registered on this matcher without it would never run, which registry.test.ts's dispatcher-parity block is what catches (it caught exactly that while mt#3959 was being added). Timeout is DERIVED (mt#3981, absorbing mt#3675) from the guards registered on this matcher (stale-signal-sweep 18s + unrendered-result-field-scan 12s per mt#3913 + evidence-record-provenance 8s per mt#4044 + new-surface-design-pass 12s per mt#4124) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts. Re-derive it when adding another; registry.test.ts's parity block asserts the equality and is what caught this one.",
+            "_comment": "mt#3959: the ADR-028 D1 dispatcher's slot in the session_pr_create block. This is what makes session_pr_create a dispatcher-spawning tool — the sibling _comment above and the dispatch-intent gate's both record that it was NOT one, and that is the state this entry changed; a guard registered on this matcher without it would never run, which registry.test.ts's dispatcher-parity block is what catches (it caught exactly that while mt#3959 was being added). Timeout is DERIVED (mt#3981, absorbing mt#3675) from the guards registered on this matcher (stale-signal-sweep 18s + unrendered-result-field-scan 12s per mt#3913 + evidence-record-provenance 8s per mt#4044 + new-surface-design-pass 12s per mt#4124 + enumeration-scope-check 10s per mt#4171 + spec-scope-execution-check 15s per mt#4544) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts. Re-derive it when adding another; registry.test.ts's parity block asserts the equality and is what caught this one.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 65,
+            "timeout": 80,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]

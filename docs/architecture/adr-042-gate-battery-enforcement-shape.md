@@ -223,6 +223,38 @@ call shape is a false positive fired at an author who did the work
 (`evidence-provenance-table.ts` states this asymmetry for its own recognizers). Those two do not
 belong at the same posture on day one.
 
+### Amendment (mt#4544, 2026-08-25): a row this table did not contain
+
+The table above defines gate (h)'s backstop trigger as _"the sweep call's directory arguments"_ — a
+transcript join, shipped as `enumeration-scope-check` — and gate (p)'s as _"in-scope paths ∩ ADR
+corpus"_. **Neither is `in-scope paths ∩ the PR's changed files`**, which reads the same ARTIFACT as
+(p)'s row and joins it against a different thing: not the ADR corpus, but the diff.
+
+That join answers a question no shipped mechanism asked. Gate (h) makes an author enumerate a
+contract's consumers into the spec's in-scope list; nothing ever checked whether the PR TOUCHED
+them. So an enumeration could be complete, correct, recorded, and partially executed, with no
+signal — mt#4531 / PR #3310, where the spec named a doc explicitly, the implementation never touched
+it, and the reviewer caught it BLOCKING one round late by re-deriving the impact rather than reading
+the list the author had already written.
+
+| trigger reads                  | mechanization                                          | seam                                     | ADR-031 posture    |
+| ------------------------------ | ------------------------------------------------------ | ---------------------------------------- | ------------------ |
+| in-scope paths ∩ changed files | **mechanized** (`spec-scope-execution-check`, mt#4544) | `pr` — needs a diff, same as (h) and (n) | deviate: diff read |
+
+Shipped at `PreToolUse` on `mcp__minsky__session_pr_create` in `registry-pr-create-guards.ts`,
+joining the family this ADR's §Sibling reconciliation already established there — zero additional
+wiring, per the cost note that section records for mt#4171. Recorder-only and `advisory`, per
+§Posture: it is a claim-provenance row, and its dominant false positive is a CONDITIONAL enumeration
+line ("update **if** SC3 adds fields") whose condition did not fire — a judgment a path comparison
+cannot make.
+
+**Consequence for mt#4172** (the gate (p) nominator, still the only `ready` row with a filed task).
+This ADR gives it three ways to discharge its wiring cost: _"pay the wiring, move its own row to a
+seam that already has a family, or drop the row."_ mt#4544 ships a STRICT in-scope path extractor
+(`extractInScopeFiles(spec, { strict: true })`) at the `pr` seam, inside that family — so the second
+option is now materially cheaper than when this ADR priced it, and the parser mt#4172 needs already
+exists. It still must state which option it takes.
+
 ### Sibling reconciliation
 
 - **mt#4171** (gate (h) enumeration-scope) — **re-scoped from `ready` to `pr` (mt#4293,

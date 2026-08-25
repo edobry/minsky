@@ -313,6 +313,18 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["flakiness-control-detector", "warn-unwired-task-relationship"],
   ["claim-provenance-scan", "warn-unwired-task-relationship"],
   ["spec-criterion-claim-detector", "warn-unwired-task-relationship"],
+  // mt#4544's `spec-scope-execution-check` is the sixth guard on this seam.
+  // Deliberately co-resident with all five: each asks a DIFFERENT question of
+  // the same PR-create moment, and this one's is the only join that reads the
+  // spec's own in-scope list against the diff. Its nearest neighbour is
+  // `enumeration-scope-check` — same family, same seam — and the pair is
+  // intentional rather than accidental precisely because the two joins are
+  // complementary: sweep-call arguments vs. the enumeration itself.
+  ["stale-signal-sweep", "spec-scope-execution-check"],
+  ["unrendered-result-field-scan", "spec-scope-execution-check"],
+  ["evidence-record-provenance", "spec-scope-execution-check"],
+  ["new-surface-design-pass", "spec-scope-execution-check"],
+  ["enumeration-scope-check", "spec-scope-execution-check"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

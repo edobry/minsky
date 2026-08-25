@@ -92,6 +92,19 @@ Detail: `guard-dispatcher-framework.md`.
   replayed over 1,124 windows the two together decide 29.7% against row 1's 1.2%. At `pr`, not
   ADR-042's READY seam (mt#4293). Calibration-first.
   `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
+- **Spec-scope execution** (mt#4544) — `session_pr_create` where the bound task's spec enumerates
+  in-scope file paths the session never edited. The sibling above asks whether the SWEEP THE AUTHOR
+  RAN reached gate (h)'s prescribed directories; this asks whether the LIST THE SPEC NAMED was
+  touched — the author's own enumeration is the cheapest available oracle and was write-only until
+  now. Originating instance mt#4531 / PR #3310: the spec named a doc explicitly, the implementation
+  never touched it, and the reviewer caught it BLOCKING a round late by re-deriving the impact.
+  Parses STRICTLY (`extractInScopeFiles(spec, { strict: true })`) — the shared extractor's
+  `## Context` / whole-document fallback is right for collision detection and would here collect
+  every path a spec merely MENTIONS, reporting each as an unkept promise. A spec with no parseable
+  in-scope paths records `skipped` ("nothing to compare"), never `clean`. Record-only,
+  calibration-first; the dominant false positive is a CONDITIONAL enumeration line whose condition
+  did not fire, which is why the record carries the spec's own line beside each path.
+  `MINSKY_SKIP_SPEC_SCOPE_EXECUTION`.
 - **Gate-walk provenance** (mt#1880) — `session_pr_merge` on a task with no `task.status_changed`
   → READY row: was it gated at ALL? The existence half of the pair above, at the only seam
   mem#416's four bypass paths share. `skipped` (pre-horizon, unreadable) is kept strictly apart
