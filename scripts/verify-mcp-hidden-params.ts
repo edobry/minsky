@@ -20,6 +20,8 @@
  *   bun scripts/verify-mcp-hidden-params.ts
  */
 
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+
 /** Tools that declare a `mcpHidden` parameter, and the param each hides. */
 const EXPECTATIONS = [
   { tool: "tasks_claims_release", hidden: "callerActorId", visible: "taskId" },
@@ -30,7 +32,9 @@ const EXPECTATIONS = [
 
 interface JsonRpcMessage {
   id?: number;
+  error?: { code?: number; message?: string };
   result?: {
+    protocolVersion?: string;
     tools?: Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }>;
   };
 }
@@ -50,7 +54,13 @@ async function main() {
     id: 1,
     method: "initialize",
     params: {
-      protocolVersion: "2024-11-05",
+      // Sourced from the SDK, never pinned to a literal (PR #3352 R1): a
+      // hard-coded date couples this probe to one protocol revision, so a
+      // server bump would break the HARNESS and mask the product regression it
+      // exists to catch. Same import `scripts/deploy-minsky-mcp.ts` already
+      // uses. A rejected version fails loudly below rather than surfacing as a
+      // missing tools/list reply.
+      protocolVersion: LATEST_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "verify-mcp-hidden-params", version: "1.0.0" },
     },
@@ -83,6 +93,34 @@ async function main() {
         msg = JSON.parse(line) as JsonRpcMessage;
       } catch {
         continue; // not a JSON-RPC frame (log line on stdout)
+      }
+      // A rejected handshake must fail HERE, naming the version, rather than
+      // timing out later as a missing tools/list reply — otherwise a protocol
+      // bump reads as "the tool surface is broken" (PR #3352 R1).
+      if (msg.id === 1 && msg.error) {
+        console.error(
+          `[verify-mcp-hidden-params] FAIL: server rejected initialize at ` +
+            `protocolVersion "${LATEST_PROTOCOL_VERSION}" (from the MCP SDK): ` +
+            `${msg.error.message ?? "no message"}. The SDK and the server disagree on the ` +
+            `protocol — update @modelcontextprotocol/sdk, or negotiate a version this server ` +
+            `accepts. This is a HARNESS failure, not a finding about mcpHidden.`
+        );
+        proc.kill();
+        process.exit(1);
+      }
+      if (msg.id === 1 && msg.result?.protocolVersion) {
+        console.log(
+          `[verify-mcp-hidden-params] handshake ok at protocolVersion ` +
+            `${msg.result.protocolVersion} (requested ${LATEST_PROTOCOL_VERSION})`
+        );
+      }
+      if (msg.id === 2 && msg.error) {
+        console.error(
+          `[verify-mcp-hidden-params] FAIL: tools/list returned an error: ` +
+            `${msg.error.message ?? "no message"}`
+        );
+        proc.kill();
+        process.exit(1);
       }
       if (msg.id === 2 && msg.result?.tools) {
         tools = msg.result.tools;
