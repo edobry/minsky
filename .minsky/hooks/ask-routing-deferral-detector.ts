@@ -199,6 +199,63 @@ export const PRINCIPAL_RESERVED_PATTERNS: RegExp[] = [
   /\bbefore\s+(encoding|committing\s+to|locking\s+in)\b[^.]*\bdecision\s+is\s+(yours|his|the\s+principal[''’]?s)\b/i,
 ];
 
+/**
+ * Complements that NEGATE a principal-reserved phrase in place (mt#4483).
+ *
+ * Every pattern above matches a noun-phrase claim ("needs your call", "your
+ * decision to make"). English lets the very next words invert it — "needs your
+ * call ON NOTHING" asserts the opposite of what the matcher reports — and each
+ * pattern looks no further than its own span, so the negated and un-negated
+ * forms are indistinguishable to it. Measured at 2026-08-23T18:34:29Z: the fire
+ * on `mt#4458 needs your call on nothing — it needs the daemon.` was recorded
+ * with no suppression, and re-running the shipped matcher during mt#4483's
+ * planning reproduced it and its un-negated control identically.
+ *
+ * COVERED, deliberately: the three prepositional complements the corpus
+ * produced — `on nothing`, `for nothing`, `about nothing`.
+ *
+ * NOT covered, also deliberately — each needs a different mechanism, and none
+ * has been observed in this log:
+ *   - Sentence-level negation ("this does NOT need your call"): the negator
+ *     PRECEDES the phrase, so no forward look can see it.
+ *   - Quantifier complements ("on none of this", "on neither"): a wider
+ *     complement grammar, not a token swap.
+ *   - Negation separated by an intervening clause.
+ *
+ * Widening to any of those wants its own measured window first, per ADR-024
+ * clause (b)'s "0 known-FP AND <=5% new false-negative" bar.
+ */
+const NEGATING_COMPLEMENT_RE = /^\s*(?:on|for|about)\s+nothing\b/i;
+
+/** Trailing chars a complement can occupy — `" about nothing"` is 14. */
+const COMPLEMENT_LOOKAHEAD_CHARS = 24;
+
+/**
+ * The first occurrence of `pattern` in `scanned` whose immediate complement does
+ * NOT negate it (mt#4483).
+ *
+ * Scans every occurrence rather than testing `exec`'s first. A turn can carry a
+ * negated mention AND a genuine one — "needs your call on nothing here, but
+ * mt#4460 needs your call on the daemon" — and moving straight to the next
+ * PATTERN on a negated first hit would drop the genuine second one, trading this
+ * false positive for a false negative. Returns the same `RegExpExecArray` the
+ * caller already consumes, so `m.index` still addresses `scanned`.
+ */
+function firstUnnegatedMatch(pattern: RegExp, scanned: string): RegExpExecArray | null {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const scan = new RegExp(pattern.source, flags);
+  let m: RegExpExecArray | null;
+  while ((m = scan.exec(scanned)) !== null) {
+    const end = m.index + m[0].length;
+    if (!NEGATING_COMPLEMENT_RE.test(scanned.slice(end, end + COMPLEMENT_LOOKAHEAD_CHARS))) {
+      return m;
+    }
+    // Zero-length-match guard: without it an empty match spins forever.
+    if (m.index === scan.lastIndex) scan.lastIndex += 1;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // DEFERRAL-MENU patterns — option-menus / "do nothing" recommendations /
 // hand-back-to-desk shapes around items that are often Class A/B. The right
@@ -610,7 +667,14 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
   const matches: DeferralMatch[] = [];
   for (const { cls, patterns } of CLASS_PATTERNS) {
     for (const pattern of patterns) {
-      const m = pattern.exec(scanned);
+      // mt#4483: only the principal-reserved class consults the negating
+      // complement. The deferral-menu patterns are interrogative or imperative
+      // shapes ("What's your call?", "say the word") where the construction does
+      // not arise, and this change is scoped to one class on purpose.
+      const m =
+        cls === "principal-reserved"
+          ? firstUnnegatedMatch(pattern, scanned)
+          : pattern.exec(scanned);
       if (!m) continue;
       if (
         MENU_SHAPE_REQUIRED_PATTERNS.includes(pattern) &&
