@@ -179,6 +179,26 @@ describe("mt#4570 — vendor CLIs that dump env-var values", () => {
     }
   });
 
+  test("sibling CLIs verified NOT to render values stay allowed", () => {
+    // Each of these was checked against its own installed `--help` on
+    // 2026-08-25 and does not emit a value; see the comment block above
+    // SECRET_DUMPING_CLI_SPECS for the verbatim evidence. Pinned so a later
+    // "while we're here" addition trips a test instead of shipping a guard
+    // that denies a command which cannot leak.
+    for (const cmd of [
+      // digest only — "The actual value of the secret is only available to the application"
+      "fly secrets list",
+      "flyctl secrets list",
+      // --json field set has no `value` — GitHub secrets are write-only
+      "gh secret list",
+      "gh secret ls",
+      // renders `value`, but GitHub forbids storing a secret as a variable
+      "gh variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
   test("isSecretDumpingCliInvocation returns the matching spec", () => {
     const railwaySpec = SECRET_DUMPING_CLI_SPECS.find((s) => s.program === "railway");
     expect(railwaySpec).toBeDefined();

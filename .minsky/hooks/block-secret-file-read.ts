@@ -847,6 +847,39 @@ interface SecretDumpingCliSpec {
   readonly label: string;
 }
 
+/**
+ * Sibling CLIs evaluated for this list (2026-08-25). Adding one is a one-line
+ * entry above; each exclusion below carries its reason so the next reader does
+ * not re-derive it.
+ *
+ * VERIFIED against the installed CLI's own `--help`, and EXCLUDED:
+ *
+ * - `fly secrets list` — does NOT render values. Its help states: "It shows
+ *   each secret's name, a digest of its value ... The actual value of the
+ *   secret is only available to the application." Including it would deny a
+ *   command that cannot leak. (This one reversed an assumption — it was on the
+ *   candidate list precisely because it looks like it dumps.)
+ * - `gh secret list` — names only. Its `--json` field set is
+ *   `name, numSelectedRepos, selectedReposURL, updatedAt, visibility`; there is
+ *   no `value` field, because GitHub secrets are write-only through the API.
+ * - `gh variable list` — the closest call, and still excluded. Its `--json`
+ *   field set DOES include `value`, so it renders values. But GitHub enforces a
+ *   split: a secret cannot be stored as a variable, and `gh secret` is the
+ *   surface that holds them. Denying this would block a command whose entire
+ *   purpose is non-secret Actions config. Residual risk is a user storing a
+ *   credential in a variable, which the platform already treats as misuse.
+ *
+ * NOT VERIFIED — CLI not installed here, so their behaviour is unknown rather
+ * than known-safe. Do NOT add one on recollection; run its `--help` first:
+ *
+ * - `vercel env pull` / `vercel env ls`, `heroku config`, `doppler secrets`,
+ *   `wrangler secret list`.
+ *
+ * Note `vercel env pull` writes a `.env` FILE rather than stdout, so a later
+ * read of that file is already caught by the file-read check (`.env*` is on
+ * EXPLICIT_SECRET_PATH_PATTERNS) — worth confirming before adding it here,
+ * since it may need no entry at all.
+ */
 export const SECRET_DUMPING_CLI_SPECS: readonly SecretDumpingCliSpec[] = [
   {
     program: "railway",
