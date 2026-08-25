@@ -32,7 +32,7 @@
 // @see mt#2062
 
 import { execWithPath, readInput, writeOutput } from "./types";
-import type { ToolHookInput, HookOutput } from "./types";
+import type { ToolHookInput, HookOutput, ExecResult } from "./types";
 
 /** Override env var name (source of truth — used in tests and CLAUDE.md docs). */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_BRIDGE_RETIREMENT";
@@ -41,17 +41,19 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_BRIDGE_RETIREMENT";
 const TARGET_TOOLS = new Set(["mcp__minsky__session_pr_merge", "mcp__minsky__tasks_status_set"]);
 
 /**
- * Timeout for the `minsky memory search` subprocess call (ms).
+ * Timeout for the `minsky memory list` subprocess call (ms).
  * The hook's host cap is 10s (settings.json). We use 7s (70%) leaving
  * headroom for process startup, stdout writes, and OS scheduling jitter.
  */
-const SEARCH_TIMEOUT_MS = 7_000;
+const LOOKUP_TIMEOUT_MS = 7_000;
 
 /**
- * Limit for `minsky memory search` results. Broader search so we don't miss
- * bridge memories that don't rank at the very top.
+ * The ADR-012 association type meaning "this memory tracks that task's
+ * completion" — the exact relationship this hook looks up at DONE time.
+ * The vocabulary was closed in code by mt#4448; before that the column
+ * accepted any string, which is why a body-text search was ever needed.
  */
-const SEARCH_LIMIT = 10;
+const TRACKS_TASK_ASSOCIATION = "tracksTask";
 
 // ---------------------------------------------------------------------------
 // Tool input / result parsing
@@ -124,7 +126,7 @@ export function isDoneTransition(input: ToolHookInput): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal memory record shape from `minsky memory search --output json`.
+ * Minimal memory record shape from `minsky memory list`.
  * Only the fields needed for bridge-candidate detection and the reminder.
  */
 export interface MemoryRecordLite {
@@ -135,24 +137,35 @@ export interface MemoryRecordLite {
   tags?: string[];
 }
 
-export interface MemorySearchResultLite {
-  record: MemoryRecordLite;
-  score: number;
-}
-
-export interface MemorySearchResponse {
-  results: MemorySearchResultLite[];
-  degraded: boolean;
+export interface MemoryListResponse {
+  records: MemoryRecordLite[];
 }
 
 /**
- * Parse the JSON output from `minsky memory search --output json`.
+ * Outcome of a candidate lookup.
  *
- * Returns null on parse failure or unexpected shape so the caller can skip
- * silently (fail-open posture). Defensively validates the result array and
- * drops entries that don't conform.
+ * The two failure-free outcomes must stay distinguishable: a lookup that ran
+ * and found nothing is NOT the same as a lookup that never ran. Collapsing
+ * them into one `null` is what let this hook report "nothing to retire" for
+ * its entire life while its subprocess was exiting 1 (mt#4449).
  */
-export function parseSearchOutput(stdout: string): MemorySearchResponse | null {
+export type CandidateLookup =
+  | { ok: true; candidates: MemoryRecordLite[] }
+  | { ok: false; reason: string };
+
+/**
+ * Parse the JSON output from `minsky memory list`.
+ *
+ * The CLI emits JSON on stdout BY DEFAULT. There is no `--output` flag on
+ * this command — or on any other, outside `tasks deps --output <file>` — and
+ * passing one makes the process exit 1 with `unknown option '--output'`
+ * before it does any work (mt#4449).
+ *
+ * Returns null on parse failure or unexpected shape, so the caller can report
+ * a lookup FAILURE rather than an empty result. Defensively validates the
+ * record array and drops entries that don't conform.
+ */
+export function parseListOutput(stdout: string): MemoryListResponse | null {
   const trimmed = stdout.trim();
   if (!trimmed) return null;
 
@@ -184,34 +197,28 @@ export function parseSearchOutput(stdout: string): MemorySearchResponse | null {
   if (!parsed || typeof parsed !== "object") return null;
   const obj = parsed as Record<string, unknown>;
 
-  const rawResults = Array.isArray(obj["results"]) ? (obj["results"] as unknown[]) : [];
-  const degraded = obj["degraded"] === true;
+  // `memory list` returns records directly; `memory search` wrapped each in
+  // `{ record, score }`. Unwrapping is the shape difference between them.
+  const rawRecords = Array.isArray(obj["records"]) ? (obj["records"] as unknown[]) : [];
 
-  const results: MemorySearchResultLite[] = [];
-  for (const item of rawResults) {
+  const records: MemoryRecordLite[] = [];
+  for (const item of rawRecords) {
     if (!item || typeof item !== "object") continue;
-    const entry = item as Record<string, unknown>;
-    const record = entry["record"] as Record<string, unknown> | undefined;
-    const score = entry["score"];
-    if (!record || typeof record !== "object" || typeof score !== "number") continue;
+    const record = item as Record<string, unknown>;
     if (typeof record["id"] !== "string" || typeof record["name"] !== "string") continue;
     const tags = Array.isArray(record["tags"])
       ? (record["tags"] as unknown[]).filter((t): t is string => typeof t === "string")
       : undefined;
-    results.push({
-      record: {
-        id: record["id"] as string,
-        name: record["name"] as string,
-        description:
-          typeof record["description"] === "string" ? (record["description"] as string) : "",
-        content: typeof record["content"] === "string" ? (record["content"] as string) : "",
-        tags,
-      },
-      score,
+    records.push({
+      id: record["id"],
+      name: record["name"],
+      description: typeof record["description"] === "string" ? record["description"] : "",
+      content: typeof record["content"] === "string" ? record["content"] : "",
+      tags,
     });
   }
 
-  return { results, degraded };
+  return { records };
 }
 
 /**
@@ -248,30 +255,86 @@ export function isBridgeCandidate(record: MemoryRecordLite, taskId: string): boo
 }
 
 /**
- * Run `minsky memory search` for the given task ID and return bridge-shaped
- * candidates. Returns null on CLI error/timeout (fail-open — treat as no
- * candidates so the hook exits silently).
+ * Look up bridge-shaped candidates for a task by EXACT association.
+ *
+ * `associations.tracksTask` is an indexed JSONB containment match, so a task
+ * id either is in the association or is not — the question an identifier
+ * actually asks. This replaced a `minsky memory search <taskId>`, which was
+ * wrong on two independent counts (mt#4449):
+ *
+ *  1. It passed `--output json`, which is not a valid flag, so the subprocess
+ *     exited 1 and this function returned "no candidates" on EVERY call.
+ *  2. Even had it parsed, `memory search` is embedding-ranked. An identifier's
+ *     meaning is not its spelling, so it returns a full, plausible set of
+ *     semantic neighbours that need not contain the exact match. Measured
+ *     2026-08-25: searching `mt#4494` returned 10 records at near-identical
+ *     distances (1.1795-1.1852) and did NOT include the one memory whose
+ *     `tracksTask` names it. The exact lookup returns that record and only it.
+ *
+ * A further property worth keeping: this path does not touch the embedding
+ * provider, so it still answers when embeddings are degraded — the state the
+ * old call could not distinguish from "nothing to retire".
+ *
+ * Fail-open is preserved (the caller emits nothing on `ok: false`), but the
+ * REASON is now carried out rather than flattened into a null.
  */
-export function searchBridgeCandidates(
+export function lookupBridgeCandidates(
   taskId: string,
-  timeoutMs: number = SEARCH_TIMEOUT_MS
-): MemoryRecordLite[] | null {
-  const result = execWithPath(
-    ["minsky", "memory", "search", taskId, "--limit", String(SEARCH_LIMIT), "--output", "json"],
+  timeoutMs: number = LOOKUP_TIMEOUT_MS,
+  // Injected rather than reached for, so the argv this builds can be asserted
+  // directly. The defect being fixed here WAS the argv — a test that has to
+  // patch a module import to see it would not have caught the flag that made
+  // the subprocess exit 1.
+  exec: (cmd: string[], options?: { timeout?: number }) => ExecResult = execWithPath
+): CandidateLookup {
+  // No `--limit`: the association filter is already exact, so the result set
+  // is the candidates themselves rather than a ranked prefix of the corpus.
+  // (`memory list` defaults to 500 and reports `truncated: true` when it caps
+  // — a limit here would silently re-introduce a ranked-prefix read.)
+  //
+  // `--all-projects` IS passed, and the reason is measured rather than
+  // assumed. ADR-021 project scoping excludes `scope: "user"` memories, and
+  // 49 of the 168 memories carrying `tracksTask` are user-scoped — 29% of the
+  // corpus this hook exists to find. Concretely, mt#1034 has 7 tracking
+  // memories and the scoped query returns 0 of them. A memory that tracks
+  // `mt#1034` is about THIS project whatever bucket it sits in: the task id
+  // is already the scope, so project scoping adds no precision and costs
+  // recall. All figures measured 2026-08-25 against the full corpus (1239
+  // records, untruncated).
+  const result = exec(
+    [
+      "minsky",
+      "memory",
+      "list",
+      "--association-type",
+      TRACKS_TASK_ASSOCIATION,
+      "--association-target",
+      taskId,
+      "--all-projects",
+    ],
     { timeout: timeoutMs }
   );
 
-  if (result.timedOut || result.exitCode !== 0) {
-    // Fail-open: don't emit context on search failure
-    return null;
+  if (result.timedOut) {
+    return { ok: false, reason: `lookup timed out after ${timeoutMs}ms` };
+  }
+  if (result.exitCode !== 0) {
+    const detail = (result.stderr ?? "").trim().split("\n")[0] ?? "";
+    return {
+      ok: false,
+      reason: `\`minsky memory list\` exited ${result.exitCode}${detail ? `: ${detail}` : ""}`,
+    };
   }
 
-  const parsed = parseSearchOutput(result.stdout);
-  if (!parsed || parsed.degraded) {
-    return null;
+  const parsed = parseListOutput(result.stdout);
+  if (!parsed) {
+    return { ok: false, reason: "could not parse `minsky memory list` output as JSON" };
   }
 
-  return parsed.results.map((r) => r.record).filter((record) => isBridgeCandidate(record, taskId));
+  return {
+    ok: true,
+    candidates: parsed.records.filter((record) => isBridgeCandidate(record, taskId)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -314,17 +377,20 @@ export function buildReminder(taskId: string, candidates: MemoryRecordLite[]): s
 // ---------------------------------------------------------------------------
 
 /**
- * Main decision function. Performs the memory search and returns the context
- * string to inject, or null if the hook should be silent.
+ * Main decision function. Performs the candidate lookup and returns the
+ * context string to inject, or null if the hook should emit nothing.
  *
- * Silent paths: non-matching tool, failed result, not a DONE transition,
- * override env var set, search error, or no bridge candidates found.
+ * Paths that emit no context: non-matching tool, failed result, not a DONE
+ * transition, override env var set, lookup failure, or no bridge candidates
+ * found. Only the last of those is genuinely silent — an override logs to
+ * stdout and a lookup failure logs to stderr, so the two states that used to
+ * be indistinguishable now report differently.
  *
  * Exported for testability with injectable deps.
  */
 export function decide(
   input: ToolHookInput,
-  searchFn: (taskId: string) => MemoryRecordLite[] | null = searchBridgeCandidates
+  lookupFn: (taskId: string) => CandidateLookup = lookupBridgeCandidates
 ): string | null {
   // Non-matching tool: silent.
   if (!TARGET_TOOLS.has(input.tool_name)) return null;
@@ -345,11 +411,25 @@ export function decide(
   const taskId = extractTaskId(input);
   if (!taskId) return null;
 
-  // Search for bridge candidates. Fail-open: null = search error = silent.
-  const candidates = searchFn(taskId);
-  if (!candidates || candidates.length === 0) return null;
+  // Look up bridge candidates. Fail-open is preserved — a failed lookup still
+  // emits no retirement check and never blocks the tool call — but it is no
+  // longer SILENT, because "the lookup broke" and "there is nothing to retire"
+  // produced identical output for this hook's entire life (mt#4449).
+  //
+  // Diagnostics go to stderr, not stdout: stdout carries the HookOutput JSON
+  // protocol, and a bare log line there is only safe on paths that emit no
+  // JSON. stderr is safe on every path.
+  const lookup = lookupFn(taskId);
+  if (!lookup.ok) {
+    process.stderr.write(
+      `[bridge-memory-retirement] candidate lookup FAILED for ${taskId} — ${lookup.reason}. ` +
+        `No retirement check emitted; this is not the same as "no candidates found".\n`
+    );
+    return null;
+  }
+  if (lookup.candidates.length === 0) return null;
 
-  return buildReminder(taskId, candidates);
+  return buildReminder(taskId, lookup.candidates);
 }
 
 // ---------------------------------------------------------------------------
