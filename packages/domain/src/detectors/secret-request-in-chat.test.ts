@@ -76,6 +76,54 @@ describe("secret-request-in-chat — the carve against operator-deferral", () =>
       expect(detectSecretRequestInProse(sentence).matched).toBe(true);
     }
   );
+
+  /**
+   * PR #3315 R1 (BLOCKING), stated as the general property rather than the two
+   * sentences the reviewer happened to name.
+   *
+   * A carve can fail in two directions and both are silent: OVERLAP (one
+   * sentence fires twice, inflating both logs) and a HOLE (a shape the original
+   * caught that neither successor does). The first draft narrowed the sibling to
+   * `provide` alone and opened a hole — "give the token" and "share the token"
+   * matched nothing at all.
+   *
+   * So this enumerates the ORIGINAL pattern's cross product — its four verbs
+   * times its three articles times the optional recipient — and pins exactly
+   * which cells this detector claims. A hand-picked example list cannot express
+   * that property; this can, which is what turns a one-off fix into a regression
+   * test for the class.
+   */
+  test("the original pattern's cross product splits cleanly, with no unowned cell", () => {
+    const verbs = ["provide", "give", "paste", "share"];
+    const articles = ["the", "your", "a"];
+    const recipients = ["", "me "];
+    const unclaimed: string[] = [];
+
+    for (const verb of verbs) {
+      for (const article of articles) {
+        for (const recipient of recipients) {
+          // The original read: (provide|give|paste|share) (me )?(the|your|a) ... <secret>
+          const phrase = `${verb} ${recipient}${article} auth token`;
+          const sentence = `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
+          if (!detectSecretRequestInProse(sentence).matched) unclaimed.push(phrase);
+        }
+      }
+    }
+
+    // Everything this detector does not claim must be claimed by the sibling.
+    // That half is asserted in `operator-deferral-detector.test.ts` — importing a
+    // hook module into a domain test would invert the dependency — so this pins
+    // the residual set and the sibling's suite pins that it covers exactly it.
+    // The two sets are kept in sync by both failing loudly, not by a comment.
+    expect(unclaimed.sort()).toEqual([
+      "give a auth token",
+      "give the auth token",
+      "provide a auth token",
+      "provide the auth token",
+      "share a auth token",
+      "share the auth token",
+    ]);
+  });
 });
 
 describe("secret-request-in-chat — overlapping patterns count once", () => {

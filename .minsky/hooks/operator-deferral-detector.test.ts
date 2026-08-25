@@ -1478,6 +1478,47 @@ describe("mt#3865 — the negation guard is bounded (AT1 controls)", () => {
     expect(matches).toHaveLength(1);
   });
 
+  test("this surface covers exactly the cells mt#2428 left it (PR #3315 R1)", () => {
+    // The other half of the no-hole property; its twin lives in
+    // `packages/domain/src/detectors/secret-request-in-chat.test.ts` and pins
+    // the same six cells as the ones IT does not claim. Both must hold, or the
+    // carve has either a hole or an overlap — the two silent ways it can fail.
+    //
+    // R1 was exactly the hole: narrowing this pattern to `provide` alone left
+    // "give the token" and "share the token" matched by nothing.
+    const residual = [
+      "give a auth token",
+      "give the auth token",
+      "provide a auth token",
+      "provide the auth token",
+      "share a auth token",
+      "share the auth token",
+    ];
+    for (const phrase of residual) {
+      const sentence = `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
+      expect(
+        detectCapabilityDeferral([assistantText(sentence)]).length,
+        `no detector owns "${phrase}"`
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  test("and does NOT also claim the cells that moved (no double-count)", () => {
+    // The overlap direction. These are the sibling's; if this surface matched
+    // them too, one sentence would fire twice and inflate both calibration logs.
+    for (const phrase of [
+      "Give me the auth token.",
+      "Paste the auth token.",
+      "Paste your auth token.",
+      "Share your auth token.",
+    ]) {
+      expect(
+        detectCapabilityDeferral([assistantText(phrase)]).length,
+        `"${phrase}" double-fires`
+      ).toBe(0);
+    }
+  });
+
   test("the deposit-verb form is no longer this detector's (carve to mt#2428)", () => {
     // The sentence the test above used to carry. Pinned so re-adding the
     // pattern here — which would double-count every fire across two

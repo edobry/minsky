@@ -242,12 +242,27 @@ export const CAPABILITY_DEFERRAL_PATTERNS: RegExp[] = [
   //   - GENERIC verbs WITH a recipient (`me`/`us`/`your`) -> the sibling's.
   //   - GENERIC verbs with a bare `the` and no recipient -> a deferral, kept
   //     here. That is the pattern below.
-  // Verb set is EXACTLY the original's minus what moved — no new verbs. A carve
-  // must not widen the surface it carves from: a first draft here read
-  // (provide|supply|grant|generate|obtain), and replaying the live calibration
-  // log showed it firing on records the original never matched. Recall changes
-  // to this detector are its own decision, with its own evidence.
-  /\bprovide\s+(the|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
+  // Verb set is EXACTLY the original's minus what moved — no new verbs, and no
+  // verbs dropped either. Two drafts got this wrong in opposite directions, both
+  // caught by measurement rather than reasoning:
+  //
+  //   1. `(provide|supply|grant|generate|obtain)` WIDENED the surface — replaying
+  //      the live calibration log showed it firing on records the original never
+  //      matched. A carve must not widen what it carves from.
+  //   2. Narrowing to `provide` alone opened a COVERAGE HOLE: "give the token",
+  //      "share the token" matched neither detector, because the sibling claims
+  //      generic verbs only WITH a recipient (`me`/`us`/`your`). Caught by
+  //      PR #3315 R1, reproduced with a two-line probe before being believed.
+  //
+  // So: the original's generic verbs, bare article only. `paste` is gone (a
+  // deposit verb, always the sibling's) and so are the recipient forms.
+  //
+  // Known residual, recorded rather than papered over: a POSTPOSED recipient
+  // ("share the token with me") is not distinguished and lands here. That is
+  // where it landed before the carve too, so it is a mis-attribution, not a
+  // regression — and splitting it would need a lookahead that risks the
+  // double-count the carve exists to prevent.
+  /\b(provide|give|share)\s+(the|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
   /\b(outside|not\s+available\s+(from|in|to))\s+(the\s+)?agent\s+context\b/i,
   /\boperator\s+follow-?up\b/i,
   /\b(user|operator|you)\s+must\s+(do|run|handle|perform|fix|restart|deploy)\b/i,
