@@ -35,7 +35,10 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import postgres from "postgres";
 import { randomUUID } from "crypto";
-import { withPgPoolRetry } from "@minsky/domain/persistence/postgres-retry";
+import {
+  withPgPoolRetry,
+  isPgPoolExhaustionError,
+} from "@minsky/domain/persistence/postgres-retry";
 import { PostgresPersistenceProvider } from "@minsky/domain/persistence/providers/postgres-provider";
 import { PostgresVectorStorage } from "@minsky/domain/storage/vector/postgres-vector-storage";
 
@@ -137,13 +140,13 @@ async function assertSaturated(
   held: { established: number; attempted: number }
 ): Promise<void> {
   const probe = makeSingleClient(connectionString);
+  let error: unknown;
   let refused = false;
-  let observed = "";
   try {
     await probe`SELECT 1`;
   } catch (err) {
     refused = true;
-    observed = (err as { code?: string })?.code ?? "unknown";
+    error = err;
   } finally {
     await probe.end().catch(() => {});
   }
@@ -158,9 +161,29 @@ async function assertSaturated(
     );
   }
 
+  const observed = (error as { code?: string })?.code ?? "unknown";
+
+  // A refusal is not automatically a SATURATION refusal. An unreachable host, a
+  // bad credential or a dropped network gives us an error too, and accepting any
+  // of them here would report "saturation confirmed" for a server that is simply
+  // broken — re-creating, inside the guard itself, the exact vacuity it exists to
+  // prevent. Require the refusal to be the pool-exhaustion shape, using the same
+  // predicate withPgPoolRetry itself keys on, so this check and the mechanism
+  // under test cannot disagree about what saturation looks like.
+  if (!isPgPoolExhaustionError(error)) {
+    throw new Error(
+      `[saturation/${label}] ${test}: PRECONDITION FAILED — a further connection was refused, ` +
+        `but NOT because the pool is exhausted (code=${observed}: ` +
+        `${error instanceof Error ? error.message : String(error)}). ` +
+        `Held ${held.established} of ${held.attempted} requested connections. ` +
+        `The target is unreachable or misconfigured rather than saturated, so this test would be ` +
+        `testing the failure rather than the retry path (mt#4347).`
+    );
+  }
+
   process.stdout.write(
     `[saturation/${label}] ${test}: saturation confirmed — held ${held.established}/${held.attempted}, ` +
-      `further connection refused (code=${observed})\n`
+      `further connection refused as pool-exhausted (code=${observed})\n`
   );
 }
 
@@ -172,10 +195,23 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
   const { connectionString, poolSize = 15, label } = options;
 
   // Number of concurrent clients used to saturate the pool. Deliberately MORE
-  // than the server can accept: over-provisioning is what makes saturation
-  // independent of the target's actual ceiling, so no test has to know it. Every
-  // test holds this many (mt#4347) — AT-1/AT-2 then race this many consumers,
-  // AT-3/AT-4 open one.
+  // than the server can accept: over-provisioning makes saturation independent
+  // of the target's actual ceiling, so a test using it does not have to know
+  // that ceiling.
+  //
+  // The two groups of tests use it DIFFERENTLY, and the asymmetry is deliberate
+  // (mt#4347):
+  //
+  //   - AT-1 / AT-2 HOLD `poolSize` and RACE `saturatingClients` consumers.
+  //     Total concurrent demand is poolSize + saturatingClients (21 against a
+  //     ceiling of 10 on the testcontainer target), so the racers alone exceed
+  //     any plausible ceiling — and both tests carry their own vacuity guard
+  //     (`expect(totalRetryAttempts).toBeGreaterThan(0)`), which FAILS if
+  //     saturation did not happen. They can neither miss it nor hide it.
+  //   - AT-3 / AT-4 HOLD `saturatingClients` and open ONE consumer. A single
+  //     consumer adds nothing to the pressure, so for them the held connections
+  //     ARE the entire saturation mechanism — which is why they, and only they,
+  //     need the over-hold.
   const saturatingClients = poolSize + 5;
 
   // Floor for AT-4's elapsed-time corroboration of backoff: initialDelayMs (150)
@@ -593,8 +629,9 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           const elapsedMs = Date.now() - startMs;
           // Report the MARGIN, not just the outcome (mt#4347): a reader who sees
           // only "returned 1 result(s)" cannot tell a comfortable pass from one
-          // sitting a millisecond above the floor. Both numbers come from
-          // BACKOFF_FLOOR_MS below so the log and the assertion cannot drift.
+          // sitting a millisecond above the floor. Both numbers read from the
+          // BACKOFF_FLOOR_MS declared at the top of runSaturationSuite, so the
+          // log and the assertion cannot drift.
           process.stdout.write(
             `[saturation/${label}] AT-4: vector search returned ${results.length} result(s) in ` +
               `${elapsedMs}ms (backoff floor ${BACKOFF_FLOOR_MS}ms, margin ` +

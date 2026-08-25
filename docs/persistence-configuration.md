@@ -432,9 +432,11 @@ tests).
 
 Four acceptance tests are covered (mt#1205):
 
-Every test first holds `poolSize + 5` connections, which consumes the server's whole ceiling
-regardless of what that ceiling actually is, then releases them ~300ms in so the consumer under
-test can succeed on a retry.
+Every test saturates the pool and then releases it ~300ms in so the consumer under test can
+succeed on a retry — but the two groups saturate it differently. Tests 1-2 hold `poolSize`
+connections and then RACE `poolSize + 5` more, so their combined demand exceeds the ceiling on its
+own. Tests 3-4 open a single consumer, which adds no pressure, so they HOLD `poolSize + 5` — the
+held connections are their entire saturation mechanism.
 
 1. **Concurrent retry** — `poolSize + 5` clients race to connect; all eventually succeed and at
    least one retry is observed.
@@ -509,12 +511,11 @@ Delete the branch via the dashboard or `mcp__supabase__delete_branch` when no lo
 **durable contract test** for the pool-saturation retry path: a single Postgres container
 (`pgvector/pgvector:pg16`) started with `max_connections = 10`, managed by Testcontainers, with
 the same `runSaturationSuite` helper from mt#1364 driving the four acceptance tests against the
-container's connection string. The shared helper holds 13 long-lived clients (`poolSize + 5`)
-against that ceiling of 10 — it establishes the 10 the server will give and discards the
-overflow — then either races 13 consumers that must retry (tests 1-2) or opens a single one
-(tests 3-4). Asking for MORE than the ceiling is what makes saturation guaranteed: the harness
-never has to know the effective ceiling, so background workers taking a slot cannot change the
-outcome.
+container's connection string. Tests 1-2 hold 8 long-lived clients and race 13 more against that
+ceiling of 10; tests 3-4 hold 13 — establishing the 10 the server will give and discarding the
+overflow — and then open a single consumer. Either way the demand placed on the server exceeds its
+ceiling, which is what makes saturation guaranteed without the harness having to know that ceiling,
+so a background worker taking a slot cannot change the outcome.
 
 This corrects a claim that stood here from 2026-04-28 to mt#4347: "holds 8 long-lived clients to
 consume the ceiling." Holding 8 does not consume a ceiling of 10, and the constants only agreed

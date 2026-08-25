@@ -100,10 +100,11 @@ function makeNoOpWaitStrategy(defaultTimeoutMs: number): WaitStrategy {
 // the 5→10 bump was defending against (mt#4347).
 const MAX_CONNECTIONS = 10;
 
-// poolSize the shared helper sees. NOT the number of connections held: every
-// test holds `poolSize + 5` (`saturatingClients`) so the server's whole ceiling
-// is consumed regardless of what that ceiling actually is, then either races
-// that many consumers (AT-1/AT-2) or opens one (AT-3/AT-4).
+// poolSize the shared helper sees. NOT by itself the number of connections a
+// test holds — the two groups differ, see `saturatingClients` in the shared
+// helper for why. AT-1/AT-2 hold POOL_SIZE and race POOL_SIZE+5 consumers, so
+// their combined demand (21) far exceeds this ceiling; AT-3/AT-4 hold POOL_SIZE+5
+// and open one, so the held connections are their entire saturation mechanism.
 //
 // This comment previously read "it will hold POOL_SIZE long-lived clients to
 // consume the ceiling" — which was false from the moment MAX_CONNECTIONS was
