@@ -474,7 +474,14 @@ if (import.meta.main) {
       // nothing. Recorded as "crashed" so a persistently dead title read is not
       // mistaken for a clean corpus.
       const tokens = title ? extractTitleTokens(title) : [];
-      const docs = readCorpus(deriveHookRepoRoot(input.cwd));
+      // No argument: `deriveHookRepoRoot` defaults to `import.meta.dir`, which
+      // resolves the repo containing THIS HOOK FILE. That is the corpus we want
+      // and the only one guaranteed to exist — PR #3313 R1. `input.cwd` is the
+      // caller's shell directory, which can be any subdirectory, a session
+      // workspace, or a path outside a repo entirely; resolving from it risks a
+      // silently EMPTY corpus, and an empty corpus reports "no stale references"
+      // for every task, indistinguishable from a clean result (mem#704).
+      const docs = readCorpus(deriveHookRepoRoot());
       const hits = findForwardReferences(taskId, tokens, docs);
       result = decideStaleForwardReference(taskId, hits);
       if (title === null) result.outcome = "crashed";
