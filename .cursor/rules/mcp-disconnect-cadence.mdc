@@ -345,6 +345,33 @@ Consequence for the `Eligible-only count` recipe above: it hard-codes `.cause ==
 so it describes the stdio population and silently excludes HTTP sessions entirely. That is a
 narrower question than `escalation` answers — do not read the two as the same number.
 
+### The ~60s runs are distinct poll sessions, not one process re-recording (mt#4511)
+
+You will see runs of `unknown` disconnects spaced **exactly 60s apart, with `uptimeMs`
+incrementing by exactly 60,000 ms**. Measured 2026-08-25: 20 of 56 unclassified disconnects sat in
+5 such runs, the longest 7 events (00:38:13Z → 00:44:13Z). It reads like one live process emitting
+a disconnect per minute. **It is not — do not re-open this as a duplicate-recording bug.**
+
+`processRole` is the discriminator, and it is decisive. `recordDisconnect` EVICTS the session's
+tool-call count, so a single session disconnecting repeatedly would classify as `helper` on every
+event after the first. The observed sequences do the opposite:
+
+```
+run of 3: main_session -> main_session -> main_session
+run of 4: helper -> main_session -> main_session -> main_session
+run of 7: main_session -> main_session -> main_session -> main_session -> helper -> main_session -> helper
+```
+
+**12 of the 15 non-first events are `main_session`**, which is only possible if a DISTINCT session
+made its own tool call after the previous eviction. These are separate HTTP sessions on a ~60s
+client poll cadence.
+
+The exactly-60,000 ms uptime delta was itself the pre-mt#4511 bug, not evidence of a loop: every
+session stamped the DAEMON's age, so N sessions 60s apart in one daemon necessarily showed uptimes
+60s apart. Post-mt#4511 these same sessions report their own short lifetimes and drop out of
+escalation. Reproduce the check by grouping `kind=="disconnect"` events on `(gap ≈ 60s AND uptime
+delta ≈ 60s)` and reading the `processRole` sequence within each run.
+
 ## Cross-references
 
 - `mt#1645` — measurement layer (parent task)

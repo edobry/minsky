@@ -539,6 +539,23 @@ describe("DisconnectTracker", () => {
       expect(event.uptimeMs).toBeGreaterThanOrEqual(SIX_HOURS_MS);
     });
 
+    // PR #3304 R1: the HTTP wiring stamps the session start BEFORE installing the
+    // onclose hook, so even a session that closes at the first opportunity has a start
+    // on file. Were the order reversed, this disconnect would find no entry and fall
+    // back to process uptime — the defect this change removes, in the case hardest to
+    // notice, since an immediately-closing session is the most likely to be a probe.
+    test("a session that closes immediately still reports its own lifetime, not the process's", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+
+      // Exactly the production order in server.ts: stamp, then wire, then the close
+      // arrives with no work in between.
+      tracker.noteSessionStart("http-immediate");
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-immediate" });
+
+      expect(event.uptimeMs).toBeLessThan(SHORT_LIVED_THRESHOLD_MS);
+      expect(isEscalationEligible(event)).toBe(false);
+    });
+
     test("the session's start time is evicted at disconnect, like its tool-call count", () => {
       tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
       tracker.noteSessionStart("http-session-3");

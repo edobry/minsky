@@ -1040,12 +1040,25 @@ export class MinskyMCPServer {
       // at the protocol level.
       // mt#1705: pass the per-session sessionKey so the disconnect reads the
       // correct per-session tool-call count.
-      this.wireDisconnectHooks(server, "unknown", sessionKey);
       // mt#4511: stamp this session's start so its disconnect reports the SESSION's
       // lifetime rather than the daemon's uptime. Many short HTTP sessions live inside
       // one long-running process, so without this every one of them looked long-lived
       // and the escalation filter's short-lived-probe exclusion could never fire.
+      //
+      // ORDER IS LOAD-BEARING (PR #3304 R1): this must precede `wireDisconnectHooks`,
+      // which installs the `onclose` handler that calls `recordDisconnect`. Stamping
+      // after the wiring leaves a window in which a close could be recorded with no
+      // start on file, silently falling back to process uptime — reintroducing exactly
+      // the defect this change removes, and in the hardest case to notice (a session
+      // that died immediately is the one most likely to be a probe). Stamping first
+      // makes the fallback unreachable for HTTP rather than merely unlikely.
+      //
+      // It also sits AFTER `server.connect(transport)` on purpose: a connect that
+      // throws never reaches here, so a failed session cannot leave an entry stranded
+      // in the map (nothing would ever evict it — eviction happens in
+      // `recordDisconnect`, which only runs for a session that actually wired hooks).
       this.disconnectTracker.noteSessionStart(sessionKey);
+      this.wireDisconnectHooks(server, "unknown", sessionKey);
       this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
