@@ -34,6 +34,7 @@ import {
 } from "@minsky/domain/transcripts/transcript-rehydration";
 
 import { describeServerPersistenceUnavailability } from "../db-providers";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 export interface ConversationRehydrateRouteOptions {
   /** Test seam — overrides the cockpit-wide SQL connection getter. */
@@ -106,6 +107,12 @@ export function mountConversationRehydrateRoutes(
       const status = outcome.status === "nothing-captured" ? 422 : 200;
       res.status(status).json(outcome);
     } catch (err) {
+      // mt#4086/mt#4125: this route reads the transcript store twice, so a
+      // database outage is a live failure mode here — and reporting one as a
+      // generic 500 tells the operator their application is broken when the
+      // database is. Classify first; `db-unavailable-response.test.ts` fails
+      // the build on a cockpit catch that answers 500 without this.
+      if (await respondIfDatabaseUnavailable(res, err, "conversation-rehydrate")) return;
       log.error(`Conversation rehydrate failed for ${conversationId}`, {
         conversationId,
         error: getLoggableErrorSummary(err),
