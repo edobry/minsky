@@ -106,6 +106,14 @@ export interface ReviewerCostReport {
     shareOfCalls: number | null;
     totalCostUsd: number;
     shareOfCost: number | null;
+    /**
+     * Median summed input tokens for the at-cap cohort specifically — NOT the
+     * same statistic as `rounds.*.medianInputTokens`, which buckets by review
+     * iteration rather than by round exhaustion. mt#3654 pre-registered this
+     * one against a baseline of 446,484 (mt#3547 §Closeout), so it has to be
+     * readable on its own rather than inferred from the R1/R>=2 split.
+     */
+    medianInputTokens: number | null;
   };
   perDay: Array<{ day: string; calls: number; costUsd: number }>;
 }
@@ -212,6 +220,7 @@ export function formatReviewerCostReport(report: ReviewerCostReport): string {
       `(${pct(atRoundCap.shareOfCalls)} of calls), ${usd(atRoundCap.totalCostUsd)} ` +
       `(${pct(atRoundCap.shareOfCost)} of spend)`
   );
+  lines.push(`    median input tokens for that cohort: ${tokens(atRoundCap.medianInputTokens)}`);
 
   if (perDay.length > 0) {
     lines.push("");
@@ -354,7 +363,10 @@ export function registerReviewerCostCommands(
       const [capRow] = (await db.execute(sql`
         SELECT
           count(*)::int                       AS calls,
-          coalesce(sum(cost_usd), 0)::float8  AS total_cost_usd
+          coalesce(sum(cost_usd), 0)::float8  AS total_cost_usd,
+          percentile_cont(0.5) WITHIN GROUP (
+            ORDER BY input_tokens
+          )::float8                           AS median_input_tokens
         FROM review_timing
         WHERE ${priced} ${windowClause}
           AND coalesce(array_length(per_round_latencies_ms, 1), 0) >= ${REVIEWER_MAX_TOOL_ROUNDS}
@@ -423,6 +435,7 @@ export function registerReviewerCostCommands(
           shareOfCalls: totalCalls > 0 ? capCalls / totalCalls : null,
           totalCostUsd: capCost,
           shareOfCost: totalCost > 0 ? capCost / totalCost : null,
+          medianInputTokens: num(capRow?.["median_input_tokens"]),
         },
         perDay: perDayRows.map((r) => ({
           day: String(r["day"]),

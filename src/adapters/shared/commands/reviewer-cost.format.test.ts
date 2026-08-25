@@ -44,6 +44,7 @@ function report(overrides: Partial<ReviewerCostReport> = {}): ReviewerCostReport
       shareOfCalls: 0.4,
       totalCostUsd: 2.5,
       shareOfCost: 0.625,
+      medianInputTokens: 446_484,
     },
     perDay: [{ day: "2026-08-04", calls: 12, costUsd: 2.5 }],
     ...overrides,
@@ -105,6 +106,7 @@ describe("formatReviewerCostReport", () => {
           shareOfCalls: null,
           totalCostUsd: 0,
           shareOfCost: null,
+          medianInputTokens: null,
         },
         perDay: [],
       })
@@ -119,6 +121,14 @@ describe("formatReviewerCostReport", () => {
     const text = formatReviewerCostReport(report());
     expect(text).toContain("At the 10-round tool-loop cap: 8 calls (40.0% of calls)");
     expect(text).toContain("62.5% of spend");
+  });
+
+  test("reports at-cap median input separately from the R1/R>=2 medians", () => {
+    // mt#3654 pre-registered this against a 446,484 baseline. It is a different
+    // cohort from either round bucket, so reading it off the R1/R>=2 split
+    // would answer a different question — it has to render on its own line.
+    const text = formatReviewerCostReport(report());
+    expect(text).toContain("median input tokens for that cohort: 446,484");
   });
 
   test("omits the per-day section entirely when there are no days", () => {
