@@ -98,19 +98,51 @@ const DRIVER_CHANNEL = "src/cockpit/web/hooks/useDrivenSession.ts";
  * measured rather than assumed.
  */
 const IMPORT_PATTERNS: readonly RegExp[] = [
-  /(?:^|\n)\s*(?:import|export)\s+(?!type\s)[^;'"]*from\s*["'](\.[^"']+)["']/g,
   /(?:^|\n)\s*import\s*["'](\.[^"']+)["']/g,
   /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
 ];
 
+/** `from`-bearing form, capturing the CLAUSE so inline type modifiers can be judged. */
+const FROM_BEARING_RE =
+  /(?:^|\n)\s*(?:import|export)\s+(?!type\s)([^;'"]*)from\s*["'](\.[^"']+)["']/g;
+
+/**
+ * Is every binding in this clause type-modified, making the whole statement erasable?
+ * (PR #3318 R3, non-blocking.)
+ *
+ * `import { type T } from "./a"` is erased exactly like `import type { T } from "./a"`, so
+ * counting it is a false POSITIVE — the inverse of R1's false negative, and the same
+ * edge-classification class. **Mixed clauses stay edges:** `import { useId, type ReactNode }`
+ * still imports a value, and cockpit-web has 139 of that shape — treating them as erasable
+ * would be a far worse error than the one being fixed. Only the fully-type-only case is
+ * dropped, of which this tree has two (`plant-flow/layout.ts:3`,
+ * `plant-flow/SupportNodes.tsx:3`).
+ *
+ * A binding OUTSIDE the braces (`import d, { type T } from "./a"`) is a default import and a
+ * real edge, so the clause must be braces-only to qualify.
+ */
+function clauseIsFullyTypeOnly(clause: string): boolean {
+  const braces = clause.match(/\{([^}]*)\}/);
+  if (!braces || braces[1] === undefined) return false; // `export * from`, default import
+  const outside = clause.replace(/\{[^}]*\}/, "").replace(/[\s,]/g, "");
+  if (outside !== "") return false; // a default binding rides alongside — real edge
+  const bindings = braces[1].split(",").filter((b) => b.trim() !== "");
+  if (bindings.length === 0) return false; // `import {} from "./a"` — a real side effect
+  return bindings.every((b) => /^type\s/.test(b.trim()));
+}
+
 /** Every relative specifier `src` reaches through a runtime edge. Exported for its tests. */
 export function extractRelativeImports(src: string): string[] {
   const found: string[] = [];
+  const add = (specifier: string | undefined): void => {
+    if (specifier && !found.includes(specifier)) found.push(specifier);
+  };
+  for (const match of src.matchAll(FROM_BEARING_RE)) {
+    if (clauseIsFullyTypeOnly(match[1] ?? "")) continue;
+    add(match[2]);
+  }
   for (const pattern of IMPORT_PATTERNS) {
-    for (const match of src.matchAll(pattern)) {
-      const specifier = match[1];
-      if (specifier && !found.includes(specifier)) found.push(specifier);
-    }
+    for (const match of src.matchAll(pattern)) add(match[1]);
   }
   return found;
 }
@@ -179,6 +211,20 @@ describe("extractRelativeImports covers every runtime edge form (PR #3318 R1)", 
   test("type-only imports are NOT edges — they are erased and open nothing", () => {
     expect(extractRelativeImports(`import type { T } from "./types";`)).toEqual([]);
     expect(extractRelativeImports(`export type { U } from "./types";`)).toEqual([]);
+  });
+
+  test("inline type-only braces are NOT edges, but MIXED braces are (R3)", () => {
+    // Fully erasable — same as `import type { T } from`. Two live instances in this tree.
+    expect(extractRelativeImports(`import { type T } from "./a";`)).toEqual([]);
+    expect(extractRelativeImports(`export { type T } from "./a";`)).toEqual([]);
+    expect(extractRelativeImports(`import { type T, type U } from "./a";`)).toEqual([]);
+    // MIXED still imports a value — cockpit-web has 139 of this shape, so calling it
+    // erasable would be a far worse error than the false positive being fixed.
+    expect(extractRelativeImports(`import { useId, type T } from "./a";`)).toEqual(["./a"]);
+    // A default binding alongside type-only braces is still a real edge.
+    expect(extractRelativeImports(`import d, { type T } from "./a";`)).toEqual(["./a"]);
+    // Empty braces run the module for its side effects.
+    expect(extractRelativeImports(`import {} from "./a";`)).toEqual(["./a"]);
   });
 
   test("bare package specifiers are not edges to first-party modules", () => {
