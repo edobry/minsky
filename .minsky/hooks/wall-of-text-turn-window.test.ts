@@ -359,5 +359,18 @@ describe("mt#4531 — the communication rules are in the shipped rule text (AT4)
     expect(entry).toContain("Precedence (mt#4531)");
     expect(entry).toContain("the principal wins");
   });
+
+  /**
+   * The third placement the amended SC5/AT4 names. Asserted because a reader who
+   * goes looking for the rule at the obvious place — the payload builder — must
+   * find the pointer and the reason there, not silence.
+   */
+  test("the deferral detector's buildReminder call site records the placement and its reason", () => {
+    const source = read(".minsky/hooks/ask-routing-deferral-detector.ts");
+
+    expect(source).toContain("mt#4531 SC5 — the precedence rule is NOT rendered here");
+    expect(source).toContain("denialMessageSizeChars");
+    expect(source).toContain("A message about how you are communicating");
+  });
 });
 /* eslint-enable custom/no-real-fs-in-tests */
