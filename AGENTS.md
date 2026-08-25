@@ -1174,7 +1174,7 @@ at hand.
 
 - **Label = the clean human-readable ref, kept verbatim.** For a task that is the bare `mt#2370` (with the `#`, unencoded — only the URI gets `%23`). For a UUID entity use a short readable label (a name, or a short id prefix) so the principal is not reading a raw UUID; the target still carries the **full** id.
 - **Keep the label free of markdown-link metacharacters.** No `]`, `(`, or `)` in the label — those break the `[label](url)` syntax. A clean entity ref (`mt#2370`, a short id, a short name) never contains them. The id in the target is percent-encoded by the codec, so the URL side is always safe to close at the first `)`.
-- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
+- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts. This governs terminal/chat/cockpit emission; the one sanctioned host-carrying form is the https bridge below, for surfaces that reject the scheme outright.
 - **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
 - **Task and PR refs linkify themselves on Claude Code (mt#2565) — write the clean bare ref.** A `MessageDisplay` hook rewrites every bare `mt#NNNN` and `PR #N` into a deeplink as the message is displayed, while the stored transcript keeps the bare ref; a ref you linked by hand is left alone, and refs inside code fences, inline spans and blockquotes are never touched. This retires the old ration for these two classes — it capped linking at "typically the first mention," and the measured result was 31 linked vs 232 bare in one session, a fully compliant message that still read as not linkified. Two limits decide what authoring discipline still owns. The hook is **Claude Code only**, so hand-link when the output is bound elsewhere. Second, short ids resolve through a CACHE, so their coverage is best-effort: `ask#N` / `mem#N` / `ws#N` target a UUID (ADR-029) the display path cannot derive, so mt#3914 feeds the hook a short-id→UUID map refreshed out-of-band by a cockpit sweep. An id in the map is linked; an id absent from it — minted since the last refresh, or refreshed by nothing because no cockpit is running — stays bare. A wrong target is never emitted. **So the rules below still bind for these three: write the linked form when you hold the UUID.** The display path is a floor under the class that actually fails (mem#623 R6 measured 6 of 6 derivable refs linked and 0 of 3 of these, in a message handing the principal decisions), not a licence to stop. Detail: `docs/rules-rationale/cockpit-deeplinks.md §The one-link-per-entity ration is provisional`.
 
@@ -1184,6 +1184,23 @@ at hand.
 ## Examples
 
 `Implemented [mt#2519](minsky://task/mt%232519).` On a non-OSC-8 terminal this renders as plain text — still readable.
+
+## The https bridge form for https-only surfaces (mt#4604)
+
+Some destinations accept only http(s) link targets and strip a `minsky://` link at ingestion —
+Notion does (verified by read-back, 2026-08-25); GitHub-rendered bodies, Slack, and email are the
+same class. When a link is bound for such a surface, emit the bridge form — same label, same
+percent-encoding, the URI wrapped in the bridge route:
+
+```
+[mt#2865](https://minsky-mcp-production.up.railway.app/r/task/mt%232865)
+```
+
+`GET /r/<type>/<id>` on the MCP server (`src/mcp/deeplink-bridge.ts`) serves an interstitial that
+hands off to `minsky://<type>/<id>`; it validates through the shared codec, so the accepted types
+and id encoding are identical to the scheme form. `minsky://` stays canonical everywhere else. The
+path shape is host-stable: if a brand domain ever replaces the Railway host, relinking is a host
+swap only. Cockpit prose does not yet recognize the bridge form as an entity ref (mt#4607).
 
 ## Terminal caveats
 
