@@ -7,6 +7,7 @@ import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
+  CLOSE_TIMEOUT_SECONDS,
   createBoundedSocket,
   resolveMigrationsFolder,
   resolveSocketTimeoutMs,
@@ -205,6 +206,40 @@ describe("PostgresPersistenceProvider", () => {
     expect((provider as unknown as { sql: unknown }).sql).toBeNull();
     expect((provider as unknown as { db: unknown }).db).toBeNull();
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(false);
+  });
+
+  test("close() arms postgres-js's own destroy timer by passing a timeout (mt#4515)", async () => {
+    // postgres-js's `end({ timeout })` races a `Promise.all` over each
+    // connection's `end()` against a timer that calls `destroy()` →
+    // `c.terminate()` (node_modules/postgres/src/index.js:365-389). With
+    // `timeout` omitted it defaults to `null`, the timer is NEVER created, and
+    // the race has one runner that on a half-open pool never settles.
+    //
+    // WHAT THIS TEST CAN AND CANNOT SHOW. The termination itself is postgres-js's
+    // behaviour, not ours — a mock `end()` cannot exhibit it, so a test that
+    // stubbed a never-settling `end()` would hang identically before and after
+    // the fix and prove nothing. What IS ours is the argument, and passing it is
+    // the entire change. So this asserts the argument; that connections are
+    // actually released is AT3, measured as a live socket count across a real
+    // recycle.
+    //
+    // Negative control: against the pre-fix tree `end()` is called with no
+    // arguments, so `endArgs?.[0]` is `undefined` and this fails immediately
+    // rather than by timeout.
+    const endMock = mock(() => Promise.resolve());
+    const localSqlFn = mock(() => Promise.resolve([]));
+    const localSql = Object.assign(localSqlFn, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.resolve([])),
+      end: endMock,
+    });
+
+    await provider.initialize({ sqlClient: localSql as any });
+    await provider.close();
+
+    expect(endMock).toHaveBeenCalledTimes(1);
+    const endArgs = endMock.mock.calls[0] as unknown[] | undefined;
+    expect(endArgs?.[0]).toEqual({ timeout: CLOSE_TIMEOUT_SECONDS });
   });
 
   // mt#1201: connectTimeout/idleTimeout unit fix — values are seconds, not ms.
