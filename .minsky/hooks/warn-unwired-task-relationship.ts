@@ -276,19 +276,39 @@ export function findRelationshipAssertions(
     const trail = scanned.slice(phraseEnd, phraseEnd + COMPLEMENT_LOOKAHEAD_CHARS);
     if (NEGATING_COMPLEMENT_RE.test(trail)) continue;
 
+    // NEAREST id only, not every id in the window.
+    //
+    // A relationship phrase has exactly ONE object. Pairing with every id in
+    // range cross-multiplies: the live sentence
+    //
+    //   "This work is a hard prerequisite for mt#4556, and it is part of mt#2230."
+    //
+    // has two phrases and two ids, all four within the window, and produced
+    // FOUR assertions — `dependency:mt#4556` and `decomposition:mt#2230`
+    // (both correct) plus `dependency:mt#2230` and `decomposition:mt#4556`
+    // (both invented). Half the output was an artifact of the pairing rule, and
+    // it would have told an author to wire two edges nobody asserted.
+    //
+    // Found by running the real dispatcher, not by the unit tests: every
+    // fixture there was one phrase and one id, so none of them could exhibit a
+    // defect that only appears at two of each (mem#1020's "right inputs" —
+    // a test proves the probe can fire, not that it covers the defect CLASS).
+    let nearest: { id: string; gap: number } | null = null;
     for (const { id, start, end } of ids) {
       const gap = start >= phraseEnd ? start - phraseEnd : phraseStart - end;
       if (gap < 0 || gap > ASSERTION_WINDOW_CHARS) continue;
-
-      const normalized = normalizeTaskId(id);
-      if (ownNormalized !== null && normalized === ownNormalized) continue;
-
-      const axis = axisForPhrase(phrase);
-      const key = `${normalized}:${axis}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      found.push({ taskId: id, normalizedTaskId: normalized, phrase, axis });
+      if (nearest === null || gap < nearest.gap) nearest = { id, gap };
     }
+    if (nearest === null) continue;
+
+    const normalized = normalizeTaskId(nearest.id);
+    if (ownNormalized !== null && normalized === ownNormalized) continue;
+
+    const axis = axisForPhrase(phrase);
+    const key = `${normalized}:${axis}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({ taskId: nearest.id, normalizedTaskId: normalized, phrase, axis });
   }
 
   return found;

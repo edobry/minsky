@@ -75,7 +75,7 @@ function createCall(spec: string, extra: Record<string, unknown> = {}): ToolHook
     tool_name: "mcp__minsky__tasks_create",
     tool_input: { title: "fixture", spec, ...extra },
     session_id: "test-session",
-  } as ToolHookInput;
+  } as unknown as ToolHookInput;
 }
 
 const EMPTY_CTX = {} as DispatchContext;
@@ -176,6 +176,49 @@ describe("recognition: phrases sampled from real specs", () => {
 // ---------------------------------------------------------------------------
 // Suppression — each preceded by its liveness assertion
 // ---------------------------------------------------------------------------
+
+describe("pairing: a phrase takes its NEAREST id, not every id in the window", () => {
+  // REGRESSION, found by running the real dispatcher rather than by a unit test.
+  // Every fixture above is one phrase and one id, so none of them could exhibit
+  // a defect that only appears at two of each. The live calibration record read:
+  //
+  //   pairs: ["dependency:mt#4556", "dependency:mt#2230",
+  //           "decomposition:mt#4556", "decomposition:mt#2230"]
+  //
+  // Two correct, two invented by the cross-product. Sentence copied verbatim
+  // from that run (mem#1002: sample fixtures from real records; a paraphrase is
+  // an input drawn from a domain you cannot evaluate by reading).
+  const LIVE_SENTENCE = "This work is a hard prerequisite for mt#4556, and it is part of mt#2230.";
+
+  test("two phrases and two ids yield exactly two assertions", () => {
+    const found = findRelationshipAssertions(LIVE_SENTENCE, null);
+    expect(found).toHaveLength(2);
+  });
+
+  test("each phrase takes the id it actually names", () => {
+    const found = findRelationshipAssertions(LIVE_SENTENCE, null);
+    const pairs = found.map((a) => `${a.axis}:${a.taskId}`).sort();
+    expect(pairs).toEqual(["decomposition:mt#2230", "dependency:mt#4556"]);
+  });
+
+  test("the invented cross-pairs are absent", () => {
+    // Asserted separately from the count so a future regression that keeps the
+    // count at 2 while swapping the objects still fails.
+    const pairs = findRelationshipAssertions(LIVE_SENTENCE, null).map(
+      (a) => `${a.axis}:${a.taskId}`
+    );
+    expect(pairs).not.toContain("dependency:mt#2230");
+    expect(pairs).not.toContain("decomposition:mt#4556");
+  });
+
+  test("an id BEFORE the phrase still wins when it is nearer", () => {
+    // mem#530's worked example. "feeds" sits between the two ids; the nearer is
+    // the one immediately before it.
+    const found = findRelationshipAssertions("mt#900001 feeds mt#900002.", null);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.taskId).toBe("mt#900001");
+  });
+});
 
 describe("suppression: negation cancels the phrase", () => {
   const negatedLeading: ReadonlyArray<[string, string, string]> = [
@@ -385,7 +428,10 @@ describe("run(): the tasks_create seam", () => {
     // A guard that could not read its input has not adjudicated it. A `clean`
     // here would report an unreadable corpus as a run of correct behavior.
     const out = await run(
-      { tool_name: "mcp__minsky__tasks_create", tool_input: { title: "x" } } as ToolHookInput,
+      {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: { title: "x" },
+      } as unknown as ToolHookInput,
       EMPTY_CTX
     );
     expect(out?.calibration?.outcome).toBe("skipped");
@@ -394,14 +440,17 @@ describe("run(): the tasks_create seam", () => {
 
   test("an unlisted tool yields no text and is skipped", async () => {
     const out = await run(
-      { tool_name: "mcp__minsky__tasks_status_set", tool_input: { taskId: SELF } } as ToolHookInput,
+      {
+        tool_name: "mcp__minsky__tasks_status_set",
+        tool_input: { taskId: SELF },
+      } as unknown as ToolHookInput,
       EMPTY_CTX
     );
     expect(out?.calibration?.outcome).toBe("skipped");
   });
 
   test("malformed input does not throw", async () => {
-    await expect(run({} as ToolHookInput, EMPTY_CTX)).resolves.toBeTruthy();
+    await expect(run({} as unknown as ToolHookInput, EMPTY_CTX)).resolves.toBeTruthy();
   });
 
   test("the guard never denies, on any path", async () => {
