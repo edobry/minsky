@@ -20,6 +20,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { findRepoRoot } from "./web-dist";
 import { githubRepoWebBase } from "./session-detail";
 import { createEpochKeyedCache, getSharedPersistenceService } from "./shared-persistence";
@@ -150,17 +151,10 @@ const getTopologyDb = createEpochKeyedCache(
     try {
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      if (
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
-        return null;
-      }
-      const sqlProvider = provider as {
-        getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-      };
-      return await sqlProvider.getDatabaseConnection();
+      // Capability + method, via the one guard (mt#4543). The cast is gone with it —
+      // `isSqlCapable` narrows, so `getDatabaseConnection` is typed rather than asserted.
+      if (!isSqlCapable(provider)) return null;
+      return await provider.getDatabaseConnection();
     } catch {
       return null;
     }

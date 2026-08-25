@@ -45,6 +45,7 @@ import { basename, join } from "node:path";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import { JsonlTailer } from "@minsky/domain/transcripts/jsonl-tailer";
 
@@ -444,16 +445,23 @@ export class TranscriptWatcher {
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      if (
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
+      // Capability + method, via the one guard (mt#4543); the cast goes with it.
+      //
+      // The warn is not decoration (PR #3324 R1). Before the guard, an unconfigured
+      // provider passed the `in` check, `getDatabaseConnection()` threw, and the catch
+      // below logged it — so returning null silently here would have LOST that signal.
+      // Logged at the guard instead, and better than what it replaces: the reason names
+      // whether nothing was configured or a configured connection failed.
+      if (!isSqlCapable(provider)) {
+        const { describePersistenceUnavailability } = await import(
+          "@minsky/domain/persistence/unconfigured-provider"
+        );
+        log.warn("cockpit transcript-watcher: DB unavailable", {
+          message: describePersistenceUnavailability(provider),
+        });
         return null;
       }
-      const db = await (
-        provider as { getDatabaseConnection: () => Promise<PostgresJsDatabase> }
-      ).getDatabaseConnection();
+      const db = await provider.getDatabaseConnection();
       return db ?? null;
     } catch (err) {
       log.warn("cockpit transcript-watcher: DB acquisition failed", { message: messageOf(err) });
