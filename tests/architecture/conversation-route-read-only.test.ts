@@ -71,12 +71,49 @@ const ROUTE_ENTRY = "src/cockpit/web/pages/ConversationPage.tsx";
 const DRIVER_CHANNEL = "src/cockpit/web/hooks/useDrivenSession.ts";
 
 /**
- * VALUE imports only. `import type ...` / `export type ...` are erased and open nothing.
- * Captures the specifier of a relative import; bare package specifiers are ignored because
- * a node_modules edge cannot reach a first-party module.
+ * Every source form that creates a RUNTIME edge to a relative module (PR #3318 R1).
+ *
+ * The first pattern alone shipped in R1 and was the review's BLOCKING finding: it requires a
+ * `from` clause, so `import "./x";` — which runs the module for its side effects and IS a
+ * real edge — produced no edge here. Because this walker is the SOLE assertion of the
+ * read-only guarantee, a missed form does not fail loudly; it passes falsely. The class is
+ * "edge forms with no `from` clause", and it has two members, so both are handled:
+ *
+ * 1. `from`-bearing: `import x from "./a"`, `import { x } from "./a"`, `export * from "./a"`.
+ * 2. Side-effect-only: `import "./a";` — the reported miss.
+ * 3. Dynamic: `import("./a")` — a real, if lazy, edge. `eslint.config.js` sets
+ *    `allowDynamicImports: false`, so these should not exist in this tree; a walker that
+ *    silently ignores one is exactly the false negative this fix is about, and matching it
+ *    is cheaper than depending on another rule staying enabled.
+ *
+ * TYPE-ONLY forms stay excluded from (1): `import type { T } from "./a"` is erased at compile
+ * time and opens nothing, so counting it would fail this test for a component that merely
+ * names a type — `DrivenSessionStatusBar.tsx:13` does exactly that.
+ *
+ * Bare package specifiers are ignored throughout: a node_modules edge cannot reach a
+ * first-party module.
+ *
+ * Regexes, not a parser — the same tradeoff `scripts/find-related-tests.ts` makes.
+ * `extractRelativeImports` is exported and tested per form below, so the tradeoff is
+ * measured rather than assumed.
  */
-const VALUE_IMPORT_RE =
-  /(?:^|\n)\s*(?:import|export)\s+(?!type\s)[^;'"]*from\s*["'](\.[^"']+)["']/g;
+const IMPORT_PATTERNS: readonly RegExp[] = [
+  /(?:^|\n)\s*(?:import|export)\s+(?!type\s)[^;'"]*from\s*["'](\.[^"']+)["']/g,
+  /(?:^|\n)\s*import\s*["'](\.[^"']+)["']/g,
+  /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+];
+
+/** Every relative specifier `src` reaches through a runtime edge. Exported for its tests. */
+export function extractRelativeImports(src: string): string[] {
+  const found: string[] = [];
+  for (const pattern of IMPORT_PATTERNS) {
+    for (const match of src.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier && !found.includes(specifier)) found.push(specifier);
+    }
+  }
+  return found;
+}
 
 const CANDIDATE_SUFFIXES = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
 
@@ -88,6 +125,10 @@ function resolveSpecifier(fromFileRel: string, specifier: string): string | null
     if (pathExists(candidate) && !candidate.endsWith("/")) {
       const rel = relative(REPO_ROOT, candidate);
       // A directory that exists but holds no index file resolves to itself; reject it.
+      // `.d.ts` is rejected too (PR #3318 R1, non-blocking): a declaration file is
+      // types-only, so treating it as a runtime edge would reintroduce exactly the
+      // type-only false positive the `import type` exclusion above exists to prevent.
+      if (rel.endsWith(".d.ts")) continue;
       if (rel.endsWith(".ts") || rel.endsWith(".tsx")) return rel;
     }
   }
@@ -102,9 +143,7 @@ function importClosure(entry: string): Set<string> {
     const current = queue.shift() as string;
     const src = readSource(current);
     if (src === null) continue;
-    for (const match of src.matchAll(VALUE_IMPORT_RE)) {
-      const specifier = match[1];
-      if (!specifier) continue;
+    for (const specifier of extractRelativeImports(src)) {
       const resolved = resolveSpecifier(current, specifier);
       if (!resolved || seen.has(resolved)) continue;
       seen.add(resolved);
@@ -113,6 +152,53 @@ function importClosure(entry: string): Set<string> {
   }
   return seen;
 }
+
+describe("extractRelativeImports covers every runtime edge form (PR #3318 R1)", () => {
+  // The walker is the SOLE assertion of the read-only guarantee, so a form it cannot see
+  // makes that assertion pass falsely rather than fail loudly. R1's BLOCKING finding was
+  // exactly one such form. These assert the matcher per form, against source strings, so
+  // "it handles side-effect imports" is measured rather than claimed.
+
+  test("from-bearing forms: default, named, and re-export", () => {
+    expect(extractRelativeImports(`import x from "./a";`)).toEqual(["./a"]);
+    expect(extractRelativeImports(`import { y } from "../b";`)).toEqual(["../b"]);
+    expect(extractRelativeImports(`export * from "./c";`)).toEqual(["./c"]);
+  });
+
+  test("side-effect-only import — the form R1 missed", () => {
+    expect(extractRelativeImports(`import "./side-effect";`)).toEqual(["./side-effect"]);
+  });
+
+  test("dynamic import, including the lazy-route shape", () => {
+    expect(extractRelativeImports(`const m = await import("./lazy");`)).toEqual(["./lazy"]);
+    expect(extractRelativeImports(`lazy(() => import("./pages/Thing"))`)).toEqual([
+      "./pages/Thing",
+    ]);
+  });
+
+  test("type-only imports are NOT edges — they are erased and open nothing", () => {
+    expect(extractRelativeImports(`import type { T } from "./types";`)).toEqual([]);
+    expect(extractRelativeImports(`export type { U } from "./types";`)).toEqual([]);
+  });
+
+  test("bare package specifiers are not edges to first-party modules", () => {
+    expect(extractRelativeImports(`import React from "react";`)).toEqual([]);
+    expect(extractRelativeImports(`import { x } from "@tanstack/react-query";`)).toEqual([]);
+  });
+
+  test("a file mixing every form yields each relative specifier exactly once", () => {
+    const src = [
+      `import React from "react";`,
+      `import { a } from "./a";`,
+      `import "./b";`,
+      `import type { C } from "./c";`,
+      `export * from "./d";`,
+      `const e = () => import("./e");`,
+      `import { a2 } from "./a";`,
+    ].join("\n");
+    expect(extractRelativeImports(src).sort()).toEqual(["./a", "./b", "./d", "./e"]);
+  });
+});
 
 describe("the unified conversation route cannot open a session-driver channel (mt#4488)", () => {
   test("the walker itself works — the entry's closure is non-trivial and contains the entry", () => {
