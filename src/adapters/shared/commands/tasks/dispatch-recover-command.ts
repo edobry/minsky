@@ -393,6 +393,8 @@ const tasksDispatchRecoverParams = {
     // Server-injected only (src/mcp/server.ts) — hide it from the CLI surface so it
     // is not advertised as a hand-passable flag (reviewer PR #2683 R1 non-blocking).
     cliHidden: true,
+    // Server-injected on the MCP path too (mt#4579).
+    mcpHidden: true,
   },
 } satisfies CommandParameterMap;
 
