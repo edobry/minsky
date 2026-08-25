@@ -43,6 +43,7 @@
 
 import { closeSync, fstatSync, openSync, readSync, realpathSync } from "fs";
 import { isAbsolute, relative, resolve } from "path";
+import { findRepoRoot } from "./types";
 
 /**
  * Tool-input key naming a FILE whose contents become the spec.
@@ -135,7 +136,18 @@ export function canonicalizeInsideRepo(
    * expansion is the only way to assert that expansion HAPPENS.
    */
   realpath: (p: string) => string = realpathSync,
-  cwd: () => string = () => process.cwd()
+  /**
+   * Repo-root anchor. `findRepoRoot` WALKS UP to the git root rather than trusting
+   * `process.cwd()` (PR #3309 R2, non-blocking).
+   *
+   * The difference is a silent coverage LOSS, which is exactly the failure class this
+   * whole module exists to remove: a hook process whose cwd is a subdirectory would
+   * anchor containment there, and every legitimate spec path outside that subtree
+   * would be refused — recorded as `specFileUnreadable`, indistinguishable from a
+   * genuinely bad path. Shipping that inside a coverage fix would have been the joke
+   * writing itself.
+   */
+  cwd: () => string = () => findRepoRoot(process.cwd())
 ): string | null {
   try {
     const realRoot = realpath(cwd());

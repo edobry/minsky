@@ -114,6 +114,22 @@ describe("canonicalizeInsideRepo — expansion happens (PR #3309 R1 regression)"
   test("an absolute outside path is refused after expansion too", () => {
     expect(canonicalizeInsideRepo("/etc/passwd", (p) => p, cwd)).toBeNull();
   });
+
+  test("R2: anchoring on a SUBDIRECTORY would refuse legitimate in-repo paths", () => {
+    // Why the default anchor is `findRepoRoot(process.cwd())` and not `process.cwd()`.
+    // A hook process whose cwd is a subdirectory anchors containment there, and every
+    // spec outside that subtree is refused — a silent coverage LOSS recorded as
+    // unreadable, which is the exact failure class this module exists to remove.
+    const realpath = (x: string): string => x;
+    const subdirAnchor = (): string => "/repo/docs";
+    const specOutsideThatSubdir = "/repo/specs/a.md";
+
+    expect(canonicalizeInsideRepo(specOutsideThatSubdir, realpath, subdirAnchor)).toBeNull();
+    // The same path, anchored at the real repo root, resolves.
+    expect(canonicalizeInsideRepo(specOutsideThatSubdir, realpath, cwd)).toBe(
+      specOutsideThatSubdir
+    );
+  });
 });
 
 describe("readAuthoredSpecText — inline vs by-reference (mt#4295)", () => {
