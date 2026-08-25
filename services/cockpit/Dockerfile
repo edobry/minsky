@@ -64,6 +64,15 @@ COPY packages/shared/src ./packages/shared/src
 COPY packages/domain/tsconfig.json ./packages/domain/tsconfig.json
 COPY packages/domain/src ./packages/domain/src
 COPY src/cockpit/web ./src/cockpit/web
+# mt#4557: the SPA now imports across the src/cockpit/web -> src/cockpit/widgets
+# boundary (useReviewerCost.ts -> ../../widgets/reviewer-cost-contract.ts, a
+# deliberately dependency-free module -- see that file's docblock for why the
+# import does NOT go through src/cockpit/widgets/reviewer-cost.ts itself,
+# which pulls in Node-only db-providers.ts). This is the first cockpit widget
+# module imported by the Vite SPA build; the builder stage never copied
+# src/cockpit/widgets/ before, so Rollup could not resolve the import
+# (docker-build-smoke / Railway deploy both failed with "Could not resolve").
+COPY src/cockpit/widgets ./src/cockpit/widgets
 
 RUN bunx vite build --config vite.config.ts
 
