@@ -323,10 +323,12 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // misread `sweepLiveness`'s own field note had to warn about after being
       // separated. `phase2ReachRate` is the one number that answers it.
       //
-      // The read is a small synchronous local-file read, unlike the `db` probe
-      // above which is deliberately out-of-band: that one crosses the network
-      // and can wedge, this one cannot, so the route stays as fast as its own
-      // contract promises.
+      // The read is memoized on the journal file's `(mtimeMs, size)`, so the
+      // steady-state cost here is one `stat` rather than a read plus a parse
+      // (PR #3357 R1). Keyed on file identity rather than a TTL, so it is never
+      // stale by construction — including when the writer is another daemon.
+      // Unlike the `db` probe above it is not out-of-band, and does not need to
+      // be: that one crosses the network and can wedge, this one cannot.
       transcriptSweep: { ...sweepTracker.getSummary(), acrossRestarts: readJournalSummary() },
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),

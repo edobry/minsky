@@ -25,6 +25,7 @@ import {
   JOURNAL_RECENT_LIMIT,
   summarizeJournal,
   TranscriptSweepJournalRecorder,
+  type InFlightTick,
   type SweepJournalStore,
   type TranscriptSweepJournal,
 } from "./transcript-sweep-journal";
@@ -127,6 +128,45 @@ describe("foldReconcile", () => {
 
     expect(interrupted).toBeNull();
     expect(journal).toEqual(emptyJournal());
+  });
+
+  // PR #3357 R1: two fresh daemons can both run reconcile against the same
+  // orphan. Whole-file atomic writes already make the reviewer's stated
+  // arithmetic impossible, but the fold is made idempotent per orphan so a
+  // single real event cannot be counted twice under ANY write order.
+  test("never folds the same orphan twice, whatever the interleaving", () => {
+    const orphan = withInFlight(9);
+    const first = foldReconcile(orphan, NEVER_ALIVE, T1);
+    expect(first.journal.totals.interrupted).toBe(1);
+
+    // Daemon B read the PRE-image (its `inFlight` still set) but writes into a
+    // journal where A's fold already landed — reconstruct that by re-pointing
+    // the concluded journal's `inFlight` back at the same orphan.
+    const raced: TranscriptSweepJournal = { ...first.journal, inFlight: orphan.inFlight };
+    const second = foldReconcile(raced, NEVER_ALIVE, "2026-08-25T20:46:05.000Z");
+
+    expect(second.interrupted).toBeNull();
+    expect(second.journal.totals.interrupted).toBe(1);
+    expect(second.journal.recent).toHaveLength(1);
+    // The stale pointer is still cleared — otherwise it would be re-examined forever.
+    expect(second.journal.inFlight).toBeNull();
+  });
+
+  test("a DIFFERENT orphan from the same pid is still folded", () => {
+    // Identity is (startedAt, pid), not pid alone — a pid is reused across boots
+    // on a long-lived machine, and collapsing on it would silently drop events.
+    const first = foldReconcile(withInFlight(9), NEVER_ALIVE, T1);
+    const laterTick: InFlightTick = {
+      startedAt: "2026-08-25T21:33:05.000Z",
+      pid: 9,
+      phase: "ingest",
+    };
+    const raced: TranscriptSweepJournal = { ...first.journal, inFlight: laterTick };
+
+    const second = foldReconcile(raced, NEVER_ALIVE, "2026-08-25T21:46:05.000Z");
+
+    expect(second.interrupted).toEqual(laterTick);
+    expect(second.journal.totals.interrupted).toBe(2);
   });
 });
 

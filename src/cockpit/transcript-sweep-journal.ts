@@ -219,10 +219,30 @@ export function foldTickEnded(
 /**
  * Boot-time reconcile: an `inFlight` record whose process is gone was INTERRUPTED.
  *
- * The liveness check is what keeps this correct under two concurrent daemons
- * (mt#4243): a live foreign pid owns its tick, so the record is left alone
- * rather than stolen and mis-recorded as interrupted. A pid belonging to THIS
- * process cannot appear here — reconcile runs before this process starts a tick.
+ * Two guards, for two different concurrency hazards under two daemons (mt#4243).
+ *
+ * **Liveness** — a live foreign pid still OWNS its tick, so its record is left
+ * alone rather than stolen and mis-recorded as interrupted. A pid belonging to
+ * THIS process cannot appear: reconcile runs before this process starts a tick.
+ *
+ * **Identity (PR #3357 R1)** — an orphan already concluded in `recent` is never
+ * folded a second time. Reconcile is a read-modify-write with no lock, and the
+ * reviewer asked what happens when two fresh daemons run it against the same
+ * orphan. Note the specific mechanism raised — each incrementing `interrupted`,
+ * so it lands at 2 — does NOT occur: `atomicWriteJSON` replaces the whole file,
+ * so two folds from the same pre-image compute the same journal and the second
+ * write overwrites the first with an identical value. Any strict interleaving
+ * ends at 1: read/read/write/write yields the second writer's copy of the same
+ * result, and read/write/read/write has the second reader seeing `inFlight:
+ * null` and doing nothing.
+ *
+ * The guard is here anyway, because the SHAPE of the concern is right even where
+ * that arithmetic is not. Whole-file replacement makes the outcome depend on the
+ * write order rather than on the data, and this fold is the one place a single
+ * real-world event could be recorded twice — so making it idempotent per orphan
+ * costs one comparison and removes a class rather than an instance. What it does
+ * NOT fix is the general lost update between concurrent writers (documented in
+ * mt#4532's `## Outcome` §SC4); that needs arbitration this file cannot provide.
  */
 export function foldReconcile(
   journal: TranscriptSweepJournal,
@@ -232,10 +252,28 @@ export function foldReconcile(
   const inFlight = journal.inFlight;
   if (inFlight === null) return { journal, interrupted: null };
   if (isAlive(inFlight.pid)) return { journal, interrupted: null };
+  if (isAlreadyConcluded(journal, inFlight)) {
+    // Clear the stale pointer, but do not count the event again.
+    return { journal: { ...journal, inFlight: null }, interrupted: null };
+  }
   return {
     journal: foldTickEnded(journal, "interrupted", reconciledAt),
     interrupted: inFlight,
   };
+}
+
+/**
+ * Has this exact orphan already been concluded as `interrupted`?
+ *
+ * Identity is `(startedAt, pid)` — the pair a tick is stamped with at START and
+ * carries into `recent` when it concludes. `recent` is bounded, so an entry can
+ * age out; that is irrelevant here, since a competing reconcile happens within
+ * the same boot window and the entry is necessarily the newest one.
+ */
+function isAlreadyConcluded(journal: TranscriptSweepJournal, orphan: InFlightTick): boolean {
+  return journal.recent.some(
+    (t) => t.outcome === "interrupted" && t.pid === orphan.pid && t.startedAt === orphan.startedAt
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -434,12 +472,56 @@ export function summarizeJournal(journal: TranscriptSweepJournal): SweepJournalS
   };
 }
 
-/** Read-and-summarize for the health route. Never throws; degrades to an empty journal. */
-export function readJournalSummary(
-  store: SweepJournalStore = createFileJournalStore()
-): SweepJournalSummary {
+/**
+ * Memo for the default (file-backed) read path, keyed on the file's identity.
+ *
+ * `/api/health` is polled by the tray every 5 s and by three webview query keys
+ * every 15 s, so this read is on a hot path (PR #3357 R1 non-blocking). A `stat`
+ * is materially cheaper than a read plus a `JSON.parse`, and keying on
+ * `(mtimeMs, size)` rather than on a TTL means the cache is never stale by
+ * construction — including when the writer is ANOTHER daemon, which a TTL would
+ * have papered over for its whole window.
+ *
+ * Deliberately not invalidated by the writer: the recorder and the health route
+ * do not share an object, and a signal between them would be a second mechanism
+ * to keep correct. The file's own metadata already says everything needed.
+ */
+let cachedFileSummary: { key: string; summary: SweepJournalSummary } | null = null;
+
+/** TEST-ONLY: drop the memo so a test can observe a fresh read. */
+export function resetJournalSummaryCacheForTest(): void {
+  cachedFileSummary = null;
+}
+
+/**
+ * Read-and-summarize for the health route. Never throws; degrades to an empty
+ * journal.
+ *
+ * An explicitly-passed store bypasses the memo entirely — it is a different
+ * source, and caching across stores would make one test's journal visible to the
+ * next.
+ */
+export function readJournalSummary(store?: SweepJournalStore): SweepJournalSummary {
   try {
-    return summarizeJournal(store.read());
+    if (store !== undefined) return summarizeJournal(store.read());
+
+    const filePath = getTranscriptSweepJournalPath();
+    let key: string;
+    try {
+      const st = fs.statSync(filePath);
+      key = `${st.mtimeMs}:${st.size}`;
+    } catch {
+      // Missing file is the first-boot case; a stat failure means we cannot
+      // establish identity, so fall through to an uncached read rather than
+      // serving a memo we cannot vouch for.
+      key = "";
+    }
+
+    if (key !== "" && cachedFileSummary?.key === key) return cachedFileSummary.summary;
+
+    const summary = summarizeJournal(createFileJournalStore(filePath).read());
+    if (key !== "") cachedFileSummary = { key, summary };
+    return summary;
   } catch (err) {
     log.warn("cockpit: transcript sweep journal: summary read failed", {
       message: err instanceof Error ? err.message : String(err),
