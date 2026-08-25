@@ -239,7 +239,9 @@ import {
 // mt#1495 — check (d)'s decision: what a service's DB-pool recovery counters
 // mean. Same split and the same reason as the two imports around it.
 import {
+  combineRecoveryReadings,
   readRecycleCounters,
+  readRetryCounters,
   toRecoveryCheckSummary,
 } from "../packages/domain/src/deployment/monitor-recovery-alarm";
 // mt#3963 — likewise for the resolution side: which classes a run observed as
@@ -1748,7 +1750,11 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
           detail: "health probe did not answer — check (b) owns this failure",
           problem: false,
         }
-      : toRecoveryCheckSummary(readRecycleCounters(healthBody));
+      : toRecoveryCheckSummary(
+          // mt#4562: both DB recovery mechanisms, folded into one check. The
+          // more severe reading wins so a healthy sibling cannot mask a fault.
+          combineRecoveryReadings([readRecycleCounters(healthBody), readRetryCounters(healthBody)])
+        );
 
   // --- (c) Digest-lag check (mt#3251) ---
   // Only applies to image-source deploys (svc.image set from deploy.config.ts's

@@ -4,6 +4,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
   TaskBackend as TaskBackendInterface,
+  StatusWriteOutcome,
 } from "./types";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
@@ -82,7 +83,7 @@ export interface TaskServiceInterface {
   listTasks(options?: TaskListOptions): Promise<Task[]>;
   getTask(taskId: string): Promise<Task | null>;
   getTaskStatus(taskId: string): Promise<string | undefined>;
-  setTaskStatus(taskId: string, status: string): Promise<void>;
+  setTaskStatus(taskId: string, status: string): Promise<StatusWriteOutcome>;
   createTaskFromTitleAndSpec(
     title: string,
     spec: string,

@@ -146,19 +146,20 @@ migrated config is never left pointing at nothing.
 `src/mcp/health-payload.test.ts` against the same builder the route calls. Renaming or removing a
 field fails a test rather than surfacing later as a downstream misread. The fields:
 
-| field         | meaning                                                                                                        |
-| ------------- | -------------------------------------------------------------------------------------------------------------- |
-| `status`      | `"ok"` / `"unhealthy"` — liveness, matching the status code                                                    |
-| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question                        |
-| `service`     | `"minsky-mcp"` — the identity assertion below                                                                  |
-| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                                             |
-| `transport`   | `"http"` (this route exists only on the HTTP transport)                                                        |
-| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                                             |
-| `timestamp`   | ISO, when the response was built                                                                               |
-| `db`          | `"ok"` / `"degraded"` — live pool reachability. Present ONLY when `persistence.mode` is `connected`            |
-| `dbCheck`     | `{ checkedAt, durationMs }` — when the probe behind `db` settled, and how long it took. Same condition as `db` |
+| field         | meaning                                                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `status`      | `"ok"` / `"unhealthy"` — liveness, matching the status code                                                                                |
+| `ready`       | can it serve DB-backed work? See §Liveness is not readiness — **not** the same question                                                    |
+| `service`     | `"minsky-mcp"` — the identity assertion below                                                                                              |
+| `server`      | `"Minsky MCP Server"`, retained for older diagnostics that read it                                                                         |
+| `transport`   | `"http"` (this route exists only on the HTTP transport)                                                                                    |
+| `persistence` | `{ mode, reason? }` — `connected` / `unconfigured` / `unavailable`                                                                         |
+| `timestamp`   | ISO, when the response was built                                                                                                           |
+| `db`          | `"ok"` / `"degraded"` — live pool reachability. Present ONLY when `persistence.mode` is `connected`                                        |
+| `dbCheck`     | `{ checkedAt, durationMs }` — when the probe behind `db` settled, and how long it took. Same condition as `db`                             |
+| `dbRetry`     | `{ saturationRetries, staleConnectionRetries, retriesExhausted, lastRetryAt }` — connection-retry outcomes since boot (mt#4562). See below |
 
-The last two are a machine-readable rendering of the same probe that decides `ready` — nothing
+`db` and `dbCheck` are a machine-readable rendering of the same probe that decides `ready` — nothing
 they say is absent from `ready` + `persistence.reason`, but `reason` is prose and the consumer
 that needs it is the tray's supervisor in a 5s poll loop. `db` uses the cockpit's own key name on
 purpose: the tray's DB-degraded policy is cockpit-only for exactly one stated reason — _"only the
@@ -170,6 +171,33 @@ poll**, including when a previous probe has still not settled — the probe stam
 of its outcome branches. So a stale `checkedAt` is _not_ a wedge signal. To detect a wedge read
 `persistence.reason` (which names how long the outstanding round-trip has been waiting) or
 `dbCheck.durationMs`.
+
+**`dbRetry` answers a different question from everything above it, and its zeros are a trap
+(mt#4562).** Every other field here describes the daemon's state _now_; these are monotonic
+counters of connection retries that already happened, so they are emitted unconditionally —
+including on an `unconfigured` or `unavailable` body, deliberately, because that history is
+exactly what an operator diagnosing those states wants.
+
+`withPgPoolRetry` absorbs transient connection failures, and it has two classes with **opposite
+expected rates**:
+
+- `saturationRetries` — pool-exhaustion rejections. **Near-zero BY DESIGN.** mt#3497 established
+  from vendor docs that the transaction pooler production runs on caps at the pooler's client
+  limit (600 on this tier), and Minsky runs a handful of processes, so exhaustion is structurally
+  near-unreachable. **A zero here is the expected steady state forever — not a health claim, and
+  not a symptom.**
+- `staleConnectionRetries` — dropped/closed connections. The class production actually hits
+  (mt#3092, mem#597).
+- `retriesExhausted` — **the alarm.** The retry budget ran out and the error reached the caller,
+  i.e. retry tried and could not. A fault in either class, and the only field here safe to read
+  on its own.
+
+So do not infer a fault from a low retry rate: a "the rate dropped to zero" rule over a
+normally-zero signal cannot fail — it emits the same answer whether the mechanism is healthy or
+dead (mem#704). The post-deploy monitor's check (d) reads `retriesExhausted` and treats an
+all-zero payload as _untested_ rather than healthy. The cockpit's `/api/health` carries the same
+field plus a `dbRecycle` sibling; see `docs/architecture/cockpit.md` §DB recovery-mechanism
+counters for the pair.
 
 **Assert `service`, not just the status code.** Every Minsky service is built from the same
 monorepo, so a misconfigured build can put a DIFFERENT application on this port and it answers 200

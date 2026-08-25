@@ -26,7 +26,7 @@ function makeStubTaskService(getTaskMock: (taskId: string) => Promise<Task | nul
     listTasks: async () => [],
     getTask: getTaskMock,
     getTaskStatus: async () => undefined,
-    setTaskStatus: async () => {},
+    setTaskStatus: async () => ({ recordsAffected: 1 }),
     createTaskFromTitleAndSpec: async () => STUB_TASK,
     deleteTask: async () => false,
     getWorkspacePath: () => "/test/path",

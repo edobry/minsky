@@ -33,9 +33,10 @@ function createSharedBackend(): { backend: TaskBackend; store: Map<string, Task>
       const existing = store.get(id);
       if (!existing) {
         store.set(id, { id, title: id, status, metadata: {} });
-        return;
+        return { recordsAffected: 1 };
       }
       store.set(id, { ...existing, status });
+      return { recordsAffected: 1 };
     },
     createTaskFromTitleAndSpec: async (title) => {
       const id = `sh#${store.size + 1}`;
@@ -117,7 +118,7 @@ describe("TaskServiceImpl.getTaskStatus — cache-coherence (mt#2179)", () => {
       // getTaskStatus is the dedicated FRESH path.
       getTaskStatus: async () => "FRESH",
       listTasks: async () => [],
-      setTaskStatus: async () => {},
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       createTaskFromTitleAndSpec: async () => ({
         id: "sp#1",
         title: "x",

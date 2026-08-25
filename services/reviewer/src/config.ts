@@ -67,6 +67,15 @@ export const REVIEWER_CALLTIME_ENV_VAR_NAMES = {
   TOOLLOOP_RETRY_ON_TIMEOUT: "REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT",
   /** Timeout ceiling for the retry attempt (matches primary). Default `120000` ms. */
   TOOLLOOP_RETRY_TIMEOUT_MS: "REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS",
+  /**
+   * Candidate model for a per-PR A/B arm (mt#4569). Unset — the default —
+   * means no experiment is running and every PR uses `REVIEWER_MODEL`. When
+   * set, even-numbered PRs are reviewed by this model and odd-numbered PRs by
+   * `REVIEWER_MODEL`, so both arms occupy the same window and a cohort
+   * comparison needs no time predicate. Read in `config-arm.ts`; unsetting it
+   * ends the experiment with no deploy of new code.
+   */
+  EXPERIMENT_MODEL: "REVIEWER_EXPERIMENT_MODEL",
 } as const;
 
 /**

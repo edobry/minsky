@@ -32,6 +32,7 @@ import {
   type ReadinessResult,
 } from "@minsky/domain/persistence/readiness-probe";
 import { buildMcpHealthResponse } from "../../mcp/health-payload";
+import { getPgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
@@ -735,7 +736,14 @@ async function startHttpServer(
     if (persistence && persistenceHealth.mode === "connected") {
       readiness = await ensureReadinessProbe(persistence).check();
     }
-    const health = buildMcpHealthResponse(persistenceHealth, new Date().toISOString(), readiness);
+    // mt#4562: the route is the imperative shell — it reads the module-level
+    // retry counters and hands them to the pure builder, which only renders.
+    const health = buildMcpHealthResponse(
+      persistenceHealth,
+      new Date().toISOString(),
+      readiness,
+      getPgRetryCounters()
+    );
     res.status(health.statusCode).json(health.body);
   });
 

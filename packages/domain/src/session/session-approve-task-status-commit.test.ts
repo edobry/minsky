@@ -119,7 +119,8 @@ describe("Session Approve Task Status Commit", () => {
         initialTasks: [{ id: QUALIFIED_TASK_ID, title: "Test Task", status: "IN-PROGRESS" }],
       });
       svc.getTaskStatus = (_taskId: string) => Promise.resolve("IN-PROGRESS");
-      svc.setTaskStatus = (_taskId: string, _status: string) => Promise.resolve();
+      svc.setTaskStatus = (_taskId: string, _status: string) =>
+        Promise.resolve({ recordsAffected: 1 });
       return svc;
     })();
 
@@ -258,7 +259,7 @@ describe("Session Approve Task Status Commit", () => {
       },
       setTaskStatus: (taskId: string, status: string) => {
         // This simulates no actual file changes
-        return Promise.resolve();
+        return Promise.resolve({ recordsAffected: 1 });
       },
     };
 
