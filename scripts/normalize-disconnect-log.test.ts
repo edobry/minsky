@@ -7,7 +7,12 @@
  * conversion, and it should be testable without a tmpdir.
  */
 import { describe, test, expect } from "bun:test";
-import { normalize, countNonParsingLines, findMatchingBracket } from "./normalize-disconnect-log";
+import {
+  normalize,
+  countNonParsingLines,
+  findMatchingBracket,
+  recordMultiset,
+} from "./normalize-disconnect-log";
 
 const NEWLINE = String.fromCharCode(10);
 
@@ -116,6 +121,47 @@ describe("countNonParsingLines (mt#4558)", () => {
 
   test("returns zero for uniform JSONL", () => {
     expect(countNonParsingLines(`${jsonlOf(JSONL_RECORDS)}${NEWLINE}`)).toBe(0);
+  });
+});
+
+describe("recordMultiset (mt#4558, reviewer R1)", () => {
+  test("reads a hybrid and its normalized form to the SAME multiset", () => {
+    // This is the check that makes the R1 fix verifiable: the backup is a
+    // hybrid, the result is JSONL, and the comparison must see through both.
+    const hybrid = `${JSON.stringify(LEGACY_RECORDS, null, 2)}${NEWLINE}${jsonlOf(JSONL_RECORDS)}${NEWLINE}`;
+    const normalized = normalize(hybrid).content ?? "";
+
+    const before = recordMultiset(hybrid);
+    const after = recordMultiset(normalized);
+    expect([...before.values()].reduce((a, b) => a + b, 0)).toBe(4);
+    expect(after).toEqual(before);
+  });
+
+  test("counts duplicates rather than collapsing them", () => {
+    // Two events CAN share a millisecond. A Set would forgive losing one of a
+    // duplicated pair; the count is what makes that loss visible.
+    const dup = JSON.stringify(JSONL_RECORDS[0]);
+    const multiset = recordMultiset(`${dup}${NEWLINE}${dup}${NEWLINE}`);
+    expect(multiset.get(dup)).toBe(2);
+  });
+
+  test("a dropped record shows up as a deficit against the source", () => {
+    // The failure mode the R1 fix exists to catch, asserted directly: losing a
+    // record must be detectable by comparing content, not by comparing totals.
+    const full = `${jsonlOf(JSONL_RECORDS)}${NEWLINE}`;
+    const lost = `${JSON.stringify(JSONL_RECORDS[0])}${NEWLINE}`;
+    const source = recordMultiset(full);
+    const result = recordMultiset(lost);
+    const deficit = [...source.entries()].reduce(
+      (sum, [k, n]) => sum + Math.max(0, n - (result.get(k) ?? 0)),
+      0
+    );
+    expect(deficit).toBe(1);
+  });
+
+  test("ignores unparseable lines rather than counting them as records", () => {
+    const withJunk = `${JSON.stringify(JSONL_RECORDS[0])}${NEWLINE}{ not json${NEWLINE}`;
+    expect([...recordMultiset(withJunk).values()].reduce((a, b) => a + b, 0)).toBe(1);
   });
 });
 
