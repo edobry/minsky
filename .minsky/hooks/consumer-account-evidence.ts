@@ -119,6 +119,20 @@ const IN_SCOPE_ROOT_RE = /^(?:src|packages|cockpit-tray)\//;
 const EXCLUDED_PATH_RE = /(?:^|\/)(?:__tests__|__mocks__|fixtures)\//;
 const TEST_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 
+/**
+ * True when at least one changed file sits in a scanned root.
+ *
+ * A cheap prefilter over the file list the caller ALREADY has, so the extra patch fetch
+ * happens only on a PR that could possibly fire. Most PRs touching only docs, rules or
+ * tests skip the network call entirely — which is the bounded-form discipline mt#4192 asks
+ * for, applied where the budget is generous rather than where it is tight.
+ */
+export function hasInScopeFiles(filenames: string[]): boolean {
+  return filenames.some(
+    (f) => IN_SCOPE_ROOT_RE.test(f) && !TEST_FILE_RE.test(f) && !EXCLUDED_PATH_RE.test(f)
+  );
+}
+
 /** A PR file plus its unified-diff patch, as GitHub's files endpoint returns it. */
 export interface PrFilePatch {
   filename: string;
