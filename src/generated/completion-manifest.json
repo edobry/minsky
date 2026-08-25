@@ -6260,6 +6260,27 @@
           ]
         },
         {
+          "name": "reviewer-cost",
+          "description": "Report reviewer LLM spend from `review_timing`: total and per-day cost, the R1 vs R>=2 split, median input and uncached-input tokens, cache-hit ratio, and how many calls terminated at the tool-loop round cap. Reads through the daemon's existing database connection — no credential is passed by the caller and none appears in the output. Rows with iteration_index = 0 (pre-model skip paths) are excluded from every statistic and counted separately; rows with a null cached_tokens are counted separately because their cost is mis-priced (mt#3665) and a window containing them is not comparable.",
+          "options": [
+            {
+              "flags": ["--since"],
+              "description": "Only include calls created on/after this timestamp (ISO 8601, e.g. '2026-08-04T08:07:36Z'). Omit for no lower bound.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include calls created before this timestamp (ISO 8601). Omit for no upper bound.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Return the full structured report instead of the human-readable summary. mt#3654 needs to paste actual output into a findings section, so both shapes are supported."
+            }
+          ],
+          "commandId": "observability.reviewer-cost"
+        },
+        {
           "name": "smoke-test",
           "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
           "options": [
