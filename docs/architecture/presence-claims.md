@@ -25,6 +25,14 @@ terminal-app introspection).
   (`agentId`, mt#1078). Presence is its own orthogonal dimension and is
   recordable even when **no Minsky session exists**.
 
+**Release (mt#4568) does not change any of the above.** An actor can now say "I
+am done here" explicitly instead of waiting out the TTL — but that makes the
+advisory signal more ACCURATE, it does not make it a lock. In particular: **a
+task with no claim is not thereby safe to act on**, and no destructive action may
+gate on a claim's absence. The lock/exclusion primitive is a separate, deliberate
+piece of work (RFC: _Presence vs lock — worker identity, claims, and liveness_),
+and this is not it.
+
 ## Storage
 
 Postgres-only (ADR-018). Table `presence_claims` (migration slot `0050`):
@@ -124,6 +132,31 @@ Response shape:
 
 Best-effort: when no SQL persistence provider / DB connection is available it
 returns `{ claims: [] }` rather than throwing.
+
+## Release surface — `tasks.claims.release` (mt#4568)
+
+Deletes the CALLER's own claim rows for one task and reports what it removed.
+Without it, the only exit from a claim is `PRESENCE_CLAIM_TTL_MS`, and an agent
+handing a task off re-stakes the claim it is trying to give up — writing handoff
+notes is a mutating call carrying a task id, so it refreshes the claim.
+
+Three properties are load-bearing:
+
+- **Scoped to the caller.** The delete matches `actor_id == resolveCallerActorId(...)`.
+  Clearing a peer's claim is not an ordinary operation. When identity cannot be
+  resolved the command releases NOTHING and returns `actorUnavailable: true` —
+  deleting unattributable rows would be exactly the failure this scoping prevents.
+- **Exempt from the ambient presence write.** The command sets `readsPresence`
+  despite writing presence. `writeTaskClaim` fires AFTER a handler returns, for any
+  call carrying `task`/`taskId`, so without the flag the release re-inserts the row
+  it just deleted and reports success having changed nothing. **The CLI path never
+  calls `writeTaskClaim`, so this failure is invisible to a CLI-only test.**
+- **Self-reporting.** The result names the `actorId` and `claimedAt` of every row
+  removed, so a caller can notice it deleted a claim it does not recognize — the
+  observable that makes an actor misattribution (mt#4440) visible rather than silent.
+
+Not in scope: auto-release. Inferring "this agent is finished" from tool traffic is
+the same guessing problem in a new place; release is EXPRESSIBLE, not automatic.
 
 ## Staleness & reaping
 

@@ -221,6 +221,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "tasks.bulk-edit",
   "tasks.children",
   "tasks.claims.list",
+  "tasks.claims.release",
   "tasks.create",
   "tasks.decompose",
   "tasks.delete",

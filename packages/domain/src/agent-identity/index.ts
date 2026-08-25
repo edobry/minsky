@@ -53,3 +53,6 @@ export type {
   IdentityFallbackEvent,
   IdentityLayer,
 } from "./resolve";
+
+// Caller identity as seen by a registered command (server-injected, else harness env)
+export { resolveCallerActorId } from "./caller";

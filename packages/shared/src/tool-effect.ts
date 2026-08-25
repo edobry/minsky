@@ -338,6 +338,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.spec.patch": "mutates",
   "tasks.spec.search_replace": "mutates",
   "tasks.status.set": "mutates",
+  "tasks.claims.release": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",
