@@ -199,6 +199,35 @@ it names the task an ask was filed FROM, which the filing session has almost
 always just been working, so reading it would fire on the ordinary case rather
 than the recommending one.
 
+**Which spellings count, and the one measured floor (PR #3327 R1).** The
+extractor matches the delimited forms `mt#3473` / `mt-3473` / `mt_3473` at any
+digit count, and the bare form `mt3473` only at **three digits or more**. The
+floor is measured, not chosen: across the 10,201 asks in the corpus there are
+323 bare-form matches — 308 `mt` + 4 digits, 10 `mt` + 3, 1 `md` + 3 — and **all
+four `md` + 1-digit matches are literally `md5` / `MD5`**, the hash algorithm.
+Real task ids run 1 to 4 digits with exactly one at or below 2, so the floor
+removes the entire observed false-positive class at the cost of one task's bare
+spelling. A delimiter removes the ambiguity, so the delimited branch has no
+floor.
+
+The review that caught the original `#`-only pattern estimated the impact as
+"many real asks will silently bypass the advisory". Measured, that is **9 of
+7,938 asks (0.11%)** missed ENTIRELY — an alternate spelling nearly always
+co-occurs with a `#` form in the same payload. The finding is still correct on
+an axis it did not name: **77 asks carry a hyphen form and 177 a bare form**, and
+in those the id the `#` pattern missed may be the unread one, so the miss is
+partial rather than total. Recorded because the fix's size and the finding's
+stated size differ, and a later reader should inherit the number rather than the
+estimate.
+
+`.minsky/hooks/loop-preflight-pr-merge-check.ts`'s `extractTaskIds` carries the
+same `#`-only pattern. It is **deliberately not changed here**: it serves a
+different consumer (`/loop` preflight over user-typed prompts, not ask payloads),
+it normalises its output to the `mt#N` form, and no corpus of loop prompts has
+been measured — widening it blind would repeat exactly the mistake the floor
+above exists to avoid. The check that would settle it is the same one run here,
+against loop-prompt text.
+
 **One transcript pass, not one per id.** `unreadAskTaskIds` parses each candidate
 transcript once and tests every still-pending id against it, draining as they are
 credited and stopping early when nothing is left. Calling

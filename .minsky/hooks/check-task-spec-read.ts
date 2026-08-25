@@ -322,16 +322,36 @@ export function specWasSurfacedInAnyTranscript(
 // ---------------------------------------------------------------------------
 
 /**
- * Task references in an ask payload. Matches the two id namespaces the task
- * backends mint (`mt#` / `md#`), the same shape
- * `loop-preflight-pr-merge-check.ts` reads.
+ * Task references in an ask payload, in the two id namespaces the task backends
+ * mint (`mt#` / `md#`) and the alternate spellings {@link normalizeTaskId}
+ * already collapses.
+ *
+ * Two branches, because they carry different ambiguity:
+ *
+ * - **Separated** (`mt#3473`, `mt-3473`, `mt_3473`) — the delimiter makes it
+ *   unambiguous, so any digit count matches. The hyphen form is how a branch
+ *   name spells it (`task/mt-3473`) and shows up in asks that quote one.
+ * - **Bare** (`mt3473`) — needs a **three-digit floor**, and that floor is
+ *   measured rather than chosen. Over the 10,201 asks in the corpus there are
+ *   323 bare-form matches: 308 are `mt` + 4 digits, 10 are `mt` + 3, 1 is `md` +
+ *   3, and **all 4 of the `md` + 1-digit matches are literally `md5` / `MD5`** —
+ *   the hash algorithm, a pure false positive. Real task ids run 1 to 4 digits
+ *   with exactly ONE task at or below 2, so the floor drops the entire observed
+ *   false-positive class and costs coverage of a single task's bare spelling.
+ *
+ * PR #3327 R1 (BLOCKING) caught the original `#`-only pattern. Its magnitude
+ * claim — "many real asks will silently bypass the advisory" — measured at **9
+ * of 7,938 asks (0.11%)** missed ENTIRELY, because an alternate spelling nearly
+ * always co-occurs with a `#` form in the same payload. The finding is real
+ * anyway on the PARTIAL-miss axis it did not name: 77 asks carry a hyphen form
+ * and 177 a bare form, and in those the un-matched id may be the unread one.
  *
  * Deliberately NOT fence- or code-span-aware, unlike the guidance detectors: a
  * backticked `mt#3473` in an ask is a real reference to a real task, not a
  * quotation of one. There is no paraphrase axis here to elide around — an id
  * either appears or it does not.
  */
-const TASK_REF_RE = /\b(?:mt|md)#\d+\b/gi;
+const TASK_REF_RE = /\b(?:mt|md)(?:[#\-_]\d+|\d{3,})\b/gi;
 
 /**
  * Ceiling on distinct references extracted from one ask.

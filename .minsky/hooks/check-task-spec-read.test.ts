@@ -961,6 +961,44 @@ describe("extractAskTaskIds", () => {
     expect(extractAskTaskIds({ contextRefs: [null, 7, { ref: {} }] })).toEqual([]);
   });
 
+  test("PR #3327 R1: extracts the hyphen and underscore spellings, not just the hash form", () => {
+    expect(extractAskTaskIds({ question: "Should we resume mt-3473?" })).toEqual(["mt-3473"]);
+    expect(extractAskTaskIds({ question: "branch task/mt_3473 is stale" })).toEqual(["mt_3473"]);
+    expect(extractAskTaskIds({ options: [{ label: "Rebase MT-3473", description: "" }] })).toEqual([
+      "MT-3473",
+    ]);
+  });
+
+  test("PR #3327 R1: extracts the bare spelling at three digits or more", () => {
+    expect(extractAskTaskIds({ question: "resume mt3473 now" })).toEqual(["mt3473"]);
+    expect(extractAskTaskIds({ question: "resume mt390 now" })).toEqual(["mt390"]);
+  });
+
+  test("PR #3327 R1: the bare form's three-digit floor keeps md5 out", () => {
+    // MEASURED, not chosen: all four `md`+1-digit bare matches across the
+    // 10,201-ask corpus are literally `md5` / `MD5`, the hash algorithm. Real
+    // task ids run 1-4 digits with exactly ONE at or below 2, so the floor
+    // drops the whole observed false-positive class for one task's bare
+    // spelling. The SEPARATED forms carry no such ambiguity and have no floor.
+    expect(extractAskTaskIds({ question: "hash the payload with md5 first" })).toEqual([]);
+    expect(extractAskTaskIds({ question: "MD5 is not a task" })).toEqual([]);
+    expect(extractAskTaskIds({ question: "mt5 is ambiguous bare" })).toEqual([]);
+    // ...but the same id WITH a delimiter is unambiguous and does match.
+    expect(extractAskTaskIds({ question: "md#5 is a task" })).toEqual(["md#5"]);
+    expect(extractAskTaskIds({ question: "mt-5 is a task" })).toEqual(["mt-5"]);
+  });
+
+  test("PR #3327 R1: spellings of the SAME id dedupe to one entry", () => {
+    // normalizeTaskId collapses all four, so an ask naming a task in prose and
+    // again as a branch must not advise about it twice.
+    expect(
+      extractAskTaskIds({
+        question: "mt#3473 — see branch task/mt-3473",
+        options: [{ label: "resume mt3473", description: "mt_3473" }],
+      })
+    ).toEqual(["mt#3473"]);
+  });
+
   test("caps extraction at MAX_ASK_TASK_REFS distinct ids", () => {
     const many = Array.from({ length: MAX_ASK_TASK_REFS + 10 }, (_, i) => `mt#${9000 + i}`).join(
       " "
