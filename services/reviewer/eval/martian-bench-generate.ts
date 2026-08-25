@@ -53,11 +53,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import "reflect-metadata";
+
 import { callReviewer, type ReviewOutput } from "../src/providers";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewerConfig } from "../src/config";
-import { resolveGitHubToken } from "../scripts/harness-auth";
-import { resolveProviderApiKey } from "../scripts/paired-eval-runner";
+import { resolveGitHubTokenWithConfig, getGitHubTokenSource } from "../scripts/harness-config-auth";
+import { setupConfiguration } from "@minsky/domain/config-setup";
+import { getConfiguration, isConfigurationInitialized } from "@minsky/domain/configuration/index";
 
 // ---------------------------------------------------------------------------
 // Paths + constants
@@ -85,6 +88,51 @@ function parseModelSpec(spec: string): ModelConfigArg {
     );
   }
   return { provider: provider as Provider, model };
+}
+
+/** Config path each provider's key lives at, per `config_credentials_list` /
+ * `harness-config-auth.ts`'s `resolveOpenAIKey` — same shape, generalized across the three
+ * providers `--model` accepts, since `resolveOpenAIKey` only covers openai. */
+function configApiKeyOf(
+  config: ReturnType<typeof getConfiguration>,
+  provider: Provider
+): string | undefined {
+  return config.ai?.providers?.[provider]?.apiKey || undefined;
+}
+
+/** Env var name each provider's key is read from — matches
+ * `paired-eval-runner.ts`'s `resolveProviderApiKey`, whose behavior this function extends
+ * with the config fallback that function lacks (env-only; misses a machine where the key is
+ * configured in Minsky rather than exported to the shell — the same trap
+ * `resolveOpenAIKey`'s docblock documents for OpenAI specifically). */
+function envVarNameOf(provider: Provider): string {
+  switch (provider) {
+    case "openai":
+      return "OPENAI_API_KEY";
+    case "google":
+      return "GOOGLE_AI_API_KEY";
+    case "anthropic":
+      return "ANTHROPIC_API_KEY";
+  }
+}
+
+/** Env first (matches the deployed reviewer's own resolution and keeps a run overridable),
+ * then Minsky's configured `ai.providers.<provider>.apiKey` — the same two-step resolution
+ * `resolveOpenAIKey` implements for openai, generalized here to all three `--model` providers
+ * so a config-only anthropic/google key is not silently treated as absent either. */
+async function resolveModelApiKeyWithConfig(provider: Provider): Promise<string | undefined> {
+  const fromEnv = process.env[envVarNameOf(provider)];
+  if (fromEnv) return fromEnv;
+
+  if (!isConfigurationInitialized()) {
+    await setupConfiguration();
+  }
+  return configApiKeyOf(getConfiguration(), provider);
+}
+
+async function getModelApiKeySource(provider: Provider): Promise<string> {
+  if (process.env[envVarNameOf(provider)]) return envVarNameOf(provider);
+  return (await resolveModelApiKeyWithConfig(provider)) ? "minsky-config" : "none";
 }
 
 // ---------------------------------------------------------------------------
@@ -345,18 +393,30 @@ async function main() {
     return;
   }
 
-  const githubToken = resolveGitHubToken();
+  // Env first, then Minsky's own configuration — a harness running on a developer machine
+  // typically has neither OCTOKIT_AUTH/GITHUB_TOKEN nor OPENAI_API_KEY/etc. exported to the
+  // shell while the equivalent credential IS configured in Minsky (`github.token`,
+  // `ai.providers.<provider>.apiKey`). An env-only resolver reports "no credential" on a
+  // machine that has one — see harness-config-auth.ts's resolveOpenAIKey docblock, and
+  // resolveModelApiKeyWithConfig above, which generalizes that fallback to all three
+  // `--model` providers.
+  const githubToken = await resolveGitHubTokenWithConfig();
   if (!githubToken) {
-    console.error("Error: set OCTOKIT_AUTH or GITHUB_TOKEN (read-only GitHub access).");
-    process.exit(1);
-  }
-  const apiKey = resolveProviderApiKey(args.model.provider);
-  if (!apiKey) {
     console.error(
-      `Error: no credential for provider "${args.model.provider}". Set OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY as appropriate.`
+      "Error: no GitHub token. Set OCTOKIT_AUTH or GITHUB_TOKEN, or configure `github.token` in Minsky."
     );
     process.exit(1);
   }
+  const apiKey = await resolveModelApiKeyWithConfig(args.model.provider);
+  if (!apiKey) {
+    console.error(
+      `Error: no credential for provider "${args.model.provider}". Set ${envVarNameOf(args.model.provider)}, or configure ai.providers.${args.model.provider}.apiKey in Minsky.`
+    );
+    process.exit(1);
+  }
+  console.log(
+    `Credentials: github=${await getGitHubTokenSource()} model(${args.model.provider})=${await getModelApiKeySource(args.model.provider)}`
+  );
 
   const octokit = new Octokit({ auth: githubToken });
 
