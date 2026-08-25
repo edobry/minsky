@@ -9,11 +9,15 @@ Minsky has separate test suites to ensure fast, reliable development while maint
 **Command**: `bun test` or `bun run test`
 
 - **Purpose**: Tests that run in isolation with mocked dependencies
-- **Speed**: Fast (~2 seconds for full suite)
+- **Speed**: ~2 minutes for the full suite; a single file is sub-second
 - **Dependencies**: No external APIs, no real filesystem operations
-- **CI/Pre-commit**: Always runs on every commit (mandatory quality gate)
+- **CI/Pre-commit**: **Not** the full suite at commit time. Three tiers, deliberately (mt#2716,
+  mt#2932): pre-commit runs only the tests _related to the staged files_
+  (`scripts/run-related-tests.ts`); `.husky/pre-push` runs the full truncation-safe suite
+  (`scripts/run-tests-gated.ts`); CI is authoritative. A ~4-minute per-commit gate is the
+  documented "slow hook → developers `--no-verify` it" anti-pattern, which is why it was moved.
 - **Coverage**: Core business logic, utilities, mocked integrations
-- **Test Count**: 1,400+ tests with 0% failure tolerance
+- **Failure tolerance**: 0% — any failing test blocks the tier it runs in
 
 **Examples**:
 
@@ -126,11 +130,16 @@ The enhanced pre-commit hook system includes multiple validation layers:
 - Prevents commits with syntax errors
 - Ensures consistent code style
 
-#### 2. **Unit Test Suite** (Quality Gate)
+#### 2. **Related-Test Gate** (Quality Gate)
 
-- Runs all 1,400+ unit tests with zero failure tolerance
-- Fast execution (~2 seconds) designed for pre-commit use
-- **Blocks commits entirely** if any test fails
+- Maps the staged files to the tests related to them (`scripts/find-related-tests.ts`) and runs
+  **only those** (`scripts/run-related-tests.ts`) — not the full suite
+- Fail-closed: reuses `evaluateBunTestSummary` from `scripts/run-tests-gated.ts`, so a truncated
+  run counts as a failure rather than a pass
+- **Blocks the commit** if a related test fails
+- The full suite runs one tier later, in `.husky/pre-push` — moved there by mt#2716 because a
+  ~4-minute per-commit gate gets bypassed wholesale. mt#2932 added this fast tier back, closing
+  the zero-signal-at-commit-time gap that move left.
 
 #### 3. **Code Quality** (ESLint)
 
@@ -152,7 +161,7 @@ The enhanced pre-commit hook system includes multiple validation layers:
 
 **Benefits**:
 
-- ✅ Fast feedback (~5-7 seconds total)
+- ✅ Fast feedback — scoped to the staged files, not the whole suite
 - ✅ No API rate limiting or network issues blocking commits
 - ✅ No external service dependencies for development
 - ✅ Comprehensive quality validation
@@ -223,13 +232,17 @@ path is not covered by it — hermeticity there is still the test author's respo
 
 ### "Pre-commit hook taking too long"
 
-**Normal execution time**: ~5-7 seconds total
+**Expected shape**: the related-test tier is scoped to your staged files, so its duration scales
+with what you staged rather than with the size of the suite. It is designed to stay well under the
+60–90s threshold at which developers start reaching for `--no-verify` (mt#2932).
 
 If taking longer:
 
 1. Check if integration tests are accidentally running (should never happen)
-2. Verify test performance hasn't degraded
-3. Report as a bug if consistently over 10 seconds
+2. Check how many files you staged — a wide-reaching change maps to many related tests
+3. Verify test performance hasn't degraded
+4. Report as a bug if it consistently approaches the 60–90s threshold above; that is the point at
+   which the tier stops doing its job
 
 ### "Pre-commit hook failing"
 
@@ -240,9 +253,10 @@ If taking longer:
 
 **Test failures**:
 
-- Run `bun test --verbose` to see detailed failure information
-- Fix failing tests before committing
-- All 1,400+ tests must pass - zero tolerance for failures
+- The hook reports which related tests it ran; re-run just those to iterate
+- Fix failing tests before committing — zero tolerance for failures
+- Note this tier only runs tests related to your staged files. A commit that passes here can still
+  fail the full suite at `.husky/pre-push` or in CI.
 
 **Linting failures**:
 
