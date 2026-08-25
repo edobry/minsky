@@ -233,7 +233,11 @@ export function hasRawSqlConnection(
 ): provider is SqlCapablePersistenceProvider & {
   getRawSqlConnection: NonNullable<SqlCapablePersistenceProvider["getRawSqlConnection"]>;
 } {
-  if (!isSqlCapable(provider)) return false;
+  // The CAPABILITY directly, not `isSqlCapable` — that one additionally requires
+  // `getDatabaseConnection`, which a provider offering only the raw accessor need not
+  // have. Composing on it made this guard reject `{ capabilities: { sql: true },
+  // getRawSqlConnection }`, a shape the embedding-sweep tests use and production allows.
+  if (readCapabilities(provider)?.sql !== true) return false;
   return typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
 }
 
@@ -248,7 +252,8 @@ export function hasListenCapableSqlConnection(
     SqlCapablePersistenceProvider["getListenCapableSqlConnection"]
   >;
 } {
-  if (!isSqlCapable(provider)) return false;
+  // Capability directly, for the same reason as {@link hasRawSqlConnection}.
+  if (readCapabilities(provider)?.sql !== true) return false;
   return (
     typeof (provider as { getListenCapableSqlConnection?: unknown })
       .getListenCapableSqlConnection === "function"
