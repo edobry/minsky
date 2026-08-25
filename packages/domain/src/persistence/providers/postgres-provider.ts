@@ -732,10 +732,15 @@ export class PostgresPersistenceProvider
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
-      // Clean up connection we created to prevent pool leaks
+      // Clean up connection we created to prevent pool leaks.
+      // Bounded (mt#4515, PR #3308 R1). This is a FAILURE path, so the client is
+      // more likely to be in a bad state here than anywhere else — an unbounded
+      // `end()` on a half-open connection never settles, and this one sits
+      // inside the catch of `initialize()`, so hanging here means the caller
+      // never sees the original error either.
       if (createdSql) {
         try {
-          await createdSql.end();
+          await createdSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch {
           /* ignore cleanup errors */
         }

@@ -45,7 +45,6 @@ import { createServer, connect, type Socket } from "node:net";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import * as yaml from "js-yaml";
 
 const UNBOUNDED = process.argv.includes("--unbounded");
 /** How long we allow close() to take before declaring it hung. */
@@ -56,9 +55,21 @@ const FILL_CONCURRENCY = 6;
 function readConnectionString(): string | null {
   try {
     const raw = readFileSync(join(homedir(), ".config/minsky/config.yaml"), "utf8");
-    const cfg = yaml.load(raw) as {
+    // `Bun.YAML.parse`, not `js-yaml` (PR #3308 R1). The repo declares only
+    // `@types/js-yaml`, so importing the runtime package resolved transitively
+    // and would break the moment that transitive edge moved. Bun ships a YAML
+    // parser and this file already requires Bun via its shebang, so the
+    // dependency is removed rather than added.
+    //
+    // Cast because `YAML` is honoured at runtime (verified on the pinned Bun
+    // 1.3.14) but is absent from the installed `@types/bun` — the same shape as
+    // postgres-provider.ts's `socket` option, and scoped to this one property so
+    // nothing else loses checking.
+    const bunYaml = (Bun as { YAML?: { parse(text: string): unknown } }).YAML;
+    if (!bunYaml) return null; // older Bun without the built-in parser
+    const cfg = bunYaml.parse(raw) as {
       persistence?: { postgres?: { connectionString?: string } };
-    };
+    } | null;
     return cfg?.persistence?.postgres?.connectionString ?? null;
   } catch {
     return null;
