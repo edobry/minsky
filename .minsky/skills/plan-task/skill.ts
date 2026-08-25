@@ -1001,6 +1001,20 @@ bias, not verification; the missing step is checking whether the failure ACTUALL
 it — run the failing command, read the live health/log signal, trace the actual event sequence — and
 record the observed evidence in the spec.
 
+**The claim has TWO sources and both are in scope (mt#4548).** A causal claim reaches the pass one
+of two ways, and everything below applies to both:
+
+- **INHERITED** — the claim the spec ARRIVED with. This is the case the gate was built for twice,
+  and the one its examples describe.
+- **AUTHORED** — a claim the planning pass writes ITSELF, most often after falsifying the inherited
+  one. Falsifying an inherited diagnosis does not license the replacement you put in its place.
+
+**The authored case is the one that reads as most satisfied.** Falsifying an inherited claim IS this
+gate working, and the pass has just done real measurement to earn the replacement — so the fresh
+claim inherits the credibility of the work that produced it. The stronger the pass, the larger the
+hole: a pass that merely accepted its spec leaves nothing new unverified, and a pass that overturned
+it leaves a brand-new cause with no gate behind it.
+
 **Why this gate exists (and why it was re-added).** It originally shipped as gate (l)
 "problem-statement verification" via mt#2091 / PR #1272 (2026-05-24), after mt#2083 shipped three
 fixes for a reviewer-timeout "problem" that production logs showed never happened (both timeouts
@@ -1016,9 +1030,16 @@ would have falsified it immediately.
 phrases: "X fails/throws/crashes/times out because Y", "the parser doesn't handle Q", "users see Y
 when Z", "the config doesn't support W", "the mechanism degrades under V", or any "reproduced" /
 "definitive diagnosis" claim whose evidence is a SIMULATION rather than an observation of the actual
-failing context. If the spec makes no runtime causal claim (a pure refactor, a docs edit, a
-greenfield feature with no "X is broken" premise), it passes automatically. State that explicitly:
-"(o) No runtime causal claim to verify — criterion passes."
+failing context. **It fires the same way on a claim the PASS authors** — if you falsify the spec's
+premise and write a replacement cause, that replacement is a runtime causal claim and re-triggers
+this gate on itself. If the spec makes no runtime causal claim AND the pass authors none (a pure
+refactor, a docs edit, a greenfield feature with no "X is broken" premise), it passes automatically.
+State that explicitly: "(o) No runtime causal claim to verify — criterion passes."
+
+**No over-fire on the ordinary case.** A pass that reproduces an inherited claim and proposes a fix
+for THAT reproduced cause passes cleanly — the cause was verified, so naming a fix is exactly what
+the gate wants. This amendment adds a requirement only where a cause is relied on WITHOUT having
+been reproduced; it is not a license to object to every plan (ADR-032).
 
 **Required when triggered.** Reproduce the asserted failure against the real system and record the
 observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
@@ -1053,21 +1074,78 @@ observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
    rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
    surface the gap and re-scope BEFORE designing a fix.
 
+**Discharging an AUTHORED claim — pick one, and it cannot be neither (mt#4548).** The inherited case
+is discharged by reproducing the claim. An authored claim admits a second, cheaper discharge,
+because the pass may legitimately not know the cause yet:
+
+1. **Run the cause's own falsifier in this pass** — the same steps 1-4 above, applied to the claim
+   you just wrote. Then the Scope may name a specific fix.
+2. **Write the Scope to FINDING the cause, not to a named fix** — the honest option when the
+   falsifier is implementation work. The Scope says "identify the divergence"; it does not say
+   "source the key from X".
+
+**Not both-and-neither.** Labelling the cause unproven AND writing the Scope to a fix derived from
+it is the failure mode, not a compromise between the two. The hedge does not make the commitment
+provisional — it just puts the contradiction in two different sections where nothing compares them.
+
+**The artifact-level tell, which you can check by reading your own draft.** Before promoting to
+READY, grep the spec you are about to pass for a hedge — \`not yet proven\`, \`unverified\`,
+\`hypothesis\`, \`localized\`, \`the implementation's first question\` — and then read what \`## Scope\`,
+\`## Success Criteria\`, and every other gate's verdict actually commit to. **A cause hedged in one
+section and relied on in another is a gate-(o) failure**, and it is visible without running
+anything. This is the residue the originating incident left behind: one paragraph said "not yet
+proven", the Scope named the fix, and gate (p) recorded "EXTEND" on that basis. Nothing in the pass
+compared the three.
+
+**Audit-output requirement.** Gate (o)'s entry must say WHICH claim was reproduced — the symptom or
+the cause — and must not report the first as though it covered the second. A pass that measured a
+defect's RATE has reproduced the symptom; a pass that measured WHY has reproduced the cause. Write
+the verdict so a reader can tell them apart, e.g. *"symptom reproduced (5-9% hit rate, live logs);
+cause AUTHORED this pass and NOT reproduced — Scope written to finding it."* The originating
+incident's entry was accurate about the symptom and silent about the distinction, which is what let
+it read as full verification.
+
 **Rigor-theater callout.** A confident "Diagnosis (definitive — reproduced)" section is exactly the
 shape that invites inheritance without re-verification. Treat a spec's own diagnosis as a HYPOTHESIS
-to reproduce, not a settled premise — especially a spec you did not author, or authored in a prior
-session.
+to reproduce, not a settled premise — and note that **a diagnosis you authored MINUTES ago in this
+same pass is the hardest case, not the safest one.** Per mem#736, self-authorship is an AGGRAVATING
+factor: what you retain is the intent that produced the claim, while the divergence lives in the
+specifics. An inherited diagnosis at least arrives looking like someone else's assertion; your own
+arrives already believed.
 
 **Disambiguation from adjacent gates.** Gate (m) verifies a spec's cited MEMORY/RULE/DOC claim
 against its source; gate (o) verifies a spec's asserted RUNTIME-BEHAVIOR claim against the live
 system. Premise-audit check (i) asks whether the parent investigation leaves premises open; gate (o)
 is the stronger, action-forcing requirement to REPRODUCE a runtime claim before building on it.
 
+**Originating incident for the AUTHORED half — mt#4407 (2026-08-25).** A pass falsified the spec's
+inherited premise with real measurements (a dedup mechanism the spec called unbuilt had shipped
+three weeks earlier; its hit rate was 5-9% across every denominator tried), then authored a cause:
+*the two guards hash different derivations of the last assistant message.* One paragraph labelled it
+"Localized, not yet proven — this is the implementation's first question." The \`## Scope\`, written
+minutes later, committed to *"sourcing the sibling's key text from ADR-031's recorded
+\`last_assistant_message\`"*, and gate (p)'s verdict recorded "EXTEND — the repair applies ADR-031's
+own sub-operation (2)." The task went READY on that basis. At implementation the cause was false —
+reconstructing the turn from real transcripts reproduced the other guard's key **exactly, 6 of 6** —
+and two further hypotheses fell the same way. Gate (o) had reported a pass, correctly by its own
+text, because the claim it was pointed at WAS reproduced. **Recurrence-after-DONE against mt#2964**,
+whose restore was faithful to what mt#2445 deleted; the authored half was never in scope either
+time, because the gate was built twice from inherited-claim incidents and its text encodes that
+origin. Note the eventual toll on that one task: **five causal hypotheses, four dead**, and a fix
+proposed on an untested mechanism twice.
+
 Cross-references: mt#2091 / PR #1272 (original gate); mt#2083 (originating incident); mt#2445 (the
 letter-(l) reuse that clobbered it); mt#2958 (the recurrence that surfaced the loss); mt#2964 (this
-restore + the append-only convention above); memories \`d77d2bd4\` (problem-statement verification),
-\`dc9f7ad8\` (the mt#2958 retro), \`7c83fed0\` ("reproduce error before theorizing"), \`8814a2e1\`
-(verify diagnostic tools before building theories).
+restore + the append-only convention above); **mt#4548** (this authored-claim amendment); **mt#4407**
+(its originating incident); memories \`d77d2bd4\` (problem-statement verification), \`dc9f7ad8\` (the
+mt#2958 retro), \`7c83fed0\` ("reproduce error before theorizing"), \`8814a2e1\` (verify diagnostic
+tools before building theories), **mem#1253** (the bridge memory this amendment retires to
+historical record), **mem#736** (self-authorship is an aggravating factor). Sibling surfaces:
+**mt#4241** (the \`code-mechanism-assertion\` detector's \`write-echo-backed\` leg suppressing a claim
+the agent just wrote) and **mt#4301** (mechanizing \`/create-task\` §2c's causal-claim check at
+\`tasks_create\`) — same root, different surfaces. The narrower mechanizable slice of THIS gate — a
+hedge marker whose Scope names a derived fix — belongs to **mt#2755**, and must be added only AFTER
+this amendment, so what gets mechanized is the corrected gate rather than the inherited-only scope.
 
 #### Gate criterion (p) — First-party decision-record check
 
