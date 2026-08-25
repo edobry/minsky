@@ -290,10 +290,24 @@ export function getPgRetryCounters(): PgRetryCounters {
 }
 
 /**
- * Reset the counters. Test-only — module-level state would otherwise make one
- * test's reading depend on which tests ran before it.
+ * @internal Test-only: reset the counters. Module-level state would otherwise
+ * make one test's reading depend on which tests ran before it.
+ *
+ * Guarded on `NODE_ENV === "test"` rather than merely named as test-only (PR
+ * #3338 R1). The naming convention signals intent; the guard is what makes
+ * production misuse fail loudly instead of silently zeroing a live fault
+ * counter — which for THIS counter would erase the evidence an alarm reads.
+ * Mirrors `assertTestEnvironment` in `src/cockpit/shared-persistence.ts` and
+ * `db-providers.ts`, so the whole family behaves the same way.
  */
 export function __resetPgRetryCountersForTests(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      `__resetPgRetryCountersForTests is test-only (NODE_ENV must be "test"; got ${JSON.stringify(
+        process.env.NODE_ENV
+      )})`
+    );
+  }
   _saturationRetries = 0;
   _staleConnectionRetries = 0;
   _retriesExhausted = 0;

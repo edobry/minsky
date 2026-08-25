@@ -460,6 +460,60 @@ entirely — the conversation looked idle because it was stuck.
 epoch-ms integer with no path or identity information; `consecutiveDegraded` is
 a small counter. Neither violates the endpoint's unauthenticated-access posture.
 
+### DB recovery-mechanism counters — `dbRecycle` and `dbRetry`
+
+`/api/health` carries the outcome counters of the two DB **recovery** mechanisms.
+They exist because both previously recorded their failures ONLY as a `log.warn`:
+the pool recycle abandoned its connections 88 times with zero clean closes and
+nobody noticed for months, and it surfaced only because an unrelated
+investigation happened to `grep` the daemon log (mt#4515). A recovery mechanism
+whose failure mode is silence needs a number, not a log line.
+
+`dbRecycle` (mt#4549) — the pool RECYCLE, which replaces a wedged pool:
+
+| Field                   | Semantics                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `recycleCount`          | Recycles performed. **The denominator** — see the trap below.                                                                 |
+| `closesDrained`         | The old pool emptied inside the drain budget.                                                                                 |
+| `closesForceTerminated` | postgres-js's destroy timer fired and released the connections. **The mt#4515 fix WORKING, not a fault.**                     |
+| `closesAbandoned`       | **The alarm.** The close never returned and the outer deadline gave up, so sockets are stranded.                              |
+| `closesFailed`          | `close()` rejected before the deadline — a real fault, but a different one, split out so the alarm counter stays trustworthy. |
+
+`dbRetry` (mt#4562) — the per-query RETRY (`withPgPoolRetry`), which absorbs
+transient connection failures:
+
+| Field                    | Semantics                                                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `saturationRetries`      | Retries against a pool-exhaustion rejection. **Near-zero BY DESIGN** — see the trap below.                                         |
+| `staleConnectionRetries` | Retries against a stale/closed connection. The class production actually hits (mt#3092, mem#597).                                  |
+| `retriesExhausted`       | **The alarm.** The retry budget ran out and the error reached the caller, i.e. retry tried and could not. A fault in either class. |
+| `lastRetryAt`            | ISO timestamp of the most recent retry of either class, or `null`.                                                                 |
+
+**TRAP, and it is the whole reason these are split the way they are: a ZERO here
+is not a health claim.** Every one of these counters reads zero both when the
+mechanism is working perfectly and when nothing has exercised it — and for
+`saturationRetries`, zero is the _expected steady state forever_, because
+mt#3497 established that pool exhaustion on the transaction pooler production
+uses needs far more concurrent clients than Minsky's process count can produce.
+So:
+
+- Read `closesAbandoned` **against `recycleCount`**. Zero-with-zero means
+  untested; zero-with-nonzero means every recycle released.
+- Read `retriesExhausted` **against the two attempt counters**, and never infer
+  a fault from a low retry rate. A "rate dropped to zero" rule over a
+  normally-zero signal cannot fail — it emits the same answer whether the
+  mechanism is healthy or dead (mem#704).
+
+The post-deploy health monitor's check (d) applies exactly these rules
+(`packages/domain/src/deployment/monitor-recovery-alarm.ts`) and reports an
+unexercised mechanism as `not-applicable` rather than `ok` — deliberately, so
+that restarting the daemon (which zeroes every counter) cannot present as
+evidence of recovery and auto-close the P0 its own failures opened.
+
+**minsky-mcp's `/health` carries `dbRetry` too**, with the same semantics —
+`withPgPoolRetry` runs in every process, not just the cockpit. It does NOT carry
+`dbRecycle`, which is cockpit-only module state.
+
 ## Transcript sweep backstop (mt#2321)
 
 The cockpit daemon also runs the **transcript sweep backstop** — the recovery
