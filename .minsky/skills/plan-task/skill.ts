@@ -1039,7 +1039,7 @@ State that explicitly: "(o) No runtime causal claim to verify — criterion pass
 **No over-fire on the ordinary case.** A pass that reproduces an inherited claim and proposes a fix
 for THAT reproduced cause passes cleanly — the cause was verified, so naming a fix is exactly what
 the gate wants. This amendment adds a requirement only where a cause is relied on WITHOUT having
-been reproduced; it is not a licence to object to every plan (ADR-032).
+been reproduced; it is not a license to object to every plan (ADR-032).
 
 **Required when triggered.** Reproduce the asserted failure against the real system and record the
 observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
