@@ -24,6 +24,32 @@ Stateless Node service. Railway is the documented default because webhooks are f
 
 ### Operator follow-up required after this PR merges
 
+> **Verified 2026-08-25 — step 1 DONE, step 2 UNVERIFIED. Mechanism still correct for both.**
+> Per `documentation-taxonomy.mdc §Operator-instruction blocks carry a verification stamp`, an
+> instruction has two truth-values and this block's differ, so read the per-step status below
+> before acting on either.
+>
+> - **Step 1 (Source flip) — mechanism CORRECT, and already PERFORMED (2026-07-24).** Do not
+>   redo it. It was carried out as the mt#3142 recovery (mem#700/mem#717), and the live service
+>   deploys from an image today. Settles with:
+>   `railway deployment list --json --service 3913e8a4-81ab-465a-aad8-b76b5e3f66ed --environment b3ea3f5d-8560-40ea-8824-17fe3ca0b32a | jq -r '.[0].meta.image'`
+>   — a non-null image means the flip is in effect. Corroborating: mt#1815's 2026-08-25 closeout
+>   measured ~180 commits to `main` producing only 16 reviewer deploys, each 1:1 with a
+>   `deploy-reviewer.yml` run, so Railway's native repo trigger is demonstrably not firing —
+>   which is what step 1's own "confirm the trigger is actually gone" clause asks for.
+> - **Step 2 (`pulumi up` reconcile) — mechanism CORRECT, status UNVERIFIED.** No channel has
+>   established whether Pulumi state matches the live service. Settles with a TARGETED
+>   `pulumi preview --target 'urn:pulumi:prod::minsky-infra::railway:index/service:Service::reviewer'`
+>   — targeted, not blanket: mem#700 measured a blanket `prod` preview proposing 6 changes, only
+>   one intended, including creating a duplicate `cockpit-preview` service.
+>
+> **Scheduled falsifier:** mt#4087 exists to remove or drift-detect the step-1 dashboard flip.
+> When it lands, step 1's mechanism becomes false and this stamp must be rewritten.
+>
+> The step text below is deliberately left unedited — it is correct about what the mechanism
+> requires, and mt#4087 owns changing that. This stamp records STATUS beside it, not instead
+> of it.
+
 Two live Railway mutations are **NOT** performed by the mt#3117 PR (config-as-code declarations only; no live dashboard/API mutation, no prod cutover — see the task spec's explicit out-of-scope list):
 
 1. **Flip the live service's Source setting** — Railway dashboard → `minsky-reviewer-webhook` service → Settings → Source → switch from "GitHub Repo" to "Docker Image", pointing at `ghcr.io/edobry/minsky-reviewer:latest`. Do this only after `deploy-reviewer.yml` has run at least once on `main` and produced a `:latest` image to point at. This is the same one-time flip `minsky-mcp` already has (see that service's own deploy history).
