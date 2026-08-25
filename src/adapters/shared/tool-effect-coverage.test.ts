@@ -138,6 +138,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "memory.supersede",
   "memory.update",
   "observability.calibration-review",
+  "observability.reviewer-cost",
   "observability.smoke-test",
   "persistence.check",
   "persistence.migrate",
