@@ -549,7 +549,9 @@ describe("run", () => {
     expect(INJECTION_ENABLED).toBe(true);
     expect(cal.suppressedByDepthRequest).toBe(false);
     expect(outcome?.additionalContext).toBeDefined();
-    expect(outcome?.additionalContext).toContain("Turn-end report shape violation");
+    // mt#4531 reworded the header: the measurement is now whole-turn, so
+    // calling it a "report" violation understated what was measured.
+    expect(outcome?.additionalContext).toContain("Turn shape violation");
   });
 
   test("contract-conforming report -> null", () => {

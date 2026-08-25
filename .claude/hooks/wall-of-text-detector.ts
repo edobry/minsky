@@ -397,6 +397,36 @@ export interface WallOfTextMeasurement {
   wordCount: number;
   /** Line count of the final assistant text block. */
   lineCount: number;
+  /**
+   * Words in the LARGEST single assistant text block of the turn (mt#4531) —
+   * the measurement the over-budget leg now keys on.
+   *
+   * `wordCount` above is the FINAL block, and the two differ exactly when the
+   * wall is not the last thing said. That is the R7 shape: a turn carrying
+   * 854 words across four blocks, 597 of them in the FIRST block and 110 in
+   * the last, drew "This is way too much information. I cannot process all of
+   * this" while measuring 110 here — under the 200-word budget, no fire.
+   *
+   * Never LESS than `wordCount` (the final block is one of the candidates),
+   * so the over-budget leg strictly subsumes its old behaviour: measured over
+   * 2574 replayed turns, 590 fired on the final block and 746 on the largest,
+   * exactly 590 + 156 newly-firing.
+   */
+  largestBlockWords: number;
+  /**
+   * Words across EVERY assistant text block in the turn.
+   *
+   * Recorded, deliberately NOT triggered on. It was the other candidate metric
+   * and the replay disqualified it: 977 newly-firing turns, **444 of them
+   * heartbeat-shaped** (>=20 tool calls with no single block over the
+   * threshold) — the shape `user-preferences.mdc §Progress heartbeats`
+   * MANDATES. A metric that fires on a rule being obeyed is a false positive
+   * by construction. Kept on the record so a future calibration pass can
+   * re-examine that call against real data instead of re-deriving it.
+   */
+  totalWords: number;
+  /** How many assistant lines in the turn carried non-empty text. */
+  blockCount: number;
   /** Names of SKILL_LABEL_PATTERNS that hit inside the lead window. */
   leadLabelHits: string[];
   /** Count of minsky:// deeplinks anywhere in the report. */
@@ -467,8 +497,92 @@ export function extractFinalAssistantText(turnLines: TranscriptLine[]): string {
   return "";
 }
 
-/** Measure a turn-end report against the Tier-1 contract shape. */
-export function measureWallOfText(finalText: string): WallOfTextMeasurement {
+/**
+ * The turn's principal-facing prose, block by block (mt#4531).
+ *
+ * `finalText` is the turn-end report — still what the LABEL leg is scanned
+ * against, because the contract's label rule is about the report's LEAD, and
+ * widening that leg is a separate false-positive question this task did not
+ * measure. The block statistics feed the OVER-BUDGET leg, which is the one the
+ * R7 incident showed measuring the wrong thing.
+ */
+export interface TurnProse {
+  /** The final assistant text block — the turn-end report. */
+  finalText: string;
+  /** Words in the largest single assistant text block. */
+  largestBlockWords: number;
+  /** Words across every assistant text block. */
+  totalWords: number;
+  /** How many assistant lines carried non-empty text. */
+  blockCount: number;
+}
+
+/**
+ * Collect every assistant text block in the turn, plus the final one (mt#4531).
+ *
+ * **How this stands with ADR-031, which it deviates from.** That ADR classifies
+ * this module as the family's one TEXT-ONLY detector and assigns its
+ * sub-operation (2) to the `Stop`-recorded `last_assistant_message` — a field
+ * that, per the vendor's own wording, "contains the text content of Claude's
+ * final response." So it can supply the FINAL block and no other, and a
+ * whole-turn measurement cannot come from it.
+ *
+ * The deviation is narrow and keeps both halves of the ADR's benefit:
+ * `resolveFinalAssistantText` still PREFERS the recorded value for the final
+ * block, so the lag-tolerance ADR-031 bought is intact and unchanged; the
+ * earlier blocks come from the transcript window the module already receives,
+ * which is the same source sub-operation (3) already reads for tool calls. What
+ * changes is only the ADR's CLASSIFICATION — this module is no longer
+ * text-only in the sense of needing nothing but that one field. The event
+ * assignment (Stop anchor, `UserPromptSubmit` detect-and-inject) is untouched.
+ *
+ * Pure: both the lines and the resolved final text arrive as arguments.
+ */
+export function collectTurnProse(turnLines: TranscriptLine[], finalText: string): TurnProse {
+  const blockWords: number[] = [];
+  for (const line of turnLines) {
+    if (!line) continue;
+    const text = extractAssistantText([line]);
+    if (text.trim().length === 0) continue;
+    blockWords.push(text.split(/\s+/).filter(Boolean).length);
+  }
+
+  const finalWords = finalText.split(/\s+/).filter(Boolean).length;
+  // The recorded `last_assistant_message` can carry a final block the
+  // transcript has not flushed yet — the whole reason ADR-031 prefers it. Fold
+  // it in rather than letting a lagged window shrink the measurement.
+  const candidates = blockWords.length > 0 ? blockWords : [finalWords];
+  const largestBlockWords = Math.max(finalWords, ...candidates);
+  const totalWords = candidates.reduce((a, b) => a + b, 0);
+
+  return {
+    finalText,
+    largestBlockWords,
+    totalWords: Math.max(totalWords, finalWords),
+    blockCount: candidates.length,
+  };
+}
+
+/**
+ * Measure a turn against the Tier-1 contract shape.
+ *
+ * Accepts a bare string for the single-block case — which is what every caller
+ * measuring only a report has, and what the module did exclusively before
+ * mt#4531. A string is treated as a one-block turn, so the returned
+ * `largestBlockWords` equals `wordCount` and the verdict is byte-identical to
+ * the pre-mt#4531 behaviour. That equivalence is what lets the widening ship
+ * without re-deriving every existing expectation.
+ */
+export function measureWallOfText(input: string | TurnProse): WallOfTextMeasurement {
+  const prose: TurnProse =
+    typeof input === "string"
+      ? (() => {
+          const n = input.split(/\s+/).filter(Boolean).length;
+          return { finalText: input, largestBlockWords: n, totalWords: n, blockCount: 1 };
+        })()
+      : input;
+
+  const finalText = prose.finalText;
   const words = finalText.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
   const lineCount = finalText.split("\n").filter((l) => l.trim().length > 0).length;
@@ -479,7 +593,11 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
   const deeplinkCount = (finalText.match(DEEPLINK_RE) ?? []).length;
   const namedRefCount = (finalText.match(NAMED_REF_RE) ?? []).length;
 
-  const overBudget = wordCount >= WORD_COUNT_THRESHOLD;
+  // mt#4531: the over-budget leg keys on the LARGEST block, not the final one.
+  // The label leg keeps its `wordCount` floor deliberately — it is a claim
+  // about the REPORT's lead, and both its threshold and its patterns were
+  // calibrated against final-block text (mt#3336 / ask#6448).
+  const overBudget = prose.largestBlockWords >= WORD_COUNT_THRESHOLD;
   const hasLeadLabels = leadLabelHits.length > 0 && wordCount >= LEAD_LABELS_MIN_WORDS;
   const matched = overBudget || hasLeadLabels;
   const trigger =
@@ -505,6 +623,9 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
     trigger,
     wordCount,
     lineCount,
+    largestBlockWords: prose.largestBlockWords,
+    totalWords: prose.totalWords,
+    blockCount: prose.blockCount,
     leadLabelHits,
     deeplinkCount,
     namedRefCount,
@@ -1150,6 +1271,15 @@ function buildCalibrationRecord(
     session_id: input.session_id,
     wordCount: m.wordCount,
     lineCount: m.lineCount,
+    // mt#4531: the whole-turn measurements. `wordCount` above stays the FINAL
+    // block so every record ever written keeps meaning the same thing; these
+    // three are additive, and records predating this change simply lack them
+    // (the sweep treats new fields as optional, as it did for `excerpt`).
+    // `totalWords` is recorded but NOT triggered on — see its field doc for the
+    // heartbeat-shape measurement that disqualified it as a trigger.
+    largestBlockWords: m.largestBlockWords,
+    totalWords: m.totalWords,
+    blockCount: m.blockCount,
     trigger: m.trigger,
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
@@ -1273,7 +1403,8 @@ export function run(
   try {
     finalText = resolveFinalAssistantText(turnLines, ctx.recordedAnchor);
     if (finalText.length === 0) return null;
-    measurement = measureWallOfText(finalText);
+    // mt#4531: measure the whole turn's prose, not only the final block.
+    measurement = measureWallOfText(collectTurnProse(turnLines, finalText));
   } catch (err) {
     process.stderr.write(
       `[wall-of-text-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1338,19 +1469,46 @@ export function run(
   return outcome;
 }
 
+/**
+ * The injected reminder (mt#4531 SC2).
+ *
+ * **It must name what was actually MEASURED.** The pre-mt#4531 text said "the
+ * prior turn's final report ran N words" — true of the final block, and
+ * satisfiable by shrinking the tail alone. In the R7 incident that is exactly
+ * what happened: a 346-word fire landed in the next turn's context, the next
+ * turn's final block came back at 110 words, and total turn prose rose from 655
+ * to 854. The reminder was COMPLIED WITH while the harm grew. A reminder that
+ * names a quantity the agent can reduce without reducing what the principal
+ * reads is not a weak reminder, it is the wrong one.
+ *
+ * So when the wall is NOT the final block, say where it is and how big it was.
+ */
 function buildInjectionReminder(m: WallOfTextMeasurement): string {
+  // Kept tight on purpose: this guard's declared `denialMessageSizeChars` is
+  // 400 (registry.ts), and a detector whose whole subject is output volume is
+  // the last one that should answer a breach by raising its own ceiling.
+  const wallIsElsewhere = m.largestBlockWords > m.wordCount;
+  const sizing = wallIsElsewhere
+    ? `The prior turn ran ${m.totalWords} words across ${m.blockCount} messages — largest ` +
+      `${m.largestBlockWords}, closing ${m.wordCount}. The budget covers the whole turn, so ` +
+      `trimming only the last message does not meet it.`
+    : `The prior turn's final report ran ${m.wordCount} words.`;
+
   return [
-    "[wall-of-text-detector] Turn-end report shape violation detected (mt#2870).",
+    "[wall-of-text-detector] Turn shape violation (mt#2870, mt#4531).",
     "",
-    `The prior turn's final report ran ${m.wordCount} words${
-      m.leadLabelHits.length > 0
-        ? ` and led with skill-internal labels (${m.leadLabelHits.join(", ")}).`
-        : "."
-    }`,
+    sizing,
+    ...(m.leadLabelHits.length > 0
+      ? ["", `Its lead also carried skill-internal labels (${m.leadLabelHits.join(", ")}).`]
+      : []),
     "",
-    "The Tier-1 turn-report contract (communication-contract.mdc): what happened /",
-    "what you need to know / what's next, each 1-3 sentences, ~200 words total,",
-    "plain-language lead, detail behind pointers.",
+    // A POINTER, not a restatement. `communication-contract.mdc` is
+    // always-loaded, so quoting its three parts back cost ~125 chars to tell
+    // the reader something already in their context — which is the
+    // "re-narrating the substrate" anti-pattern the contract itself names,
+    // committed by the detector that enforces it. The chars bought the SIZING
+    // sentence instead, which is the part the reader does not already have.
+    "Contract: communication-contract.mdc §The Tier-1 turn-report contract.",
   ].join("\n");
 }
 
@@ -1429,7 +1587,10 @@ export async function main(): Promise<void> {
     if (finalText.length === 0) {
       process.exit(0);
     }
-    measurement = measureWallOfText(finalText);
+    // mt#4531: same whole-turn measurement as run(). Kept in lockstep
+    // deliberately — the CLI and dispatcher paths diverging is the
+    // asymmetry PR #2175 R1 flagged on the transcript-resolution half.
+    measurement = measureWallOfText(collectTurnProse(turnLines, finalText));
   } catch (err) {
     console.error(
       `[wall-of-text-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}`
