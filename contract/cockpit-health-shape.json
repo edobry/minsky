@@ -18,6 +18,7 @@
     "dbCheck": "object",
     "dbHealth": "object",
     "dbRecycle": "object",
+    "dbRetry": "object",
     "dispatchWatchdogSweep": "object",
     "pid": "number",
     "principalChannel": "object",
@@ -69,6 +70,12 @@
       "closesForceTerminated": 0,
       "closesAbandoned": 0,
       "closesFailed": 0
+    },
+    "dbRetry": {
+      "saturationRetries": 0,
+      "staleConnectionRetries": 0,
+      "retriesExhausted": 0,
+      "lastRetryAt": null
     },
     "dbHealth": {
       "mode": "connected",

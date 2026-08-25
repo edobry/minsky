@@ -23,6 +23,7 @@
  * @see src/mcp/health-payload.test.ts — the contract assertion
  */
 
+import type { PgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import type { PersistenceHealthStatus } from "@minsky/domain/persistence/health";
 import type { ReadinessResult } from "@minsky/domain/persistence/readiness-probe";
 
@@ -107,6 +108,26 @@ export interface McpHealthPayload {
    *   `durationMs`.
    */
   dbCheck?: { checkedAt: string; durationMs: number };
+  /**
+   * Connection-retry outcomes since process start (mt#4562).
+   *
+   * Unlike `db`/`dbCheck` above, this is NOT conditional on
+   * `persistence.mode === "connected"`. Those describe a probe that only a
+   * connected provider performs; these are monotonic counters of events that
+   * already happened, and suppressing them on a daemon that has since gone
+   * `unavailable` would hide exactly the history an operator diagnosing that
+   * state wants.
+   *
+   * **Read `saturationRetries: 0` as "expected", not "healthy".** Pool
+   * exhaustion is structurally near-unreachable on the transaction pooler
+   * production uses (mt#3497), so a zero there carries no information on its
+   * own. `retriesExhausted` is the field that is a fault in either class.
+   *
+   * Named `dbRetry` to sit beside the cockpit's `dbRecycle`: both are the
+   * outcome counters of a DB recovery mechanism, and a cross-daemon consumer
+   * should find them under parallel names.
+   */
+  dbRetry?: PgRetryCounters;
 }
 
 /** The response as the route will send it: a status code plus a body. */
@@ -131,7 +152,13 @@ export interface McpHealthResponse {
 export function buildMcpHealthResponse(
   health: PersistenceHealthStatus,
   nowIso: string,
-  readiness?: ReadinessResult
+  readiness?: ReadinessResult,
+  // mt#4562: INJECTED, not read from module state here. `getPgRetryCounters()`
+  // is a module-level read, and calling it inside this function would make the
+  // payload untestable without reaching into that state — the exact split this
+  // file's own doc comment exists to preserve (functional core / imperative
+  // shell). The route reads the counters; this function only renders them.
+  retryCounters?: PgRetryCounters
 ): McpHealthResponse {
   // mt#4471: `ready` needs an OBSERVATION, not a type declaration. `health.mode`
   // is derived from `provider.getCapabilities().sql` — true for any SQL-capable
@@ -205,6 +232,7 @@ export function buildMcpHealthResponse(
       // precondition AND an observed round trip. See the computation above.
       ready,
       ...dbFields,
+      ...(retryCounters ? { dbRetry: retryCounters } : {}),
     },
   };
 }

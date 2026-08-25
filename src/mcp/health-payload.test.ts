@@ -198,6 +198,13 @@ describe("readiness is an observation, not a type declaration (mt#4471)", () => 
 
 describe("db / dbCheck — the machine-readable rendering (mt#4479)", () => {
   const PROBE_OK: ReadinessResult = { ok: true, checkedAt: NOW, durationMs: 3 };
+  /** mt#4562: what the production route always supplies. A freshly booted daemon. */
+  const RETRY_COUNTERS = {
+    saturationRetries: 0,
+    staleConnectionRetries: 0,
+    retriesExhausted: 0,
+    lastRetryAt: null,
+  };
 
   /**
    * The `outstanding` shape, copied from `assessProbeOutcome`'s own branch: a
@@ -269,10 +276,12 @@ describe("db / dbCheck — the machine-readable rendering (mt#4479)", () => {
 
   test("the conditional fields carry their declared contract types", () => {
     const contract = loadContract();
-    const body = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK).body as unknown as Record<
-      string,
-      unknown
-    >;
+    // mt#4562: built the way the PRODUCTION route builds it — with retry
+    // counters supplied. The contract's key set describes what a deployed
+    // daemon emits, so a fixture that omits an argument production always
+    // passes would be asserting a body no one ever receives.
+    const body = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK, RETRY_COUNTERS)
+      .body as unknown as Record<string, unknown>;
 
     for (const [field, declaredType] of Object.entries(contract.conditionalFields)) {
       expect(body).toHaveProperty(field);
@@ -285,10 +294,8 @@ describe("db / dbCheck — the machine-readable rendering (mt#4479)", () => {
 
   test("the emitted key set is base + conditional, in both directions", () => {
     const contract = loadContract();
-    const body = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK).body as unknown as Record<
-      string,
-      unknown
-    >;
+    const body = buildMcpHealthResponse(CONNECTED, NOW, PROBE_OK, RETRY_COUNTERS)
+      .body as unknown as Record<string, unknown>;
     const expected = [
       ...Object.keys(contract.fields),
       ...Object.keys(contract.conditionalFields),
