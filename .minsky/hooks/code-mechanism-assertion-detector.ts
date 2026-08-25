@@ -119,8 +119,9 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { claimSetSignature, shouldInjectClaimSet } from "./code-mechanism-assertion-dedup-store";
-import { readAuthoredSpecText } from "./authored-spec-text";
+import { readAuthoredSpecText, readSpecFileFromDisk } from "./authored-spec-text";
 import { GENERATION_BANNER_PATTERNS } from "../../packages/domain/src/rules/compile/banner-constants";
+import { hasExistingCodeMarkers } from "../../packages/domain/src/ai/edit-pattern-utils";
 import {
   CAPTURE_SCHEMA_FIELD,
   CAPTURE_SCHEMA_VERSION,
@@ -1229,17 +1230,44 @@ const ARTIFACT_SPEC_INLINE_KEYS: Readonly<Record<string, string>> = {
 const FILE_WRITE_TOOL_RE =
   /(?:^|_)(?:Write|Edit)$|(?:session_write_file|session_search_replace|session_edit_file)$/i;
 
+/** Always a WHOLE-file payload: `Write`, `session_write_file`. */
+const ALWAYS_WHOLE_FILE_TOOL_RE = /(?:^|_)Write$|session_write_file$/i;
+
+/** The one member of {@link FILE_WRITE_TOOL_RE} that is EITHER shape per call. */
+const DUAL_SHAPE_TOOL_RE = /session_edit_file$/i;
+
 /**
- * The subset of {@link FILE_WRITE_TOOL_RE} whose payload is a WHOLE file.
+ * Does this write replace the WHOLE file, or amend part of it?
  *
- * Classified by TOOL, not by input key — `session_edit_file` carries a PARTIAL
- * payload (an edit pattern with `// ... existing code ...` markers) under
- * `content`, which is also a {@link WHOLE_FILE_INPUT_KEYS} member, so the
- * key-shaped test {@link buildAddedCommentCorpus} uses would misread every
- * `session_edit_file` call as a whole-file write and gate it on a `created`
- * flag it will never have.
+ * Not answerable from the input KEY: `session_edit_file`'s payload rides under
+ * `content`, a {@link WHOLE_FILE_INPUT_KEYS} member, whichever shape it is. And
+ * not answerable from the tool NAME alone either — PR #3328 R1. `Write` and
+ * `session_write_file` are always whole-file, `Edit` and
+ * `session_search_replace` always targeted, but **`session_edit_file` is both**,
+ * and classifying it as targeted let a full replacement of an existing doc skip
+ * the `created` gate and re-flag every paragraph in it.
+ *
+ * For that tool the question is decided the way the domain itself decides it —
+ * `session-file-edit-operation.ts:124-151` branches on
+ * {@link hasExistingCodeMarkers}: content carrying `// ... existing code ...`
+ * markers is a partial edit, and marker-less content is a full write (refused
+ * outright against an existing file unless the caller passes `fullReplace`).
+ * Reusing that predicate rather than restating it keeps this from drifting when
+ * the marker convention changes. `fullReplace` is checked too, so an explicit
+ * flag is honoured even if the marker heuristic ever loosens.
+ *
+ * Swept for siblings rather than patched at the one site (PR #3328 R1):
+ * `session_edit_file` is the only dual-shape member of
+ * {@link FILE_WRITE_TOOL_RE}. `Write` / `session_write_file` take a whole body
+ * and no old-text key; `Edit` / `session_search_replace` require one.
  */
-const WHOLE_FILE_WRITE_TOOL_RE = /(?:^|_)Write$|session_write_file$/i;
+function isWholeFileWrite(name: string, input: Record<string, unknown>): boolean {
+  if (ALWAYS_WHOLE_FILE_TOOL_RE.test(name)) return true;
+  if (!DUAL_SHAPE_TOOL_RE.test(name)) return false;
+  if (input["fullReplace"] === true) return true;
+  const content = input["content"];
+  return typeof content === "string" && !hasExistingCodeMarkers(content);
+}
 
 /**
  * Input keys naming the file a write targets. `Write`/`Edit` use `file_path`;
@@ -1280,29 +1308,44 @@ const FILE_PATH_INPUT_KEYS = ["file_path", "path"];
  */
 const DURABLE_DOC_PATH_RE = /(?:^|\/)docs\/|(?:^|\/)\.minsky\/rules\/|\.mdc?$/i;
 
+/** Banner scan over the first 5 lines, the convention `check-generated-file-edit` uses. */
+function headCarriesBanner(text: string): boolean {
+  const head = text.split("\n", 5).join("\n");
+  return GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(head));
+}
+
 /**
- * True when a payload IS a compile output, recognised by the generation banner
- * it carries.
+ * True when this write targets a compile OUTPUT.
  *
- * Compiled outputs — `CLAUDE.md`, `.cursor/rules/*.mdc`, `.claude/skills/ * /
- * SKILL.md` — match {@link DURABLE_DOC_PATH_RE} on extension, but their prose is
- * a PROJECTION of a source rule rather than a claim authored at that path.
- * Admitting one would enter the entire rule corpus as a fresh assertion every
- * time a target is regenerated.
+ * Compiled outputs — `CLAUDE.md`, `.cursor/rules/*.mdc`,
+ * `.claude/skills/<name>/SKILL.md` — match {@link DURABLE_DOC_PATH_RE} on
+ * extension, but their prose is a PROJECTION of a source rule rather than a
+ * claim authored at that path. Admitting one would enter the entire rule corpus
+ * as a fresh assertion every time a target is regenerated.
  *
- * Recognised by CONTENT via mt#1798's shared banner patterns — the same single
+ * Recognised by the generation BANNER — mt#1798's shared patterns, the single
  * source of truth the compile writers emit and `check-generated-file-edit`
  * detects with — rather than by a path list, so it cannot drift when a new
  * compile target ships. That drift is the failure a path list has and mt#1798
  * exists to prevent.
  *
- * Belt-and-braces rather than load-bearing: `check-generated-file-edit` DENIES a
- * banner-bearing write at PreToolUse, so such a payload should not reach a
- * transcript at all.
+ * **Two places the banner can be, and BOTH are checked (PR #3328 R1).** A
+ * whole-file payload carries the banner in its own text. A TARGETED edit carries
+ * a fragment that will not, however generated the file it lands in — so the
+ * payload check alone let a `session_search_replace` into `CLAUDE.md` through.
+ * The target file's own head answers that, read through the same repo-contained
+ * bounded reader the by-reference spec branch uses; a missing or unreadable file
+ * yields null and the write is treated as authored, which is the right default
+ * for a file that does not exist yet.
  */
-function isGeneratedOutputPayload(text: string): boolean {
-  const head = text.split("\n", 5).join("\n");
-  return GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(head));
+function isGeneratedTarget(
+  path: string,
+  payload: string,
+  readFile: (path: string) => string | null
+): boolean {
+  if (headCarriesBanner(payload)) return true;
+  const existing = readFile(path);
+  return existing !== null && headCarriesBanner(existing);
 }
 
 /**
@@ -1365,6 +1408,9 @@ export function buildArtifactProseCorpus(
 ): string {
   const parts = new Set<string>();
   const createdByToolUseId = collectCreatedToolUseIds(turnLines);
+  // Same injected reader the by-reference spec branch uses, defaulted here too
+  // so the generated-target check has one whether or not a caller supplied it.
+  const readTargetFile = readFile ?? readSpecFileFromDisk;
 
   /**
    * A durable repo FILE this write targets — an ADR, a rule, a doc (mt#4534).
@@ -1395,14 +1441,14 @@ export function buildArtifactProseCorpus(
     // overwriting an existing doc is not covered. Covering it needs a
     // before-image the payload does not carry — the identical carve-out the
     // comment corpus records.
-    if (WHOLE_FILE_WRITE_TOOL_RE.test(name)) {
+    if (isWholeFileWrite(name, asRecord)) {
       if (toolUseId === undefined || !createdByToolUseId.has(toolUseId)) return;
     }
 
     for (const key of WRITE_INPUT_NEW_KEYS) {
       const value = asRecord[key];
       if (typeof value !== "string" || value.trim().length === 0) continue;
-      if (isGeneratedOutputPayload(value)) continue;
+      if (isGeneratedTarget(path, value, readTargetFile)) continue;
       parts.add(value);
     }
   };
