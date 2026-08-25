@@ -32,6 +32,23 @@ export const memoryTypeEnum = pgEnum("memory_type", MEMORY_TYPE_VALUES);
 export const memoryScopeEnum = pgEnum("memory_scope", ["project", "user", "cross_project"]);
 
 /**
+ * The scope values that mean "not bound to a single project" (mt#4530).
+ *
+ * `project` memories belong to one project and carry its `project_id`. The other two
+ * deliberately do not: `user` is knowledge about the operator that applies wherever they work,
+ * and `cross_project` explicitly spans projects. Both are stored with a NULL `project_id`,
+ * which is the ABSENCE of a binding, not a binding to nothing.
+ *
+ * A project-scoped read must therefore match `project_id = <this project>` OR a scope in this
+ * list. Filtering on `project_id` alone silently excludes both — the mt#4530 defect, which hid
+ * 367 memories the moment project scoping first worked.
+ *
+ * Derived from what the enum's values MEAN, not from the rows that happened to be excluded:
+ * every value other than `project` belongs here, and a new non-project scope must be added.
+ */
+export const PROJECT_AGNOSTIC_MEMORY_SCOPES = ["user", "cross_project"] as const;
+
+/**
  * Primary memories table.
  * Stores the domain entity (content, metadata, lineage).
  */

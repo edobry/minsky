@@ -19,7 +19,10 @@ import { injectable } from "tsyringe";
 import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
-import { memoriesTable } from "../storage/schemas/memory-embeddings";
+import {
+  memoriesTable,
+  PROJECT_AGNOSTIC_MEMORY_SCOPES,
+} from "../storage/schemas/memory-embeddings";
 import {
   collectUnresolvedRefs,
   combineStaleness,
@@ -36,6 +39,23 @@ import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay
  * 2.30% of records carry a dated measurement, so this is not reached in practice today.
  */
 const MAX_MEASUREMENT_LOOKUPS_PER_PAGE = 25;
+
+/**
+ * The WHERE fragment for "scoped to one project" (mt#4530).
+ *
+ * Matches memories belonging to `projectScope` PLUS memories whose scope says they are not
+ * bound to any project. `project_id = <uuid>` alone is not that predicate: it excludes every
+ * `user` and `cross_project` memory, because those are stored with a NULL `project_id` by
+ * design. Filtering them out is the opposite of what the scope values mean.
+ *
+ * Both read paths (`list` and the search post-filter) share this so they cannot drift.
+ */
+function scopedToProject(projectScope: string) {
+  return or(
+    eq(memoriesTable.projectId, projectScope),
+    inArray(memoriesTable.scope, [...PROJECT_AGNOSTIC_MEMORY_SCOPES])
+  );
+}
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -510,7 +530,7 @@ export class MemoryService implements MemoryServiceSurface {
     }
     // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
     if (filter?.projectScope && !isAllProjects(filter.projectScope)) {
-      conditions.push(eq(memoriesTable.projectId, filter.projectScope));
+      conditions.push(scopedToProject(filter.projectScope));
     } else if (filter?.projectId) {
       conditions.push(eq(memoriesTable.projectId, filter.projectId));
     }
@@ -686,7 +706,7 @@ export class MemoryService implements MemoryServiceSurface {
     }
     // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
     if (opts?.filter?.projectScope && !isAllProjects(opts.filter.projectScope)) {
-      conditions.push(eq(memoriesTable.projectId, opts.filter.projectScope));
+      conditions.push(scopedToProject(opts.filter.projectScope));
     } else if (opts?.filter?.projectId) {
       conditions.push(eq(memoriesTable.projectId, opts.filter.projectId));
     }
@@ -889,16 +909,16 @@ export class MemoryService implements MemoryServiceSurface {
 
     const ids = filtered.map((r) => r.id);
 
-    // mt#2939: cross-check against the live `memories` table's project_id, the same
-    // way search()/list() already do (ADR-021, mt#2416). A uuid projectScope adds an
-    // equality predicate; ALL_PROJECTS (or omitted) adds none — any candidate whose
-    // row falls outside the scope simply isn't in `rows`, so it's dropped below by
-    // rowById.get(sr.id) returning undefined (same "missing row => drop" pattern
-    // search() already relies on for excludeSuperseded/type/scope filters).
+    // mt#2939: cross-check against the live `memories` table's project scope, the same
+    // way search()/list() already do (ADR-021, mt#2416). A uuid projectScope adds the
+    // shared `scopedToProject` predicate; ALL_PROJECTS (or omitted) adds none — any
+    // candidate whose row falls outside the scope simply isn't in `rows`, so it's
+    // dropped below by rowById.get(sr.id) returning undefined (same "missing row =>
+    // drop" pattern search() already relies on for excludeSuperseded/type/scope filters).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conditions: any[] = [inArray(memoriesTable.id, ids)];
     if (opts?.projectScope && !isAllProjects(opts.projectScope)) {
-      conditions.push(eq(memoriesTable.projectId, opts.projectScope));
+      conditions.push(scopedToProject(opts.projectScope));
     }
 
     const rows = (await this.deps.db
