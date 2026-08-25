@@ -122,3 +122,118 @@ export class CapabilityNotSupportedError extends Error {
     this.name = "CapabilityNotSupportedError";
   }
 }
+
+// ---------------------------------------------------------------------------
+// Capability narrowing (mt#4543)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a provider's declared capabilities, whatever shape it exposes them in.
+ *
+ * `PersistenceProvider` declares BOTH a `capabilities` property and a
+ * `getCapabilities()` method, and the repo's test doubles are split between them —
+ * so a guard that consults only one silently returns false for half the population.
+ *
+ * Fail-closed: anything this cannot read as a capabilities object yields `undefined`,
+ * and every guard below treats that as "not capable". A provider that cannot answer
+ * the question is not one to hand a connection request to.
+ */
+function readCapabilities(provider: unknown): PersistenceCapabilities | undefined {
+  if (provider === null || typeof provider !== "object") return undefined;
+  const candidate = provider as {
+    getCapabilities?: unknown;
+    capabilities?: unknown;
+  };
+  let fromMethod: unknown;
+  if (typeof candidate.getCapabilities === "function") {
+    try {
+      fromMethod = (candidate.getCapabilities as () => unknown).call(candidate);
+    } catch {
+      // intentional-swallow: a provider whose own capability accessor throws cannot
+      // answer the question, and fail-closed is the whole contract here. Falling
+      // through to the property keeps a partially-broken double usable rather than
+      // turning this guard into a throw site of its own.
+      fromMethod = undefined;
+    }
+  }
+  const raw = fromMethod ?? candidate.capabilities;
+  if (raw === null || typeof raw !== "object") return undefined;
+  return raw as PersistenceCapabilities;
+}
+
+/**
+ * Is this provider SQL-capable? The ONE place that question is answered.
+ *
+ * **Ask this, never `"getDatabaseConnection" in provider`.** That idiom was the repo's
+ * majority form (44 sites when mt#4543 measured it) and it cannot work:
+ * `UnconfiguredPersistenceProvider` DEFINES `getDatabaseConnection()` — the body throws
+ * `PersistenceUnavailableError` — so the check passes for the exact provider it was
+ * written to catch, and the call is made anyway. `capabilities.sql` is the distinction
+ * that actually holds.
+ *
+ * **Why a guard rather than the check inlined at each call site.** ADR-002 considered
+ * and REJECTED "Runtime Capability Gating" — `if (!this.capabilities.X) throw` written
+ * per call site — because it "requires discipline from all command developers" and gives
+ * "no compile-time safety". Both objections are about the check being SPREAD, not about
+ * the predicate itself: one type guard answers the question once and hands every call
+ * site a narrowed type, which is the outcome ADR-002's `instanceof` prescription was
+ * after. mem#1073 records the same lesson from the other direction — enforcing a
+ * provider's invariant at one call site guarantees every other call site is wrong.
+ *
+ * **Deviation from ADR-002's literal mechanism, stated rather than glossed:** the ADR
+ * says "capability checking with `instanceof`". A nominal check cannot live here —
+ * `types.ts` is the base module its subclasses import, so naming them would be a cycle —
+ * and `SqlCapablePersistenceProvider` is a STRUCTURAL type (`capabilities:
+ * PersistenceCapabilities & { sql: true }`), which a type guard narrows to idiomatically.
+ * The ADR's two stated objections are answered; its suggested implementation is not the
+ * one available at this layer.
+ */
+export function isSqlCapable(provider: unknown): provider is SqlCapablePersistenceProvider {
+  return readCapabilities(provider)?.sql === true;
+}
+
+/**
+ * Is this provider vector-capable? Same contract as {@link isSqlCapable}, on the axis
+ * ADR-002 was actually written about (`PostgresPersistenceProvider` vs
+ * `PostgresVectorPersistenceProvider`).
+ */
+export function isVectorCapable(provider: unknown): provider is VectorCapablePersistenceProvider {
+  return readCapabilities(provider)?.vectorStorage === true;
+}
+
+/**
+ * Does this provider offer the pooler-guarded raw SQL connection?
+ *
+ * Two questions, and BOTH are load-bearing — which is why this is not simply
+ * {@link isSqlCapable}. `getRawSqlConnection` is OPTIONAL on
+ * `SqlCapablePersistenceProvider`, so a genuinely SQL-capable provider may not implement
+ * it, and a method-presence check for it is meaningful rather than mistaken. What was
+ * wrong at the 44 call sites was asking ONLY that: presence alone passes for the
+ * unconfigured placeholder. Capability first, then presence.
+ */
+export function hasRawSqlConnection(
+  provider: unknown
+): provider is SqlCapablePersistenceProvider & {
+  getRawSqlConnection: NonNullable<SqlCapablePersistenceProvider["getRawSqlConnection"]>;
+} {
+  if (!isSqlCapable(provider)) return false;
+  return typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
+}
+
+/**
+ * Does this provider offer a session-mode connection for LISTEN/NOTIFY (mt#1852)?
+ * Same two-part contract as {@link hasRawSqlConnection}.
+ */
+export function hasListenCapableSqlConnection(
+  provider: unknown
+): provider is SqlCapablePersistenceProvider & {
+  getListenCapableSqlConnection: NonNullable<
+    SqlCapablePersistenceProvider["getListenCapableSqlConnection"]
+  >;
+} {
+  if (!isSqlCapable(provider)) return false;
+  return (
+    typeof (provider as { getListenCapableSqlConnection?: unknown })
+      .getListenCapableSqlConnection === "function"
+  );
+}
