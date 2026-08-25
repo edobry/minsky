@@ -178,12 +178,22 @@ export async function setTaskStatusFromParams(
   // status directly, leaving MCP/CLI transitions server-side unvalidated
   // (mt#2704) — the delegation closes that gap for tasks_status_set and
   // tasks_dispatch, which both resolve here via the @minsky/domain/tasks barrel.
-  await setTaskStatusValidated(validParams, {
+  // mt#4457: `success: true` below is a literal, and it is only honest because
+  // `setTaskStatusValidated` now THROWS when the underlying update matched zero
+  // records. Before that check this facade reported success for a write that
+  // never landed. `recordsAffected` is carried through so callers can assert on
+  // the write's actual effect rather than on this constant.
+  const outcome = await setTaskStatusValidated(validParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
     taskGraphService: deps?.taskGraphService,
   });
-  return { success: true, taskId: validParams.taskId, status: validParams.status };
+  return {
+    success: true,
+    taskId: validParams.taskId,
+    status: validParams.status,
+    recordsAffected: outcome.recordsAffected,
+  };
 }
 
 export async function updateTaskFromParams(

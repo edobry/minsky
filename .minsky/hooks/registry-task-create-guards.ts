@@ -443,4 +443,91 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+
+  // -------------------------------------------------------------------------
+  // mt#2264 — a relationship STATED in prose while the edge is absent.
+  //
+  // Seventh on this seam, and the first whose subject is the task GRAPH rather
+  // than the spec's claims about the world. The others ask whether a spec's
+  // assertions are backed; this asks whether its assertions were ENCODED.
+  //
+  // Why it is worth a guard after four recurrences of memory-tier discipline
+  // (mem#530 R1-R4): the failure is not that the graph goes quiet. It is that
+  // the graph asserts the OPPOSITE. `tasks_orchestrate` derives `blockedBy`
+  // from edges alone, so an unwired prerequisite renders as
+  // `ready: true, blockedBy: []` — R4's "2 of 2 subtask(s) ready for dispatch"
+  // over two children that were both blocked. The agent this targets is the one
+  // consulting the graph instead of reading specs, which is the correct
+  // procedure, and the cost rises as orchestration is trusted more.
+  //
+  // The discharge is EXACT at both seam classes, which is what keeps this off
+  // ADR-024's ladder: at `tasks_create` the edges-to-be are on the call
+  // (`dependsOn` / `parent`); at the three edit seams the task exists and the
+  // live graph is read. Precision is therefore bounded by the RECOGNITION half
+  // alone, and a phrase that half misses is a false negative — the status quo,
+  // not a regression.
+  // -------------------------------------------------------------------------
+  {
+    name: "warn-unwired-task-relationship",
+    // RECORDER ONLY at ship. The module's `INJECTION_ENABLED` is false and its
+    // `buildAdvisory` is wired to that flag rather than left unreferenced, so
+    // the copy is exercised by tests today and cannot rot into the "present,
+    // tested, green, and inert" shape. Graduation is gated on the pre-ship
+    // replay measuring the recognition half against ADR-024 sign-off (b)'s
+    // 0-known-FP bar — the same discipline that kept `claim-provenance-scan`
+    // recorder-only on measured ~6% precision. Declaring `advisoryEffect()`
+    // now would over-describe what ships (PR #2886 R1's finding on the sibling).
+    effects: [recorderEffect()],
+    // `advisory`: which prose counts as ASSERTING a relationship is the
+    // heuristic half, and the calibration log exists to size it. The discharge
+    // half — a payload field, or a row in `task_relationships` — is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    // The full spec-AUTHORING seam, matching `claim-provenance-scan`: R4 was
+    // four `tasks_create` calls, but mem#530's R2 wrote its prose into an
+    // EXISTING spec, which cannot go through create.
+    matcher:
+      "mcp__minsky__tasks_create|mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit|mcp__minsky__tasks_spec_search_replace",
+    module: () => import("./warn-unwired-task-relationship").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./warn-unwired-task-relationship").then((m) => m.renderWorstCase()),
+    // MUST stay above the module's GRAPH_READ_TIMEOUT_MS (8s) so the guard's
+    // OWN deadline is what fires: that path returns a recorded `skipped`,
+    // whereas a dispatcher kill records nothing and a sustained DB outage would
+    // then read as a clean pass. 12s leaves ~4s of margin and sits under the
+    // derived per-hook-entry cap `.claude/settings.json` sets for these tools
+    // (see `.minsky/hooks/dispatch-timeout-budget.ts`).
+    timeoutMs: 12000,
+    calibrationLog: "unwired-task-relationship",
+    // Calibration-first per ADR-024; asserted in the module's tests.
+    denyCapable: false,
+    // Reads `tool_input` and the live graph, never `ctx.transcriptLines` — so
+    // declaring this would buy a transcript the guard never opens.
+    needsTranscript: false,
+    // MEASURED via `renderProbe`: 1145 chars with all THREE rendered dimensions
+    // saturated at once — the capped list, the overflow suffix, and one remedy
+    // line per REQUIRED EDGE present, of which there are five. A proved ceiling
+    // rather than a sample, because every dimension is bounded.
+    //
+    // Was 1000 against a measured 958, when remedies were keyed on the three
+    // AXES. PR #3347 R1's direction fix re-keyed them onto the five required
+    // edges, and the module's own test — which compares `renderWorstCase()`
+    // against THIS number rather than a copy of it — failed on the change
+    // rather than letting the declaration drift. That is the whole reason the
+    // binding exists; 1200 leaves ~5% headroom over the new measurement.
+    attentionCost: { denialMessageSizeChars: 1200, optionCount: 1 },
+    // A create whose spec states a dependency with `dependsOn` empty — the R4
+    // shape. Purely string- and payload-driven with no task id on the call, so
+    // the graph is never consulted and the canary is deterministic with or
+    // without a database.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary relationship task",
+          spec: "## Context\n\nThis is a hard prerequisite for mt#999999.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
 ];

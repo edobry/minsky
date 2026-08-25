@@ -323,4 +323,49 @@ export const PR_CREATE_GUARDS: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4544 — did the PR execute the enumeration the spec already wrote?
+  //
+  // Sibling of the entry above, same family and same seam, DIFFERENT join. That
+  // one asks whether the sweep the author RAN covered gate (h)'s prescribed
+  // directories (a transcript join over sweep-call arguments). This one asks
+  // whether the file list the SPEC NAMED was touched. ADR-042's per-gate table
+  // has no row for `in-scope paths ∩ changed files`; this task adds it.
+  // -------------------------------------------------------------------------
+  {
+    name: "spec-scope-execution-check",
+    // RECORDER ONLY, per ADR-042 §Posture — every new row ships
+    // calibration-first under ADR-024's ladder. The dominant false-positive
+    // source is known and named in the module: an enumeration line is often
+    // CONDITIONAL ("update **if** SC3 adds fields"), and whether the condition
+    // fired is a judgment a path comparison cannot make.
+    effects: [recorderEffect()],
+    // `advisory`: "was this path's enumeration condition live?" is a judgment
+    // the path comparison stands in for.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./spec-scope-execution-check").then((m) => ({ run: m.run })),
+    // One `minsky tasks spec get` shell-out plus a pass over transcript lines
+    // the dispatcher already parsed — same budget as its spec-fetching siblings.
+    timeoutMs: 15000,
+    calibrationLog: "spec-scope-execution",
+    // NEVER denies — an untouched enumerated path is a prompt to go look.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
+    // LOAD-BEARING, same as the sibling: `ctx.transcriptLines` is populated ONLY
+    // for a registration that declares this (D6), and the session's edit calls
+    // are half this guard's input. Without it the guard records `skipped` on
+    // every live run — present, tested, green, inert.
+    needsTranscript: true,
+    // The canary process gets no transcript, so the healthy outcome is a
+    // RECORDED skip (mt#3824 R2), short-circuited before any spec is fetched.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary spec scope execution check", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
 ];

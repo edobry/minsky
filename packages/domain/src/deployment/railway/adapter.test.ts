@@ -8,6 +8,7 @@ import {
   RailwayDeploymentAdapter,
   parseNotBefore,
   acquireDeploymentAtOrAfter,
+  toRecord,
 } from "./adapter";
 import type { DeploymentConfig } from "../config";
 import type { DeploymentRecord } from "../types";
@@ -165,6 +166,7 @@ function deploymentRecord(status: DeploymentRecord["status"]): DeploymentRecord 
     status,
     commitHash: "abc123",
     commitMessage: "test commit",
+    imageDigest: null,
     createdAt: "2026-01-01T00:00:00Z",
     finishedAt: null,
     durationMs: null,
@@ -338,5 +340,60 @@ describe("notBefore bound on deployment waits (mt#3890)", () => {
       });
       expect(got?.createdAt).toBe(STALE);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toRecord — meta mapping (mt#4583)
+// ---------------------------------------------------------------------------
+//
+// The digest was already arriving: the deployments query selects `meta` as a
+// whole JSON scalar. It was discarded here, which is why the caller had no
+// discriminator to reason with.
+
+describe("toRecord meta mapping (mt#4583)", () => {
+  const base = { id: "dep-1", status: "SUCCESS", createdAt: "2026-08-25T17:19:04Z" };
+
+  test("surfaces imageDigest from meta", () => {
+    const record = toRecord({
+      ...base,
+      meta: { imageDigest: "sha256:deadbeef" },
+    } as Parameters<typeof toRecord>[0]);
+
+    expect(record.imageDigest).toBe("sha256:deadbeef");
+  });
+
+  test("an image-source deployment has a digest and NO commit — the shape that defeats a time bound", () => {
+    const record = toRecord({
+      ...base,
+      meta: { imageDigest: "sha256:deadbeef", image: "ghcr.io/edobry/minsky-reviewer:latest" },
+    } as Parameters<typeof toRecord>[0]);
+
+    expect(record.commitHash).toBeNull();
+    expect(record.imageDigest).toBe("sha256:deadbeef");
+  });
+
+  test("null when meta is absent entirely", () => {
+    const record = toRecord({ ...base, meta: null } as Parameters<typeof toRecord>[0]);
+    expect(record.imageDigest).toBeNull();
+  });
+
+  test("null when the platform returns a non-string digest, rather than surfacing a non-identity", () => {
+    const record = toRecord({
+      ...base,
+      meta: { imageDigest: { unexpected: "shape" } },
+    } as unknown as Parameters<typeof toRecord>[0]);
+
+    expect(record.imageDigest).toBeNull();
+  });
+
+  test("commitHash still maps for a repo-source deployment", () => {
+    const record = toRecord({
+      ...base,
+      meta: { commitHash: "b65baf940", commitMessage: "feat: x" },
+    } as Parameters<typeof toRecord>[0]);
+
+    expect(record.commitHash).toBe("b65baf940");
+    expect(record.imageDigest).toBeNull();
   });
 });

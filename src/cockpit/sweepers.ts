@@ -21,8 +21,12 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import {
+  hasListenCapableSqlConnection,
+  hasRawSqlConnection,
+  isSqlCapable,
+} from "@minsky/domain/persistence/types";
 import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
   getCachedPersistenceProvider,
@@ -1273,7 +1277,31 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
         // its own timer: same repository, same cadence, and the same job of
         // reconciling pending asks against what is true now. It swallows its own
         // failures, so neither pass can mask the other's.
-        await runCredentialRequestResolutionTick(repo);
+        //
+        // The task gate (mt#4486) reuses the service the parent-terminal pass
+        // above already resolved — it is what returns a BLOCKED parent to a
+        // walkable status once its credential arrives. Absent service means
+        // requests still resolve and parents stay BLOCKED, which is the
+        // pre-mt#4486 behaviour rather than a failure.
+        const credentialTaskService = await getServerTaskService();
+        await runCredentialRequestResolutionTick(
+          repo,
+          credentialTaskService
+            ? {
+                async readTask(taskId: string) {
+                  const task = await credentialTaskService.getTask(taskId);
+                  if (!task) return null;
+                  return {
+                    status: task.status,
+                    kind: (task as { kind?: string | null }).kind ?? null,
+                  };
+                },
+                async setStatus(taskId: string, status: string) {
+                  await credentialTaskService.setTaskStatus(taskId, status);
+                },
+              }
+            : undefined
+        );
 
         return { ok: true };
       } catch (err) {
@@ -1653,20 +1681,13 @@ async function subscribeReaperToWindowEvents(reaperRef: {
   ]);
 
   const provider = await getCachedPersistenceProvider();
-  if (
-    typeof provider !== "object" ||
-    provider === null ||
-    !("getListenCapableSqlConnection" in provider) ||
-    typeof (provider as { getListenCapableSqlConnection?: unknown })
-      .getListenCapableSqlConnection !== "function"
-  ) {
+  // Capability + the optional accessor, via the one guard (mt#4543); the null/typeof
+  // preamble and the cast both go with it.
+  if (!hasListenCapableSqlConnection(provider)) {
     throw new Error("persistence provider has no LISTEN-capable connection");
   }
 
-  const sqlProvider = provider as {
-    getListenCapableSqlConnection: () => Promise<ReturnType<typeof import("postgres")>>;
-  };
-  const listener = new PostgresChannelListener(await sqlProvider.getListenCapableSqlConnection());
+  const listener = new PostgresChannelListener(await provider.getListenCapableSqlConnection());
 
   // Both handlers discard their return value: `onWindowClosed` resolves to a
   // summary the listener contract has no channel for, and `ChannelListenerFn`
@@ -1833,13 +1854,8 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const svc = await getSharedPersistenceService();
           const provider = svc.getProvider();
-          return "getRawSqlConnection" in provider &&
-            typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection ===
-              "function"
-            ? (
-                provider as { getRawSqlConnection: () => Promise<unknown> }
-              ).getRawSqlConnection.bind(provider)
-            : null;
+          // Capability + the optional accessor, via the one guard (mt#4543).
+          return hasRawSqlConnection(provider) ? provider.getRawSqlConnection.bind(provider) : null;
         },
         refresh: async (sql, nowIso) => {
           const { refreshProdStateCache } = await import("./prod-state-cache");
@@ -1894,19 +1910,14 @@ export function startShortIdMapSweeper(intervalMs?: number): () => void {
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      const hasRawSql =
-        "getRawSqlConnection" in provider &&
-        typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
-      if (!hasRawSql) {
+      if (!hasRawSqlConnection(provider)) {
         // Not a quiet no-op (mt#4412) — a provider without raw SQL cannot
         // refresh the map, which is the same condition
         // `runProdStateRefreshTick` already reports as a failure.
         log.warn("cockpit: short-id map refresh skipped — provider exposes no raw SQL connection");
         return { ok: false };
       }
-      const sql = await (
-        provider as { getRawSqlConnection: () => Promise<unknown> }
-      ).getRawSqlConnection();
+      const sql = await provider.getRawSqlConnection();
       const { refreshShortIdMapCache } = await import("./short-id-map-cache");
       // `refreshShortIdMapCache` has ALWAYS returned its own boolean outcome;
       // the tick simply discarded it (mt#4412). No new signal is invented
@@ -2029,13 +2040,8 @@ export function startAskStateRefreshSweeper(intervalMs?: number): () => void {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const svc = await getSharedPersistenceService();
           const provider = svc.getProvider();
-          return "getRawSqlConnection" in provider &&
-            typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection ===
-              "function"
-            ? (
-                provider as { getRawSqlConnection: () => Promise<unknown> }
-              ).getRawSqlConnection.bind(provider)
-            : null;
+          // Capability + the optional accessor, via the one guard (mt#4543).
+          return hasRawSqlConnection(provider) ? provider.getRawSqlConnection.bind(provider) : null;
         },
         refresh: async (sql, askIds, nowIso) => {
           const { refreshAskStateCache } = await import("./ask-state-cache");
@@ -2359,16 +2365,8 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
         const svc = await getSharedPersistenceService();
         const provider = svc.getProvider();
 
-        const getDb =
-          "getDatabaseConnection" in provider &&
-          typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
-            "function"
-            ? (
-                provider as {
-                  getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
-                }
-              ).getDatabaseConnection.bind(provider)
-            : null;
+        // Capability + method, via the one guard (mt#4543); the cast goes with it.
+        const getDb = isSqlCapable(provider) ? provider.getDatabaseConnection.bind(provider) : null;
         if (!getDb) {
           // mt#4412: cannot do the work, so not a healthy no-op.
           log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
@@ -2380,13 +2378,9 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
           return { ok: false };
         }
 
-        const getRawSql =
-          "getRawSqlConnection" in provider &&
-          typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
-            ? (
-                provider as { getRawSqlConnection: () => Promise<unknown> }
-              ).getRawSqlConnection.bind(provider)
-            : null;
+        const getRawSql = hasRawSqlConnection(provider)
+          ? provider.getRawSqlConnection.bind(provider)
+          : null;
 
         const { listConversationsQuietSince } = await import(
           "@minsky/domain/conversation-run-state/read"
@@ -2468,18 +2462,10 @@ async function buildRealTitleSweepDeps(): Promise<ConversationTitleSweepDeps | n
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
@@ -2609,18 +2595,10 @@ async function buildRealSummarySweepDeps(): Promise<ConversationSummarySweepDeps
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
@@ -2752,17 +2730,9 @@ async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | n
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 

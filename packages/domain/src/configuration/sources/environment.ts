@@ -433,6 +433,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_ACK_CODE_MECHANISM_ASSERTION: "operator-override", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
   MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM: "operator-override", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
   MINSKY_SKIP_SPEC_CRITERION_CLAIM: "operator-override", // .claude/hooks/spec-criterion-claim-detector.ts (mt#4153) — override for the spec-criterion unverified-assertion / invented-precondition detector
+  MINSKY_SKIP_SECRET_REQUEST_IN_CHAT: "operator-override", // .claude/hooks/secret-request-in-chat-detector.ts (mt#2428) — override for the secret-request-in-chat detector
   MINSKY_ACK_ASK_ROUTING_DEFERRAL: "operator-override", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
   MINSKY_SKIP_SPEC_READ_CHECK: "operator-override", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
   // The two evidence-record provenance guards (mem#966's family). Both were
@@ -445,6 +446,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_CANDIDATE_READ_PROVENANCE: "operator-override", // .claude/hooks/duplicate-check-candidate-read.ts (mt#4167) — duplicate-check record distinguishing candidates whose specs were never opened
   MINSKY_SKIP_CLAIM_PROVENANCE: "operator-override", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
   MINSKY_SKIP_ENUMERATION_SCOPE: "operator-override", // .claude/hooks/enumeration-scope-check.ts (mt#4171) — a PR changing a serialized contract whose gate-(h) consumer sweep never reached docs/
+  MINSKY_SKIP_SPEC_SCOPE_EXECUTION: "operator-override", // .claude/hooks/spec-scope-execution-check.ts (mt#4544) — a PR whose bound spec enumerates in-scope paths the session never edited
   MINSKY_SKIP_EVIDENCE_PROVENANCE: "operator-override", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
   MINSKY_SKIP_GATE_WALK_PROVENANCE: "operator-override", // .claude/hooks/gate-walk-provenance.ts (mt#1880) — merge-seam record of whether the bound task was ever gated (a task.status_changed → READY row)
   MINSKY_ACK_TASK_HIJACK: "operator-override", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard

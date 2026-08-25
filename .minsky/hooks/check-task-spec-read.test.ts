@@ -33,6 +33,12 @@ import {
   STATUS_SET_TOOL,
   SESSION_START_TOOL,
   DISPATCH_TOOL,
+  ASKS_CREATE_TOOL,
+  ASKS_EDIT_TOOL,
+  MAX_ASK_TASK_REFS,
+  extractAskTaskIds,
+  unreadAskTaskIds,
+  buildAskAdvisoryReason,
 } from "./check-task-spec-read";
 
 /** A non-spec tool name reused across fixtures. */
@@ -870,5 +876,273 @@ describe("specWasSurfacedInAnyTranscript — same-transcript authorship credit (
       {}
     );
     expect(specWasSurfacedInAnyTranscript(currentSessionPath, undefined, "mt2814")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ask seam (mt#4551) — advisory
+// ---------------------------------------------------------------------------
+
+/**
+ * `ask#10163`'s pre-edit payload, reconstructed from the ask record's
+ * `metadata.originalContent`. The option label naming mt#3473 is verbatim; the
+ * question and the other options are trimmed to what the extractor reads.
+ */
+function ask10163Payload(): Record<string, unknown> {
+  return {
+    title: "Reviewer bot is ~98% of the OpenAI bill — pick which quality tradeoff to make",
+    question:
+      "Pick which review-quality tradeoff to make to cut reviewer spend — or decide not to.\n\n" +
+      "My recommendation, derived this turn and not carried from any prior ask: the triage pilot.",
+    options: [
+      {
+        label: "Build the cheap-model triage pilot (mt#3473)",
+        description:
+          "You approved this log-only at ask#6603 and it was never built. No quality risk now.",
+      },
+      {
+        label: "Accept ~$660/mo and stop optimizing here",
+        description: "Per-review cost is flat.",
+      },
+    ],
+    contextRefs: [
+      { ref: "mt#2718", kind: "task", description: "Reviewer cost umbrella" },
+      { ref: "mt#3473", kind: "task", description: "The cheap-model triage pilot, still unbuilt" },
+    ],
+  };
+}
+
+describe("extractAskTaskIds", () => {
+  test("reads the question, option label/description, and contextRefs — deduped, first spelling wins", () => {
+    const ids = extractAskTaskIds(ask10163Payload());
+    // mt#3473 appears in an option label AND a contextRef; mt#2718 only in a contextRef.
+    expect(ids).toEqual(["mt#3473", "mt#2718"]);
+  });
+
+  test("reads an id from the question alone", () => {
+    expect(extractAskTaskIds({ question: "Should we still do mt#3473?" })).toEqual(["mt#3473"]);
+  });
+
+  test("reads an id from an option DESCRIPTION, not only its label", () => {
+    const ids = extractAskTaskIds({
+      options: [{ label: "Ship it", description: "This is the work md#42 describes." }],
+    });
+    expect(ids).toEqual(["md#42"]);
+  });
+
+  test("accepts a bare-string contextRefs entry as well as an object", () => {
+    expect(extractAskTaskIds({ contextRefs: ["mt#900", { ref: "mt#901" }] })).toEqual([
+      "mt#900",
+      "mt#901",
+    ]);
+  });
+
+  test("AT5: an ask naming no task yields no ids, so no transcript work is done", () => {
+    expect(
+      extractAskTaskIds({
+        question: "Should the cockpit use a chart library?",
+        options: [{ label: "Yes", description: "Adds a dependency." }],
+        contextRefs: [
+          { ref: "ask#6603", kind: "ask" },
+          { ref: "mem#1255", kind: "memory" },
+        ],
+      })
+    ).toEqual([]);
+  });
+
+  test("parentTaskId is deliberately NOT read — it names where the ask was filed FROM", () => {
+    expect(extractAskTaskIds({ parentTaskId: "mt#2718", question: "Which way?" })).toEqual([]);
+  });
+
+  test("malformed payload shapes never throw", () => {
+    expect(extractAskTaskIds({})).toEqual([]);
+    expect(extractAskTaskIds({ question: 42, options: "nope", contextRefs: null })).toEqual([]);
+    expect(extractAskTaskIds({ options: [null, 7, { label: null }] })).toEqual([]);
+    expect(extractAskTaskIds({ contextRefs: [null, 7, { ref: {} }] })).toEqual([]);
+  });
+
+  test("PR #3327 R1: extracts the hyphen and underscore spellings, not just the hash form", () => {
+    expect(extractAskTaskIds({ question: "Should we resume mt-3473?" })).toEqual(["mt-3473"]);
+    expect(extractAskTaskIds({ question: "branch task/mt_3473 is stale" })).toEqual(["mt_3473"]);
+    expect(extractAskTaskIds({ options: [{ label: "Rebase MT-3473", description: "" }] })).toEqual([
+      "MT-3473",
+    ]);
+  });
+
+  test("PR #3327 R1: extracts the bare spelling at three digits or more", () => {
+    expect(extractAskTaskIds({ question: "resume mt3473 now" })).toEqual(["mt3473"]);
+    expect(extractAskTaskIds({ question: "resume mt390 now" })).toEqual(["mt390"]);
+  });
+
+  test("PR #3327 R1: the bare form's three-digit floor keeps md5 out", () => {
+    // MEASURED, not chosen: all four `md`+1-digit bare matches across the
+    // 10,201-ask corpus are literally `md5` / `MD5`, the hash algorithm. Real
+    // task ids run 1-4 digits with exactly ONE at or below 2, so the floor
+    // drops the whole observed false-positive class for one task's bare
+    // spelling. The SEPARATED forms carry no such ambiguity and have no floor.
+    expect(extractAskTaskIds({ question: "hash the payload with md5 first" })).toEqual([]);
+    expect(extractAskTaskIds({ question: "MD5 is not a task" })).toEqual([]);
+    expect(extractAskTaskIds({ question: "mt5 is ambiguous bare" })).toEqual([]);
+    // ...but the same id WITH a delimiter is unambiguous and does match.
+    expect(extractAskTaskIds({ question: "md#5 is a task" })).toEqual(["md#5"]);
+    expect(extractAskTaskIds({ question: "mt-5 is a task" })).toEqual(["mt-5"]);
+  });
+
+  test("PR #3327 R1: spellings of the SAME id dedupe to one entry", () => {
+    // normalizeTaskId collapses all four, so an ask naming a task in prose and
+    // again as a branch must not advise about it twice.
+    expect(
+      extractAskTaskIds({
+        question: "mt#3473 — see branch task/mt-3473",
+        options: [{ label: "resume mt3473", description: "mt_3473" }],
+      })
+    ).toEqual(["mt#3473"]);
+  });
+
+  test("caps extraction at MAX_ASK_TASK_REFS distinct ids", () => {
+    const many = Array.from({ length: MAX_ASK_TASK_REFS + 10 }, (_, i) => `mt#${9000 + i}`).join(
+      " "
+    );
+    expect(extractAskTaskIds({ question: many })).toHaveLength(MAX_ASK_TASK_REFS);
+  });
+});
+
+describe("the ask tools never reach the deny path", () => {
+  test("resolveTargetTaskId returns '' for asks_create / asks_edit", () => {
+    // Guarantees the advisory branch is the ONLY way an ask is handled: if the
+    // branch were ever removed, these would fall through to a silent allow
+    // rather than to a deny.
+    expect(resolveTargetTaskId(ASKS_CREATE_TOOL, ask10163Payload())).toBe("");
+    expect(resolveTargetTaskId(ASKS_EDIT_TOOL, ask10163Payload())).toBe("");
+  });
+});
+
+describe("unreadAskTaskIds", () => {
+  test("AT1: the ask#10163 replay — mt#3473 is named, and the 14 tasks the session DID read are not", () => {
+    // The real filing conversation made 20 spec-surfacing reads across 14
+    // distinct task ids; mt#3473 was not among them. mt#2718 WAS read, which
+    // is where the stale "approved … never built" prose came from.
+    const readIds = [
+      "mt#2290",
+      "mt#2447",
+      "mt#2544",
+      "mt#2718",
+      "mt#3526",
+      "mt#3654",
+      "mt#3659",
+      "mt#4178",
+      "mt#4386",
+      "mt#4439",
+      "mt#4443",
+      "mt#4449",
+      "mt#4454",
+      "mt#4485",
+    ];
+    const parentPath = buildTranscriptTree(
+      [
+        userPrompt("re-derive the reviewer cost numbers"),
+        ...readIds.map((id) => assistantToolUse(SPEC_GET_TOOL, { taskId: id })),
+        toolResult(),
+        userPrompt("file the ask"),
+      ],
+      {}
+    );
+
+    const ids = extractAskTaskIds(ask10163Payload());
+    expect(unreadAskTaskIds(parentPath, undefined, ids)).toEqual(["mt#3473"]);
+  });
+
+  test("AT2 (negative control, READ): the same ask with mt#3473's spec read does not fire", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#2718" }),
+        assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#3473" }),
+      ],
+      {}
+    );
+    expect(unreadAskTaskIds(parentPath, undefined, extractAskTaskIds(ask10163Payload()))).toEqual(
+      []
+    );
+  });
+
+  test("AT3 (negative control, AUTHORED): a same-transcript tasks_spec_patch counts as engagement", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#2718" }),
+        assistantToolUse(SPEC_PATCH_TOOL, {
+          taskId: "mt#3473",
+          content: "// ... existing code ...\n\nBanner added.",
+        }),
+      ],
+      {}
+    );
+    expect(unreadAskTaskIds(parentPath, undefined, extractAskTaskIds(ask10163Payload()))).toEqual(
+      []
+    );
+  });
+
+  test("AT4: a multi-id ask names EVERY unread id, not just the first", () => {
+    const parentPath = buildTranscriptTree(
+      [assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#2718" })],
+      {}
+    );
+    const unread = unreadAskTaskIds(parentPath, undefined, ["mt#3473", "mt#2718", "mt#3548"]);
+    expect(unread).toEqual(["mt#3473", "mt#3548"]);
+  });
+
+  test("credits a read recorded in a dispatched subagent's transcript", () => {
+    const parentPath = buildTranscriptTree([userPrompt("file the ask")], {
+      [AGENT_ABC_FILE]: [assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#3473" })],
+    });
+    expect(unreadAskTaskIds(parentPath, "abc123", ["mt#3473"])).toEqual([]);
+  });
+
+  test("a differently-spelled id still matches the read (mt-3473 vs mt#3473)", () => {
+    const parentPath = buildTranscriptTree(
+      [assistantToolUse(SPEC_GET_TOOL, { taskId: "mt-3473" })],
+      {}
+    );
+    expect(unreadAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
+
+  test("an empty id list does no transcript work and returns nothing", () => {
+    expect(unreadAskTaskIds("/nonexistent/path.jsonl", undefined, [])).toEqual([]);
+  });
+
+  test("a PRESENT but unreadable transcript path reports every id unread — matching the deny leg", () => {
+    // Measured against the shipped guard, not assumed: an ABSENT
+    // `transcript_path` is the only fail-open (both legs return before the
+    // scan). A path that is present and does not resolve reads as "nothing was
+    // surfaced", so the deny leg DENIES and this leg advises. Pinned here
+    // because the criterion this test discharges originally claimed the
+    // unreadable case failed open, and it does not.
+    expect(unreadAskTaskIds("/nonexistent/path.jsonl", undefined, ["mt#3473"])).toEqual([
+      "mt#3473",
+    ]);
+  });
+});
+
+describe("buildAskAdvisoryReason", () => {
+  test("names every unread id and states plainly that the call is not blocked", () => {
+    const message = buildAskAdvisoryReason(ASKS_CREATE_TOOL, ["mt#3473", "mt#3548"]);
+    expect(message).toContain("mt#3473");
+    expect(message).toContain("mt#3548");
+    expect(message).toContain("filing an ask");
+    expect(message).toContain("NOT blocked");
+    expect(message).toContain(OVERRIDE_ENV_VAR);
+    // The advisory must NOT read as a denial — that is the whole posture choice.
+    expect(message).not.toContain("permissionDecision");
+  });
+
+  test("agrees in number for a single unread id", () => {
+    const message = buildAskAdvisoryReason(ASKS_CREATE_TOOL, ["mt#3473"]);
+    expect(message).toContain("that task's spec");
+    expect(message).not.toContain("those tasks' specs");
+  });
+
+  test("asks_edit is described as editing, not filing", () => {
+    const message = buildAskAdvisoryReason(ASKS_EDIT_TOOL, ["mt#3473"]);
+    expect(message).toContain("editing an ask");
+    expect(message).not.toContain("filing an ask");
   });
 });

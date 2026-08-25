@@ -42,7 +42,7 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
 
   const taskService = new FakeTaskService();
   taskService.getTaskStatus = vi.fn(async () => "READY");
-  taskService.setTaskStatus = vi.fn(async () => {});
+  taskService.setTaskStatus = vi.fn(async () => ({ recordsAffected: 1 }));
   taskService.createTaskFromTitleAndSpec = vi.fn(async (t: string, d: string) => ({
     id: "md#999",
     title: t,

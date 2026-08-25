@@ -383,7 +383,7 @@ describe("createTaskSimilarityService searchTasks closure forwards projectScope 
       },
       getTask: async () => null,
       getTaskStatus: async () => undefined,
-      setTaskStatus: async () => void 0,
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       createTaskFromTitleAndSpec: async () => {
         throw new Error("not implemented");
       },

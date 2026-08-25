@@ -18,6 +18,7 @@ import type {
   DeleteTaskOptions,
   BackendCapabilities,
   TaskMetadata,
+  StatusWriteOutcome,
 } from "./types";
 import type { TaskSpecContentResult } from "./taskService";
 import { isAllProjects } from "../project/scope";
@@ -204,14 +205,27 @@ export class MinskyTaskBackend implements TaskBackend {
     return task?.status;
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
-    await this.db
+  /**
+   * mt#4457: `.returning()` is load-bearing, not decoration. Without it this method
+   * discarded the update result entirely and declared `Promise<void>`, so an UPDATE
+   * matching zero rows — which Postgres reports without raising — was indistinguishable
+   * from one that changed the row. Returning the affected ids lets the caller refuse
+   * to report success for a write that did not land.
+   *
+   * `.returning()` is used rather than a driver rowcount because the count's shape is
+   * postgres-js-specific; a returned id list means the same thing under any drizzle
+   * driver, so this does not silently change meaning if the driver is swapped.
+   */
+  async setTaskStatus(id: string, status: string): Promise<StatusWriteOutcome> {
+    const updated = await this.db
       .update(tasksTable)
       .set({
         status: status as (typeof TaskStatus)[keyof typeof TaskStatus],
         updatedAt: new Date(),
       })
-      .where(eq(tasksTable.id, id));
+      .where(eq(tasksTable.id, id))
+      .returning({ id: tasksTable.id });
+    return { recordsAffected: updated.length };
   }
 
   async createTaskFromTitleAndSpec(

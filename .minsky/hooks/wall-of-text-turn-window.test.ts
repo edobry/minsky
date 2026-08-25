@@ -204,12 +204,19 @@ describe("mt#4531 — known limitation: the depth-request override still suppres
    * So more than half of what the widening newly sees is still not delivered.
    *
    * Re-calibrating that gate is a different question from which unit is
-   * measured, and this task is scoped to the unit (principal-scoped
-   * 2026-08-25). Tracked at mt#4540. This test is the executable record, so the
-   * limitation cannot be forgotten or silently "fixed" without reading why it
-   * is here.
+   * measured, and mt#4531 was scoped to the unit (principal-scoped 2026-08-25).
+   *
+   * **mt#4540 measured it and decided NO CHANGE — so this behaviour is current,
+   * not merely unreviewed.** Over 2592 replayed turns with ADR-032's provenance
+   * cutoff applied, the depth-request gate has **3** hand-classified length
+   * complaints against a 1.5% delivered baseline (3.2%, ~2.1x) — a real
+   * direction at n=3, under ADR-032 D1's cold-start floor of 5. The sibling
+   * question-answer gate has **zero**, below the baseline, which falsified
+   * mt#4540's own cross-gate premise. Re-measure with
+   * `bun scripts/replay-wall-of-text-window.ts --suppression-accuracy` when the
+   * depth gate reaches 5; until then this assertion is the intended behaviour.
    */
-  test("logs the fire but withholds the reminder — tracked at mt#4540", () => {
+  test("logs the fire but withholds the reminder — measured and left as-is (mt#4540)", () => {
     const outcome = run(makeInput(), makeCtx(r7ShapedTurn()), DETERMINISTIC_DEPS);
 
     // It FIRES now — pre-mt#4531 there was no record at all for this turn.

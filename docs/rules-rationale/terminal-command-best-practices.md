@@ -221,9 +221,49 @@ Note the project already knew both spellings: `packages/domain/src/transcripts/c
 hand-rolled regex did not inherit that care — reaching for an ad-hoc pattern when a vetted one
 exists in-repo is the deeper tell.
 
-Enforced for the file-read half by the `block-secret-file-read` PreToolUse guard (mt#3282). The
-credential-endpoint half has no deterministic check — a response body's secret-bearing-ness is not
-statically decidable — so it stays discipline-tier.
+Enforced for the file-read half by the `block-secret-file-read` PreToolUse guard (mt#3282), which
+now carries four checks: the reader+secret-path pair (mt#3282), a fixed list of secret-EMITTING
+scripts (mt#4017), an argv-bearing process listing (mt#3850), and a vendor CLI that dumps env-var
+values (mt#4570). The credential-endpoint half has no deterministic check — a response body's
+secret-bearing-ness is not statically decidable — so it stays discipline-tier.
+
+### The vendor-CLI env-var dump (mt#4570)
+
+`railway variable list` — and its aliases `railway variables`, `railway variable ls`, and the bare
+noun — prints every environment variable **with its value**. `railway variable --help`'s own
+Automation notes say so: _"JSON and KV output include raw variable values. Avoid sharing command
+output from secret-bearing variable commands."_ There is no keys-only flag; `--json` and `-k`/`--kv`
+each document that they render raw values.
+
+The guard is keyed on the value-dumping SUBCOMMAND rather than the binary, so `railway status`,
+`railway whoami` and `railway logs` are untouched, and it is pipeline-scoped: a key-projecting `jq`
+stage or a counting sink downstream permits the command, because that is the safe form the rule
+teaches.
+
+**The `jq` carve-out needs a positive test, not just an allow-list.** An allow-list of permitted
+tokens accepts `jq '.'` — every token permitted, and it renders the whole object. A key-projecting
+filter must therefore contain a token that actually DISCARDS values (`keys`, `keys_unsorted`,
+`length`); pass-through tokens like `.` and `sort` are permitted only alongside one. The guard's own
+test suite caught this during authoring.
+
+**Originating incident (2026-08-25).** An agent checking whether the reviewer service still carried
+a Braintrust key ran `railway variables --json`, and the production `BRAINTRUST_API_KEY` reached the
+persisted, ingested transcript. The interesting part is the path there: the FIRST attempt was the
+safe keys-only form, `railway variables --service minsky-reviewer --json 2>/dev/null | jq -r
+'keys[]'`. It failed on a wrong service name, and `2>/dev/null` discarded the explanation, so it
+returned empty — indistinguishable from "no such variable." The agent correctly recognised that
+can't-fail-probe shape and re-ran with stderr visible **to diagnose** — dropping the `jq` filter
+along with the redirect, because both belonged to one "quiet the probe" construction.
+
+**The generalizable rule: a diagnostic re-run inherits the safety requirement of the probe it is
+diagnosing.** Un-redirecting stderr and un-filtering stdout feel like a single act of unmuting; they
+are two, and only one of them is what you wanted. The cheapest correct move is not to re-run the
+value-bearing form at all — fix the invocation with `--help` or `status` first.
+
+Recurrence context: this is R5 of the transcript-secret-leak family (root mem#564, recurrence record
+mem#808). R1–R4 each ended in a guard extension after a prose rule failed to contain the next
+instance; the four channels are disjoint command SHAPES rather than iterations on one matcher, so
+this is enumeration, not an arms race.
 
 ### The empty-stdin sink footgun
 

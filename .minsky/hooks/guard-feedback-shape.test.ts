@@ -304,6 +304,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "pre-narration-detector",
         "require-duplicate-check-record",
         "retrospective-trigger-scanner",
+        "secret-request-in-chat-detector",
         "silent-stretch-detector",
         "skill-staleness-detector",
         "spec-criterion-claim-detector",
@@ -314,6 +315,12 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "turn-end-untaken-action-scan",
         "turn-end-unwalked-task-scan",
         "wall-of-text-detector",
+        // mt#2264. Present here while `INJECTION_ENABLED` is false, because
+        // this receipt measures what a guard CAN render (via `renderProbe`),
+        // not what it currently emits. Listing it now means the text is
+        // size-checked from the day it ships rather than from the day it is
+        // graduated — which is the point at which nobody re-measures.
+        "warn-unwired-task-relationship",
       ].sort()
     );
   });
@@ -453,6 +460,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "pre-narration-detector": "capped", // one line per category, phrase at 200
   "require-duplicate-check-record": "fixed",
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)
+  // One line per matched pattern PER SURFACE, and neither the match count nor
+  // the surface count is capped — a turn with many matching sentences exceeds
+  // the posed render. A saturated sample, not a proved ceiling; an `…and N more`
+  // cap is owed before injection is enabled (mt#2428).
+  "secret-request-in-chat-detector": RENDER_PROBE_SAMPLE,
   "silent-stretch-detector": "fixed",
   "skill-staleness-detector": "capped", // MAX_FILES_LISTED
   // One block per flagged criterion and a spec may carry many, so the
@@ -484,6 +496,15 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // had ever rendered the guard at its cap.
   "turn-end-unwalked-task-scan": WORST_CASE_CANARY,
   "wall-of-text-detector": "fixed", // one excerpt, EXCERPT_MAX_CHARS
+  // mt#2264. `fixed`, and it is a PROVED ceiling rather than an assumption:
+  // all three rendered dimensions are bounded — the list at
+  // MAX_RENDERED_ASSERTIONS, the overflow suffix at one line, and the remedy
+  // block at one line per axis, of which there are exactly three.
+  // `renderWorstCase` saturates all three at once, and the module's own test
+  // asserts its length against the registration's declared `attentionCost`,
+  // so the two cannot drift the way `turn-end-unwalked-task-scan`'s comment
+  // did (470 claimed against 519 actual).
+  "warn-unwired-task-relationship": "fixed",
 };
 
 describe("guard feedback — growth-shape classification receipt (mt#3705)", () => {

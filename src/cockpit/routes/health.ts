@@ -33,6 +33,11 @@ import {
   getDbStatus,
   refreshDbReachability,
 } from "../shared-persistence";
+// mt#4562: from the domain module directly. The retry helper is per-QUERY and
+// lives beside the provider, not in the cockpit's shared-persistence singleton
+// — re-exporting it through there would imply cockpit ownership of a counter
+// every process increments.
+import { getPgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import { getSurvivedExceptions } from "../daemon-error-policy";
 import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
@@ -184,6 +189,15 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // count across polls is the recurrence signal that used to require log
       // spelunking (or a 40-minute outage) to see.
       dbRecycle: getDbRecycle(),
+      // mt#4562: the retry mechanism's sibling counters. `dbRecycle` covers the
+      // pool RECYCLE; this covers the per-query RETRY. Both are outcome counters
+      // of a DB recovery mechanism whose failure mode is silence, and both are
+      // read by the post-deploy monitor's check (d).
+      //
+      // `saturationRetries: 0` is the EXPECTED steady state, not a health claim
+      // — pool exhaustion is structurally near-unreachable on the transaction
+      // pooler (mt#3497). `retriesExhausted` is the fault signal.
+      dbRetry: getPgRetryCounters(),
       // mt#3826: WHY the DB is unusable, not just that it is. `db` above
       // collapses a half-open pool wedge and a network refusing the port into
       // the same "degraded", which is what let the 2026-08-07 incident spend

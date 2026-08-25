@@ -41,7 +41,7 @@
  *   below is generous. A producer that changes the arrival rate by orders of magnitude
  *   should revisit it rather than assume it still holds.
  *
- * ## Why 14 days, and why it is not a round number
+ * ## Why 8 days, and why it is not a round number
  *
  * A drained row is not inert: it is the ONLY thing suppressing the prompt-seam
  * announcement for an ask the tool seam already delivered. `selectSettledAsks`
@@ -52,13 +52,28 @@
  *
  * The bound therefore comes from that consumer's declared maximum, not from this
  * table's arrival cadence (12 rows in 11 days grounds nothing).
- * `ask-conversation-map.ts` declares `ENTRY_MAX_AGE_MS` = 7 days. That ceiling is
- * NOMINAL rather than enforced: `pruneEntries` runs only from `recordAskConversation`
- * — the write path — while `readAskConversationMap` / `askIdsForConversation` apply no
- * age filter at all, so a machine that stops filing asks keeps entries past 7 days
- * indefinitely. 14 days is that ceiling doubled, which is the margin for the gap
- * between the declared window and the enforced one. If the read path ever filters by
- * age (mt#4541 SC4), this can drop to 7 days plus a small margin.
+ * `ask-conversation-map.ts` declares `ENTRY_MAX_AGE_MS` = 7 days, and as of mt#4541
+ * that ceiling is ENFORCED on the read path as well as the write path — an entry past 7
+ * days is not returned by `readAskConversationMap`, so the ask is no longer tracked and
+ * there is nothing left to re-announce.
+ *
+ * **This window was 14 days until mt#4541, and the extra 7 bought exactly one thing:
+ * the gap between a declared ceiling and an unenforced one.** `pruneEntries` ran only
+ * from `recordAskConversation`, so a machine that stopped filing asks kept entries
+ * indefinitely and the 7-day number bounded nothing. With the read path filtering, the
+ * doubling has no remaining job.
+ *
+ * The 1 day that remains is margin for CLOCK SKEW, and that is the only thing it needs
+ * to cover. The two timestamps come from different clocks: `recordedAt` is stamped by
+ * the hook process on the local host, `drained_at` by Postgres. Within a single clock
+ * the bound is already safe at zero margin — `drained_at` is always at or after the
+ * attribution that produced it, so a row deleted at `drained_at + 7d` corresponds to an
+ * attribution at least 7 days old, already dropped by the reader. NTP-bounded skew
+ * between a laptop and hosted Postgres is seconds; a day covers it with several orders
+ * of magnitude to spare, and it also absorbs the sweep's own 6-hour interval
+ * (`WAKE_PENDING_RETENTION_SWEEP_INTERVAL_MS`) many times over — though that interval
+ * only ever DELAYS a deletion, never advances one, so it is not a hazard this margin is
+ * actually needed for.
  *
  * Measured against `drained_at`, not `emitted_at`: delivery is always at or after the
  * ask's attribution, so the later timestamp is the conservative one.
@@ -73,7 +88,9 @@
  *
  * ## Invocation path
  *
- * `startWakePendingRetentionSweeper` (`src/cockpit/sweepers.ts`) registers this on the
+ * `startWakePendingRetentionSweeper` (`src/cockpit/wake-pending-retention-sweeper.ts` —
+ * the docblock said `sweepers.ts` until mt#4541; that is the sibling registry module,
+ * not this sweeper's home) registers this on the
  * cockpit daemon's sweep registry, started from `src/commands/cockpit/start-command.ts`.
  * It reports a real {@link SweepTickResult} rather than a blanket success, per mt#4412.
  *
@@ -90,10 +107,11 @@ import { postgresSessions } from "../storage/schemas/session-schema";
 import { asksTable } from "../storage/schemas/ask-schema";
 
 /**
- * How long a DELIVERED row is kept. See the module docblock for the derivation — this
- * is the attribution window's declared ceiling doubled, not a round number.
+ * How long a DELIVERED row is kept. See the module docblock for the derivation — this is
+ * the attribution window's now-ENFORCED ceiling (7 days) plus a day of clock-skew margin,
+ * not a round number. It was this ceiling DOUBLED until mt#4541 made the ceiling real.
  */
-export const WAKE_PENDING_DELIVERED_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+export const WAKE_PENDING_DELIVERED_RETENTION_MS = 8 * 24 * 60 * 60 * 1000;
 
 /** What one sweep pass removed, split by the predicate that removed it. */
 export interface WakePendingRetentionResult {

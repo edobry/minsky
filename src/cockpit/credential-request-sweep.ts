@@ -23,6 +23,7 @@
  */
 import { log } from "@minsky/shared/logger";
 import type { AskRepository } from "@minsky/domain/ask/repository";
+import type { ParentTaskGateDeps } from "@minsky/domain/credentials/parent-task-gate";
 
 /**
  * Run one credential-request resolution pass.
@@ -36,12 +37,24 @@ import type { AskRepository } from "@minsky/domain/ask/repository";
  * tick and the cockpit boot path should not pay for the credentials subsystem
  * until a tick actually fires.
  */
-export async function runCredentialRequestResolutionTick(repo: AskRepository): Promise<void> {
+export async function runCredentialRequestResolutionTick(
+  repo: AskRepository,
+  /**
+   * Task read/write, for returning a blocked parent when its request is
+   * satisfied (mt#4486).
+   *
+   * Optional, and its absence is a real state rather than a defect: the sweep's
+   * caller resolves the task service per tick and it can legitimately be
+   * unavailable. Without it requests still resolve and parents simply stay
+   * BLOCKED — the pre-mt#4486 behaviour.
+   */
+  taskGate?: ParentTaskGateDeps
+): Promise<void> {
   try {
     const { createCredentialRequestResolverDeps, resolveSatisfiedCredentialRequests } =
       await import("@minsky/domain/credentials/request-resolver");
     const outcome = await resolveSatisfiedCredentialRequests(
-      createCredentialRequestResolverDeps(repo)
+      createCredentialRequestResolverDeps(repo, taskGate)
     );
     if (outcome.satisfied.length > 0 || outcome.raced.length > 0) {
       log.info("cockpit: credential requests resolved", {

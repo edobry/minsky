@@ -66,6 +66,23 @@ export {
 } from "./negative-existence-claim";
 
 export type {
+  SecretRequestSurface,
+  SecretRequestMatch,
+  SecretRequestResult,
+  SuppressionCause,
+} from "./secret-request-in-chat";
+export {
+  detectSecretRequestInProse,
+  detectSecretRequestInOptionLabels,
+  hasNegationLead,
+  hasDescribingFrame,
+  routesToMaskedSurface,
+  stripQuoteChars,
+  SECRET_REQUEST_PATTERNS,
+  MAX_CONTEXT_CHARS,
+} from "./secret-request-in-chat";
+
+export type {
   FlakinessClaim,
   // `FlakinessAttributionResult.claims` is typed as this, so a consumer reading
   // the result through the barrel needs to be able to name it here too.

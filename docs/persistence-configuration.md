@@ -225,6 +225,32 @@ For example:
 If you see `[retry 2/3]` in your logs, the third attempt is the final one. If that attempt also
 fails, the error is propagated to the caller.
 
+### Counters — read these instead of grepping the log (mt#4562)
+
+The log line above was the ONLY record of a retry until mt#4562, which is why "is the retry
+mechanism still firing?" could not be answered without a log grep. `withPgPoolRetry` now keeps
+outcome counters, exported as `getPgRetryCounters()` and published as `dbRetry` on both the
+cockpit's `/api/health` and minsky-mcp's `/health`:
+
+```
+curl -s 127.0.0.1:3737/api/health | jq -c '.dbRetry'
+{"saturationRetries":0,"staleConnectionRetries":0,"retriesExhausted":0,"lastRetryAt":null}
+```
+
+They are split by the same two classes the log line's `pg pool saturation` /
+`pg stale connection` label already distinguished, because the classes have **opposite expected
+rates**:
+
+- `saturationRetries` is **near-zero by design** — mt#3497 established that exhaustion on the
+  transaction pooler needs far more concurrent clients than this fleet produces, so a zero is the
+  expected steady state rather than a health claim.
+- `staleConnectionRetries` is the class production actually hits (mt#3092, mem#597).
+- `retriesExhausted` is **the alarm** — the budget ran out and the error reached the caller. It is
+  the only field safe to read on its own, and it is what the post-deploy monitor keys on.
+
+Do not build a "retry rate dropped to zero" alert on these. Over a normally-zero signal such a
+rule cannot fail: it emits the same answer whether the mechanism is healthy or dead (mem#704).
+
 To investigate persistent pool saturation:
 
 1. **Count the actual pool HOLDERS, not the processes** — most processes never open a pool, so a

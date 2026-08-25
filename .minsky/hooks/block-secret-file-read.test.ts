@@ -28,6 +28,11 @@ import {
   psRequestsArgv,
   isArgvBearingProcessListing,
   isNonEmittingSink,
+  findSecretDumpingCliReads,
+  isSecretDumpingCliInvocation,
+  isKeyOnlyJqStage,
+  positionalArgs,
+  SECRET_DUMPING_CLI_SPECS,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -49,6 +54,259 @@ const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
  * it printed a live GitHub token carried by an unrelated `docker run` row.
  */
 const PS_INCIDENT_COMMAND = "ps -eo pid,etime,command | grep -iE 'git|credential'";
+
+// ── Vendor CLI env-var dumps (mt#4570) ──────────────────────────────────────
+
+/**
+ * The originating incident command, verbatim (2026-08-25): checking whether the
+ * reviewer service still carried a Braintrust key. It names no secret path,
+ * invokes no script, and requests no argv column — so all three prior checks
+ * pass it — and it printed the production BRAINTRUST_API_KEY.
+ */
+const RAILWAY_INCIDENT_COMMAND = "railway variables --json";
+
+/**
+ * The SAFE form the agent tried FIRST, which failed on a wrong service name.
+ * The whole point of the carve-out: if this denied, the guard would push
+ * callers straight onto the unsafe form the incident used.
+ */
+const RAILWAY_SAFE_COMMAND = "railway variables --service minsky-reviewer --json | jq -r 'keys[]'";
+
+/** A value-LESS global flag before the noun — must not consume the next token. */
+const RAILWAY_VALUELESS_FLAG_COMMAND = "railway --json variable list";
+
+describe("mt#4570 — vendor CLIs that dump env-var values", () => {
+  test("denies the verbatim railway incident command", () => {
+    const hits = findSecretDumpingCliReads(RAILWAY_INCIDENT_COMMAND);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.kind).toBe("cli-env-dump");
+    expect(hits[0]?.reader).toBe("railway");
+  });
+
+  test("the incident command is invisible to all three prior checks", () => {
+    // This is the whole justification for a fourth check rather than widening
+    // one of the existing three. If any of these starts returning hits, this
+    // check may be redundant — that is worth knowing.
+    expect(findSecretReads(RAILWAY_INCIDENT_COMMAND)).toEqual([]);
+    expect(findSecretScriptInvocations(RAILWAY_INCIDENT_COMMAND)).toEqual([]);
+    expect(findProcessListingReads(RAILWAY_INCIDENT_COMMAND)).toEqual([]);
+  });
+
+  test("denies every spelling of the listing command", () => {
+    // `railway variable` and `railway variables` are the same command; the
+    // canonical form is `variable list` (alias `ls`); a bare noun lists too.
+    // Verified against `railway variable --help`, 2026-08-25.
+    for (const cmd of [
+      "railway variables",
+      "railway variable",
+      "railway variable list",
+      "railway variable ls",
+      "railway variables list --json",
+      "railway variable list -k",
+      "railway variable list --kv",
+      "railway variable list --service api --json",
+      "railway --json variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("allows a key-projecting jq pipeline — the recommended safe form", () => {
+    for (const cmd of [
+      RAILWAY_SAFE_COMMAND,
+      "railway variable list --json | jq -r 'keys[]'",
+      "railway variable list --json | jq 'keys'",
+      "railway variable list --json | jq -r 'keys | length'",
+      "railway variable list --json | jq -r 'keys_unsorted[]'",
+      "railway variable list --json | jq -r '. | keys'",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("allows a counting sink, same carve-out the ps check has", () => {
+    for (const cmd of [
+      "railway variable list --kv | grep -c BRAINTRUST",
+      "railway variable list --kv | grep -q BRAINTRUST",
+      "railway variable list --json | wc -l",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("a jq filter that could render a VALUE is not a carve-out", () => {
+    // Fail-closed: only the whitelisted key-projecting tokens suppress values.
+    for (const cmd of [
+      "railway variable list --json | jq -r '.BRAINTRUST_API_KEY'",
+      "railway variable list --json | jq '.'",
+      "railway variable list --json | jq -r 'to_entries[]'",
+      "railway variable list --json | jq -r '.[]'",
+      "railway variable list --json | jq -r 'keys[] as $k | .[$k]'",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("the suppressing stage may sit anywhere downstream", () => {
+    // Once keys are projected, no later stage can resurrect the values —
+    // mirrors findProcessListingReads' reducedDownstream rule.
+    expect(
+      findSecretDumpingCliReads("railway variable list --json | jq -r 'keys[]' | sort | tee out")
+    ).toEqual([]);
+  });
+
+  test("leaves non-listing railway subcommands alone", () => {
+    // Keyed on the value-dumping subcommand, not on the binary.
+    for (const cmd of [
+      "railway status",
+      "railway whoami",
+      "railway logs",
+      "railway up",
+      "railway variable set API_URL=https://example.com",
+      "railway variable delete API_KEY",
+      "railway variable rm API_KEY",
+      "railway variable help",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("a value-taking flag before the noun does not shift it out of position", () => {
+    // PR #3336 R1 (BLOCKING): `filter(t => !t.startsWith("-"))` treats a flag's
+    // VALUE as a positional, so the noun lands at index 1 and matches nothing —
+    // a silent BYPASS, not a cosmetic parsing gap. Every value-taking flag from
+    // `railway variable --help` is covered here, in both spellings.
+    for (const cmd of [
+      "railway -s api variable list",
+      "railway --service api variable list",
+      "railway -e production variable list",
+      "railway --environment production variable list",
+      "railway -p proj-id variable list",
+      "railway --project proj-id variable list",
+      "railway -s api -e production variable list",
+      "railway --service api --json variables",
+      // attached form: the value rides on the flag token, nothing to skip
+      "railway --service=api variable list",
+      // `--` ends flag parsing
+      "railway --service api -- variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("the flag-value skip does not swallow the noun itself", () => {
+    // The inverse risk of the fix: over-consuming a token would make the guard
+    // blind. A value-less flag must NOT eat the next token.
+    expect(findSecretDumpingCliReads(RAILWAY_VALUELESS_FLAG_COMMAND).length).toBeGreaterThan(0);
+    expect(findSecretDumpingCliReads("railway -k variable list").length).toBeGreaterThan(0);
+    // ...and a safe verb is still reached through a value-taking flag.
+    expect(findSecretDumpingCliReads("railway --service api variable set A=b")).toEqual([]);
+  });
+
+  test("positionalArgs skips flag values, not positionals", () => {
+    const valueFlags = new Set(["-s", "--service"]);
+    expect(positionalArgs(tokenize("railway -s api variable list"), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+    expect(positionalArgs(tokenize("railway --service=api variable list"), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+    expect(positionalArgs(tokenize(RAILWAY_VALUELESS_FLAG_COMMAND), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+  });
+
+  test("an unrecognised verb is treated as dumping (fail-closed)", () => {
+    // safeVerbs is an allow-list on purpose: a subcommand this table has never
+    // heard of is more likely a new read than a new write.
+    expect(findSecretDumpingCliReads("railway variable dump").length).toBeGreaterThan(0);
+  });
+
+  test("leaves other programs alone", () => {
+    for (const cmd of ["vercel env ls", "fly secrets list", "echo railway variables"]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("sibling CLIs verified NOT to render values stay allowed", () => {
+    // Each of these was checked against its own installed `--help` on
+    // 2026-08-25 and does not emit a value; see the comment block above
+    // SECRET_DUMPING_CLI_SPECS for the verbatim evidence. Pinned so a later
+    // "while we're here" addition trips a test instead of shipping a guard
+    // that denies a command which cannot leak.
+    for (const cmd of [
+      // digest only — "The actual value of the secret is only available to the application"
+      "fly secrets list",
+      "flyctl secrets list",
+      // --json field set has no `value` — GitHub secrets are write-only
+      "gh secret list",
+      "gh secret ls",
+      // renders `value`, but GitHub forbids storing a secret as a variable
+      "gh variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("isSecretDumpingCliInvocation returns the matching spec", () => {
+    const railwaySpec = SECRET_DUMPING_CLI_SPECS.find((s) => s.program === "railway");
+    expect(railwaySpec).toBeDefined();
+    expect(isSecretDumpingCliInvocation("railway", tokenize("railway variables --json"))).toBe(
+      railwaySpec ?? null
+    );
+    expect(isSecretDumpingCliInvocation("railway", tokenize("railway status"))).toBeNull();
+  });
+
+  test("isKeyOnlyJqStage discriminates key projections from value reads", () => {
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r 'keys[]'"))).toBe(true);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq 'keys'"))).toBe(true);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r '.SOME_KEY'"))).toBe(false);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r"))).toBe(false);
+    expect(isKeyOnlyJqStage("grep", tokenize("grep -c x"))).toBe(false);
+  });
+
+  test("a filter of only pass-through tokens does not reduce (regression)", () => {
+    // Caught by this suite during authoring: `.` is permitted as a pass-through
+    // inside `. | keys`, so an allow-list alone accepted `jq '.'` — which
+    // renders the whole object, values included. A key-projecting filter must
+    // contain a token that actually DISCARDS values.
+    expect(isKeyOnlyJqStage("jq", tokenize("jq '.'"))).toBe(false);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r '. | sort'"))).toBe(false);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r '. | keys'"))).toBe(true);
+  });
+
+  test("fires through findInToolInput and renders a denial naming the safe form", () => {
+    const hits = findInToolInput({ command: RAILWAY_INCIDENT_COMMAND });
+    expect(hits.some((h) => h.kind === "cli-env-dump")).toBe(true);
+
+    const reason = buildDenialReason(hits);
+    expect(reason).toContain("prints every variable WITH its value");
+    expect(reason).toContain("jq -r 'keys[]'");
+    // The denial must teach the probe-degradation lesson, not just refuse.
+    expect(reason).toContain("do NOT re-run it without the filter");
+  });
+
+  test("the override covers this check like its three siblings", () => {
+    const input = {
+      tool_name: "Bash",
+      tool_input: { command: RAILWAY_INCIDENT_COMMAND },
+    } as unknown as ToolHookInput;
+
+    expect(run(input, CTX)?.deny).toBeDefined();
+
+    const prev = process.env[OVERRIDE_ENV_VAR];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      expect(run(input, CTX)?.deny).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env[OVERRIDE_ENV_VAR];
+      else process.env[OVERRIDE_ENV_VAR] = prev;
+    }
+  });
+});
 
 describe("mt#3850 — process listings that print argv", () => {
   test("denies the verbatim incident command", () => {

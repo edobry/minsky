@@ -12,6 +12,7 @@
  * two belong in one read rather than in separate places.
  */
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 
 /** Populated-field counts for `agent_transcripts`, plus derived percentages. */
 export interface TranscriptCoverage {
@@ -63,20 +64,13 @@ export async function getTranscriptCoverage(
   try {
     const provider = await deps.getProvider();
 
-    if (
-      provider === null ||
-      typeof provider !== "object" ||
-      !("getDatabaseConnection" in provider) ||
-      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-    ) {
+    if (!isSqlCapable(provider)) {
       return null;
     }
 
-    const sqlProvider = provider as {
-      getDatabaseConnection: () => Promise<
-        import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-      >;
-    };
+    // The null/typeof checks the old form spelled out are inside the guard (mt#4543),
+    // which fails closed on both; the cast goes with the narrowing.
+    const sqlProvider = provider;
     const db = await sqlProvider.getDatabaseConnection();
     if (!db) return null;
 

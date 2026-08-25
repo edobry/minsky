@@ -709,6 +709,43 @@ it to every watched service. If you omit it there, the result carries
 \`deployBoundApplied: false\` and the text output says so — treat that as an
 unverified deploy, not a passing one.
 
+**\`notBefore\` is necessary and NOT sufficient — pass \`expectCommitSha\` too, and
+READ the verdict (mt#4583).** The bound above filters on the deployment's
+creation TIME, and time does not identify WHICH change deployed. On a busy main
+branch a NEIGHBOURING merge's deployment lands inside your window and satisfies
+the bound: observed 2026-08-25, when a deployment created **ten seconds** after
+a merge returned SUCCESS and belonged to the PREVIOUS merge's workflow run. The
+tell was arithmetic — ten seconds cannot build a Docker image — and the falsifier
+was a schema query showing the migration had not run. Passing \`notBefore\` did
+not prevent any of it.
+
+So pass BOTH, and read \`buildIdentity\` on the result:
+
+- **\`confirmed\`** — the deployment names your commit. This is the only value
+  that licenses "my change is deployed."
+- **\`mismatch\`** — it names a DIFFERENT commit. A deploy happened; it was not
+  yours. Do not wait for this one to change: go find your own.
+- **\`indeterminate\`** — the record cannot answer. Expected for an image-source
+  service (Railway deploys a pushed image and never sees the commit, so
+  \`commitHash\` is null by construction). **This is not a pass.** Fall through to
+  the two checks below.
+
+\`session.pr.drive --postMerge\` takes \`mergedCommitSha\` alongside \`mergedAt\` and
+reports \`buildIdentity\` per service — services deploy independently, so one can
+carry your merge while another still serves a neighbour's build.
+
+**When identity is \`indeterminate\`, escalate to a channel that CAN answer:**
+
+1. **Correlate the workflow run to your merge SHA** —
+   \`forge_ci_run_list --workflow deploy-<svc>.yml\`, match \`head_sha\` against the
+   merge commit, and require \`conclusion: success\` on THAT run. This is what
+   proved the 2026-08-25 deploy had not happened yet.
+2. **Assert something the CHANGE produces, not something the DEPLOY produces** —
+   the migrated column present in \`information_schema\`, the new route
+   responding, the new field in a payload. This is the strongest check available
+   and the one that actually settled the incident: it is immune to which
+   deployment record the wait happened to return.
+
 **Follow-ups for inspection (not for waiting):**
 
 - \`mcp__minsky__deployment_status(service?)\` — snapshot of the latest

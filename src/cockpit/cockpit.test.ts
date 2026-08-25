@@ -569,7 +569,7 @@ describe("Cockpit server", () => {
         })),
       getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
       getTaskStatus: async () => undefined,
-      setTaskStatus: async () => {},
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       createTaskFromTitleAndSpec: async () => {
         throw new Error("not implemented");
       },
@@ -770,7 +770,7 @@ describe("Cockpit server", () => {
         })),
       getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
       getTaskStatus: async () => undefined,
-      setTaskStatus: async () => {},
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       createTaskFromTitleAndSpec: async () => {
         throw new Error("not implemented");
       },

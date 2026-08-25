@@ -356,6 +356,73 @@ export function fetchPrFiles(
   }
 }
 
+export interface FetchPrFilePatchesResult {
+  patches: Array<{ filename: string; patch?: string | null }>;
+  warning?: string;
+}
+
+/**
+ * Fetch PR files WITH their unified-diff patches (mt#4493).
+ *
+ * Deliberately separate from {@link fetchPrFiles} rather than a widened projection on it:
+ * four merge gates call that one and need only filenames, and `patch` bodies scale with
+ * the size of the change. Keeping this a distinct call means only the caller that reads
+ * hunks pays for them, and only on a PR that could fire (see `hasInScopeFiles`).
+ *
+ * Fail-open like its sibling: on error returns `{ patches: [], warning }`, so an
+ * unreachable forge degrades to NO finding rather than a spurious one. For a log-only
+ * calibration surface that is the safe direction — a missed fire costs a record, an
+ * invented one costs trust.
+ *
+ * Note GitHub omits `patch` for binary and very large files. That is why the field is
+ * optional rather than defaulted to `""`: absence and emptiness are different, and the
+ * consuming surface records which it saw.
+ */
+export function fetchPrFilePatches(
+  repo: string,
+  prNumber: number,
+  opts: FetchOpts = {}
+): FetchPrFilePatchesResult {
+  const { cwd, exec = execWithPath, timeout = 20000 } = opts;
+  const result = exec(
+    [
+      "gh",
+      "api",
+      `repos/${repo}/pulls/${prNumber}/files`,
+      "--paginate",
+      "--jq",
+      "[.[] | {filename: .filename, patch: .patch}]",
+    ],
+    { cwd, timeout }
+  );
+  if (result.exitCode !== 0) {
+    return {
+      patches: [],
+      warning: `fetchPrFilePatches: gh api failed (exit ${result.exitCode}) for PR #${prNumber} — removed-signal detection skipped.`,
+    };
+  }
+  const raw = result.stdout.trim();
+  const pages = raw
+    .split("\n")
+    .filter((l) => l.trim().startsWith("["))
+    .map((l) => {
+      try {
+        return JSON.parse(l) as Array<{ filename: string; patch?: string | null }>;
+      } catch {
+        // One unparseable page must not discard the others — the surface records
+        // `patchesIncomplete` from what it did receive.
+        return [];
+      }
+    });
+  if (pages.length === 0) {
+    return {
+      patches: [],
+      warning: `fetchPrFilePatches: no parseable page for PR #${prNumber} — removed-signal detection skipped.`,
+    };
+  }
+  return { patches: pages.flat() };
+}
+
 export interface PrDeps {
   fetchPrFiles: (repo: string, prNumber: number) => FetchPrFilesResult;
   fetchPrMeta: (repo: string, prNumber: number) => { title: string; body: string } | null;

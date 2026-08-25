@@ -220,7 +220,46 @@ export const CAPABILITY_DEFERRAL_PATTERNS: RegExp[] = [
   /\bdeferred?\s+to\s+(the\s+)?(operator|user|principal|you)\b/i,
   /\brequires?\s+(?:\w+[\s-]){0,3}(access|credentials?|permissions?|token|secret)\b/i,
   /\b(you|the\s+operator|the\s+user)(?:'?ll|\s+will)?\s+(need|have)\s+to\s+(provide|grant|supply|set|add)\b/i,
-  /\b(provide|give|paste|share)\s+(me\s+)?(the|your|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
+  // NARROWED by mt#2428. This used to read
+  //   (provide|give|paste|share) (me )?(the|your|a) ... (token|credential|...)
+  // which did double duty: it caught genuine capability DEFERRALS ("I will not
+  // be able to provide the token", "until you provide the token") AND the
+  // imperative request for the value itself ("give me the token", "paste the
+  // token here"). The second belongs to `secret-request-in-chat-detector`
+  // (mt#2428) — it is a transcript-leak concern whose remedy, "file a
+  // credentials.request", is the OPPOSITE advice from this detector's "run the
+  // capability probe". Keeping both would double-fire and double-count across
+  // two calibration logs, the discipline this file imposes on itself against
+  // mt#2303 a few lines up.
+  //
+  // The split is by VERB CLASS plus recipient, and the tests are what forced
+  // it: deleting the whole pattern regressed mt#3865's and mt#4111's negation
+  // controls, which are real deferrals that happen to say "provide the token".
+  //   - DEPOSIT verbs (paste/enter/type/post/drop) -> always the sibling's.
+  //   - GENERIC verbs WITH a recipient (`me`/`us`/`your`) -> the sibling's.
+  //   - GENERIC verbs with a bare `the` and no recipient -> a deferral, kept
+  //     here. That is the pattern below.
+  // Verb set is EXACTLY the original's minus what moved — no new verbs, and no
+  // verbs dropped either. Two drafts got this wrong in opposite directions, both
+  // caught by measurement rather than reasoning:
+  //
+  //   1. `(provide|supply|grant|generate|obtain)` WIDENED the surface — replaying
+  //      the live calibration log showed it firing on records the original never
+  //      matched. A carve must not widen what it carves from.
+  //   2. Narrowing to `provide` alone opened a COVERAGE HOLE: "give the token",
+  //      "share the token" matched neither detector, because the sibling claims
+  //      generic verbs only WITH a recipient (`me`/`us`/`your`). Caught by
+  //      PR #3315 R1, reproduced with a two-line probe before being believed.
+  //
+  // So: the original's generic verbs, bare article only. `paste` is gone (a
+  // deposit verb, always the sibling's) and so are the recipient forms.
+  //
+  // Known residual, recorded rather than papered over: a POSTPOSED recipient
+  // ("share the token with me") is not distinguished and lands here. That is
+  // where it landed before the carve too, so it is a mis-attribution, not a
+  // regression — and splitting it would need a lookahead that risks the
+  // double-count the carve exists to prevent.
+  /\b(provide|give|share)\s+(the|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
   /\b(outside|not\s+available\s+(from|in|to))\s+(the\s+)?agent\s+context\b/i,
   /\boperator\s+follow-?up\b/i,
   /\b(user|operator|you)\s+must\s+(do|run|handle|perform|fix|restart|deploy)\b/i,
@@ -988,7 +1027,11 @@ export function detectAskJustificationAbsence(turnLines: TranscriptLine[]): Defe
  */
 export const ASK_PRINCIPAL_ACTION_PATTERNS: RegExp[] = [
   /\byou\s+(restart|recover|redeploy|reprovision|provision|fix|run|re-?run|rebuild|reinstall|restore|deploy|grant)\b/i,
-  /\b(provide|give|paste|share|hand)\s+(me\s+)?(the|your|a)\s+(?:[\w-]+\s+){0,3}(token|credential|key|secret|password)\b/i,
+  // MOVED OUT by mt#2428, same carve as Surface A's — see the comment in
+  // CAPABILITY_DEFERRAL_PATTERNS. An option label offering to hand over a
+  // secret VALUE is `secret-request-in-chat-detector`'s; the infra-action
+  // labels around it ("you restart the reviewer service") stay here, which is
+  // this surface's actual subject.
   /\b(recover|restart|redeploy|reprovision)\s+(the\s+)?[\w-]+\s+(service|server|deployment|container)\b/i,
   /\b(operator|principal|you)\s+(handles?|takes?\s+care\s+of|does)\s+(the\s+)?(deploy|restart|recovery|provisioning|fix)\b/i,
 ];

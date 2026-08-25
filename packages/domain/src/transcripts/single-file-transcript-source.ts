@@ -93,8 +93,12 @@ export class SingleFileTranscriptSource implements TranscriptSource {
     }
   }
 
-  /** Reads the single configured file; the `agentSessionId` argument is ignored. */
-  async *readSession(
+  /**
+   * Reads the single configured file with NO retention filter (mt#4573); the
+   * `agentSessionId` argument is ignored. See `TranscriptSource.readSessionRaw`
+   * for why the unfiltered stream is the one `transcript_lines` captures from.
+   */
+  async *readSessionRaw(
     _agentSessionId: AgentSessionId,
     _jsonlPath?: string
   ): AsyncIterable<RawTurnLine> {
@@ -105,8 +109,22 @@ export class SingleFileTranscriptSource implements TranscriptSource {
       if (!trimmed) continue;
       const parsed = parseJsonlLine(trimmed);
       if (!parsed) continue;
-      if (typeof parsed.type !== "string" || !RETAINED_TYPES.has(parsed.type)) continue;
       yield parsed as RawTurnLine;
+    }
+  }
+
+  isRetainedLine(line: RawTurnLine): boolean {
+    return typeof line.type === "string" && RETAINED_TYPES.has(line.type);
+  }
+
+  /** Reads the single configured file; the `agentSessionId` argument is ignored. */
+  async *readSession(
+    agentSessionId: AgentSessionId,
+    jsonlPath?: string
+  ): AsyncIterable<RawTurnLine> {
+    for await (const parsed of this.readSessionRaw(agentSessionId, jsonlPath)) {
+      if (!this.isRetainedLine(parsed)) continue;
+      yield parsed;
     }
   }
 

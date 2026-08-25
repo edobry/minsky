@@ -19,7 +19,7 @@
  */
 import { useCallback, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Search, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, Copy, Check, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { EntityRef } from "../components/EntityRef";
 import { Checkbox } from "../components/ui/checkbox";
@@ -160,6 +160,68 @@ function CopyResumeButton({ resumeHint }: { resumeHint: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Restore-transcript button (mt#4573)
+// ---------------------------------------------------------------------------
+
+/** Human-readable result for each outcome the rehydrate route can return. */
+const RESTORE_LABELS: Record<string, string> = {
+  rehydrated: "Restored",
+  "already-present": "Already there",
+  "nothing-captured": "Nothing stored",
+  "no-recorded-cwd": "No directory",
+};
+
+/**
+ * Rebuild this conversation's on-disk transcript so `claude --resume` works
+ * again (mt#4573).
+ *
+ * Sits beside the copy button rather than replacing it: the resume command is
+ * still what the operator runs, and this makes it work when Claude Code has
+ * reaped the transcript out from under it.
+ *
+ * Deliberately NOT gated on knowing in advance whether the file is missing. The
+ * route answers that itself — `already-present` is a 200, because the question
+ * the operator is asking is "can I resume this?", and the answer is yes. Gating
+ * would mean shipping a resumability probe per row (mt#3438's territory) to
+ * decide whether to render a button that is harmless either way.
+ */
+function RestoreTranscriptButton({ conversationId }: { conversationId: string }) {
+  const [result, setResult] = useState<string | null>(null);
+
+  const restore = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/conversations/${conversationId}/rehydrate`, {
+        method: "POST",
+      });
+      return (await res.json()) as { status?: string; outcome?: string };
+    },
+    onSuccess: (body) => {
+      const key = body.status ?? body.outcome ?? "";
+      setResult(RESTORE_LABELS[key] ?? "Failed");
+      setTimeout(() => setResult(null), 3000);
+    },
+    onError: () => {
+      setResult("Failed");
+      setTimeout(() => setResult(null), 3000);
+    },
+  });
+
+  return (
+    <button
+      type="button"
+      onClick={() => restore.mutate()}
+      disabled={restore.isPending}
+      title="Rebuild this conversation's transcript on disk so it can be resumed"
+      aria-label="Restore transcript"
+      className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors flex-shrink-0 disabled:opacity-50"
+    >
+      <RotateCcw className="h-3 w-3" />
+      {result ?? (restore.isPending ? "Restoring" : "Restore")}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Result row
 // ---------------------------------------------------------------------------
 
@@ -190,6 +252,7 @@ function ConversationSearchResultRow({ turn }: { turn: ConversationSearchTurn })
           {turn.resumeHint}
         </code>
         <CopyResumeButton resumeHint={turn.resumeHint} />
+        <RestoreTranscriptButton conversationId={turn.agentSessionId} />
       </div>
     </div>
   );

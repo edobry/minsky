@@ -463,6 +463,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "warn-unwired-task-relationship",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "`structural` on the strength of the DISCHARGE half, which has no paraphrase axis at all: at `tasks_create` it is a field on the call (`dependsOn` / `parent`), and at the edit seams a row in `task_relationships`. That is what keeps this off ADR-024's ladder — precision is bounded by the RECOGNITION half alone, and a phrase that half misses is a false negative, i.e. the status quo. `recordReview` only, matching `claim-provenance-scan` and for the same reason: the recognition half is unsized until a replay measures it, and an advisory that fires at careful authors trains its reader to discount the fire that matters (mem#719). What makes this guard worth its budget rather than a fifth memory (mem#530 R1-R4, 84 days) is that the failure is a CONFIDENT WRONG ANSWER rather than silence — an unwired edge makes `tasks_orchestrate` report blocked work as dispatchable, so the cost rises exactly as orchestration is trusted more.",
+    },
+  ],
+  [
     "evidence-record-provenance",
     {
       interventions: [recordReview],
@@ -522,6 +531,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "spec-scope-execution-check",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads with no paraphrase axis: the path list the spec's own in-scope section names, against the session's edit-call paths over the same PR window. Both sides are paths, so there is nothing to paraphrase — the judgment it stands in for is whether a CONDITIONAL enumeration line's condition fired, which is why it records rather than denies. Sibling of `enumeration-scope-check` at the same seam: that one joins sweep-call ARGUMENTS against a prescribed directory list, this one joins the SPEC'S OWN list against the diff. Parses strictly, because the shared extractor's fallback chain answers a different question (which files might collide?) and would supply paths the spec only mentions.",
+    },
+  ],
+  [
     "gate-walk-provenance",
     {
       ...structuralRecorder,
@@ -559,6 +577,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["operator-deferral-ask-surface", lexicalRecorder],
   ["operator-deferral-detector", lexicalRecorder],
   ["pre-narration-detector", lexicalDetector],
+  ["secret-request-in-chat-detector", lexicalRecorder],
   [
     "record-agent-dispatch",
     {

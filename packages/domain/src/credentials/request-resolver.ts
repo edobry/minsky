@@ -17,9 +17,12 @@
  */
 import { log } from "@minsky/shared/logger";
 
+import { readCredentialRequest } from "@minsky/shared/credential-request";
+
 import type { Ask, AskState } from "../ask/types";
 import type { AskRepository } from "../ask/repository";
 import { listCredentials } from "./lifecycle";
+import { releaseParentTask, type ParentTaskGateDeps } from "./parent-task-gate";
 import {
   CREDENTIAL_REQUEST_RESPONDER,
   selectPendingCredentialRequests,
@@ -72,6 +75,18 @@ export interface CredentialRequestResolverDeps {
   listPresence(): Promise<ProviderPresence[]>;
   /** Close one satisfied request. Throws if it is no longer closeable. */
   satisfy(ask: Ask, detail: string): Promise<void>;
+  /**
+   * Return the request's parent task to a walkable status (mt#4486).
+   *
+   * Optional so an existing caller that wires only the three members above keeps
+   * working — a resolver with no task access simply does not release, which is
+   * the pre-mt#4486 behaviour rather than a broken one.
+   *
+   * Only SATISFIED requests reach this. A declined, unanswered or policy-closed
+   * request leaves its parent BLOCKED on purpose: a blocked task sits in the
+   * operator's queue, which is where an unmet credential belongs.
+   */
+  releaseParent?(ask: Ask): Promise<void>;
 }
 
 /** What one resolver pass did. Ids only — never a credential, never a payload. */
@@ -103,6 +118,15 @@ export async function resolveSatisfiedCredentialRequests(
     try {
       await deps.satisfy(entry.ask, entry.detail);
       closed.push(entry.ask.id);
+
+      // AFTER the close, and outside its try/catch reach only in the sense that
+      // a release failure must not un-close the request: the credential is
+      // stored and the ask is settled, so the task status is the last and least
+      // consequential step. `releaseParentTask` already soft-fails and logs, so
+      // this needs no second catch — but it must not run before the close, or a
+      // raced close would leave a task released against a request that is still
+      // open.
+      await deps.releaseParent?.(entry.ask);
     } catch (err: unknown) {
       // A concurrent decline/cancel/expire is the expected loser here, not an
       // error to escalate: the request is settled either way and the credential
@@ -127,9 +151,32 @@ export async function resolveSatisfiedCredentialRequests(
  * agent's observable is a boolean plus that status string.
  */
 export function createCredentialRequestResolverDeps(
-  repo: AskRepository
+  repo: AskRepository,
+  /**
+   * Task read/write for the parent-task release (mt#4486). Optional: a caller
+   * with no task access gets the pre-mt#4486 behaviour — requests still resolve,
+   * parents just are not returned.
+   */
+  taskGate?: ParentTaskGateDeps
 ): CredentialRequestResolverDeps {
   return {
+    ...(taskGate
+      ? {
+          async releaseParent(ask: Ask) {
+            if (!ask.parentTaskId) return;
+            // The entry status rides the request payload — see
+            // `CredentialRequestPayload.parentEntryStatus` for why it cannot be
+            // re-derived here (the task is BLOCKED by now, and BLOCKED has no
+            // edge back to IN-PROGRESS or IN-REVIEW).
+            const payload = readCredentialRequest(ask);
+            await releaseParentTask(taskGate, ask.parentTaskId, payload?.parentEntryStatus, {
+              id: ask.id,
+              shortId: ask.shortId ?? undefined,
+            });
+          },
+        }
+      : {}),
+
     async listCandidateAsks() {
       const pages = await Promise.all(CANDIDATE_STATES.map((state) => repo.listByState(state)));
       return pages.flat();

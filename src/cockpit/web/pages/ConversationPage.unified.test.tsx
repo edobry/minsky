@@ -49,37 +49,37 @@ class StubEventSource {
 
 let originalEventSource: typeof globalThis.EventSource;
 let originalFetch: typeof globalThis.fetch;
-let originalWebSocket: typeof globalThis.WebSocket;
-/** Every WS url the page caused to be opened — must stay empty (SC5). */
-let openedSockets: string[] = [];
 
+/**
+ * `globalThis.WebSocket` is NOT patched here any more (mt#4488).
+ *
+ * This file used to install a recording WebSocket constructor to prove the read-only
+ * guarantee — "no session driver channel is opened" — and the comment beside it claimed
+ * watching the constructor was "the only way to assert that from outside." It was not, and
+ * it was the patched-collaborator shape `testing-standards.mdc §Testable Design` names.
+ *
+ * The guarantee now lives in `tests/architecture/conversation-route-read-only.test.ts`,
+ * which asserts `ConversationPage`'s import closure never reaches `useDrivenSession` — the
+ * only module in cockpit-web that constructs one. That is strictly stronger than what the
+ * recorder proved: it covers every code path rather than the states this suite happens to
+ * render.
+ *
+ * The `EventSource` and `fetch` stubs below STAY. They are isolation stubs for rendering,
+ * not instruments for observing a guarantee, and they keep ADR-036 rule 4(i)'s restore
+ * protocol — created in `beforeEach`, restored in `afterEach`, holders never reassigned
+ * across tests.
+ */
 beforeEach(() => {
   originalEventSource = globalThis.EventSource;
   originalFetch = globalThis.fetch;
-  originalWebSocket = globalThis.WebSocket;
-  openedSockets = [];
   // @ts-expect-error — stub
   globalThis.EventSource = StubEventSource;
-  // A WebSocket constructor that RECORDS rather than connects: the read-only
-  // guarantee is "no session driver channel is opened", and the only way to assert
-  // that from outside is to watch the constructor.
-  // @ts-expect-error — stub
-  globalThis.WebSocket = class {
-    constructor(url: string) {
-      openedSockets.push(url);
-    }
-    addEventListener(): void {}
-    removeEventListener(): void {}
-    send(): void {}
-    close(): void {}
-  };
 });
 
 afterEach(() => {
   cleanup();
   globalThis.EventSource = originalEventSource;
   globalThis.fetch = originalFetch;
-  globalThis.WebSocket = originalWebSocket;
 });
 
 function createTestQueryClient(): QueryClient {
@@ -331,21 +331,16 @@ describe("SC5 / AT4 — the unified route is read-only by construction", () => {
     expect(queryComposer()).toBeNull();
   });
 
-  test("opens no session driver WebSocket in any of those states", async () => {
-    stubFetches({
-      sessionDrivers: [
-        { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
-      ],
-      transcripts: [CONVERSATION_UUID],
-    });
-    renderAt(CONVERSATION_UUID);
-    await waitFor(() =>
-      expect(screen.getByText(`Conversation ${CONVERSATION_UUID.slice(0, 8)}`)).toBeDefined()
-    );
-    // Not merely "no composer rendered" — no channel was opened at all, which
-    // is what makes the read-only guarantee structural rather than cosmetic.
-    expect(openedSockets.filter((u) => u.includes("driven-session"))).toEqual([]);
-  });
+  // The "opens no session driver WebSocket in any of those states" test was REMOVED here
+  // (mt#4488), not merely emptied. Its assertion read a `globalThis.WebSocket` recorder;
+  // once that patch went, the only thing left in its body was the same `waitFor` the test
+  // above already performs, under a name that no longer described it — a shell whose title
+  // still claimed a guarantee nothing in it checked.
+  //
+  // The guarantee itself did not weaken. It moved to
+  // `tests/architecture/conversation-route-read-only.test.ts`, which asserts the route's
+  // import closure never reaches `useDrivenSession` — every code path, not just the states
+  // rendered here. Composer-absence in the driven state stays covered by the test above.
 });
 
 describe("AT2 — a conversation with no telemetry", () => {

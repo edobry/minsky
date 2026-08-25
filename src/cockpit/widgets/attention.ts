@@ -17,6 +17,7 @@
  * Data contract: payload shape is AttentionPayload (defined below).
  * Frontend mirrors the shape in Attention.tsx — keep in sync.
  */
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask } from "@minsky/domain/ask/types";
@@ -232,20 +233,16 @@ const getCachedAskRepo = createEpochKeyedCache(async (): Promise<AskRepository> 
     const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
 
-    // Try to get DB connection via SQL capability
-    if (
-      !("getDatabaseConnection" in provider) ||
-      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-    ) {
+    // Capability + method, via the one guard (mt#4543) — the comment above said "via SQL
+    // capability" while the check asked only whether the method existed.
+    if (!isSqlCapable(provider)) {
       // The provider is already in hand here, so call the domain helper
       // directly rather than db-providers' re-fetching wrapper (mt#3661).
       throw new Error(`AskRepository unavailable — ${describePersistenceUnavailability(provider)}`);
     }
 
-    const sqlProvider = provider as {
-      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-    };
-    const db = await sqlProvider.getDatabaseConnection();
+    // No cast — `isSqlCapable` narrowed (PR #3324 R1).
+    const db = await provider.getDatabaseConnection();
     if (!db) {
       // Same class as the capability check above, and just as cause-free before
       // mt#3661 — a null connection from a provider that CLAIMED SQL capability.
