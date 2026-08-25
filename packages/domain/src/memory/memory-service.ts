@@ -53,7 +53,7 @@ const MAX_MEASUREMENT_LOOKUPS_PER_PAGE = 25;
 function scopedToProject(projectScope: string) {
   return or(
     eq(memoriesTable.projectId, projectScope),
-    inArray(memoriesTable.scope, [...PROJECT_AGNOSTIC_MEMORY_SCOPES])
+    inArray(memoriesTable.scope, PROJECT_AGNOSTIC_MEMORY_SCOPES)
   );
 }
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";

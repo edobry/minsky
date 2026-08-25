@@ -32,21 +32,32 @@ export const memoryTypeEnum = pgEnum("memory_type", MEMORY_TYPE_VALUES);
 export const memoryScopeEnum = pgEnum("memory_scope", ["project", "user", "cross_project"]);
 
 /**
+ * The one scope value that binds a memory to a single project (mt#4530).
+ *
+ * This is the invariant the scope enum encodes: `project` memories belong to one project and
+ * carry its `project_id`; every other value is deliberately unbound and stored with a NULL
+ * `project_id`, which is the ABSENCE of a binding rather than a binding to nothing.
+ */
+export const PROJECT_BOUND_MEMORY_SCOPE = "project" as const;
+
+/**
  * The scope values that mean "not bound to a single project" (mt#4530).
  *
- * `project` memories belong to one project and carry its `project_id`. The other two
- * deliberately do not: `user` is knowledge about the operator that applies wherever they work,
- * and `cross_project` explicitly spans projects. Both are stored with a NULL `project_id`,
- * which is the ABSENCE of a binding, not a binding to nothing.
+ * **DERIVED from the enum, not enumerated by hand** (PR #3302 R1). A project-scoped read must
+ * match `project_id = <this project>` OR a scope in this list; filtering on `project_id` alone
+ * silently excludes them all, which is the mt#4530 defect that hid 367 memories the moment
+ * project scoping first worked.
  *
- * A project-scoped read must therefore match `project_id = <this project>` OR a scope in this
- * list. Filtering on `project_id` alone silently excludes both — the mt#4530 defect, which hid
- * 367 memories the moment project scoping first worked.
- *
- * Derived from what the enum's values MEAN, not from the rows that happened to be excluded:
- * every value other than `project` belongs here, and a new non-project scope must be added.
+ * Deriving matters because the failure mode is silent in exactly one direction. A hand-written
+ * `["user", "cross_project"]` makes "bound to a project" the default for anything added later:
+ * a new `team` scope would be filtered out of every project-scoped read, with no error and no
+ * test failure — the same defect, re-introduced by an edit that never touched this file.
+ * Deriving inverts that default, so a new value is visible until someone deliberately says
+ * otherwise. `memory-embeddings.scope-derivation.test.ts` pins the relationship.
  */
-export const PROJECT_AGNOSTIC_MEMORY_SCOPES = ["user", "cross_project"] as const;
+export const PROJECT_AGNOSTIC_MEMORY_SCOPES = memoryScopeEnum.enumValues.filter(
+  (scope) => scope !== PROJECT_BOUND_MEMORY_SCOPE
+);
 
 /**
  * Primary memories table.
