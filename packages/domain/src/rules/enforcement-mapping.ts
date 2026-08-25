@@ -788,6 +788,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "mt#4494 peer-activity advisory — reads the task event ledger on tasks_status_set and injects additionalContext naming any session.started / recent status change; never denies, fail-open on a degraded DB path. Deliberately advisory rather than blocking: denying is the prevention side of the substrate RFC's Open question 4 (Notion 367937f0, Draft), a principal-level design-philosophy question this hook must not settle as a side effect",
   },
   {
+    configPath: ".claude/hooks/warn-stale-forward-reference.ts",
+    reason:
+      "mt#4535 stale-forward-reference advisory — on a DONE transition only, scans the ADR and rule corpus for paragraphs that describe this task's deliverable as future work and injects them as reconciliation candidates; never denies, fails open on a degraded DB path or an unreadable corpus. Log-only by design: the description-path match is a title-token heuristic whose false-positive rate against the corpus is unmeasured, so the calibration record ships before any enforcement",
+  },
+  {
     configPath: ".claude/hooks/record-subagent-invocation.ts",
     reason:
       "SubagentStop recording — writes dispatch-row columns, makes no permission decision (hook-observers.mdc)",

@@ -128,6 +128,36 @@ const DEFAULT_POSTGRES_MAX_CONNECTIONS = Math.max(
 const MAX_POSTGRES_MAX_CONNECTIONS = 100;
 
 /**
+ * Seconds `close()` gives postgres-js to drain gracefully before it force-terminates
+ * the pool's connections (mt#4515).
+ *
+ * WHY A BOUND EXISTS AT ALL. `sql.end()` with no argument defaults `timeout` to
+ * `null`, which means postgres-js never arms the internal timer that calls
+ * `destroy()` → `c.terminate()` on each connection
+ * (`node_modules/postgres/src/index.js:365-389`). Its only runner is then a
+ * `Promise.all` over per-connection `end()`, and on a half-open pool — the exact
+ * failure the cockpit's recycle exists to recover from — those never settle. The
+ * connections stay ESTABLISHED for the life of the process. Measured: 88 abandoned
+ * recycle closes and ZERO clean ones across every retained cockpit log rotation,
+ * and +8 sockets (one full pool at the then-max) across a single observed recycle.
+ *
+ * WHY 3, per `decision-defaults §Thresholds` — this is the CEILING case, so the
+ * value is derived from a budget declared elsewhere rather than from observed
+ * cadence. The binding constraint is the cockpit's own outer deadline,
+ * `RECYCLE_CLOSE_TIMEOUT_MS = 5_000` (`src/cockpit/shared-persistence.ts`), which
+ * abandons the close and moves on. This bound must fire STRICTLY FIRST or it is
+ * dead code: if the outer deadline wins, the recycle walks away before
+ * `terminate()` has run and nothing is released — which is precisely today's
+ * behaviour. 3s leaves ~2s of margin for the terminate round-trip.
+ *
+ * Raising this above the cockpit's 5s, or lowering that below this, re-creates the
+ * defect. `shared-persistence.test.ts` asserts the ordering so the two cannot drift
+ * apart silently — the domain layer must not import cockpit code, so the assertion
+ * lives on the cockpit side where both constants are in scope.
+ */
+export const CLOSE_TIMEOUT_SECONDS = 3;
+
+/**
  * mt#1763 (PR #1065 R1 BLOCKING #3) — pure-function predicate for the
  * auto-migration decision. Extracted so tests can exercise the decision
  * logic without needing a real DB connection.
@@ -702,10 +732,15 @@ export class PostgresPersistenceProvider
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
-      // Clean up connection we created to prevent pool leaks
+      // Clean up connection we created to prevent pool leaks.
+      // Bounded (mt#4515, PR #3308 R1). This is a FAILURE path, so the client is
+      // more likely to be in a bad state here than anywhere else — an unbounded
+      // `end()` on a half-open connection never settles, and this one sits
+      // inside the catch of `initialize()`, so hanging here means the caller
+      // never sees the original error either.
       if (createdSql) {
         try {
-          await createdSql.end();
+          await createdSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch {
           /* ignore cleanup errors */
         }
@@ -907,10 +942,13 @@ export class PostgresPersistenceProvider
    */
   async close(): Promise<void> {
     try {
-      // Close the session-mode listen connection first (if created)
+      // Close the session-mode listen connection first (if created).
+      // Bounded like the others (mt#4515): this one is max:1, but a single
+      // wedged LISTEN socket is exactly as unsettleable as a pooled one, and it
+      // is FIRST — an unbounded wait here never reaches the primary pool below.
       if (this.listenSql) {
         try {
-          await this.listenSql.end();
+          await this.listenSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch (listenErr) {
           log.warn(
             `Error closing listen SQL connection: ${listenErr instanceof Error ? listenErr.message : String(listenErr)}`
@@ -923,14 +961,18 @@ export class PostgresPersistenceProvider
       // without initializing), end it here so the pool doesn't leak.
       if (!this.sql && this.preValidatedSql) {
         try {
-          await this.preValidatedSql.end();
+          await this.preValidatedSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch {
           /* ignore cleanup errors */
         }
         this.preValidatedSql = null;
       }
       if (this.sql) {
-        await this.sql.end();
+        // The primary pool. `{ timeout }` is what arms postgres-js's internal
+        // destroy → terminate path (mt#4515); omitting it defaults to `null`,
+        // which leaves an unsettleable await on a half-open pool and strands
+        // every socket for the life of the process.
+        await this.sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         this.sql = null;
         this.guardedSql = null;
         this.db = null;

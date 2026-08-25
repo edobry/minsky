@@ -282,11 +282,71 @@ next escalation, if warranted, is generation-time steering (e.g. a mid-turn nudg
 post-hoc scan — untried, not recommended here, and out of this task's scope to build
 speculatively.
 
+## A message about how you are communicating (mt#4531)
+
+Rule: `communication-contract.mdc §A message about how you are communicating authorizes nothing`.
+
+**The incident (R7, mem#664, 2026-08-24).** After the principal wrote _"you need to be way more
+concise. This is way too much information. I cannot process all of this. We already have
+communication style guidelines don't we? Why are you talking this way?"_, the agent acknowledged in
+two sentences, invoked a skill and resumed tool work. The principal's next message: _"Okay, no, I
+wanted you to summarize all this concisely, not just keep going. Come on."_ The transcript
+corroborates it exactly — that turn carried 38 + 5 words of prose and 10 tool calls.
+
+**Why the pull is strong here specifically.** The complaint interrupts work that feels urgent, and
+it arrives with no explicit stop instruction, so "acknowledge and continue" reads as efficient.
+Aggravating in R7: the `ask-routing-deferral` detector had fired on the agent's prior question, so
+at the exact moment the principal wanted fewer words and no action, a live advisory was pushing
+toward action. Two advisories pulled opposite ways and the wrong one won. That is what the
+precedence half of the rule settles.
+
+**Why the deferral detector's payload does not restate the precedence rule.** It would be the
+obvious place — the conflicting pull originates there — and it is the wrong place. That guard's
+`attentionCost.denialMessageSizeChars` is 1121, and its declaration in
+`registry-prompt-scan-guards.ts` records that number as an exact measurement of the saturated
+render, states that raising it again is not the fix (trimming the prose is), and notes that raising
+it cascades into `MERGED_CONTEXT_BUDGET_CHARS`. The same comment warns off redesigning that payload
+while mt#4201 / mt#3932 / mt#4175 are in flight on what makes the detector FIRE. And the rule is
+always-loaded, so it is already in context whenever the detector fires — a second copy would cost
+~142 chars per fire plus a budget cascade to say something the reader already has. The pointer
+lives in `hook-observers.mdc`'s entry for the detector and at its `buildReminder` call site.
+
+### Revisited after R7 (mt#4531, 2026-08-25): the prose choice stands, and one premise above is now wrong
+
+R7 arrived thirteen days after this decision shipped, and the task that filed it claimed the
+recurrence falsified "deliberately prose, not a default." **It does not.** R7 is a different
+surface — a turn-end report that ran long, not a scope-boundary answer — so it is not a test of the
+decision recorded here, which is scoped to "substance owned elsewhere." Read the paragraphs above
+as still current on their own subject.
+
+**What R7 does correct is a factual premise stated above**: _"The family's only enforcement-tier
+fix is the wall-of-text detector … and it fired accurately elsewhere in the R6 session."_ The
+accuracy claim was inherited rather than checked. Replaying the R7 session showed the detector
+measuring only the FINAL assistant block of a turn, so a 597-word wall sitting in the FIRST block
+of an 854-word turn measured as 110 words and produced no fire at all. It was not a Stop-time
+signal arriving too late; on that turn it was a signal that could not see the thing it was built to
+see. mt#4531 fixed the measured unit (largest block, chosen by replaying 2574 turns).
+
+**Two consequences for this section's reasoning, in opposite directions.** The Stop-time limit it
+names is real and unchanged — a post-hoc scan still cannot prevent a generation-time failure. But
+"no cheaper or more mechanical tier was found" was reached partly on the belief that the existing
+detector was working correctly and was simply mistimed. One of the two was false, and a
+measurement defect is exactly the kind of thing a "no mechanism fits" conclusion should be checked
+against before it is recorded. The prose tier stands here; the lesson is that the SURVEY behind a
+tier decision deserves the same verification as the decision.
+
+**Also corrected: R7 is not evidence that an advisory carries no weight at generation time.** The
+original filing said the detector fired and three more over-budget turns followed. The transcript
+shows one fire, and the three turns after it measured 110, 5 and 152 words at the final block — the
+reminder was COMPLIED WITH, narrowly, while total turn prose rose. mem#664's R7 entry carries the
+correction.
+
 ### Cross-references
 
-mem#664 (family root, R1–R6) · mt#2870/mt#3112 (the one enforcement-tier fix that exists, and its
-Stop-time limit) · mt#2838 (wrong-register escalation budget) · `/retrospective` step 4 (tier
-selection discipline).
+mem#664 (family root, R1–R7) · mt#2870/mt#3112 (the one enforcement-tier fix that exists, and its
+Stop-time limit) · mt#4531 (the R7 measurement fix; ADR-031 amendment) · mt#4540 (the
+depth-request override R7 also implicates) · mt#2838 (wrong-register escalation budget) ·
+`/retrospective` step 4 (tier selection discipline).
 
 ## The terminal actionables block (mt#4443)
 

@@ -19,6 +19,10 @@ import {
   type ConnectionFailure,
 } from "@minsky/domain/persistence/connection-failure";
 import type { PersistenceHealthMode } from "@minsky/domain/persistence/health";
+// mt#4515: the drain budget `close()` hands postgres-js. Imported rather than
+// duplicated so the ordering against RECYCLE_CLOSE_TIMEOUT_MS below is checkable
+// (and is checked, in this file's test) instead of being two numbers that drift.
+import { CLOSE_TIMEOUT_SECONDS } from "@minsky/domain/persistence/providers/postgres-provider";
 import type { PersistenceService } from "@minsky/domain/persistence/service";
 import type {
   PersistenceProvider,
@@ -797,9 +801,24 @@ export function recycleSharedPersistence(cause: string): void {
   }
 }
 
-/** Fire-and-forget close of a recycled service, bounded by a logging deadline. */
+/**
+ * Fire-and-forget close of a recycled service, bounded by a logging deadline.
+ *
+ * The deadline here is a BACKSTOP, not the primary bound (mt#4515). The real one
+ * lives inside `close()`, which hands postgres-js `{ timeout: CLOSE_TIMEOUT_SECONDS }`
+ * so the driver's own `destroy()` terminates the sockets. That must fire first —
+ * `CLOSE_TIMEOUT_SECONDS` (3s) is deliberately below `RECYCLE_CLOSE_TIMEOUT_MS` (5s),
+ * asserted in this file's test.
+ *
+ * Until mt#4515 there was no inner bound, so this deadline was the ONLY one, and
+ * winning it meant abandoning connections nothing had terminated: 88 abandoned
+ * closes and zero clean ones across every retained log rotation. A fire here now
+ * means something worse than a wedged pool — the driver's own destroy did not
+ * complete either — so it is logged as such rather than as routine.
+ */
 function closeAbandonedService(svc: PersistenceService): void {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(
       () => reject(new Error(`close() still pending after ${RECYCLE_CLOSE_TIMEOUT_MS}ms`)),
@@ -808,11 +827,31 @@ function closeAbandonedService(svc: PersistenceService): void {
     timer.unref?.();
   });
   void Promise.race([Promise.resolve(svc.close?.()), deadline])
-    .then(() => log.debug("[shared-persistence] recycled pool closed cleanly"))
+    .then(() => {
+      const elapsedMs = Date.now() - startedAt;
+      // postgres-js resolves `end({ timeout })` the same way whether it drained
+      // or force-destroyed, so it cannot tell us which happened. Elapsed time
+      // against the drain budget is the discriminator available, and it is
+      // labelled as an inference rather than reported as fact.
+      const forced = elapsedMs >= CLOSE_TIMEOUT_SECONDS * 1000;
+      log.info("[shared-persistence] recycled pool closed", {
+        elapsedMs,
+        outcome: forced ? "likely-force-terminated" : "drained",
+        basis: forced
+          ? `close() took >= the ${CLOSE_TIMEOUT_SECONDS}s drain budget, so postgres-js's destroy timer almost certainly fired`
+          : `close() returned inside the ${CLOSE_TIMEOUT_SECONDS}s drain budget`,
+      });
+    })
     .catch((err: unknown) =>
-      log.warn("[shared-persistence] abandoned close of recycled pool", {
-        message: err instanceof Error ? err.message : String(err),
-      })
+      log.warn(
+        "[shared-persistence] abandoned close of recycled pool — the INNER bound did not fire either, so connections may be stranded",
+        {
+          message: err instanceof Error ? err.message : String(err),
+          elapsedMs: Date.now() - startedAt,
+          innerBoundSeconds: CLOSE_TIMEOUT_SECONDS,
+          outerBoundMs: RECYCLE_CLOSE_TIMEOUT_MS,
+        }
+      )
     )
     .finally(() => {
       if (timer) clearTimeout(timer);

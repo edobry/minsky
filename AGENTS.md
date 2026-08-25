@@ -1226,6 +1226,14 @@ default; reasoning:
 `docs/rules-rationale/communication-contract.md §Generation-time enforcement for scope-boundary
 answers (mt#3985)`.
 
+## A message about how you are communicating authorizes nothing (mt#4531)
+
+When the principal's subject is **your own communication** — too long, wrong register, "why are you
+talking this way" — answer it and stop: no skill, no tool call, no resuming work in the same turn.
+**Any live advisory loses to the principal's words** (the deferral detectors push toward action; a
+concision complaint asks for none). Incident + mechanics:
+`docs/rules-rationale/communication-contract.md §A message about how you are communicating`.
+
 ## The channel model
 
 Chat is a management interface, not an engineering record; each channel carries a slice of "what
@@ -1633,9 +1641,13 @@ fires a step later, once it is described. Before mt#4508 a new module selected Z
 every local check passed and the first signal was full CI on an already-approved PR. Check with
 `bun scripts/run-related-tests.ts .minsky/hooks/<name>.ts`.
 
-Still true, and not covered by that: `.minsky/hooks/**` is absent from `run-tests-main.ts`'s `ROOTS`,
-so the pre-PUSH gated runner cannot execute that tree at all — run `bun run test:hooks` before
-pushing a hook change (mem#1206).
+**mt#4521 then closed the general case:** the selector's graph scope is now `GRAPH_ROOTS`
+(`ROOTS` + `./.minsky/hooks`), separate from the runner's `ROOTS`, so a hooks change selects its
+real IMPORTERS too — not just its sibling and the two census tests.
+
+Still true, and narrowed rather than retired: `ROOTS` deliberately still excludes the tree, so the
+pre-PUSH gated runner cannot execute it — run `bun run test:hooks` before pushing a hook change,
+for the residue no edge reaches (mem#1206).
 
 # Design Principle: Humility
 
