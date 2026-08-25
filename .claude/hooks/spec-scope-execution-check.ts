@@ -260,18 +260,105 @@ export function pathIsCovered(enumerated: string, edited: readonly string[]): bo
  * Falls back to `null` rather than to a whole-document scan when no block is
  * available — a missing quote is a smaller failure than a misattributed one.
  */
+/**
+ * Is `line` a CONTINUATION of the bullet above it?
+ *
+ * A continuation is INDENTED and opens nothing of its own. Every clause below is
+ * a stop, and the indentation requirement is the load-bearing one (PR #3360 R1):
+ * without it the joiner absorbed any non-empty, non-`-`/`*` line, so an
+ * unindented paragraph, an ordered-list item or a heading following the block's
+ * last bullet was swallowed into that entry. Two consequences, and the second is
+ * the serious one: the calibration record quotes text the author never wrote
+ * about this path, and a qualifier-like phrase in that absorbed text can
+ * SUPPRESS A REAL FINDING.
+ */
+function isBulletContinuation(line: string): boolean {
+  if (line.trim() === "") return false;
+  // Must be indented — an unindented line starts something new, whatever it is.
+  if (!/^\s+\S/.test(line)) return false;
+  if (/^\s*[-*+]\s/.test(line)) return false; // a nested or sibling bullet
+  if (/^\s*\d+[.)]\s/.test(line)) return false; // an ordered-list item
+  if (/^\s*#{1,6}\s/.test(line)) return false; // a heading
+  if (/^\s*(?:[-=*_]\s*){3,}$/.test(line)) return false; // a thematic break
+  return true;
+}
+
 export function enumerationLineFor(inScopeBlock: string | undefined, path: string): string | null {
   if (!inScopeBlock) return null;
   const target = normalizePath(path);
-  for (const line of inScopeBlock.split("\n")) {
-    if (line.includes(target)) return line.trim();
+  const lines = inScopeBlock.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (!line.includes(target)) continue;
+    // Join the bullet's CONTINUATION lines (mt#4582 SC7). A continuation is
+    // indented, non-empty, and does not open a new `-`/`*` bullet.
+    const parts = [line.trim()];
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j] ?? "";
+      if (!isBulletContinuation(next)) break;
+      parts.push(next.trim());
+    }
+    return parts.join(" ");
   }
   return null;
+}
+
+/**
+ * Phrases by which an author marks an in-scope entry as UNCONDITIONALLY exempt.
+ *
+ * Derived from measurement, not invented: over the 100 most recently merged PRs
+ * (post-mt#4591, 20 untouched entries) these four forms account for all 5
+ * qualifier instances — `READ-ONLY` x2, `only insofar as` x2,
+ * `only to the extent of` x1. Two independent 100-PR windows yielded the same
+ * closed set, which is why the sample was not widened further (SC2).
+ *
+ * **A CONDITIONAL is deliberately NOT here (SC5).** `update if the signature
+ * changes` reads like a qualifier and is not one: whether the condition FIRED is
+ * exactly what a path comparison cannot evaluate, so the honest answer is to
+ * keep flagging it. This is not a conservative default — it is load-bearing.
+ * Both surviving flagged entries on PR #3310 / mt#4531, the check's founding
+ * incident, are conditionals, so an `if` rule would silence the one case the
+ * check exists for and turn AT3 into a guaranteed failure.
+ *
+ * Rung 1 per ADR-024: fixed phrases over text the check already holds, no
+ * paraphrase axis, no learned stage.
+ */
+export const QUALIFIER_PATTERNS: readonly RegExp[] = [
+  // HYPHENATED only (PR #3360 R1). A bare `read only` appears in ordinary prose
+  // — "a read only reference for the fields" — and matching it would suppress a
+  // real finding on an incidental mention. Both measured instances in the
+  // corpus are hyphenated (`READ-ONLY:` and `READ-ONLY.`), so requiring the
+  // hyphen costs no coverage and removes the whole ambiguity.
+  /\bREAD-ONLY\b/i,
+  /\bonly insofar as\b/i,
+  /\bonly to the extent of\b/i,
+  /\bno behaviou?r change\b/i,
+];
+
+/**
+ * True when the author's own enumeration entry marks the path unconditionally
+ * exempt.
+ *
+ * A `null` entry is NEVER qualified (SC6): `inScopeBlock` is absent on
+ * `extractInScopeFiles`'s `## Scope Constraints` early return, and a missing
+ * quote is "no evidence", not "no qualifier". Suppressing on absent evidence is
+ * the one direction that hides a real unkept promise.
+ */
+export function isQualifiedEntry(entry: string | null): boolean {
+  if (entry === null) return false;
+  return QUALIFIER_PATTERNS.some((pattern) => pattern.test(entry));
 }
 
 export interface UntouchedPath {
   path: string;
   line: string | null;
+}
+
+export interface UntouchedResult {
+  /** Entries the PR did not touch AND the spec did not exempt. */
+  untouched: UntouchedPath[];
+  /** How many untouched entries were suppressed as qualified — recorded, never silent (SC1). */
+  qualified: number;
 }
 
 /**
@@ -284,13 +371,20 @@ export function untouchedEnumeratedPaths(
   inScopeBlock: string | undefined,
   enumerated: readonly string[],
   edited: readonly string[]
-): UntouchedPath[] {
-  const out: UntouchedPath[] = [];
+): UntouchedResult {
+  const untouched: UntouchedPath[] = [];
+  let qualified = 0;
   for (const path of enumerated) {
     if (pathIsCovered(path, edited)) continue;
-    out.push({ path, line: enumerationLineFor(inScopeBlock, path) });
+    const line = enumerationLineFor(inScopeBlock, path);
+    // The author already said this one might not be touched (mt#4582).
+    if (isQualifiedEntry(line)) {
+      qualified++;
+      continue;
+    }
+    untouched.push({ path, line });
   }
-  return out;
+  return { untouched, qualified };
 }
 
 export function run(
@@ -388,7 +482,7 @@ export function run(
     };
   }
 
-  const untouched = untouchedEnumeratedPaths(inScopeBlock, enumerated, edited);
+  const { untouched, qualified } = untouchedEnumeratedPaths(inScopeBlock, enumerated, edited);
 
   if (untouched.length === 0) {
     return {
@@ -398,6 +492,11 @@ export function run(
         taskId,
         enumeratedCount: enumerated.length,
         editedCount: edited.length,
+        // Carried on the CLEAN record too (mt#4582 SC1). A spec whose every
+        // untouched entry was suppressed as qualified would otherwise be
+        // byte-identical to one the PR fully executed — which is exactly the
+        // "dropped without a trace" case the criterion forbids.
+        qualified,
       },
     };
   }
@@ -409,11 +508,15 @@ export function run(
       taskId,
       enumeratedCount: enumerated.length,
       editedCount: edited.length,
+      // How many untouched entries the author's own wording exempted (mt#4582).
+      qualified,
       // SC3's content lives HERE rather than in injected text: the path plus
-      // the spec's own line that named it, so a calibration reader sees the
-      // author's words and — critically — whether the line was CONDITIONAL,
-      // which is the one thing that distinguishes a real finding from this
-      // check's dominant false positive.
+      // the spec's own ENTRY that named it — the bullet including its
+      // continuation lines, not just the first physical line (mt#4582 SC7),
+      // because this repo wraps at 100 chars and half of all flagged bullets
+      // wrap. A calibration reader sees the author's words and — critically —
+      // whether the entry was CONDITIONAL, which is what distinguishes a real
+      // finding from this check's dominant remaining false positive.
       untouched: untouched.map((u) => ({ path: u.path, line: u.line })),
     },
     // RECORD-ONLY for v1, matching the sibling `enumeration-scope-check`
