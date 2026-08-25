@@ -37,6 +37,7 @@
  * columns that are missing, so during the incident the failure counter could
  * never be recorded and no session ever reached the threshold.
  */
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -226,11 +227,8 @@ export async function refreshSchemaReadinessFromDb(): Promise<SchemaReadiness> {
       // against the connection the gated work would actually run on.
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      if (
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
+      // Capability + method, via the one guard (mt#4543).
+      if (!isSqlCapable(provider)) {
         // Provider already in hand — domain helper directly (mt#3661).
         throw new Error(
           `schema readiness cannot be judged — ${describePersistenceUnavailability(provider)}`

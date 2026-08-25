@@ -48,6 +48,7 @@
  * @see mt#2770 — conversation labeling (this file's enrichment logic)
  */
 
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { desc, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -237,17 +238,19 @@ const defaultDbFactory = createEpochKeyedCache(async (): Promise<PostgresJsDatab
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) {
     throw new Error("context-inspector requires a SQL persistence provider");
   }
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<PostgresJsDatabase>;
-  };
-  return sqlProvider.getDatabaseConnection();
+  // The removed cast was also hiding the `| null` the real signature declares. This
+  // factory's own type promises a non-null db, and its not-capable branch above already
+  // throws — so a null connection is the same unavailability, said later.
+  const db = await provider.getDatabaseConnection();
+  if (!db) {
+    throw new Error("context-inspector requires a SQL persistence provider");
+  }
+  return db;
 });
 
 // ---------------------------------------------------------------------------
