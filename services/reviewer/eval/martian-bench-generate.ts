@@ -325,9 +325,11 @@ interface MartianBenchmarkEntry {
 
 /** `submit_finding`'s args always carry `file` + `line` (both required —
  * `SubmitFindingArgsSchema` in `output-tools.ts`), so every finding maps to a "line-specific"
- * Martian comment, which offline/README.md's step2 treats as a direct candidate (no LLM
- * extraction pass needed on our own output). `summary` is the one-sentence headline; `details`
- * carries the full rationale — both are folded into `body` so nothing is lost to the judge. */
+ * Martian comment shape. CORRECTED (verified against the pinned step2_extract_comments.py, not
+ * its README): populating path/line does NOT skip LLM extraction — the pinned code always
+ * concatenates every review's comments and runs the whole blob through extraction regardless
+ * (`get_all_comment_text` has no path/line branch). `summary` is the one-sentence headline;
+ * `details` carries the full rationale — both folded into `body` so nothing is lost. */
 function findingToMartianComment(
   finding: { file: string; line: number; severity: string; summary: string; details: string },
   createdAt: string
@@ -350,6 +352,7 @@ interface Args {
   out: string;
   limit?: number;
   dryRun: boolean;
+  concurrency: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -358,6 +361,7 @@ function parseArgs(argv: string[]): Args {
   let out = DEFAULT_OUT;
   let limit: number | undefined;
   let dryRun = false;
+  let concurrency = 3;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -366,9 +370,10 @@ function parseArgs(argv: string[]): Args {
     else if (arg === "--out") out = argv[++i] ?? out;
     else if (arg === "--limit") limit = Number(argv[++i]);
     else if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--concurrency") concurrency = Number(argv[++i]) || concurrency;
   }
 
-  return { golden, model: parseModelSpec(model), out, limit, dryRun };
+  return { golden, model: parseModelSpec(model), out, limit, dryRun, concurrency };
 }
 
 async function main() {
@@ -415,6 +420,11 @@ async function main() {
     );
     process.exit(1);
   }
+  // Re-bind to a definitely-string const: the `if (!apiKey)` guard above narrows `apiKey`
+  // within this function body, but that narrowing does not propagate into processOnePr's
+  // closure below (a known TS limitation across nested-function-declaration boundaries) —
+  // re-binding here gives the closure a value whose declared type is already non-optional.
+  const resolvedApiKey: string = apiKey;
   console.log(
     `Credentials: github=${await getGitHubTokenSource()} model(${args.model.provider})=${await getModelApiKeySource(args.model.provider)}`
   );
@@ -450,10 +460,28 @@ async function main() {
     concludedAtRound: number | null;
   }> = [];
 
-  for (const [idx, pr] of prs.entries()) {
+  const outDir = dirname(args.out);
+  if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+  const metaPath = args.out.replace(/\.json$/, "-generation-meta.json");
+
+  /** Writes both output files after each batch — a 50-PR sequential run is long enough that
+   * losing partial progress to an unrelated failure partway through would be expensive. */
+  function saveProgress(): void {
+    writeFileSync(args.out, JSON.stringify(output, null, 2));
+    writeFileSync(
+      metaPath,
+      JSON.stringify(
+        { model: args.model, generatedAt: new Date().toISOString(), reviews: generationMeta },
+        null,
+        2
+      )
+    );
+  }
+
+  async function processOnePr(pr: ResolvedPr, idx: number): Promise<void> {
     console.log(`\n[${idx + 1}/${prs.length}] ${pr.owner}/${pr.repo}#${pr.prNumber}...`);
     const ctx = await fetchPrContext(octokit, pr.owner, pr.repo, pr.prNumber);
-    const reviewOutput = await generateReview(args.model, apiKey, ctx, pr.prNumber);
+    const reviewOutput = await generateReview(args.model, resolvedApiKey, ctx, pr.prNumber);
 
     const createdAt = new Date().toISOString();
     const findings = reviewOutput.toolCalls
@@ -526,21 +554,15 @@ async function main() {
     );
   }
 
-  const outDir = dirname(args.out);
-  if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
-
-  // Writes the FULL benchmark_data.json shape (golden_comments + reviews per entry), not a
-  // reviews-only overlay — so step2_extract_comments.py/step3_judge_comments.py can run against
-  // this file directly, without a separate merge step against step1's output.
-  writeFileSync(args.out, JSON.stringify(output, null, 2));
-  writeFileSync(
-    args.out.replace(/\.json$/, "-generation-meta.json"),
-    JSON.stringify(
-      { model: args.model, generatedAt: new Date().toISOString(), reviews: generationMeta },
-      null,
-      2
-    )
-  );
+  // Bounded-concurrency batches, not full sequential: 50 PRs at the smoke run's ~2-4 min each
+  // would run 100-200+ minutes sequentially. Default 3 is conservative against the reviewer's
+  // own per-PR round budget (10 rounds, each a real model call) stacking rate-limit pressure
+  // across concurrent reviews — raise via --concurrency if the provider tier allows more.
+  for (let i = 0; i < prs.length; i += args.concurrency) {
+    const batch = prs.slice(i, i + args.concurrency);
+    await Promise.all(batch.map((pr, j) => processOnePr(pr, i + j)));
+    saveProgress();
+  }
 
   console.log(`\nWrote ${Object.keys(output).length} reviews to ${args.out}`);
 }
