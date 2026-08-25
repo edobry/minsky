@@ -156,32 +156,72 @@ corpus** — 4,477 specs — before this shipped:
 | assertions found  | 1,335                                           |
 | by axis           | dependency 996 · decomposition 273 · unclear 66 |
 
-Eighteen fires were hand-classified. **Six were correct.** The twelve that were not split into four
-named classes, none of which a wider phrase list would fix:
+Eighteen fires were hand-classified. **Six were correct at first measurement.** The twelve that were
+not split into four named classes, none of which a wider phrase list would fix:
 
 - **The phrase's object is not a task (6).** _"`asks_create`-over-MCP depends on minsky-mcp being
   up"_, _"already shipped part of item 1"_, _"silent on what may depend on it"_. The nearest id is
-  in the window but is not what the phrase governs.
+  in the window but is not what the phrase governs. **Still open** — owned by mt#4585.
 - **The direction is reversed (4).** _"mt#1869 depends on this task"_, _"Blocks full end-to-end
-  operation … (mt#922)"_. A real relationship, stated from the other end — so the advisory would
-  name the inverse edge, which is worse than silence.
+  operation … (mt#922)"_. A real relationship stated from the other end, so the advisory named the
+  inverse edge — worse than silence, because a followed instruction leaves the graph asserting the
+  opposite of the truth. **FIXED — see §Direction below. All four now resolve correctly, taking the
+  sample to 10/18.**
 - **The subject is not this task (1).** mt#1073's spec says _"mt#1512 … child of mt#1552, not
-  mt#1073"_ — an assertion about two OTHER tasks.
+  mt#1073"_ — an assertion about two OTHER tasks. **Still open** — mt#4585.
 - **A negation form the matcher misses (1).** _"premise-independent of mt#3897 rather than gated on
-  it"_ — `rather than` is not in `NEGATION_LEAD_RE`.
+  it"_ — `rather than` is not in `NEGATION_LEAD_RE`. **Still open** — mt#4585.
 
-**Verdict: 6/18 is far below ADR-024 sign-off (b)'s 0-known-false-positive bar, so injection stays
-off.** Precedent: `claim-provenance-scan` shipped recorder-only on a measured ~6% and filed mt#4190
-for the tune. Injecting at this precision is mem#719's failure mode, and it would fire hardest at
-the most careful authors — three of the twelve misses are in specs whose prose is _discussing_ the
-task graph carefully.
+**Verdict: 10/18 is still below ADR-024 sign-off (b)'s 0-known-false-positive bar, so injection
+stays off.** Precedent: `claim-provenance-scan` shipped recorder-only on a measured ~6% and filed
+mt#4190 for the tune. Injecting at this precision is mem#719's failure mode, and it would fire
+hardest at the most careful authors — the remaining misses sit in specs whose prose is _discussing_
+the task graph carefully.
 
-**What graduation actually requires, and why it is not "more phrases".** The two dominant classes —
-object-is-not-a-task and reversed-direction — are both failures of having no subject/object model at
-all. Proximity is a stand-in for grammatical government, and these are the cases where the stand-in
-breaks. Widening the phrase list raises recall against the same broken pairing and makes precision
-worse. That is a mechanism question in ADR-024's sense, and it is owned separately rather than
-patched here.
+**What graduation still requires, and why it is not "more phrases".** The dominant remaining class —
+object-is-not-a-task — is a failure of having no model of what a phrase GOVERNS. Proximity is a
+stand-in for grammatical government, and that is where the stand-in breaks. Widening the phrase list
+raises recall against the same broken pairing and makes precision worse. That is a mechanism
+question in ADR-024's sense, owned by mt#4585 rather than patched here.
+
+### Direction: an inverse phrase demands the inverse edge
+
+Shipped after PR #3347 R1, which caught it on `parent of`. The class-not-instance scan found **six**
+members across both axes, because English relationship phrases come in inverse pairs and the
+original matcher recorded only the AXIS:
+
+| relation                    | phrases                                                | required edge, id as object |
+| --------------------------- | ------------------------------------------------------ | --------------------------- |
+| `subject-depends-on-object` | depends on, blocked by, gated on, waits on, fed by     | this → other                |
+| `object-depends-on-subject` | prerequisite for, hard prerequisite for, blocks, feeds | **other → this**            |
+| `subject-child-of-object`   | part of, child of, subtask of                          | this is the child           |
+| `object-child-of-subject`   | parent of, umbrella for                                | **other is the child**      |
+
+`parent` edges are stored child→parent, so a task that IS a parent has no outgoing `parent` row at
+all: the pre-fix query (`from_task_id = <this>` only) could never discharge _"parent of mt#N"_ no
+matter how correctly the child had been reparented. The read now fetches both directions in one
+query, and `isDischarged` switches on the resolved edge rather than the axis.
+
+**Position resolves subject from object.** An id BEFORE the phrase is its subject; one after is its
+object. That flip is why R4's own sentence — _"(mt#4556, hard prerequisite for SC2)"_ — resolves
+FORWARD, which is what its author meant, while _"this is a hard prerequisite for mt#N"_ resolves
+inverse. Same phrase, opposite verdicts, decided only by where the id sits.
+
+**A create seam cannot decide an inverse assertion at all**, and that is tracked separately from
+"the edge is absent". `dependsOn` / `parent` on a `tasks_create` describe the task being created, so
+no author could ever declare that another task depends on it. `DeclaredEdges.inverseKnown` carries
+the distinction, `isAdjudicable` drops those assertions before the discharge test, and the
+calibration record counts them in `undecidable` — because a clean verdict reached by dropping every
+assertion is a different fact from one reached by finding every edge.
+
+Verified live against the real graph, both directions of the reviewer's exact case:
+
+```
+tasks_spec_patch on mt#2258, "this task is the parent of mt#2264"   (mt#2264 IS its child)
+  -> clean    "every assertion has a matching edge"
+tasks_spec_patch on mt#2258, "this task is the parent of mt#4585"   (not a child)
+  -> matched  ["other-child-of-this:mt#4585"]
+```
 
 Attention cost is **measured at 958 chars** via `renderProbe`, with all three rendered dimensions
 saturated at once — the capped list, the overflow suffix, and one remedy line per axis present. It

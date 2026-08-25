@@ -114,6 +114,62 @@ export function readSpecTextForCall(
 export type RelationshipAxis = "dependency" | "decomposition" | "unclear";
 
 /**
+ * What a phrase asserts about its SUBJECT and OBJECT — "S <phrase> O".
+ *
+ * Load-bearing, and its absence was a shipped logic error (PR #3347 R1). English
+ * relationship phrases come in inverse pairs: "S depends on O" and "S is a
+ * prerequisite for O" describe the SAME edge from opposite ends, and so do "S is
+ * part of O" and "S is the parent of O". A matcher that records only the axis
+ * cannot tell them apart, so it demands the edge that would exist if the
+ * sentence had been written the other way round — and fires at an author who
+ * wired the relationship correctly.
+ */
+export type PhraseRelation =
+  /** "S depends on O" — the edge runs subject → object. */
+  | "subject-depends-on-object"
+  /** "S is a prerequisite for O" — the SAME edge, stated from the other end. */
+  | "object-depends-on-subject"
+  /** "S is part of O" — S is the child. */
+  | "subject-child-of-object"
+  /** "S is the parent of O" — O is the child. */
+  | "object-child-of-subject"
+  /** The phrase does not settle it. */
+  | "unclear";
+
+/**
+ * The edge an assertion requires, once the matched id's ROLE is resolved.
+ *
+ * Derived from {@link PhraseRelation} plus the id's POSITION: an id after the
+ * phrase is its object, an id before it is its subject. That position is the
+ * only subject/object signal available without parsing, and for these phrases it
+ * is enough — which is why R4's own `"(mt#4556, hard prerequisite for SC2)"`
+ * resolves correctly: the id PRECEDES, so it is the subject, so THIS task
+ * depends on it, which is what the author meant.
+ */
+export type RequiredEdge =
+  | "this-depends-on-other"
+  | "other-depends-on-this"
+  | "this-child-of-other"
+  | "other-child-of-this"
+  | "unclear";
+
+/** Resolve the required edge from the phrase's relation and the id's role. */
+export function requiredEdgeFor(relation: PhraseRelation, idIsSubject: boolean): RequiredEdge {
+  switch (relation) {
+    case "subject-depends-on-object":
+      return idIsSubject ? "other-depends-on-this" : "this-depends-on-other";
+    case "object-depends-on-subject":
+      return idIsSubject ? "this-depends-on-other" : "other-depends-on-this";
+    case "subject-child-of-object":
+      return idIsSubject ? "other-child-of-this" : "this-child-of-other";
+    case "object-child-of-subject":
+      return idIsSubject ? "this-child-of-other" : "other-child-of-this";
+    case "unclear":
+      return "unclear";
+  }
+}
+
+/**
  * Relationship phrases, each tagged with the axis it implies.
  *
  * **Every entry is text someone actually wrote.** The `dependency` set comes
@@ -133,25 +189,67 @@ export type RelationshipAxis = "dependency" | "decomposition" | "unclear";
 export const RELATIONSHIP_PHRASES: ReadonlyArray<{
   readonly pattern: string;
   readonly axis: RelationshipAxis;
+  readonly relation: PhraseRelation;
 }> = [
-  // ── dependency (data-flow / blocking): "do A before B" ──────────────────
-  { pattern: String.raw`hard\s+prerequisite\s+for`, axis: "dependency" },
-  { pattern: String.raw`prerequisite\s+for`, axis: "dependency" },
-  { pattern: String.raw`waits?\s+on`, axis: "dependency" },
-  { pattern: String.raw`depends?\s+on`, axis: "dependency" },
-  { pattern: String.raw`depending\s+on`, axis: "dependency" },
-  { pattern: String.raw`blocked\s+by`, axis: "dependency" },
-  { pattern: String.raw`gated\s+on`, axis: "dependency" },
-  { pattern: String.raw`fed\s+by`, axis: "dependency" },
-  { pattern: String.raw`feeds`, axis: "dependency" },
-  { pattern: String.raw`blocks`, axis: "dependency" },
+  // ── dependency, subject → object: "S waits for O" ───────────────────────
+  {
+    pattern: String.raw`waits?\s+on`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  {
+    pattern: String.raw`depends?\s+on`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  {
+    pattern: String.raw`depending\s+on`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  {
+    pattern: String.raw`blocked\s+by`,
+    axis: "dependency",
+    relation: "subject-depends-on-object",
+  },
+  { pattern: String.raw`gated\s+on`, axis: "dependency", relation: "subject-depends-on-object" },
+  { pattern: String.raw`fed\s+by`, axis: "dependency", relation: "subject-depends-on-object" },
 
-  // ── decomposition (parent/child): "B is one component of A" ─────────────
-  { pattern: String.raw`subtask\s+of`, axis: "decomposition" },
-  { pattern: String.raw`umbrella\s+for`, axis: "decomposition" },
-  { pattern: String.raw`child\s+of`, axis: "decomposition" },
-  { pattern: String.raw`parent\s+of`, axis: "decomposition" },
-  { pattern: String.raw`part\s+of`, axis: "decomposition" },
+  // ── dependency, object → subject: the SAME edge stated from the far end ──
+  //
+  // "S is a prerequisite for O" and "O depends on S" are one relationship. A
+  // matcher blind to the difference demands the inverse edge and fires at a
+  // correct author — the shipped defect PR #3347 R1 caught on `parent of`, of
+  // which these are the dependency-axis members.
+  {
+    pattern: String.raw`hard\s+prerequisite\s+for`,
+    axis: "dependency",
+    relation: "object-depends-on-subject",
+  },
+  {
+    pattern: String.raw`prerequisite\s+for`,
+    axis: "dependency",
+    relation: "object-depends-on-subject",
+  },
+  { pattern: String.raw`feeds`, axis: "dependency", relation: "object-depends-on-subject" },
+  { pattern: String.raw`blocks`, axis: "dependency", relation: "object-depends-on-subject" },
+
+  // ── decomposition, subject is the child: "S is part of O" ───────────────
+  {
+    pattern: String.raw`subtask\s+of`,
+    axis: "decomposition",
+    relation: "subject-child-of-object",
+  },
+  { pattern: String.raw`child\s+of`, axis: "decomposition", relation: "subject-child-of-object" },
+  { pattern: String.raw`part\s+of`, axis: "decomposition", relation: "subject-child-of-object" },
+
+  // ── decomposition, object is the child: "S is the parent of O" ──────────
+  {
+    pattern: String.raw`umbrella\s+for`,
+    axis: "decomposition",
+    relation: "object-child-of-subject",
+  },
+  { pattern: String.raw`parent\s+of`, axis: "decomposition", relation: "object-child-of-subject" },
 
   // ── unclear: real, common, and genuinely ambiguous ──────────────────────
   //
@@ -159,7 +257,7 @@ export const RELATIONSHIP_PHRASES: ReadonlyArray<{
   // means data-flow or decomposition. Reporting it as `unclear` and naming BOTH
   // axes is the honest rendering — guessing an axis here would be this guard
   // committing the very imprecision mem#530 is about.
-  { pattern: String.raw`follow[-\s]?ups?\s+to`, axis: "unclear" },
+  { pattern: String.raw`follow[-\s]?ups?\s+to`, axis: "unclear", relation: "unclear" },
 ];
 
 /** One alternation over every phrase, with the axis recoverable per match. */
@@ -168,16 +266,26 @@ function phraseMatcher(): RegExp {
   return new RegExp(`\\b(?:${alternation})`, "gi");
 }
 
-/** Resolve a matched phrase back to its axis. */
-export function axisForPhrase(phrase: string): RelationshipAxis {
+/** The table entry a matched phrase came from, or null if the table has drifted. */
+function entryForPhrase(phrase: string): (typeof RELATIONSHIP_PHRASES)[number] | null {
   const normalized = phrase.toLowerCase().replace(/\s+/g, " ").trim();
   for (const entry of RELATIONSHIP_PHRASES) {
-    if (new RegExp(`^(?:${entry.pattern})$`, "i").test(normalized)) return entry.axis;
+    if (new RegExp(`^(?:${entry.pattern})$`, "i").test(normalized)) return entry;
   }
   // Unreachable via `phraseMatcher`, which only produces matches of these
-  // patterns. Returning `unclear` rather than throwing keeps the guard
-  // fail-open on a future edit that widens the alternation without the table.
-  return "unclear";
+  // patterns. Returning null rather than throwing keeps the guard fail-open on a
+  // future edit that widens the alternation without the table.
+  return null;
+}
+
+/** Resolve a matched phrase back to its axis. */
+export function axisForPhrase(phrase: string): RelationshipAxis {
+  return entryForPhrase(phrase)?.axis ?? "unclear";
+}
+
+/** Resolve a matched phrase back to its subject/object relation. */
+export function relationForPhrase(phrase: string): PhraseRelation {
+  return entryForPhrase(phrase)?.relation ?? "unclear";
 }
 
 /** A qualified task id, either backend's prefix. */
@@ -233,6 +341,10 @@ export interface RelationshipAssertion {
   /** The phrase as written, so the advisory quotes the author rather than a pattern. */
   readonly phrase: string;
   readonly axis: RelationshipAxis;
+  /** True when the id sits BEFORE the phrase, making it the phrase's subject. */
+  readonly idIsSubject: boolean;
+  /** The edge this assertion actually requires, direction resolved. */
+  readonly required: RequiredEdge;
 }
 
 /**
@@ -296,11 +408,15 @@ export function findRelationshipAssertions(
     // fixture there was one phrase and one id, so none of them could exhibit a
     // defect that only appears at two of each (mem#1020's "right inputs" —
     // a test proves the probe can fire, not that it covers the defect CLASS).
-    let nearest: { id: string; gap: number } | null = null;
+    let nearest: { id: string; gap: number; isSubject: boolean } | null = null;
     for (const { id, start, end } of ids) {
-      const gap = start >= phraseEnd ? start - phraseEnd : phraseStart - end;
+      const after = start >= phraseEnd;
+      const gap = after ? start - phraseEnd : phraseStart - end;
       if (gap < 0 || gap > ASSERTION_WINDOW_CHARS) continue;
-      if (nearest === null || gap < nearest.gap) nearest = { id, gap };
+      // An id BEFORE the phrase is its subject; one after it is its object.
+      // That position is the whole subject/object signal, and for these phrases
+      // it is enough — see `RequiredEdge`.
+      if (nearest === null || gap < nearest.gap) nearest = { id, gap, isSubject: !after };
     }
     if (nearest === null) continue;
 
@@ -308,10 +424,21 @@ export function findRelationshipAssertions(
     if (ownNormalized !== null && normalized === ownNormalized) continue;
 
     const axis = axisForPhrase(phrase);
-    const key = `${normalized}:${axis}`;
+    const required = requiredEdgeFor(relationForPhrase(phrase), nearest.isSubject);
+    // Keyed on the REQUIRED EDGE, not the axis: "prerequisite for mt#X" and
+    // "depends on mt#X" share an axis but demand opposite edges, and collapsing
+    // them would silently drop one of two genuinely different assertions.
+    const key = `${normalized}:${required}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    found.push({ taskId: nearest.id, normalizedTaskId: normalized, phrase, axis });
+    found.push({
+      taskId: nearest.id,
+      normalizedTaskId: normalized,
+      phrase,
+      axis,
+      idIsSubject: nearest.isSubject,
+      required,
+    });
   }
 
   return found;
@@ -323,13 +450,35 @@ export function findRelationshipAssertions(
 
 /** The edges a call declares or the graph already holds. */
 export interface DeclaredEdges {
-  /** Normalized ids this task depends on. */
+  /** Normalized ids this task depends on (outgoing `depends`). */
   readonly deps: ReadonlySet<string>;
-  /** Normalized parent id, if any. */
+  /** Normalized parent id, if any (outgoing `parent`). */
   readonly parent: string | null;
+  /** Normalized ids that depend on this task (incoming `depends`). */
+  readonly dependents: ReadonlySet<string>;
+  /** Normalized ids whose parent is this task (incoming `parent`). */
+  readonly children: ReadonlySet<string>;
+  /**
+   * Whether the INCOMING sets above are known, as opposed to merely empty.
+   *
+   * The distinction is load-bearing and is why this is a field rather than an
+   * emptiness test. At `tasks_create` the payload can express only OUTGOING
+   * edges — `dependsOn` and `parent` are about the task being created — so an
+   * assertion like "this is a prerequisite for mt#N" is UNDISCHARGEABLE there
+   * by construction, not merely unwired. Treating "no incoming edges declared"
+   * as "no incoming edges exist" would fire on every correct inverse statement
+   * in a new spec, which is the same defect PR #3347 R1 caught one axis over.
+   */
+  readonly inverseKnown: boolean;
 }
 
-const NO_EDGES: DeclaredEdges = { deps: new Set(), parent: null };
+const NO_EDGES: DeclaredEdges = {
+  deps: new Set(),
+  parent: null,
+  dependents: new Set(),
+  children: new Set(),
+  inverseKnown: false,
+};
 
 /**
  * Edges declared on a `tasks_create` payload.
@@ -359,7 +508,10 @@ export function edgesFromCreatePayload(
   const parent =
     typeof parentRaw === "string" && parentRaw.trim() !== "" ? normalizeTaskId(parentRaw) : null;
 
-  return { deps, parent };
+  // `inverseKnown: false` — a create payload cannot express an edge pointing AT
+  // the task being created, so incoming edges are unknown here rather than
+  // absent. See `DeclaredEdges.inverseKnown`.
+  return { deps, parent, dependents: new Set(), children: new Set(), inverseKnown: false };
 }
 
 /** The task id an EDIT-seam call targets — the subject of "this task". */
@@ -421,8 +573,15 @@ export async function readGraphEdges(taskId: string): Promise<GraphReadResult> {
     // `db.execute` is already typed `Promise<unknown>` above, so an `as unknown`
     // here would assert nothing. The shape narrowing happens below, against
     // BOTH result shapes drizzle returns depending on driver.
+    // BOTH directions in one query. Reading only `from_task_id` was the shipped
+    // defect (PR #3347 R1): `parent` edges are stored child→parent, so a task
+    // that IS a parent has no outgoing `parent` row at all, and "parent of
+    // mt#N" could never be discharged no matter how correctly the author had
+    // reparented the child. The same holds on the dependency axis for every
+    // `object-depends-on-subject` phrase.
     const rows = await db.execute(
-      sql`SELECT to_task_id, type FROM task_relationships WHERE from_task_id = ${taskId}`
+      sql`SELECT from_task_id, to_task_id, type FROM task_relationships
+          WHERE from_task_id = ${taskId} OR to_task_id = ${taskId}`
     );
 
     const list: Array<Record<string, unknown>> = Array.isArray(rows)
@@ -431,16 +590,35 @@ export async function readGraphEdges(taskId: string): Promise<GraphReadResult> {
         ? (rows as { rows: Array<Record<string, unknown>> }).rows
         : [];
 
+    const self = normalizeTaskId(taskId);
     const deps = new Set<string>();
+    const dependents = new Set<string>();
+    const children = new Set<string>();
     let parent: string | null = null;
+
     for (const row of list) {
+      const from = row["from_task_id"];
       const to = row["to_task_id"];
       const type = row["type"];
-      if (typeof to !== "string") continue;
-      if (type === "parent") parent = normalizeTaskId(to);
-      else deps.add(normalizeTaskId(to));
+      if (typeof from !== "string" || typeof to !== "string") continue;
+      const fromN = normalizeTaskId(from);
+      const toN = normalizeTaskId(to);
+      // The `OR` above can return a self-edge only if one were ever written;
+      // the schema forbids it, and skipping keeps a corrupt row from reading as
+      // both directions at once.
+      if (fromN === toN) continue;
+
+      if (fromN === self) {
+        // Outgoing: this task → other.
+        if (type === "parent") parent = toN;
+        else deps.add(toN);
+      } else if (toN === self) {
+        // Incoming: other → this task.
+        if (type === "parent") children.add(fromN);
+        else dependents.add(fromN);
+      }
     }
-    return { ok: true, edges: { deps, parent } };
+    return { ok: true, edges: { deps, parent, dependents, children, inverseKnown: true } };
   })();
 
   // Rejection sink: `query` converts most failures to values, but an
@@ -460,20 +638,53 @@ export async function readGraphEdges(taskId: string): Promise<GraphReadResult> {
   }
 }
 
+/**
+ * Whether this assertion can be ADJUDICATED against the edges available here.
+ *
+ * Separate from {@link isDischarged}, and the separation is the point: "the edge
+ * is absent" and "I cannot see edges of this direction" are different findings,
+ * and reporting the second as the first is what PR #3347 R1 caught. An inverse
+ * assertion at the `tasks_create` seam is the standing case — the payload
+ * expresses only outgoing edges, so no correct author could ever discharge it
+ * there.
+ */
+export function isAdjudicable(assertion: RelationshipAssertion, edges: DeclaredEdges): boolean {
+  if (edges.inverseKnown) return true;
+  switch (assertion.required) {
+    case "other-depends-on-this":
+    case "other-child-of-this":
+      return false;
+    // An `unclear` phrase is discharged by ANY edge, and the outgoing ones are
+    // known here, so a positive verdict is still reachable. It is only reported
+    // when every direction we can see is empty, which stays conservative.
+    default:
+      return true;
+  }
+}
+
 /** True when the edge this assertion implies is already present. */
 export function isDischarged(assertion: RelationshipAssertion, edges: DeclaredEdges): boolean {
-  const inDeps = edges.deps.has(assertion.normalizedTaskId);
-  const isParent = edges.parent === assertion.normalizedTaskId;
-  switch (assertion.axis) {
-    case "dependency":
-      return inDeps;
-    case "decomposition":
-      return isParent;
+  const id = assertion.normalizedTaskId;
+  switch (assertion.required) {
+    case "this-depends-on-other":
+      return edges.deps.has(id);
+    case "other-depends-on-this":
+      return edges.dependents.has(id);
+    case "this-child-of-other":
+      return edges.parent === id;
+    case "other-child-of-this":
+      return edges.children.has(id);
     case "unclear":
-      // EITHER edge discharges an ambiguous phrase. The guard cannot tell which
-      // axis the author meant, so it must not demand the one it happened to
-      // guess — an author who wired the OTHER one did exactly what mem#530 asks.
-      return inDeps || isParent;
+      // ANY edge in ANY direction discharges an ambiguous phrase. The guard
+      // cannot tell which relationship the author meant, so it must not demand
+      // the one it happened to guess — an author who wired a different one did
+      // exactly what mem#530 asks.
+      return (
+        edges.deps.has(id) ||
+        edges.dependents.has(id) ||
+        edges.parent === id ||
+        edges.children.has(id)
+      );
   }
 }
 
@@ -485,10 +696,13 @@ export function isDischarged(assertion: RelationshipAssertion, edges: DeclaredEd
 export const MAX_RENDERED_ASSERTIONS = 4;
 
 /** Per-axis remedy, rendered ONCE beneath the list rather than per line. */
-const AXIS_REMEDY: Readonly<Record<RelationshipAxis, string>> = {
-  dependency:
-    'dependency (data-flow / blocking) → `tasks_deps_add(taskId: "<this>", dependsOn: "<other>")`',
-  decomposition: "decomposition (parent/child) → `parent:` at create, or `tasks_reparent`",
+const REMEDY: Readonly<Record<RequiredEdge, string>> = {
+  "this-depends-on-other": 'dependency → `tasks_deps_add(taskId: "<this>", dependsOn: "<other>")`',
+  "other-depends-on-this":
+    'dependency, the other way round → `tasks_deps_add(taskId: "<other>", dependsOn: "<this>")`',
+  "this-child-of-other": "decomposition → `parent:` at create, or `tasks_reparent` this under it",
+  "other-child-of-this":
+    "decomposition, the other way round → reparent the OTHER task under this one",
   unclear:
     "unclear → pick one: dependency if one must finish first, parent/child if one is a component of the other",
 };
@@ -504,15 +718,15 @@ const AXIS_REMEDY: Readonly<Record<RelationshipAxis, string>> = {
  */
 export function buildAdvisory(assertions: readonly RelationshipAssertion[]): string {
   const shown = assertions.slice(0, MAX_RENDERED_ASSERTIONS);
-  const lines = shown.map((a) => `  - "${a.phrase}" → ${a.taskId}  [${a.axis}]`);
+  const lines = shown.map((a) => `  - "${a.phrase}" → ${a.taskId}  [${a.required}]`);
   const overflow =
     assertions.length > shown.length ? `\n  …and ${assertions.length - shown.length} more.` : "";
 
   // Remedies for the axes ACTUALLY present, once each. Rendering them per line
   // made the saturated advisory 1280 chars of near-identical repetition — the
   // shape that gets skimmed, which for an advisory is the same as not firing.
-  const axesPresent = [...new Set(assertions.map((a) => a.axis))];
-  const remedies = axesPresent.map((axis) => `  ${AXIS_REMEDY[axis]}`).join("\n");
+  const edgesPresent = [...new Set(assertions.map((a) => a.required))];
+  const remedies = edgesPresent.map((edge) => `  ${REMEDY[edge]}`).join("\n");
 
   return (
     `[warn-unwired-task-relationship] This spec states a task relationship in prose ` +
@@ -546,15 +760,25 @@ export function buildAdvisory(assertions: readonly RelationshipAssertion[]): str
  * (`mt#NNNNNN`) are both posed.
  */
 export function renderWorstCase(): string {
-  const axes: RelationshipAxis[] = ["dependency", "decomposition", "unclear"];
+  const edges: RequiredEdge[] = [
+    "this-depends-on-other",
+    "other-depends-on-this",
+    "this-child-of-other",
+    "other-child-of-this",
+    "unclear",
+  ];
   const worst: RelationshipAssertion[] = Array.from(
     { length: MAX_RENDERED_ASSERTIONS + 1 },
     (_, i) => ({
       taskId: `mt#99999${i}`,
       normalizedTaskId: `mt99999${i}`,
       phrase: "hard prerequisite for",
-      // Cycle so every axis is present in the remedy block regardless of cap.
-      axis: axes[i % axes.length] as RelationshipAxis,
+      axis: "dependency" as const,
+      idIsSubject: false,
+      // Cycle so EVERY required edge is present in the remedy block regardless
+      // of the render cap — the remedy block is keyed on this, and there are
+      // now five of them rather than three axes.
+      required: edges[i % edges.length] as RequiredEdge,
     })
   );
   return buildAdvisory(worst);
@@ -625,10 +849,29 @@ export async function run(
     edges = read.edges;
   }
 
-  const unwired = assertions.filter((a) => !isDischarged(a, edges));
+  // Un-adjudicable assertions are dropped BEFORE the discharge test, never
+  // reported as unwired. At `tasks_create` that is every inverse assertion:
+  // the payload cannot express an edge pointing at the task being created, so
+  // firing there would flag an author who has no way to comply.
+  const adjudicable = assertions.filter((a) => isAdjudicable(a, edges));
+  const undecidable = assertions.length - adjudicable.length;
+
+  const unwired = adjudicable.filter((a) => !isDischarged(a, edges));
   if (unwired.length === 0) {
     return {
-      calibration: { ...base, outcome: "clean", reason: "every assertion has a matching edge" },
+      calibration: {
+        ...base,
+        outcome: "clean",
+        // Recorded on the CLEAN path too, and this is where it matters most: a
+        // clean verdict reached by DROPPING every assertion is a different fact
+        // from one reached by finding every edge, and without this field the
+        // calibration log renders them identically.
+        undecidable,
+        reason:
+          undecidable > 0
+            ? `every adjudicable assertion has a matching edge (${undecidable} inverse, not decidable at this seam)`
+            : "every assertion has a matching edge",
+      },
     };
   }
 
@@ -636,7 +879,13 @@ export async function run(
     calibration: {
       ...base,
       outcome: "matched",
-      pairs: unwired.map((a) => `${a.axis}:${a.taskId}`),
+      // The REQUIRED EDGE, not the axis: the axis alone cannot distinguish
+      // "this depends on X" from "X depends on this", and those are the pairs
+      // a calibration reader has to be able to tell apart.
+      pairs: unwired.map((a) => `${a.required}:${a.taskId}`),
+      // Recorded even when zero, so the replay can size how much of the corpus
+      // this seam structurally cannot adjudicate.
+      undecidable,
       excerpt: safeTruncate(specRead.text, 300, "head"),
     },
   };

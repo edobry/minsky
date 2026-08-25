@@ -507,14 +507,18 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
     // Reads `tool_input` and the live graph, never `ctx.transcriptLines` — so
     // declaring this would buy a transcript the guard never opens.
     needsTranscript: false,
-    // MEASURED via `renderProbe`: 958 chars with all THREE rendered dimensions
+    // MEASURED via `renderProbe`: 1145 chars with all THREE rendered dimensions
     // saturated at once — the capped list, the overflow suffix, and one remedy
-    // line per axis PRESENT. A proved ceiling rather than a sample, because
-    // every dimension is bounded. The module's own test asserts
-    // `renderWorstCase().length <= 1000` against THIS number, so a future edit
-    // that widens the render fails rather than silently understating the
-    // guard's share of the merged-context budget.
-    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    // line per REQUIRED EDGE present, of which there are five. A proved ceiling
+    // rather than a sample, because every dimension is bounded.
+    //
+    // Was 1000 against a measured 958, when remedies were keyed on the three
+    // AXES. PR #3347 R1's direction fix re-keyed them onto the five required
+    // edges, and the module's own test — which compares `renderWorstCase()`
+    // against THIS number rather than a copy of it — failed on the change
+    // rather than letting the declaration drift. That is the whole reason the
+    // binding exists; 1200 leaves ~5% headroom over the new measurement.
+    attentionCost: { denialMessageSizeChars: 1200, optionCount: 1 },
     // A create whose spec states a dependency with `dependsOn` empty — the R4
     // shape. Purely string- and payload-driven with no task id on the call, so
     // the graph is never consulted and the canary is deterministic with or

@@ -25,8 +25,11 @@ import {
   edgesFromCreatePayload,
   findRelationshipAssertions,
   GRAPH_READ_TIMEOUT_MS,
+  isAdjudicable,
   isDischarged,
   MAX_RENDERED_ASSERTIONS,
+  requiredEdgeFor,
+  type RequiredEdge,
   readSpecTextForCall,
   renderWorstCase,
   run,
@@ -65,6 +68,19 @@ const REGISTRATION = TASK_CREATE_GUARDS.find((g) => g.name === "warn-unwired-tas
  * would be two copies free to drift apart from the pattern they are sampled
  * from.
  */
+/**
+ * The five required-edge names, bound once.
+ *
+ * Typed as `RequiredEdge` rather than left as bare literals so an invented
+ * member is a compile error rather than a test that silently asserts nothing —
+ * mem#968's rule that an assumption expressed as a literal is checked by
+ * nothing, applied to the union this file compares against most often.
+ */
+const FWD_DEP: RequiredEdge = "this-depends-on-other";
+const INV_DEP: RequiredEdge = "other-depends-on-this";
+const FWD_CHILD: RequiredEdge = "this-child-of-other";
+const INV_CHILD: RequiredEdge = "other-child-of-this";
+
 const LONGEST_PHRASE = "hard prerequisite for";
 
 const OTHER = "mt#900001";
@@ -85,8 +101,22 @@ function assertionsIn(spec: string): RelationshipAssertion[] {
   return findRelationshipAssertions(spec, null);
 }
 
-function edges(deps: string[], parent: string | null = null): DeclaredEdges {
-  return { deps: new Set(deps.map((d) => d.replace(/[^a-z0-9]/gi, "").toLowerCase())), parent };
+const norm = (id: string) => id.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+/** Graph-shaped edges: incoming directions are KNOWN, as at the edit seams. */
+function edges(
+  deps: string[],
+  parent: string | null = null,
+  dependents: string[] = [],
+  children: string[] = []
+): DeclaredEdges {
+  return {
+    deps: new Set(deps.map(norm)),
+    parent,
+    dependents: new Set(dependents.map(norm)),
+    children: new Set(children.map(norm)),
+    inverseKnown: true,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -339,19 +369,137 @@ describe("discharge: edges declared on the tasks_create payload", () => {
   });
 });
 
-describe("discharge: axis matching", () => {
-  const dependency: RelationshipAssertion = {
-    taskId: OTHER,
-    normalizedTaskId: "mt900001",
-    phrase: "depends on",
-    axis: "dependency",
-  };
-  const decomposition: RelationshipAssertion = {
-    ...dependency,
-    phrase: "part of",
-    axis: "decomposition",
-  };
-  const unclear: RelationshipAssertion = { ...dependency, phrase: "follow-up to", axis: "unclear" };
+describe("direction: an inverse phrase demands the inverse edge (PR #3347 R1)", () => {
+  // THE SHIPPED DEFECT. The reviewer caught it on `parent of`; the
+  // class-not-instance scan found six members across both axes, because English
+  // relationship phrases come in inverse pairs and the matcher recorded only the
+  // AXIS. Every one of these would have fired at an author who wired the
+  // relationship correctly.
+  //
+  // The class, by relation:
+  //   object-depends-on-subject : prerequisite for, hard prerequisite for, blocks, feeds
+  //   object-child-of-subject   : parent of, umbrella for
+
+  const inverseDependency: ReadonlyArray<[string, string]> = [
+    ["prerequisite for", `This is a prerequisite for ${OTHER}.`],
+    ["hard prerequisite for", `This is a hard prerequisite for ${OTHER}.`],
+    ["blocks", `This blocks ${OTHER}.`],
+    ["feeds", `This feeds ${OTHER}.`],
+  ];
+
+  for (const [label, spec] of inverseDependency) {
+    test(`"${label}" requires the OTHER task to depend on this one`, () => {
+      const found = assertionsIn(spec);
+      expect(found).toHaveLength(1);
+      expect(found[0]?.required).toBe(INV_DEP);
+    });
+  }
+
+  const inverseDecomposition: ReadonlyArray<[string, string]> = [
+    ["parent of", `This is the parent of ${OTHER}.`],
+    ["umbrella for", `This is the umbrella for ${OTHER}.`],
+  ];
+
+  for (const [label, spec] of inverseDecomposition) {
+    test(`"${label}" requires the OTHER task to be the child`, () => {
+      const found = assertionsIn(spec);
+      expect(found).toHaveLength(1);
+      expect(found[0]?.required).toBe(INV_CHILD);
+    });
+  }
+
+  test("the reviewer's exact case: 'parent of' is discharged by a CHILD edge", () => {
+    const a = assertionsIn(`This is the parent of ${OTHER}.`)[0] as RelationshipAssertion;
+    // Correctly wired: the other task's parent is this one.
+    expect(isDischarged(a, edges([], null, [], [OTHER]))).toBe(true);
+    // The edge the pre-fix code demanded — this task's own parent — is NOT it.
+    expect(isDischarged(a, edges([], "mt900001"))).toBe(false);
+  });
+
+  test("'blocks' is discharged by a DEPENDENT, not by a dependency", () => {
+    const a = assertionsIn(`This blocks ${OTHER}.`)[0] as RelationshipAssertion;
+    expect(isDischarged(a, edges([], null, [OTHER]))).toBe(true);
+    expect(isDischarged(a, edges([OTHER]))).toBe(false);
+  });
+
+  test("position flips the direction — R4's own sentence resolves FORWARD", () => {
+    // "(mt#4556, hard prerequisite for SC2)" — the id PRECEDES the phrase, so it
+    // is the subject, so THIS task depends on it. That is what the author meant,
+    // and it is the sentence the whole task exists for.
+    const found = assertionsIn(
+      `the config_fingerprint column (${OTHER}, hard prerequisite for SC2)`
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]?.idIsSubject).toBe(true);
+    expect(found[0]?.required).toBe(FWD_DEP);
+  });
+
+  test("the same phrase with the id AFTER resolves INVERSE", () => {
+    // Discriminating pair with the test above: same phrase, opposite verdict,
+    // decided only by where the id sits.
+    const found = assertionsIn(`This is a hard prerequisite for ${OTHER}.`);
+    expect(found[0]?.idIsSubject).toBe(false);
+    expect(found[0]?.required).toBe(INV_DEP);
+  });
+
+  test("requiredEdgeFor inverts consistently for every relation", () => {
+    expect(requiredEdgeFor("subject-depends-on-object", false)).toBe(FWD_DEP);
+    expect(requiredEdgeFor("subject-depends-on-object", true)).toBe(INV_DEP);
+    expect(requiredEdgeFor("object-depends-on-subject", false)).toBe(INV_DEP);
+    expect(requiredEdgeFor("object-depends-on-subject", true)).toBe(FWD_DEP);
+    expect(requiredEdgeFor("subject-child-of-object", false)).toBe(FWD_CHILD);
+    expect(requiredEdgeFor("object-child-of-subject", false)).toBe(INV_CHILD);
+    expect(requiredEdgeFor("unclear", false)).toBe("unclear");
+  });
+});
+
+describe("adjudicability: a create seam cannot decide an inverse assertion", () => {
+  // The corollary of the direction fix, and a false positive in its own right if
+  // missed: `dependsOn`/`parent` on a create describe the task being CREATED, so
+  // there is no way to declare that another task depends on it. Firing there
+  // would flag an author who has no means to comply — the same shape as the
+  // defect above, one seam over.
+  const createEdges = edgesFromCreatePayload({});
+
+  test("create-payload edges report their incoming directions as UNKNOWN", () => {
+    expect(createEdges.inverseKnown).toBe(false);
+  });
+
+  test("an inverse assertion is not adjudicable at the create seam", () => {
+    const a = assertionsIn(`This blocks ${OTHER}.`)[0] as RelationshipAssertion;
+    expect(isAdjudicable(a, createEdges)).toBe(false);
+  });
+
+  test("a forward assertion IS adjudicable there", () => {
+    // Liveness for the negative above: adjudicability is not simply always
+    // false at this seam.
+    const a = assertionsIn(`This depends on ${OTHER}.`)[0] as RelationshipAssertion;
+    expect(isAdjudicable(a, createEdges)).toBe(true);
+  });
+
+  test("both are adjudicable once the graph has been read", () => {
+    const a = assertionsIn(`This blocks ${OTHER}.`)[0] as RelationshipAssertion;
+    expect(isAdjudicable(a, edges([]))).toBe(true);
+  });
+
+  test("run() does not report an inverse assertion at the create seam", async () => {
+    const out = await run(createCall(`This blocks ${OTHER}.`), EMPTY_CTX);
+    expect(out?.calibration?.outcome).toBe("clean");
+    expect(out?.calibration?.undecidable).toBe(1);
+  });
+
+  test("run() still reports a FORWARD assertion at the create seam", async () => {
+    // The discriminating half — without it the test above would pass on a guard
+    // that had simply gone silent.
+    const out = await run(createCall(`This depends on ${OTHER}.`), EMPTY_CTX);
+    expect(out?.calibration?.outcome).toBe("matched");
+  });
+});
+
+describe("discharge: edge matching by resolved direction", () => {
+  const dependency = assertionsIn(`This depends on ${OTHER}.`)[0] as RelationshipAssertion;
+  const decomposition = assertionsIn(`This is part of ${OTHER}.`)[0] as RelationshipAssertion;
+  const unclear = assertionsIn(`A follow-up to ${OTHER}.`)[0] as RelationshipAssertion;
 
   test("a dependency assertion is discharged by a dependency edge only", () => {
     expect(isDischarged(dependency, edges([OTHER]))).toBe(true);
@@ -363,12 +511,14 @@ describe("discharge: axis matching", () => {
     expect(isDischarged(decomposition, edges([OTHER]))).toBe(false);
   });
 
-  test("an unclear assertion is discharged by EITHER edge", () => {
-    // The guard cannot tell which axis the author meant, so demanding the one
-    // it guessed would fire at an author who wired the other — which is what
-    // mem#530 actually asks for.
+  test("an unclear assertion is discharged by ANY edge, in any direction", () => {
+    // The guard cannot tell which relationship the author meant, so demanding
+    // the one it guessed would fire at an author who wired another — which is
+    // what mem#530 actually asks for.
     expect(isDischarged(unclear, edges([OTHER]))).toBe(true);
     expect(isDischarged(unclear, edges([], "mt900001"))).toBe(true);
+    expect(isDischarged(unclear, edges([], null, [OTHER]))).toBe(true);
+    expect(isDischarged(unclear, edges([], null, [], [OTHER]))).toBe(true);
     expect(isDischarged(unclear, edges([]))).toBe(false);
   });
 
@@ -386,7 +536,7 @@ describe("run(): the tasks_create seam", () => {
     // The R4 shape exactly: four creates, the parameter empty on all four.
     const out = await run(createCall(`This depends on ${OTHER}.`), EMPTY_CTX);
     expect(out?.calibration?.outcome).toBe("matched");
-    expect(out?.calibration?.pairs).toEqual([`dependency:${OTHER}`]);
+    expect(out?.calibration?.pairs).toEqual([`${FWD_DEP}:${OTHER}`]);
   });
 
   test("the same prose WITH dependsOn → clean", async () => {
@@ -403,13 +553,13 @@ describe("run(): the tasks_create seam", () => {
       EMPTY_CTX
     );
     expect(out?.calibration?.outcome).toBe("matched");
-    expect(out?.calibration?.pairs).toEqual([`dependency:${OTHER}`]);
+    expect(out?.calibration?.pairs).toEqual([`${FWD_DEP}:${OTHER}`]);
   });
 
   test("a decomposition claim with no parent → matched on the decomposition axis", async () => {
     const out = await run(createCall(`This is part of ${OTHER}.`), EMPTY_CTX);
     expect(out?.calibration?.outcome).toBe("matched");
-    expect(out?.calibration?.pairs).toEqual([`decomposition:${OTHER}`]);
+    expect(out?.calibration?.pairs).toEqual([`${FWD_CHILD}:${OTHER}`]);
   });
 
   test("a decomposition claim WITH parent → clean", async () => {
@@ -510,19 +660,32 @@ describe("buildAdvisory", () => {
     normalizedTaskId: "mt900001",
     phrase: LONGEST_PHRASE,
     axis: "dependency",
+    idIsSubject: false,
+    required: FWD_DEP,
   };
 
   test("quotes the author's own phrase, not the pattern", () => {
     expect(buildAdvisory([one])).toContain(`"${LONGEST_PHRASE}"`);
   });
 
-  test("names the AXIS, because the axis confusion is half the family", () => {
-    expect(buildAdvisory([one])).toContain("tasks_deps_add");
-    expect(buildAdvisory([{ ...one, axis: "decomposition" }])).toContain("tasks_reparent");
+  test("names the resolved DIRECTION, not just the axis", () => {
+    // The remedy is keyed on the required edge because the axis alone cannot
+    // distinguish "this depends on X" from "X depends on this" — and naming the
+    // wrong one is worse than silence, since a followed instruction leaves the
+    // graph asserting the inverse of the truth (PR #3347 R1).
+    expect(buildAdvisory([one])).toContain('tasks_deps_add(taskId: "<this>"');
+    expect(buildAdvisory([{ ...one, required: INV_DEP }])).toContain(
+      'tasks_deps_add(taskId: "<other>"'
+    );
+  });
+
+  test("the two decomposition directions get different remedies", () => {
+    expect(buildAdvisory([{ ...one, required: FWD_CHILD }])).toContain("tasks_reparent");
+    expect(buildAdvisory([{ ...one, required: INV_CHILD }])).toContain("reparent the OTHER task");
   });
 
   test("an ambiguous phrase offers both axes rather than guessing", () => {
-    const text = buildAdvisory([{ ...one, axis: "unclear" }]);
+    const text = buildAdvisory([{ ...one, required: "unclear" }]);
     expect(text).toContain("pick one");
     expect(text).toContain("dependency");
     expect(text).toContain("parent/child");
