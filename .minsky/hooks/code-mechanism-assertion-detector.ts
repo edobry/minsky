@@ -120,6 +120,7 @@ import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { claimSetSignature, shouldInjectClaimSet } from "./code-mechanism-assertion-dedup-store";
 import { readAuthoredSpecText } from "./authored-spec-text";
+import { GENERATION_BANNER_PATTERNS } from "../../packages/domain/src/rules/compile/banner-constants";
 import {
   CAPTURE_SCHEMA_FIELD,
   CAPTURE_SCHEMA_VERSION,
@@ -1030,6 +1031,32 @@ function resultReportsCreated(raw: unknown): boolean {
   return fromValue(raw);
 }
 
+/**
+ * `tool_use.id`s whose correlated result reports the write CREATED the file.
+ *
+ * Shared by the two corpora that must tell a new file from an overwrite:
+ * {@link buildAddedCommentCorpus} (every comment in a new file is genuinely
+ * added) and {@link buildArtifactProseCorpus}'s durable-file branch (mt#4534 —
+ * every claim in a new doc is genuinely being asserted now). Extracted rather
+ * than copied because the two would otherwise answer the same question from two
+ * traversals that can drift.
+ */
+function collectCreatedToolUseIds(turnLines: TranscriptLine[]): Set<string> {
+  const created = new Set<string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "user" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block["type"] !== "tool_result") continue;
+      const id = block["tool_use_id"];
+      if (typeof id !== "string") continue;
+      if (resultReportsCreated(block["content"])) created.add(id);
+    }
+  }
+  return created;
+}
+
 export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
   const commentLines = (text: string): string[] => {
     const out: string[] = [];
@@ -1050,18 +1077,7 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
   // `created: true` on the correlated result is the only signal distinguishing a
   // NEW file (every comment genuinely added) from an overwrite (most of them
   // pre-existing). Absent, the write is skipped.
-  const createdByToolUseId = new Set<string>();
-  for (const line of turnLines) {
-    const role = line.message?.role ?? line.type;
-    const content = line.message?.content;
-    if (role !== "user" || !Array.isArray(content)) continue;
-    for (const block of content as Array<Record<string, unknown>>) {
-      if (block["type"] !== "tool_result") continue;
-      const id = block["tool_use_id"];
-      if (typeof id !== "string") continue;
-      if (resultReportsCreated(block["content"])) createdByToolUseId.add(id);
-    }
-  }
+  const createdByToolUseId = collectCreatedToolUseIds(turnLines);
 
   // Deduped: the same comment written by two tools in one turn is one assertion,
   // and duplicates would inflate the claim corpus (PR #2549 R1).
@@ -1134,9 +1150,13 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
  *   string back to its registry command id via `completion-manifest.json`. This is
  *   the channel an agent switches to when the MCP path is failing — i.e. exactly when
  *   it is least likely to notice the coverage it just lost.
- * - **A git-tracked repo file** (an ADR, a rule, a doc) written via `Write`/`Edit`/
- *   `Bash`. A different artifact CLASS rather than a missing name. **Owned by
- *   mt#4534.**
+ * - **A git-tracked repo file** (an ADR, a rule, a doc) written via `Write`/`Edit`.
+ *   A different artifact CLASS rather than a missing name — which is why mt#4534
+ *   did not answer it by adding names HERE. It is covered as of mt#4534, by the
+ *   path-keyed branch this regex's builder runs alongside: see
+ *   {@link DURABLE_DOC_PATH_RE}. The `Bash` half of that channel remains
+ *   uncovered, deliberately — {@link FILE_WRITE_TOOL_RE} records why and who
+ *   owns it.
  */
 const ARTIFACT_TOOL_RE =
   /(?:session_pr_create|session_pr_edit|tasks_create|tasks_edit|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create)$/i;
@@ -1177,6 +1197,115 @@ const ARTIFACT_SPEC_INLINE_KEYS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Tools that write a git-tracked repo FILE, as opposed to a Minsky entity
+ * (mt#4534).
+ *
+ * A different artifact CLASS from {@link ARTIFACT_TOOL_RE}'s, not a missing
+ * name — which is why coverage here is keyed on the written PATH rather than on
+ * the tool. `Write` is not an artifact tool; `Write` to
+ * `docs/architecture/adr-006-agent-identity.md` is.
+ *
+ * A subset of {@link WRITE_CLASS_TOOL_RE}: the entity writers are already
+ * covered above, and the non-content operations (move/rename/delete/mkdir/
+ * commit) carry no prose to scan.
+ *
+ * **Deliberately absent, each for its own reason:**
+ *
+ * - **`Bash`** — a heredoc or `sed -i` into a doc, which is the shape the
+ *   originating incident actually used and the one auto mode steers toward.
+ *   Left out because the CLASS is **owned by mt#4536**, which decides the
+ *   mechanism once for the five guards blind to this surface; a bespoke
+ *   command-string parser here would be the fourth hand-rolled copy that task
+ *   exists to prevent. Not left out as intractable: mt#4536 judges the shape
+ *   hard because the hook sees shell variables UNEXPANDED, and that bounds the
+ *   command string, not the artifact — the authored text is recoverable from
+ *   the file's diff afterward, as {@link buildAddedCommentCorpus} already does
+ *   for comments.
+ * - **`MultiEdit` / `NotebookEdit`** — their payloads nest the new text inside
+ *   an `edits` array rather than at the top level, so listing them would add a
+ *   name that contributes nothing while reading as coverage. Named here instead,
+ *   which is the enumerated-gap form this repo prefers to a silent no-op.
+ */
+const FILE_WRITE_TOOL_RE =
+  /(?:^|_)(?:Write|Edit)$|(?:session_write_file|session_search_replace|session_edit_file)$/i;
+
+/**
+ * The subset of {@link FILE_WRITE_TOOL_RE} whose payload is a WHOLE file.
+ *
+ * Classified by TOOL, not by input key — `session_edit_file` carries a PARTIAL
+ * payload (an edit pattern with `// ... existing code ...` markers) under
+ * `content`, which is also a {@link WHOLE_FILE_INPUT_KEYS} member, so the
+ * key-shaped test {@link buildAddedCommentCorpus} uses would misread every
+ * `session_edit_file` call as a whole-file write and gate it on a `created`
+ * flag it will never have.
+ */
+const WHOLE_FILE_WRITE_TOOL_RE = /(?:^|_)Write$|session_write_file$/i;
+
+/**
+ * Input keys naming the file a write targets. `Write`/`Edit` use `file_path`;
+ * the `session_*` writers use `path`.
+ *
+ * The same two-family split `extractTargetPath` encodes in
+ * `check-generated-file-edit.ts`. Kept as a local key list rather than a call
+ * into that helper because it resolves the path to an ABSOLUTE one against a
+ * `cwd` this builder does not have, while the pattern below wants the path as
+ * the agent wrote it.
+ */
+const FILE_PATH_INPUT_KEYS = ["file_path", "path"];
+
+/**
+ * **A claim about which repo files are DECISION RECORDS** — where prose an agent
+ * writes is read later as settled fact, by the principal or by another agent,
+ * rather than as a passing note (mt#4534).
+ *
+ * Each member is here for that property, not for its extension:
+ *
+ * - **`docs/**`** — ADRs, `docs/rules-rationale/**`, incident write-ups. An ADR
+ *   is the canonical decision record for a choice, and `claim-confidence.mdc`
+ *   treats this tree as citable evidence — which is exactly what makes a false
+ *   claim written into it expensive.
+ * - **`.minsky/rules/**`** — the rule corpus SOURCE, compiled into every
+ *   agent's always-loaded context.
+ * - **any `*.md` / `*.mdc`** — skills, agent definitions, READMEs: prose whose
+ *   whole purpose is to be read as instruction.
+ *
+ * NOT here: source files. A claim in a `.ts` comment belongs to
+ * {@link buildAddedCommentCorpus}, and admitting it would double-count it.
+ *
+ * **Review trigger — the same contract {@link ARTIFACT_TOOL_RE} carries, and
+ * the same failure mode.** This is a claim that goes stale, and its miss is
+ * silent: a durable prose tree outside these three contributes nothing, with no
+ * error to notice. When a new tree of agent-authored prose ships, this pattern
+ * is part of its consumer set.
+ */
+const DURABLE_DOC_PATH_RE = /(?:^|\/)docs\/|(?:^|\/)\.minsky\/rules\/|\.mdc?$/i;
+
+/**
+ * True when a payload IS a compile output, recognised by the generation banner
+ * it carries.
+ *
+ * Compiled outputs — `CLAUDE.md`, `.cursor/rules/*.mdc`, `.claude/skills/ * /
+ * SKILL.md` — match {@link DURABLE_DOC_PATH_RE} on extension, but their prose is
+ * a PROJECTION of a source rule rather than a claim authored at that path.
+ * Admitting one would enter the entire rule corpus as a fresh assertion every
+ * time a target is regenerated.
+ *
+ * Recognised by CONTENT via mt#1798's shared banner patterns — the same single
+ * source of truth the compile writers emit and `check-generated-file-edit`
+ * detects with — rather than by a path list, so it cannot drift when a new
+ * compile target ships. That drift is the failure a path list has and mt#1798
+ * exists to prevent.
+ *
+ * Belt-and-braces rather than load-bearing: `check-generated-file-edit` DENIES a
+ * banner-bearing write at PreToolUse, so such a payload should not reach a
+ * transcript at all.
+ */
+function isGeneratedOutputPayload(text: string): boolean {
+  const head = text.split("\n", 5).join("\n");
+  return GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(head));
+}
+
+/**
  * Extract the prose an agent wrote INTO a durable artifact this turn (mt#3642).
  *
  * Why this surface exists: the chat corpus is `extractAssistantText`, i.e.
@@ -1194,11 +1323,31 @@ const ARTIFACT_SPEC_INLINE_KEYS: Readonly<Record<string, string>> = {
  * recorded in separate fields and measured separately, so overlap shows up in
  * the data rather than being silently resolved here.
  *
- * No ADDED-only subtraction, unlike the comment corpus. A spec patch or PR body
- * is authored wholesale rather than edited line-by-line, and its payload is what
- * the agent is asserting right now. `tasks_spec_patch` carries unchanged regions
- * as `// ... existing code ...` markers rather than as text, so re-flagging
- * untouched prose is not the failure mode it is for a source edit.
+ * ## Two artifact CLASSES, gated differently (mt#4534)
+ *
+ * A **Minsky entity** — a PR body, a spec, a memory, an ask — is gated on the
+ * TOOL that wrote it ({@link ARTIFACT_TOOL_RE}). A **git-tracked repo file** —
+ * an ADR, a rule, a doc — is gated on the PATH it was written to
+ * ({@link DURABLE_DOC_PATH_RE}), because the tools that write one (`Write`,
+ * `Edit`, the `session_*` writers) also write ordinary source, so the tool name
+ * cannot tell the two apart. That is the distinction mt#4534 exists to draw:
+ * for a year the corpus grew by tool name while an entire artifact class — the
+ * one that outlives the conversation most reliably — stayed invisible, because
+ * "prose an agent authored" splits into WHICH TOOL CARRIED IT and WHICH ARTIFACT
+ * IT LANDED IN, and only the first was ever enumerated.
+ *
+ * No ADDED-only subtraction on the ENTITY class, unlike the comment corpus. A
+ * spec patch or PR body is authored wholesale rather than edited line-by-line,
+ * and its payload is what the agent is asserting right now. `tasks_spec_patch`
+ * carries unchanged regions as `// ... existing code ...` markers rather than as
+ * text, so re-flagging untouched prose is not the failure mode it is for a
+ * source edit.
+ *
+ * The FILE class does not inherit that, and the difference is real rather than
+ * an inconsistency: an ADR is amended incrementally, so a whole-file rewrite
+ * re-sends prose the agent is not asserting. Whole-file writes there are gated
+ * on a `created` result exactly as the comment corpus gates them; targeted edits
+ * are not, their payload being the new text by construction.
  *
  * Reads the tool INPUT, never the `tool_result` echo — the input is exactly what
  * the agent authored.
@@ -1215,11 +1364,54 @@ export function buildArtifactProseCorpus(
   readFile?: (path: string) => string | null
 ): string {
   const parts = new Set<string>();
+  const createdByToolUseId = collectCreatedToolUseIds(turnLines);
 
-  const collect = (name: string, input: unknown): void => {
-    if (!ARTIFACT_TOOL_RE.test(name)) return;
+  /**
+   * A durable repo FILE this write targets — an ADR, a rule, a doc (mt#4534).
+   *
+   * Separate from the entity branch below and reached by a disjoint tool set, so
+   * the two are independent `if`s rather than alternatives: if a name ever lands
+   * in both, `parts` is a Set and the prose is collected once.
+   */
+  const collectDurableFileProse = (
+    name: string,
+    asRecord: Record<string, unknown>,
+    toolUseId: string | undefined
+  ): void => {
+    const path = FILE_PATH_INPUT_KEYS.map((k) => asRecord[k]).find(
+      (v): v is string => typeof v === "string" && v.trim().length > 0
+    );
+    if (path === undefined || !DURABLE_DOC_PATH_RE.test(path)) return;
+
+    // A whole-file write is included ONLY when its result reports the file was
+    // CREATED — the same bar, and the same reason, as
+    // `buildAddedCommentCorpus`. Rewriting an existing doc re-sends every
+    // paragraph already in it, and scanning those would re-flag prose the agent
+    // is not asserting now; that is the noise mem#719 warns trains readers to
+    // ignore a detector. A targeted edit needs no such gate: its payload is the
+    // new text by construction.
+    //
+    // Consequence, stated rather than left to be discovered: a claim ADDED while
+    // overwriting an existing doc is not covered. Covering it needs a
+    // before-image the payload does not carry — the identical carve-out the
+    // comment corpus records.
+    if (WHOLE_FILE_WRITE_TOOL_RE.test(name)) {
+      if (toolUseId === undefined || !createdByToolUseId.has(toolUseId)) return;
+    }
+
+    for (const key of WRITE_INPUT_NEW_KEYS) {
+      const value = asRecord[key];
+      if (typeof value !== "string" || value.trim().length === 0) continue;
+      if (isGeneratedOutputPayload(value)) continue;
+      parts.add(value);
+    }
+  };
+
+  const collect = (name: string, input: unknown, toolUseId?: string): void => {
     if (!input || typeof input !== "object") return;
     const asRecord = input as Record<string, unknown>;
+    if (FILE_WRITE_TOOL_RE.test(name)) collectDurableFileProse(name, asRecord, toolUseId);
+    if (!ARTIFACT_TOOL_RE.test(name)) return;
     for (const key of ARTIFACT_PROSE_INPUT_KEYS) {
       const value = asRecord[key];
       if (typeof value === "string" && value.trim().length > 0) parts.add(value);
@@ -1245,6 +1437,9 @@ export function buildArtifactProseCorpus(
     // `extractToolUseNames` (`transcript.ts:722-738`), which has handled both
     // since it was written. Handling only the nested shape made a turn recorded
     // in the top-level shape invisible to this surface — PR #2584 R1.
+    // No `id` on this shape, so a whole-file write recorded here cannot be
+    // confirmed as a creation and is skipped — absent evidence, exclude, as
+    // everywhere else the `created` flag is consulted.
     if (line.type === "tool_use") collect(line.name ?? line.tool_name ?? "", line.input);
 
     const role = line.message?.role ?? line.type;
@@ -1253,7 +1448,12 @@ export function buildArtifactProseCorpus(
 
     for (const block of content as Array<Record<string, unknown>>) {
       if (block["type"] !== "tool_use") continue;
-      collect((block["name"] as string) ?? "", block["input"]);
+      const id = block["id"];
+      collect(
+        (block["name"] as string) ?? "",
+        block["input"],
+        typeof id === "string" ? id : undefined
+      );
     }
   }
 

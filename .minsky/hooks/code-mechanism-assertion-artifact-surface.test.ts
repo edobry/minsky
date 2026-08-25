@@ -31,6 +31,19 @@ const SOCKET_CLAIM =
   "(`connection.js` passes it into the tls options), so a plain socket is the " +
   "supported shape against the Supabase pooler.";
 
+/**
+ * A distinctive fragment of {@link SOCKET_CLAIM}. Assertions target this rather
+ * than the whole body so a corpus that reformats or concatenates still matches.
+ */
+const SOCKET_CLAIM_FRAGMENT = "postgres-js upgrades whatever socket";
+
+/**
+ * An ordinary source file: write-class, but not a decision record. The negative
+ * side of {@link DURABLE_DOC_PATH_RE}'s boundary — a claim in a `.ts` comment
+ * belongs to the comment surface, and admitting it here would double-count it.
+ */
+const SOURCE_PATH = "src/domain/session/socket.ts";
+
 function artifactTurn(name: string, input: Record<string, unknown>): TranscriptLine[] {
   return [
     {
@@ -49,7 +62,7 @@ describe("durable-artifact surface (mt#3642)", () => {
     // (a `session_pr_create` body) carrying the claim's REAL text.
     const turn = artifactTurn(PR_CREATE, { title: "Bound the socket", body: SOCKET_CLAIM });
 
-    expect(buildArtifactProseCorpus(turn)).toContain("postgres-js upgrades whatever socket");
+    expect(buildArtifactProseCorpus(turn)).toContain(SOCKET_CLAIM_FRAGMENT);
 
     const result = detectCodeMechanismAssertion(buildArtifactProseCorpus(turn), "", "");
     expect(result.matched).toBe(true);
@@ -76,7 +89,16 @@ describe("durable-artifact surface (mt#3642)", () => {
   test("an ordinary source edit is NOT collected — that is the comment surface's job", () => {
     // `session_write_file` is write-class but not artifact-class. Without this
     // boundary the two surfaces would double-count every source edit.
-    expect(buildArtifactProseCorpus(artifactTurn(WRITE_FILE, { content: SOCKET_CLAIM }))).toBe("");
+    //
+    // Carries a real source PATH since mt#4534: the same tool writing a durable
+    // doc IS collected now, so a path-less fixture would pass for the wrong
+    // reason (no path to classify) rather than the right one (a `.ts` path is
+    // not a decision record).
+    expect(
+      buildArtifactProseCorpus(
+        artifactTurn(WRITE_FILE, { path: SOURCE_PATH, content: SOCKET_CLAIM })
+      )
+    ).toBe("");
   });
 
   test("a tool with no prose key contributes nothing", () => {
@@ -95,7 +117,7 @@ describe("durable-artifact surface (mt#3642)", () => {
 
     test("a top-level tool_use line is collected", () => {
       const turn = topLevelTurn(PR_CREATE, { body: SOCKET_CLAIM });
-      expect(buildArtifactProseCorpus(turn)).toContain("postgres-js upgrades whatever socket");
+      expect(buildArtifactProseCorpus(turn)).toContain(SOCKET_CLAIM_FRAGMENT);
     });
 
     test("the `tool_name` spelling is honored too", () => {
@@ -105,9 +127,11 @@ describe("durable-artifact surface (mt#3642)", () => {
     });
 
     test("a top-level non-artifact tool is still excluded", () => {
-      expect(buildArtifactProseCorpus(topLevelTurn(WRITE_FILE, { content: SOCKET_CLAIM }))).toBe(
-        ""
-      );
+      expect(
+        buildArtifactProseCorpus(
+          topLevelTurn(WRITE_FILE, { path: SOURCE_PATH, content: SOCKET_CLAIM })
+        )
+      ).toBe("");
     });
 
     test("both shapes in one turn are collected and deduped", () => {
@@ -197,6 +221,171 @@ describe("tasks_edit write paths (mt#4525)", () => {
     });
     expect(buildArtifactProseCorpus(turn)).toBe("");
   });
+
+  test("tasks_edit's boolean `spec` flag is not read as prose", () => {
+    // `spec` IS in ARTIFACT_PROSE_INPUT_KEYS (it is tasks_create's body), but on
+    // tasks_edit the same name is a boolean flag. PR #3063 R1 conflated the two on
+    // the sibling detector; the typeof guard is what keeps it from mattering here.
+    const turn = artifactTurn(TASKS_EDIT, { taskId: "mt#4523", spec: true });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+});
+
+// mt#4534 — a git-tracked repo FILE (an ADR, a rule, a doc) reached NO claim
+// corpus, because coverage was enumerated by TOOL NAME over Minsky entity
+// writers and a repo file is written by a different tool set entirely. A
+// different artifact CLASS, not a missing name — so it is gated on the written
+// PATH, since `Write` also writes ordinary source.
+//
+// Found in the failure it caused (2026-08-24): while amending
+// docs/architecture/adr-006-agent-identity.md SPECIFICALLY to correct an
+// unverified stale claim, a NEW unverified claim went into the same edit. No
+// detector surface existed at all.
+describe("durable repo-file writes (mt#4534)", () => {
+  const WRITE = "Write";
+  const EDIT = "Edit";
+  const SEARCH_REPLACE = "mcp__minsky__session_search_replace";
+  const EDIT_FILE = "mcp__minsky__session_edit_file";
+  const BASH = "Bash";
+  const ADR_PATH = "docs/architecture/adr-006-agent-identity.md";
+
+  /** A turn whose write REPORTS having created the file it targeted. */
+  function createdTurn(name: string, input: Record<string, unknown>): TranscriptLine[] {
+    return [
+      ...artifactTurn(name, input),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_a1",
+              content: JSON.stringify({ created: true }),
+            },
+          ],
+        },
+      },
+    ] as TranscriptLine[];
+  }
+
+  test("AT1: a claim edited into an ADR reaches the corpus and is DETECTED", () => {
+    const turn = artifactTurn(EDIT, {
+      file_path: ADR_PATH,
+      old_string: "## Verification",
+      new_string: SOCKET_CLAIM,
+    });
+
+    expect(buildArtifactProseCorpus(turn)).toContain(SOCKET_CLAIM_FRAGMENT);
+
+    // Through the recognizer, not merely into a string set — the same pairing
+    // the mt#4525 block makes, and for the same reason: only the corpus half is
+    // this task's subject, so asserting collection alone would leave the widened
+    // surface untested where it actually has to land.
+    const result = detectCodeMechanismAssertion(buildArtifactProseCorpus(turn), "", "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("connection.js");
+  });
+
+  test("AT1 negative control: the same claim reached nothing pre-fix", () => {
+    // The pre-fix builder read the tool NAME only and never looked at a path, so
+    // its corpus for the fixture above was identical to its corpus for the same
+    // call with no path at all — which is what this asserts. `Edit` is not in
+    // ARTIFACT_TOOL_RE, so pre-fix there was no branch that could admit it.
+    //
+    // The stronger control — these tests run against the un-fixed tree and FAIL
+    // — is in the PR body, where reverting the implementation is possible.
+    const control = artifactTurn(EDIT, { old_string: "x", new_string: SOCKET_CLAIM });
+    expect(buildArtifactProseCorpus(control)).toBe("");
+  });
+
+  test("a NEW doc written whole-file is collected", () => {
+    const turn = createdTurn(WRITE, { file_path: ADR_PATH, content: SOCKET_CLAIM });
+    expect(buildArtifactProseCorpus(turn)).toContain(SOCKET_CLAIM_FRAGMENT);
+  });
+
+  test("OVERWRITING an existing doc is NOT collected — the documented carve-out", () => {
+    // Same payload, no `created` on the result. Every paragraph of a rewritten
+    // doc arrives in the payload, and scanning them would re-flag prose the
+    // agent is not asserting now (mem#719). The cost is stated in the builder:
+    // a claim ADDED during an overwrite is not covered, because the payload
+    // carries no before-image to subtract.
+    const turn = artifactTurn(WRITE, { file_path: ADR_PATH, content: SOCKET_CLAIM });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+
+  test("a targeted edit needs no `created` flag — its payload IS the new text", () => {
+    const turn = artifactTurn(SEARCH_REPLACE, {
+      path: ".minsky/rules/claim-confidence.mdc",
+      search: "old",
+      replace: SOCKET_CLAIM,
+    });
+    expect(buildArtifactProseCorpus(turn)).toContain(SOCKET_CLAIM_FRAGMENT);
+  });
+
+  test("session_edit_file's partial payload is not misread as a whole-file write", () => {
+    // Its edit pattern rides under `content`, which is also a whole-file key —
+    // so classifying by KEY (as the comment corpus does) would gate every such
+    // call on a `created` flag it never carries, and the surface would be
+    // silently empty for the tool.
+    const turn = artifactTurn(EDIT_FILE, {
+      path: ADR_PATH,
+      instructions: "Amend the verification section",
+      content: SOCKET_CLAIM,
+    });
+    expect(buildArtifactProseCorpus(turn)).toContain(SOCKET_CLAIM_FRAGMENT);
+  });
+
+  test("AT2: a write to a non-durable path contributes nothing", () => {
+    const scratch = artifactTurn(WRITE, {
+      file_path: "/tmp/scratch/notes.txt",
+      content: SOCKET_CLAIM,
+    });
+    expect(buildArtifactProseCorpus(scratch)).toBe("");
+
+    // Nor does a source file — that claim belongs to the comment surface.
+    const source = artifactTurn(EDIT, {
+      file_path: SOURCE_PATH,
+      old_string: "a",
+      new_string: SOCKET_CLAIM,
+    });
+    expect(buildArtifactProseCorpus(source)).toBe("");
+  });
+
+  test("a compiled output is excluded even though its path matches", () => {
+    // CLAUDE.md and .cursor/rules/*.mdc are projections of a source rule, not
+    // claims authored at that path; admitting one would enter the whole rule
+    // corpus as a fresh assertion on every regeneration. Recognised by the
+    // shared generation banner (mt#1798), not by a path list that could drift.
+    const turn = createdTurn(WRITE, {
+      file_path: "CLAUDE.md",
+      content: `<!-- Generated by minsky rules compile. Do not edit directly. -->\n\n${SOCKET_CLAIM}`,
+    });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+
+  test("AT3: the Bash channel contributes nothing — the recorded SC2 disposition", () => {
+    // Deliberate, not an oversight: mt#4536 owns the CLI/Bash surface for all
+    // five guards blind to it and decides the mechanism once. Asserted here so
+    // the disposition is a fact about the code rather than a claim in prose —
+    // if a later change starts reading Bash here, this test says so.
+    const turn = artifactTurn(BASH, {
+      command: `cat > ${ADR_PATH} <<'EOF'\n${SOCKET_CLAIM}\nEOF`,
+    });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+
+  test("the entity surface is unchanged by the widening", () => {
+    // AT4 in miniature: the two classes are independent branches, so a PR body
+    // still reaches the corpus with no path involved at all.
+    expect(buildArtifactProseCorpus(artifactTurn(PR_CREATE, { body: "entity prose" }))).toBe(
+      "entity prose"
+    );
+  });
+});
+
+describe("tasks_edit boolean-flag guard (mt#4525, retained)", () => {
+  const TASKS_EDIT = "mcp__minsky__tasks_edit";
 
   test("tasks_edit's boolean `spec` flag is not read as prose", () => {
     // `spec` IS in ARTIFACT_PROSE_INPUT_KEYS (it is tasks_create's body), but on
