@@ -1,0 +1,188 @@
+/**
+ * Resolve the spec text an agent authored in a tool call — inline OR by file
+ * reference (mt#4525, subsuming mt#4295).
+ *
+ * ## Why this exists
+ *
+ * `tasks_edit` accepts the spec body two ways: inline as `specContent`, or by
+ * reference as `specFile`, whose contents the command reads and uses as the new
+ * body (`src/adapters/shared/commands/tasks/edit-commands.ts`). A guard that reads
+ * only the inline key sees a `--spec-file` write as a call carrying NO spec — and
+ * because that is indistinguishable from a legitimately spec-less call, the miss
+ * reports itself as a clean skip. A recall hole that looks like a clean skip is not
+ * discoverable by use.
+ *
+ * **Three guards hit this independently before it was extracted:**
+ *
+ * 1. `spec-criterion-claim-detector.ts` — patched by PR #3063 R1 after review caught
+ *    it; its own comment called the gap "a silent coverage hole". That patch is the
+ *    reference this module generalizes.
+ * 2. `claim-provenance-scan.ts` — same hole, found separately, months later (mt#4295).
+ * 3. `code-mechanism-assertion-detector.ts` — worse: `tasks_edit` was absent from its
+ *    tool allowlist entirely, so neither path was read (mt#4525).
+ *
+ * Guard #4 would inherit it by default. The per-guard fix tier demonstrably did not
+ * contain the class, which is why the resolution lives here instead.
+ *
+ * ## What this module deliberately does NOT own
+ *
+ * **Which tools a guard scans is the guard's own policy, not this module's.** Each
+ * caller passes its own inline-key map. That is not indecision — the three callers
+ * genuinely scan different tool sets (`claim-provenance-scan` reads
+ * `tasks_spec_search_replace`, `spec-criterion-claim-detector` does not), and folding
+ * them into one shared set would silently WIDEN each guard's corpus. A widened corpus
+ * changes fire rates, which confounds the before/after replay every one of these
+ * guards is calibrated by (the confound mem#1067 §2 names). Sharing the resolution
+ * while leaving scope alone is the whole point.
+ *
+ * @see mt#4525 — the extraction; mt#4295 — subsumed into it
+ * @see mt#4536 — the ADJACENT and much larger hole: a write routed through the CLI
+ *   reaches the DB via a subprocess, so no PreToolUse guard sees it at all. This
+ *   module cannot help there; it resolves an argument of a tool call that happened.
+ */
+
+import { existsSync, readFileSync, statSync } from "fs";
+import { isAbsolute, relative, resolve } from "path";
+
+/**
+ * Tool-input key naming a FILE whose contents become the spec.
+ *
+ * Only `tasks_edit` has one — `tasks_create`, `tasks_spec_patch` and
+ * `tasks_spec_search_replace` take their bodies inline only. Keyed on the
+ * NORMALIZED name; see {@link normalizeSpecToolName}.
+ */
+const SPEC_FILE_KEY_BY_TOOL: Readonly<Record<string, string>> = {
+  tasks_edit: "specFile",
+};
+
+/**
+ * Size ceiling for a `specFile` read. A spec is prose — the largest in this repo is
+ * comfortably under 100 KB — so anything past this is not a spec, and the hook
+ * declines rather than pulling an arbitrarily large file into a PreToolUse budget.
+ */
+export const MAX_SPEC_FILE_BYTES = 512 * 1024;
+
+/**
+ * Normalize a tool name to the bare command form.
+ *
+ * **The two existing callers key on DIFFERENT spellings** — `spec-criterion-claim-detector`
+ * on the fully-prefixed `mcp__minsky__tasks_edit`, `claim-provenance-scan` on the bare
+ * `tasks_edit` after its own `normalize()`. A resolver that accepted only one spelling
+ * would cover one caller and silently miss the other, which is this family's own defect
+ * re-entered through its fix. So normalization happens HERE, once, and both spellings
+ * resolve to the same key.
+ */
+export function normalizeSpecToolName(toolName: string): string {
+  return toolName
+    .replace(/^mcp__minsky__/, "")
+    .replace(/\./g, "_")
+    .toLowerCase();
+}
+
+/**
+ * Is `path` inside the repo working tree?
+ *
+ * mt#4295 SC4. A PreToolUse guard runs against arbitrary tool input, so the file key
+ * is attacker-adjacent in the same sense any tool argument is; an observer should not
+ * be turned into a read primitive for `/etc/passwd` or `~/.aws/credentials` by a
+ * crafted argument.
+ *
+ * **The reference implementation this module generalizes does NOT do this check** —
+ * `spec-criterion-claim-detector.readSpecFileFromDisk` reads whatever path it is
+ * given. So the extraction is not a pure move: it closes a hole in its own reference,
+ * which is the criterion mt#4295 carried and the sibling never had.
+ *
+ * Boundary is `process.cwd()`, which for every hook process is the workspace root the
+ * tool call is operating in.
+ */
+function isInsideRepo(path: string, repoRoot: string = process.cwd()): boolean {
+  const resolved = resolve(repoRoot, path);
+  const rel = relative(repoRoot, resolved);
+  // `relative` returns "" for the root itself, a `..`-prefixed path for anything
+  // above it, and an absolute path when the two are on different roots.
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/**
+ * Read a spec file from disk, or null if it cannot be read as a spec.
+ *
+ * Every failure is a null rather than a throw: this is an observer that must not turn
+ * a valid `tasks_edit` into an error. A null is never SILENT — the caller records
+ * `specFileUnreadable`, so the miss stays measurable instead of looking like a call
+ * that carried no spec. That distinction is mt#4295 SC2: a guard that cannot read its
+ * input has not adjudicated it, and must not record `clean`.
+ */
+export function readSpecFileFromDisk(path: string): string | null {
+  try {
+    if (!isInsideRepo(path)) return null;
+    if (!existsSync(path)) return null;
+    if (statSync(path).size > MAX_SPEC_FILE_BYTES) return null;
+    const text = readFileSync(path, "utf8");
+    return text.trim() === "" ? null : text;
+  } catch {
+    // intentional-swallow: an unreadable spec file is a coverage miss, recorded by the
+    // caller via `specFileUnreadable` — never a reason to fail the tool call.
+    return null;
+  }
+}
+
+/** What a spec-body read produced, and — when it produced nothing — why. */
+export interface SpecTextRead {
+  text: string | null;
+  /**
+   * A spec file was named and could not be read. Distinguishes a MISS from "this call
+   * carries no spec", which is the whole reason this field exists.
+   */
+  specFileUnreadable: boolean;
+}
+
+/**
+ * Read the authored spec body out of a tool call, or null when it carries none.
+ *
+ * `inlineKeys` is the CALLER's map of normalized tool name → the input key carrying
+ * the body inline. It is a parameter rather than a constant here for the scope reason
+ * in this module's header.
+ *
+ * **A trap worth carrying from the reference:** `tasks_edit`'s own `spec` parameter is
+ * a BOOLEAN flag, not a body (PR #3063 R1 read the two as the same key and was wrong).
+ * The `typeof value === "string"` check below is what keeps that from mattering, so do
+ * not relax it into a truthiness test.
+ *
+ * `readFile` is injectable so the file branch is testable without touching a real
+ * filesystem — `testing-standards.mdc §Testable Design`: inject the collaborator
+ * rather than patching it.
+ */
+export function readAuthoredSpecText(
+  toolName: string | undefined,
+  toolInput: Record<string, unknown> | undefined,
+  inlineKeys: Readonly<Record<string, string>>,
+  readFile: (path: string) => string | null = readSpecFileFromDisk
+): SpecTextRead {
+  const miss: SpecTextRead = { text: null, specFileUnreadable: false };
+  if (!toolName || !toolInput) return miss;
+
+  const normalized = normalizeSpecToolName(toolName);
+
+  const inlineKey = inlineKeys[normalized];
+  if (inlineKey !== undefined) {
+    const value = toolInput[inlineKey];
+    if (typeof value === "string" && value.trim() !== "") {
+      return { text: value, specFileUnreadable: false };
+    }
+  }
+
+  // Only AFTER the inline body is absent: the two are alternatives, and the inline
+  // form is both cheaper and the common case.
+  const fileKey = SPEC_FILE_KEY_BY_TOOL[normalized];
+  if (fileKey !== undefined) {
+    const path = toolInput[fileKey];
+    if (typeof path === "string" && path.trim() !== "") {
+      const text = readFile(path);
+      return text === null
+        ? { text: null, specFileUnreadable: true }
+        : { text, specFileUnreadable: false };
+    }
+  }
+
+  return miss;
+}
