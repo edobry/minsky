@@ -15,8 +15,18 @@
  * Absence discipline, inherited from the page: a pending aggregates source
  * renders placement-only dots with a note (never zero-sized, never
  * health-colored by default); the CI and review stations render their
- * population gap as text rather than being omitted; unplaced and excluded
- * names are counted in a note rather than dropped.
+ * population gap as text rather than being omitted; unplaced, stationless and
+ * excluded names are counted in a note rather than dropped.
+ *
+ * Layout: the band WRAPS, it does not scroll (mt#4599). Twelve stations cannot
+ * fit one row inside the page's `max-w-4xl` shell — measured, the row needs
+ * 1755px against an 864px container — so the original single-row
+ * `overflow-x-auto` hid 7 of 12 stations behind a scrollbar nothing signalled,
+ * and `items-stretch` propagated the densest station's height (192px, from
+ * PreToolUse's 60 dots) onto every sparse one, rendering them as empty boxes.
+ * Wrapping fits at every width from 360px up, and reading order across a
+ * wrapped row IS trajectory order, so nothing about the spine's meaning is
+ * traded away. Cards size to their own content; the `→` separator trails.
  */
 import { Link } from "react-router-dom";
 import type { InterceptorAggregateRow } from "@minsky/domain/guard-events/aggregates";
@@ -123,7 +133,22 @@ export function LifecycleSpine({
   aggregateRows: Map<string, InterceptorAggregateRow> | null;
   windowDays: number | null;
 }) {
-  const { placed, unplaced, excluded } = spinePopulation(entries);
+  // `stationless` is rendered in the population note alongside the other two
+  // buckets (mt#4599). It was computed and discarded until now: mt#4129 added it
+  // precisely so a declared point with no station is REPORTED rather than
+  // dropped, and the component destructured around it, so the guard existed with
+  // nothing wired to it.
+  //
+  // It is NOT empty. `SPINE_STATIONS` is built from `INTERCEPTION_POINT_ORDER`
+  // (9 points) while the `InterceptionPoint` union carries 15 — `SessionStart`,
+  // `StopFailure`, `Notification`, `PermissionRequest`, `PreCompact` and
+  // `PostCompact` have no station. In the live 148-entry catalog,
+  // `record-conversation-run-state` (PostCompact) and `session-start`
+  // (SessionStart) sit there, and both rendered nowhere at all until this wiring.
+  // Giving those six points stations is deliberately NOT done here: mt#4129
+  // reserves it as a spine-design decision, so reporting them is the correct
+  // behaviour today.
+  const { placed, unplaced, stationless, excluded } = spinePopulation(entries);
   const snapshotReady = aggregateRows !== null;
 
   // The one population-wide figure the dots scale against; from the same rows
@@ -151,15 +176,10 @@ export function LifecycleSpine({
           : "Aggregates pending — placement only; size and health arrive with the first rollup."}
       </p>
 
-      <div className="overflow-x-auto">
-        <ol className="flex items-stretch gap-0 list-none p-0 m-0 min-w-max">
+      <div data-testid="spine-band">
+        <ol className="flex flex-wrap items-start gap-y-2 list-none p-0 m-0">
           {SPINE_STATIONS.map((station, i) => (
-            <li key={station.id} className="flex items-stretch">
-              {i > 0 && (
-                <span aria-hidden className="self-center px-1 text-muted-foreground/50 text-[10px]">
-                  →
-                </span>
-              )}
+            <li key={station.id} className="flex items-start">
               <div
                 className={`flex flex-col rounded border p-2 min-w-[5.5rem] max-w-[9rem] ${
                   station.populationGap ? "border-dashed border-border/60" : "border-border/40"
@@ -195,12 +215,28 @@ export function LifecycleSpine({
                   </span>
                 )}
               </div>
+              {/* TRAILING, not leading (mt#4599). The band wraps, so a row that
+                  continues onto the next row ends with an arrow — which reads
+                  correctly. A leading arrow would dangle at a wrapped row's
+                  start, pointing at nothing. */}
+              {i < SPINE_STATIONS.length - 1 && (
+                <span
+                  aria-hidden
+                  data-testid="spine-arrow"
+                  className="mt-4 px-1 text-muted-foreground/50 text-[10px]"
+                >
+                  →
+                </span>
+              )}
             </li>
           ))}
         </ol>
       </div>
 
-      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] font-mono text-muted-foreground/80">
+      <div
+        className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] font-mono text-muted-foreground/80"
+        data-testid="spine-legend"
+      >
         {STATE_LEGEND.map(({ kind, word }) => (
           <span key={kind} className="inline-flex items-center gap-1">
             <span className={`inline-block h-2 w-2 rounded-full ${STATE_DOT_CLASSES[kind]}`} />
@@ -213,10 +249,12 @@ export function LifecycleSpine({
         </span>
       </div>
 
-      {(unplaced.length > 0 || excluded.length > 0) && (
+      {(unplaced.length > 0 || stationless.length > 0 || excluded.length > 0) && (
         <p className="mt-1 text-[9px] font-mono text-muted-foreground/70" data-testid="spine-population-note">
           {unplaced.length > 0 &&
             `${unplaced.length} unplaced (no declared point): ${unplaced.map((e) => e.guardName).join(", ")}. `}
+          {stationless.length > 0 &&
+            `${stationless.length} declared at a point this spine has no station for: ${stationless.map((e) => e.guardName).join(", ")}. `}
           {excluded.length > 0 &&
             `${excluded.length} fixture/retired name(s) excluded — fire-log history, not live interception.`}
         </p>
