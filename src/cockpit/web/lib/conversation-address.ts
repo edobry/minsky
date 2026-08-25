@@ -62,6 +62,31 @@ export type ConversationAddress =
   | { kind: "conversation"; conversationId: string; sessionDriver: SessionDriverSummary | null }
   | { kind: "driver-starting"; localId: string; sessionDriver: SessionDriverSummary };
 
+/** The `driver-starting` variant, narrowed. */
+export type DriverStartingAddress = Extract<ConversationAddress, { kind: "driver-starting" }>;
+
+/**
+ * Is this address the not-yet-linked session-driver variant? (mt#4488)
+ *
+ * The tag used to be spelled as a bare `"driver-starting"` literal in three modules —
+ * here, `pages/ConversationPage.tsx` (twice), and `hooks/useConversationAddress.ts` — with
+ * nothing tying them together. mt#4456's vocabulary rename had to find and update every
+ * one by hand, which is the coupling working exactly as designed to hurt.
+ *
+ * Callers ask through this guard so the literal has ONE definition site. It narrows, so
+ * `address.localId` and `address.sessionDriver` stay reachable after the check without a
+ * cast — which is what keeps it as convenient as the comparison it replaces, and therefore
+ * what keeps it from being bypassed.
+ *
+ * Accepts `null | undefined` because both call sites hold an address that may not have
+ * resolved yet, and `isDriverStarting(address)` reads better than a `?.` chain there.
+ */
+export function isDriverStarting(
+  address: ConversationAddress | null | undefined
+): address is DriverStartingAddress {
+  return address?.kind === "driver-starting";
+}
+
 /**
  * Resolve a route id against the session driver registry snapshot.
  *

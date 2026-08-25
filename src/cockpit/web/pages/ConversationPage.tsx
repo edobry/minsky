@@ -89,7 +89,11 @@ import { Button } from "../components/ui/button";
 import { PublishConversationDialog } from "../components/PublishConversationDialog";
 import { useTabs } from "../lib/tabs";
 import { useConversationAddress } from "../hooks/useConversationAddress";
-import { sessionDriverMayStillLink, type SessionDriverSummary } from "../lib/conversation-address";
+import {
+  isDriverStarting,
+  sessionDriverMayStillLink,
+  type SessionDriverSummary,
+} from "../lib/conversation-address";
 import type { ConversationId } from "@minsky/domain/ids";
 
 /**
@@ -191,7 +195,7 @@ export function ConversationPage() {
     // Skipped once the id is known to address a session driver with no conversation:
     // there is nothing for the overview endpoint to find, and asking anyway
     // would spend a request to be told so.
-    enabled: Boolean(conversationId) && address?.kind !== "driver-starting",
+    enabled: Boolean(conversationId) && !isDriverStarting(address),
   });
 
   if (!id) {
@@ -211,7 +215,7 @@ export function ConversationPage() {
     isFilmTab ? "max-w-none" : "max-w-4xl"
   );
 
-  if (address?.kind === "driver-starting") {
+  if (isDriverStarting(address)) {
     return (
       <div className={wrapperClass}>
         <div className="flex flex-col gap-0.5">
