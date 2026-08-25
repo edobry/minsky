@@ -55,6 +55,28 @@ function isBooleanCompatibleSchema(schema: z.ZodType): boolean {
 }
 
 /**
+ * Parameter names a command declares as `mcpHidden` (mt#4579).
+ *
+ * `mcpHidden` marks a parameter the SERVER injects and overwrites — today only
+ * `callerActorId` (ADR-006 identity, mt#4408). Advertising such a parameter in
+ * `tools/list` tells a caller it may pass a value that is in fact discarded.
+ *
+ * Read here because this is the last point that still holds the
+ * `CommandParameterMap`: `convertParametersToZodSchema` below returns a
+ * `z.ZodType`, and the flag does not survive that conversion.
+ *
+ * The keys are NOT removed from the schema — see `omitAdvertisedParams` in
+ * `command-mapper.ts` for why removing them there would break the injection
+ * this flag exists to conceal.
+ */
+export function collectMcpHiddenParamKeys(parameters: CommandParameterMap): string[] {
+  if (!parameters) return [];
+  return Object.entries(parameters)
+    .filter(([, param]) => param?.mcpHidden === true)
+    .map(([key]) => key);
+}
+
+/**
  * Convert shared command parameters to a Zod schema that MCP can use
  */
 export function convertParametersToZodSchema(
@@ -534,6 +556,9 @@ export function registerSharedCommandsWithMcp(
         name: command.id,
         description,
         parameters: convertParametersToZodSchema(command.parameters),
+        // Advertising-only omission (mt#4579). The schema above stays FULL so
+        // `declaredParamKeys` keeps accepting the server's injected value.
+        mcpHiddenParamKeys: collectMcpHiddenParamKeys(command.parameters),
         // Behavior flags travel as a set, never field-by-field (mt#3989).
         // This literal used to name `mutating` alone, so `readsPresence` —
         // declared at the tool and consumed by the server — never arrived, and
