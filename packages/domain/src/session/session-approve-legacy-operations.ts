@@ -34,7 +34,7 @@ import { log } from "@minsky/shared/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
 import { TASK_STATUS } from "../tasks";
-import type { Task } from "../tasks/types";
+import type { Task, StatusWriteOutcome } from "../tasks/types";
 import { execAsync } from "@minsky/shared/exec";
 import { type WorkspaceUtilsInterface, getCurrentSession } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
@@ -63,7 +63,7 @@ export async function approveSessionImpl(
     sessionDB: SessionProviderInterface;
     gitService?: GitServiceInterface;
     taskService?: {
-      setTaskStatus?: (taskId: string, status: string) => Promise<void>;
+      setTaskStatus?: (taskId: string, status: string) => Promise<StatusWriteOutcome>;
       getTaskStatus?: (taskId: string) => Promise<string | undefined>;
       getBackendForTask?: (taskId: string) => Promise<string>;
       getTask?: (taskId: string) => Promise<Task | null>;

@@ -61,6 +61,84 @@ describe("resolveSatisfiedCredentialRequests", () => {
     expect(closed).toEqual([{ id: "a", detail: "8 repos visible" }]);
   });
 
+  it("releases the parent task after closing a satisfied request (mt#4486)", async () => {
+    // The INVOCATION-PATH test. `parent-task-gate.test.ts` proves the release
+    // decides correctly; this proves the resolver actually CALLS it — the half
+    // that, missing, ships a correct function nothing invokes
+    // (`work-completion.mdc §Invocation path`).
+    const released: string[] = [];
+    const { deps, closed } = makeDeps(
+      [requestAsk("a", "github")],
+      [{ provider: "github", configured: true, detail: "ok" }]
+    );
+    deps.releaseParent = async (ask) => {
+      released.push(ask.id);
+    };
+
+    await resolveSatisfiedCredentialRequests(deps);
+
+    expect(closed.map((c) => c.id)).toEqual(["a"]);
+    expect(released).toEqual(["a"]);
+  });
+
+  it("does NOT release the parent of a request that stays open", async () => {
+    // The control. Without it the test above passes just as well if the release
+    // ran unconditionally — which would return tasks whose credential never came.
+    const released: string[] = [];
+    const { deps } = makeDeps(
+      [requestAsk("a", "github")],
+      [{ provider: "github", configured: false }]
+    );
+    deps.releaseParent = async (ask) => {
+      released.push(ask.id);
+    };
+
+    await resolveSatisfiedCredentialRequests(deps);
+
+    expect(released).toEqual([]);
+  });
+
+  it("a DECLINED request never releases its parent, even with the credential present (mt#4486)", async () => {
+    // AT3, and the answer the planning audit settled on against the acceptance
+    // test's original wording: a declined request leaves its parent BLOCKED,
+    // because a blocked task sits in the operator's queue and that is where an
+    // unmet credential belongs.
+    //
+    // The mechanism is UPSTREAM of the release — a decline is a closed ask, and
+    // `selectPendingCredentialRequests` filters terminal states out — so what is
+    // asserted is that nothing happens at all. The credential is deliberately
+    // PRESENT: a release that keyed on presence rather than on pendingness would
+    // fire right here, and this is the only test positioned to catch it.
+    const released: string[] = [];
+    const { deps, closed } = makeDeps(
+      [requestAsk("a", "github", "closed")],
+      [{ provider: "github", configured: true, detail: "ok" }]
+    );
+    deps.releaseParent = async (ask) => {
+      released.push(ask.id);
+    };
+
+    const result = await resolveSatisfiedCredentialRequests(deps);
+
+    expect(result).toEqual({ pending: 0, satisfied: [], raced: [] });
+    expect(closed).toEqual([]);
+    expect(released).toEqual([]);
+  });
+
+  it("a resolver with no task gate still closes requests (mt#4486)", async () => {
+    // `releaseParent` is optional; a caller that cannot resolve a task service
+    // gets the pre-mt#4486 behaviour rather than a crash.
+    const { deps, closed } = makeDeps(
+      [requestAsk("a", "github")],
+      [{ provider: "github", configured: true, detail: "ok" }]
+    );
+    expect(deps.releaseParent).toBeUndefined();
+
+    await resolveSatisfiedCredentialRequests(deps);
+
+    expect(closed.map((c) => c.id)).toEqual(["a"]);
+  });
+
   it("leaves a request open while its credential is absent", async () => {
     const { deps, closed } = makeDeps(
       [requestAsk("a", "github")],

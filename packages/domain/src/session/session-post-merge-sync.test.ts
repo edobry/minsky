@@ -294,7 +294,7 @@ describe("applyPostMergeStateSync — graceful degradation (SC#7)", () => {
     // Provide a task service that lacks getTaskStatus — simulates the case where
     // the DI container provides a minimal service.
     const minimalTaskService = {
-      setTaskStatus: async () => undefined,
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       // getTaskStatus deliberately absent
     } as any;
 
@@ -344,7 +344,7 @@ describe("applyPostMergeStateSync — graceful degradation (SC#7)", () => {
       getTaskStatus: async () => {
         throw new Error("Simulated DB failure");
       },
-      setTaskStatus: async () => undefined,
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
     } as any;
 
     const deps: PostMergeStateSyncDeps = {
@@ -465,7 +465,7 @@ describe("applyPostMergeStateSync — partial-failure surfacing (mt#1841)", () =
       getTaskStatus: async () => {
         throw new Error("Simulated task-DB failure");
       },
-      setTaskStatus: async () => undefined,
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
     } as any;
 
     const deps: PostMergeStateSyncDeps = {

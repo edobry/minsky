@@ -272,6 +272,159 @@ export function classifyRecycleCounters(counters: RecycleCounters): RecoveryRead
  * needs. The honest detail string rides along either way, so nothing is hidden
  * from an operator reading the run log.
  */
+/**
+ * The `dbRetry` sub-object (mt#4562) — the RETRY mechanism's counters, sibling
+ * to {@link RecycleCounters}.
+ *
+ * Declared structurally for the same reason: this runs in the monitor, an
+ * external observer of a deployed service's HTTP response, which must not assume
+ * the deployed build matches this one.
+ */
+export interface RetryCounters {
+  saturationRetries: number;
+  staleConnectionRetries: number;
+  retriesExhausted: number;
+  lastRetryAt: string | null;
+}
+
+const RETRY_COUNTER_FIELDS = [
+  "saturationRetries",
+  "staleConnectionRetries",
+  "retriesExhausted",
+] as const;
+
+/**
+ * Read the `dbRetry` counters off a parsed `/health` body.
+ *
+ * Same key-set enumeration as {@link readRecycleCounters}, for the same reason:
+ * a projection over a payload lacking these keys manufactures `undefined`, and
+ * `undefined > 0` is `false`, so a service publishing nothing would read as
+ * "healthy, no exhaustion".
+ */
+export function readRetryCounters(healthBody: unknown): RecoveryReading {
+  if (typeof healthBody !== "object" || healthBody === null) {
+    return { state: "unparseable", detail: "health body is not an object" };
+  }
+
+  if (!("dbRetry" in healthBody)) {
+    return { state: "no-surface" };
+  }
+
+  const raw = (healthBody as { dbRetry: unknown }).dbRetry;
+  if (typeof raw !== "object" || raw === null) {
+    return { state: "unparseable", detail: "dbRetry is present but is not an object" };
+  }
+
+  const record = raw as Record<string, unknown>;
+  const missing = RETRY_COUNTER_FIELDS.filter((field) => !isCounter(record[field]));
+  if (missing.length > 0) {
+    return {
+      state: "unparseable",
+      detail: `dbRetry is missing or has non-counter values for: ${missing.join(", ")}`,
+    };
+  }
+
+  return classifyRetryCounters({
+    saturationRetries: record.saturationRetries as number,
+    staleConnectionRetries: record.staleConnectionRetries as number,
+    retriesExhausted: record.retriesExhausted as number,
+    lastRetryAt: typeof record.lastRetryAt === "string" ? record.lastRetryAt : null,
+  });
+}
+
+/**
+ * Decide what a complete set of retry counters means.
+ *
+ * ## Why the alarm is `retriesExhausted`, and why no rate is inferred
+ *
+ * The obvious rule — "alert when the retry rate drops to zero" — is unusable
+ * here, and the reason is the point of this whole task. `saturationRetries` is
+ * near-zero BY DESIGN: mt#3497 established that pool exhaustion needs more
+ * concurrent clients than the pooler's ceiling allows, and Minsky runs a handful
+ * of processes. A rate-drop rule over a signal that is normally zero cannot fail
+ * — it emits "no alert" whether the mechanism is healthy or dead (mem#704).
+ *
+ * So the alarm is an OUTCOME instead: `retriesExhausted > 0` means the budget
+ * ran out and the error reached the caller, which is a fault in either class and
+ * needs no baseline to interpret.
+ *
+ * **An all-zero payload is `untested`, never `healthy`** — same split as the
+ * recycle. Nothing has been retried, so nothing has been demonstrated.
+ */
+export function classifyRetryCounters(counters: RetryCounters): RecoveryReading {
+  const { saturationRetries, staleConnectionRetries, retriesExhausted, lastRetryAt } = counters;
+  const attempted = saturationRetries + staleConnectionRetries;
+
+  if (retriesExhausted > 0) {
+    return {
+      state: "alarm",
+      detail:
+        `${retriesExhausted} connection-retry call(s) EXHAUSTED their budget and surfaced the ` +
+        `error to the caller (${attempted} retries attempted: ${saturationRetries} pool-saturation, ` +
+        `${staleConnectionRetries} stale-connection; last retry ${lastRetryAt ?? "never"}). ` +
+        "Retry is the mechanism that absorbs transient connection failures — an exhaustion means " +
+        "it tried and could not, so a caller saw a DB error it was supposed to be shielded from.",
+    };
+  }
+
+  if (attempted === 0) {
+    return {
+      state: "untested",
+      detail:
+        "No connection retry has been attempted in this process, so the retry mechanism is " +
+        "UNEXERCISED — not verified healthy. Note this is the EXPECTED steady state for the " +
+        "pool-saturation class: mt#3497 established that exhaustion needs more concurrent " +
+        "clients than production runs, so a zero there is structural, not a symptom.",
+    };
+  }
+
+  return {
+    state: "healthy",
+    detail:
+      `${attempted} connection retries, all absorbed: ${saturationRetries} pool-saturation, ` +
+      `${staleConnectionRetries} stale-connection, 0 exhausted (last ${lastRetryAt ?? "never"}). ` +
+      "The mechanism fired and recovered, which is it working.",
+  };
+}
+
+/**
+ * Severity order used to fold several mechanism readings into one check (mt#4562).
+ *
+ * Check (d) is ONE `CheckSummary` covering every DB recovery mechanism a service
+ * publishes, so two readings have to become one. Reporting the more severe is
+ * what keeps a real fault from being masked by a healthier sibling.
+ *
+ * `unparseable` sits BELOW the two fault states on purpose. It maps to
+ * `outcome: "failed"`, which already makes the service DEGRADED via
+ * `check-failed` — but if one mechanism is actively alarming, that is the more
+ * actionable thing to put in front of an operator, and the unreadable sibling is
+ * still visible in the run log.
+ */
+const READING_SEVERITY: Record<RecoveryReading["state"], number> = {
+  alarm: 5,
+  degraded: 4,
+  unparseable: 3,
+  healthy: 2,
+  untested: 1,
+  "no-surface": 0,
+};
+
+/**
+ * Fold the readings for every mechanism a service publishes into one.
+ *
+ * Returns `no-surface` for an empty list — a service that publishes no recovery
+ * counters at all, which is every service but the cockpit and minsky-mcp today.
+ */
+export function combineRecoveryReadings(readings: RecoveryReading[]): RecoveryReading {
+  let worst: RecoveryReading = { state: "no-surface" };
+  for (const reading of readings) {
+    if (READING_SEVERITY[reading.state] > READING_SEVERITY[worst.state]) {
+      worst = reading;
+    }
+  }
+  return worst;
+}
+
 export function toRecoveryCheckSummary(reading: RecoveryReading): CheckSummary {
   switch (reading.state) {
     case "no-surface":

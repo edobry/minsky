@@ -381,7 +381,7 @@
     },
     {
       "guardName": "block-secret-file-read",
-      "description": "Denies printing a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) through an emitting reader. Reader and path together deny; naming the path alone is fine.",
+      "description": "Denies four command shapes that would print a credential into the transcript: a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) read through an emitting reader (reader and path together deny; naming the path alone is fine); a direct invocation of a secret-EMITTING script; a process listing requesting the argv column; and a vendor CLI that dumps env-var values (`railway variable list`). The last two are pipeline-scoped — a counting sink or a key-projecting `jq` stage is permitted, because that is the safe form the rule teaches.",
       "failureClasses": ["secret-exposure"],
       "provenance": [".minsky/hooks/block-secret-file-read.ts", ".minsky/rules/hook-files.mdc"],
       "stratum": "registry",

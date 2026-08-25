@@ -182,13 +182,14 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       recorderEffect("execution-evidence-test-first"),
       recorderEffect("execution-evidence-render-path"),
       recorderEffect("execution-evidence-sc-coverage"),
+      recorderEffect("execution-evidence-consumer-account"),
     ],
     expects: "deny",
-    // FOUR logs from one guard, every one written in-process off this same merge-gate
+    // FIVE logs from one guard, every one written in-process off this same merge-gate
     // entry point: `execution-evidence-at-coverage` by the gate itself, and the other
-    // three through modules it calls — `test-first-evidence.ts`,
-    // `render-path-evidence.ts`, `success-criteria-coverage.ts`. The list form exists
-    // for this (mt#3519).
+    // four through modules it calls — `test-first-evidence.ts`,
+    // `render-path-evidence.ts`, `success-criteria-coverage.ts`, and
+    // `consumer-account-evidence.ts` (mt#4493). The list form exists for this (mt#3519).
     //
     // mt#4064: this declared two of the four, and the two shapes the omission takes are
     // different. `-render-path` was ON DISK, so it read as `Unmapped` — with no

@@ -23,7 +23,13 @@
  * @see src/domain/persistence/fake-persistence-provider.ts
  */
 
-import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "./types";
+import type {
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
+  StatusWriteOutcome,
+} from "./types";
 import type { TaskServiceInterface } from "./taskService";
 
 export class FakeTaskService implements TaskServiceInterface {
@@ -59,11 +65,17 @@ export class FakeTaskService implements TaskServiceInterface {
     return this.tasks.get(taskId)?.status;
   }
 
-  async setTaskStatus(taskId: string, status: string): Promise<void> {
+  async setTaskStatus(taskId: string, status: string): Promise<StatusWriteOutcome> {
     const task = this.tasks.get(taskId);
-    if (task) {
-      this.tasks.set(taskId, { ...task, status });
+    if (!task) {
+      // mt#4457: the fake models the real backend's semantics rather than
+      // silently succeeding. A write against a task this fake does not hold
+      // affects nothing, and saying so is what lets a test exercise the
+      // zero-record path at all.
+      return { recordsAffected: 0 };
     }
+    this.tasks.set(taskId, { ...task, status });
+    return { recordsAffected: 1 };
   }
 
   async createTaskFromTitleAndSpec(

@@ -35,7 +35,7 @@ async function buildMockSetup(initialSpec: string) {
     getTask: async () => null,
     createTask: async () => ({ id: "mt#0" }),
     deleteTask: async () => false,
-    setTaskStatus: async () => {},
+    setTaskStatus: async () => ({ recordsAffected: 1 }),
     listBackends: () => [],
   };
 

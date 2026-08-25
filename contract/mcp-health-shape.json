@@ -32,8 +32,10 @@
   ],
   "conditionalFields": {
     "db": "string",
-    "dbCheck": "object"
+    "dbCheck": "object",
+    "dbRetry": "object"
   },
+  "$dbRetryNote": "mt#4562 added `dbRetry` — connection-retry outcome counters (saturationRetries / staleConnectionRetries / retriesExhausted / lastRetryAt). It is listed as CONDITIONAL for a different reason than `db`/`dbCheck`: those are conditional on `persistence.mode === \"connected\"`, whereas this one is conditional only on the CALLER supplying the counters. The production route (src/commands/mcp/start-command.ts) always does, so in a deployed daemon the field is always present — including on `unconfigured` and `unavailable` bodies, deliberately, because monotonic counters describe events that already happened and suppressing them would hide exactly the history an operator diagnosing those states wants. The parameter is optional so that existing callers of buildMcpHealthResponse (its own tests) keep compiling; tightening it to required would break them, which is mt#3969's lesson. Named to sit beside the cockpit's `dbRecycle`: both are the outcome counters of a DB recovery mechanism whose failure mode is silence. TRAP: `saturationRetries: 0` is the EXPECTED steady state, not a health claim — mt#3497 established that pool exhaustion needs more concurrent clients than the transaction pooler production runs on will ever see, so a zero there is structural. `retriesExhausted` is the field that is a fault in either class.",
   "dbCheckFields": {
     "checkedAt": "string",
     "durationMs": "number"

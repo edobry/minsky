@@ -41,7 +41,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       currentBackend: "test",
       listTasks: async () => [],
       getTaskStatus: async () => null,
-      setTaskStatus: async () => {},
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       createTask: async () => ({}),
       deleteTask: async () => false,
       getWorkspacePath: () => testWorkspacePath,
@@ -67,7 +67,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -108,7 +108,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -150,7 +150,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         }),
         listTasks: mock(() => Promise.resolve([])),
         getTaskStatus: mock(() => Promise.resolve(undefined)),
-        setTaskStatus: mock(() => Promise.resolve()),
+        setTaskStatus: mock(() => Promise.resolve({ recordsAffected: 1 })),
         createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
@@ -186,7 +186,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         }),
         listTasks: mock(() => Promise.resolve([])),
         getTaskStatus: mock(() => Promise.resolve(undefined)),
-        setTaskStatus: mock(() => Promise.resolve()),
+        setTaskStatus: mock(() => Promise.resolve({ recordsAffected: 1 })),
         createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
@@ -216,7 +216,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTask: mock(() => Promise.resolve(null)),
         listTasks: mock(() => Promise.resolve([])),
         getTaskStatus: mock(() => Promise.resolve(undefined)),
-        setTaskStatus: mock(() => Promise.resolve()),
+        setTaskStatus: mock(() => Promise.resolve({ recordsAffected: 1 })),
         createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
@@ -252,7 +252,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -294,7 +294,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -344,7 +344,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -379,7 +379,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTask: async () => null,
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -427,7 +427,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -475,7 +475,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -520,7 +520,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTask: mock(() => Promise.resolve(null)),
         listTasks: mock(() => Promise.resolve(mockTasks)),
         getTaskStatus: mock(() => Promise.resolve(undefined)),
-        setTaskStatus: mock(() => Promise.resolve()),
+        setTaskStatus: mock(() => Promise.resolve({ recordsAffected: 1 })),
         createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
@@ -556,7 +556,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         listTasks: async () => [{ id: "#155", title: "Task 1", status: TASK_STATUS.BLOCKED }],
         getTask: async () => null,
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -600,7 +600,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         ],
         getTask: async () => null,
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -637,7 +637,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTask: async () => null,
         listTasks: listTasksMock,
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({ id: "#test", title: "Test", status: "TODO" }),
         deleteTask: async () => false,
         getWorkspacePath: () => "/test/path",
@@ -671,7 +671,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTask: async () => null,
         listTasks: listTasksMock,
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({ id: "#test", title: "Test", status: "TODO" }),
         deleteTask: async () => false,
         getWorkspacePath: () => "/test/path",
@@ -720,6 +720,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTaskStatus: async () => undefined,
         setTaskStatus: async (taskId: string, status: string) => {
           statusSetTo = status;
+          return { recordsAffected: 1 };
         },
         createTask: async () => ({
           id: "#test",
@@ -756,7 +757,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTask: async () => null,
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",
@@ -809,6 +810,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTaskStatus: async () => undefined,
         setTaskStatus: async (taskId: string, status: string) => {
           statusSetTo = status;
+          return { recordsAffected: 1 };
         },
         createTask: async () => ({
           id: "#test",
@@ -855,6 +857,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         getTaskStatus: async () => undefined,
         setTaskStatus: async (taskId: string, status: string) => {
           statusSetTo = status;
+          return { recordsAffected: 1 };
         },
         deleteTask: async () => false,
         getWorkspacePath: () => "/test/path",
@@ -894,7 +897,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         deleteTask: async () => false,
         getWorkspacePath: () => "/test/path",
         getBackendForTask: async () => "minsky",
@@ -935,7 +938,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         deleteTask: async () => false,
         getWorkspacePath: () => "/test/path",
         getBackendForTask: async () => "minsky",
@@ -972,7 +975,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
           getTask: mock(() => Promise.resolve(null)),
           listTasks: mock(() => Promise.resolve([])),
           getTaskStatus: mock(() => Promise.resolve(undefined)),
-          setTaskStatus: mock(() => Promise.resolve()),
+          setTaskStatus: mock(() => Promise.resolve({ recordsAffected: 1 })),
           createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
           deleteTask: mock(() => Promise.resolve(false)),
           getWorkspacePath: mock(() => "/test/path"),
@@ -999,7 +1002,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
           getTask: mock(() => Promise.resolve(null)),
           listTasks: mock(() => Promise.resolve([])),
           getTaskStatus: mock(() => Promise.resolve(undefined)),
-          setTaskStatus: mock(() => Promise.resolve()),
+          setTaskStatus: mock(() => Promise.resolve({ recordsAffected: 1 })),
           createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
           deleteTask: mock(() => Promise.resolve(false)),
           getWorkspacePath: mock(() => "/test/path"),
@@ -1036,7 +1039,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         },
         listTasks: async () => [],
         getTaskStatus: async () => undefined,
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         createTask: async () => ({
           id: "#test",
           title: "Test",

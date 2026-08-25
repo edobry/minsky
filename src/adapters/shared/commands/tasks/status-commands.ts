@@ -18,6 +18,49 @@ import type {
 } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+
+/**
+ * Refuse to build a success envelope for a status write that did not persist
+ * (mt#4457; PR #3342 R1 BLOCKING).
+ *
+ * A SECOND line of defence, deliberately duplicating the domain layer's check.
+ * Deriving `changed` from the count was not sufficient on its own: the adapter
+ * would still have returned a success envelope carrying `changed: false`, and a
+ * success payload for a write that did not persist is exactly the class this
+ * task exists to remove. Unreachable while the domain layer throws — which is
+ * the point. It holds if a future backend reports zero without raising, or if
+ * that throw regresses.
+ *
+ * Extracted as a pure function rather than inlined so it can be tested against
+ * its own contract: observing it inline would mean patching the module-level
+ * `setTaskStatusFromParams` the command reaches itself, which
+ * `testing-standards.mdc §Testable Design` treats as design feedback rather
+ * than a test-writing problem.
+ */
+export function assertStatusWritePersisted(args: {
+  taskId: string;
+  previousStatus: string;
+  newStatus: string;
+  recordsAffected: number;
+}): void {
+  if (args.recordsAffected === 0) {
+    throw new Error(
+      `Task ${args.taskId} status write did not persist: the update matched 0 records ` +
+        `(intended ${args.previousStatus} -> ${args.newStatus}). The status is unchanged.`
+    );
+  }
+  if (args.recordsAffected > 1) {
+    // A status write addresses one task by primary key, so this cannot happen
+    // against a well-formed store. Surface it rather than reporting success:
+    // more rows changed than were addressed is a corruption signal, and it is
+    // exactly what a boolean return would have discarded.
+    throw new Error(
+      `Task ${args.taskId} status write affected ${args.recordsAffected} records, ` +
+        `but addresses exactly one task. Refusing to report success — this indicates ` +
+        `data corruption or a malformed write predicate.`
+    );
+  }
+}
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -178,11 +221,30 @@ export class TasksStatusSetCommand extends BaseTaskCommand<typeof tasksStatusSet
     const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
     this.debug("Task status set successfully");
 
+    // mt#4457: `changed` is DERIVED from the write's reported effect, not asserted.
+    // It was the literal `true` until 2026-08-25, which meant the payload said the
+    // same thing whether or not the update reached the row — the exact shape a
+    // caller cannot check.
+    //
+    // The guard below is a SECOND line of defence, deliberately duplicating the
+    // domain layer's check (PR #3342 R1, BLOCKING). Deriving `changed` alone was
+    // not enough: this method would still have built a success envelope carrying
+    // `changed: false`, which is a success payload for a write that did not
+    // persist — the exact class this task exists to remove. It is unreachable
+    // while the domain layer throws, and that is the point: it holds if a future
+    // backend reports zero without raising, or if that throw regresses.
+    assertStatusWritePersisted({
+      taskId: validatedTaskId,
+      previousStatus: previousStatus ?? "unknown",
+      newStatus: status,
+      recordsAffected: result.recordsAffected,
+    });
+
     return this.formatResult(
       this.createSuccessResult(validatedTaskId, message, {
         previousStatus,
         newStatus: status,
-        changed: true,
+        changed: result.recordsAffected > 0,
         result,
       }),
       params.json
