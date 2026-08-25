@@ -46,7 +46,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
-import { ROOTS, shouldExclude } from "./run-tests-main";
+import { GRAPH_ROOTS, shouldExclude } from "./run-tests-main";
 
 const TS_EXT_RE = /\.tsx?$/;
 const TEST_SUFFIX_RE = /\.test\.tsx?$/;
@@ -280,8 +280,23 @@ export function resolveSpecifier(
   return null;
 }
 
-/** Collect every `.ts`/`.tsx` file under ROOTS, excluding EXCLUDE_DIR_PREFIXES (mirrors run-tests-main.ts's walk, but for ALL source files, not just *.test.ts). */
-export function collectAllProjectFiles(repoRoot: string, fs: FsLike = realFs): string[] {
+/**
+ * Collect every `.ts`/`.tsx` file under the GRAPH scope, excluding
+ * EXCLUDE_DIR_PREFIXES (mirrors run-tests-main.ts's walk, but for ALL source files,
+ * not just *.test.ts).
+ *
+ * Defaults to `GRAPH_ROOTS`, not `ROOTS` (mt#4521): what this selector must SEE is a
+ * different question from what the pre-push runner must EXECUTE, and `.minsky/hooks`
+ * is the case where the answers differ. `roots` is injectable for the same reason
+ * `discoverTestFiles(roots = ROOTS)` is — so a caller (or a measurement harness) can
+ * compare scopes without a second process, where cold-vs-warm cache would confound
+ * the comparison.
+ */
+export function collectAllProjectFiles(
+  repoRoot: string,
+  fs: FsLike = realFs,
+  roots: readonly string[] = GRAPH_ROOTS
+): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
     let entries: string[];
@@ -307,7 +322,7 @@ export function collectAllProjectFiles(repoRoot: string, fs: FsLike = realFs): s
       }
     }
   };
-  for (const root of ROOTS) {
+  for (const root of roots) {
     walk(toPosix(root.replace(/^\.\//, "")));
   }
   return out;
@@ -574,6 +589,13 @@ export interface FindRelatedTestsOptions {
   maxDepth?: number;
   /** Injectable filesystem -- defaults to real node:fs. */
   fs?: FsLike;
+  /**
+   * Graph scope to walk. Defaults to `GRAPH_ROOTS` (mt#4521). Injectable so a
+   * measurement harness can compare scopes in ONE process — comparing across two
+   * processes confounds the difference with cold-vs-warm filesystem cache, which is
+   * how mt#4508 first measured 635ms vs 352ms for a change that was actually 316 vs 315.
+   */
+  roots?: readonly string[];
 }
 
 /**
@@ -588,6 +610,7 @@ export function findRelatedTestFiles(
 ): string[] {
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
   const fs = opts.fs ?? realFs;
+  const roots = opts.roots ?? GRAPH_ROOTS;
 
   // EVERY existing changed path, not only TS (mt#4224). The TS filter used to live
   // here, which discarded a changed `.md`/`.mdc` before any graph work and returned
@@ -608,7 +631,9 @@ export function findRelatedTestFiles(
   //    Built lazily — a commit whose changed files no test names pays one tree walk
   //    and no more, and a commit that touches nothing existing returned above.
   {
-    const testFiles = collectAllProjectFiles(repoRoot, fs).filter((f) => TEST_SUFFIX_RE.test(f));
+    const testFiles = collectAllProjectFiles(repoRoot, fs, roots).filter((f) =>
+      TEST_SUFFIX_RE.test(f)
+    );
     const dataReadGraph = buildDataReadGraph(testFiles, repoRoot, fs);
     for (const file of allChanged) {
       const readers = dataReadGraph.get(file);
@@ -649,7 +674,7 @@ export function findRelatedTestFiles(
   //    ROOTS/EXCLUDE_DIR_PREFIXES as scripts/run-tests-main.ts.
   const graphSeeds = normalizedChanged.filter((f) => !shouldExclude(f));
   if (graphSeeds.length > 0) {
-    const allFiles = collectAllProjectFiles(repoRoot, fs);
+    const allFiles = collectAllProjectFiles(repoRoot, fs, roots);
     const pkgExportsMap = loadPackageExportsMaps(repoRoot, fs);
     const revGraph = buildReverseDependencyGraph(allFiles, repoRoot, pkgExportsMap, fs);
 

@@ -84,6 +84,46 @@ export const ROOTS = [
   "./packages/shared/src",
 ];
 
+/**
+ * Roots the change-scoped test SELECTOR reads that this runner does NOT execute
+ * (mt#4521).
+ *
+ * Until mt#4521 there was one constant serving two different questions:
+ *
+ * - **What should the runner EXECUTE?** — `ROOTS` above. Latency-bounded; mt#2716
+ *   moved the unit suite out of pre-commit precisely to keep this gate fast.
+ * - **What should the selector SEE?** — the import and data-read graphs in
+ *   `scripts/find-related-tests.ts`. A file absent here cannot be a graph NODE, so
+ *   no test can be selected through it in either direction.
+ *
+ * For `.minsky/hooks/**` the right answers differ, which is why they are now
+ * separate constants. The tree holds ~6000 tests (~22s, mem#1206) — real money on a
+ * gate deliberately slimmed for latency, so it stays OUT of execution scope. But it
+ * also holds ~170 modules with dense cross-imports, and while it was absent from the
+ * graph the sibling heuristic was the ONLY edge that could reach a hooks test:
+ * changing `entity-linkify.ts` selected neither `bare-entity-ref-scan.test.ts` nor
+ * `linkify-liveness.test.ts`, both of which import it directly. mt#4508 worked around
+ * one instance of that with a directory-census edge; this closes the general case.
+ *
+ * **The pre-push runner's scope is deliberately unchanged**, so `bun run test:hooks`
+ * remains the pre-push instruction for a hooks change (mem#1206). What changes is that
+ * pre-COMMIT now selects the right hooks tests for a hooks edit, which is where the
+ * registry-omission failures this exists to catch actually surface.
+ *
+ * Keep this list minimal. Every entry is walked on every selector invocation,
+ * including changes with nothing to do with it — and over-inclusion is not free:
+ * `docs/architecture/hooks/fast-related-test-gate.md` records that a depth-6 walk once
+ * pulled 32 files / 80s against a 60s budget, and a gate that cannot finish blocks the
+ * commit outright.
+ */
+export const GRAPH_ONLY_ROOTS = ["./.minsky/hooks"];
+
+/**
+ * The file scope the change-scoped selector builds its graphs over: everything this
+ * runner executes, plus the selector-only roots above (mt#4521).
+ */
+export const GRAPH_ROOTS = [...ROOTS, ...GRAPH_ONLY_ROOTS];
+
 // Mirrors bunfig.toml's pathIgnorePatterns, plus the src/mcp exclusion this
 // script exists to enforce reliably.
 export const EXCLUDE_DIR_PREFIXES = [
