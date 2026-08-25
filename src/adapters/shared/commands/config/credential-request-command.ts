@@ -30,7 +30,12 @@ import {
   classifyCredentialRequest,
   isPolicyResolved,
 } from "@minsky/domain/credentials/request";
-import { decideParentBlock } from "@minsky/domain/credentials/parent-task-block";
+import {
+  decideParentBlock,
+  entryStatusCorrection,
+} from "@minsky/domain/credentials/parent-task-block";
+import { CREDENTIAL_REQUEST_METADATA_KEY } from "@minsky/shared/credential-request";
+import { log } from "@minsky/shared/logger";
 import { blockParentTask } from "@minsky/domain/credentials/parent-task-gate";
 import type { ParentTaskGateDeps } from "@minsky/domain/credentials/parent-task-gate";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -193,6 +198,44 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
             })
           : undefined;
 
+      // Correct the recorded entry status from the block's own read, which is
+      // the authoritative one — `plannedEntryStatus` above came from a read
+      // taken before the ask existed. `entryStatusCorrection`'s docblock has
+      // the full reasoning; the short version is that `releaseParentTask` reads
+      // ONLY this value, so a stale one silently releases the task to the wrong
+      // status. PR #3337 R1, BLOCKING.
+      const correction = entryStatusCorrection(
+        plannedEntryStatus,
+        parentBlock?.outcome === "blocked" ? parentBlock.entryStatus : undefined
+      );
+      if (correction && params.parentTaskId) {
+        // Rebuilt by the SAME builder that wrote the original rather than
+        // hand-assembled here: `mergeMetadataKey` replaces the key wholesale, so
+        // a second construction of the payload shape is a second thing to drift.
+        const corrected = buildCredentialRequestAsk({
+          provider,
+          reason: params.reason,
+          parentTaskId: params.parentTaskId,
+          parentEntryStatus: correction,
+        }).metadata[CREDENTIAL_REQUEST_METADATA_KEY];
+
+        try {
+          await repo.mergeMetadataKey(ask.id, CREDENTIAL_REQUEST_METADATA_KEY, corrected);
+        } catch (err: unknown) {
+          // Soft-fail like every other step on this path. The credential is the
+          // deliverable, the task IS blocked, and the uncorrected value is still
+          // a legal status to release to — worse than right, better than
+          // failing the request or leaving the task unreleasable.
+          log.warn("credentials.request: could not correct the recorded parent entry status", {
+            askId: ask.id,
+            taskId: params.parentTaskId,
+            recorded: plannedEntryStatus,
+            authoritative: correction,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       return {
         success: true,
         json: params.json || false,
@@ -208,7 +251,12 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
           ? {
               parentTaskId: params.parentTaskId,
               parentBlocked: parentBlock?.outcome === "blocked",
-              parentBlockOutcome: parentBlock?.outcome ?? "failed",
+              // An absent `parentBlock` means no task service was resolvable,
+              // which is an environment limitation and a soft SKIP by design —
+              // reporting it as "failed" read as an operational error the
+              // caller should act on (PR #3337 R3, non-blocking).
+              parentBlockOutcome: parentBlock?.outcome ?? "skipped",
+              ...(parentBlock === undefined ? { parentBlockSkipped: "no-task-service" } : {}),
               ...(parentBlock?.outcome === "skipped"
                 ? { parentBlockSkipped: parentBlock.why }
                 : {}),

@@ -13,6 +13,7 @@ import {
   blockReason,
   decideParentBlock,
   decideParentRelease,
+  entryStatusCorrection,
   releaseReason,
 } from "./parent-task-block";
 
@@ -109,5 +110,36 @@ describe("transition reasons name the ask", () => {
   test("release reason stays quiet when it was not", () => {
     const r = releaseReason("ask#42", "uuid-1", { target: "READY", positionLost: false });
     expect(r).not.toContain("no edge back");
+  });
+});
+
+describe("entryStatusCorrection — the recorded entry status can be stale", () => {
+  test("a task that moved between the peek and the block yields the authoritative status", () => {
+    // The defect this exists for (PR #3337 R1): recorded PLANNING, actually
+    // entered from IN-PROGRESS. Uncorrected, the release maps PLANNING → PLANNING
+    // instead of IN-PROGRESS → READY, silently demoting the task.
+    expect(entryStatusCorrection("PLANNING", "IN-PROGRESS")).toBe("IN-PROGRESS");
+  });
+
+  test("no correction when the peek was already right", () => {
+    // The overwhelmingly common case — and the one that must NOT produce a
+    // write, because every avoidable write is another chance to clobber.
+    expect(entryStatusCorrection("READY", "READY")).toBeNull();
+  });
+
+  test("no correction when the parent was not blocked", () => {
+    // Skipped or failed: the caller passes `undefined`, and there is no entry to
+    // record. Asserted in both directions so an absent authoritative status can
+    // never be mistaken for a status to write.
+    expect(entryStatusCorrection("PLANNING", undefined)).toBeNull();
+    expect(entryStatusCorrection(undefined, undefined)).toBeNull();
+  });
+
+  test("a blocked parent with NO recorded status still gets one written", () => {
+    // Reachable when the peek could not read the task but the block's own read
+    // could. Nothing recorded means the resolver would skip the release
+    // entirely, so this is the case where a correction rescues a task rather
+    // than merely improving it.
+    expect(entryStatusCorrection(undefined, "READY")).toBe("READY");
   });
 });

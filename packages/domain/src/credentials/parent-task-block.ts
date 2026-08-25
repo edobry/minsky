@@ -128,6 +128,47 @@ export function decideParentRelease(entryStatus: ParentEntryStatus): ParentRelea
 }
 
 /**
+ * The entry status that must be written BACK to the ask after the block, or
+ * `null` when what is already recorded is right (PR #3337 R1, BLOCKING).
+ *
+ * ## Why a correction exists at all
+ *
+ * The ask is created BEFORE the block — deliberately, so a failed ask-create
+ * cannot strand a task in BLOCKED with no request explaining why — and its
+ * payload has to carry the entry status, because by release time the task IS
+ * blocked and the prior status is gone. So the value written at create time
+ * comes from a read taken before the ask existed, while the AUTHORITATIVE one
+ * comes from the read `blockParentTask` takes immediately before writing
+ * BLOCKED. If the task moved between them, those differ.
+ *
+ * The consequence is not cosmetic: `releaseParentTask` reads ONLY the recorded
+ * value, so a stale PLANNING against an actual IN-PROGRESS entry releases the
+ * task to PLANNING when the mapping calls for READY — a silent demotion, on the
+ * one field whose whole job is to say where the task came from.
+ *
+ * ## Why correct rather than write it only once, after the block
+ *
+ * Writing it once after the block would remove the staleness by construction,
+ * and was the other option on the table. It trades a rare wrong-but-legal
+ * status for a rare STRANDED one: an ask created with no entry status, whose
+ * metadata write then fails, is a task left BLOCKED that the resolver will skip
+ * forever (`no-entry-status` means "never blocked"). Correcting keeps the
+ * pessimistic value as the floor, so the failure mode stays "released to a
+ * different legal status" rather than "never released".
+ *
+ * `null` covers every case where there is nothing to fix: the parent was not
+ * blocked (skipped or failed — the caller passes `undefined`), or the peek was
+ * already right, which is the overwhelmingly common case.
+ */
+export function entryStatusCorrection(
+  recorded: string | undefined,
+  authoritative: string | undefined
+): string | null {
+  if (!authoritative) return null;
+  return recorded === authoritative ? null : authoritative;
+}
+
+/**
  * Human-readable reason for a transition, for the CALLER's result and log line.
  *
  * **Not recorded on the transition itself.** `TaskServiceInterface.setTaskStatus`
