@@ -231,9 +231,21 @@ export function selectSettledAsks(
     // front of the filing conversation mid-turn, so announcing it again at the next
     // prompt is a duplicate. Deliberately checked AFTER the local watermark and
     // BEFORE the push, so a wake-delivered ask is skipped without being recorded in
-    // this hook's own watermark — if the two seams ever diverge (a wake drained by a
-    // DIFFERENT conversation than the one this hook runs in), the local watermark is
-    // still unset and the next prompt can still announce it here.
+    // this hook's own watermark.
+    //
+    // CORRECTED mt#4517. This comment used to end: "if the two seams ever diverge (a
+    // wake drained by a DIFFERENT conversation than the one this hook runs in), the
+    // local watermark is still unset and the next prompt can still announce it here."
+    // That escape hatch never existed. `wakeDeliveredAt` derives from
+    // `max(drained_at)`, a permanent fact that reappears in every cockpit sweep, so
+    // this `continue` fires on every subsequent prompt too — the ask is suppressed
+    // forever, not deferred to a later one. Two things now make the premise sound
+    // rather than the sentence reassuring: `drained_at` is set only for payloads the
+    // agent actually RENDERED (the claim/release split in
+    // `wake-pending-repository.ts`), and the cache's subquery counts only
+    // CONVERSATION-keyed rows, so a session-keyed delivery no longer suppresses this
+    // seam. Suppression here now means "a conversation saw it", which is the only
+    // thing that makes announcing it again a duplicate.
     if (entry.wakeDeliveredAt) continue;
 
     settled.push({

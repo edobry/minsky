@@ -22,6 +22,7 @@
  */
 
 import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
+import type { DeliverableFilter } from "@minsky/domain/ask/wake-pending-repository";
 import { POOL_ADMISSION_DEADLINE_MS } from "@minsky/domain/persistence/raw-sql-pooler-guard";
 import { log } from "@minsky/shared/logger";
 
@@ -30,12 +31,20 @@ import { log } from "@minsky/shared/logger";
  * `WakePendingRepository` — only the consumer-side method.
  */
 export interface WakeServiceSurface {
-  drainBySession(parentSessionId: string, drainedForTool: string): Promise<WakeSignalPayload[]>;
+  drainBySession(
+    parentSessionId: string,
+    drainedForTool: string,
+    selectDeliverable?: DeliverableFilter
+  ): Promise<WakeSignalPayload[]>;
   /**
    * Conversation-grain drain (mt#4476). Keyed on the ADR-006 caller identity the
    * server already resolves for every tool call, so it needs no args to match on.
    */
-  drainByAgent(agentId: string, drainedForTool: string): Promise<WakeSignalPayload[]>;
+  drainByAgent(
+    agentId: string,
+    drainedForTool: string,
+    selectDeliverable?: DeliverableFilter
+  ): Promise<WakeSignalPayload[]>;
 }
 
 /**
@@ -279,6 +288,9 @@ export async function enrichWakeResponse(
   const deadlineMs = options.deadlineMs ?? ENRICHMENT_DEADLINE_MS;
   const payloads: WakeSignalPayload[] = [];
   let label: string | null = null;
+  // Shared across both drains so their combined selection cannot exceed one block's
+  // budget (mt#4517). Created lazily at whichever drain runs first.
+  let ledger: DeliverableFilter | undefined;
 
   // ---- Conversation-keyed path (mt#4476). NO allowlist, by design. ----
   //
@@ -295,7 +307,11 @@ export async function enrichWakeResponse(
   const callerAgentId = options.callerAgentId;
   if (callerAgentId) {
     try {
-      const pendingAgentDrain = wakeService.drainByAgent(callerAgentId, toolName);
+      // Created here rather than above the branch so the envelope is measured against
+      // the label this block will actually carry (`label` becomes callerAgentId when the
+      // agent drain yields, else parentSessionId). Reused by the session drain below.
+      ledger ??= createBudgetLedger(charBudget, toolName, callerAgentId);
+      const pendingAgentDrain = wakeService.drainByAgent(callerAgentId, toolName, ledger);
       const agentPayloads = await raceEnrichmentDeadline(pendingAgentDrain, deadlineMs);
       if (agentPayloads === DEADLINE_EXCEEDED) {
         logEnrichmentTimeout(toolName, "agent", deadlineMs);
@@ -331,7 +347,8 @@ export async function enrichWakeResponse(
 
     if (parentSessionId) {
       try {
-        const pendingSessionDrain = wakeService.drainBySession(parentSessionId, toolName);
+        ledger ??= createBudgetLedger(charBudget, toolName, parentSessionId);
+        const pendingSessionDrain = wakeService.drainBySession(parentSessionId, toolName, ledger);
         const sessionPayloads = await raceEnrichmentDeadline(pendingSessionDrain, deadlineMs);
         if (sessionPayloads === DEADLINE_EXCEEDED) {
           logEnrichmentTimeout(toolName, "session", deadlineMs);
@@ -389,6 +406,52 @@ export async function enrichWakeResponse(
  * Format mirrors memory-enrichment's envelope shape (`<wake-events ...>`) so
  * downstream parsers can detect both blocks uniformly.
  */
+/**
+ * A per-call character budget both drains draw from (mt#4517).
+ *
+ * Split out of {@link buildBlock} because the answer is needed BEFORE the drain settles:
+ * the repository releases whatever the filter does not select, so a payload that will not
+ * fit stays pending instead of being marked delivered and thrown away. Rendering then
+ * carries exactly this set, so "what fits" and "what was marked" cannot disagree.
+ *
+ * **Stateful on purpose.** One block carries BOTH the conversation-keyed and session-keyed
+ * drains, so a filter that measured each drain against the full budget would let the two
+ * together overflow it — and `buildBlock` would drop the overflow, reintroducing the exact
+ * loss this task removes. The returned filter is called once per drain and consumes from a
+ * shared remainder, so the second drain sees only what the first left.
+ *
+ * Returns references from `claimed` — never clones. The repository identifies released
+ * rows by matching these against what it claimed, so a clone would release everything.
+ */
+export function createBudgetLedger(
+  charBudget: number,
+  toolName: string,
+  addressedTo: string
+): DeliverableFilter {
+  // Reserve the envelope up front. `count` is not known until both drains have run, so
+  // reserve for a 3-digit one — two characters of slack, against a 4000-char budget.
+  let remaining = charBudget - envelopeFor(toolName, addressedTo, 999).length;
+
+  return (claimed: WakeSignalPayload[]): WakeSignalPayload[] => {
+    if (remaining <= 0) return [];
+    const fits: WakeSignalPayload[] = [];
+    for (const p of claimed) {
+      const lineLength = JSON.stringify(p).length;
+      // Budget exceeded mid-payload; stop appending so we don't truncate JSON
+      // (operators rely on each line being valid JSON for downstream parsing).
+      if (lineLength + 1 > remaining) break;
+      fits.push(p);
+      remaining -= lineLength + 1;
+    }
+    return fits;
+  };
+}
+
+/** Envelope + closing tag, whose length the body budget must account for. */
+function envelopeFor(toolName: string, addressedTo: string, count: number): string {
+  return `<wake-events tool="${toolName}" session="${addressedTo}" count="${count}">\n\n</wake-events>`;
+}
+
 function buildBlock(
   toolName: string,
   addressedTo: string,

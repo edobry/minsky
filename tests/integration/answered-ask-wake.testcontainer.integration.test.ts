@@ -39,8 +39,11 @@ import { GenericContainer, type StartedTestContainer, type WaitStrategy } from "
 import postgres from "postgres";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+import { and, eq, isNull } from "drizzle-orm";
+import { wakePendingTable } from "../../packages/domain/src/storage/schemas/wake-pending-schema";
 import {
   DrizzleWakePendingRepository,
+  MAX_WAKE_BODY_CHARS,
   UnaddressableWakeError,
 } from "../../packages/domain/src/ask/wake-pending-repository";
 import type { WakeSignalPayload } from "../../packages/domain/src/ask/wake-on-respond";
@@ -247,6 +250,80 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
 
     const all = [...first, ...second].map((p) => p.askId).sort();
     expect(all).toEqual(["ask-x", "ask-y"]);
+  }, 180_000);
+
+  test("an undeliverable payload is released, not consumed (mt#4517 AT1)", async () => {
+    const db = await getDb();
+    const repo = new DrizzleWakePendingRepository(db);
+    const agent = `${AGENT_A}-release`;
+
+    await repo.insert(answeredWake("rel-1", agent));
+    await repo.insert(answeredWake("rel-2", agent));
+    await repo.insert(answeredWake("rel-3", agent));
+
+    // Stand in for the character budget: take only the first claimed payload.
+    const firstOnly = (claimed: WakeSignalPayload[]) => claimed.slice(0, 1);
+
+    const call1 = await repo.drainByAgent(agent, "tool-1", firstOnly);
+    expect(call1).toHaveLength(1);
+
+    // The two the filter rejected must be BACK to pending — this is the whole task.
+    // Asserted against the table, not against the repository's return value, because
+    // the defect being fixed was precisely a row marked delivered that nobody saw.
+    const pendingAfter1 = await db
+      .select({ askId: wakePendingTable.askId })
+      .from(wakePendingTable)
+      .where(and(eq(wakePendingTable.agentId, agent), isNull(wakePendingTable.drainedAt)));
+    expect(pendingAfter1.map((r) => r.askId).sort()).toEqual(
+      ["rel-1", "rel-2", "rel-3"].filter((id) => id !== call1[0]?.askId)
+    );
+
+    // And they arrive on later calls rather than being lost.
+    const call2 = await repo.drainByAgent(agent, "tool-2", firstOnly);
+    const call3 = await repo.drainByAgent(agent, "tool-3", firstOnly);
+    expect([...call1, ...call2, ...call3].map((p) => p.askId).sort()).toEqual([
+      "rel-1",
+      "rel-2",
+      "rel-3",
+    ]);
+
+    const stillPending = await db
+      .select({ askId: wakePendingTable.askId })
+      .from(wakePendingTable)
+      .where(and(eq(wakePendingTable.agentId, agent), isNull(wakePendingTable.drainedAt)));
+    expect(stillPending).toHaveLength(0);
+  }, 180_000);
+
+  test("a filter that takes everything behaves exactly like no filter (mt#4517)", async () => {
+    const db = await getDb();
+    const repo = new DrizzleWakePendingRepository(db);
+    const agent = `${AGENT_A}-takeall`;
+
+    await repo.insert(answeredWake("all-1", agent));
+    await repo.insert(answeredWake("all-2", agent));
+
+    const drained = await repo.drainByAgent(agent, "tool-1", (claimed) => claimed);
+
+    expect(drained.map((p) => p.askId).sort()).toEqual(["all-1", "all-2"]);
+    // Nothing released, so nothing is claimable again — the pre-mt#4517 property.
+    expect(await repo.drainByAgent(agent, "tool-2", (claimed) => claimed)).toHaveLength(0);
+  }, 180_000);
+
+  test("an oversized reviewBody is capped at write time (mt#4517 SC5)", async () => {
+    const db = await getDb();
+    const repo = new DrizzleWakePendingRepository(db);
+    const agent = `${AGENT_A}-cap`;
+
+    const huge = { ...answeredWake("cap-1", agent), reviewBody: "x".repeat(5000) };
+    await repo.insert(huge);
+
+    const drained = await repo.drainByAgent(agent, "tool-1");
+
+    expect(drained).toHaveLength(1);
+    // Capped, so one oversized body cannot displace an entire block. The ellipsis sits
+    // outside the budget, hence <= cap + 1.
+    expect(drained[0]?.reviewBody.length).toBeLessThanOrEqual(MAX_WAKE_BODY_CHARS + 1);
+    expect(drained[0]?.reviewBody.endsWith("…")).toBe(true);
   }, 180_000);
 
   test("the session key still works, and the two keys do not cross", async () => {

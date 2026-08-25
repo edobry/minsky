@@ -476,6 +476,74 @@ describe("enrichWakeResponse deadline (mt#4526)", () => {
     expect(dropped).toHaveLength(0);
   });
 
+  test("an over-budget payload stays pending instead of being consumed (mt#4517 SC1)", async () => {
+    // Measured, not estimated: an ANSWERED_ASK line is 238 chars of JSON and the
+    // envelope reserves 134, so a 620-char budget leaves 486 of body — exactly two
+    // lines (2x239=478 fits, 3x239=717 does not).
+    const repo = new FakeWakePendingRepository();
+    for (const askId of ["ask-1", "ask-2", "ask-3"]) {
+      await repo.insert({ ...ANSWERED_ASK, askId });
+    }
+
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+      callerAgentId: AGENT_ID,
+      charBudget: 620,
+    });
+    expect(block).not.toBeNull();
+
+    const delivered = repo.listAll().filter((r) => r.drainedAt !== null);
+    const stillPending = repo.listAll().filter((r) => r.drainedAt === null);
+
+    // The point of the task: what was not rendered was NOT marked.
+    expect(delivered.length).toBeGreaterThan(0);
+    expect(stillPending.length).toBeGreaterThan(0);
+    expect(delivered.length + stillPending.length).toBe(3);
+    for (const row of delivered) {
+      expect(block?.text).toContain(row.askId);
+    }
+    for (const row of stillPending) {
+      expect(block?.text).not.toContain(row.askId);
+    }
+  });
+
+  test("every payload is eventually delivered across successive calls (mt#4517 SC2)", async () => {
+    const repo = new FakeWakePendingRepository();
+    const askIds = ["ask-1", "ask-2", "ask-3", "ask-4", "ask-5"];
+    for (const askId of askIds) {
+      await repo.insert({ ...ANSWERED_ASK, askId });
+    }
+
+    const seen = new Set<string>();
+    // Bounded so a non-converging implementation fails instead of looping forever.
+    for (let call = 0; call < 10; call++) {
+      const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+        callerAgentId: AGENT_ID,
+        charBudget: 620, // two payloads per call, so five take three calls
+      });
+      if (block === null) break;
+      for (const askId of askIds) {
+        if (block.text.includes(`"askId":"${askId}"`)) seen.add(askId);
+      }
+    }
+
+    expect([...seen].sort()).toEqual(askIds);
+    expect(repo.listAll().filter((r) => r.drainedAt === null)).toHaveLength(0);
+  });
+
+  test("a budget too small for even one payload releases everything (mt#4517)", async () => {
+    const repo = new FakeWakePendingRepository();
+    await repo.insert(ANSWERED_ASK);
+
+    const block = await enrichWakeResponse(NOT_ALLOWLISTED_TOOL, {}, repo, undefined, {
+      callerAgentId: AGENT_ID,
+      charBudget: 120, // smaller than the envelope alone
+    });
+
+    expect(block).toBeNull();
+    // Nothing rendered, so nothing may be marked — the row must survive for a later call.
+    expect(repo.listAll().every((r) => r.drainedAt === null)).toBe(true);
+  });
+
   test("control: a drain inside the budget still delivers (mt#4476 SC1 unregressed)", async () => {
     const repo = new FakeWakePendingRepository();
     await repo.insert(ANSWERED_ASK);

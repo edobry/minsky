@@ -122,9 +122,16 @@ export type AskStateEntry =
       /**
        * ISO-8601 timestamp at which this ask's answer was already delivered to its
        * filing conversation through the TOOL-CALL seam (mt#4476) — the `drained_at`
-       * of its `wake_pending` row. Absent when no wake was written (the ask predates
-       * mt#4476, or was filed with no resolvable conversation identity) or when one
-       * was written but not yet drained.
+       * of its CONVERSATION-keyed `wake_pending` row. Absent when no wake was written
+       * (the ask predates mt#4476, or was filed with no resolvable conversation
+       * identity) or when one was written but not yet drained.
+       *
+       * Two mt#4517 narrowings, both load-bearing for the consumer:
+       * SESSION-keyed rows are excluded — they were delivered to a workspace session,
+       * a different addressee, and reading them here suppressed the prompt seam for
+       * an answer no conversation ever saw. And `drained_at` now marks only payloads
+       * that were actually RENDERED into a block, not merely claimed, so this
+       * timestamp means "an agent saw it" rather than "a row was touched".
        *
        * This is the cross-seam dedupe, and it has to travel through this cache
        * because the two seams cannot share a watermark directly: mt#3564's hook
@@ -332,6 +339,11 @@ export async function buildAskStateSnapshot(
     // `efficient-database-queries.mdc` exists to prevent.
     const rows = (await sql.unsafe(
       "SELECT a.id, a.state, a.short_id, a.title, a.responded_at, a.response, " +
+        // Scoped to CONVERSATION-keyed rows (mt#4517 SC4). The consumer of this field is
+        // the prompt-seam hook, which runs inside a conversation, so only a wake that
+        // reached a conversation is evidence that seam's notice would be a duplicate. A
+        // drained SESSION-keyed row was delivered to a workspace session — a different
+        // addressee — and suppressing on it hid the answer at both seams at once.
         "(SELECT max(w.drained_at) FROM public.wake_pending w " +
         // `a.id::text`, not a bare `=`. `asks.id` is `uuid` and
         // `wake_pending.ask_id` is `text` (that table takes plain text refs by
@@ -341,7 +353,8 @@ export async function buildAskStateSnapshot(
         // with it — not just the new column, but every field the ask-state cache
         // produces. Cast direction matches the existing precedent in
         // `embeddings-api.ts`, which casts the uuid side to text for the same reason.
-        " WHERE w.ask_id = a.id::text AND w.drained_at IS NOT NULL) AS wake_delivered_at " +
+        " WHERE w.ask_id = a.id::text AND w.drained_at IS NOT NULL " +
+        "AND w.agent_id IS NOT NULL) AS wake_delivered_at " +
         "FROM public.asks a WHERE a.id = ANY($1::uuid[])",
       [askIds]
     )) as Array<{
