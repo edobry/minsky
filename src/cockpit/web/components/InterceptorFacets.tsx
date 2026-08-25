@@ -13,13 +13,14 @@
 import {
   FAMILY_LABELS,
   FAMILY_ORDER,
-  INTERCEPTION_POINT_ORDER,
+  ALL_INTERCEPTION_POINTS,
   INTERVENTION_TYPE_ORDER,
   MECHANISM_LABELS,
   MECHANISM_ORDER,
   ROLE_LABELS,
   ROLE_ORDER,
   formatIntervention,
+  type InterceptionPoint,
   type InterceptorEntry,
   type InterceptorFamily,
 } from "../hooks/useInterceptors";
@@ -109,6 +110,31 @@ function Facet({
   );
 }
 
+/**
+ * The interception-point facet's options (mt#4603).
+ *
+ * Built from `ALL_INTERCEPTION_POINTS`, NOT `INTERCEPTION_POINT_ORDER`:
+ * `matchesFacets` above compares against `entry.point`, whose domain is the
+ * full fifteen-member union, so the options must be that same domain. The
+ * spine's deliberate nine-member subset was used here until mt#4603, which left
+ * six points unselectable — including `SessionStart` and `PostCompact`, the two
+ * with live catalog members (`session-start`,
+ * `record-conversation-run-state`). Those entries were listed but unreachable
+ * by any choice a reader could make.
+ *
+ * EXPORTED so a test can pin the option domain against the predicate's domain.
+ * Inlined into the JSX, this expression had no seam: a test could assert the
+ * constant and the predicate and still not notice the component reading the
+ * wrong list — which is exactly how the defect survived a completeness census
+ * covering six other surfaces.
+ *
+ * The label is the raw point name, deliberately unprettified: these are the
+ * harness's own event names, and a reader matching one against
+ * `.claude/settings.json` needs the exact string.
+ */
+export const POINT_FACET_OPTIONS: { value: InterceptionPoint; label: string }[] =
+  ALL_INTERCEPTION_POINTS.map((p) => ({ value: p, label: p }));
+
 export function InterceptorFacetBar({
   facets,
   onChange,
@@ -124,7 +150,7 @@ export function InterceptorFacetBar({
         value={facets.point}
         onChange={(point) => onChange({ ...facets, point })}
         allLabel="Any interception point"
-        options={INTERCEPTION_POINT_ORDER.map((p) => ({ value: p, label: p }))}
+        options={POINT_FACET_OPTIONS}
       />
       <Facet
         label="Filter by family"
