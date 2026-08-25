@@ -336,13 +336,14 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `types.ts`                                | library             | product-baseline closure — SPEC.md's observability-baseline rule: transitive imports must stay node-stdlib + same-directory, because the baseline runs from an arbitrary install path.                                                                                                             | side-effecting (derived: writes fs / spawns)  | product |
 | `unrendered-result-fields.ts`             | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 
-## Divergence: matched by the pinned grep, no import (30)
+## Divergence: matched by the pinned grep, no import (31)
 
 Every module below is inside mt#4368's `60` and reaches no domain code. Listed per mt#4372 SC3, which
 requires the grep figure to be carried as a cross-check with its divergences named.
 
 | Module                                         | Bucket    |
 | ---------------------------------------------- | --------- |
+| `ask-conversation-map.ts`                      | immovable |
 | `ask-grant-store.ts`                           | immovable |
 | `ask-verification.ts`                          | immovable |
 | `block-secret-file-read.ts`                    | movable   |
