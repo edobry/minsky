@@ -126,6 +126,33 @@ env-var-to-config dot-path parser skips it at boot (per the
   keeps the sibling test plus near importers while taking the `turn-writer`
   set from 80s to 2.5s. Latency is bounded by the wall-clock budgets above,
   not by a count cap.
+- **Graph scope is no longer identical to execution scope (mt#4521).** This section
+  previously described one file scope serving both questions. They are now two
+  constants in `scripts/run-tests-main.ts`: `ROOTS` (what the pre-push runner
+  EXECUTES) and `GRAPH_ROOTS` = `ROOTS` + `GRAPH_ONLY_ROOTS` (what this gate's graphs
+  SEE). The only selector-only root today is `./.minsky/hooks`.
+
+  **Why they had to diverge.** The hooks tree holds ~6000 tests / ~22s (mem#1206) —
+  too much for a gate mt#2716 slimmed for latency, so it stays out of EXECUTION scope.
+  But while it was also out of GRAPH scope, no hooks file was a graph node in either
+  direction, and the sibling heuristic was the only edge that could reach a hooks test.
+  Measured: changing `.minsky/hooks/entity-linkify.ts` selected neither
+  `bare-entity-ref-scan.test.ts` nor `linkify-liveness.test.ts`, both of which import
+  it directly. mt#4508 patched one instance with a directory-census edge; mt#4521
+  closed the general case.
+
+  **Measured cost, against the over-inclusion warning above.** Graph build on a
+  NON-hook change: 268.8ms → 307.2ms mean (+38.4ms, +14.3%), 6 alternating in-process
+  reps per arm — alternating because comparing across two processes confounds the
+  delta with cold-vs-warm cache. Selected set on that same change: 16 → 22 files,
+  end-to-end gate 4.25s against the 60s budget. The 6 added files are not noise: a
+  `deploy-surface.ts` change now correctly selects
+  `require-deploy-verification-before-merge.test.ts` and its siblings, which consume
+  that predicate and were previously invisible to this gate.
+
+  **Keep `GRAPH_ONLY_ROOTS` minimal.** Every entry is walked on every invocation,
+  including changes with nothing to do with it, and the budget above is the ceiling.
+
 - **`src/mcp/**`exclusion from the reverse-dependency-graph scope** mirrors`scripts/run-tests-main.ts`'s own exclusion (mt#2665 truncation risk). A
 directly-changed `src/mcp/\*.ts` file's sibling test is still found (the
   sibling heuristic operates on the changed-file path directly, independent
