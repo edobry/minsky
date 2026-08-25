@@ -1087,16 +1087,32 @@ export function isNonPrincipalTurnOpener(text: string): boolean {
  * subagents finishing near-simultaneously) between the principal's real
  * question and the report answering it.
  *
- * Set to 5, matching the precedent of this file's OWN sibling
+ * **This is a SCAN budget, not a lookback** — the name predates the
+ * distinction and is kept for contract stability. It is larger than
+ * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because that one is a SEMANTIC
+ * window over principal prompts, while this counts real slots stepped over.
+ * This gate looks for exactly ONE principal prompt and stops at the first it
+ * finds, so raising this can NEVER make it reach an older prompt than the most
+ * recent principal one — it only makes it more likely to find that prompt
+ * through intervening harness turns. There is therefore no over-suppression
+ * risk on this axis, which is why it is sized generously.
+ *
+ * **Raised 5 → 15 by measurement (mt#4109, PR #3329 R1).** The reviewer caught
+ * that the depth gate got a scan budget while its sibling kept the conflated
+ * one, and the sibling's population is the larger of the two. Measured over
+ * 2,926 turns with the widened prefix list in place: **395 anchors resolved to
+ * `undefined` — the 5 slots held nothing but harness markup** — and the gate
+ * failed closed on every one. Rescued anchors by budget: 5 → 0, 8 → 165,
+ * 10 → 207, **15 → 248**, 25 → 258; newly question-suppressed turns: 0 / 54 /
+ * 73 / **98** / 108. Set to 15 to match {@link DEPTH_REQUEST_SCAN_LIMIT}, so
+ * both gates tolerate the same amount of harness noise and there is one number
+ * to reason about rather than two.
+ *
+ * Retains the precedent of this file's OWN sibling
  * `RETRO_INVOCATION_LOOKBACK_TURNS` (retrospective-trigger-scanner.ts) for
  * "a bounded recent-turns window is on the order of a handful, not a
- * multi-turn conversation stretch" — larger than
- * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because this is a SCAN budget
- * spent stepping over injected slots, while that one is a SEMANTIC window
- * over principal prompts. It is not that this gate looks further into genuine
- * principal-to-principal conversation history than that one does: it looks
- * for exactly ONE principal prompt, and needs the extra slots only because
- * harness turns sit between it and the report.
+ * multi-turn conversation stretch" in the sense that matters: the PRINCIPAL
+ * reach is still one prompt.
  *
  * **Correction (mt#4109).** This comment used to end "...that
  * `DEPTH_REQUEST_LOOKBACK_TURNS` never has to (every slot it counts is
@@ -1112,7 +1128,7 @@ export function isNonPrincipalTurnOpener(text: string): boolean {
  * budget ({@link DEPTH_REQUEST_SCAN_LIMIT}), so the two constants are
  * genuinely parallel and this sentence is true as rewritten.
  */
-export const QUESTION_ANSWER_LOOKBACK_TURNS = 5;
+export const QUESTION_ANSWER_LOOKBACK_TURNS = 15;
 
 /**
  * Index of the most recent PRINCIPAL real user prompt at or before

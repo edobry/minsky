@@ -1167,6 +1167,35 @@ describe("mt#4109 — the question-answer gate reaches past the newly-covered ta
       expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
     }
   });
+
+  // PR #3329 R1 — the reviewer caught that the depth gate got a scan budget
+  // while this one kept the conflated bound. At 5, a run of 5+ harness turns
+  // left the anchor with nothing but markup in reach and it failed closed;
+  // measured, that was 395 of 2,926 turns.
+  test("a harness RUN longer than the old bound of 5 no longer starves the anchor", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(1, "ok"),
+      ...harnessRun(2, 6),
+      assistantTextLine(40, "a long report"),
+      userPromptLine(41, "ok"),
+    ];
+    // Six harness turns sit between the question and the report — one more
+    // than the old budget, so this resolved to `undefined` before R1.
+    expect(findRecentPrincipalPromptIndex(lines, 12)).toBe(0);
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("still fails CLOSED when the run exceeds even the raised budget", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(1, "ok"),
+      ...harnessRun(2, QUESTION_ANSWER_LOOKBACK_TURNS + 2),
+      assistantTextLine(100, "a long report"),
+      userPromptLine(101, "ok"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
 });
 
 describe("findRecentPrincipalPromptIndex", () => {
