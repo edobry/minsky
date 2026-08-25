@@ -49,10 +49,7 @@ import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service"
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
 import {
-  DEADLINE_EXCEEDED,
-  ENRICHMENT_DEADLINE_MS,
   enrichWakeResponse,
-  raceEnrichmentDeadline,
   type SessionResolver as WakeSessionResolver,
   type WakeServiceSurface,
 } from "./middleware/wake-enrichment";
@@ -1461,28 +1458,19 @@ export class MinskyMCPServer {
           // memoryService is unset, or when the env-var kill switch is set
           // (used by the benchmark script). Errors and degraded results are
           // silently dropped — enrichment must never break the tool call.
-          // mt#4526: bounded like the wake drain below. Memory enrichment is the OTHER
-          // awaited DB-backed step on this path, so a deadline scoped to the wake drain
-          // alone would leave an identical hang right here. On expiry the tool call
-          // proceeds without the block — enrichment is additive by contract.
-          const enrichmentResult = await raceEnrichmentDeadline(
-            enrichToolResponse(
-              request.params.name,
-              request.params.arguments || {},
-              this.memoryService
-            ),
-            ENRICHMENT_DEADLINE_MS
+          // mt#4526 SC2 asks that EVERY awaited enrichment step on this path be bounded.
+          // This one already is, and deliberately not by us: `enrichToolResponse` races
+          // its own `MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS` deadline (5s default,
+          // `memory-enrichment.ts:83`) internally. Wrapping a SECOND, shorter bound around
+          // it would make that configurable timeout dead code and emit a duplicate late
+          // log after the request had already returned — the wrapper-below-inner-timeout
+          // corollary in `decision-defaults.mdc §Thresholds`, which this task cites about
+          // postgres-js and then nearly repeated here. Caught in PR #3301 review.
+          const enrichmentBlock = await enrichToolResponse(
+            request.params.name,
+            request.params.arguments || {},
+            this.memoryService
           );
-          if (enrichmentResult === DEADLINE_EXCEEDED) {
-            log.cli(
-              `memory.enrichment.timed_out ${JSON.stringify({
-                event: "memory.enrichment.timed_out",
-                tool: request.params.name,
-                budgetMs: ENRICHMENT_DEADLINE_MS,
-              })}`
-            );
-          }
-          const enrichmentBlock = enrichmentResult === DEADLINE_EXCEEDED ? null : enrichmentResult;
 
           // mt#1661 v0: wake-enrichment middleware. For allowlisted tools, drains
           // undelivered wake_pending rows for the calling session and appends a

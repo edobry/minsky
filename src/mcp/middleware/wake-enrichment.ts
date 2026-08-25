@@ -22,6 +22,7 @@
  */
 
 import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
+import { POOL_ADMISSION_DEADLINE_MS } from "@minsky/domain/persistence/raw-sql-pooler-guard";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -206,7 +207,7 @@ function observeAbandonedDrain(
  * is what keeps the distinction mt#4473 built.
  */
 function classifyEnrichmentTimeout(budgetMs: number): string {
-  return budgetMs < 30_000 ? "deadline-below-pool-admission-bound" : "deadline";
+  return budgetMs < POOL_ADMISSION_DEADLINE_MS ? "deadline-below-pool-admission-bound" : "deadline";
 }
 
 function logEnrichmentTimeout(toolName: string, key: "agent" | "session", budgetMs: number): void {
