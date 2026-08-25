@@ -216,8 +216,50 @@ let _lastFailure: ConnectionFailure | null = null;
 /** Recycles attempted in the current degraded run; resets on probe success. */
 let _consecutiveRecycles = 0;
 
-/** ISO timestamp of the last connection ATTEMPT, per ADR-035 rule 4. */
+/**
+ * ISO timestamp of the last INIT ATTEMPT, per ADR-035 rule 4.
+ *
+ * **Init-scoped, and that is the whole meaning — this is NOT a liveness
+ * timestamp (mt#4538).** It is stamped at the top of the init closure, and init
+ * runs exactly twice: once at boot, and again after something clears
+ * `_instance` (`markDbDegraded` / `recycleSharedPersistence`). So on a daemon
+ * whose boot init succeeded and which has not since degraded, this holds at the
+ * boot instant indefinitely — because nothing has been attempted, which is
+ * exactly what rule 4 asks the field to say. Reading a growing gap here as
+ * "the daemon has not checked the database in N minutes" is a misreading, and
+ * it has already happened once: mt#4472's watchdog reached for this as a
+ * duration and had to route around it.
+ *
+ * The field that dates "the connection currently works" is
+ * {@link _lastDbSuccessAt} below. Neither is `dbCheck.checkedAt`, which is
+ * stamped on probe FAILURE too and therefore dates the look, not the outcome.
+ */
 let _lastInitAttemptAt: string | null = null;
+
+/**
+ * ISO timestamp of the last time the database was CONFIRMED reachable (mt#4538).
+ *
+ * Stamped in {@link noteProbeSuccess}, which is called from both sites that set
+ * `_dbStatus = "ok"` — the reachability probe and a successful init — so it
+ * cannot drift from the status it dates.
+ *
+ * **Why this exists.** `dbHealth.mode: "connected"` is an affirmative liveness
+ * assertion maintained by the probe, and before this field nothing in the
+ * payload dated it. `health-liveness-invariant.ts` (mt#4186) requires every such
+ * assertion to carry a dating field in its own sub-object, and it was satisfied
+ * only incidentally, by `lastAttemptAt` matching its `/At(Ms)?$/` shape while
+ * dating a different event on a different cadence. That is mem#862's class —
+ * an instrument that cannot move with what it claims to measure — recurring
+ * inside the check built to catch it (`db` mt#3563, `dbHealth` mt#3826,
+ * `principalChannel` mt#4183).
+ *
+ * Named `lastSuccessAt` on the surface rather than `lastAttemptAt`: the
+ * invariant module's own guidance is to reuse `lastAttemptAt` for a NEW dating
+ * field "unless it means something genuinely different", and a confirmation is
+ * genuinely not an attempt. `lastSuccessAt` is the in-repo precedent for "last
+ * successful outcome" (`createIntervalSweeper`'s liveness registry).
+ */
+let _lastDbSuccessAt: string | null = null;
 
 /**
  * The cockpit persistence layer's liveness payload, in ADR-035 rule 4's shape.
@@ -233,7 +275,20 @@ let _lastInitAttemptAt: string | null = null;
 export interface DbHealth {
   mode: PersistenceHealthMode;
   reason?: string;
+  /**
+   * When re-initialization was last attempted (ADR-035 rule 4). **Init-scoped —
+   * not a liveness timestamp**; see {@link _lastInitAttemptAt} for why a healthy
+   * daemon holds this at the boot instant, and use `lastSuccessAt` below for
+   * "is the connection currently working".
+   */
   lastAttemptAt?: string;
+  /**
+   * When the database was last CONFIRMED reachable (mt#4538) — the field that
+   * dates `mode: "connected"`. Absent until the first success; holds across a
+   * failed probe rather than advancing, which is the distinction that makes it
+   * usable as "unreachable for how long".
+   */
+  lastSuccessAt?: string;
   /**
    * The classification, WITHOUT the driver's raw message (PR #2732 R1).
    *
@@ -270,6 +325,7 @@ export function getDbHealth(): DbHealth {
         }
       : {}),
     ...(_lastInitAttemptAt ? { lastAttemptAt: _lastInitAttemptAt } : {}),
+    ...(_lastDbSuccessAt ? { lastSuccessAt: _lastDbSuccessAt } : {}),
   };
 }
 
@@ -810,6 +866,14 @@ function noteProbeSuccess(): void {
   // working network stays on a 15-minute interval for the rest of the process.
   _consecutiveRecycles = 0;
   _lastFailure = null;
+  // mt#4538: this is the ONLY place the database is confirmed reachable — both
+  // sites that set `_dbStatus = "ok"` (the probe, and a successful init) route
+  // through here, so stamping here is what keeps `dbHealth.lastSuccessAt` from
+  // being able to disagree with `dbHealth.mode`. Deliberately NOT stamped on the
+  // failure path: a field that advances whether or not the thing worked dates
+  // the look rather than the outcome, which is what `dbCheck.checkedAt` already
+  // does and why it could not serve this purpose.
+  _lastDbSuccessAt = new Date().toISOString();
 }
 
 /**
@@ -1188,4 +1252,7 @@ export function __resetSharedPersistenceForTests(): void {
   _lastFailure = null;
   _consecutiveRecycles = 0;
   _lastInitAttemptAt = null;
+  // mt#4538: same footing as the two above — a leftover success stamp would let
+  // a test read `lastSuccessAt` from whichever test ran before it.
+  _lastDbSuccessAt = null;
 }

@@ -135,6 +135,8 @@ const tasksClaimsReleaseParams = {
     // Server-injected only — hide it from the CLI surface so it is not
     // advertised as a hand-passable flag (mirrors observability.calibration-review).
     cliHidden: true,
+    // Server-injected on the MCP path too (mt#4579).
+    mcpHidden: true,
   },
 } as const;
 

@@ -14,7 +14,7 @@ import { render, cleanup, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { InterceptorAggregateRow } from "@minsky/domain/guard-events/aggregates";
 import type { InterceptorEntry } from "../hooks/useInterceptors";
-import { spinePopulation, spineStationOf } from "../lib/spine-model";
+import { SPINE_STATIONS, spinePopulation, spineStationOf } from "../lib/spine-model";
 import { LifecycleSpine } from "./LifecycleSpine";
 
 afterEach(cleanup);
@@ -212,5 +212,65 @@ describe("LifecycleSpine", () => {
     const note = screen.getByTestId("spine-population-note").textContent ?? "";
     expect(note).toContain("bare");
     expect(note).toContain("fixture/retired");
+  });
+
+  test("the arrow separator TRAILS each station except the last, and never leads (mt#4599 AT3)", () => {
+    renderSpine({ entries: population, aggregateRows: rowMap([]), windowDays: 7 });
+
+    const items = [...document.querySelectorAll('[data-testid="lifecycle-spine"] ol > li')];
+    expect(items).toHaveLength(SPINE_STATIONS.length);
+
+    items.forEach((li, i) => {
+      const children = [...li.children];
+      const stationIdx = children.findIndex((c) =>
+        c.getAttribute("data-testid")?.startsWith("spine-station-")
+      );
+      const arrowIdx = children.findIndex((c) => c.getAttribute("data-testid") === "spine-arrow");
+      // The card comes FIRST; the arrow, when present, immediately follows it.
+      // A leading arrow would dangle at the start of a wrapped row.
+      expect(stationIdx).toBe(0);
+      if (i === items.length - 1) {
+        expect(arrowIdx).toBe(-1); // nothing left to point at
+      } else {
+        expect(arrowIdx).toBe(1);
+      }
+    });
+
+    expect(document.querySelectorAll('[data-testid="spine-arrow"]')).toHaveLength(
+      SPINE_STATIONS.length - 1
+    );
+  });
+
+  test("the band wraps rather than scrolling (mt#4599 AT2 regression guard)", () => {
+    renderSpine({ entries: population, aggregateRows: rowMap([]), windowDays: 7 });
+
+    // happy-dom has no layout engine, so `scrollWidth === clientWidth` (the real
+    // AT2) is measured in a browser and attached to the PR. This guards the two
+    // classes that CAUSED the defect: `overflow-x-auto` + `min-w-max` forced a
+    // 1755px row into an 864px container, and `items-stretch` propagated the
+    // densest station's height onto every sparse one.
+    const band = screen.getByTestId("spine-band");
+    expect(band.className).not.toContain("overflow-x");
+    const ol = band.querySelector("ol");
+    expect(ol?.className).toContain("flex-wrap");
+    expect(ol?.className).toContain("items-start");
+    expect(ol?.className).not.toContain("min-w-max");
+    expect(ol?.className).not.toContain("items-stretch");
+  });
+
+  test("an entry at a declared point with no station is reported in the note, not dropped (mt#4129)", () => {
+    // `PostCompact` is a real InterceptionPoint that SPINE_STATIONS has no
+    // station for — `SPINE_STATIONS` is built from INTERCEPTION_POINT_ORDER's 9
+    // points while the union carries 15. This is not hypothetical: the live
+    // catalog has `record-conversation-run-state` at PostCompact and
+    // `session-start` at SessionStart. Until mt#4599 the component destructured
+    // around `stationless`, so both rendered NOWHERE — no dot, no note line.
+    const entries = [entry({ guardName: "compact-recorder", point: "PostCompact" })];
+    renderSpine({ entries, aggregateRows: rowMap([]), windowDays: 7 });
+
+    expect(document.querySelector('[data-guard="compact-recorder"]')).toBeNull();
+    const note = screen.getByTestId("spine-population-note").textContent ?? "";
+    expect(note).toContain("compact-recorder");
+    expect(note).toContain("no station");
   });
 });
