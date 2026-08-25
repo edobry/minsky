@@ -1070,6 +1070,18 @@ describe("unreadAskTaskIds", () => {
   test("an empty id list does no transcript work and returns nothing", () => {
     expect(unreadAskTaskIds("/nonexistent/path.jsonl", undefined, [])).toEqual([]);
   });
+
+  test("a PRESENT but unreadable transcript path reports every id unread — matching the deny leg", () => {
+    // Measured against the shipped guard, not assumed: an ABSENT
+    // `transcript_path` is the only fail-open (both legs return before the
+    // scan). A path that is present and does not resolve reads as "nothing was
+    // surfaced", so the deny leg DENIES and this leg advises. Pinned here
+    // because the criterion this test discharges originally claimed the
+    // unreadable case failed open, and it does not.
+    expect(unreadAskTaskIds("/nonexistent/path.jsonl", undefined, ["mt#3473"])).toEqual([
+      "mt#3473",
+    ]);
+  });
 });
 
 describe("buildAskAdvisoryReason", () => {
