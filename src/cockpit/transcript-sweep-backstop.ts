@@ -51,7 +51,7 @@ import { AgentTranscriptIngestService } from "@minsky/domain/transcripts/agent-t
 import { createEmbeddingServiceFromConfig } from "@minsky/domain/ai/embedding-service-factory";
 import { PerTurnEmbeddingPipeline } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 
-import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import { deriveEmbedOverdueBoundMs, TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import {
   getSchemaReadiness,
   isSchemaBehind,
@@ -244,6 +244,15 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
 export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptions): () => void {
   const resolvedInterval = opts?.intervalMs ?? resolveSweepIntervalMs();
 
+  // mt#4524: the overdue bound is derived from THIS sweeper's actual budgets,
+  // not hardcoded, so an `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` override moves it
+  // too. Set on the singleton because that is the instance `/api/health` reads
+  // (`routes/health.ts` calls `TranscriptSweepTracker.getInstance()`); a test
+  // injecting its own tracker configures that tracker's bound directly.
+  TranscriptSweepTracker.getInstance().setEmbedOverdueBoundMs(
+    deriveEmbedOverdueBoundMs(resolvedInterval, TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS)
+  );
+
   return createIntervalSweeper({
     name: "transcript sweep backstop",
     intervalMs: resolvedInterval,
@@ -360,6 +369,12 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         // A missing embedding provider, API error, or DB timeout must NOT crash
         // the sweep or prevent the ingest counters from being recorded.
         let embeddingsOk = true;
+        // mt#4524: mark the attempt STARTED before the await, not only after it
+        // returns. Phase 1's `recordSweepCompleted` has already fired, so
+        // without this the tracker cannot distinguish "backfill running" from
+        // "backfill never succeeded" for the entire duration of Phase 2 — which
+        // over ~1500 sessions is minutes, not milliseconds.
+        tracker.recordEmbedRunStarted();
         try {
           await runEmbeddings();
           tracker.recordEmbedRunCompleted();
@@ -368,6 +383,11 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
           log.warn("cockpit: transcript sweep: embedding backfill failed (non-fatal)", {
             message,
           });
+          // Both, deliberately: `recordSweepError` timestamps a sweep-level
+          // error shared with the ingest phase, and cannot say WHICH phase
+          // failed; `recordEmbedRunFailed` concludes the attempt so `embedPhase`
+          // leaves `in-flight` and `embedNeverSucceeded` can become true.
+          tracker.recordEmbedRunFailed();
           tracker.recordSweepError();
           embeddingsOk = false;
           // No return: the ingest phase already completed successfully.
