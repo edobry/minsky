@@ -56,7 +56,7 @@ Minsky has ten kinds of written artifacts. Each has a home, a title pattern, and
 
 ## Lifecycle conventions
 
-**ADRs.** Numbered sequentially (`adr-NNN` where NNN is zero-padded; current highest is 009). Status field at top of the doc (one of: Proposed, Accepted, Superseded, Deprecated). Immutable after Accepted — changes are made by writing a new numbered ADR that references the old one's number ("Supersedes ADR-005"). Each ADR addresses exactly one decision; if you're tempted to put two in one doc, write two ADRs.
+**ADRs.** Numbered sequentially (`adr-NNN` where NNN is zero-padded). Do not trust a number written here for the current highest — read it: `ls docs/architecture/adr-*.md | tail -1`. This line said "current highest is 009" until 2026-08-25, by which point the corpus held 44 ADRs topping out at `adr-045`, so an author following it would have collided with 36 existing files. Status field at top of the doc (one of: Proposed, Accepted, Superseded, Deprecated). Immutable after Accepted — changes are made by writing a new numbered ADR that references the old one's number ("Supersedes ADR-005"). Each ADR addresses exactly one decision; if you're tempted to put two in one doc, write two ADRs.
 
 **RFCs.** Notion page with a Status header at the top (Draft / Accepted / Declined / Implemented / Superseded). Living during the discussion phase — content updates as the proposal evolves. Once Accepted, the RFC becomes the reference for implementation; further updates note what shipped. References any tasks it produces (by task ID) and any ADRs it generates (by number).
 
@@ -65,6 +65,60 @@ Minsky has ten kinds of written artifacts. Each has a home, a title pattern, and
 **Position papers.** No formal status. Living prose, dated. May be revised when the position evolves; revisions noted with date stamps.
 
 **Architecture reference, engineering guide, incident memo, vision/insight/field notes.** No lifecycle status; updated as needed when the underlying reality changes.
+
+## Operator-instruction blocks carry a verification stamp
+
+An **operator-instruction block** is any passage telling a human to perform an action outside the repo — click something in a vendor dashboard, mint a token, grant a permission, run a one-time setup step. Four classes carry them:
+
+1. `services/*/DEPLOY.md` operator-follow-up sections
+2. "Operator action required" blocks in task specs
+3. One-time-setup header comments in `.github/workflows/*.yml`
+4. Operator-instruction comments in infrastructure source (`infra/index.ts`)
+
+Every such block carries a stamp:
+
+```
+Verified <YYYY-MM-DD> — <status>. Settles with: <command>
+```
+
+`<status>` is the part that is easy to omit, and it is the whole point: **an instruction has two independent truth-values, and a stamp recording only one is the failure this convention exists to prevent.**
+
+- **Is the mechanism right?** — does a human actually have to do this, or has something automated it?
+- **Is it still owed?** — has someone already done it?
+
+A block can be correct on the first and stale on the second, and that combination reads exactly like a block that is simply correct. Record both, and name the command a reader can run to re-settle each.
+
+**Multi-step blocks.** When a block contains several steps whose statuses differ, keep the single line as a greppable header carrying the combined status, and give one `Settles with:` per step beneath it:
+
+```
+Verified <YYYY-MM-DD> — step 1 DONE, step 2 UNVERIFIED. Settles with: per-step, below.
+  - Step 1 — <status>. Settles with: <command>
+  - Step 2 — <status>. Settles with: <command>
+```
+
+Both worked examples have this shape, because a block whose steps all share one status turned out to be the rarer case.
+
+**A settler must be RUNNABLE and IDENTICAL wherever it appears.** No placeholders standing in for ids, and no omitted flags that let a tool fall back to ambient context — a command that silently targets the wrong environment produces a confident false reading, which is worse than no stamp at all. When two artifacts stamp the same fact, their settlers are the same command character-for-character once any comment wrapping is removed; a settler that differs between artifacts is not deterministic, and determinism is the whole property being bought. (Caught by review on this convention's own first two examples: one named `<reviewer>` as a placeholder and omitted `--environment`, while its counterpart carried concrete ids and the flag.)
+
+### What a MISSING stamp means
+
+An unstamped block is **unverified in both directions**. It is not licence to trust it, and it is not licence to discard it.
+
+Before repeating the instruction to the principal — **or contradicting it** — run the settler. If no settler is named, work out what would falsify the block, run that, and add the stamp while you are there.
+
+The bidirectionality is load-bearing, because the originating incident is a *wrongful discard*, not a stale doc. On 2026-07-28 an agent told the principal a Railway dashboard click was required, sourcing it from `services/reviewer/DEPLOY.md`. The principal pushed back — *"i dont think i believe you about me needing to do a dashboard click"* — and the agent concluded the doc was a stale echo of historical setup text, writing that conclusion into a task spec as a durable finding.
+
+**The doc was right.** Verified 2026-08-21 against four primary sources: the comment in `infra/index.ts` sitting directly beneath the `sourceImage` declaration the correction relied on; `services/reviewer/DEPLOY.md`'s own step ordering, where `pulumi up` explicitly follows the flip rather than replacing it; mt#3142, where skipping the flip left the reviewer running the wrong image for ~18h; and the existence of mt#4087, which presupposes the flip is required today. The agent's reasoning — `sourceImage` is declared, therefore Pulumi owns the field, therefore no dashboard interaction is needed — is denied by the comment adjacent to the very line it grepped.
+
+So the motivating story is not "docs go stale." It is that **a correct block and a stale block are indistinguishable to a doubting reader, so doubt alone decides** — and here doubt overrode a doc that was right. A stamp defends a correct instruction against wrongful discard exactly as much as it flags a stale one. That is a stronger motivation than staleness, because it does not depend on any block currently being stale.
+
+**And one will go stale on a known schedule.** mt#4087 exists to make `DEPLOY.md`'s step 1 false. When it lands, it must update that block's stamp.
+
+### Scope
+
+**No doc-wide backfill is required.** Stamp a block when you write one, and when you verify one in the course of other work. A missing stamp is a known state with a defined reading, not a defect to sweep.
+
+**No mechanical detector or CI lint enforces this, deliberately.** Per ADR-042, a check earns a mechanical backstop only once discharging it leaves a structured trace — the stamp *is* that trace, so a detector becomes possible only after the convention is in use. Specifying one now would gate a cheap convention on an expensive mechanism.
 
 ## Cross-referencing conventions
 
