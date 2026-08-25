@@ -216,6 +216,15 @@ const CALIBRATION_REVIEW_TOOL_NAME = "observability.calibration-review";
 const ASKS_CREATE_TOOL_NAME = "asks.create";
 
 /**
+ * `tasks.claims.release` scopes its delete to the CALLER's own presence claim,
+ * so without the injection below it resolves no identity over MCP and releases
+ * nothing — while working correctly over the CLI, whose process does carry the
+ * harness env vars. That asymmetry is the mt#4408 R4 shape (mem#1184): a
+ * mechanism verified on one invocation path is not verified. mt#4568.
+ */
+const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -224,15 +233,18 @@ const ASKS_CREATE_TOOL_NAME = "asks.create";
  * merely CONTAINS one of these cannot receive the param. Built once at module
  * load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now two tools wide and
+ * Why a set rather than a second `if`: the injection is now four tools wide and
  * the matching rule (exact, both aliases, server overwrites any caller-supplied
  * value) is the part that must not drift between them. One membership test
  * cannot disagree with itself.
  */
 const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
-  [DISPATCH_RECOVER_TOOL_NAME, CALIBRATION_REVIEW_TOOL_NAME, ASKS_CREATE_TOOL_NAME].flatMap(
-    (name) => [name, toClaudeDesktopName(name)]
-  )
+  [
+    DISPATCH_RECOVER_TOOL_NAME,
+    CALIBRATION_REVIEW_TOOL_NAME,
+    ASKS_CREATE_TOOL_NAME,
+    CLAIMS_RELEASE_TOOL_NAME,
+  ].flatMap((name) => [name, toClaudeDesktopName(name)])
 );
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([

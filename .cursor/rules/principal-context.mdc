@@ -24,7 +24,8 @@ execution`, principal-level decisions stay with Eugene:
 - Architectural moves that affect customer experience or product surface
 - Authorization for shared / production state changes
 - Scope changes to in-flight work
-- Vendor commitments (signup actions, paid plan upgrades)
+- Vendor commitments (signup actions, paid plan upgrades) — for the spend judgment behind one,
+  see `humility.mdc §Cost is yours to measure; affordability is not yours to judge`
 - **Framework choices** when stakes are principal-level
 - Preferences that set a **durable default** — the default model, a standing tool or format
   choice, anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and

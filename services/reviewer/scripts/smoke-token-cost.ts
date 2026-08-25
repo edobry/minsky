@@ -110,6 +110,12 @@ try {
       toolUseActive: false,
       provider: "openai",
       model: "gpt-5",
+      // mt#4556: a literal, not a derived value — this smoke exercises the
+      // token/cost columns against the real writer, and deriving the
+      // fingerprint here would make the row depend on whatever flags happen to
+      // be set in the operator's shell. The derivation is covered by
+      // config-fingerprint.test.ts.
+      configFingerprint: "v1;effort=none;model=gpt-5;provider=openai;tier2=off",
       ...fields,
     });
 

@@ -2516,6 +2516,18 @@
                 }
               ],
               "commandId": "tasks.claims.list"
+            },
+            {
+              "name": "release",
+              "description": "Release this caller's presence claim on a task — record that you are done with it instead of waiting out the 15-minute TTL. Advisory only: a task with no claim is NOT thereby safe to act on, and nothing may gate a destructive action on a claim's absence.",
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "Task identifier (e.g. \"mt#4568\" or \"4568\")"
+                }
+              ],
+              "commandId": "tasks.claims.release"
             }
           ]
         }
