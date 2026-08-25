@@ -350,6 +350,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "spec-scope-execution-check",
+    {
+      description:
+        "Records when the bound task's spec enumerates in-scope file paths that the session never edited — the author's own gate-(h) enumeration, compared against what the PR actually changed. Nothing read that list before: the execution-evidence gate reads `## Acceptance Tests`, `tasks_spec_freshness` compares ref STATES, and the sibling `enumeration-scope-check` joins sweep-call arguments. Originating instance mt#4531 / PR #3310, where the spec named `guard-calibration-stream-inventory.md` explicitly, the implementation added three fields to that record and never touched the doc, and the reviewer caught it BLOCKING one round late by re-deriving the impact rather than reading the enumeration. Parses STRICTLY — the shared extractor's `## Context` / whole-document fallback would collect every path a spec merely mentions, which for this join is a false positive by construction. A spec with no parseable in-scope paths records `skipped` (\"nothing to compare\"), never `clean`. Record-only; the known dominant false positive is a CONDITIONAL enumeration line whose condition did not fire.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("spec-scope-execution-check"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "claim-provenance-scan",
     {
       description:
