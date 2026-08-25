@@ -30,6 +30,13 @@ const REVIEW: SubmittedReview = {
   htmlUrl: "https://github.com/edobry/minsky/pull/1234#r42",
 };
 const REVIEWER_LOGIN = "minsky-reviewer[bot]";
+
+/**
+ * mt#4556: the configuration arm carried on the per-review context. Asserted
+ * below to reach the timing row unchanged — `writeMainPathTiming` must stamp
+ * what the context carries, not re-derive it.
+ */
+const CTX_FINGERPRINT = "v1;effort=low;model=gpt-5;provider=openai;tier2=off";
 const EMPTY_OUTPUT_REASON = "empty output from model";
 
 /**
@@ -151,6 +158,7 @@ function makeHarness(opts?: {
     priorReviewIngestion: { iterationCount: 1, staleCount: 0, priorBlockingCounts: [2, 1] },
     totalWallClockMs: 100,
     outputToolsActive: opts?.outputToolsActive ?? true,
+    configFingerprint: CTX_FINGERPRINT,
     reviewerLogin: REVIEWER_LOGIN,
     emitReviewPosted,
     taskSpecFetch: { status: "found", taskId: "mt#1234" },
@@ -245,6 +253,11 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
       toolUseActive: true,
       provider: "openai",
       model: "gpt-5",
+      // mt#4556 AT5: the main (model-invoking) write site stamps the arm the
+      // per-review context carries. Asserted as an exact value, not merely
+      // non-null, because `writeMainPathTiming` must pass the context's
+      // fingerprint through rather than re-deriving one from ambient env.
+      configFingerprint: CTX_FINGERPRINT,
     });
 
     // emit pr.review_posted with the posted event + resolved task id

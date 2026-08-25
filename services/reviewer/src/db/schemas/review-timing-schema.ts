@@ -50,6 +50,20 @@ export const reviewTimingTable = pgTable(
     provider: text("provider"),
     model: text("model"),
 
+    // mt#4556: the configuration arm this review ran under — provider, model,
+    // the tier gate, the six behavioural feature flags, and the reasoning
+    // effort actually sent on the primary call. `provider` and `model` were the
+    // only configuration recorded before this; a flag flip left a corpus in
+    // which before and after were indistinguishable except by timestamp.
+    // Format (a readable, sorted `k=v;k=v` string, deliberately not a hash) is
+    // documented in `config-fingerprint.ts`.
+    //
+    // Nullable, and pre-migration rows are deliberately NOT back-filled — the
+    // configuration in force for a historical review is not recoverable from
+    // anything retained. Consumers must render NULL as "unknown configuration",
+    // never as a default.
+    configFingerprint: text("config_fingerprint"),
+
     // mt#2288: per-review token spend + computed USD cost. Nullable because the
     // two pre-model skip paths (routing-skip, concurrent-inflight) write a
     // timing row with no model call. cost_usd is frozen at write time from a
