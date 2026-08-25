@@ -50,8 +50,12 @@ import { createIntervalSweeper, type SweepTickResult } from "./sweepers";
  * observed alive for 12.7h at a stretch (mem#1170), and an interval longer than a
  * typical lifetime would leave the boot tick as the only pass that ever runs. Six hours
  * is about half that observed uptime, so a long-lived daemon still sweeps mid-life.
- * Against a 14-day retention window it adds at most 6h to a row's lifetime, which is
- * noise at that scale.
+ * Against the retention window (`WAKE_PENDING_DELIVERED_RETENTION_MS` in
+ * `packages/domain/src/ask/wake-pending-retention.ts` — 8 days as of mt#4541) it adds at
+ * most 6h to a row's lifetime, ~3%, which is noise at that scale.
+ * Written as a reference rather than a bare number because the previous revision of this
+ * sentence said "a 14-day retention window" and did not notice when mt#4541 changed it;
+ * a docblock that restates a constant is a second place for it to be wrong.
  */
 export const WAKE_PENDING_RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 

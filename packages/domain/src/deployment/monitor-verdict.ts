@@ -62,7 +62,19 @@ export type CheckOutcome = "ok" | "not-applicable" | "failed";
  * service with several unrunnable checks raises ONE `check-failed` alert
  * naming all of them rather than one alert per check.
  */
-export type AlertClass = "deploy-failed" | "health-down" | "digest-lag" | "check-failed";
+export type AlertClass =
+  | "deploy-failed"
+  | "health-down"
+  | "digest-lag"
+  | "check-failed"
+  /**
+   * (d) The service's DB-pool RECOVERY mechanism reported a failed teardown
+   * (mt#1495). Its own class rather than a flavour of `health-down`, because the
+   * de-dup key IS the remediation: a service answering 200 while its pool recycle
+   * strands connections is not down, and telling an operator "health-down" would
+   * send them to look at the wrong thing.
+   */
+  | "recovery-degraded";
 
 /** One check's contribution to the verdict. */
 export interface CheckSummary {
@@ -82,7 +94,7 @@ export interface CheckSummary {
   problem: boolean;
 }
 
-/** The three checks the monitor runs against one service. */
+/** The four checks the monitor runs against one service. */
 export interface ServiceCheckSummary {
   service: string;
   /** (a) Railway's latest deploy is in a failed terminal state. */
@@ -91,6 +103,15 @@ export interface ServiceCheckSummary {
   health: CheckSummary;
   /** (c) The running image's digest matches the registry's newest (mt#3251). */
   digest: CheckSummary;
+  /**
+   * (d) The service's DB-pool recovery mechanism is releasing connections
+   * (mt#1495). Derived from the SAME `/health` body check (b) already fetched, so
+   * it costs no extra request — see `monitor-recovery-alarm.ts`.
+   *
+   * Almost always `not-applicable`: only the cockpit publishes `dbRecycle` today,
+   * and even there it is `not-applicable` until a recycle has actually happened.
+   */
+  recovery: CheckSummary;
 }
 
 export interface ServiceAlert {
@@ -108,6 +129,7 @@ const CHECK_LABELS: Record<keyof Omit<ServiceCheckSummary, "service">, string> =
   deploy: "Railway deploy status",
   health: "HTTP /health probe",
   digest: "deployed-image digest",
+  recovery: "DB-pool recovery counters",
 };
 
 /**
@@ -127,9 +149,9 @@ export function scoreService(
 ): ServiceScore {
   const alerts: ServiceAlert[] = [];
 
-  const failed = (["deploy", "health", "digest"] as const).filter(
-    (key) => summary[key].outcome === "failed"
-  );
+  const CHECK_KEYS = ["deploy", "health", "digest", "recovery"] as const;
+
+  const failed = CHECK_KEYS.filter((key) => summary[key].outcome === "failed");
 
   if (failed.length > 0) {
     const detail = failed
@@ -138,8 +160,8 @@ export function scoreService(
     alerts.push({
       class: "check-failed",
       reason:
-        `${failed.length} of 3 checks could not run, so this service's state is UNKNOWN, ` +
-        `not healthy — ${detail}`,
+        `${failed.length} of ${CHECK_KEYS.length} checks could not run, so this service's ` +
+        `state is UNKNOWN, not healthy — ${detail}`,
     });
   }
 
@@ -161,6 +183,18 @@ export function scoreService(
     alerts.push({
       class: "digest-lag",
       reason: summary.digest.detail ?? "deployed image digest lags the registry's newest",
+    });
+  }
+
+  // No sustained-observation gate here, unlike `digest-lag` above. A digest lag is
+  // expected transiently during a normal build-push-redeploy cycle, so a single
+  // observation is not a fault. An abandoned close is not transient in that way:
+  // the counter is monotonic and only rises when a recycle has ALREADY failed to
+  // release its connections, so the first observation is already the aftermath.
+  if (summary.recovery.outcome === "ok" && summary.recovery.problem) {
+    alerts.push({
+      class: "recovery-degraded",
+      reason: summary.recovery.detail ?? "DB-pool recovery mechanism reported a failed teardown",
     });
   }
 
