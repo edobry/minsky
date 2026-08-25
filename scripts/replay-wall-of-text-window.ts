@@ -51,6 +51,7 @@ import {
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
 import { safeTruncate } from "../packages/shared/src/safe-truncate";
 import {
+  collectTurnProse,
   measureWallOfText,
   extractFinalAssistantText,
   resolveDepthCheck,
@@ -162,10 +163,17 @@ function replaySession(sessionId: string, lines: TranscriptLine[]): TurnMetrics[
 
     const finalText = extractFinalAssistantText(turnLines);
     const currentWords = measureWallOfText(finalText).wordCount;
+    // Derive the block statistics from the SHIPPED function rather than
+    // recomputing them here (PR #3310 R1, class-not-instance). The blocking
+    // finding was that `largestBlockWords` and its two siblings were computed
+    // on different paths and disagreed in the ADR-031 lag case; a replay that
+    // re-derives them by hand is a second place for exactly that to happen, and
+    // it would silently measure something other than what ships.
+    const prose = collectTurnProse(turnLines, finalText);
+    const sumWords = prose.totalWords;
+    const maxWords = prose.largestBlockWords;
     const perBlock = texts.map(countWords);
-    const sumWords = perBlock.reduce((a, b) => a + b, 0);
-    const maxWords = Math.max(...perBlock);
-    const largestIdx = perBlock.indexOf(maxWords);
+    const largestIdx = Math.max(0, perBlock.indexOf(maxWords));
 
     const depth = resolveDepthCheck(prefix);
     const question = resolveQuestionAnswerCheck(prefix);

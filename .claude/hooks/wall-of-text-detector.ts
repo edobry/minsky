@@ -539,26 +539,46 @@ export interface TurnProse {
  * Pure: both the lines and the resolved final text arrive as arguments.
  */
 export function collectTurnProse(turnLines: TranscriptLine[], finalText: string): TurnProse {
-  const blockWords: number[] = [];
+  const blockTexts: string[] = [];
   for (const line of turnLines) {
     if (!line) continue;
     const text = extractAssistantText([line]);
     if (text.trim().length === 0) continue;
-    blockWords.push(text.split(/\s+/).filter(Boolean).length);
+    blockTexts.push(text);
   }
 
-  const finalWords = finalText.split(/\s+/).filter(Boolean).length;
-  // The recorded `last_assistant_message` can carry a final block the
-  // transcript has not flushed yet — the whole reason ADR-031 prefers it. Fold
-  // it in rather than letting a lagged window shrink the measurement.
-  const candidates = blockWords.length > 0 ? blockWords : [finalWords];
-  const largestBlockWords = Math.max(finalWords, ...candidates);
-  const totalWords = candidates.reduce((a, b) => a + b, 0);
+  const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
+  const finalTrimmed = finalText.trim();
+
+  // The ADR-031 lag case: `resolveFinalAssistantText` prefers the `Stop`-recorded
+  // `last_assistant_message`, which can carry a final block the transcript has
+  // not flushed yet. When it does, that block is an ADDITIONAL one — it is not
+  // in `blockTexts` — so every statistic has to account for it, not just the
+  // maximum.
+  //
+  // PR #3310 R1 (BLOCKING): the first cut folded the recorded block into
+  // `largestBlockWords` via `Math.max` and then took `totalWords` /
+  // `blockCount` from the transcript blocks alone, so a lagged turn undercounted
+  // both — [50, 60] blocks with a recorded 500-word final reported 500 total and
+  // 2 blocks instead of 610 and 3. The reminder and the calibration record both
+  // carry those numbers, so both were wrong exactly when the lag preference this
+  // module relies on was doing its job. Patching ONE field for the lag case and
+  // leaving its two siblings on the un-lagged path is the whole defect; deriving
+  // all three from one candidate list is what prevents it recurring.
+  const lastTranscriptBlock = blockTexts[blockTexts.length - 1];
+  const recordedBlockIsUnflushed =
+    finalTrimmed.length > 0 && lastTranscriptBlock?.trim() !== finalTrimmed;
+
+  const candidates = blockTexts.map(countWords);
+  if (recordedBlockIsUnflushed) candidates.push(countWords(finalText));
+  // A turn with no assistant text at all and an empty recorded final: measure
+  // zero rather than throwing on `Math.max()` of an empty list.
+  if (candidates.length === 0) candidates.push(0);
 
   return {
     finalText,
-    largestBlockWords,
-    totalWords: Math.max(totalWords, finalWords),
+    largestBlockWords: Math.max(...candidates),
+    totalWords: candidates.reduce((a, b) => a + b, 0),
     blockCount: candidates.length,
   };
 }

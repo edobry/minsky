@@ -269,15 +269,37 @@ describe("mt#4531 — collectTurnProse", () => {
 
   /**
    * ADR-031's lag case: the recorded `last_assistant_message` can carry a final
-   * block the transcript has not flushed. Folding it in is what keeps the
-   * widening from SHRINKING a measurement relative to today.
+   * block the transcript has not flushed. It is an ADDITIONAL block, so ALL
+   * THREE statistics must account for it.
+   *
+   * **PR #3310 R1 (BLOCKING) lived here.** The first cut folded the recorded
+   * block into `largestBlockWords` only, and this test asserted
+   * `toBeGreaterThanOrEqual(500)` on the total — which passes on the WRONG
+   * value (500 instead of 610) just as happily as on the right one. A bound
+   * where an exact number was available is a test shaped to the implementation;
+   * the assertions below are exact for that reason.
    */
-  test("a recorded final block absent from the transcript still counts", () => {
+  test("a recorded final block absent from the transcript counts in all three statistics", () => {
     const turnLines = [assistantTextLine(1, words(50)), assistantTextLine(2, words(60))];
     const prose = collectTurnProse(turnLines, words(500));
 
     expect(prose.largestBlockWords).toBe(500);
-    expect(prose.totalWords).toBeGreaterThanOrEqual(500);
+    expect(prose.totalWords).toBe(610);
+    expect(prose.blockCount).toBe(3);
+  });
+
+  test("a recorded final block ALREADY in the transcript is not double-counted", () => {
+    const final = words(500);
+    const turnLines = [
+      assistantTextLine(1, words(50)),
+      assistantTextLine(2, words(60)),
+      assistantTextLine(3, final),
+    ];
+    const prose = collectTurnProse(turnLines, final);
+
+    expect(prose.largestBlockWords).toBe(500);
+    expect(prose.totalWords).toBe(610);
+    expect(prose.blockCount).toBe(3);
   });
 
   test("an empty turn falls back to the resolved final text rather than measuring nothing", () => {
@@ -286,6 +308,14 @@ describe("mt#4531 — collectTurnProse", () => {
     expect(prose.blockCount).toBe(1);
     expect(prose.largestBlockWords).toBe(320);
     expect(prose.totalWords).toBe(320);
+  });
+
+  test("a turn with no assistant text and no recorded final measures zero, not a throw", () => {
+    const prose = collectTurnProse([], "");
+
+    expect(prose.blockCount).toBe(1);
+    expect(prose.largestBlockWords).toBe(0);
+    expect(prose.totalWords).toBe(0);
   });
 });
 
