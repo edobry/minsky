@@ -10,11 +10,15 @@
  *   1. Sibling test — `src/foo/bar.ts` changed => `src/foo/bar.test.ts` (if it
  *      exists) is related. A changed `*.test.ts` file is trivially related to
  *      itself.
- *   2. Reverse-dependency-graph walk — build an import graph over the same
- *      file scope `scripts/run-tests-main.ts` uses (ROOTS, minus
- *      EXCLUDE_DIR_PREFIXES — notably src/mcp, whose tests must run in
- *      per-file isolation per mt#2665; see scripts/run-related-tests.ts for
- *      how a directly-changed src/mcp sibling test is still handled safely),
+ *   2. Reverse-dependency-graph walk — build an import graph over the
+ *      SELECTOR's file scope: `GRAPH_ROOTS`, minus EXCLUDE_DIR_PREFIXES
+ *      (notably src/mcp, whose tests must run in per-file isolation per
+ *      mt#2665; see scripts/run-related-tests.ts for how a directly-changed
+ *      src/mcp sibling test is still handled safely). `GRAPH_ROOTS` is
+ *      `scripts/run-tests-main.ts`'s `ROOTS` plus the selector-only roots it
+ *      does NOT execute — `./.minsky/hooks` today (mt#4521). The two scopes
+ *      were identical until then; see that constant's doc comment for why
+ *      they had to diverge,
  *      then breadth-first-walk the REVERSE edges (importers, not imports)
  *      from each changed file up to `maxDepth` hops. Any `*.test.ts` file
  *      reached this way — because it imports the changed file directly, or
@@ -33,10 +37,12 @@
  * which is why `DEFAULT_MAX_DEPTH` is deliberately tight — see its doc comment
  * for the measurements.
  *
- * Depth is bounded (default 6) and the caller (scripts/run-related-tests.ts)
- * additionally caps the total related-test count -- a widely-imported
- * low-level utility (e.g. a shared logger) can otherwise pull in a large
- * fraction of the suite, defeating the "fast" purpose of this gate.
+ * Depth is bounded by `DEFAULT_MAX_DEPTH` (3 since mt#3765 lowered it from 6).
+ * The caller (scripts/run-related-tests.ts) bounds the run by WALL-CLOCK budget,
+ * not by a related-test COUNT — mt#3765 removed the former count cap because it
+ * skipped tests silently while a slow-but-small set still blew the budget. A
+ * widely-imported low-level utility (e.g. a shared logger) can otherwise pull in
+ * a large fraction of the suite, defeating the "fast" purpose of this gate.
  *
  * All filesystem access is routed through the injectable `FsLike` interface
  * (default: real `node:fs`) so tests can pass an in-memory mock filesystem

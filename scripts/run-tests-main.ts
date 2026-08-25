@@ -119,6 +119,21 @@ export const ROOTS = [
 export const GRAPH_ONLY_ROOTS = ["./.minsky/hooks"];
 
 /**
+ * Which constant should a new consumer import? (PR #3307 R1)
+ *
+ * - **Executing tests** — `ROOTS`, or better `discoverTestFiles()`, which defaults to
+ *   it. This is the set the pre-push gate and CI actually run;
+ *   `run-tests-main-sharded.ts` reaches it through `discoverTestFiles`.
+ * - **Reasoning ABOUT files without running them** — `GRAPH_ROOTS`: import graphs,
+ *   data-read graphs, coverage questions, "which tests could relate to this file".
+ *
+ * `ROOTS` stays the narrower set on purpose, so adding a selector-only root can never
+ * silently enlarge what the gate executes. Nothing outside `find-related-tests.ts`
+ * consumes `GRAPH_ROOTS` today; the split is exported rather than kept private so a
+ * future consumer picks deliberately instead of defaulting to whichever it found first.
+ */
+
+/**
  * The file scope the change-scoped selector builds its graphs over: everything this
  * runner executes, plus the selector-only roots above (mt#4521).
  */
