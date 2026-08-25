@@ -10,7 +10,7 @@
  * through mt#4546's accessor.
  */
 import { describe, test, expect } from "bun:test";
-import { reviewerCostWidget } from "./reviewer-cost";
+import { reviewerCostWidget, NOT_YET_WIRED_REASON_PREFIX } from "./reviewer-cost";
 
 describe("reviewerCostWidget", () => {
   test("id and updateMode match the widget-registry contract", () => {
@@ -26,6 +26,12 @@ describe("reviewerCostWidget", () => {
     // reading the cockpit (or this test's failure output) can find both.
     expect(result.reason).toContain("mt#4546");
     expect(result.reason).toContain("ask#10301");
+    // The reason must start with the exported, matchable prefix -- the
+    // frontend hook (useReviewerCost.ts) keys off this exact string to
+    // distinguish "not wired yet" from a genuine live failure (mt#3348 R1).
+    // A change here without updating the hook silently collapses that
+    // distinction back into one generic error state.
+    expect(result.reason.startsWith(NOT_YET_WIRED_REASON_PREFIX)).toBe(true);
   });
 
   test("fetch() never throws -- degraded is a value, not an exception (mt#2757 discipline)", async () => {

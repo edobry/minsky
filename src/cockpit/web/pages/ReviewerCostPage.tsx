@@ -32,7 +32,7 @@
  * @see ../../widgets/reviewer-cost.ts — payload shape + domain semantics
  */
 import { Link } from "react-router-dom";
-import { useReviewerCost } from "../hooks/useReviewerCost";
+import { useReviewerCost, ReviewerCostNotYetAvailableError } from "../hooks/useReviewerCost";
 import { relativeTime } from "../lib/format";
 import type {
   ReviewerCostCohortRow,
@@ -253,7 +253,24 @@ export function ReviewerCostPage() {
         </p>
       )}
 
-      {isError && (
+      {/* Two visually and semantically distinct branches for "no data" (mt#3348
+          R1, reviewer-bot BLOCKING finding): a page that shows one generic red
+          error for both "this feature isn't wired up yet" and "a live query
+          just failed" gives an operator no way to tell the two apart. The
+          KNOWN not-yet-wired case (mt#4546 unwired) renders a neutral notice;
+          any OTHER error — including a genuine accessor failure once mt#4546
+          lands — renders the urgent error panel. */}
+      {isError && error instanceof ReviewerCostNotYetAvailableError && (
+        <div
+          className="rounded-md border border-border bg-card p-3 text-sm text-foreground"
+          data-testid="reviewer-cost-not-yet-available"
+        >
+          <div className="font-semibold text-foreground mb-1">Not yet available</div>
+          <div className="text-muted-foreground">{error.message}</div>
+        </div>
+      )}
+
+      {isError && !(error instanceof ReviewerCostNotYetAvailableError) && (
         <div
           className="rounded-md border border-warn-red/40 bg-warn-red/10 p-3 text-sm text-foreground"
           role="alert"

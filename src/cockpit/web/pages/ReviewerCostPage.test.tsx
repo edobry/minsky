@@ -105,22 +105,47 @@ const OK_PAYLOAD: ReviewerCostPayload = {
 };
 
 describe("ReviewerCostPage — failure path (SC4 / AT3)", () => {
-  test("a degraded widget (mt#4546 unwired, or a live stale/failed query) renders an explicit error, never zeros", async () => {
+  test("the KNOWN not-yet-wired reason (mt#4546 unwired) renders a neutral notice, distinct from a live failure", async () => {
     mockWidgetData({
       state: "degraded",
       reason: "reviewer-cost: blocked on mt#4546 (review_timing accessor not yet implemented — see ask#10301)",
     });
     renderPage();
 
-    await waitFor(() => expect(screen.getByTestId("reviewer-cost-error")).toBeDefined());
-    expect(screen.getByText("Data unavailable")).toBeDefined();
-    expect(screen.getByTestId("reviewer-cost-error").textContent).toContain("mt#4546");
+    await waitFor(() =>
+      expect(screen.getByTestId("reviewer-cost-not-yet-available")).toBeDefined()
+    );
+    expect(screen.getByText("Not yet available")).toBeDefined();
+    expect(screen.getByTestId("reviewer-cost-not-yet-available").textContent).toContain(
+      "mt#4546"
+    );
+    // This is deliberately NOT the urgent red error panel (mt#3348 R1) —
+    // that panel is reserved for a genuine live failure, tested below.
+    expect(screen.queryByTestId("reviewer-cost-error")).toBeNull();
 
     // The failure must not ALSO render a happy-path section underneath it —
     // that is exactly how a healthy-looking zero hides a real query failure.
     expect(screen.queryByTestId("reviewer-cost-cohorts")).toBeNull();
     expect(screen.queryByTestId("reviewer-cost-daily-spend")).toBeNull();
     expect(screen.queryByTestId("reviewer-cost-cap-pin-tile")).toBeNull();
+    expect(screen.queryByText("$0.0000")).toBeNull();
+  });
+
+  test("a GENUINE live query failure (once mt#4546 is wired) renders the urgent error panel, not the neutral notice", async () => {
+    mockWidgetData({
+      state: "degraded",
+      reason: "reviewer-cost: the database connection failed mid-request.",
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("reviewer-cost-error")).toBeDefined());
+    expect(screen.getByText("Data unavailable")).toBeDefined();
+    expect(screen.getByTestId("reviewer-cost-error").textContent).toContain(
+      "database connection failed"
+    );
+    // Not the neutral "not yet available" notice — this IS a live incident.
+    expect(screen.queryByTestId("reviewer-cost-not-yet-available")).toBeNull();
+    expect(screen.queryByTestId("reviewer-cost-cohorts")).toBeNull();
     expect(screen.queryByText("$0.0000")).toBeNull();
   });
 

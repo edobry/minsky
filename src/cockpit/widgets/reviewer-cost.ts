@@ -130,6 +130,20 @@ export type ReviewerCostPayload =
  * reason string so an operator reading the cockpit sees where to look. */
 const BLOCKING_ASK_REF = "ask#10301";
 
+/**
+ * Stable, matchable prefix for the "mt#4546 not wired yet" degraded reason —
+ * exported so the frontend hook (useReviewerCost.ts) can tell this KNOWN,
+ * expected-until-mt#4546-lands state apart from a genuine LIVE query failure
+ * once the accessor is wired (mt#3348 R1, reviewer-bot BLOCKING finding: a
+ * page that always throws the same generic error looks identical to a real
+ * outage, and gives an operator visiting the route no way to tell "not built
+ * yet" from "something broke"). Both are `degraded` at the WidgetData layer
+ * (accurate — the data genuinely isn't available either way), but the
+ * REASON text is the distinguishing signal, and this constant is the single
+ * place that contract is defined.
+ */
+export const NOT_YET_WIRED_REASON_PREFIX = "reviewer-cost: blocked on mt#4546";
+
 export const reviewerCostWidget: WidgetModule = {
   id: "reviewer-cost",
   title: "Reviewer Cost",
@@ -143,7 +157,7 @@ export const reviewerCostWidget: WidgetModule = {
       return {
         state: "degraded",
         reason:
-          `reviewer-cost: blocked on mt#4546 (review_timing accessor not yet ` +
+          `${NOT_YET_WIRED_REASON_PREFIX} (review_timing accessor not yet ` +
           `implemented — see ${BLOCKING_ASK_REF})`,
       };
     } catch (err) {
