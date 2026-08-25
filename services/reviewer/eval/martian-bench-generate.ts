@@ -58,6 +58,7 @@ import "reflect-metadata";
 import { callReviewer, type ReviewOutput } from "../src/providers";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewerConfig } from "../src/config";
+import { computeCostUsd } from "../src/token-cost";
 import { resolveGitHubTokenWithConfig, getGitHubTokenSource } from "../scripts/harness-config-auth";
 import { setupConfiguration } from "@minsky/domain/config-setup";
 import { getConfiguration, isConfigurationInitialized } from "@minsky/domain/configuration/index";
@@ -421,7 +422,33 @@ async function main() {
   const octokit = new Octokit({ auth: githubToken });
 
   const output: Record<string, MartianBenchmarkEntry> = {};
-  const generationMeta: Array<{ pr: string; tokensUsed?: number; roundsUsed?: number }> = [];
+  const generationMeta: Array<{
+    pr: string;
+    tokensUsed?: number;
+    /** Token breakdown by billing class (ReviewUsage) — required to compute a real dollar
+     * cost, since uncached input / cached input / output bill at different rates
+     * (token-cost.ts's USD_PER_MTOK). tokensUsed alone cannot answer a cost question. */
+    usage?: {
+      promptTokens?: number;
+      cachedTokens: number;
+      /** Uncached portion of promptTokens, i.e. what's actually billed at the full input
+       * rate — computed here so a reader doesn't have to re-derive it. */
+      uncachedPromptTokens?: number;
+      completionTokens?: number;
+      reasoningTokens?: number;
+      totalTokens?: number;
+    };
+    /** USD, computed via token-cost.ts's computeCostUsd (the same function that prices
+     * production review_timing rows) — not hand-derived from the rates in prose. */
+    costUsd: number | null;
+    roundsUsed?: number;
+    maxRounds?: number;
+    /** Whether the model called conclude_review itself in-loop (true) vs. the loop
+     * exhausting maxRounds and a forced pass supplying it (false/undefined) — the
+     * question of whether roundsUsed measures a FINISHED review or a TRUNCATED one. */
+    concludedInLoop?: boolean;
+    concludedAtRound: number | null;
+  }> = [];
 
   for (const [idx, pr] of prs.entries()) {
     console.log(`\n[${idx + 1}/${prs.length}] ${pr.owner}/${pr.repo}#${pr.prNumber}...`);
@@ -461,13 +488,42 @@ async function main() {
       ],
     };
 
+    const usage = reviewOutput.usage;
+    const uncachedPromptTokens =
+      usage?.promptTokens != null ? usage.promptTokens - usage.cachedTokens : undefined;
+    const costUsd = computeCostUsd(
+      reviewOutput.model,
+      usage?.promptTokens ?? null,
+      usage?.completionTokens ?? null,
+      usage?.cachedTokens ?? null
+    );
+
     generationMeta.push({
       pr: pr.goldenUrl,
       tokensUsed: reviewOutput.tokensUsed,
+      usage: usage
+        ? {
+            promptTokens: usage.promptTokens,
+            cachedTokens: usage.cachedTokens,
+            uncachedPromptTokens,
+            completionTokens: usage.completionTokens,
+            reasoningTokens: usage.reasoningTokens,
+            totalTokens: usage.totalTokens,
+          }
+        : undefined,
+      costUsd,
       roundsUsed: reviewOutput.toolLoop?.roundsUsed,
+      maxRounds: reviewOutput.toolLoop?.maxRounds,
+      concludedInLoop: reviewOutput.toolLoop?.concludedInLoop,
+      concludedAtRound: reviewOutput.toolLoop?.concludedAtRound ?? null,
     });
 
-    console.log(`  -> ${reviewComments.length} findings, ${reviewOutput.tokensUsed ?? "?"} tokens`);
+    console.log(
+      `  -> ${reviewComments.length} findings, ${reviewOutput.tokensUsed ?? "?"} tokens, ` +
+        `cost=${costUsd != null ? `$${costUsd.toFixed(4)}` : "unknown"}, ` +
+        `rounds=${reviewOutput.toolLoop?.roundsUsed ?? "?"}/${reviewOutput.toolLoop?.maxRounds ?? "?"}, ` +
+        `concludedInLoop=${reviewOutput.toolLoop?.concludedInLoop ?? "?"}`
+    );
   }
 
   const outDir = dirname(args.out);
