@@ -100,8 +100,18 @@ export function normalizePath(path: string): string {
   return path.trim().replace(/^\.\//, "").replace(/\/+$/, "");
 }
 
-/** A path segment carrying a glob metacharacter. */
-const GLOB_CHARS = /[*?[\]]/;
+/**
+ * A path segment carrying a glob metacharacter.
+ *
+ * `*` and `?` ONLY — `[` and `]` are deliberately EXCLUDED (PR #3351 R1). They
+ * are legal literal filename characters, and a Next.js-style `[id].tsx` route
+ * is the ordinary case; treating them as glob syntax would route a path like
+ * `docs/Guide [Draft]/index.md` down the glob branch. No spec in the measured
+ * corpus uses a character-class glob, so excluding them costs nothing and
+ * removes the misclassification rather than heuristically working around it.
+ * `globToRegExp` escapes them as literals.
+ */
+const GLOB_CHARS = /[*?]/;
 
 /**
  * Strip a trailing line reference from an ENUMERATED path (mt#4591).
@@ -130,29 +140,68 @@ const GLOB_CHARS = /[*?[\]]/;
  * on nothing is not reuse.
  */
 function stripLineSuffix(path: string): string {
-  return path.replace(/:\d+(?:[-,:]\d+)*$/, "");
+  // Optional whitespace around the separators (PR #3351 R1): specs are
+  // hand-written, so `a.ts:66, 326` and `a.ts:2426 - 2432` occur alongside the
+  // compact forms.
+  //
+  // POSIX / repo-relative paths are assumed. The pattern is anchored at `$` and
+  // requires DIGITS after the colon, so a Windows drive letter (`C:\repo\a.ts`)
+  // cannot be mis-stripped — asserted by a test rather than left to this note.
+  // A POSIX filename ending literally in `:<digits>` would be mis-stripped; no
+  // such file exists in this repo and none is expected.
+  return path.replace(/:\d+(?:\s*[-,:]\s*\d+)*$/, "");
 }
 
 /**
- * The literal directory prefix of a glob entry: a `src/cockpit` star-glob
- * yields `src/cockpit`.
+ * Compile a glob entry into an anchored matcher, or `null` when `target`
+ * carries no glob metacharacter.
  *
- * Returns `null` when `target` is not a glob at all, and the empty string when
- * it is a glob with no literal prefix to anchor on (a leading star segment).
+ * Supported syntax, which is what in-scope lists actually use:
+ *   - `**\/` — zero or more directories
+ *   - a trailing `**` — anything beneath
+ *   - `*` — within a single segment
+ *   - `?` — exactly one character
+ * Everything else is escaped and matched LITERALLY.
  *
- * The empty case stays FLAGGED rather than quietly passing. It genuinely cannot
- * be adjudicated, and there were ZERO such entries in the measured corpus —
- * suppressing it would be engineering against a case that has never occurred,
- * and passing it would hide a real miss.
+ * Anchored with `(?:^|/)` … `$`, mirroring the non-glob branch's suffix rule,
+ * so a repo-relative glob still matches an ABSOLUTE edit path.
+ *
+ * **PR #3351 R1 (BLOCKING) replaced a literal-prefix implementation here.**
+ * That version reduced every glob to its literal directory prefix and treated
+ * any change beneath it as coverage — so `src/**\/x.ts` was satisfied by ANY
+ * edit under `src/`, and `src/*-gen/*.ts` by any edit under `src/`. That is a
+ * silent FALSE PASS: it hides exactly the unkept promise this check exists to
+ * surface, which makes it strictly worse than the false FLAG the task set out
+ * to remove. Prefix matching is only ever correct for the `dir/**` shape; it is
+ * wrong for every narrower one, and nothing in the type or the tests
+ * distinguished the two.
  */
-function literalGlobPrefix(target: string): string | null {
+function globToRegExp(target: string): RegExp | null {
   if (!GLOB_CHARS.test(target)) return null;
-  const literal: string[] = [];
-  for (const segment of target.split("/")) {
-    if (GLOB_CHARS.test(segment)) break;
-    literal.push(segment);
+  let out = "";
+  for (let i = 0; i < target.length; i++) {
+    const ch = target[i] ?? "";
+    if (ch === "*") {
+      if (target[i + 1] === "*") {
+        if (target[i + 2] === "/") {
+          out += "(?:.*/)?";
+          i += 2;
+        } else {
+          out += ".*";
+          i += 1;
+        }
+      } else {
+        out += "[^/]*";
+      }
+      continue;
+    }
+    if (ch === "?") {
+      out += "[^/]";
+      continue;
+    }
+    out += ch.replace(/[.*+?^${}()|[\]\\]/, "\\$&");
   }
-  return literal.join("/");
+  return new RegExp(`(?:^|/)${out}$`);
 }
 
 /**
@@ -172,15 +221,10 @@ export function pathIsCovered(enumerated: string, edited: readonly string[]): bo
   const target = stripLineSuffix(normalizePath(enumerated));
   if (target === "") return false;
 
-  const globPrefix = literalGlobPrefix(target);
-  if (globPrefix !== null) {
-    // A glob with no literal prefix cannot be anchored — stays flagged.
-    if (globPrefix === "") return false;
+  const globMatcher = globToRegExp(target);
+  if (globMatcher !== null) {
     for (const raw of edited) {
-      const candidate = normalizePath(raw);
-      if (candidate === globPrefix) return true;
-      if (candidate.startsWith(`${globPrefix}/`)) return true;
-      if (candidate.includes(`/${globPrefix}/`)) return true;
+      if (globMatcher.test(normalizePath(raw))) return true;
     }
     return false;
   }

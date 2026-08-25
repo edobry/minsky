@@ -193,6 +193,7 @@ Prior art for this lives in \`${GAMMA}\`, which we are NOT changing for that rea
 const TYPES_TS = "packages/domain/src/tasks/types.ts";
 const COCKPIT_DIR_GLOB = "src/cockpit/**";
 const COCKPIT_FILE = "src/cockpit/web/pages/x.tsx";
+const DYNAMIC_ROUTE = "src/cockpit/web/pages/[id].tsx";
 const INVENTORY_DOC = "docs/architecture/hook-module-inventory.md";
 const INTERCEPTORS_DOC = "docs/architecture/interceptors.md";
 
@@ -216,16 +217,65 @@ describe("mt#4591 — AT1: a line-suffixed entry resolves to its file", () => {
   });
 });
 
-describe("mt#4591 — AT2: a glob resolves against its literal directory prefix", () => {
+describe("mt#4591 — AT2: a glob matches by its actual pattern, not a prefix", () => {
   test("a directory glob is covered by any changed file beneath it", () => {
     expect(pathIsCovered(COCKPIT_DIR_GLOB, [COCKPIT_FILE])).toBe(true);
     expect(pathIsCovered(COCKPIT_DIR_GLOB, ["src/mcp/x.ts"])).toBe(false);
   });
 
-  test("a glob with no literal prefix stays FLAGGED rather than quietly passing", () => {
-    // Unadjudicable: there is no prefix to anchor on. Zero instances in the
-    // measured corpus — this asserts it is not silently treated as covered.
-    expect(pathIsCovered("**/*.ts", [COCKPIT_FILE])).toBe(false);
+  // PR #3351 R1 (BLOCKING) regression. The first implementation reduced a glob
+  // to its literal directory prefix, so each `false` below was a `true`: a
+  // narrower glob was satisfied by ANY edit under `src/`. That is a silent
+  // false PASS — it hides the unkept promise the check exists to surface.
+  test("a narrower glob is NOT satisfied by an unrelated file under its prefix", () => {
+    expect(pathIsCovered("src/**/x.ts", ["src/a/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/**/x.ts", ["src/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/**/x.ts", ["src/a/y.ts"])).toBe(false);
+    expect(pathIsCovered("src/**/x.ts", ["src/unrelated/deep/z.md"])).toBe(false);
+  });
+
+  test("a single-segment star does not cross a directory boundary", () => {
+    expect(pathIsCovered("src/*-gen/a.ts", ["src/proto-gen/a.ts"])).toBe(true);
+    expect(pathIsCovered("src/*-gen/a.ts", ["src/proto-gen/nested/a.ts"])).toBe(false);
+    expect(pathIsCovered("src/*/x.ts", ["src/a/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/*/x.ts", ["src/a/b/x.ts"])).toBe(false);
+  });
+
+  test("`?` matches exactly one character", () => {
+    expect(pathIsCovered("src/a?.ts", ["src/ab.ts"])).toBe(true);
+    expect(pathIsCovered("src/a?.ts", ["src/abc.ts"])).toBe(false);
+  });
+
+  test("a prefix-less glob is adjudicated by its pattern, not waved through", () => {
+    expect(pathIsCovered("**/*.ts", ["a/b.ts"])).toBe(true);
+    expect(pathIsCovered("**/*.ts", ["a/b.tsx"])).toBe(false);
+  });
+
+  test("a glob still resolves against an ABSOLUTE edit path", () => {
+    expect(pathIsCovered(COCKPIT_DIR_GLOB, [`/Users/x/sessions/s1/${COCKPIT_FILE}`])).toBe(true);
+  });
+});
+
+describe("mt#4591 — PR #3351 R1 hardening", () => {
+  test("literal brackets in a filename are NOT treated as a glob", () => {
+    // A Next.js-style dynamic route is the ordinary case for this shape.
+    expect(pathIsCovered(DYNAMIC_ROUTE, [DYNAMIC_ROUTE])).toBe(true);
+    expect(pathIsCovered("docs/Guide [Draft]/index.md", ["docs/Guide [Draft]/index.md"])).toBe(
+      true
+    );
+    // ...and a bracket path does NOT become a glob that swallows a sibling.
+    expect(pathIsCovered(DYNAMIC_ROUTE, ["src/cockpit/web/pages/other.tsx"])).toBe(false);
+  });
+
+  test("a line suffix with incidental whitespace still strips", () => {
+    expect(pathIsCovered("a/b.ts:66, 326", ["a/b.ts"])).toBe(true);
+    expect(pathIsCovered("a/b.ts:2426 - 2432", ["a/b.ts"])).toBe(true);
+  });
+
+  test("a Windows-style drive letter is not mis-stripped", () => {
+    // The pattern requires DIGITS after the colon and is anchored at `$`, so a
+    // drive letter cannot be consumed. Asserted rather than asserted-in-prose.
+    expect(pathIsCovered("C:\\repo\\a.ts", ["C:\\repo\\a.ts"])).toBe(true);
   });
 });
 
