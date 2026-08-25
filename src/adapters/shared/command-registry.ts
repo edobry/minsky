@@ -235,6 +235,13 @@ export interface CommandDefinition<
    * NOT the inverse of {@link CommandDefinition.mutating}, and not a read/write
    * classification: it names one specific interaction with one specific
    * subsystem. Almost every command leaves it unset, including most reads.
+   *
+   * That disclaimer is load-bearing, not hedging — `tasks.claims.release`
+   * (mt#4568) sets this flag and WRITES presence, because it MANAGES presence
+   * itself and the ambient write would undo its work: `writeTaskClaim` runs
+   * after the handler returns, so it would re-insert the row the release just
+   * deleted and the call would report success having changed nothing. Read the
+   * name as "this tool owns its own presence effects", not as "this tool reads".
    */
   readsPresence?: boolean;
 }
