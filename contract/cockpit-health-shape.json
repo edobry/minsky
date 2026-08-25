@@ -122,7 +122,38 @@
       ]
     },
     "transcriptSweep": {
-      "totalRuns": 0
+      "sweepsRun": 3,
+      "sessionsIngested": 41,
+      "sessionsErrored": 0,
+      "sessionsQuarantined": 0,
+      "embedRuns": 3,
+      "lastSweepAt": "2026-08-25T22:00:00.000Z",
+      "sweepsAborted": 0,
+      "lastAbortAt": null,
+      "lastProductiveSweepAt": "2026-08-25T22:00:00.000Z",
+      "lastErrorAt": null,
+      "embedFailures": 0,
+      "embedPhase": "succeeded",
+      "embedInFlightAgeMs": null,
+      "embedOverdueBoundMs": 1800000,
+      "lastEmbedAttemptAt": "2026-08-25T22:00:00.000Z",
+      "embedNeverSucceeded": false,
+      "acrossRestarts": {
+        "totals": {
+          "started": 47,
+          "completed": 6,
+          "embedFailed": 1,
+          "aborted": 12,
+          "failed": 4,
+          "skipped": 2,
+          "interrupted": 22,
+          "reachedPhase2": 7
+        },
+        "phase2ReachRate": 0.149,
+        "inFlight": null,
+        "lastOutcome": "interrupted",
+        "lastEndedAt": "2026-08-25T22:00:00.000Z"
+      }
     },
     "dispatchWatchdogSweep": {
       "ticksRun": 0,
@@ -271,6 +302,7 @@
       "reason": "session driver construction threw: ECONNREFUSED"
     }
   },
+  "$transcriptSweepFieldNote": "mt#4532: every field in this block EXCEPT `acrossRestarts` is PROCESS-scoped and resets to zero on restart — and the tray restarts the cockpit daemon on every merge touching src/cockpit/** or packages/** (mem#1227). Measured 2026-08-25: 23 daemon boots in one working day, a median 13.4 minutes apart, against a 30-minute sweep cadence whose Phase 1 alone takes ~12 minutes. So on a working day these counters routinely describe minutes of history rather than the sweep's behaviour, and a post-restart payload is byte-identical to a daemon that never swept at all — which is the ambiguity `acrossRestarts` exists to remove. It is read from ~/.local/state/minsky/transcript-sweep-journal.json and outlives the process. `phase2ReachRate` is the load-bearing number: the share of all ticks ever STARTED that reached the embedding backfill, null before any tick has started. Read it BEFORE the process-scoped counters beside it, never instead of them — and note this block is nested here rather than made a top-level sibling deliberately, because a reader asking 'is the sweep working' must not be able to reach the process-scoped counters without it. That is exactly the misread `$sweepLivenessFieldNote` below has to warn about in prose, having been separated into its own top-level field. Five outcomes are tracked and must not be conflated: `interrupted` (process replaced mid-tick — reconstructed at boot, since a killed process cannot write its own terminal record), `aborted` (Phase 1 abandoned on a dead DB connection per mt#4480, never reaches Phase 2 because it needs the same connection), `embed-failed` (Phase 2 was ENTERED and threw — it got there and broke, unlike `aborted` which never arrived), `failed` (errored before Phase 1 concluded), `skipped` (declined to run: schema behind, or no SQL-capable provider — correct behaviour, and still not work done). `inFlight` is `{startedAt, pid, phase}` or null; a non-null entry whose pid is DEAD is what boot reconcile folds, and one whose pid is ALIVE is left alone because a second daemon (mt#4243) still owns it. Nested per-field types are deliberately NOT pinned in .fields, unlike transcriptWatcherFields and sweepLivenessFields: this block's shape is documented here and asserted by src/cockpit/transcript-sweep-journal.test.ts against the producer, so a change is caught at the producer rather than by a second hand-maintained copy of its field list. Redaction convention per ADR-017 holds: counts, ISO timestamps, a pid and an outcome enum — no paths, no raw error strings.",
   "$sweepLivenessFieldNote": "mt#4384: the AGGREGATE sweep-liveness projection. The sibling prodStateSweep / transcriptSweep / dispatchWatchdogSweep blocks are DOMAIN trackers, and a domain tracker records the outcome of WORK — an ABANDONED tick never completes, so it produces no outcome ever and those three blocks read clean straight through a wedge. Until mt#4384 this endpoint never read the liveness registry at all, so abandonment could not appear here BY CONSTRUCTION. abandonedTicksOutstanding > 0 means at least one sweep is wedged RIGHT NOW; do NOT read a zero domain-failure count beside it as reassurance. reportingDomainOutcome legitimately trails declaringDomainOutcome shortly after a restart (the runtime flag flips on the first tick that completes), so a low value is not by itself a fault — read it beside abandonedTicksOutstanding. Per-sweep detail stays on /api/sweeps, which authoritativeSurface names. The top-level status deliberately does NOT flip on abandonment: the tray restarts on an unhealthy status, and a restart is not a reliable remedy for this class (mem#1178 records an occurrence that self-cleared, and mt#4335 recovery can take 15 minutes). Nested per-field types are pinned in sweepLivenessFields and asserted by health-contract.test.ts (PR #3240 R1) — a top-level \"object\" entry in .fields cannot catch drift INSIDE the block, which is the same cannot-see-it failure class this field exists to close.",
   "sweepLivenessFields": {
     "checkedAt": "string",

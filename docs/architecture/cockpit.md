@@ -557,9 +557,59 @@ would read zero for cockpit-process state:
   "embedInFlightAgeMs": null,
   "embedOverdueBoundMs": 1800000,
   "lastEmbedAttemptAt": "2026-06-19T22:00:00.000Z",
-  "embedNeverSucceeded": false
+  "embedNeverSucceeded": false,
+  // mt#4532 — the cross-restart journal; see "Reading acrossRestarts" below.
+  "acrossRestarts": {
+    "totals": {
+      "started": 47,
+      "completed": 6,
+      "embedFailed": 1,
+      "aborted": 12,
+      "failed": 4,
+      "skipped": 2,
+      "interrupted": 22,
+      "reachedPhase2": 7
+    },
+    "phase2ReachRate": 0.149,
+    "inFlight": null,
+    "lastOutcome": "interrupted",
+    "lastEndedAt": "2026-06-19T22:00:00.000Z"
+  }
 }
 ```
+
+**Reading `acrossRestarts` (mt#4532).** Every OTHER field above resets to zero
+when the process is replaced, and the tray restarts the daemon on every merge
+touching `src/cockpit/**` or `packages/**`. Measured 2026-08-25: **23 daemon
+boots in one working day, a median 13.4 minutes apart**, against a 30-minute
+cadence whose Phase 1 alone takes ~12 minutes — so on a working day most
+processes never conclude a tick at all, and the process-scoped counters beside
+this block are describing minutes of history, not the sweep's actual behaviour.
+
+`acrossRestarts` is read from `~/.local/state/minsky/transcript-sweep-journal.json`
+and outlives the process. Read it FIRST, and read the rest against it:
+
+| Field                | What it answers                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `phase2ReachRate`    | **The number.** The share of all ticks ever started that reached the embedding backfill. `null` before any tick has started.        |
+| `totals.interrupted` | Ticks whose process was replaced mid-flight. Reconstructed at boot, since a killed process cannot write its own terminal record.    |
+| `totals.aborted`     | Phase 1 abandoned because the DB connection died (mt#4480). Never reaches Phase 2 — it needs the same dead connection.              |
+| `totals.embedFailed` | Phase 2 was ENTERED and threw. Deliberately not conflated with `aborted`: one got there and broke, the other never arrived.         |
+| `totals.skipped`     | The tick declined to run — schema behind (mt#3297), or no SQL-capable provider. Correct behaviour, and still not work done.         |
+| `inFlight`           | The tick running right now (`startedAt`, `pid`, `phase`), or `null`. A non-null `inFlight` from a DEAD pid is what boot reconciles. |
+
+**Why a local file rather than Postgres.** `decision-defaults.mdc §Datastores`
+makes Postgres the default for state, and this deviates on purpose: two of the
+outcomes the journal exists to record (`aborted`, `skipped`) happen precisely
+BECAUSE the database is unreachable, so a Postgres-backed journal would fail to
+record exactly the events it was built for. Same `getStateDir()` +
+`atomicWriteJSON` pair `dispatch-watchdog.ts` and `ask-state-cache.ts` already
+use for cross-restart cockpit state.
+
+**A live foreign pid is left alone.** Boot reconcile folds an orphaned `inFlight`
+record as `interrupted` only when its pid is NOT alive. Under two concurrent
+daemons (mt#4243) the other process still owns its tick, and stealing it would
+manufacture an interruption that never happened.
 
 **Reading the embedding phase (mt#4524).** The sweep tick has two phases, and the
 counters above describe the FIRST one. `embedRuns` counts only backfills that
