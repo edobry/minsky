@@ -21,6 +21,7 @@ import {
   pathIsCovered,
   enumerationLineFor,
   untouchedEnumeratedPaths,
+  isQualifiedEntry,
 } from "./spec-scope-execution-check";
 import { extractInScopeFiles } from "./parallel-work-guard";
 import type { TranscriptLine } from "./transcript";
@@ -304,7 +305,7 @@ describe("mt#4591 — AT4: the enumerated side is stripped, the changed side is 
 
 describe("mt#4591 — SC5: the founding incident stays flagged", () => {
   test("PR #3310's two surviving entries are plain paths, untouched by this change", () => {
-    const untouched = untouchedEnumeratedPaths(
+    const { untouched } = untouchedEnumeratedPaths(
       undefined,
       [INVENTORY_DOC, INTERCEPTORS_DOC],
       [".minsky/hooks/wall-of-text-detector.ts"]
@@ -313,10 +314,150 @@ describe("mt#4591 — SC5: the founding incident stays flagged", () => {
   });
 });
 
+// --------------------------------------------------------------------------
+// mt#4582 — an entry the spec itself QUALIFIES is not an unkept promise.
+//
+// AT1 — three paths, two qualified, none touched -> one finding, qualified: 2.
+// AT2 — a qualifier in PROSE does not suppress an unqualified entry.
+// AT3 — the replay measurement; not a unit test, see the PR body.
+// --------------------------------------------------------------------------
+
+const WRAPPED_SCRIPT = "scripts/replay-thing.ts";
+const DELTA = ".minsky/hooks/delta.ts";
+
+/** alpha READ-ONLY, beta "only insofar as", gamma plain. Prose mentions READ-ONLY. */
+const SPEC_QUALIFIED = `## Summary
+
+This prose mentions READ-ONLY deliberately: it must not suppress anything, because
+the check reads the in-scope block, not the whole document.
+
+## Scope
+
+**In scope:**
+
+- \`${ALPHA}\` — READ-ONLY: the registry this consults.
+- \`${BETA}\` — only insofar as it already spreads the helper.
+- \`${GAMMA}\` — row 119 documents the field set.
+
+**Out of scope:**
+`;
+
+/** The mt#4109 shape: the qualifier lives on the bullet's CONTINUATION lines. */
+const SPEC_WRAPPED_QUALIFIER = `## Scope
+
+**In scope:**
+
+- \`${WRAPPED_SCRIPT}\` — imports the helper, so SC3 changes what its
+  \`--accuracy\` pass measures. In scope only to the extent of re-running it and
+  recording the shifted numbers; no behavior change to the script is required.
+- \`${DELTA}\` — the guard itself.
+
+**Out of scope:**
+`;
+
+describe("mt#4582 — AT1: a qualified entry is suppressed and COUNTED", () => {
+  test("two qualified, one plain, none touched -> one finding and qualified: 2", () => {
+    const { inScopeBlock } = extractInScopeFiles(SPEC_QUALIFIED, { strict: true });
+    const { untouched, qualified } = untouchedEnumeratedPaths(
+      inScopeBlock,
+      [ALPHA, BETA, GAMMA],
+      []
+    );
+    expect(untouched.map((u) => u.path)).toEqual([GAMMA]);
+    expect(qualified).toBe(2);
+  });
+
+  test("run() carries `qualified` onto the calibration record", () => {
+    // An edit that covers NONE of the enumerated paths: without at least one
+    // edit call the guard records `skipped`, which is correct and not what
+    // this test is about.
+    const outcome = run(INPUT, ctxWith(["src/unrelated/elsewhere.ts"]), {
+      fetchSpec: () => SPEC_QUALIFIED,
+    });
+    const cal = outcome?.calibration as Record<string, unknown> | undefined;
+    expect(cal?.[OUTCOME]).toBe("flagged");
+    expect(cal?.["qualified"]).toBe(2);
+  });
+});
+
+describe("mt#4582 — AT2: a qualifier in PROSE suppresses nothing", () => {
+  test("GAMMA stays flagged even though the Summary says READ-ONLY", () => {
+    const { inScopeBlock } = extractInScopeFiles(SPEC_QUALIFIED, { strict: true });
+    const { untouched } = untouchedEnumeratedPaths(inScopeBlock, [GAMMA], []);
+    expect(untouched.map((u) => u.path)).toEqual([GAMMA]);
+  });
+});
+
+describe("mt#4582 — SC7: the qualifier is read from the whole ENTRY, not one line", () => {
+  test("a qualifier on a CONTINUATION line still suppresses", () => {
+    // Measured: 50% of flagged bullets wrap past line 1, and this shape —
+    // mt#4109's, one of this task's three worked examples — carries its
+    // qualifier entirely on the continuation. A single-line test misses it.
+    const { inScopeBlock } = extractInScopeFiles(SPEC_WRAPPED_QUALIFIER, { strict: true });
+    const { untouched, qualified } = untouchedEnumeratedPaths(
+      inScopeBlock,
+      [WRAPPED_SCRIPT, DELTA],
+      []
+    );
+    expect(untouched.map((u) => u.path)).toEqual([DELTA]);
+    expect(qualified).toBe(1);
+  });
+
+  test("the recorded entry carries the continuation, so a reader sees the qualifier", () => {
+    const { inScopeBlock } = extractInScopeFiles(SPEC_WRAPPED_QUALIFIER, { strict: true });
+    const entry = enumerationLineFor(inScopeBlock, DELTA);
+    expect(entry).toContain("the guard itself");
+    const wrapped = enumerationLineFor(inScopeBlock, WRAPPED_SCRIPT);
+    expect(wrapped).toContain("only to the extent of");
+    expect(wrapped).toContain("no behavior change");
+  });
+
+  test("joining stops at the next bullet — an entry does not absorb its sibling", () => {
+    const { inScopeBlock } = extractInScopeFiles(SPEC_WRAPPED_QUALIFIER, { strict: true });
+    expect(enumerationLineFor(inScopeBlock, WRAPPED_SCRIPT)).not.toContain("the guard itself");
+  });
+});
+
+describe("mt#4582 — SC5: a CONDITIONAL is not a qualifier and keeps firing", () => {
+  test("`update if …` stays flagged — whether the condition fired is unknowable here", () => {
+    const { inScopeBlock } = extractInScopeFiles(SPEC_THREE_PATHS, { strict: true });
+    const { untouched, qualified } = untouchedEnumeratedPaths(inScopeBlock, [GAMMA], []);
+    expect(untouched.map((u) => u.path)).toEqual([GAMMA]);
+    expect(qualified).toBe(0);
+  });
+
+  test("isQualifiedEntry rejects the conditional forms directly", () => {
+    expect(isQualifiedEntry("- `a.ts` — update if the signature changes")).toBe(false);
+    expect(isQualifiedEntry("- `a.ts` — If it is wrong today, fix it here or file it")).toBe(false);
+    expect(isQualifiedEntry("- `a.ts` — the tool seam, if the mechanism extends it")).toBe(false);
+  });
+
+  test("isQualifiedEntry accepts each measured unconditional form", () => {
+    expect(isQualifiedEntry("- `a.ts` — READ-ONLY: the registry.")).toBe(true);
+    expect(isQualifiedEntry("- `a.ts` — read only reference")).toBe(true);
+    expect(isQualifiedEntry("- `a.ts` — only insofar as it spreads the helper.")).toBe(true);
+    expect(isQualifiedEntry("- `a.ts` — in scope only to the extent of re-running it")).toBe(true);
+    expect(isQualifiedEntry("- `a.ts` — no behavior change is required")).toBe(true);
+  });
+});
+
+describe("mt#4582 — SC6: a null entry is never suppressed", () => {
+  test("no in-scope block means no evidence, not no qualifier", () => {
+    expect(isQualifiedEntry(null)).toBe(false);
+    const { untouched, qualified } = untouchedEnumeratedPaths(undefined, [ALPHA], []);
+    expect(untouched.map((u) => u.path)).toEqual([ALPHA]);
+    expect(qualified).toBe(0);
+  });
+});
+
 describe("mt#4544 — AT1: an enumerated path the PR never touched", () => {
   test("three enumerated, two touched -> exactly one finding, quoting its line", () => {
     const { inScopeBlock } = extractInScopeFiles(SPEC_THREE_PATHS, { strict: true });
-    const untouched = untouchedEnumeratedPaths(inScopeBlock, [ALPHA, BETA, GAMMA], [ALPHA, BETA]);
+    const { untouched } = untouchedEnumeratedPaths(
+      inScopeBlock,
+      [ALPHA, BETA, GAMMA],
+      [ALPHA, BETA]
+    );
     expect(untouched).toHaveLength(1);
     expect(untouched[0]?.path).toBe(GAMMA);
     expect(untouched[0]?.line).toContain(GAMMA_CONDITIONAL);
