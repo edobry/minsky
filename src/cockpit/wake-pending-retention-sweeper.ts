@@ -3,8 +3,8 @@
  *
  * The POLICY — which rows are deletable, why an undelivered row with a live addressee
  * never is, and where the retention window's value comes from — lives in
- * `@minsky/domain/ask/wake-pending-retention`. This file is only the timer and the
- * connection acquisition.
+ * `@minsky/domain/ask/wake-pending-retention`. This file is only the timer, the
+ * connection acquisition, and the unavailability reporting.
  *
  * Its own module rather than another block in `sweepers.ts`, following the precedent
  * `transcript-sweep-backstop.ts` set when that file hit the max-lines ceiling (mt#4480).
@@ -15,7 +15,29 @@
  * @see mt#4537
  */
 
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+
 import { log } from "@minsky/shared/logger";
+// STATIC, deliberately — mt#4489's fix in the sibling backstop applies verbatim here.
+// An `await import(...)` inside a tick defers module resolution to the first sweep,
+// potentially hours after boot; the daemon resolves `@minsky/*` against the tree its
+// entry script came from, and if that tree is a session workspace that gets cleaned up
+// meanwhile, every not-yet-loaded import fails with ENOENT on a process that had been
+// running fine. Loading at import time makes this sweep as durable as the module that
+// registers it.
+import {
+  describePersistenceUnavailability,
+  PersistenceUnavailableError,
+} from "@minsky/domain/persistence/unconfigured-provider";
+import {
+  runWakePendingRetentionSweep,
+  type WakePendingRetentionResult,
+} from "@minsky/domain/ask/wake-pending-retention";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
+import { getSharedPersistenceService } from "./shared-persistence";
 import { createIntervalSweeper, type SweepTickResult } from "./sweepers";
 
 /**
@@ -34,13 +56,94 @@ import { createIntervalSweeper, type SweepTickResult } from "./sweepers";
 export const WAKE_PENDING_RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * The two collaborators one tick reaches for. Injected rather than imported inside the
+ * tick so the availability decision below is testable against a REAL
+ * `UnconfiguredPersistenceProvider` — which is the whole point, since the defect this
+ * shape replaced (PR #3311 R1) was a guard that looked right and never fired for that
+ * exact class.
+ */
+export interface WakePendingRetentionTickDeps {
+  getProvider: () => Promise<PersistenceProvider>;
+  sweep: (db: PostgresJsDatabase) => Promise<WakePendingRetentionResult>;
+}
+
+/**
+ * One retention pass, including the fail-open policy. Exported for tests; production
+ * calls it through {@link startWakePendingRetentionSweeper}.
+ *
+ * Never throws: every path returns a {@link SweepTickResult} so `/api/sweeps` carries a
+ * real domain outcome rather than a green scheduling record over a dead sweep (mem#862,
+ * mt#4412).
+ */
+export async function runWakePendingRetentionTick(
+  deps: WakePendingRetentionTickDeps
+): Promise<SweepTickResult> {
+  // Hoisted so the catch below can still describe WHICH provider was unavailable.
+  let provider: PersistenceProvider | undefined;
+  try {
+    provider = await deps.getProvider();
+
+    // CAPABILITY, not method presence (PR #3311 R1). `UnconfiguredPersistenceProvider`
+    // DEFINES `getDatabaseConnection()` — it throws — so an `in` check passes and the
+    // guard is dead code for the exact provider it was written for. Its
+    // `capabilities.sql` is false, which is the distinction that actually holds, and
+    // `SqlCapablePersistenceProvider` is the narrowing the base class's own comment
+    // points callers at.
+    if (!provider.getCapabilities().sql) {
+      // Not a quiet no-op (mt#4412): without SQL this sweep can never do its job, and
+      // reporting ok would hide an unbounded table behind a green row on /api/sweeps.
+      // The reason comes from the provider rather than a literal — "nothing was
+      // configured" and "configured but initialization failed" are different
+      // situations with different recoveries, and only the provider knows which.
+      log.warn(
+        `cockpit: wake-pending retention sweep skipped — ${describePersistenceUnavailability(provider)}`
+      );
+      return { ok: false };
+    }
+
+    const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+    if (!db) {
+      log.warn("cockpit: wake-pending retention sweep skipped — no database connection");
+      return { ok: false };
+    }
+
+    const result = await deps.sweep(db);
+
+    // Logged only when something was actually removed — a sweep that finds nothing is
+    // the steady state and should not write a line every six hours. The undeliverable
+    // count is the one worth watching: a rising number means wakes are outliving their
+    // addressees, which is a delivery problem rather than hygiene.
+    if (result.deletedDelivered > 0 || result.deletedUndeliverable > 0) {
+      log.cli(
+        `wake_pending retention: removed ${result.deletedDelivered} delivered, ` +
+          `${result.deletedUndeliverable} undeliverable`
+      );
+    }
+    return { ok: true };
+  } catch (err) {
+    // A provider that reports `sql: true` and still refuses is the configured-but-
+    // unavailable case, and it deserves the same structured reason as the branch above
+    // rather than a generic "sweep failed" (PR #3311 R1). Belt to that brace: the
+    // capability check is the primary path, and this covers a provider whose declared
+    // capabilities and actual behaviour disagree.
+    if (err instanceof PersistenceUnavailableError) {
+      log.warn(
+        `cockpit: wake-pending retention sweep skipped — ${
+          provider ? describePersistenceUnavailability(provider) : err.message
+        }`
+      );
+      return { ok: false };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("cockpit: wake-pending retention sweep failed", { message });
+    return { ok: false };
+  }
+}
+
+/**
  * Start the periodic `wake_pending` retention sweep in this cockpit process.
  *
- * Fail-open per tick: a provider that is not SQL-capable, an unavailable connection, or
- * a failed statement logs and returns `{ ok: false }`, so `/api/sweeps` shows the domain
- * failure rather than a green scheduling record over a dead sweep (mem#862, mt#4412).
- *
- * The connection is acquired PER TICK rather than held across ticks: the pool recycles,
+ * The provider is resolved PER TICK rather than held across ticks: the pool recycles,
  * and a handle captured once fails every tick after the first recycle — the defect
  * mt#4364 fixed in the service-window reaper.
  *
@@ -50,62 +153,10 @@ export function startWakePendingRetentionSweeper(intervalMs?: number): () => voi
   return createIntervalSweeper({
     name: "wake-pending retention",
     intervalMs: intervalMs ?? WAKE_PENDING_RETENTION_SWEEP_INTERVAL_MS,
-    tick: async (): Promise<SweepTickResult> => {
-      try {
-        const { getSharedPersistenceService } = await import("./shared-persistence");
-        const provider = (await getSharedPersistenceService()).getProvider();
-        if (
-          !("getDatabaseConnection" in provider) ||
-          typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-            "function"
-        ) {
-          // Not a quiet no-op (mt#4412): a non-SQL provider means this sweep can never
-          // do its job, and reporting ok would hide an unbounded table behind a green
-          // row on /api/sweeps. The reason comes from the provider itself rather than
-          // from a literal — "not SQL-capable" and "configured but unreachable" are
-          // different situations with different recoveries, and only the provider
-          // knows which one this is.
-          const { describePersistenceUnavailability } = await import(
-            "@minsky/domain/persistence/unconfigured-provider"
-          );
-          log.warn(
-            `cockpit: wake-pending retention sweep skipped — ${describePersistenceUnavailability(provider)}`
-          );
-          return { ok: false };
-        }
-        const sqlProvider = provider as {
-          getDatabaseConnection: () => Promise<
-            import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-          >;
-        };
-        const db = await sqlProvider.getDatabaseConnection();
-        if (!db) {
-          log.warn("cockpit: wake-pending retention sweep skipped — no database connection");
-          return { ok: false };
-        }
-
-        const { runWakePendingRetentionSweep } = await import(
-          "@minsky/domain/ask/wake-pending-retention"
-        );
-        const result = await runWakePendingRetentionSweep(db);
-
-        // Logged only when something was actually removed — a sweep that finds nothing
-        // is the steady state and should not write a line every six hours. The
-        // undeliverable count is the one worth watching: a rising number means wakes
-        // are outliving their addressees, which is a delivery problem rather than
-        // hygiene.
-        if (result.deletedDelivered > 0 || result.deletedUndeliverable > 0) {
-          log.cli(
-            `wake_pending retention: removed ${result.deletedDelivered} delivered, ` +
-              `${result.deletedUndeliverable} undeliverable`
-          );
-        }
-        return { ok: true };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.warn("cockpit: wake-pending retention sweep failed", { message });
-        return { ok: false };
-      }
-    },
+    tick: async (): Promise<SweepTickResult> =>
+      runWakePendingRetentionTick({
+        getProvider: async () => (await getSharedPersistenceService()).getProvider(),
+        sweep: (db) => runWakePendingRetentionSweep(db),
+      }),
   });
 }
