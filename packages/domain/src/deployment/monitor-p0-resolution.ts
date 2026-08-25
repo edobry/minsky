@@ -162,6 +162,7 @@ const ALERT_CLASSES: readonly AlertClass[] = [
   "health-down",
   "digest-lag",
   "check-failed",
+  "recovery-degraded",
 ];
 
 export function parseP0SubjectMarker(
@@ -220,12 +221,12 @@ export function matchesP0Subject(
 export function observedRecoveredClasses(summary: ServiceCheckSummary): AlertClass[] {
   const recovered: AlertClass[] = [];
 
-  const ranClean = (key: "deploy" | "health" | "digest"): boolean =>
+  const ranClean = (key: "deploy" | "health" | "digest" | "recovery"): boolean =>
     summary[key].outcome === "ok" && !summary[key].problem;
 
   // `check-failed` is the absence of unrunnable checks, so `not-applicable`
-  // counts here — unlike the three condition classes below, where it is silence.
-  const anyCheckFailed = (["deploy", "health", "digest"] as const).some(
+  // counts here — unlike the four condition classes below, where it is silence.
+  const anyCheckFailed = (["deploy", "health", "digest", "recovery"] as const).some(
     (key) => summary[key].outcome === "failed"
   );
   if (!anyCheckFailed) recovered.push("check-failed");
@@ -233,6 +234,14 @@ export function observedRecoveredClasses(summary: ServiceCheckSummary): AlertCla
   if (ranClean("deploy")) recovered.push("deploy-failed");
   if (ranClean("health")) recovered.push("health-down");
   if (ranClean("digest")) recovered.push("digest-lag");
+
+  // `recovery-degraded` recovers ONLY on a positive healthy reading — recycles
+  // happened AND all of them released. An unexercised mechanism maps to
+  // `not-applicable` upstream (see `toRecoveryCheckSummary`) precisely so it
+  // cannot land here: every counter resets on process restart, so treating a
+  // zeroed payload as recovery would let restarting the cockpit auto-close the
+  // P0 that its own abandoned closes had opened.
+  if (ranClean("recovery")) recovered.push("recovery-degraded");
 
   return recovered;
 }
