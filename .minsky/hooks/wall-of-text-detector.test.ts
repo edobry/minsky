@@ -94,6 +94,7 @@ import {
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   DEPTH_REQUEST_LOOKBACK_TURNS,
+  DEPTH_REQUEST_SCAN_LIMIT,
   DEPTH_REQUEST_PATTERNS,
   detectDepthRequest,
   recentUserPromptTexts,
@@ -167,6 +168,21 @@ const MT4031_MEASURED_PROMPT_TWO =
 const TASK_NOTIFICATION_TEXT =
   "<task-notification>\n<task-id>abc123</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>";
 const SYSTEM_REMINDER_TEXT = "<system-reminder>\nInjected reminder content.\n</system-reminder>";
+// mt#4109 — the harness-markup turn openers the prefix list was MISSING until
+// 2026-08-25. All three are VERBATIM `precedingPrompt` excerpts from the
+// calibration log (8 records anchored on `<local-command-stdout`, 7 on
+// `<command-name`, 1 on `<bash-stdout`), not invented shapes.
+const LOCAL_COMMAND_STDOUT_TEXT =
+  "<local-command-stdout>Reconnected to minsky.</local-command-stdout>";
+const COMMAND_NAME_TEXT =
+  "<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args></command-args>";
+const BASH_STDOUT_TEXT =
+  "<bash-stdout>(Bash completed with no output)</bash-stdout><bash-stderr></bash-stderr>";
+// mt#4109 — the tag `packages/shared/src/harness-markup.ts` explicitly warns
+// against adding on symmetry grounds ("A `local-command-stderr` tag does NOT
+// exist in the corpus"). Pinned ABSENT so a future symmetry-driven addition
+// fails here rather than shipping.
+const NONEXISTENT_STDERR_TAG = "<local-command-stderr";
 
 const BASE_TS = Date.parse("2026-07-17T10:00:00.000Z");
 
@@ -985,6 +1001,200 @@ describe("isNonPrincipalTurnOpener", () => {
 
   test("tolerates leading/trailing whitespace", () => {
     expect(isNonPrincipalTurnOpener(`  \n${TASK_NOTIFICATION_TEXT}\n  `)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4109 — the prefix list reaches BOTH gates
+//
+// Two defects, measured together. (1) `NON_PRINCIPAL_OPENER_PREFIXES` held 3
+// of the 11 tags in `packages/shared/src/harness-markup.ts`. (2) The DEPTH gate
+// never consulted the list at all — `recentUserPromptTexts` took the last 3
+// REAL prompts unfiltered — so fixing (1) alone would have moved it by zero.
+// ---------------------------------------------------------------------------
+
+/** Build a run of `n` harness turns (alternating command echo / stdout echo). */
+function harnessRun(startOffset: number, n: number): TranscriptLine[] {
+  const out: TranscriptLine[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push(
+      userPromptLine(
+        startOffset + i * 2,
+        i % 2 === 0 ? COMMAND_NAME_TEXT : LOCAL_COMMAND_STDOUT_TEXT
+      )
+    );
+    out.push(assistantTextLine(startOffset + i * 2 + 1, "ok"));
+  }
+  return out;
+}
+
+describe("mt#4109 — NON_PRINCIPAL_OPENER_PREFIXES reconciled with the shared inventory", () => {
+  test("matches every harness-markup opener the inventory names (AT4)", () => {
+    // The three that were already covered.
+    expect(isNonPrincipalTurnOpener(TASK_NOTIFICATION_TEXT)).toBe(true);
+    expect(isNonPrincipalTurnOpener(SYSTEM_REMINDER_TEXT)).toBe(true);
+    expect(isNonPrincipalTurnOpener("[SYSTEM NOTIFICATION] background task done")).toBe(true);
+    // The nine added by mt#4109, verbatim-sampled where the corpus had them.
+    expect(isNonPrincipalTurnOpener(COMMAND_NAME_TEXT)).toBe(true);
+    expect(isNonPrincipalTurnOpener("<command-message>model</command-message>")).toBe(true);
+    expect(isNonPrincipalTurnOpener("<command-args>--json</command-args>")).toBe(true);
+    expect(isNonPrincipalTurnOpener("<skill-format>md</skill-format>")).toBe(true);
+    expect(isNonPrincipalTurnOpener(LOCAL_COMMAND_STDOUT_TEXT)).toBe(true);
+    expect(
+      isNonPrincipalTurnOpener("<local-command-caveat>DO NOT respond</local-command-caveat>")
+    ).toBe(true);
+    expect(isNonPrincipalTurnOpener("<bash-input>ls -la</bash-input>")).toBe(true);
+    expect(isNonPrincipalTurnOpener(BASH_STDOUT_TEXT)).toBe(true);
+    expect(isNonPrincipalTurnOpener("<bash-stderr>command not found</bash-stderr>")).toBe(true);
+  });
+
+  test("does NOT match `local-command-stderr` — the inventory says it does not exist (AT4)", () => {
+    // Pinned so a future symmetry-driven addition fails HERE, naming the
+    // reason, rather than shipping a prefix matching nothing in the corpus.
+    expect(isNonPrincipalTurnOpener(`${NONEXISTENT_STDERR_TAG}>boom</local-command-stderr>`)).toBe(
+      false
+    );
+  });
+
+  test("still does not match an ordinary operator prompt", () => {
+    expect(isNonPrincipalTurnOpener(QUESTION_ANSWER_PHRASE)).toBe(false);
+    expect(isNonPrincipalTurnOpener(DEPTH_REQUEST_PHRASE)).toBe(false);
+    expect(isNonPrincipalTurnOpener(MULTI_PART_QUESTION)).toBe(false);
+  });
+
+  // mem#1002 — widening a matcher on a multi-gate detector can silently
+  // re-route an existing fixture to a DIFFERENT gate. These pin the new
+  // fixtures as inert to BOTH suppression gates, so if a later widening makes
+  // one of them match, it fails here rather than quietly satisfying some other
+  // test's assertion through the wrong path.
+  test("the harness fixtures themselves trip neither suppression gate", () => {
+    for (const text of [COMMAND_NAME_TEXT, LOCAL_COMMAND_STDOUT_TEXT, BASH_STDOUT_TEXT]) {
+      expect(detectDepthRequest([text]).matched).toBe(false);
+      expect(detectSubstantiveQuestion(text).matched).toBe(false);
+    }
+  });
+});
+
+describe("mt#4109 — the depth gate skips harness openers", () => {
+  test("a RUN of harness turns no longer starves the depth window (AT1)", () => {
+    // The corpus shape: a `/model` invocation and its echo are two consecutive
+    // turns, so three unfiltered slots fill with markup and the principal's
+    // actual request falls out of the window.
+    //
+    // NEGATIVE CONTROL, measured 2026-08-25 against the pre-fix tree: this
+    // transcript returned `matched: false`. The spec's original AT1 used a
+    // SINGLE harness turn and returned `matched: true` before any fix — it was
+    // not a negative control at all, which is why it was replaced.
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MT4031_MEASURED_PROMPT_ONE),
+      assistantTextLine(1, "Short answer first."),
+      ...harnessRun(2, 3),
+      assistantTextLine(20, "a long report"),
+      userPromptLine(21, "ok"),
+    ];
+    const check = resolveDepthCheck(lines);
+    expect(check.matched).toBe(true);
+    expect(check.matchedPattern).toBe(MT4031_PATTERN_NAME);
+  });
+
+  test("reaches the principal prompt past each individual missing tag", () => {
+    for (const opener of [COMMAND_NAME_TEXT, LOCAL_COMMAND_STDOUT_TEXT, BASH_STDOUT_TEXT]) {
+      const lines: TranscriptLine[] = [
+        userPromptLine(0, DEPTH_REQUEST_PHRASE_BARE),
+        assistantTextLine(1, "ok"),
+        userPromptLine(2, opener),
+        assistantTextLine(3, "a long report"),
+        userPromptLine(4, "ok"),
+      ];
+      expect(resolveDepthCheck(lines).matched).toBe(true);
+    }
+  });
+
+  test("gives up past DEPTH_REQUEST_SCAN_LIMIT real slots rather than walking the session", () => {
+    // The scan budget is a pathology guard: a harness storm longer than the
+    // limit leaves the window empty, and an empty window suppresses nothing.
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, DEPTH_REQUEST_PHRASE_BARE),
+      assistantTextLine(1, "ok"),
+      ...harnessRun(2, DEPTH_REQUEST_SCAN_LIMIT + 2),
+      assistantTextLine(200, "a long report"),
+      userPromptLine(201, "ok"),
+    ];
+    expect(resolveDepthCheck(lines).matched).toBe(false);
+  });
+
+  test("does not over-suppress: a real prompt requesting no depth stays unsuppressed (AT3)", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, OPENING_PROMPT_TEXT),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, LOCAL_COMMAND_STDOUT_TEXT),
+      assistantTextLine(3, "a long report"),
+      userPromptLine(4, "ok"),
+    ];
+    expect(resolveDepthCheck(lines).matched).toBe(false);
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
+
+  test("recentUserPromptTexts returns principal prompts only, oldest-first", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, "prompt A"),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, COMMAND_NAME_TEXT),
+      assistantTextLine(3, "ok"),
+      userPromptLine(4, "prompt B"),
+      assistantTextLine(5, "ok"),
+      userPromptLine(6, LOCAL_COMMAND_STDOUT_TEXT),
+    ];
+    expect(recentUserPromptTexts(lines, 6, DEPTH_REQUEST_LOOKBACK_TURNS)).toEqual([
+      "prompt A",
+      "prompt B",
+    ]);
+  });
+});
+
+describe("mt#4109 — the question-answer gate reaches past the newly-covered tags (AT2)", () => {
+  test("anchors on the principal question behind each missing tag", () => {
+    for (const opener of [COMMAND_NAME_TEXT, LOCAL_COMMAND_STDOUT_TEXT, BASH_STDOUT_TEXT]) {
+      const lines: TranscriptLine[] = [
+        userPromptLine(0, MULTI_PART_QUESTION),
+        assistantTextLine(1, "ok"),
+        userPromptLine(2, opener),
+        assistantTextLine(3, "a long report"),
+        userPromptLine(4, "ok"),
+      ];
+      const idx = findRecentPrincipalPromptIndex(lines, 2);
+      expect(idx).toBe(0);
+      expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+    }
+  });
+
+  // PR #3329 R1 — the reviewer caught that the depth gate got a scan budget
+  // while this one kept the conflated bound. At 5, a run of 5+ harness turns
+  // left the anchor with nothing but markup in reach and it failed closed;
+  // measured, that was 395 of 2,926 turns.
+  test("a harness RUN longer than the old bound of 5 no longer starves the anchor", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(1, "ok"),
+      ...harnessRun(2, 6),
+      assistantTextLine(40, "a long report"),
+      userPromptLine(41, "ok"),
+    ];
+    // Six harness turns sit between the question and the report — one more
+    // than the old budget, so this resolved to `undefined` before R1.
+    expect(findRecentPrincipalPromptIndex(lines, 12)).toBe(0);
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("still fails CLOSED when the run exceeds even the raised budget", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(1, "ok"),
+      ...harnessRun(2, QUESTION_ANSWER_LOOKBACK_TURNS + 2),
+      assistantTextLine(100, "a long report"),
+      userPromptLine(101, "ok"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
   });
 });
 

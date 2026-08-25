@@ -65,6 +65,15 @@ export const ASK_CONVERSATION_MAP_FILENAME = "ask-conversation-map.json";
  *
  * An ask answered after the window still reaches the operator's inbox and the cockpit;
  * what expires is only the in-conversation notice.
+ *
+ * **Enforced on BOTH paths as of mt#4541.** Until then `pruneEntries` ran only from
+ * `recordAskConversation`, so this was a ceiling the store applied when it happened to be
+ * written and never otherwise — a machine that stopped filing asks kept entries past the
+ * window indefinitely. `readAskConversationMap` now prunes too, which is what lets a
+ * downstream consumer treat this number as a real bound rather than an aspiration:
+ * `WAKE_PENDING_DELIVERED_RETENTION_MS`
+ * (`packages/domain/src/ask/wake-pending-retention.ts`) is derived from it and was set to
+ * DOUBLE it purely to cover the gap between declared and enforced.
  */
 export const ENTRY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -152,22 +161,49 @@ export function pruneEntries(
     if (nowMs - recordedMs > maxAgeMs) continue;
     dated.push([askId, entry, recordedMs]);
   }
-  dated.sort((a, b) => b[2] - a[2]);
+  // Sort ONLY when the cap actually binds (PR #3321 R1). The age filter above is O(N);
+  // the sort is O(N log N) and exists solely to decide WHICH entries survive `maxEntries`.
+  // When the surviving set already fits, every order produces the same result, so the
+  // sort is pure waste — and since mt#4541 this runs on the READ path, i.e. on every
+  // UserPromptSubmit, where the dispatcher budget is real (ADR-028 D7(5)).
+  if (dated.length > maxEntries) dated.sort((a, b) => b[2] - a[2]);
   const kept: Record<string, AskConversationEntry> = {};
   for (const [askId, entry] of dated.slice(0, maxEntries)) kept[askId] = entry;
   return kept;
 }
 
 /**
- * Read the map. Returns an empty map when the file is absent or unreadable — both mean
- * "no attributions known", which is also the ordinary state on a fresh machine.
+ * Read the map, dropping entries the retention policy has expired. Returns an empty map
+ * when the file is absent or unreadable — both mean "no attributions known", which is
+ * also the ordinary state on a fresh machine.
+ *
+ * ## Why the prune is here and not only in `recordAskConversation` (mt#4541)
+ *
+ * {@link ENTRY_MAX_AGE_MS} was a NOMINAL ceiling until this change: `pruneEntries` ran
+ * only from the WRITE path, so the window bounded a machine that keeps filing asks and
+ * bounded nothing on one that stops. An entry on a quiet machine outlived its declared
+ * window indefinitely, and the read path returned it as though it were live.
+ *
+ * Pruning at the READ is what makes the declared window the enforced one, and this is
+ * the layer that closes the whole class rather than one accessor. The consumer
+ * (`inject-ask-responses.ts`) uses the returned map THREE ways — `askIdsForConversation`,
+ * a `shortId` lookup, and the watermark prune that deletes keys the map no longer knows
+ * about. Filtering inside `askIdsForConversation` alone would fix the first and leave the
+ * third reading unfiltered `entries`, so an expired ask's watermark key would never age
+ * out. One filter here, and all three inherit it.
+ *
+ * `nowMs` is injected rather than read from the clock at each call site so the retention
+ * behaviour stays deterministic under test — the same convention {@link pruneEntries} and
+ * {@link recordAskConversation} already use. Production passes nothing.
  */
 export function readAskConversationMap(
-  mapPath: string = getAskConversationMapPath()
+  mapPath: string = getAskConversationMapPath(),
+  nowMs: number = Date.now()
 ): AskConversationMap {
   try {
     if (!fs.existsSync(mapPath)) return { entries: {} };
-    return coerceMap(JSON.parse(String(fs.readFileSync(mapPath, "utf-8"))));
+    const parsed = coerceMap(JSON.parse(String(fs.readFileSync(mapPath, "utf-8"))));
+    return { entries: pruneEntries(parsed.entries, nowMs) };
   } catch {
     // intentional-swallow: an unreadable attribution map degrades to "no attributions",
     // which is this store's documented fail-open posture. A hook must never throw here.
@@ -188,10 +224,16 @@ export function recordAskConversation(
   mapPath: string = getAskConversationMapPath()
 ): boolean {
   try {
-    const current = readAskConversationMap(mapPath);
+    // One clock for both prunes (mt#4541): the read now prunes too, and passing the
+    // caller's instant keeps the whole read-modify-write on the injected clock rather
+    // than mixing it with `Date.now()` halfway through.
+    const nowMs = Date.parse(nowIso) || Date.now();
+    const current = readAskConversationMap(mapPath, nowMs);
     const merged = { ...current.entries, [askId]: entry };
+    // Still pruned here, and not redundantly: the read pruned what was ON DISK, this
+    // applies MAX_ENTRIES to the set with the new entry merged in.
     const record: AskConversationMap = {
-      entries: pruneEntries(merged, Date.parse(nowIso) || Date.now()),
+      entries: pruneEntries(merged, nowMs),
     };
     fs.mkdirSync(path.dirname(mapPath), { recursive: true });
     // Atomic temp+rename: a torn file would parse as a plausible map with some

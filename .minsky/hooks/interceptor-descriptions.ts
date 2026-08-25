@@ -948,7 +948,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "check-task-spec-read",
     {
       description:
-        "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case.",
+        "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case. On `asks_create` / `asks_edit` the same check ADVISES rather than blocks: an ask recommends a task to the principal, and a status field says where a task sits in the lifecycle while only its body says whether it is still worth doing.",
       failureClasses: ["unfounded-claim", "duplicate-work"],
       provenance: [hook("check-task-spec-read"), HOOK_FILES_RULE],
       stratum: "standalone",

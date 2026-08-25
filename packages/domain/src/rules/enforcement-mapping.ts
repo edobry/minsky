@@ -557,9 +557,9 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     mechanisms: [
       {
         type: "claude-code-hook",
-        name: "PreToolUse[tasks_status_set|session_start|tasks_dispatch]: check-task-spec-read.ts",
+        name: "PreToolUse[tasks_status_set|session_start|tasks_dispatch|asks_create|asks_edit]: check-task-spec-read.ts",
         description:
-          "Blocks a status-transition or session-binding operation on a task whose spec was not read this conversation. MINSKY_SKIP_SPEC_READ_CHECK is the documented override.",
+          "Blocks a status-transition or session-binding operation on a task whose spec was not read this conversation. On the ask surfaces (asks_create/asks_edit, mt#4551) the same check ADVISES instead of blocking: an ask recommends a task rather than acting on one, and denying one can strand an escalation. MINSKY_SKIP_SPEC_READ_CHECK is the documented override for both legs.",
         configPath: ".claude/hooks/check-task-spec-read.ts",
         portability: "harness-trapped",
       },

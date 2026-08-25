@@ -119,30 +119,144 @@ describe("readAskConversationMap", () => {
     writeFileSync(mapPath, "{ not json");
     expect(readAskConversationMap(mapPath)).toEqual({ entries: {} });
   });
+
+  // mt#4541 SC4 / AT3. Until this shipped, `ENTRY_MAX_AGE_MS` was enforced only when
+  // something happened to WRITE the map, so a machine that stopped filing asks served
+  // expired attributions forever. These assert the ceiling is real on the read path.
+  describe("retention on the read path (mt#4541)", () => {
+    const now = "2026-08-22T12:00:00.000Z";
+    const nowMs = Date.parse(now);
+    const overAge = new Date(nowMs - ENTRY_MAX_AGE_MS - 1000).toISOString();
+    const inWindow = new Date(nowMs - ENTRY_MAX_AGE_MS + 60_000).toISOString();
+
+    test("drops an entry past ENTRY_MAX_AGE_MS that no write ever pruned", () => {
+      writeFileSync(mapPath, JSON.stringify({ entries: { expired: entry("conv-1", overAge) } }));
+      expect(readAskConversationMap(mapPath, nowMs).entries["expired"]).toBeUndefined();
+    });
+
+    test("keeps an entry still inside the window, so the filter is not just returning empty", () => {
+      writeFileSync(mapPath, JSON.stringify({ entries: { fresh: entry("conv-1", inWindow) } }));
+      expect(readAskConversationMap(mapPath, nowMs).entries["fresh"]?.conversationId).toBe(
+        "conv-1"
+      );
+    });
+
+    test("the expired ask is absent from askIdsForConversation — the consumer-facing effect", () => {
+      writeFileSync(
+        mapPath,
+        JSON.stringify({
+          entries: { expired: entry("conv-1", overAge), fresh: entry("conv-1", inWindow) },
+        })
+      );
+      const map = readAskConversationMap(mapPath, nowMs);
+      expect(askIdsForConversation(map, "conv-1")).toEqual(["fresh"]);
+      // ...and from the producer's full set, which drives the cockpit's lookup batch.
+      expect(allAttributedAskIds(map)).toEqual(["fresh"]);
+    });
+
+    test("drops an entry whose recordedAt does not parse, which no write would have aged out", () => {
+      writeFileSync(mapPath, JSON.stringify({ entries: { bad: entry("conv-1", "not-a-date") } }));
+      expect(readAskConversationMap(mapPath, nowMs).entries["bad"]).toBeUndefined();
+    });
+
+    test("applies MAX_ENTRIES on read as well, newest-first", () => {
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < MAX_ENTRIES + 5; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      const kept = readAskConversationMap(mapPath, nowMs).entries;
+      expect(Object.keys(kept)).toHaveLength(MAX_ENTRIES);
+      expect(kept["ask-0"]).toBeDefined();
+      expect(kept[`ask-${MAX_ENTRIES + 4}`]).toBeUndefined();
+    });
+
+    // PR #3321 R1 raised per-read cost on a large on-disk map. Three tests answer it:
+    // the read is bounded, the sort is skipped when it cannot matter, and — the one that
+    // scopes the concern — the WRITE path is what bounds N in the first place.
+
+    test("a pathologically large on-disk map is still bounded to MAX_ENTRIES on read", () => {
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < 5000; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      const kept = readAskConversationMap(mapPath, nowMs).entries;
+      expect(Object.keys(kept)).toHaveLength(MAX_ENTRIES);
+      expect(kept["ask-0"]).toBeDefined();
+      expect(kept["ask-4999"]).toBeUndefined();
+    });
+
+    test("under the cap every surviving entry is returned — the skipped sort changes nothing", () => {
+      // `pruneEntries` now sorts only when `maxEntries` binds. This pins the property
+      // that makes skipping safe: the result is a SET, and order was only ever used to
+      // decide WHICH entries survive the cap.
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < 25; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      const kept = readAskConversationMap(mapPath, nowMs).entries;
+      expect(Object.keys(kept).sort()).toEqual(Object.keys(entries).sort());
+    });
+
+    test("the WRITE path is what bounds N: the file never exceeds MAX_ENTRIES", () => {
+      // R1 reasoned that on a quiet machine "N can grow arbitrarily large". It cannot —
+      // growth requires a write, and every write prunes to MAX_ENTRIES before the atomic
+      // rename. A machine that stops filing asks freezes the file at whatever the last
+      // write left, which is <= MAX_ENTRIES by construction. So an oversized file is only
+      // reachable by something other than this module writing it, which is why the read
+      // is defensive (test above) rather than the write being the sole guard.
+      const entries: Record<string, AskConversationEntry> = {};
+      for (let i = 0; i < MAX_ENTRIES + 500; i++) {
+        entries[`ask-${i}`] = entry("conv-1", new Date(nowMs - i * 1000).toISOString());
+      }
+      writeFileSync(mapPath, JSON.stringify({ entries }));
+      recordAskConversation("ask-new", entry("conv-1", now), now, mapPath);
+      const onDisk = JSON.parse(readFileSync(mapPath, "utf-8")) as {
+        entries: Record<string, unknown>;
+      };
+      expect(Object.keys(onDisk.entries).length).toBeLessThanOrEqual(MAX_ENTRIES);
+    });
+  });
 });
 
 describe("recordAskConversation", () => {
   const now = "2026-08-22T12:00:00.000Z";
+  // mt#4541: the read path prunes too, so every readback in this block passes the same
+  // instant the write used. Without it these assertions would be measured against the
+  // WALL CLOCK and would start failing on their own once `now` drifts past
+  // ENTRY_MAX_AGE_MS — a time bomb, not a test.
+  const nowMs = Date.parse(now);
 
   test("writes an entry that reads back", () => {
     expect(recordAskConversation("ask-a", entry("conv-1", now), now, mapPath)).toBe(true);
     expect(existsSync(mapPath)).toBe(true);
-    expect(readAskConversationMap(mapPath).entries["ask-a"]?.conversationId).toBe("conv-1");
+    expect(readAskConversationMap(mapPath, nowMs).entries["ask-a"]?.conversationId).toBe("conv-1");
   });
 
   test("merges rather than replacing, so a second ask does not evict the first", () => {
     recordAskConversation("ask-a", entry("conv-1", now), now, mapPath);
     recordAskConversation("ask-b", entry("conv-2", now), now, mapPath);
-    expect(allAttributedAskIds(readAskConversationMap(mapPath)).sort()).toEqual(["ask-a", "ask-b"]);
+    expect(allAttributedAskIds(readAskConversationMap(mapPath, nowMs)).sort()).toEqual([
+      "ask-a",
+      "ask-b",
+    ]);
   });
 
   test("prunes on write, so the file cannot accumulate expired entries", () => {
-    const stale = new Date(Date.parse(now) - ENTRY_MAX_AGE_MS - 1000).toISOString();
+    const stale = new Date(nowMs - ENTRY_MAX_AGE_MS - 1000).toISOString();
     writeFileSync(mapPath, JSON.stringify({ entries: { old: entry("conv-old", stale) } }));
     recordAskConversation("ask-new", entry("conv-1", now), now, mapPath);
-    const map = readAskConversationMap(mapPath);
-    expect(map.entries["old"]).toBeUndefined();
-    expect(map.entries["ask-new"]).toBeDefined();
+    // Asserted against the FILE, not through `readAskConversationMap` (mt#4541). The
+    // reader now prunes as well, so reading the expired entry back through it would
+    // return undefined whether or not the WRITE pruned — the assertion would pass with
+    // the write-path prune deleted, which is the one thing this test exists to catch.
+    const onDisk = JSON.parse(readFileSync(mapPath, "utf-8")) as {
+      entries: Record<string, unknown>;
+    };
+    expect(onDisk.entries["old"]).toBeUndefined();
+    expect(onDisk.entries["ask-new"]).toBeDefined();
   });
 
   test("leaves no temp file behind", () => {
