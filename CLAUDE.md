@@ -811,7 +811,7 @@ The two checklists that enforce this — content (does it carry what a decision 
 - `git-safety` — destructive git operations (reset --hard, push --force, etc.) require the `git-safety` skill; ESLint `custom/no-unsafe-git-exec` backs it structurally
 - `json-parsing` — use `jq`, never `grep`/`awk`/`sed`, when parsing or filtering JSON command output
 - `ai-linter-autofix-guideline` — don't spend cycles hand-perfecting formatting the linter autofixes
-- `no-dynamic-imports` — prefer static imports; `eslint.config.js`'s `allowDynamicImports:false` enforces this mechanically
+- `no-dynamic-imports` — prefer static imports. **Discipline-tier: nothing lints this** (mt#4523). There is no `no-dynamic-imports` ESLint rule; `allowDynamicImports` is an option on `custom/no-real-fs-in-tests`, scoped to test files. A general rule is not viable at ~1,425 `await import(` sites across ~375 production files, because a dynamic import is often the correct construct — the tractable shape is a decidable SUBSET, as mt#2456 does for imports escaping a package boundary
 
 # Key Workflows (via skills)
 
