@@ -42,7 +42,7 @@
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   findRealPromptIndices,
   resolveCompletedTurn,
@@ -62,12 +62,22 @@ import {
 const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
 
 /**
- * Where Claude Code writes this project's transcripts. Derived rather than
- * hardcoded so the script runs for any checkout (convergence-checklist item 2:
- * no user-specific absolute baked into a default).
+ * Where Claude Code writes a project's transcripts: `~/.claude/projects/<slug>`,
+ * where the slug is the project's absolute path with `/` replaced by `-`.
+ *
+ * Derived from the REPO ROOT rather than from `process.cwd()`, and that
+ * distinction is the whole point: this script is normally run from a SESSION
+ * workspace (`~/.local/state/minsky/sessions/<id>`), which has a project dir of
+ * its own containing none of the transcripts being replayed. The repo root is
+ * taken from the calibration log's location, so the log and the transcripts are
+ * guaranteed to describe the same project.
+ *
+ * `--transcript-dir` overrides it. The slug rule is a best-effort mirror of the
+ * harness's own; if it ever diverges, the override is the escape hatch and the
+ * failure is loud (the directory will not exist) rather than a silent zero.
  */
-function transcriptDir(): string {
-  return join(homedir(), ".claude", "projects", "-Users-edobry-Projects-minsky");
+function transcriptDirFor(repoRoot: string): string {
+  return join(homedir(), ".claude", "projects", repoRoot.replace(/\//g, "-"));
 }
 
 interface TurnMetrics {
@@ -219,9 +229,15 @@ function main(): void {
   const logPath =
     logArg >= 0 ? resolve(args[logArg + 1] ?? "") : resolve(process.cwd(), CALIBRATION_LOG);
 
-  const dir = transcriptDir();
+  // <root>/.minsky/wall-of-text-calibration.jsonl -> <root>
+  const repoRoot = dirname(dirname(logPath));
+  const dirArg = args.indexOf("--transcript-dir");
+  const dir = dirArg >= 0 ? resolve(args[dirArg + 1] ?? "") : transcriptDirFor(repoRoot);
   if (!existsSync(dir)) {
-    process.stderr.write(`FAIL: transcript dir not found: ${dir}\n`);
+    process.stderr.write(
+      `FAIL: transcript dir not found: ${dir}\n` +
+        `      Derived from repo root ${repoRoot}. Pass --transcript-dir to override.\n`
+    );
     process.exit(2);
   }
 
