@@ -4256,6 +4256,37 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "warn-peer-task-activity"
+    },
+    {
+      "guardName": "warn-stale-forward-reference",
+      "description": "On a `tasks_status_set` transition to DONE, scans the ADR corpus and `.minsky/rules` for paragraphs that describe THIS task's deliverable as still-pending — a forward-looking marker plus either the task id or two distinct tokens from the task's title — and injects them as reconciliation candidates with file, line and excerpt. The title-token path exists because the originating instance (ADR-006's \"upgrade path if that bites\", left stale by mt#3900) names no task id at all, so an id-only index would have missed exactly the class that matters. Advisory and log-only: the heuristic half's false-positive rate is unmeasured.",
+      "failureClasses": ["stale-context"],
+      "provenance": [
+        ".minsky/hooks/warn-stale-forward-reference.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-stale-forward-reference"
     }
   ]
 }

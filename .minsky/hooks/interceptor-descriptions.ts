@@ -985,6 +985,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "warn-stale-forward-reference",
+    {
+      description:
+        "On a `tasks_status_set` transition to DONE, scans the ADR corpus and `.minsky/rules` for paragraphs that describe THIS task's deliverable as still-pending — a forward-looking marker plus either the task id or two distinct tokens from the task's title — and injects them as reconciliation candidates with file, line and excerpt. The title-token path exists because the originating instance (ADR-006's \"upgrade path if that bites\", left stale by mt#3900) names no task id at all, so an id-only index would have missed exactly the class that matters. Advisory and log-only: the heuristic half's false-positive rate is unmeasured.",
+      failureClasses: ["stale-context"],
+      provenance: [hook("warn-stale-forward-reference"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
     "validate-task-spec",
     {
       description:

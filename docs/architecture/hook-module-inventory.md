@@ -60,12 +60,12 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 10      |
-| movable        | 83      |
+| movable        | 84      |
 | immovable      | 79      |
-| **total**      | **172** |
+| **total**      | **173** |
 
-Of the 84 movable, **14** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
+Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -145,7 +145,7 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (83)
+## movable (84)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
@@ -227,7 +227,7 @@ bootstrap requirement.
 | `verify-subagent-model.ts`                     | standalone-hook  | decideModelCheck                                                  | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `wall-of-text-detector.ts`                     | dispatcher-guard | measureWallOfText, findOpeningPromptIndex                         | side-effecting (recorder)                     | plant | preference |
 
-### ADR-026 tier 1 — reaches persistence (15)
+### ADR-026 tier 1 — reaches persistence (16)
 
 These call `ensureHookDomainBootstrap`. Per mt#4368's direction decision, a guard here must go through
 that bootstrap and its acceptance evidence must show the guard **decided**, not merely ran.
@@ -249,6 +249,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `stamp-session-creator-link.ts`            | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `turn-end-stale-state-assertion-scan.ts`   | dispatcher-guard | findPendingClaims, classifyResolved                               | side-effecting (recorder)                     | plant | advisory   |
 | `warn-peer-task-activity.ts`               | standalone-hook  | decidePeerActivity, callerSessionIdFromCwd                        | side-effecting (injector+recorder)            | plant | advisory   |
+| `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 
 ## immovable (79)
 
