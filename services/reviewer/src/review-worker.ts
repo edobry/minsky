@@ -58,9 +58,11 @@ import type { ReviewerDb } from "./db/client";
 import type { ConvergenceMetricInput } from "./metrics";
 import {
   type ReviewTimingInput,
+  buildSkipPathTiming,
   recordReviewTiming,
   recordUnrecoveredReviewTiming,
 } from "./review-timing";
+import { fingerprintForReview, parseRecoveryFlag } from "./config-fingerprint";
 import { emitReviewPostedEvent, type ReviewPostedEvent } from "./review-events";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
@@ -385,22 +387,18 @@ export async function runReview(
   if (!routing.shouldReview) {
     // mt#2088: timing on routing-skip path.
     if (deps.db !== undefined) {
-      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
-        prOwner: owner,
-        prRepo: repo,
-        prNumber,
-        headSha: pr.headSha,
-        iterationIndex: 0,
-        totalWallClockMs: Date.now() - runReviewStart,
-        perRoundLatenciesMs: [],
-        timeoutCount: 0,
-        retryCount: 0,
-        retryOutcomes: [],
-        scopeClassification: prScope ?? null,
-        toolUseActive: false,
-        provider: config.provider,
-        model: config.providerModel,
-      });
+      await (deps.timingRecorder ?? recordReviewTiming)(
+        deps.db,
+        buildSkipPathTiming({
+          prOwner: owner,
+          prRepo: repo,
+          prNumber,
+          headSha: pr.headSha,
+          totalWallClockMs: Date.now() - runReviewStart,
+          scopeClassification: prScope ?? null,
+          config,
+        })
+      );
     }
     return { status: "skipped", reason: routing.reason, tier };
   }
@@ -449,22 +447,18 @@ export async function runReview(
           delivery_id: deliveryId,
         });
         // mt#2088: timing on concurrent-inflight skip path.
-        await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
-          prOwner: owner,
-          prRepo: repo,
-          prNumber,
-          headSha: pr.headSha,
-          iterationIndex: 0,
-          totalWallClockMs: Date.now() - runReviewStart,
-          perRoundLatenciesMs: [],
-          timeoutCount: 0,
-          retryCount: 0,
-          retryOutcomes: [],
-          scopeClassification: prScope ?? null,
-          toolUseActive: false,
-          provider: config.provider,
-          model: config.providerModel,
-        });
+        await (deps.timingRecorder ?? recordReviewTiming)(
+          deps.db,
+          buildSkipPathTiming({
+            prOwner: owner,
+            prRepo: repo,
+            prNumber,
+            headSha: pr.headSha,
+            totalWallClockMs: Date.now() - runReviewStart,
+            scopeClassification: prScope ?? null,
+            config,
+          })
+        );
         return {
           status: "skipped",
           reason: "concurrent_inflight",
@@ -660,8 +654,8 @@ async function runReviewBody(
   // We read the env var here (outside the outputToolsActive block) so the prompt
   // diff routing and the post-hoc downgrade both use the same flag and the same
   // extracted diff. On R1 (no prior reviews), promptDiff falls back to pr.diff.
-  const diffScopeBoundedEnabledForPrompt = /^(true|1|yes|on)$/i.test(
-    (process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED ?? "").trim()
+  const diffScopeBoundedEnabledForPrompt = parseRecoveryFlag(
+    process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED
   );
   const priorReviewsPresentForPrompt = priorReviewsMarkdown.trim().length > 0;
 
@@ -686,9 +680,7 @@ async function runReviewBody(
   // given, so the cost lever can ship without the quality-affecting one.
   const incrementalDiffFetcher = deps.incrementalDiffFetcher ?? fetchIncrementalDiffSince;
   const diffScope = await resolveDiffScope({
-    enabled: /^(true|1|yes|on)$/i.test(
-      (process.env.REVIEWER_INCREMENTAL_DIFF_ENABLED ?? "").trim()
-    ),
+    enabled: parseRecoveryFlag(process.env.REVIEWER_INCREMENTAL_DIFF_ENABLED),
     priorReviewCommitId: latestPriorReviewCommitId,
     headSha: pr.headSha,
     fullDiff: pr.diff,
@@ -896,6 +888,13 @@ async function runReviewBody(
       toolUseActive: outputToolsActive,
       provider: config.provider,
       model: config.providerModel,
+      // mt#4556: a call WAS attempted here — it threw. The effort is resolved
+      // exactly as the successful path would have resolved it, because it is
+      // the effort that was actually sent.
+      configFingerprint: fingerprintForReview(config, {
+        toolUseActive: outputToolsActive,
+        modelCalled: true,
+      }),
     });
     throw err;
   }
@@ -920,6 +919,12 @@ async function runReviewBody(
     priorReviewIngestion,
     totalWallClockMs,
     outputToolsActive,
+    // mt#4556: modelCalled is true on every path that reaches here — this
+    // context is built after the model call returns.
+    configFingerprint: fingerprintForReview(config, {
+      toolUseActive: outputToolsActive,
+      modelCalled: true,
+    }),
     reviewerLogin: reviewerIdentity.login,
     emitReviewPosted,
   };
@@ -987,16 +992,16 @@ async function runReviewBody(
     // unchanged until a deliberate enablement. Accepts common truthy
     // values: "true", "1", "yes", "on" (case-insensitive) — PR #922 R20#5
     // expanding R18#3.
-    const monotonicityRecoveryEnabled = /^(true|1|yes|on)$/i.test(
-      (process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? "").trim()
+    const monotonicityRecoveryEnabled = parseRecoveryFlag(
+      process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED
     );
 
     // mt#1867 composition-side convergence detection (Fix 2 from mt#1640 paper):
     // when enabled, downgrade ALL BLOCKINGs when R(N+1) shows neither strictly-
     // decreasing BLOCKING count nor new evidence per finding. Default-off until
     // empirical verification (same pattern as monotonicityRecovery above).
-    const compositionConvergenceEnabled = /^(true|1|yes|on)$/i.test(
-      (process.env.REVIEWER_COMPOSITION_CONVERGENCE_ENABLED ?? "").trim()
+    const compositionConvergenceEnabled = parseRecoveryFlag(
+      process.env.REVIEWER_COMPOSITION_CONVERGENCE_ENABLED
     );
 
     // mt#1875 diff-scope-bounded downgrade (Fix 3 from mt#1640 paper):
@@ -1015,8 +1020,8 @@ async function runReviewBody(
     // author's refutation (a commit pushed since the last review) and this
     // round's finding text does not engage it. Default-off, same convention
     // as the sibling recovery passes above.
-    const refutationRecoveryEnabled = /^(true|1|yes|on)$/i.test(
-      (process.env.REVIEWER_REFUTATION_RECOVERY_ENABLED ?? "").trim()
+    const refutationRecoveryEnabled = parseRecoveryFlag(
+      process.env.REVIEWER_REFUTATION_RECOVERY_ENABLED
     );
 
     // mt#3245 structural-claim verification: before a BLOCKING finding asserting a
@@ -1024,8 +1029,8 @@ async function runReviewBody(
     // declaration FORMS (not identifier occurrences) for the named identifier against the
     // file's actual current content and drop/demote the claim if it does not reproduce.
     // Default-off, same convention as the sibling recovery passes above.
-    const structuralClaimVerificationEnabled = /^(true|1|yes|on)$/i.test(
-      (process.env.REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED ?? "").trim()
+    const structuralClaimVerificationEnabled = parseRecoveryFlag(
+      process.env.REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED
     );
 
     // Compute iteration index (1-based) for the convergence threshold gate.

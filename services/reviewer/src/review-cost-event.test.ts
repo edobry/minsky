@@ -28,6 +28,7 @@ function timingInput(overrides: Partial<ReviewTimingInput> = {}): ReviewTimingIn
     toolUseActive: true,
     provider: "openai",
     model: "gpt-5",
+    configFingerprint: "v1;effort=low;model=gpt-5;provider=openai;tier2=off",
     inputTokens: 30_000,
     outputTokens: 3_000,
     reasoningTokens: 500,
@@ -59,7 +60,22 @@ describe("buildReviewCostEvent", () => {
       cost_usd: 0.045,
       iteration_index: 2,
       scope_classification: "code",
+      config_fingerprint: "v1;effort=low;model=gpt-5;provider=openai;tier2=off",
     });
+  });
+
+  it("AT6: carries the SAME config fingerprint the Postgres row gets (mt#4556)", () => {
+    // Both surfaces are built from one `ReviewTimingInput`, so they cannot
+    // disagree by construction — this asserts the field is actually forwarded
+    // rather than dropped, which is the only way they could diverge. The
+    // trace-shape record (Notion 35e937f0) asks for a variant tag on every
+    // span; Postgres is where mt#4546 and mt#4557 can reach it.
+    const fingerprint = "v1;effort=medium;model=gpt-5.6-luna;provider=openai;tier2=on";
+    const input = timingInput({ configFingerprint: fingerprint });
+    const event = buildReviewCostEvent(input);
+
+    expect(event?.metadata?.["config_fingerprint"]).toBe(fingerprint);
+    expect(event?.metadata?.["config_fingerprint"]).toBe(input.configFingerprint);
   });
 
   it("returns null for a pre-model skip-path input (no input tokens)", () => {
