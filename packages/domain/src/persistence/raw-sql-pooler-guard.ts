@@ -111,9 +111,17 @@ const DEFAULT_IN_FLIGHT_LIMIT = 10;
  * - FLOOR — observed cadence. It must not refuse ordinary bursts. The shared
  *   daemon was measured at 21 requests in flight against its own pool during
  *   single-conversation lifecycle work (mt#4360, 2026-08-24), at a measured
- *   query latency around 150ms. Twenty-one over a max-8 pool is three batches,
- *   ~450ms; a pathological 30-in-flight burst of 500ms queries is ~2s. 30s is
- *   roughly 65x the measured case and 15x the pathological one.
+ *   query latency around 150ms. Twenty-one over the max-25 pool is a single
+ *   batch, ~150ms; a pathological 30-in-flight burst of 500ms queries is two
+ *   batches, ~1s. 30s is roughly 200x the measured case and 30x the
+ *   pathological one.
+ *
+ *   Those multiples GREW when mt#4360 re-derived the pool default from 8 to 25
+ *   (the budget input moved 200 -> 600 on a fresh `max_connections` reading).
+ *   At max-8 the same figures were three batches / ~450ms and ~2s, i.e. 65x and
+ *   15x. The conclusion is unchanged and the headroom only widened — recorded
+ *   because the arithmetic here is pinned to the pool size, so a future change
+ *   to the derived default lands in this comment too.
  * - CEILING — a budget declared elsewhere, which is the CEILING case that rule
  *   names: the MCP call cap is 120s, so the admission wait must leave room for
  *   the query itself plus transport. 30s leaves 90s.
