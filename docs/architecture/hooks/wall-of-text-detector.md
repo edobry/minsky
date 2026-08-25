@@ -79,13 +79,33 @@ checked the turn's single opening prompt directly, which is frequently a harness
 than the principal's own text — under-covering the extremely common background-heavy-session
 shape where the principal asks a question, one or more injected turns land before the agent's
 answer, and the answering turn's OPENING prompt is the injected content, not the question.
-`isNonPrincipalTurnOpener` names the harness-injected prefixes (`<task-notification`,
-`<system-reminder`, `[SYSTEM NOTIFICATION`); `findRecentPrincipalPromptIndex` walks backward
-through the real-prompt list, skipping those, to the most recent PRINCIPAL prompt, bounded by
-`QUESTION_ANSWER_LOOKBACK_TURNS` (5) — sized larger than `DEPTH_REQUEST_LOOKBACK_TURNS` (3)
-because this gate's window has to spend slots on injected non-principal turns that the
-depth-request gate never has to. Fails CLOSED (unsuppressed) when no principal prompt is found
-within the bound.
+`isNonPrincipalTurnOpener` names the harness-injected prefixes;
+`findRecentPrincipalPromptIndex` walks backward through the real-prompt list, skipping those, to
+the most recent PRINCIPAL prompt, bounded by `QUESTION_ANSWER_LOOKBACK_TURNS` (5). Fails CLOSED
+(unsuppressed) when no principal prompt is found within the bound.
+
+**mt#4109 — the prefix list reconciled, and the depth gate given the same treatment.** Two
+changes, and the second is the larger one.
+
+First, `NON_PRINCIPAL_OPENER_PREFIXES` held only three entries (`<task-notification`,
+`<system-reminder`, `[SYSTEM NOTIFICATION`) against the eleven tags in
+`packages/shared/src/harness-markup.ts`, which its own comment names as the inventory it mirrors.
+It now carries all of them plus that non-tag preamble. Measured over 2,914 turns: 343 were opened
+by one of the nine missing tags.
+
+Second — and this is what the old wording of this paragraph hid — **the depth-request gate never
+consulted that list at all.** `recentUserPromptTexts` took the last three REAL prompts and
+filtered nothing, so widening the prefix list would have changed the depth gate by exactly zero.
+This paragraph used to explain the 5-vs-3 sizing by asserting that the depth gate's window
+"never has to" spend slots on injected turns; that was **false**, and backwards — the gate
+described as burdened is the one that skips them. Measured: **714 depth windows (24.5%) consisted
+entirely of harness markup**, 1,533 more partly, because harness turns arrive in runs.
+
+The depth gate now skips the same openers, with its own scan budget
+(`DEPTH_REQUEST_SCAN_LIMIT`, 15) separate from its semantic window
+(`DEPTH_REQUEST_LOOKBACK_TURNS`, 3) — the distinction the old sentence collapsed. The two
+constants are genuinely parallel now: each gate scans real slots to reach principal prompts, and
+each bounds that scan.
 
 Diversity axis for the calibration-review cadence machinery: distinct `session_id` values
 (like silent-stretch — there is no matched-phrase concept).

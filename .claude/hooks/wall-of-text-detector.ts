@@ -667,6 +667,43 @@ export function measureWallOfText(input: string | TurnProse): WallOfTextMeasurem
 export const DEPTH_REQUEST_LOOKBACK_TURNS = 3;
 
 /**
+ * How many real user-prompt slots {@link recentUserPromptTexts} may scan
+ * BACKWARD to collect its {@link DEPTH_REQUEST_LOOKBACK_TURNS} principal
+ * prompts (mt#4109).
+ *
+ * **These two numbers answer different questions, and conflating them is the
+ * defect this constant exists to fix.** `DEPTH_REQUEST_LOOKBACK_TURNS` is the
+ * SEMANTIC window — how much of the principal's recent conversation may excuse
+ * a long report. This is the SCAN budget — how much harness noise the walk may
+ * step over on its way to those prompts. Until mt#4109 there was only the
+ * first, and it was spent on both: `recentUserPromptTexts` took the last three
+ * REAL prompts and filtered nothing, so a run of harness turns consumed the
+ * entire semantic window.
+ *
+ * That was not a known tradeoff. This file's own
+ * {@link QUESTION_ANSWER_LOOKBACK_TURNS} comment asserted the opposite — that
+ * the depth gate's slots are "already principal-authored" — and
+ * `docs/architecture/hooks/wall-of-text-detector.md` repeated it. Measured
+ * across 2,914 turns: **714 depth windows (24.5%) contained no principal text
+ * at all**, and 1,533 more were partly harness markup. Harness turns arrive in
+ * RUNS (a `/model` invocation and its `Set model to …` echo are two consecutive
+ * turns), so three slots fill easily.
+ *
+ * **Sized at 15 by measurement, not by symmetry with the constant above.**
+ * Newly-suppressed turns by scan cap, over the same 2,914: cap 3 → 0 (a filter
+ * with no scan budget only loses), 5 → 46, 8 → 76, 10 → 81, **15 → 87**,
+ * 25 → 87. Fifteen is where the curve reaches the UNBOUNDED result, so the
+ * bound costs nothing on the measured corpus and exists purely as a guard
+ * against a pathological harness storm. Three turns lose a match at every cap,
+ * including 15 — those are turns whose depth match came from harness text, so
+ * losing them is the correction, not a regression.
+ *
+ * Raising this does NOT widen how far into real conversation the gate reaches:
+ * that stays fixed at three principal prompts. Only the noise tolerance moves.
+ */
+export const DEPTH_REQUEST_SCAN_LIMIT = 15;
+
+/**
  * Phrasings the principal uses to explicitly ask for MORE depth/detail than
  * the Tier-1 default — calibrated from the altitude-register override
  * vocabulary in communication-contract.mdc's rationale doc
@@ -790,22 +827,52 @@ export function findOpeningPromptIndex(lines: TranscriptLine[]): number | undefi
 }
 
 /**
- * Text of the last `lookback` REAL user prompts at or before `throughIndex`
- * (inclusive) — the lookback window for the depth-request override. Callers
- * pass {@link findOpeningPromptIndex}'s result as `throughIndex` so the
- * window never reaches into the CURRENT prompt (which arrives after the
- * report being measured and so cannot have caused it).
+ * Text of the last `lookback` PRINCIPAL user prompts at or before
+ * `throughIndex` (inclusive) — the lookback window for the depth-request
+ * override. Callers pass {@link findOpeningPromptIndex}'s result as
+ * `throughIndex` so the window never reaches into the CURRENT prompt (which
+ * arrives after the report being measured and so cannot have caused it).
+ *
+ * **PRINCIPAL, not merely REAL, since mt#4109.** `isRealUserPrompt` admits any
+ * user-role line carrying text, which includes harness-generated turns the
+ * principal never typed — a slash-command echo, a local command's captured
+ * stdout, a background-task notification. This walk skips every
+ * {@link isNonPrincipalTurnOpener} hit, bounded by
+ * {@link DEPTH_REQUEST_SCAN_LIMIT} real slots, and returns oldest-first so
+ * {@link detectDepthRequest} scans them in conversational order.
+ *
+ * Before mt#4109 it took the last `lookback` real prompts unfiltered, which
+ * made the depth gate the ONLY consumer of this transcript that read harness
+ * output as the principal's words: {@link resolveQuestionAnswerCheck} has
+ * skipped them via {@link findRecentPrincipalPromptIndex} since mt#3972. That
+ * asymmetry is what mt#4109 measured — 24.5% of windows were entirely harness
+ * markup — and it went unexamined because the sibling constant's own comment
+ * asserted this window could not contain them.
+ *
+ * Fails OPEN in the sense that matters here: when the scan finds no principal
+ * prompt within its bound, it returns an empty array and
+ * {@link detectDepthRequest} reports no match, so the fire is UNSUPPRESSED —
+ * matching {@link resolveDepthCheck}'s documented fail-closed posture rather
+ * than excusing a report on the strength of text nobody wrote.
  */
 export function recentUserPromptTexts(
   lines: TranscriptLine[],
   throughIndex: number,
-  lookback: number = DEPTH_REQUEST_LOOKBACK_TURNS
+  lookback: number = DEPTH_REQUEST_LOOKBACK_TURNS,
+  scanLimit: number = DEPTH_REQUEST_SCAN_LIMIT
 ): string[] {
   const promptIndices = findRealPromptIndices(lines).filter((i) => i <= throughIndex);
-  const recent = promptIndices.slice(-lookback);
-  return recent
-    .map((i) => extractUserPromptText(lines[i] as TranscriptLine))
-    .filter((t) => t.length > 0);
+  const collected: string[] = [];
+  let scanned = 0;
+  for (let i = promptIndices.length - 1; i >= 0; i--) {
+    if (scanned >= scanLimit || collected.length >= lookback) break;
+    scanned++;
+    const text = extractUserPromptText(lines[promptIndices[i] as number] as TranscriptLine);
+    if (text.length === 0) continue;
+    if (isNonPrincipalTurnOpener(text)) continue;
+    collected.push(text);
+  }
+  return collected.reverse();
 }
 
 export interface DepthRequestResult {
@@ -935,13 +1002,59 @@ export function detectSubstantiveQuestion(text: string): QuestionAnswerResult {
  *     wire format prepends ahead of a `<task-notification>` block (observed
  *     directly in this file's own implementation session).
  *
+ * **Reconciled against the full inventory (mt#4109).** The three tags above
+ * were the whole list until 2026-08-25, and the nine added alongside them are
+ * every remaining member of `HARNESS_MARKUP_TAGS` — the command-wrapper group,
+ * the local-command group, and the bash-mode group. The omission was drift,
+ * not judgment: measured across 2,914 turns, 343 were opened by one of the
+ * MISSING tags, and the three most common (`<local-command-stdout`,
+ * `<command-name`, `<bash-stdout`) account for all 16 harness-anchored records
+ * in the calibration log. Sync this list when `harness-markup.ts` gains a tag;
+ * `wall-of-text-detector.test.ts` pins the current set so a silent drop fails.
+ *
+ * Two DELIBERATE divergences from the inventory, both load-bearing:
+ *
+ *   - `[SYSTEM NOTIFICATION` is here and NOT in the inventory — it is a
+ *     plain-text preamble, not a tag, so it has no place in a tag list.
+ *   - `local-command-stderr` is in NEITHER, and must stay out.
+ *     `harness-markup.ts` says so in its own words: "A `local-command-stderr`
+ *     tag does NOT exist in the corpus; do not add one on symmetry grounds
+ *     without observing it first." An earlier revision of mt#4109's SC1 asked
+ *     for exactly that; the ask was withdrawn on reading the inventory.
+ *
+ * **`<bash-input` is here for a different reason than its neighbours, and the
+ * difference matters if you ever re-check this list.** Every other entry is
+ * content the principal did not author. `<bash-input` carries the operator's
+ * OWN typed command (`harness-markup.ts`: "`bash-input` is role `user` and
+ * carries the operator's typed command") — so it is principal-authored, and it
+ * is skipped anyway because it is not a PROMPT. Running a shell command does
+ * not supersede the question the principal asked two turns earlier, and it
+ * never requests depth or asks anything. The inventory answers "is this
+ * operator prose, for display?"; this list answers "did the principal solicit
+ * this length?" — `<bash-input` is the one tag where those diverge.
+ *
  * Checked as a PREFIX of the trimmed text, matching how these tags open a
  * block when they constitute the whole turn — the only shape
  * `isRealUserPrompt` lets through as "real" in the first place.
  */
 const NON_PRINCIPAL_OPENER_PREFIXES: readonly string[] = [
-  "<task-notification",
+  // COMMAND_WRAPPER_TAGS — a slash-command or skill invocation echo.
+  "<command-name",
+  "<command-message",
+  "<command-args",
+  "<skill-format",
+  // LOCAL_COMMAND_TAGS — a local command's captured output, plus the
+  // model-directed caveat the harness attaches to it.
+  "<local-command-stdout",
+  "<local-command-caveat",
+  // BASH_MODE_TAGS — what the harness records for a `!`-prefixed command.
+  "<bash-input",
+  "<bash-stdout",
+  "<bash-stderr",
+  // SYSTEM_REMINDER_TAGS / TASK_NOTIFICATION_TAGS.
   "<system-reminder",
+  "<task-notification",
+  // NOT in the inventory, deliberately — see the doc comment above.
   "[SYSTEM NOTIFICATION",
 ];
 
@@ -978,12 +1091,26 @@ export function isNonPrincipalTurnOpener(text: string): boolean {
  * `RETRO_INVOCATION_LOOKBACK_TURNS` (retrospective-trigger-scanner.ts) for
  * "a bounded recent-turns window is on the order of a handful, not a
  * multi-turn conversation stretch" — larger than
- * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because THIS gate's window has to
- * accommodate injected non-principal slots consuming budget that
+ * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because this is a SCAN budget
+ * spent stepping over injected slots, while that one is a SEMANTIC window
+ * over principal prompts. It is not that this gate looks further into genuine
+ * principal-to-principal conversation history than that one does: it looks
+ * for exactly ONE principal prompt, and needs the extra slots only because
+ * harness turns sit between it and the report.
+ *
+ * **Correction (mt#4109).** This comment used to end "...that
  * `DEPTH_REQUEST_LOOKBACK_TURNS` never has to (every slot it counts is
- * already principal-authored), not because this gate is meant to look
- * further into genuine principal-to-principal conversation history than that
- * one does.
+ * already principal-authored)", and `docs/architecture/hooks/` repeated it.
+ * That parenthetical was FALSE, and stated the situation backwards: this gate
+ * is the one that SKIPS injected turns (via
+ * {@link findRecentPrincipalPromptIndex}); the depth gate filtered nothing at
+ * all, so its every slot could be — and 24.5% of the time entirely was —
+ * harness markup. The claim was a load-bearing assertion about a SIBLING code
+ * path, made in a comment about this one, where no test could reach it; it is
+ * why six calibration windows read the depth gate's misses as a vocabulary
+ * problem and never checked its input. The depth gate now has its own scan
+ * budget ({@link DEPTH_REQUEST_SCAN_LIMIT}), so the two constants are
+ * genuinely parallel and this sentence is true as rewritten.
  */
 export const QUESTION_ANSWER_LOOKBACK_TURNS = 5;
 
