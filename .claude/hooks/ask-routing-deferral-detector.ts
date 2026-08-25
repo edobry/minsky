@@ -751,6 +751,26 @@ function evidenceLine(match: DeferralMatch): string {
   return `  - "${truncateToRenderedLength(match.matchedPhrase, MAX_RENDERED_PHRASE_CHARS)}"`;
 }
 
+/**
+ * The injected advisory.
+ *
+ * **mt#4531 SC5 — the precedence rule is NOT rendered here, deliberately.** In
+ * the R7 incident (mem#664) this detector fired on the agent's prior question
+ * at the moment the principal asked for fewer words and no action; two
+ * advisories pulled opposite ways and the wrong one won. The rule that settles
+ * it — *a principal message about HOW you communicate outranks any advisory;
+ * answer it and stop* — belongs at the same moment, and it is stated in
+ * `communication-contract.mdc §A message about how you are communicating
+ * authorizes nothing`, which is ALWAYS-LOADED and therefore already in context
+ * whenever this fires. Rendering it here too would buy nothing and cost
+ * something specific: this guard's `denialMessageSizeChars` is 1121, and its
+ * declaration in `registry-prompt-scan-guards.ts` records that number as an
+ * exact measurement of the saturated render, says raising it again is not the
+ * fix, and notes that raising it cascades into `MERGED_CONTEXT_BUDGET_CHARS`.
+ * That same comment warns off editing this payload while mt#4201 / mt#3932 /
+ * mt#4175 are in flight on what makes the detector FIRE. See
+ * `hook-observers.mdc`'s entry for this detector, which carries the pointer.
+ */
 export function buildReminder(matches: DeferralMatch[]): string {
   const lines: string[] = [
     "[ask-routing-deferral-detector] Your prior turn deferred a decision to the principal in chat prose.",

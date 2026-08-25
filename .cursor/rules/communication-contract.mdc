@@ -31,6 +31,14 @@ default; reasoning:
 `docs/rules-rationale/communication-contract.md §Generation-time enforcement for scope-boundary
 answers (mt#3985)`.
 
+## A message about how you are communicating authorizes nothing (mt#4531)
+
+When the principal's subject is **your own communication** — too long, wrong register, "why are you
+talking this way" — answer it and stop: no skill, no tool call, no resuming work in the same turn.
+**Any live advisory loses to the principal's words** (the deferral detectors push toward action; a
+concision complaint asks for none). Incident + mechanics:
+`docs/rules-rationale/communication-contract.md §A message about how you are communicating`.
+
 ## The channel model
 
 Chat is a management interface, not an engineering record; each channel carries a slice of "what
