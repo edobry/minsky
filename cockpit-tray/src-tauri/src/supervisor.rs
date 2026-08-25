@@ -973,7 +973,7 @@ fn handle_healthy_poll(
                     sup.daemon.labels.display_name, sup.daemon.labels.stderr_log_hint,
                 );
                 if outcome.alert {
-                    notify_daemon_unhealthy(app, &reason);
+                    notify_daemon_unhealthy(app, sup.daemon.labels.display_name, &reason);
                     eprintln!("[watchdog] not-ready alert: {}", reason);
                     sup.daemon.last_not_ready_alert = Some(poll_now);
                 }
@@ -1123,7 +1123,7 @@ async fn poll_entry(
                 RESTART_STORM_WINDOW.as_secs() / 60,
                 sup.daemon.labels.stderr_log_hint,
             );
-            notify_daemon_unhealthy(app, &reason);
+            notify_daemon_unhealthy(app, sup.daemon.labels.display_name, &reason);
             sup.daemon.last_restart_alert = Some(poll_now);
             eprintln!("[watchdog] restart-storm alert: {}", reason);
         }
@@ -1170,6 +1170,7 @@ async fn poll_entry(
             if cooldown_elapsed {
                 notify_daemon_unhealthy(
                     app,
+                    sup.daemon.labels.display_name,
                     &format!(
                         "{} exceeded its {} MB memory ceiling and was terminated. It is being \
                          restarted automatically — no action needed unless this repeats. Logs: {}",
@@ -1257,7 +1258,11 @@ async fn poll_entry(
         // this twice on 2026-08-24) and which the Accepted RFC "Thin hooks"
         // §Answerer recovery requires a supervisor restart for.
         if let Some(reason) = handle_healthy_poll(app, sup, &probe, poll_now) {
-            notify_daemon_unhealthy(app, &format!("Restarting: {reason}"));
+            notify_daemon_unhealthy(
+                app,
+                sup.daemon.labels.display_name,
+                &format!("Restarting: {reason}"),
+            );
             restart_entry(app, sup, spawned, path, client).await;
         }
         return;
@@ -1318,7 +1323,7 @@ async fn poll_entry(
                          Check logs: {}",
                         sup.daemon.labels.display_name, sup.daemon.labels.stderr_log_hint,
                     );
-                    notify_daemon_unhealthy(app, &reason);
+                    notify_daemon_unhealthy(app, sup.daemon.labels.display_name, &reason);
                     sup.daemon.last_http_alert = Some(poll_now);
                     eprintln!(
                         "[watchdog] sustained HTTP-failure (child alive) alert: {}",
@@ -1346,7 +1351,9 @@ async fn poll_entry(
                 &labels,
                 || port_in_use(port),
                 |eff| match eff {
-                    NoChildEffect::Notify(reason) => notify_daemon_unhealthy(app, &reason),
+                    NoChildEffect::Notify(reason) => {
+                        notify_daemon_unhealthy(app, labels.display_name, &reason)
+                    }
                     NoChildEffect::Spawn => do_spawn(app, sup, spawned, path),
                     NoChildEffect::SetStatus(label) => set_status(app, sup, label),
                     NoChildEffect::ClearUptime => clear_uptime(app, sup),
@@ -1573,11 +1580,20 @@ fn db_status_from_body(body: Option<&serde_json::Value>) -> DbStatus {
 /// Fire a best-effort OS-toast when the daemon is self-reporting unhealthy (mt#2578).
 /// Mirrors `watcher_web::notify_build_failure`; ignored if notification permission
 /// is unavailable.
-fn notify_daemon_unhealthy(app: &AppHandle, reason: &str) {
+/// Toast that a supervised daemon is unhealthy.
+///
+/// Takes the entry's display name rather than hardcoding one (PR #3299 R1).
+/// Every caller is per-entry — the restart-storm, sustained-HTTP-failure,
+/// memory-ceiling and not-ready watchdogs all run once per registered daemon —
+/// so a fixed "Cockpit" title was already the wrong shape and became visibly
+/// wrong when mt#4472 let the MCP entry raise these: the operator would get a
+/// toast blaming the cockpit for an MCP wedge, which is worse than no toast,
+/// because it points triage at the wrong process.
+fn notify_daemon_unhealthy(app: &AppHandle, display_name: &str, reason: &str) {
     let _ = app
         .notification()
         .builder()
-        .title("Cockpit daemon unhealthy")
+        .title(format!("{display_name} daemon unhealthy"))
         .body(reason)
         .show();
 }
