@@ -51,6 +51,11 @@ import { elideQuotedContexts } from "./elision";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
 import { runRenderPathCalibration, RENDER_PATH_CALIBRATION_LOG } from "./render-path-evidence";
+import {
+  runConsumerAccountCalibration,
+  hasInScopeFiles,
+  CONSUMER_ACCOUNT_CALIBRATION_LOG,
+} from "./consumer-account-evidence";
 import { isTestFile } from "./pr-file-predicates";
 import {
   captureArtifact,
@@ -64,6 +69,7 @@ import {
   resolvePrNumber as resolvePrNumberImpl,
   makeProdPrDeps as makeProdPrDepsImpl,
   fetchPrContext,
+  fetchPrFilePatches,
   formatContextFailureWarnings,
 } from "./pr-context";
 import type {
@@ -1330,6 +1336,38 @@ if (import.meta.main) {
   }
   if (renderPath.warning) {
     allWarnings.push(renderPath.warning);
+  }
+
+  // mt#4493: FIFTH additive calibration surface — "this diff removes a signal a consumer
+  // depended on, and the body never names the consumer." It is the only surface here that
+  // needs the diff HUNKS rather than the file list, so it pays for a second `gh api` call
+  // — and only on a PR that could possibly fire. `hasInScopeFiles` is a prefilter over the
+  // file list already in hand, so a docs/rules/tests-only PR makes no extra call at all.
+  // Log-only: never influences `result.blocked`.
+  if (context.prNumber !== null && repo && hasInScopeFiles(prFiles.map((f) => f.filename))) {
+    const { patches, warning: patchWarning } = fetchPrFilePatches(repo, context.prNumber);
+    if (patchWarning) {
+      allWarnings.push(patchWarning);
+    }
+    const consumerAccount = runConsumerAccountCalibration(
+      task,
+      context.prNumber,
+      patches,
+      prTitle,
+      // Full body, like the test-first surface: the marker is matched anywhere in the PR,
+      // not only inside the extracted evidence block.
+      prBody
+    );
+    if (consumerAccount.calibrationRecord) {
+      appendCalibrationRecord(
+        consumerAccount.calibrationRecord,
+        repoRootDir,
+        CONSUMER_ACCOUNT_CALIBRATION_LOG
+      );
+    }
+    if (consumerAccount.warning) {
+      allWarnings.push(consumerAccount.warning);
+    }
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —

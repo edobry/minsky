@@ -41,6 +41,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { applyArmToConfig, assignArm } from "./config-arm";
 import {
   createOctokit,
   fetchIncrementalDiffSince,
@@ -339,7 +340,7 @@ export interface RunReviewDeps {
 }
 
 export async function runReview(
-  config: ReviewerConfig,
+  baseConfig: ReviewerConfig,
   owner: string,
   repo: string,
   prNumber: number,
@@ -348,6 +349,44 @@ export async function runReview(
   headSha?: string,
   deps: RunReviewDeps = {}
 ): Promise<ReviewResult> {
+  // mt#4569: resolve this PR's configuration arm BEFORE anything reads the
+  // config. Every downstream consumer — the model call, `review_timing.model`,
+  // and `fingerprintForReview` — reads it through `config`, so substituting
+  // here is what makes the arm recoverable from the row rather than from the
+  // row's timestamp. Returns `baseConfig` unchanged when no experiment is
+  // configured, which is the default.
+  const armAssignment = assignArm(prNumber, baseConfig);
+  const config = applyArmToConfig(baseConfig, prNumber);
+
+  if (armAssignment.rejectedCandidate !== undefined) {
+    // The operator configured an experiment that cannot run: the candidate
+    // model belongs to a different vendor than the configured provider, so
+    // every even-numbered PR would have called the wrong client. The swap was
+    // refused and this review is running on the incumbent. Logged at error
+    // level because the experiment is NOT running and the corpus being
+    // collected is all-incumbent — a fact that would otherwise only surface as
+    // an inexplicably one-armed cohort table weeks later.
+    log.error("reviewer_config_arm_rejected", {
+      event: "reviewer_config_arm_rejected",
+      owner,
+      repo,
+      pr: prNumber,
+      candidateModel: armAssignment.rejectedCandidate.model,
+      candidateBelongsTo: armAssignment.rejectedCandidate.foreignProvider,
+      configuredProvider: baseConfig.provider,
+      usingModel: armAssignment.model,
+    });
+  } else if (armAssignment.experimentActive) {
+    log.info("reviewer_config_arm_assigned", {
+      event: "reviewer_config_arm_assigned",
+      owner,
+      repo,
+      pr: prNumber,
+      arm: armAssignment.arm,
+      model: armAssignment.model,
+    });
+  }
+
   log.info(
     "runReview_start",
     buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown")

@@ -222,6 +222,98 @@ export function isDatabaseUnavailableError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Retry outcomes this module has recorded since process start (mt#4562).
+ *
+ * ## Why counters and not just the log line
+ *
+ * Until now the only record of a retry was a `log.warn`. Nothing counted it, so
+ * "is this mechanism still working?" could not be answered without grepping
+ * logs — the same defect mt#4549 fixed for the cockpit's pool recycle, and the
+ * one that let a recycle abandon its connections 88 times unnoticed (mt#4515).
+ *
+ * ## Why the split by CLASS is load-bearing, not decoration
+ *
+ * The two retryable classes have OPPOSITE expected rates, so a single
+ * undifferentiated counter would average them into a number that means nothing:
+ *
+ * - **Saturation** (`isPgPoolExhaustionError`) is near-zero BY DESIGN. mt#3497
+ *   established from vendor docs that the transaction pooler production runs on
+ *   caps at the pooler's client limit (600 on this project's tier), and Minsky
+ *   runs a handful of processes. A zero here is a healthy system, not a symptom
+ *   — its own harness opened 20 then 150 clients and never induced the error.
+ * - **Stale connection** (`isPgStaleConnectionError`) is the class production
+ *   demonstrably DOES hit — mt#3092 and the 2026-06-27/28 outage (mem#597).
+ *
+ * So any consumer must read `saturationRetries: 0` as "expected", and must NOT
+ * read it as either "healthy" or "broken" — it carries no information on its
+ * own (mem#704). `retriesExhausted` is the one field that is a fault in either
+ * class, and is what an alarm should key on.
+ */
+export interface PgRetryCounters {
+  /** Retries attempted against a pool-exhaustion rejection. Near-zero by design. */
+  saturationRetries: number;
+  /** Retries attempted against a stale/closed connection. The live class. */
+  staleConnectionRetries: number;
+  /**
+   * Calls whose retry budget ran out and surfaced the error to the caller.
+   *
+   * **The fault signal, and the only class-independent one.** Counted only when
+   * the error was RETRYABLE and the final attempt was reached — a non-retryable
+   * error propagates without ever engaging the mechanism, so counting it here
+   * would inflate the field with events retry never had a claim on.
+   */
+  retriesExhausted: number;
+  /** ISO timestamp of the most recent retry of any class, or null if none. */
+  lastRetryAt: string | null;
+}
+
+let _saturationRetries = 0;
+let _staleConnectionRetries = 0;
+let _retriesExhausted = 0;
+let _lastRetryAtMs: number | null = null;
+
+/**
+ * Snapshot the retry counters for a health surface.
+ *
+ * Shaped after `getDbRecycle()` (`src/cockpit/shared-persistence.ts`) so the two
+ * recovery mechanisms project the same way, and returns a fresh object so a
+ * caller cannot mutate module state through it.
+ */
+export function getPgRetryCounters(): PgRetryCounters {
+  return {
+    saturationRetries: _saturationRetries,
+    staleConnectionRetries: _staleConnectionRetries,
+    retriesExhausted: _retriesExhausted,
+    lastRetryAt: _lastRetryAtMs === null ? null : new Date(_lastRetryAtMs).toISOString(),
+  };
+}
+
+/**
+ * @internal Test-only: reset the counters. Module-level state would otherwise
+ * make one test's reading depend on which tests ran before it.
+ *
+ * Guarded on `NODE_ENV === "test"` rather than merely named as test-only (PR
+ * #3338 R1). The naming convention signals intent; the guard is what makes
+ * production misuse fail loudly instead of silently zeroing a live fault
+ * counter — which for THIS counter would erase the evidence an alarm reads.
+ * Mirrors `assertTestEnvironment` in `src/cockpit/shared-persistence.ts` and
+ * `db-providers.ts`, so the whole family behaves the same way.
+ */
+export function __resetPgRetryCountersForTests(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      `__resetPgRetryCountersForTests is test-only (NODE_ENV must be "test"; got ${JSON.stringify(
+        process.env.NODE_ENV
+      )})`
+    );
+  }
+  _saturationRetries = 0;
+  _staleConnectionRetries = 0;
+  _retriesExhausted = 0;
+  _lastRetryAtMs = null;
+}
+
 export async function withPgPoolRetry<T>(
   fn: () => Promise<T>,
   label: string,
@@ -238,6 +330,14 @@ export async function withPgPoolRetry<T>(
       return await fn();
     } catch (err) {
       if (!isPgRetryableConnectionError(err) || attempt === maxAttempts) {
+        // mt#4562: count exhaustion, but ONLY when retry actually had a claim on
+        // this error. The two conditions above are very different events sharing
+        // one branch — a non-retryable error never engaged the mechanism at all,
+        // so folding it in would make the fault counter rise on errors retry was
+        // never going to absorb.
+        if (isPgRetryableConnectionError(err)) {
+          _retriesExhausted++;
+        }
         throw err;
       }
       lastErr = err;
@@ -253,9 +353,17 @@ export async function withPgPoolRetry<T>(
       // operators can tell pool saturation (server overloaded) from stale
       // connections (client-side socket teardown) without spelunking the raw
       // error text.
-      const failureClass = isPgPoolExhaustionError(err)
-        ? "pg pool saturation"
-        : "pg stale connection";
+      const isSaturation = isPgPoolExhaustionError(err);
+      const failureClass = isSaturation ? "pg pool saturation" : "pg stale connection";
+      // mt#4562: the class was already being derived for the log line and then
+      // discarded. Counting it here costs nothing and is what makes "which class
+      // is production actually hitting?" answerable without a log grep.
+      if (isSaturation) {
+        _saturationRetries++;
+      } else {
+        _staleConnectionRetries++;
+      }
+      _lastRetryAtMs = Date.now();
       log.warn(
         `[retry ${attempt}/${maxAttempts}] ${label}: ${failureClass} (code=${errCode}): ${errSummary} — retrying in ${delay}ms`
       );
