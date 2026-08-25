@@ -268,6 +268,38 @@ perl -0pi -e 's/\]\{/]\n{/' ~/.local/state/minsky/mcp-disconnect-log.json
 
 Confirm with `jq -s length` before and after; the counts must match.
 
+### The hybrid itself is retired on this host (mt#4558)
+
+**This host's log is now uniform JSONL** — the legacy 65-record array was
+converted by `scripts/normalize-disconnect-log.ts`, so every non-blank line
+parses on its own and every recipe below works with no caveat. The seam
+described above is history HERE.
+
+**Everything above is kept anyway, because it is not history everywhere.**
+Another machine, a restored backup, or an old `~/.local/state/minsky` will
+still present the hybrid, and all four readers still handle it — the tracker's
+`loadFromDisk`, `disconnect-event-sweep.ts`, the cockpit's `s3-gauges.ts`
+widget, and `measure-escalation-blast-radius.ts`. The section above is how you
+RECOGNISE one; this section is how you retire it:
+
+```bash
+bun scripts/normalize-disconnect-log.ts              # preview: counts, no writes
+bun scripts/normalize-disconnect-log.ts --execute    # backup, convert, verify
+```
+
+It is a no-op on an already-uniform file, so it is safe to run blind.
+
+**Check uniformity with a line-by-line parse, never `jq -s`.** Slurp SUCCEEDS
+on a hybrid — that is how mt#4481 confirmed record counts across the repair —
+so it reports a clean pass on precisely the state you are trying to detect. A
+probe that cannot fail is not verification:
+
+```bash
+# Non-parsing lines. 0 = uniform. A pretty-printed array head shows ~392.
+awk 'NF' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | while IFS= read -r l; do printf '%s' "$l" | jq -e . >/dev/null 2>&1 || echo BAD; done | wc -l
+```
+
 Quick consumer commands:
 
 ```bash
