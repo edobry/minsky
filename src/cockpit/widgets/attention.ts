@@ -241,10 +241,8 @@ const getCachedAskRepo = createEpochKeyedCache(async (): Promise<AskRepository> 
       throw new Error(`AskRepository unavailable — ${describePersistenceUnavailability(provider)}`);
     }
 
-    const sqlProvider = provider as {
-      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-    };
-    const db = await sqlProvider.getDatabaseConnection();
+    // No cast — `isSqlCapable` narrowed (PR #3324 R1).
+    const db = await provider.getDatabaseConnection();
     if (!db) {
       // Same class as the capability check above, and just as cause-free before
       // mt#3661 — a null connection from a provider that CLAIMED SQL capability.

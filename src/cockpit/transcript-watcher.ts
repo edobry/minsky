@@ -446,7 +446,21 @@ export class TranscriptWatcher {
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
       // Capability + method, via the one guard (mt#4543); the cast goes with it.
-      if (!isSqlCapable(provider)) return null;
+      //
+      // The warn is not decoration (PR #3324 R1). Before the guard, an unconfigured
+      // provider passed the `in` check, `getDatabaseConnection()` threw, and the catch
+      // below logged it — so returning null silently here would have LOST that signal.
+      // Logged at the guard instead, and better than what it replaces: the reason names
+      // whether nothing was configured or a configured connection failed.
+      if (!isSqlCapable(provider)) {
+        const { describePersistenceUnavailability } = await import(
+          "@minsky/domain/persistence/unconfigured-provider"
+        );
+        log.warn("cockpit transcript-watcher: DB unavailable", {
+          message: describePersistenceUnavailability(provider),
+        });
+        return null;
+      }
       const db = await provider.getDatabaseConnection();
       return db ?? null;
     } catch (err) {

@@ -71,12 +71,18 @@ export async function toilMinerOpsTick(container: AppContainerInterface): Promis
   try {
     db = await sqlPersistence.getDatabaseConnection();
   } catch (err: unknown) {
-    // PR #2620 R1. `UnconfiguredPersistenceProvider` DEFINES getDatabaseConnection
-    // (it throws from it), so it passes the capability check above — meaning THIS
-    // is the degraded path's actual exit, not that branch. Its
-    // PersistenceUnavailableError already carries the cause; it was just missing
-    // the `engprod_toil_miner:` prefix every other exit here has, so the same
-    // failure read two different ways in an ops log depending on provider shape.
+    // CORRECTED by mt#4543 (PR #3324 R1). This comment used to read: the placeholder
+    // "DEFINES getDatabaseConnection (it throws from it), so it passes the capability
+    // check above — meaning THIS is the degraded path's actual exit, not that branch."
+    // That was true of the `in` check PR #2620 R1 was written against, and the guard
+    // above now asks `capabilities.sql`, which the placeholder reports as false. So the
+    // GUARD is the degraded path's exit and this catch is no longer where that case
+    // lands.
+    //
+    // It still earns its place: a provider that CLAIMS sql and fails anyway reaches
+    // here, and its error already carries the cause — it was just missing the
+    // `engprod_toil_miner:` prefix every other exit has, so the same failure read two
+    // different ways in an ops log depending on provider shape.
     throw new Error(`engprod_toil_miner: ${err instanceof Error ? err.message : String(err)}`, {
       cause: err,
     });
