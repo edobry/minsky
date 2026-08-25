@@ -61,8 +61,8 @@ larger than a subtraction from 60 suggests.
 | -------------- | ------- |
 | already-domain | 11      |
 | movable        | 84      |
-| immovable      | 79      |
-| **total**      | **174** |
+| immovable      | 80      |
+| **total**      | **175** |
 
 Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
@@ -252,7 +252,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-peer-task-activity.ts`               | standalone-hook  | decidePeerActivity, callerSessionIdFromCwd                        | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 
-## immovable (79)
+## immovable (80)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
@@ -268,6 +268,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `claim-provenance-corpus-fixtures.ts`     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `code-mechanism-assertion-dedup-store.ts` | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `command-shape.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `consumer-account-evidence.ts`            | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `coverage-receipt.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `deploy-surface-detector.ts`              | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `dispatch-intent-store.ts`                | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
