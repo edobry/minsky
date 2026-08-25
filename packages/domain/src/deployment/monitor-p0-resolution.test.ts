@@ -43,6 +43,7 @@ const summary = (overrides: Partial<ServiceCheckSummary> = {}): ServiceCheckSumm
   deploy: ran(),
   health: ran(),
   digest: ran(),
+  recovery: ran(),
   ...overrides,
 });
 
@@ -60,7 +61,13 @@ const MONITOR_AUTHORED_BODY = [
 describe("observedRecoveredClasses", () => {
   // AT1 (recovery half) — a healthy observation for a service.
   test("AT1: a fully passing service reports every class recovered", () => {
-    const expected: AlertClass[] = ["check-failed", "deploy-failed", "digest-lag", "health-down"];
+    const expected: AlertClass[] = [
+      "check-failed",
+      "deploy-failed",
+      "digest-lag",
+      "health-down",
+      "recovery-degraded",
+    ];
 
     expect(observedRecoveredClasses(summary()).sort()).toEqual(expected.sort());
   });
