@@ -284,7 +284,6 @@ export function registerDeploymentCommands(): void {
           timeoutSeconds: params.timeoutSeconds as number,
           pollIntervalSeconds: params.pollIntervalSeconds as number,
           notBefore: params.notBefore as string | undefined,
-          expectCommitSha,
           onStatusObserved: makeDeployBuildObserver(ctx?.container, service),
         });
 

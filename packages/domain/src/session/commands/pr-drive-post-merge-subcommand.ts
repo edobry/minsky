@@ -92,20 +92,32 @@ export interface SessionPrDrivePostMergeDependencies {
    */
   waitForDeployment?: (
     service: string,
-    options: {
-      timeoutSeconds?: number;
-      pollIntervalSeconds?: number;
-      notBefore?: string;
-      expectCommitSha?: string;
-    }
+    options: { timeoutSeconds?: number; pollIntervalSeconds?: number; notBefore?: string }
   ) => Promise<DeploymentRecord>;
 }
 
 export interface SessionPrDrivePostMergeResult {
   /** Services actually watched (post detection/override). */
   watchedServices: string[];
-  /** Per-service terminal deployment record, in `watchedServices` order. */
-  results: Array<{ service: string; deployment: DeploymentRecord }>;
+  /**
+   * Per-service terminal deployment record, in `watchedServices` order.
+   *
+   * `buildIdentity` (mt#4583) answers whether THAT service's deployment carries
+   * the merge named by `mergedCommitSha` — a different question from
+   * `deployBoundApplied` below, which reports only that the TIME bound was
+   * applied. Per-service because services deploy independently: one can carry
+   * this merge while another still serves a neighbour's build, and a single
+   * aggregate verdict would hide that.
+   *
+   * `indeterminate` is NOT a pass. It is the expected verdict for an
+   * image-source service, whose deployment record carries no commit at all.
+   */
+  results: Array<{
+    service: string;
+    deployment: DeploymentRecord;
+    buildIdentity: BuildIdentity;
+    buildIdentityReason: string;
+  }>;
   /** True when there was nothing to watch (no deploy-surface changes / empty override). */
   skipped: boolean;
   skipReason?: string;
@@ -222,7 +234,6 @@ export async function sessionPrDrivePostMerge(
         timeoutSeconds: params.deployTimeoutSeconds,
         pollIntervalSeconds: params.deployIntervalSeconds,
         notBefore: params.mergedAt,
-        expectCommitSha: params.mergedCommitSha,
       });
       // mt#4583: per-service, because services deploy independently — one can
       // carry this merge while another is still serving a neighbour's build,

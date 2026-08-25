@@ -141,21 +141,17 @@ export interface WaitForLatestOptions {
    * time does not identify WHICH change deployed, so on a busy branch a
    * NEIGHBOURING merge's deployment lands inside the window and satisfies this
    * bound — observed 2026-08-25: a deployment created ten seconds after a merge
-   * returned SUCCESS and belonged to the previous merge's workflow run. Pass
-   * {@link WaitForLatestOptions.expectCommitSha} as well, and read the returned
-   * `buildIdentity`; this bound alone cannot tell you whose deploy you got.
+   * returned SUCCESS and belonged to the previous merge's workflow run.
+   *
+   * This bound alone cannot tell you whose deploy you got, and an adapter
+   * cannot tell you either: it reports what the platform says. Identity is a
+   * JUDGEMENT over that report, made by the caller — pass the merge commit to
+   * `deployment.wait-for-latest`'s `expectCommitSha` (or
+   * `session.pr.drive --postMerge`'s `mergedCommitSha`) and read the
+   * `buildIdentity` verdict those surfaces return. `assessBuildIdentity` in
+   * `./build-identity` is the shared classifier.
    */
   notBefore?: string;
-  /**
-   * The commit this caller is verifying deployed (mt#4583).
-   *
-   * When set, the result carries a `buildIdentity` verdict rather than leaving
-   * the caller to infer identity from a bare SUCCESS. When the deployment
-   * record cannot answer — the image-source case named above — the verdict is
-   * `indeterminate` WITH a reason, which is deliberately not the same value as
-   * `confirmed`. Collapsing those two is the defect this exists to remove.
-   */
-  expectCommitSha?: string;
 }
 
 /**
