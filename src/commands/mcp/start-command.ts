@@ -32,6 +32,7 @@ import {
   type ReadinessResult,
 } from "@minsky/domain/persistence/readiness-probe";
 import { buildMcpHealthResponse } from "../../mcp/health-payload";
+import { resolveDeeplinkBridge } from "../../mcp/deeplink-bridge";
 import { getPgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
@@ -745,6 +746,14 @@ async function startHttpServer(
       getPgRetryCounters()
     );
     res.status(health.statusCode).json(health.body);
+  });
+
+  // mt#4604: https → minsky:// deeplink bridge. Public like /health — the whole
+  // point is that a link pasted into Notion/GitHub/Slack works for a reader who
+  // holds no bearer token; the page carries only the entity URI, no state.
+  app.get("/r/:type/:id", (req, res) => {
+    const result = resolveDeeplinkBridge(req.params.type, req.params.id);
+    res.status(result.status).type(result.contentType).send(result.body);
   });
 
   // OAuth discovery + Dynamic Client Registration (mt#1634c).
