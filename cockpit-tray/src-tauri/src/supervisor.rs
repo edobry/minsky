@@ -960,10 +960,24 @@ fn handle_healthy_poll(
             );
 
             // The duration is derived from OUR OWN poll count, never from a
-            // timestamp in the daemon's body. The cockpit's `dbHealth
-            // .lastAttemptAt` is frozen at process boot (verified 2026-08-24:
-            // still reading the boot instant after 102 minutes of uptime), so a
-            // body-supplied "how long" is not a duration at all (mt#4472).
+            // timestamp in the daemon's body (mt#4472).
+            //
+            // The decision stands; its original stated reason did not (mt#4538).
+            // That reason read "`dbHealth.lastAttemptAt` is frozen at process
+            // boot", generalized from one 102-minute window in which the field
+            // sat at the boot instant. It is not frozen — it dates an INIT
+            // ATTEMPT, and init happens only at boot and on a re-init, so it
+            // holds precisely when nothing has been re-attempted. Two live reads
+            // on 2026-08-25 found it 2384s and 3769s PAST boot, each coincident
+            // with a logged pool recycle.
+            //
+            // The real reason is stronger: an init-attempt stamp is not a
+            // not-ready duration on any daemon, moving or still, so no reading
+            // of it would have answered this question. `dbHealth.lastSuccessAt`
+            // (added by mt#4538) IS the field that dates reachability, and this
+            // watchdog still does not read it — what we need is how long WE have
+            // observed not-ready, which is our own poll count, not the daemon's
+            // view of its database.
             let sustained_secs = sup.daemon.consecutive_not_ready as u64 * POLL_INTERVAL.as_secs();
 
             if outcome.alert || outcome.restart {
