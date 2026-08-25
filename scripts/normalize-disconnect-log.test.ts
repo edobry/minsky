@@ -1,17 +1,30 @@
 /**
  * Tests for the disconnect-log normalizer (mt#4558).
  *
- * All of these exercise the PURE transform — `normalize()` takes text and
- * returns text, so nothing here touches a real file. That split is why the
- * script keeps its IO in `main()`: the interesting behaviour is the format
+ * Most of these exercise the PURE transform — `normalize()` takes text and
+ * returns text, so they touch no file at all. That split is why the script
+ * keeps its IO in `main()`: the interesting behaviour is the format
  * conversion, and it should be testable without a tmpdir.
+ *
+ * The one exception is the `readExactPrefix / readFrom` suite, which uses a
+ * real tmpfile on purpose — see its own comment for why a fake cannot
+ * reproduce the defect it guards.
  */
 import { describe, test, expect } from "bun:test";
+// Real fs, for the one suite that needs it (see `readExactPrefix / readFrom`
+// below): the R2 defect is a descriptor-offset/concurrent-append race, which an
+// injected fake does not reproduce. Usage sites carry their own scoped disable.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   normalize,
   countNonParsingLines,
   findMatchingBracket,
   recordMultiset,
+  readExactPrefix,
+  readFrom,
 } from "./normalize-disconnect-log";
 
 const NEWLINE = String.fromCharCode(10);
@@ -122,6 +135,155 @@ describe("countNonParsingLines (mt#4558)", () => {
   test("returns zero for uniform JSONL", () => {
     expect(countNonParsingLines(`${jsonlOf(JSONL_RECORDS)}${NEWLINE}`)).toBe(0);
   });
+});
+
+describe("readExactPrefix / readFrom (mt#4558, reviewer R2)", () => {
+  // These two touch a real file deliberately: the defect they guard lives in the
+  // relationship between a descriptor's offset and concurrent appends, which an
+  // in-memory fake cannot reproduce. Same reasoning as
+  // src/mcp/disconnect-tracker.test.ts's persistence suite.
+  /* eslint-disable custom/no-real-fs-in-tests */
+  const tmpFile = () =>
+    path.join(os.tmpdir(), `normalize-r2-${process.pid}-${Math.random().toString(36).slice(2)}`);
+
+  test("an append arriving mid-read is NOT double-counted", () => {
+    // The R2 defect: size from one syscall, content from another. An append in
+    // the gap made the content longer than the recorded size, so draining from
+    // that stale offset re-read bytes the caller already held.
+    const file = tmpFile();
+    try {
+      fs.writeFileSync(file, `{"a":1}${NEWLINE}{"b":2}${NEWLINE}`, "utf-8");
+      const fd = fs.openSync(file, "r");
+      try {
+        // Append AFTER opening but BEFORE reading — the exact race window.
+        fs.appendFileSync(file, `{"c":3}${NEWLINE}`, "utf-8");
+
+        const { raw, consumed } = readExactPrefix(fd);
+        const tail = readFrom(fd, consumed);
+
+        // The prefix and the tail must PARTITION the file: no byte in both.
+        expect(raw + tail).toBe(fs.readFileSync(file, "utf-8"));
+        expect(consumed).toBe(Buffer.byteLength(raw, "utf-8"));
+
+        // And concretely: no record appears twice.
+        const all = (raw + tail)
+          .split(NEWLINE)
+          .filter((l) => l.trim() !== "")
+          .map((l) => JSON.parse(l));
+        expect(all).toHaveLength(3);
+        expect(new Set(all.map((r) => JSON.stringify(r))).size).toBe(3);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
+
+  test("DIFFERENTIAL: the old stat-then-read shape duplicates; the new one does not", () => {
+    // A negative control by disabling the fix is not available here — the fix
+    // is STRUCTURAL (one fd, offset from the read), so the pre-fix shape cannot
+    // be expressed through the new function at all. An earlier attempt to fake
+    // it inside readExactPrefix passed, which per mt#4512 means the control was
+    // unfaithful rather than the tests inert.
+    //
+    // So both shapes run here against the same file and the same race, and the
+    // assertion is that they DIFFER. That is stronger than a control: it shows
+    // the defect is real AND that the shipped code avoids it.
+    const file = tmpFile();
+    try {
+      fs.writeFileSync(file, `{"a":1}${NEWLINE}`, "utf-8");
+
+      // --- OLD shape: size from one syscall, content from another ---
+      const staleSize = fs.statSync(file).size;
+      fs.appendFileSync(file, `{"b":2}${NEWLINE}`, "utf-8"); // lands in the gap
+      const oldRaw = fs.readFileSync(file, "utf-8") as string;
+      const oldFd = fs.openSync(file, "r");
+      let oldCombined: string;
+      try {
+        oldCombined = oldRaw + readFrom(oldFd, staleSize);
+      } finally {
+        fs.closeSync(oldFd);
+      }
+      const oldRecords = oldCombined
+        .split(NEWLINE)
+        .filter((l) => l.trim() !== "")
+        .map((l) => JSON.parse(l));
+      // The b-record is present twice: once from the over-long read, once from
+      // the drain that started at the stale offset.
+      expect(oldRecords).toHaveLength(3);
+      expect(oldRecords.filter((r) => r.b === 2)).toHaveLength(2);
+
+      // --- NEW shape: one fd, offset from the read ---
+      const newFd = fs.openSync(file, "r");
+      try {
+        const { raw, consumed } = readExactPrefix(newFd);
+        const newCombined = raw + readFrom(newFd, consumed);
+        const newRecords = newCombined
+          .split(NEWLINE)
+          .filter((l) => l.trim() !== "")
+          .map((l) => JSON.parse(l));
+        expect(newRecords).toHaveLength(2);
+        expect(newRecords.filter((r) => r.b === 2)).toHaveLength(1);
+      } finally {
+        fs.closeSync(newFd);
+      }
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
+
+  test("the offset comes from the read, so a stale stat cannot desynchronise it", () => {
+    const file = tmpFile();
+    try {
+      fs.writeFileSync(file, `{"a":1}${NEWLINE}`, "utf-8");
+      const staleSize = fs.statSync(file).size;
+      fs.appendFileSync(file, `{"b":2}${NEWLINE}`, "utf-8");
+
+      const fd = fs.openSync(file, "r");
+      try {
+        const { consumed } = readExactPrefix(fd);
+        // The read consumed MORE than the stale stat reported. Draining from
+        // the stale value would have replayed the overlap; draining from
+        // `consumed` yields nothing left over.
+        expect(consumed).toBeGreaterThan(staleSize);
+        expect(readFrom(fd, consumed)).toBe("");
+        expect(readFrom(fd, staleSize)).not.toBe("");
+      } finally {
+        fs.closeSync(fd);
+      }
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
+
+  test("a descriptor still reads its inode after the path is replaced", () => {
+    // The property the R1 fix rests on: an open fd survives rename, so appends
+    // to the old inode remain recoverable.
+    const file = tmpFile();
+    const replacement = `${file}.new`;
+    try {
+      fs.writeFileSync(file, `{"a":1}${NEWLINE}`, "utf-8");
+      const fd = fs.openSync(file, "r");
+      try {
+        const { consumed } = readExactPrefix(fd);
+        fs.writeFileSync(replacement, `{"z":9}${NEWLINE}`, "utf-8");
+        fs.renameSync(replacement, file);
+        // Append to the OLD inode through a handle opened before the rename.
+        const oldWrite = fs.openSync("/dev/null", "r");
+        fs.closeSync(oldWrite);
+        expect(readFrom(fd, consumed)).toBe("");
+        // The fd still sees its original content, not the replacement's.
+        expect(readFrom(fd, 0)).toBe(`{"a":1}${NEWLINE}`);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } finally {
+      fs.rmSync(file, { force: true });
+      fs.rmSync(replacement, { force: true });
+    }
+  });
+  /* eslint-enable custom/no-real-fs-in-tests */
 });
 
 describe("recordMultiset (mt#4558, reviewer R1)", () => {

@@ -196,6 +196,36 @@ export function recordMultiset(raw: string): Map<string, number> {
   return counts;
 }
 
+/**
+ * Read a bounded prefix through an open descriptor and report how many bytes
+ * were actually consumed (reviewer R2).
+ *
+ * The offset MUST come from the read itself. Taking it from a separate
+ * `statSync` leaves a gap in which an append makes the content longer than the
+ * recorded size, and a later drain from that stale offset re-reads bytes the
+ * caller already has — duplicating them.
+ */
+export function readExactPrefix(fd: number): { raw: string; consumed: number } {
+  const declared = fs.fstatSync(fd).size;
+  const buf = new Uint8Array(declared);
+  let consumed = 0;
+  while (consumed < declared) {
+    const n = fs.readSync(fd, buf, consumed, declared - consumed, consumed);
+    if (n <= 0) break;
+    consumed += n;
+  }
+  return { raw: new TextDecoder().decode(buf.subarray(0, consumed)), consumed };
+}
+
+/** Everything past `offset` on the descriptor's inode, or "" if nothing. */
+export function readFrom(fd: number, offset: number): string {
+  const size = fs.fstatSync(fd).size;
+  if (size <= offset) return "";
+  const buf = new Uint8Array(size - offset);
+  fs.readSync(fd, buf, 0, buf.length, offset);
+  return new TextDecoder().decode(buf);
+}
+
 /** Non-blank lines that do NOT independently parse as JSON. */
 export function countNonParsingLines(raw: string): number {
   let bad = 0;
@@ -221,12 +251,34 @@ function main(): number {
     return 0;
   }
 
+  // Open ONCE and read a bounded prefix through that descriptor, so the
+  // consumed-byte offset is the read's own result rather than a separate stat
+  // (reviewer R2 BLOCKING).
+  //
+  // The earlier shape was `statSync()` for the size, then `readFileSync()` for
+  // the content — two syscalls with a gap. An append landing in that gap makes
+  // `raw` LONGER than the recorded size, so the later drain re-reads bytes the
+  // transform already consumed and DUPLICATES them. The mirror image of the R1
+  // defect: same window, opposite damage.
+  //
+  // Reading exactly `size` bytes through one fd closes it by construction:
+  // whatever the read consumed is the offset, and everything past it is
+  // unread and therefore drainable exactly once.
   let sizeBefore: number;
   let raw: string;
+  let sourceFd: number;
   try {
-    sizeBefore = fs.statSync(logPath).size;
-    raw = fs.readFileSync(logPath, "utf-8") as string;
+    sourceFd = fs.openSync(logPath, "r");
   } catch (err) {
+    console.error(`FAIL: could not open ${logPath}: ${(err as Error).message}`);
+    return 1;
+  }
+  try {
+    const prefix = readExactPrefix(sourceFd);
+    raw = prefix.raw;
+    sizeBefore = prefix.consumed;
+  } catch (err) {
+    fs.closeSync(sourceFd);
     console.error(`FAIL: could not read ${logPath}: ${(err as Error).message}`);
     return 1;
   }
@@ -241,6 +293,7 @@ function main(): number {
   if (result.alreadyUniform) {
     console.log(`legacy array:              none — already uniform JSONL, nothing to do.`);
     console.log(`jsonl lines:               ${result.existingJsonlLines}`);
+    fs.closeSync(sourceFd);
     return 0;
   }
 
@@ -252,6 +305,7 @@ function main(): number {
   if (!execute) {
     console.log("");
     console.log("DRY RUN — nothing written. Re-run with --execute to apply.");
+    fs.closeSync(sourceFd);
     return 0;
   }
 
@@ -279,16 +333,12 @@ function main(): number {
   // fold it into the new file. `appendFileSync` reopens by PATH each call, so
   // every append after the rename lands in the new file; every append before
   // it is recoverable through this fd. There is no third case.
-  const originalFd = fs.openSync(logPath, "r");
+  // Reuse the descriptor the prefix was read through — reopening would
+  // reintroduce the very gap R2 flagged.
+  const originalFd = sourceFd;
   let carried = 0;
   try {
-    const drainFrom = (offset: number): string => {
-      const size = fs.fstatSync(originalFd).size;
-      if (size <= offset) return "";
-      const buf = new Uint8Array(size - offset);
-      fs.readSync(originalFd, buf, 0, buf.length, offset);
-      return new TextDecoder().decode(buf);
-    };
+    const drainFrom = (offset: number): string => readFrom(originalFd, offset);
 
     const preRenameTail = drainFrom(sizeBefore);
     const offsetAfterPreTail = sizeBefore + Buffer.byteLength(preRenameTail, "utf-8");
