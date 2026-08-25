@@ -17,6 +17,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 
 // mt#4489 — STATIC, deliberately, and this is the fix rather than a tidy-up.
 //
@@ -160,18 +161,10 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 

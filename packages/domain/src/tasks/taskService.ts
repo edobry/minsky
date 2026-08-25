@@ -261,6 +261,16 @@ export async function createConfiguredTaskService(options: {
       }
 
       // Add minsky backend (mt# prefix) - persistence is guaranteed
+      // EXEMPT from mt#4543's capability conversion, deliberately — do not "fix" this to
+      // `isSqlCapable`. Admitting the unconfigured placeholder here is the POINT: it
+      // defines `getDatabaseConnection` and throws the verbatim boot reason, the catch
+      // below carries that reason into `setBackendUnavailable`, and `listTasks` then
+      // raises with it. A capability guard short-circuits before the throw and the cause
+      // is replaced by a generic "not configured" string — which
+      // `taskService.test.ts`'s "carries the boot reason end-to-end" (mt#3636) exists to
+      // prevent, and which is what caught the attempt.
+      //
+      // The method-presence check is load-bearing at THIS site rather than insufficient.
       if (
         "getDatabaseConnection" in persistenceProvider &&
         typeof persistenceProvider.getDatabaseConnection === "function"

@@ -21,6 +21,7 @@
 import { z } from "zod";
 import { getErrorMessage, ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "../../persistence/types";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
   TaskServiceOptions,
@@ -133,13 +134,14 @@ export async function listTasksFromParams(
     let projectScope: ProjectScope = ALL_PROJECTS;
     if (!validParams.allProjects) {
       const persistenceProvider = deps?.persistenceProvider;
-      if (persistenceProvider && "getDatabaseConnection" in persistenceProvider) {
+      // Capability, not method presence (mt#4543). The guard narrows, so the cast and
+      // the `?.()` that hedged it are both gone — `getDatabaseConnection` is required on
+      // the narrowed type.
+      if (isSqlCapable(persistenceProvider)) {
         try {
           const identity = resolveProjectIdentity({ repoPath: process.cwd() });
           if (identity.kind === "resolved") {
-            const sqlProvider =
-              persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
-            const db = await sqlProvider.getDatabaseConnection?.();
+            const db = await persistenceProvider.getDatabaseConnection();
             if (db) {
               projectScope = await resolveProjectScope(identity, db, "tasks.list");
             }

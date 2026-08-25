@@ -19,6 +19,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 
 const INIT_RETRY_DELAY_MS = 5_000;
@@ -111,18 +112,18 @@ async function resolveDb(
   provider: BasePersistenceProvider,
   retryDelayMs: number = INIT_RETRY_DELAY_MS
 ): Promise<unknown> {
-  const getDb =
-    "getDatabaseConnection" in provider && typeof provider.getDatabaseConnection === "function"
-      ? provider.getDatabaseConnection
-      : undefined;
-  if (!getDb) return undefined;
+  // Capability, not method presence (mt#4543). `UnconfiguredPersistenceProvider` defines
+  // `getDatabaseConnection` and throws from it, so the old `in` check passed for exactly
+  // the provider this guard exists to skip — and the throw escaped to the caller where an
+  // `undefined` was intended.
+  if (!isSqlCapable(provider)) return undefined;
 
-  const first = await getDb.call(provider);
+  const first = await provider.getDatabaseConnection();
   if (first) return first;
 
   // mt#2980 R1: clamp to non-negative — a negative override (malformed input,
   // not a real usage today) must not be passed to setTimeout as a signal that
   // something is misconfigured; treat it as an immediate retry instead.
   await new Promise((r) => setTimeout(r, Math.max(0, retryDelayMs)));
-  return getDb.call(provider);
+  return provider.getDatabaseConnection();
 }

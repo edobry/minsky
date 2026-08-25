@@ -1,4 +1,5 @@
 import { log } from "@minsky/shared/logger";
+import { hasRawSqlConnection } from "@minsky/domain/persistence/types";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
@@ -174,23 +175,28 @@ export async function triggerStartupEmbeddingSweep(
     return;
   }
 
-  // Find tasks missing embeddings
-  // Check for SQL capability at runtime via interface checking
-  const getRawSql =
-    "getRawSqlConnection" in persistenceProvider &&
-    typeof persistenceProvider.getRawSqlConnection === "function"
-      ? persistenceProvider.getRawSqlConnection
-      : undefined;
-  const sql = getRawSql ? await getRawSql.call(persistenceProvider) : undefined;
+  // Find tasks missing embeddings. `hasRawSqlConnection` asks BOTH halves (mt#4543):
+  // the sql capability — which the check above already established, so this is belt to
+  // that brace — and the presence of the OPTIONAL raw accessor, which a SQL-capable
+  // provider may genuinely not implement.
+  const sql = hasRawSqlConnection(persistenceProvider)
+    ? await persistenceProvider.getRawSqlConnection()
+    : undefined;
   if (!sql) {
     warn(classifyNoRawConnection().message);
     return;
   }
-  const missing = await (sql as import("postgres").Sql).unsafe(
+  // No `as postgres.Sql` (mt#4543) — `.unsafe` here is mt#2773's capped one, which is
+  // what this should have been calling all along. The cast that used to sit here claimed
+  // the guarded wrapper was a raw postgres-js client; the row shape is asserted instead,
+  // narrowly and against the SELECT two lines below it. (The COUNT query further down
+  // keeps its runtime guard rather than an assertion — its own comment says why: a
+  // decision turns on that value, where this one only drives a loop.)
+  const missing = (await sql.unsafe(
     `SELECT t.id FROM tasks t LEFT JOIN tasks_embeddings te` +
       ` ON t.id = te.task_id WHERE te.task_id IS NULL LIMIT $1`,
     [STARTUP_SWEEP_LIMIT]
-  );
+  )) as Array<{ id: string }>;
 
   if (missing.length === 0) return;
   log.debug(`Startup sweep: ${missing.length} tasks need embedding indexing`);
@@ -249,7 +255,7 @@ export async function triggerStartupEmbeddingSweep(
   // One extra query, once, at boot.
   let stillMissing: number;
   try {
-    const remaining = await (sql as import("postgres").Sql).unsafe(
+    const remaining = await sql.unsafe(
       `SELECT count(*)::int AS n FROM tasks t LEFT JOIN tasks_embeddings te` +
         ` ON t.id = te.task_id WHERE te.task_id IS NULL`
     );
