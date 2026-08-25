@@ -164,10 +164,20 @@ the one set on the provider via the config key or env var described above.
 ## Connection-Exhaustion Retry Policy
 
 When Supavisor, PgBouncer, or Postgres itself rejects a new connection because the pool is full,
-Minsky retries the operation automatically rather than failing immediately. Under the current
-**transaction-mode** pooler (`:6543`) this rejection is unlikely (practical ceiling in the
-thousands); the policy remains as defense-in-depth and is the primary guard when running against
-the **session-mode** pooler (`:5432`, 15-slot ceiling).
+Minsky retries the operation automatically rather than failing immediately.
+
+Under the current **transaction-mode** pooler (`:6543`) this rejection is unlikely, but **not for the
+reason this section used to give.** It claimed a "practical ceiling in the thousands" — the same
+unmeasured figure corrected at the top of this document (it originated in an agent-authored memory,
+not with the vendor). The real reason is that the tier's client ceiling is **600** and the fleet's
+measured demand is far below it: 2 pool holders at a derived default of 25 is ~50 connections, under
+10% of the budget.
+
+The distinction matters because the two claims fail differently. "Thousands" implies the ceiling can
+be ignored; 600 against measured demand is a headroom statement that stops being true if either
+number moves — so re-check both rather than treating exhaustion as impossible. The policy remains as
+defense-in-depth and is the primary guard when running against the **session-mode** pooler (`:5432`,
+15-slot ceiling), where the ceiling genuinely is tight.
 
 ### Conditions that trigger a retry
 
