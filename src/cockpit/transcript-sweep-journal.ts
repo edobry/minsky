@@ -485,13 +485,16 @@ export function summarizeJournal(journal: TranscriptSweepJournal): SweepJournalS
  * Deliberately not invalidated by the writer: the recorder and the health route
  * do not share an object, and a signal between them would be a second mechanism
  * to keep correct. The file's own metadata already says everything needed.
+ *
+ * **Not unit-tested, and deliberately not made testable.** The memo exists only
+ * on the default file-backed path, so exercising it needs a real filesystem
+ * (`custom/no-real-fs-in-tests`), and the injectable-stat seam that would avoid
+ * that is more machinery than the three-line comparison it would cover. It is
+ * exercised end-to-end instead: `health-contract.test.ts` boots the real server
+ * and fetches `/api/health`, which goes through this path. An explicitly-passed
+ * store bypasses the memo entirely, which is what every other test uses.
  */
 let cachedFileSummary: { key: string; summary: SweepJournalSummary } | null = null;
-
-/** TEST-ONLY: drop the memo so a test can observe a fresh read. */
-export function resetJournalSummaryCacheForTest(): void {
-  cachedFileSummary = null;
-}
 
 /**
  * Read-and-summarize for the health route. Never throws; degrades to an empty
