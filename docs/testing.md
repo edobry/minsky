@@ -31,7 +31,10 @@ bun run test:coverage      # With coverage reporting
 - **Purpose**: Tests that interact with real external systems
 - **Speed**: Slower (can take minutes, depends on API responses)
 - **Dependencies**: Real APIs (GitHub, Morph AI), network connectivity
-- **CI/Pre-commit**: **Never runs automatically**
+- **CI/Pre-commit**: Never in pre-commit, and never in the required `build` check. Parts DO run in
+  CI: `.github/workflows/integration-tests.yml` runs the credential-free file on matching PRs and
+  the Docker suite nightly (see below). Every job in that workflow is informational — treat a red
+  one as a heads-up, not a merge blocker.
 - **Coverage**: End-to-end workflows, real API interactions
 
 **Examples**:
@@ -45,6 +48,43 @@ bun run test:integration   # Run all integration tests
 - **GitHub API**: Set `GITHUB_TOKEN` environment variable
 - **Morph AI**: Configure with `minsky config set ai.providers.morph.apiKey your-key`
 - **Network**: Internet connectivity required
+
+### Docker/testcontainer Integration Tests
+
+**Command**: `bun run test:integration:docker`
+
+A subset of the integration tests start a real Postgres container through `testcontainers` rather
+than talking to a hosted service. They are selected by **filename suffix**, not by directory:
+
+```
+tests/integration/*.testcontainer.integration.test.ts
+```
+
+**That suffix is the entire selection mechanism, and it is the thing to get right.** A file ending
+in plain `.integration.test.ts` is picked up by `test:integration` instead, which does not set
+`RUN_TESTCONTAINER_TESTS` and assumes no Docker daemon — so its container never starts. Nothing
+reports this: the file runs, its testcontainer guard skips, the suite is green, and the test reads
+as coverage while providing none. Give the file the full `.testcontainer.integration.test.ts`
+suffix, or it is silently not a container test.
+
+Both env flags are required; `test:integration:docker` sets both:
+
+```bash
+RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1
+```
+
+**Where it runs.** The `docker-suite` job in `.github/workflows/integration-tests.yml` — nightly on
+a `17 7 * * *` schedule, plus a `workflow_dispatch` that opts in explicitly. The job is
+`continue-on-error: true` by deliberate decision (a flake-prone container suite must not gate
+merges), so **a failure there does not turn the workflow run red**: the signal lives in the job's
+own conclusion and annotations, and nothing notifies. Someone has to open the run. Budget your
+expectations accordingly — this suite tells you about a regression the morning after, if you look.
+
+**The repo-wide reachability check does not cover this tree.** mt#3935's check reports test files
+that no configured suite would execute, but its scope explicitly excludes `tests/integration` —
+"reached on purpose by a different path, not a hole." A mis-suffixed file is therefore invisible to
+it as well. This naming convention is precisely what keeps that carve-out true, which is why it is
+written down here rather than left to be inferred from `package.json`.
 
 ### All Tests
 
@@ -228,6 +268,10 @@ If taking longer:
 ### Integration Test
 
 - Place in `tests/integration/**/*.integration.test.ts`
+- **Needs a real Postgres container?** Use the full `*.testcontainer.integration.test.ts` suffix.
+  That suffix is what `test:integration:docker` selects on, and a file without it never gets a
+  container — it runs under `test:integration` and skips silently. See
+  [Docker/testcontainer Integration Tests](#dockertestcontainer-integration-tests).
 - Can use real APIs with proper error handling
 - Must handle API failures gracefully (skip if credentials missing)
 - Document any required environment setup
