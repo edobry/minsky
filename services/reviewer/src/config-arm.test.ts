@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { applyArmToConfig, assignArm, EXPERIMENT_MODEL_ENV_VAR, type ArmName } from "./config-arm";
+import {
+  applyArmToConfig,
+  assignArm,
+  EXPERIMENT_MODEL_ENV_VAR,
+  foreignProviderFor,
+  type ArmName,
+} from "./config-arm";
 import type { ReviewerConfig } from "./config";
 
 const INCUMBENT_MODEL = "gpt-5";
@@ -138,6 +144,88 @@ describe("assignArm — inputs that cannot be a PR number", () => {
     // Still true — an experiment IS configured; this input just could not be
     // assigned. Reporting false here would hide a real misroute.
     expect(assignment.experimentActive).toBe(true);
+  });
+});
+
+describe("foreignProviderFor", () => {
+  test.each([
+    ["gpt-5.6-luna", "google", "openai"],
+    ["gpt-5", "anthropic", "openai"],
+    ["claude-sonnet-4-6", "openai", "anthropic"],
+    ["gemini-2.5-pro", "openai", "google"],
+    ["o3-mini", "google", "openai"],
+  ] as const)("%s under provider %s is detected as %s", (model, provider, expected) => {
+    expect(foreignProviderFor(model, provider)).toBe(expected);
+  });
+
+  test.each([
+    ["gpt-5.6-luna", "openai"],
+    ["claude-sonnet-4-6", "anthropic"],
+    ["gemini-2.5-pro", "google"],
+  ] as const)("%s under its own provider %s is not foreign", (model, provider) => {
+    expect(foreignProviderFor(model, provider)).toBeNull();
+  });
+
+  test("an unrecognized model name is not treated as foreign", () => {
+    // The check is a denylist of known foreign families, not an allowlist of
+    // valid models: a model family that ships tomorrow must not be rejected
+    // because nobody has added its prefix here yet.
+    expect(foreignProviderFor("some-future-openai-model", "openai")).toBeNull();
+    expect(foreignProviderFor("some-future-openai-model", "google")).toBeNull();
+  });
+
+  test("detection is case-insensitive and ignores surrounding whitespace", () => {
+    expect(foreignProviderFor("  GPT-5.6-Luna  ", "google")).toBe("openai");
+  });
+});
+
+describe("assignArm — cross-vendor candidate is refused", () => {
+  const crossVendorEnv: Record<string, string | undefined> = {
+    [EXPERIMENT_MODEL_ENV_VAR]: "gpt-5.6-luna",
+  };
+  const googleConfig: ReviewerConfig = {
+    ...baseConfig,
+    provider: "google",
+    providerModel: "gemini-2.5-pro",
+  };
+
+  test("keeps the incumbent for an even PR that would otherwise take the candidate", () => {
+    // 3342 is even, so without the guard this PR would call the Google client
+    // with an OpenAI model string and the review would fail.
+    const assignment = assignArm(3342, googleConfig, crossVendorEnv);
+    expect(assignment.arm).toBe("incumbent");
+    expect(assignment.model).toBe("gemini-2.5-pro");
+  });
+
+  test("reports the refusal rather than failing silently", () => {
+    const assignment = assignArm(3342, googleConfig, crossVendorEnv);
+    expect(assignment.rejectedCandidate).toEqual({
+      model: "gpt-5.6-luna",
+      foreignProvider: "openai",
+    });
+    // experimentActive stays true: an experiment IS configured, it just cannot
+    // run. Reporting false would make a misconfiguration look like "nothing
+    // was set up", which is the state an operator would not investigate.
+    expect(assignment.experimentActive).toBe(true);
+  });
+
+  test("refuses for odd PRs too, so the log fires regardless of which arm was drawn", () => {
+    // An odd PR would keep the incumbent anyway, but the operator still needs
+    // to learn the experiment is not running — and half the PRs being odd
+    // would otherwise halve the chance of noticing.
+    const assignment = assignArm(3341, googleConfig, crossVendorEnv);
+    expect(assignment.rejectedCandidate?.foreignProvider).toBe("openai");
+  });
+
+  test("a same-vendor candidate is not refused", () => {
+    const assignment = assignArm(3342, baseConfig, experimentEnv);
+    expect(assignment.rejectedCandidate).toBeUndefined();
+    expect(assignment.arm).toBe("candidate");
+  });
+
+  test("applyArmToConfig keeps the incumbent config on a refused candidate", () => {
+    // The whole point: a misconfigured experiment must not reach the client.
+    expect(applyArmToConfig(googleConfig, 3342, crossVendorEnv)).toBe(googleConfig);
   });
 });
 

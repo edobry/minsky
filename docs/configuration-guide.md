@@ -252,6 +252,18 @@ reviewer:
 > Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
 > not require any token (the reviewer bot advertises it in its status comment).
 
+### Service-side configuration lives with the service
+
+Everything above is **operator→service** configuration: what you set locally to talk to the
+reviewer. The reviewer service's own environment — `REVIEWER_PROVIDER`, `REVIEWER_MODEL`, the
+network-call timeouts, the behavioural feature flags, and `REVIEWER_EXPERIMENT_MODEL` (the
+per-PR model A/B, mt#4569) — is documented in **`services/reviewer/README.md`**, and is set on
+the deployed service rather than in `~/.config/minsky/config.yaml`.
+
+Deliberately a pointer and not a copy: none of those variables are listed here today, so
+adding one would create a second, partial home for the set and leave a reader unable to tell
+whether an absent variable is undocumented or nonexistent.
+
 ## Cockpit Configuration
 
 The cockpit daemon binds to loopback (`127.0.0.1`) and enforces a Host-header allowlist as a

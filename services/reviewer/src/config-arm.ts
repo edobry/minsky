@@ -45,6 +45,17 @@
  * this module existed. Starting an experiment is setting one env var; ending
  * one is unsetting it. Neither is a code change.
  *
+ * ## A candidate from the wrong vendor is refused, not honoured
+ *
+ * `REVIEWER_PROVIDER` selects which client is constructed; `REVIEWER_MODEL`
+ * names a model that client can call. Before this module there was one model
+ * per provider and no way to misalign them. An experiment var makes it easy —
+ * setting a `gpt-` model while the provider is `google` would send half of all
+ * reviews to the Google client with an OpenAI model string, failing every one
+ * of them. So a candidate that plainly belongs to another vendor is refused
+ * and the incumbent is kept, with the refusal surfaced as an `error`-level log
+ * by the caller.
+ *
  * ## Where the arm gets recorded
  *
  * Nowhere in this module. `runReview` substitutes the returned config at its
@@ -70,6 +81,44 @@ export type ArmName = "incumbent" | "candidate";
  */
 export const EXPERIMENT_MODEL_ENV_VAR = REVIEWER_CALLTIME_ENV_VAR_NAMES.EXPERIMENT_MODEL;
 
+/**
+ * Model-name prefixes that identify a vendor, used ONLY to detect a candidate
+ * belonging to a provider other than the configured one.
+ *
+ * This is a denylist of foreign families, not an allowlist of valid models,
+ * and the asymmetry is deliberate. An allowlist would reject a new model
+ * family the day it ships — blocking a legitimate experiment on a name nobody
+ * has added here yet — while a foreign-family check rejects only the
+ * misconfiguration that is actually reachable: pointing the arm at a model the
+ * configured client cannot call at all. Unrecognized names pass through,
+ * because a name this file does not know is far more likely to be a new model
+ * than a cross-vendor mistake.
+ */
+const PROVIDER_MODEL_PREFIXES: Record<ReviewerConfig["provider"], readonly string[]> = {
+  openai: ["gpt-", "o1", "o3", "o4"],
+  google: ["gemini-"],
+  anthropic: ["claude-"],
+};
+
+/**
+ * The provider a model name plainly belongs to, when that is NOT the
+ * configured one. `null` means "no conflict detected" — either it matches the
+ * configured provider's family, or it matches nothing known.
+ */
+export function foreignProviderFor(
+  model: string,
+  provider: ReviewerConfig["provider"]
+): ReviewerConfig["provider"] | null {
+  const normalized = model.trim().toLowerCase();
+  for (const [candidate, prefixes] of Object.entries(PROVIDER_MODEL_PREFIXES) as Array<
+    [ReviewerConfig["provider"], readonly string[]]
+  >) {
+    if (candidate === provider) continue;
+    if (prefixes.some((prefix) => normalized.startsWith(prefix))) return candidate;
+  }
+  return null;
+}
+
 export interface ArmAssignment {
   arm: ArmName;
   /** The model this PR's reviews should use. */
@@ -80,6 +129,19 @@ export interface ArmAssignment {
    * The two are worth telling apart in a log line.
    */
   experimentActive: boolean;
+  /**
+   * Set when a candidate was configured but refused because it belongs to a
+   * different vendor than the configured provider. The assignment falls back
+   * to the incumbent; this field is what stops that from being silent.
+   *
+   * Returned rather than logged here so `assignArm` stays a pure function of
+   * its arguments — `runReview` owns the logging, as it does for every other
+   * decision on this path.
+   */
+  rejectedCandidate?: {
+    model: string;
+    foreignProvider: ReviewerConfig["provider"];
+  };
 }
 
 /**
@@ -97,13 +159,34 @@ export interface ArmAssignment {
  */
 export function assignArm(
   prNumber: number,
-  config: Pick<ReviewerConfig, "providerModel">,
+  config: Pick<ReviewerConfig, "provider" | "providerModel">,
   env: Record<string, string | undefined> = process.env
 ): ArmAssignment {
   const candidateModel = (env[EXPERIMENT_MODEL_ENV_VAR] ?? "").trim();
 
   if (candidateModel === "") {
     return { arm: "incumbent", model: config.providerModel, experimentActive: false };
+  }
+
+  // A candidate from a different vendor cannot be called by the configured
+  // client at all, so honouring it would fail every even-numbered PR's review.
+  // Refuse the swap and keep the incumbent: this runs on the review path, and
+  // an experiment that quietly does not start is a far better outcome than
+  // half of production review traffic erroring.
+  //
+  // Deliberately NOT a boot-time throw (the reviewer's alternative suggestion):
+  // this env var is read per call, not at `loadConfig`, so boot validation
+  // would miss a value changed on a running service — while a bad value would
+  // take the whole reviewer down rather than degrading one arm. The caller
+  // logs `rejectedCandidate`, so this is refused loudly rather than silently.
+  const foreignProvider = foreignProviderFor(candidateModel, config.provider);
+  if (foreignProvider !== null) {
+    return {
+      arm: "incumbent",
+      model: config.providerModel,
+      experimentActive: true,
+      rejectedCandidate: { model: candidateModel, foreignProvider },
+    };
   }
 
   if (!Number.isInteger(prNumber) || prNumber < 0) {

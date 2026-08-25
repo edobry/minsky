@@ -358,7 +358,25 @@ export async function runReview(
   const armAssignment = assignArm(prNumber, baseConfig);
   const config = applyArmToConfig(baseConfig, prNumber);
 
-  if (armAssignment.experimentActive) {
+  if (armAssignment.rejectedCandidate !== undefined) {
+    // The operator configured an experiment that cannot run: the candidate
+    // model belongs to a different vendor than the configured provider, so
+    // every even-numbered PR would have called the wrong client. The swap was
+    // refused and this review is running on the incumbent. Logged at error
+    // level because the experiment is NOT running and the corpus being
+    // collected is all-incumbent — a fact that would otherwise only surface as
+    // an inexplicably one-armed cohort table weeks later.
+    log.error("reviewer_config_arm_rejected", {
+      event: "reviewer_config_arm_rejected",
+      owner,
+      repo,
+      pr: prNumber,
+      candidateModel: armAssignment.rejectedCandidate.model,
+      candidateBelongsTo: armAssignment.rejectedCandidate.foreignProvider,
+      configuredProvider: baseConfig.provider,
+      usingModel: armAssignment.model,
+    });
+  } else if (armAssignment.experimentActive) {
     log.info("reviewer_config_arm_assigned", {
       event: "reviewer_config_arm_assigned",
       owner,
