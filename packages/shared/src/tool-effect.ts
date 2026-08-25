@@ -338,6 +338,11 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.spec.patch": "mutates",
   "tasks.spec.search_replace": "mutates",
   "tasks.status.set": "mutates",
+  // mt#4571: `supervise` writes a supervision row that causes the cockpit
+  // daemon to start spawning agents on this umbrella's children, so it mutates
+  // rather more than most — `supervise-stop` is what takes that back.
+  "tasks.supervise": "mutates",
+  "tasks.supervise-stop": "mutates",
   "tasks.claims.release": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
@@ -356,6 +361,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.spec.freshness": "reads",
   "tasks.spec.get": "reads",
   "tasks.status.get": "reads",
+  "tasks.supervision-status": "reads",
 
   // --- session workspace files (registered on the MCP surface, not the shared
   //     registry — `debug.listMethods` does not report these) ------------------
