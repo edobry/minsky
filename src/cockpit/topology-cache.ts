@@ -24,7 +24,7 @@ import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { findRepoRoot } from "./web-dist";
 import { githubRepoWebBase } from "./session-detail";
 import { createEpochKeyedCache, getSharedPersistenceService } from "./shared-persistence";
-import { describeSourceFailure } from "./source-failure-log";
+import { describeQueryFailure, describeSourceFailure } from "./source-failure-log";
 import {
   deriveHookRegistry,
   parseHookInstallLog,
@@ -174,7 +174,7 @@ async function fetchRetrospectiveEvents(): Promise<RetrospectiveEventInput[]> {
     return events.map((e) => ({ id: e.id, createdAt: e.createdAt, payload: e.payload }));
   } catch (err) {
     log.debug("topology-cache: retrospective.fired fetch failed", {
-      message: describeSourceFailure(err),
+      message: describeQueryFailure(err),
     });
     return [];
   }

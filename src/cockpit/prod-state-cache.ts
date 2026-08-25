@@ -35,7 +35,7 @@ import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
 import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
-import { describeSourceFailure } from "./source-failure-log";
+import { describeQueryFailure, describeSourceFailure } from "./source-failure-log";
 
 /**
  * Cache filename under the Minsky state dir. The CONSUMER hook
@@ -106,7 +106,7 @@ export async function buildProdStateSnapshot(sql: UnsafeSql): Promise<ProdStateS
     };
   } catch (err) {
     log.warn("prod-state-cache: ledger query failed", {
-      message: describeSourceFailure(err),
+      message: describeQueryFailure(err),
     });
     return null;
   }
