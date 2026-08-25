@@ -2106,6 +2106,67 @@ export function startDispatchWatchdogSweeper(intervalMs?: number): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// Unattended task supervision sweeper (mt#4571)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cadence for the supervision tick.
+ *
+ * 60s, matching the sweeps that watch for something to react to promptly
+ * (`startAskAdvancementSweeper`, `startFollowUpSweeper`,
+ * `startConversationPresenceSweeper`) rather than the 5-minute cache-refresh
+ * cohort. Grounded rather than picked: measured over the 60 days to 2026-08-25,
+ * a child's `[session.started, pr.merged]` duration was median 0.68h / p90
+ * 7.26h, so a 60s tick sits far inside the signal it is watching and bounds
+ * dispatch LATENCY, not any threshold.
+ */
+const TASK_SUPERVISION_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Start the unattended task-supervision sweep in this cockpit process (mt#4571).
+ *
+ * This is the tick that makes assigning an umbrella actually start a
+ * workstream: each pass settles children that finished, recomputes the
+ * umbrella's frontier, and spawns a genuine `claude` child for whatever is now
+ * unblocked — up to the supervision's WIP limit. The behaviour lives in
+ * `@minsky/domain/supervision/supervision-tick`; the actuator wiring lives in
+ * `./task-supervision-sweep.ts`. Both are kept out of this file so this stays a
+ * registration list.
+ *
+ * Registered alongside `startDispatchWatchdogSweeper` on the daemon, which the
+ * Accepted RFC "Conversation-first drive" already names as the actuator host —
+ * SC2 consumes that decision rather than re-deriving it.
+ *
+ * Fail-open: unavailable services or a failed pass logs and waits for the next
+ * tick. It reports `ok: false` in that case rather than a blanket `ok: true`,
+ * so `/api/sweeps` can tell a supervisor that is failing every pass from one
+ * with nothing to do.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startTaskSupervisionSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "task supervision",
+    intervalMs: intervalMs ?? TASK_SUPERVISION_SWEEP_INTERVAL_MS,
+    tick: async (signal: AbortSignal): Promise<SweepTickResult> => {
+      try {
+        const { runTaskSupervisionSweepTick } = await import("./task-supervision-sweep");
+        // Honours the abandonment signal (mt#4335). Most sweeps read; this one
+        // SPAWNS, so an abandoned tick that keeps iterating keeps starting real
+        // `claude` processes — the tick stops taking on new candidates and new
+        // supervisions once the signal fires.
+        const { ok } = await runTaskSupervisionSweepTick(undefined, signal);
+        return { ok };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: task supervision sweep failed", { message });
+        return { ok: false };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Slow-clock topology sweeper (mt#2602)
 // ---------------------------------------------------------------------------
 
