@@ -675,6 +675,101 @@ work is succeeding is visible on `/api/sweeps` beside its scheduling fields.
 mandatory, so "migrating each sweep onto it is separate work" no longer
 applies — every registrant now declares one.)
 
+## Unattended task-supervision sweeper (mt#4571)
+
+The sweep that makes assigning an umbrella actually start a workstream. The
+principal's ask, verbatim: _"I want to assign the umbrella so that I can be
+confident that I kicked off the entire work stream … I can then leave my
+computer for a few hours and know that the 'supervisor agent' will proceed to
+walk that task tree without me having to watch."_
+
+**Almost nothing here is new.** mt#4571's planning pass checked six premises at
+source and falsified three: a runner that outlives the operator already exists
+(this file's `createIntervalSweeper`), the actuator that spawns a genuine
+`claude` child already shipped (mt#2750, with mt#3038's persistence and
+restart reconciliation), and the graph reasoning already exists
+(`TaskGraphService`). What was missing was a **supervision record and a tick
+that walks it** — plus a usable completion signal, below.
+
+**The record.** `task_supervisions` (one row per supervised umbrella: explicit
+status filter, WIP limit, model, event watermark, `last_tick_at`,
+`last_advance_at`, `last_hold_reason`) and `task_supervision_dispatches` (one
+row per child started, unique on `(supervision_id, task_id)`). A partial unique
+index on `umbrella_task_id WHERE status = 'active'` makes at-most-one-active a
+database guarantee rather than a check-then-insert two concurrent callers would
+both pass. `DrizzleSupervisionStore`
+(`packages/domain/src/supervision/supervision-store.ts`) owns the reads and
+writes; `runSupervisionTick` (`../supervision-tick.ts`) owns the decisions and
+takes its dependencies as an interface, so the DAG walk is testable without a
+database or a real child process.
+
+**The tick**, every 60 seconds, per active supervision, under a
+`pg_try_advisory_xact_lock` keyed on the supervision id (a second daemon's tick
+takes no lock and does nothing):
+
+1. **Settle from `pr.merged`** — rows since the supervision's watermark that
+   name a dispatched child.
+2. **Reconcile against the graph** — re-read each in-flight child's task status
+   and its driven-session record. This is the backstop that makes a missed
+   event non-fatal (`decision-defaults.mdc §Reliability`).
+3. **Recompute the frontier** via `computeUmbrellaFrontier`
+   (`packages/domain/src/tasks/umbrella-frontier.ts`), the same function
+   `tasks.orchestrate` uses — extracted so the command an operator inspects an
+   umbrella with and the supervisor that dispatches from it cannot disagree
+   about whether a child is blocked.
+4. **Dispatch up to the free WIP slots** — `resolveTaskWorkspace` →
+   `startDrivenSession` → `sendDrivenSessionInput` with a prompt from
+   `generateSubagentPrompt`. Note this does NOT call `tasks_dispatch`, which
+   spawns nothing: it ends at prompt generation, gated on
+   `hasNativeSubagentSupport()`, returning a prompt for a HARNESS to hand to its
+   Agent tool. A sweeper has no harness.
+
+**`task.status_changed` is deliberately not used.** Its only emitter is
+`emitTaskStatusChangedEvent`, called from the `tasks_status_set` path; a
+merge-driven DONE goes through `applyPostMergeStateSync` →
+`taskService.setTaskStatus`, which emits nothing. So a child completing the
+ordinary way produces no row at all. mt#4574 owns closing that gap and is
+deliberately NOT a dependency — `pr.merged` covers the trigger, so mt#4574 buys
+a uniform stream rather than unblocking anything.
+
+**Thresholds, measured rather than picked** (`decision-defaults.mdc
+§Thresholds`), from one pass over `system_events` on 2026-08-25 treating a
+child's window as `[min(session.started), min(pr.merged)]`:
+
+| Threshold                  | Value | Measurement                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WIP limit, per supervision | 4     | Per-umbrella peak concurrency over 60 days across 86 umbrellas: median 1, p90 1, p95 2, **max 4**. The limit is the observed maximum — the median would refuse parallelism that has demonstrably happened, and a round 8 or 10 has no observed support. Whole-system concurrency over the same window was median 8 / p95 14 / peak 22, so one umbrella at its cap cannot monopolize capacity. |
+| Semantic-stall threshold   | 8h    | Child duration, 1,156 spans: median 0.68h, p90 7.26h, p95 18.37h. p90 rounded up to the next whole hour.                                                                                                                                                                                                                                                                                      |
+| Tick cadence               | 60s   | The 60s sweeper cohort. Median child duration is 41 minutes, so the tick bounds dispatch LATENCY, not any threshold.                                                                                                                                                                                                                                                                          |
+
+**Bounded autonomy.** The supervisor calls exactly three actuators (resolve a
+workspace, spawn a child, hand it its prompt). It never merges, answers an ask,
+changes scope, or **retries a failed child** — an automatic retry would burn a
+WIP slot indefinitely on work that needs a person, so a failure becomes a
+`failed`/`stranded` dispatch row instead. A child that needs a decision escalates
+through the ordinary asks surface, which reaches the operator's inbox
+independently of the supervisor.
+
+**Observability.** Liveness of the TICK is covered generically by the
+sweep-liveness registry below under the name `"task supervision"`. What is
+net-new is the SEMANTIC stall — the tick is healthy and nothing has advanced —
+which `startSweepMetaWatchdog` structurally cannot see, because it watches for a
+dead tick. That is what `last_advance_at` is separate from `last_tick_at` for,
+and `tasks.supervision-status` reports it as a distinct `stalled` flag.
+
+**Command surface** (`src/adapters/shared/commands/tasks/supervision-commands.ts`):
+
+```
+tasks.supervise            — start supervising an umbrella
+tasks.supervision-status   — what is dispatched, what it is waiting on, has it stalled
+tasks.supervise-stop       — dispatch nothing further (already-started children keep running)
+```
+
+**Verification artifact:** `scripts/verify-task-supervision.ts` — exercises the
+store, the partial unique index, the advisory lock's exclusion across two
+connections, and the full AT1 walk against a real Postgres with a seeded
+fixture DAG.
+
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
 Every periodic sweep in this file is built on the shared `createIntervalSweeper`
