@@ -5,6 +5,7 @@ import type {
   DeleteTaskOptions,
   TaskBackend as TaskBackendInterface,
 } from "./types";
+import { isSqlCapable } from "../persistence/types";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 import { getGitHubBackendConfig } from "./githubBackendConfig";
@@ -261,10 +262,10 @@ export async function createConfiguredTaskService(options: {
       }
 
       // Add minsky backend (mt# prefix) - persistence is guaranteed
-      if (
-        "getDatabaseConnection" in persistenceProvider &&
-        typeof persistenceProvider.getDatabaseConnection === "function"
-      ) {
+      // Capability, not method presence (mt#4543) — the unconfigured placeholder defines
+      // the method and throws from it, so the old check admitted it and the `try` below
+      // was what actually skipped the backend. Now the guard is.
+      if (isSqlCapable(persistenceProvider)) {
         try {
           const db = await persistenceProvider.getDatabaseConnection();
           if (db) {

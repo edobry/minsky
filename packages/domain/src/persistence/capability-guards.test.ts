@@ -83,6 +83,14 @@ describe("isSqlCapable", () => {
     expect(isSqlCapable(viaProperty(SQL_ONLY))).toBe(true);
   });
 
+  test("is false when the capability is CLAIMED but the method is absent", () => {
+    // The mirror of the defect, and the case that made this guard two checks instead of
+    // one: `startup-transcript-ingest.test.ts` pins a provider shaped exactly like this
+    // and requires an early return. A capability-only guard turns that into a TypeError.
+    expect(isSqlCapable({ capabilities: SQL_ONLY })).toBe(false);
+    expect(isSqlCapable({ getCapabilities: () => SQL_ONLY })).toBe(false);
+  });
+
   test("fails closed on anything that cannot answer the question", () => {
     expect(isSqlCapable(null)).toBe(false);
     expect(isSqlCapable(undefined)).toBe(false);
@@ -102,8 +110,16 @@ describe("isSqlCapable", () => {
 describe("isVectorCapable", () => {
   test("separates the vector axis from the sql axis", () => {
     expect(isVectorCapable(viaMethod(SQL_ONLY))).toBe(false);
-    expect(isVectorCapable(viaMethod({ ...SQL_ONLY, vectorStorage: true }))).toBe(true);
+    expect(
+      isVectorCapable(
+        viaMethod({ ...SQL_ONLY, vectorStorage: true }, { getVectorStorageForDomain: () => ({}) })
+      )
+    ).toBe(true);
     expect(isVectorCapable(new UnconfiguredPersistenceProvider("none"))).toBe(false);
+  });
+
+  test("requires the method too, same as isSqlCapable", () => {
+    expect(isVectorCapable(viaMethod({ ...SQL_ONLY, vectorStorage: true }))).toBe(false);
   });
 });
 

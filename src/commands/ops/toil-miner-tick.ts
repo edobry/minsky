@@ -16,6 +16,7 @@
  */
 
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 import { log } from "@minsky/shared/logger";
@@ -55,16 +56,17 @@ export async function toilMinerOpsTick(container: AppContainerInterface): Promis
   const taskService = container.get("taskService");
   const persistence = container.get("persistence");
 
-  if (
-    !("getDatabaseConnection" in persistence) ||
-    typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
+  // Capability, not method presence (mt#4543). PR #2620 R1 caught this same class here
+  // and answered it with the try/catch below, because the `in` check could not: the
+  // placeholder DEFINES the method. Asking the capability makes the guard the thing that
+  // fires, and the catch below belt-to-braces a provider that claims sql and still fails.
+  if (!isSqlCapable(persistence)) {
     throw new Error(
       // Provider already in hand — the domain helper directly (mt#3661).
-      `engprod_toil_miner: no getDatabaseConnection — ${describePersistenceUnavailability(persistence)}`
+      `engprod_toil_miner: not SQL-capable — ${describePersistenceUnavailability(persistence)}`
     );
   }
-  const sqlPersistence = persistence as SqlCapablePersistenceProvider;
+  const sqlPersistence: SqlCapablePersistenceProvider = persistence;
   let db: Awaited<ReturnType<SqlCapablePersistenceProvider["getDatabaseConnection"]>>;
   try {
     db = await sqlPersistence.getDatabaseConnection();

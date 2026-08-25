@@ -164,12 +164,22 @@ function readCapabilities(provider: unknown): PersistenceCapabilities | undefine
 /**
  * Is this provider SQL-capable? The ONE place that question is answered.
  *
- * **Ask this, never `"getDatabaseConnection" in provider`.** That idiom was the repo's
- * majority form (44 sites when mt#4543 measured it) and it cannot work:
- * `UnconfiguredPersistenceProvider` DEFINES `getDatabaseConnection()` — the body throws
- * `PersistenceUnavailableError` — so the check passes for the exact provider it was
- * written to catch, and the call is made anyway. `capabilities.sql` is the distinction
- * that actually holds.
+ * **Two checks, and BOTH are load-bearing.** This is the correction that matters, because
+ * the obvious reading of the defect is wrong in both directions:
+ *
+ * - **Method presence alone is insufficient.** `UnconfiguredPersistenceProvider` DEFINES
+ *   `getDatabaseConnection()` — the body throws `PersistenceUnavailableError` — so
+ *   `"getDatabaseConnection" in provider` passes for the exact provider it was written to
+ *   catch. That is the defect mt#4543 exists to fix, across 44 sites.
+ * - **Capability alone is ALSO insufficient.** A provider can declare `sql: true` and not
+ *   implement the method; `startup-transcript-ingest.test.ts` pins exactly that case
+ *   ("returns early when getDatabaseConnection is not available"), and a capability-only
+ *   guard turns its early return into a `TypeError`. Found by that test, on this change.
+ *
+ * So the old idiom was INSUFFICIENT, not backwards — and a fix that merely swapped one
+ * insufficient check for the other would have traded a throw-where-undefined-was-meant
+ * for a different throw in the same place. Ask both: does it claim the capability, and
+ * does it have the method the narrowed type promises.
  *
  * **Why a guard rather than the check inlined at each call site.** ADR-002 considered
  * and REJECTED "Runtime Capability Gating" — `if (!this.capabilities.X) throw` written
@@ -189,7 +199,10 @@ function readCapabilities(provider: unknown): PersistenceCapabilities | undefine
  * one available at this layer.
  */
 export function isSqlCapable(provider: unknown): provider is SqlCapablePersistenceProvider {
-  return readCapabilities(provider)?.sql === true;
+  if (readCapabilities(provider)?.sql !== true) return false;
+  return (
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function"
+  );
 }
 
 /**
@@ -198,7 +211,11 @@ export function isSqlCapable(provider: unknown): provider is SqlCapablePersisten
  * `PostgresVectorPersistenceProvider`).
  */
 export function isVectorCapable(provider: unknown): provider is VectorCapablePersistenceProvider {
-  return readCapabilities(provider)?.vectorStorage === true;
+  if (readCapabilities(provider)?.vectorStorage !== true) return false;
+  return (
+    typeof (provider as { getVectorStorageForDomain?: unknown }).getVectorStorageForDomain ===
+    "function"
+  );
 }
 
 /**
