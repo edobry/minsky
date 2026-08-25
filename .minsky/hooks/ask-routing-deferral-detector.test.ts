@@ -83,6 +83,23 @@ describe("mt#4483 — a principal-reserved phrase negated by its own complement"
     });
   }
 
+  // PR #3330 R1: punctuation between the phrase and its complement.
+  for (const sep of ["—", "–", "-", ",", ":"]) {
+    test(`PR #3330 R1: "${sep}" between phrase and complement still suppresses`, () => {
+      const matches = detectDeferralPhrases(`mt#4458 needs your call${sep}on nothing.`);
+      expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);
+    });
+  }
+
+  /**
+   * The separator class must not swallow a clause boundary: after a period the
+   * next words are a new assertion, not this phrase's complement.
+   */
+  test("PR #3330 R1: a clause-ending period does NOT bridge to the complement", () => {
+    const matches = detectDeferralPhrases("mt#4458 needs your call. On nothing else does it wait.");
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(true);
+  });
+
   test("SC1: the complement match is case-insensitive", () => {
     const matches = detectDeferralPhrases("mt#4458 needs your call ON NOTHING.");
     expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);

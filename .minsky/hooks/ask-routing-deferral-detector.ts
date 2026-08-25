@@ -224,8 +224,19 @@ export const PRINCIPAL_RESERVED_PATTERNS: RegExp[] = [
  *
  * Widening to any of those wants its own measured window first, per ADR-024
  * clause (b)'s "0 known-FP AND <=5% new false-negative" bar.
+ *
+ * PR #3330 R1: the separator class admits an em/en dash, hyphen, comma or colon
+ * as well as whitespace. Anchoring on `\s*` alone left `needs your call—on
+ * nothing` firing, which is the same defect this constant exists to fix and is
+ * a live shape rather than a hypothetical — this corpus's prose is em-dash-heavy
+ * (the originating fire itself reads `... on nothing — it needs the daemon`).
+ * `.` and `;` stay OUT: they end the clause, so what follows is a new assertion
+ * rather than this phrase's complement.
+ *
+ * This does not widen what COUNTS as a negation — `on|for|about` + `nothing` is
+ * unchanged — so it cannot suppress a genuine deferral that was firing before.
  */
-const NEGATING_COMPLEMENT_RE = /^\s*(?:on|for|about)\s+nothing\b/i;
+const NEGATING_COMPLEMENT_RE = /^[\s\-—–,:]*(?:on|for|about)\s+nothing\b/i;
 
 /** Trailing chars a complement can occupy — `" about nothing"` is 14. */
 const COMPLEMENT_LOOKAHEAD_CHARS = 24;
