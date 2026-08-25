@@ -94,7 +94,7 @@ which is the growth the consolidation exists to stop.
   can't discriminate at the distances real duplicates sit at (mem#819). Closes the bypass where
   `/create-task` Step 1a is skipped by calling the tool directly.
   `MINSKY_SKIP_DUPLICATE_RECORD`.
-- **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
+- **Bind/advance spec-read** — status/session op w/o spec-read. Same guard ADVISES (never denies) on `asks_create`/`asks_edit` naming a task whose spec this session never opened (mt#4551) — an ask recommends rather than acts, and denying one can strand an escalation. `MINSKY_SKIP_SPEC_READ_CHECK` covers both legs.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
 - **Dispatch-intent write gate** — writes under read-only intent. none.

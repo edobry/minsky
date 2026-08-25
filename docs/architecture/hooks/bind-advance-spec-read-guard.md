@@ -176,6 +176,98 @@ file:line references, sketch the approach, note scope/blockers — then call
 missing `transcript_path` — exits 0 = allow. A non-READY `tasks_status_set`, an
 unguarded tool, or an unresolvable id also passes silently.
 
+## The ask seam (mt#4551) — the same premise, advisory
+
+The three tools above are ACTIONS ON a task. `asks_create` and `asks_edit` are a
+RECOMMENDATION ABOUT one: the payload names a task id, and the principal reads it
+as a work candidate. The guard's premise — this session never engaged the task's
+content — fails identically there, so the same transcript scan runs; only the
+remedy differs.
+
+**Advisory, not deny, and the reason is an asymmetry rather than a hedge.** An
+unread reference costs a re-read. A denied `asks_create` can strand an
+escalation, including a `severity: "incident"` one — the only channel that
+reaches the principal's phone. A flip to deny is operator-reserved per ADR-032
+and routes through the disposition ask `/calibration-review` files. The output is
+`additionalContext` with no `permissionDecision`, the shape `check-branch-fresh.ts`
+uses for its warnings.
+
+**Where ids are read from:** the `question`, each option's `label` and
+`description`, and each `contextRefs` entry's `ref` (a bare string or an object;
+the entry's `kind` is not consulted). `parentTaskId` is deliberately excluded —
+it names the task an ask was filed FROM, which the filing session has almost
+always just been working, so reading it would fire on the ordinary case rather
+than the recommending one.
+
+**Which spellings count, and the one measured floor (PR #3327 R1).** The
+extractor matches the delimited forms `mt#3473` / `mt-3473` / `mt_3473` at any
+digit count, and the bare form `mt3473` only at **three digits or more**. The
+floor is measured, not chosen: across the 10,201 asks in the corpus there are
+323 bare-form matches — 308 `mt` + 4 digits, 10 `mt` + 3, 1 `md` + 3 — and **all
+four `md` + 1-digit matches are literally `md5` / `MD5`**, the hash algorithm.
+Real task ids run 1 to 4 digits with exactly one at or below 2, so the floor
+removes the entire observed false-positive class at the cost of one task's bare
+spelling. A delimiter removes the ambiguity, so the delimited branch has no
+floor.
+
+The review that caught the original `#`-only pattern estimated the impact as
+"many real asks will silently bypass the advisory". Measured, that is **9 of
+7,938 asks (0.11%)** missed ENTIRELY — an alternate spelling nearly always
+co-occurs with a `#` form in the same payload. The finding is still correct on
+an axis it did not name: **77 asks carry a hyphen form and 177 a bare form**, and
+in those the id the `#` pattern missed may be the unread one, so the miss is
+partial rather than total. Recorded because the fix's size and the finding's
+stated size differ, and a later reader should inherit the number rather than the
+estimate.
+
+`.minsky/hooks/loop-preflight-pr-merge-check.ts`'s `extractTaskIds` carries the
+same `#`-only pattern. It is **deliberately not changed here**: it serves a
+different consumer (`/loop` preflight over user-typed prompts, not ask payloads),
+it normalises its output to the `mt#N` form, and no corpus of loop prompts has
+been measured — widening it blind would repeat exactly the mistake the floor
+above exists to avoid. The check that would settle it is the same one run here,
+against loop-prompt text.
+
+**One transcript pass, not one per id.** `unreadAskTaskIds` parses each candidate
+transcript once and tests every still-pending id against it, draining as they are
+credited and stopping early when nothing is left. Calling
+`specWasSurfacedInAnyTranscript` per id would re-parse the same file once per
+reference; a six-reference ask is ordinary. `MAX_ASK_TASK_REFS` (20) bounds a
+pathological payload — it is a backstop, not a tuning knob.
+
+**Why the READ and not the verdict.** The obvious alternative is to read the
+falsification out of the spec's prose. It was measured at planning and rejected:
+a fixed phrase set (`do not implement`, `do not build`, `do not re-open`,
+`CLOSED as falsified`, `falsified` in a heading), with fenced blocks and inline
+code spans elided per ADR-024's Rung 1, fires on **94 of 897 active tasks with
+roughly one true positive**. Two reasons it cannot be tightened into working:
+
+- It cannot separate a verdict on the WHOLE TASK from a live directive about part
+  of one — mt#390's "Out of scope … do not implement", mt#446's "do not build
+  independently of the sibling embeddings tasks", mt#3594's "Do NOT build a
+  second symbol-matching layer".
+- It cannot tell whose task the verdict is about — 32 of the 94 fires sit on a
+  line naming a DIFFERENT task id.
+
+That is ADR-024's paraphrase axis, and mt#4168's _"key on the TOOL CALL, never on
+a phrase set"_ is the correction this leg applies. The read is machine-recorded,
+so this leg has no matcher to tune and never joins the recall arms race. The
+residual it accepts — an agent that reads a falsified spec and recommends it
+anyway — is **mt#4561**, which changes what a failed gate (o) WRITES rather than
+trying to read prose back out.
+
+**Originating incident (2026-08-25).** `ask#10163`'s first revision led with
+"Build the cheap-model triage pilot (mt#3473)", described as approved at ask#6603
+and never built (the pre-edit body is preserved in the ask's
+`metadata.originalContent`). mt#3473's spec had recorded since 2026-08-01 that the
+pilot was measured and killed — 8 of 16 pushes its classifier called `trivial`
+carried a real BLOCKING finding — and its closing line reads _"do not implement
+the Summary/Success Criteria above as written."_ The filing conversation
+(`cbafdfe3-8d61-4e73-a679-e6f7ce9948a4.jsonl`) made 20 spec-surfacing reads across
+14 distinct task ids; mt#3473 was not among them. It DID read mt#2718, the
+umbrella whose prose supplied the stale "never built" claim. A dispatched advisor
+caught it, not any check.
+
 **Override mechanism:** Set `MINSKY_SKIP_SPEC_READ_CHECK=1` (or `true` / `yes`)
 to allow advancing/binding a genuinely-unread task. The override emits an audit
 line to stdout (non-JSON, so Claude Code's hook-output parser ignores it —
