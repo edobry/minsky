@@ -274,6 +274,48 @@ describe("matchesP0Subject (PR #2845 R1 — a retitled P0 must still be found)",
     expect(parseP0SubjectMarker("P0_SUBJECT: minsky-mcp|not-a-class")).toBeNull();
     expect(parseP0SubjectMarker(MONITOR_AUTHORED_BODY)).toBeNull();
   });
+
+  // mt#1495 SC4 — the de-duplication key for the new class.
+  const RECOVERY: AlertClass = "recovery-degraded";
+  const RECOVERY_TITLE = "[P0] cockpit: DB-pool recovery is stranding connections";
+
+  test("mt#1495: recovery-degraded round-trips as a subject marker, so its P0 coalesces", () => {
+    // `parseP0SubjectMarker` validates against ALERT_CLASSES and returns null for
+    // anything absent from it. Adding the class to the AlertClass union without
+    // adding it here would leave the marker unparseable — every 10-minute run
+    // would fail to recognize its own open P0 and file a NEW issue, which is the
+    // opposite of coalescing and would page continuously.
+    expect(parseP0SubjectMarker(formatP0SubjectMarker("cockpit", RECOVERY))).toEqual({
+      service: "cockpit",
+      failureClass: RECOVERY,
+    });
+  });
+
+  test("mt#1495: a recovery-degraded P0 does not collide with another class on the same service", () => {
+    // The de-dup key is (service, class), so the same service holding both a
+    // health-down and a recovery-degraded P0 must keep them distinct — a service
+    // can genuinely be both down and stranding connections.
+    const recoveryP0 = {
+      title: RECOVERY_TITLE,
+      body: `${MONITOR_AUTHORED_BODY}\n\n${formatP0SubjectMarker("cockpit", RECOVERY)}\n`,
+    };
+
+    expect(
+      matchesP0Subject(recoveryP0, {
+        service: "cockpit",
+        failureClass: RECOVERY,
+        canonicalTitle: RECOVERY_TITLE,
+      })
+    ).toBe(true);
+
+    expect(
+      matchesP0Subject(recoveryP0, {
+        service: "cockpit",
+        failureClass: "health-down",
+        canonicalTitle: "[P0] cockpit: Health check DOWN",
+      })
+    ).toBe(false);
+  });
 });
 
 describe("isMonitorAuthoredP0", () => {
