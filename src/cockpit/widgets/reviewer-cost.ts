@@ -6,6 +6,15 @@
  * overlaid, a per-config cohort table, a cap-pin share, and an outlier tail
  * of the ten most expensive reviews in the window.
  *
+ * Payload types and the `NOT_YET_WIRED_REASON_PREFIX` constant live in
+ * ./reviewer-cost-contract.ts (re-exported below) — that module is
+ * DELIBERATELY dependency-free so the CLIENT-side hook
+ * (../web/hooks/useReviewerCost.ts) can import it without pulling this
+ * SERVER-only module's Node dependencies (db-providers.ts ->
+ * @minsky/domain/persistence) into the browser bundle. See that module's
+ * docblock for the mt#3348 R2 incident this split fixes ("process is not
+ * defined" crashing the page at runtime, invisible to component tests).
+ *
  * ---------------------------------------------------------------------------
  * BLOCKED on mt#4546 (2026-08-25) — read this before touching `fetch()` below
  * ---------------------------------------------------------------------------
@@ -54,73 +63,15 @@
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { describeWidgetDegradedReason } from "../db-providers";
+import { NOT_YET_WIRED_REASON_PREFIX } from "./reviewer-cost-contract";
 
-// ---------------------------------------------------------------------------
-// Payload shape — mirrored by the frontend hook/page. Consumer-driven: this
-// is what mt#4557's page needs from mt#4546's accessor, not a spec of the
-// accessor's own internals.
-// ---------------------------------------------------------------------------
-
-/** One day's spend, split by token class, in the 30-day stacked chart. */
-export interface ReviewerCostDailyBucket {
-  /** UTC calendar date, "YYYY-MM-DD". */
-  date: string;
-  uncachedInputCostUsd: number;
-  cachedInputCostUsd: number;
-  /** Total output cost — INCLUDES reasoningCostUsd (a share, not a 4th class). */
-  outputCostUsd: number;
-  /** Subset of outputCostUsd attributable to reasoning tokens. */
-  reasoningCostUsd: number;
-  reviewCount: number;
-  /** The $/review line overlay. Null when reviewCount is 0 for the day. */
-  costPerReviewUsd: number | null;
-}
-
-/** One row of the per-config cohort table. */
-export interface ReviewerCostCohortRow {
-  /** Raw config-fingerprint string, or null for pre-mt#4556 rows (render as
-   * "unknown configuration" — never grouped with a populated fingerprint). */
-  configFingerprint: string | null;
-  reviewCount: number;
-  costPerReviewMedianUsd: number | null;
-  costPerReviewP90Usd: number | null;
-  /** cached_tokens / input_tokens, aggregated over the cohort. Null when no
-   * priced rows are present. */
-  cacheHitRatio: number | null;
-  /** Share of this cohort's reviews that hit the 10-round tool-use cap. */
-  capPinShare: number;
-  /** iterationIndex === 1 (index-0 skip-path rows excluded per mem#800). */
-  r1Count: number;
-  /** iterationIndex >= 2. */
-  r2PlusCount: number;
-}
-
-/** One entry in the ten-most-expensive-reviews outlier tail. */
-export interface ReviewerCostOutlierEntry {
-  reviewTimingId: string;
-  prOwner: string;
-  prRepo: string;
-  prNumber: number;
-  costUsd: number;
-  configFingerprint: string | null;
-  createdAt: string;
-}
-
-export type ReviewerCostPayload =
-  | { status: "no-data" }
-  | {
-      status: "ok";
-      windowStart: string;
-      windowEnd: string;
-      dailyBuckets: ReviewerCostDailyBucket[];
-      cohorts: ReviewerCostCohortRow[];
-      /** Overall cap-pin share across the full window (not per-cohort) — the
-       * single prominent number SC1 asks for. */
-      capPinShareOverall: number;
-      /** Exactly the ten most expensive reviews in the window (fewer if the
-       * window has fewer than ten priced reviews). */
-      outlierTail: ReviewerCostOutlierEntry[];
-    };
+export type {
+  ReviewerCostDailyBucket,
+  ReviewerCostCohortRow,
+  ReviewerCostOutlierEntry,
+  ReviewerCostPayload,
+} from "./reviewer-cost-contract";
+export { NOT_YET_WIRED_REASON_PREFIX } from "./reviewer-cost-contract";
 
 // ---------------------------------------------------------------------------
 // Widget
@@ -129,20 +80,6 @@ export type ReviewerCostPayload =
 /** Tracking ref for the blocking coordination ask — surfaced in the degraded
  * reason string so an operator reading the cockpit sees where to look. */
 const BLOCKING_ASK_REF = "ask#10301";
-
-/**
- * Stable, matchable prefix for the "mt#4546 not wired yet" degraded reason —
- * exported so the frontend hook (useReviewerCost.ts) can tell this KNOWN,
- * expected-until-mt#4546-lands state apart from a genuine LIVE query failure
- * once the accessor is wired (mt#3348 R1, reviewer-bot BLOCKING finding: a
- * page that always throws the same generic error looks identical to a real
- * outage, and gives an operator visiting the route no way to tell "not built
- * yet" from "something broke"). Both are `degraded` at the WidgetData layer
- * (accurate — the data genuinely isn't available either way), but the
- * REASON text is the distinguishing signal, and this constant is the single
- * place that contract is defined.
- */
-export const NOT_YET_WIRED_REASON_PREFIX = "reviewer-cost: blocked on mt#4546";
 
 export const reviewerCostWidget: WidgetModule = {
   id: "reviewer-cost",

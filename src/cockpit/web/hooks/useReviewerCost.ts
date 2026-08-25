@@ -18,21 +18,31 @@
  * else — including a genuine accessor failure once mt#4546 lands — throws a
  * plain `Error`, so the page's error branch stays reserved for real failures.
  *
+ * IMPORTS FROM ../../widgets/reviewer-cost-contract, NOT ./reviewer-cost
+ * (mt#3348 R2): the widget module (reviewer-cost.ts) imports db-providers.ts,
+ * a Node-only module (process.env, @minsky/domain/persistence). A VALUE
+ * import of anything from reviewer-cost.ts here would pull that whole
+ * dependency graph into the Vite CLIENT bundle and crash the page at
+ * runtime with "process is not defined" — invisible to component tests,
+ * since bun's test DOM has `process` defined and a real browser doesn't.
+ * The contract module is dependency-free specifically so both sides can
+ * import it safely.
+ *
  * Query key: ["reviewer-cost"]
  * staleTime: 30s, refetchInterval: 60s (matches the widget's own polling
  * cadence, same as useDrivenSessionCost).
  */
 import { useQuery } from "@tanstack/react-query";
 import { fetchWidgetData } from "../lib/widget-client";
-import { NOT_YET_WIRED_REASON_PREFIX } from "../../widgets/reviewer-cost";
-import type { ReviewerCostPayload } from "../../widgets/reviewer-cost";
+import { NOT_YET_WIRED_REASON_PREFIX } from "../../widgets/reviewer-cost-contract";
+import type { ReviewerCostPayload } from "../../widgets/reviewer-cost-contract";
 
 export type {
   ReviewerCostPayload,
   ReviewerCostDailyBucket,
   ReviewerCostCohortRow,
   ReviewerCostOutlierEntry,
-} from "../../widgets/reviewer-cost";
+} from "../../widgets/reviewer-cost-contract";
 
 /** Thrown when the widget's degraded reason is the KNOWN "mt#4546 isn't
  * wired yet" case, not a live query failure. The page renders this as a
