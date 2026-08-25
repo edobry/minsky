@@ -39,9 +39,30 @@ function turn(overrides: Partial<Turn> = {}): Turn {
 }
 
 const ALL = () => true;
-const labelOf = (p: ReturnType<typeof partitionBySuppression>, i: number) => p.populations[i]?.[0];
-const setOf = (p: ReturnType<typeof partitionBySuppression>, i: number) =>
-  p.populations[i]?.[1] ?? [];
+
+/**
+ * Look a population up by LABEL, never by index.
+ *
+ * The negative control taught this: reverting the fix dropped a row, which
+ * shifted every later index and turned four unrelated tests red for a reason
+ * that had nothing to do with what they assert. A positional lookup makes a
+ * suite noisy rather than precise — it fails, but not FOR the defect. Throwing
+ * on an absent label keeps a missing row a loud, attributable failure.
+ */
+function popOf(p: ReturnType<typeof partitionBySuppression>, label: string): Turn[] {
+  const row = p.populations.find(([name]) => name === label);
+  if (row === undefined) {
+    throw new Error(
+      `no population labelled "${label}" — labels are ${p.populations.map(([n]) => n).join(" | ")}`
+    );
+  }
+  return row[1];
+}
+
+const DEPTH_ONLY = "suppressed: depth-request only";
+const QA_ONLY = "suppressed: question-answer only";
+const BOTH = "suppressed: BOTH gates";
+const DELIVERED = "DELIVERED (reminder injected)";
 
 describe("partitionBySuppression — the populations are disjoint (PR #3317 R1)", () => {
   test("a turn BOTH gates suppressed lands in its own row, not in either single-gate row", () => {
@@ -51,12 +72,9 @@ describe("partitionBySuppression — the populations are disjoint (PR #3317 R1)"
     });
     const p = partitionBySuppression([both], ALL);
 
-    expect(labelOf(p, 0)).toBe("suppressed: depth-request only");
-    expect(setOf(p, 0)).toHaveLength(0);
-    expect(labelOf(p, 1)).toBe("suppressed: question-answer only");
-    expect(setOf(p, 1)).toHaveLength(0);
-    expect(labelOf(p, 2)).toBe("suppressed: BOTH gates");
-    expect(setOf(p, 2)).toHaveLength(1);
+    expect(popOf(p, DEPTH_ONLY)).toHaveLength(0);
+    expect(popOf(p, QA_ONLY)).toHaveLength(0);
+    expect(popOf(p, BOTH)).toHaveLength(1);
   });
 
   /**
@@ -64,7 +82,7 @@ describe("partitionBySuppression — the populations are disjoint (PR #3317 R1)"
    * excluded it from question-answer, so depth's denominator was inflated by
    * every both-gates turn while question-answer's was not.
    */
-  test("no turn appears in more than one population", () => {
+  test("the depth row excludes both-gates turns, so the two single-gate rows are comparable", () => {
     const turns = [
       turn({ suppressed: true, suppressionReasons: [SUPPRESSION_DEPTH_REQUEST] }),
       turn({ suppressed: true, suppressionReasons: [SUPPRESSION_QUESTION_ANSWER] }),
@@ -76,18 +94,23 @@ describe("partitionBySuppression — the populations are disjoint (PR #3317 R1)"
     ];
     const p = partitionBySuppression(turns, ALL);
 
+    // Partition-ness alone does NOT catch the defect: the pre-fix shape was a
+    // partition too — depth simply absorbed the both-gates turns while
+    // question-answer excluded them, so the two rows counted different things.
+    // Assert the comparability directly.
     const total = p.populations.reduce((n, [, set]) => n + set.length, 0);
     expect(total).toBe(turns.length);
     for (const t of turns) {
-      const appearances = p.populations.filter(([, set]) => set.includes(t)).length;
-      expect(appearances).toBe(1);
+      expect(p.populations.filter(([, set]) => set.includes(t))).toHaveLength(1);
     }
+    expect(popOf(p, DEPTH_ONLY)).toHaveLength(1);
+    expect(popOf(p, QA_ONLY)).toHaveLength(1);
+    expect(popOf(p, BOTH)).toHaveLength(1);
   });
 
   test("an unsuppressed firing turn is DELIVERED", () => {
     const p = partitionBySuppression([turn()], ALL);
-    expect(labelOf(p, 3)).toBe("DELIVERED (reminder injected)");
-    expect(setOf(p, 3)).toHaveLength(1);
+    expect(popOf(p, DELIVERED)).toHaveLength(1);
   });
 
   test("a turn that does not fire is the control, not a population member", () => {
@@ -102,7 +125,7 @@ describe("partitionBySuppression — an unreadable reaction is excluded, not sco
     const p = partitionBySuppression([turn({ reactionText: "" }), turn()], ALL);
 
     expect(p.droppedNoReaction).toBe(1);
-    expect(setOf(p, 3)).toHaveLength(1); // only the readable one is scored
+    expect(popOf(p, DELIVERED)).toHaveLength(1); // only the readable one is scored
   });
 
   test("whitespace-only counts as unreadable", () => {
@@ -119,7 +142,7 @@ describe("partitionBySuppression — an unreadable reaction is excluded, not sco
       ALL
     );
     expect(p.droppedNoReaction).toBe(2);
-    expect(setOf(p, 3)).toHaveLength(1);
+    expect(popOf(p, DELIVERED)).toHaveLength(1);
   });
 
   test("the count is zero when every reaction is readable", () => {
@@ -139,7 +162,7 @@ describe("partitionBySuppression — the window predicate is applied first", () 
       inWindow
     );
 
-    expect(setOf(p, 3)).toHaveLength(1);
+    expect(popOf(p, DELIVERED)).toHaveLength(1);
     expect(p.control).toHaveLength(0);
     // The out-of-window unreadable turn must not inflate the dropped count —
     // it was never in the measured corpus to begin with.
