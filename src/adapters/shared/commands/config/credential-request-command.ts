@@ -220,7 +220,25 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
         }).metadata[CREDENTIAL_REQUEST_METADATA_KEY];
 
         try {
-          await repo.mergeMetadataKey(ask.id, CREDENTIAL_REQUEST_METADATA_KEY, corrected);
+          const merged = await repo.mergeMetadataKey(
+            ask.id,
+            CREDENTIAL_REQUEST_METADATA_KEY,
+            corrected
+          );
+          if (!merged) {
+            // `false` means the row was terminal or gone. Moments after this
+            // command created it, either is surprising enough to be worth a
+            // line — it is the difference between "the correction was not
+            // needed" and "something closed the request underneath us", and
+            // without this they look identical from the outside (PR #3337 R5,
+            // non-blocking).
+            log.warn("credentials.request: the entry-status correction matched no row", {
+              askId: ask.id,
+              taskId: params.parentTaskId,
+              recorded: plannedEntryStatus,
+              authoritative: correction,
+            });
+          }
         } catch (err: unknown) {
           // Soft-fail like every other step on this path. The credential is the
           // deliverable, the task IS blocked, and the uncorrected value is still
