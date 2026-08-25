@@ -24,6 +24,7 @@ function mkDeployment(overrides: Partial<DeploymentRecord> = {}): DeploymentReco
     status: "SUCCESS",
     commitHash: "abc123",
     commitMessage: "test",
+    imageDigest: null,
     createdAt: "2026-07-07T00:00:00Z",
     finishedAt: "2026-07-07T00:05:00Z",
     durationMs: 300_000,

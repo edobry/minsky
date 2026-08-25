@@ -30,6 +30,8 @@ import {
   listServicesWithDeployConfig,
   resolveAdapter,
   resolveDeploymentConfig,
+  assessBuildIdentity,
+  type BuildIdentity,
   type DeploymentRecord,
 } from "../../deployment/index";
 
@@ -59,6 +61,19 @@ export interface SessionPrDrivePostMergeParams {
    * rather than silent.
    */
   mergedAt?: string;
+  /**
+   * The merge COMMIT this watch is verifying — `mergeInfo.commitHash` from the
+   * same `session.pr.merge` that supplied `mergedAt` (mt#4583).
+   *
+   * `mergedAt` bounds the deployment's TIME; this names its IDENTITY. They are
+   * different questions and the first does not answer the second: on a busy
+   * branch a NEIGHBOURING merge's deployment lands inside the window and
+   * satisfies the bound. Each per-service result therefore carries a
+   * `buildIdentity` verdict; `deployBoundApplied` reports only that the TIME
+   * bound was applied, which is exactly as reassuring — and exactly as
+   * uninformative about identity — as the SUCCESS it accompanies.
+   */
+  mergedCommitSha?: string;
 }
 
 export interface SessionPrDrivePostMergeDependencies {
@@ -77,7 +92,12 @@ export interface SessionPrDrivePostMergeDependencies {
    */
   waitForDeployment?: (
     service: string,
-    options: { timeoutSeconds?: number; pollIntervalSeconds?: number; notBefore?: string }
+    options: {
+      timeoutSeconds?: number;
+      pollIntervalSeconds?: number;
+      notBefore?: string;
+      expectCommitSha?: string;
+    }
   ) => Promise<DeploymentRecord>;
 }
 
@@ -191,14 +211,29 @@ export async function sessionPrDrivePostMerge(
       };
     }
 
-    const results: Array<{ service: string; deployment: DeploymentRecord }> = [];
+    const results: Array<{
+      service: string;
+      deployment: DeploymentRecord;
+      buildIdentity: BuildIdentity;
+      buildIdentityReason: string;
+    }> = [];
     for (const service of services) {
       const deployment = await waitForDeployment(service, {
         timeoutSeconds: params.deployTimeoutSeconds,
         pollIntervalSeconds: params.deployIntervalSeconds,
         notBefore: params.mergedAt,
+        expectCommitSha: params.mergedCommitSha,
       });
-      results.push({ service, deployment });
+      // mt#4583: per-service, because services deploy independently — one can
+      // carry this merge while another is still serving a neighbour's build,
+      // and a single aggregate verdict would hide that.
+      const identity = assessBuildIdentity(deployment, params.mergedCommitSha);
+      results.push({
+        service,
+        deployment,
+        buildIdentity: identity.identity,
+        buildIdentityReason: identity.reason,
+      });
     }
 
     return {

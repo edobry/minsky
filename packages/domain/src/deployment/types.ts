@@ -48,6 +48,19 @@ export interface DeploymentRecord {
   commitHash: string | null;
   /** Commit message deployed, when known. */
   commitMessage: string | null;
+  /**
+   * Container image digest deployed, when the platform reports one (mt#4583).
+   *
+   * Present for image-source services, which are exactly the ones where
+   * `commitHash` is null — the platform deploys a pushed image and never sees
+   * the commit. It does NOT identify which commit produced the image, so it is
+   * not a substitute for `commitHash`; it distinguishes a genuine release from
+   * a redeploy of the SAME image (mem#551), which is a different question.
+   *
+   * Railway already returns this inside the deployment's `meta` object; it was
+   * being dropped at the mapping boundary rather than being unavailable.
+   */
+  imageDigest: string | null;
   /** ISO8601 timestamp the deployment was created. */
   createdAt: string;
   /** ISO8601 timestamp the deployment reached a terminal state, when known. */
@@ -123,8 +136,26 @@ export interface WaitForLatestOptions {
    * carries no `commitHash` (verified on the reviewer service, whose working
    * deploys have a null hash while its older repo-source builds have one), so
    * commit comparison is not available on the path that matters.
+   *
+   * **That caveat is necessary and was not sufficient (mt#4583).** Bounding
+   * time does not identify WHICH change deployed, so on a busy branch a
+   * NEIGHBOURING merge's deployment lands inside the window and satisfies this
+   * bound — observed 2026-08-25: a deployment created ten seconds after a merge
+   * returned SUCCESS and belonged to the previous merge's workflow run. Pass
+   * {@link WaitForLatestOptions.expectCommitSha} as well, and read the returned
+   * `buildIdentity`; this bound alone cannot tell you whose deploy you got.
    */
   notBefore?: string;
+  /**
+   * The commit this caller is verifying deployed (mt#4583).
+   *
+   * When set, the result carries a `buildIdentity` verdict rather than leaving
+   * the caller to infer identity from a bare SUCCESS. When the deployment
+   * record cannot answer — the image-source case named above — the verdict is
+   * `indeterminate` WITH a reason, which is deliberately not the same value as
+   * `confirmed`. Collapsing those two is the defect this exists to remove.
+   */
+  expectCommitSha?: string;
 }
 
 /**
