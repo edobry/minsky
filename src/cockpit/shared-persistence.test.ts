@@ -31,9 +31,12 @@ import {
   shouldRecycleNow,
   __setRecycleThresholdsForTests,
   RECYCLE_AFTER_DEGRADED_MS,
+  RECYCLE_CLOSE_TIMEOUT_MS,
   RECYCLE_MIN_INTERVAL_MS,
   type PersistenceServiceFactory,
 } from "./shared-persistence";
+// mt#4515: the inner drain budget, asserted against the outer deadline above.
+import { CLOSE_TIMEOUT_SECONDS } from "@minsky/domain/persistence/providers/postgres-provider";
 
 const ENV_KEY = "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS";
 
@@ -543,6 +546,125 @@ describe("refreshDbReachability review fixes (PR #2558 R1)", () => {
   });
 });
 
+describe("recycle close outcome counters (mt#4549)", () => {
+  beforeEach(() => {
+    __resetSharedPersistenceForTests();
+  });
+
+  test("a fresh process reports zero recycles AND zero of every outcome", () => {
+    const r = getDbRecycle();
+    expect(r.recycleCount).toBe(0);
+    expect(r.closesDrained).toBe(0);
+    expect(r.closesForceTerminated).toBe(0);
+    expect(r.closesAbandoned).toBe(0);
+    expect(r.closesFailed).toBe(0);
+
+    // SC3, and the reason `closesAbandoned` must never be read on its own: this
+    // reading and "12 recycles, none abandoned" are the same zero and completely
+    // different claims. `recycleCount` is what separates them — a consumer that
+    // alerts on `closesAbandoned > 0` alone would call an untested process
+    // healthy (mem#704: a probe that reads the same in the healthy and broken
+    // cases carries no information).
+    expect(r.recycleCount).toBe(0);
+  });
+
+  test("a recycle whose close drains increments only the drained counter", async () => {
+    let closeCalls = 0;
+    const factory: PersistenceServiceFactory = async () =>
+      ({
+        initialize: async () => {},
+        close: async () => {
+          closeCalls++;
+        },
+        getProvider: () => ({}),
+      }) as unknown as PersistenceService;
+
+    await getSharedPersistenceService(1_000, factory);
+    recycleSharedPersistence("test recycle");
+
+    // close() is fire-and-forget; give its microtask a beat, as the mt#3638
+    // tests in this file already do.
+    await new Promise((r) => setTimeout(r, 20));
+
+    const r = getDbRecycle();
+    expect(closeCalls).toBe(1);
+    expect(r.recycleCount).toBe(1);
+    // Asserting WHICH counter moved, not that a total changed — a test that only
+    // checked a sum would pass if the outcome were misclassified, and telling the
+    // three apart is the entire point of these counters.
+    expect(r.closesDrained).toBe(1);
+    expect(r.closesForceTerminated).toBe(0);
+    expect(r.closesAbandoned).toBe(0);
+  });
+
+  test("a close() that REJECTS counts as failed, never as abandoned (PR #3319 R1)", async () => {
+    // Both a rejected close and the outer deadline land in the same `.catch`.
+    // Only the deadline means "nothing returned, connections probably stranded",
+    // which is what `closesAbandoned` exists to alarm on. Counting a rejection
+    // there would inflate the alarm with a different fault — and an alarm that
+    // fires on the wrong thing is the failure this whole task exists to avoid.
+    //
+    // This case is also the FAST one: a rejection settles immediately, where the
+    // deadline branch would cost RECYCLE_CLOSE_TIMEOUT_MS of real time.
+    const factory: PersistenceServiceFactory = async () =>
+      ({
+        initialize: async () => {},
+        close: async () => {
+          throw new Error("teardown blew up");
+        },
+        getProvider: () => ({}),
+      }) as unknown as PersistenceService;
+
+    await getSharedPersistenceService(1_000, factory);
+    recycleSharedPersistence("rejecting close");
+    await new Promise((r) => setTimeout(r, 20));
+
+    const r = getDbRecycle();
+    expect(r.closesFailed).toBe(1);
+    expect(r.closesAbandoned).toBe(0);
+    expect(r.closesDrained).toBe(0);
+    expect(r.closesForceTerminated).toBe(0);
+  });
+
+  test("counters reset between tests, so a reading never depends on test order", () => {
+    // Guards the mt#3575 hazard directly: these are module-level `let`s in a file
+    // whose module state is already a known order-dependence cluster. If the reset
+    // in __resetSharedPersistenceForTests is ever dropped, the preceding test's
+    // increment leaks into this one and this fails.
+    const r = getDbRecycle();
+    expect(r.closesDrained).toBe(0);
+    expect(r.recycleCount).toBe(0);
+  });
+});
+
+describe("recycle close bounds (mt#4515)", () => {
+  test("the inner drain budget fires strictly before the outer recycle deadline", () => {
+    // These two live in different packages and neither can see the other's
+    // value at runtime, so the invariant is asserted here — the one place both
+    // are importable — rather than restated as a comment in each.
+    //
+    // Direction matters and is not symmetric. The INNER bound
+    // (`CLOSE_TIMEOUT_SECONDS`, handed to postgres-js's `end({ timeout })`) is
+    // what actually terminates sockets. The OUTER one only stops the recycle
+    // path from awaiting forever. If the outer fires first, the recycle
+    // abandons the close before the driver has terminated anything and the
+    // connections leak — which is exactly the pre-mt#4515 behaviour, where the
+    // inner bound did not exist at all and the outer one was therefore always
+    // the winner: 88 abandoned closes, zero clean, across every retained log.
+    expect(CLOSE_TIMEOUT_SECONDS * 1000).toBeLessThan(RECYCLE_CLOSE_TIMEOUT_MS);
+  });
+
+  test("the margin between them leaves room for the terminate round-trip", () => {
+    // A bound that is merely lower is not enough — `destroy()` still has to
+    // await `c.terminate()` on every connection after the timer fires. Assert a
+    // real margin so a future tweak that makes them near-equal (which would
+    // reintroduce the race non-deterministically, the worst version of this
+    // bug) fails here instead of in production.
+    const marginMs = RECYCLE_CLOSE_TIMEOUT_MS - CLOSE_TIMEOUT_SECONDS * 1000;
+    expect(marginMs).toBeGreaterThanOrEqual(1000);
+  });
+});
+
 describe("shouldRecycleNow (mt#3638)", () => {
   const base = {
     nowMs: 100_000,
@@ -638,7 +760,17 @@ describe("recycleSharedPersistence (mt#3638)", () => {
   test("updates recycle telemetry", async () => {
     const { factory } = makeCloseTrackingFactory(async () => {});
     await getSharedPersistenceService(1_000, factory);
-    expect(getDbRecycle()).toEqual({ lastRecycleAt: null, recycleCount: 0 });
+    // Kept as a STRICT toEqual deliberately: it is what caught mt#4549 adding
+    // fields, which is the job. A loosened matcher here would let the payload
+    // grow silently, and this object is a documented /api/health contract.
+    expect(getDbRecycle()).toEqual({
+      lastRecycleAt: null,
+      recycleCount: 0,
+      closesDrained: 0,
+      closesForceTerminated: 0,
+      closesAbandoned: 0,
+      closesFailed: 0,
+    });
 
     recycleSharedPersistence("telemetry test");
 

@@ -180,10 +180,14 @@ probably knows, and nothing here is a competence judgement.
 
 **Confirmed gaps** — he asked outright. Gloss on first use in a message.
 
-| Term         | Date       | Signal                                                     |
-| ------------ | ---------- | ---------------------------------------------------------- |
-| `Mach-O`     | 2026-08-18 | _"what does 'strings on a Mach-O' mean?"_                  |
-| `strings(1)` | 2026-08-18 | same question; both terms were in the one unglossed clause |
+| Term         | Date       | Signal                                                                                                                                                                                                                                         |
+| ------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Mach-O`     | 2026-08-18 | _"what does 'strings on a Mach-O' mean?"_                                                                                                                                                                                                      |
+| `strings(1)` | 2026-08-18 | same question; both terms were in the one unglossed clause                                                                                                                                                                                     |
+| `CSCW`       | 2026-08-22 | _"I've never heard of that field before ... I'm confused about how I've never heard that phrase before"_ — self-reported after reading it unglossed in an agent-authored research brief; not asked outright at the point of contact (mem#1201) |
+
+First entry appended since the ledger's initial seeding (mt#4248) — exercises the append path
+end to end, per mt#4442's acceptance tests.
 
 **Confirmed known** — he used these unprompted in the 2026-08-17/18 mt#4220 conversation:
 

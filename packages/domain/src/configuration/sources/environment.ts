@@ -433,6 +433,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_ACK_CODE_MECHANISM_ASSERTION: "operator-override", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
   MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM: "operator-override", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
   MINSKY_SKIP_SPEC_CRITERION_CLAIM: "operator-override", // .claude/hooks/spec-criterion-claim-detector.ts (mt#4153) — override for the spec-criterion unverified-assertion / invented-precondition detector
+  MINSKY_SKIP_SECRET_REQUEST_IN_CHAT: "operator-override", // .claude/hooks/secret-request-in-chat-detector.ts (mt#2428) — override for the secret-request-in-chat detector
   MINSKY_ACK_ASK_ROUTING_DEFERRAL: "operator-override", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
   MINSKY_SKIP_SPEC_READ_CHECK: "operator-override", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
   // The two evidence-record provenance guards (mem#966's family). Both were

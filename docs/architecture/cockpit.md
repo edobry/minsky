@@ -173,7 +173,7 @@ Every cockpit API handler distinguishes the two, and callers should too:
 
 The classification runs through `respondIfDatabaseUnavailable`
 (`src/cockpit/db-unavailable-response.ts`), which wraps `isDatabaseUnavailableError` (mt#3398).
-That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the driver
+That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the Postgres driver
 error and carries the QUERY TEXT as the wrapper's own message, so a non-walking check sees a query
 string and concludes "application bug" for what is really an outage.
 
@@ -399,6 +399,10 @@ under a `transcriptWatcher` object:
   "turnsIngested": 410,
   "lastIngestAt": "2026-06-18T20:00:00.000Z",
   "lastErrorAt": "2026-06-18T19:58:00.000Z",
+  "ingestsInFlight": 1,
+  "oldestIngestInFlightAgeMs": 240,
+  "ingestsAbandoned": 0,
+  "ingestPausedUntil": null,
   "activeSessions": [
     {
       "agentSessionId": "abc-123",
@@ -420,6 +424,29 @@ text is emitted to the daemon log surface, not the API). Adding a field here
 that could leak a path or internal detail re-opens that disclosure — keep the
 redaction when extending it.
 
+**Bounded-ingest fields (mt#4492).** The four `ingest*` fields above the session
+list exist because `ingestsTriggered` counts ingest STARTS — it is incremented
+before the ingest's first await — so a started-and-never-finished ingest reads
+identically to a quiet watcher on every other field. During a pooler wedge on
+2026-08-24 this object read `ingestsTriggered: 1` with an EMPTY live-session
+list for four hours, which is exactly what an idle watcher looks like.
+
+- **`oldestIngestInFlightAgeMs` is the field to read**, not `ingestsInFlight`. A
+  non-zero COUNT is ordinary; a large AGE is not. It is derived at read time, so
+  it cannot go stale between polls, and is `null` when nothing is in flight.
+- **`ingestsAbandoned`** counts ingests dropped at the 90s wall-clock bound.
+  Abandoning costs FRESHNESS only — completeness is the sweep backstop's
+  guarantee, per ADR-017's division of the two.
+- **`ingestPausedUntil`** is non-null while the ingest path is backing off after
+  consecutive abandons. It is exposed rather than kept internal precisely
+  because a deliberately-paused watcher is the same inert-but-running shape this
+  object exists to make legible.
+
+The empty live-session list was not a separate symptom: until mt#4492 the
+per-path in-flight guard returned BEFORE stamping `lastEventAt`, so a path whose
+ingest hung stopped refreshing its stamp and dropped out of `activeSessions`
+entirely — the conversation looked idle because it was stuck.
+
 **Watchdog fields (mt#2578).** The tray-app supervisor's self-health watchdog
 (ADR-014 lifecycle extension) reads two additional top-level fields from
 `/api/health` to detect daemon restarts and sustained DB degradation:
@@ -438,7 +465,9 @@ a small counter. Neither violates the endpoint's unauthenticated-access posture.
 The cockpit daemon also runs the **transcript sweep backstop** — the recovery
 layer behind the watcher (mt#2320), per ADR-017's watcher-primary +
 sweep-backstop design. On a configurable cadence (`startTranscriptSweepBackstop`
-in `src/cockpit/sweepers.ts`) it runs a full-discovery `ingestAll()` (idempotent /
+in `src/cockpit/transcript-sweep-backstop.ts` — lifted out of `sweepers.ts` by
+mt#4480, which is also where its test file already pointed) it runs a
+full-discovery `ingestAll()` (idempotent /
 HWM-gated) followed by the vector-only semantic-embedding backfill
 (`index-embeddings`), run off the critical path and fail-open — a missing or
 failing embedding provider does not crash the sweep. It recovers what the watcher
@@ -460,15 +489,89 @@ would read zero for cockpit-process state:
   "sweepsRun": 3,
   "sessionsIngested": 41,
   "sessionsErrored": 0,
+  "sessionsQuarantined": 0,
   "embedRuns": 3,
   "lastSweepAt": "2026-06-19T22:00:00.000Z",
-  "lastErrorAt": null
+  // mt#4480 — see "Abandoned passes" below.
+  "sweepsAborted": 0,
+  "lastAbortAt": null,
+  "lastProductiveSweepAt": "2026-06-19T22:00:00.000Z",
+  "lastErrorAt": null,
+  // mt#4489 / mt#4524 — the embedding phase; see "Reading the embedding phase" below.
+  "embedFailures": 0,
+  "embedPhase": "succeeded",
+  "embedInFlightAgeMs": null,
+  "embedOverdueBoundMs": 1800000,
+  "lastEmbedAttemptAt": "2026-06-19T22:00:00.000Z",
+  "embedNeverSucceeded": false
 }
 ```
+
+**Reading the embedding phase (mt#4524).** The sweep tick has two phases, and the
+counters above describe the FIRST one. `embedRuns` counts only backfills that
+CONCLUDED successfully, so on its own it cannot say whether a backfill is
+running, has never started, or has been failing — which is what `embedPhase`
+is for:
+
+| `embedPhase`           | Meaning                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `never-attempted`      | No backfill has started in this process's lifetime. Healthy on a daemon that has not swept yet.                                            |
+| `in-flight`            | A backfill is running and within its bound. **Normal**, and over ~1500 sessions it lasts minutes.                                          |
+| `in-flight-overdue`    | A backfill is running and has exceeded `embedOverdueBoundMs`. Its own condition, because a hang concludes nothing and so moves no counter. |
+| `succeeded` / `failed` | The last attempt concluded, with that outcome.                                                                                             |
+
+`embedNeverSucceeded` means _at least one attempt has CONCLUDED without success
+and none has succeeded_ — a standing failure. It was originally derived as
+`sweepsRun > 0 && embedRuns === 0`, which also fired for the entire duration of
+every healthy first backfill, because `recordSweepCompleted` ends Phase 1 before
+Phase 2 begins. Prefer `embedInFlightAgeMs` over `embedPhase` alone when judging
+severity: in-flight is normal, a large age is not — the same posture as
+`transcriptWatcher.oldestIngestInFlightAgeMs`.
+
+`embedOverdueBoundMs` is derived from this sweeper's own budgets rather than
+hardcoded: the resolved sweep interval (past which ticks start being skipped),
+capped by the per-tick timeout (past which `createIntervalSweeper` abandons the
+tick and `/api/sweeps` is the surface that says so). With the shipped defaults
+that is `min(30m, 60m)` = 30 minutes, and an
+`MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` override moves it too.
 
 Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint
 disclosure constraint).
+
+**Abandoned passes, and why `lastSweepAt` alone is not enough (mt#4480).** A pass
+holds ONE database handle across every discovered session. When the shared pool
+is recycled mid-pass (mt#3638), postgres-js rejects every subsequent query on
+that handle with `CONNECTION_ENDED`, so each remaining session fails its first
+query in microseconds and the pass reaches its end having ingested nothing.
+Measured before this shipped: five consecutive passes reporting
+`sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0` — and each
+one incremented `sweepsRun` and added 1,502 to `sessionsIngested`, so this
+payload read like a busy, healthy sweep throughout.
+
+`ingestAll` now abandons a pass after 10 consecutive failures that classify as
+INFRASTRUCTURE (`classifyConnectionFailure`; an `"unknown"` classification
+deliberately never counts, so ordinary per-session errors cannot trip it), and
+the three fields above make the outcome legible:
+
+- **`sweepsAborted` / `lastAbortAt`** — abandoned passes. **Disjoint from
+  `sweepsRun`**: an abandoned pass is not a sweep that happened, and its sessions
+  are NOT added to `sessionsIngested`/`sessionsErrored`, because they were failed
+  at rather than swept. The embedding backfill is skipped for such a pass too —
+  it needs the same dead connection. `lastErrorAt` is set, since an abandoned
+  pass is a sweep-level error.
+- **`lastProductiveSweepAt`** — the last pass that actually ingested something
+  (`totalIngested > 0`). This is the field to read for freshness, and the only
+  one here that a merely-RUNNING mechanism cannot satisfy: `lastSweepAt` advances
+  on every completed tick including ones that write nothing. **A widening gap
+  between `lastSweepAt` and `lastProductiveSweepAt` is the standing condition an
+  operator wants**, and it is visible here without reading a log.
+
+Note the sweep is a BACKSTOP — its cadence is 30 minutes, so
+`lastProductiveSweepAt` is not a latency signal. Capture freshness is the
+watcher's job (`transcriptWatcher`, previous section); since mt#4480 the watcher
+re-resolves its handle after a pool recycle rather than caching it for the life
+of the process.
 
 ## Scheduled follow-up sweeper (mt#2322)
 
@@ -1005,7 +1108,7 @@ Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 returns `{ active: boolean, activeSessionIds: string[] }` — a cheap,
 in-memory scan of the registry for any session whose LATEST observed event
 is not yet a terminal `result`/`minsky_exit` event (a record with no live
-actuator — any terminal status, or `reconnecting` — is never mid-turn). This
+session driver — any terminal status, or `reconnecting` — is never mid-turn). This
 is the pre-restart gate the cockpit-tray watcher's backend-source watcher
 (mt#2299, `cockpit-tray/src-tauri/src/watcher_backend.rs`) queries before a
 hot-reload daemon restart: if a turn is active, the restart is deferred for

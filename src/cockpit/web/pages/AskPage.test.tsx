@@ -712,3 +712,104 @@ describe("mt#3368 behavioral: the payload SENT equals the payload DISPLAYED", ()
     expect(sent.attentionCost?.resolvedIn).not.toBe("inbox");
   });
 });
+
+describe("mt#4503: a failed resolve keeps the ask on screen and says why", () => {
+  const ID = "0147caa5-e208-4fac-9b1c-0479787a9a26";
+
+  /**
+   * Stub the page's fetches with a resolve endpoint that answers `status`.
+   *
+   * The endpoint's real failure modes are 403 (not operator-routed), 404, 409
+   * (concurrent transition), 500 and 503 (persistence down) — every one of them
+   * used to reach the same `onSettled` handler as a success, so the tab closed
+   * and the operator was navigated to /asks as though their answer had been
+   * recorded. Only the ask's server-side state disagreed.
+   */
+  function stubResolve(status: number, body: unknown): void {
+    const ask = makeAsk({
+      id: ID,
+      state: "suspended",
+      options: [
+        { label: "Run it", value: "run" },
+        { label: "Hold off", value: "hold" },
+      ],
+    });
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/resolve")) return jsonResponse(body, status);
+      if (url.includes(`/api/asks/${ID}`)) return jsonResponse({ ask });
+      if (url.endsWith("/api/asks")) return jsonResponse({ asks: [], total: 0 });
+      return jsonResponse({ state: "degraded" });
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  test("a 409 leaves the ask rendered — no tab close, no navigation away", async () => {
+    stubResolve(409, { error: 'respondAndCloseAsk: Ask is in "closed" state' });
+    renderAskPage(ID);
+
+    const button = await screen.findByRole("button", { name: /Run it/ });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(screen.getByTestId("ask-action-error")).toBeTruthy());
+
+    // The load-bearing assertion. `settle()` closes this tab with
+    // `navigateTo: "/asks"`, and the router here mounts only `/ask/:id` — so if
+    // the failure had still triggered it, this title would be gone.
+    expect(screen.getByText("Calibration-review disposition")).toBeTruthy();
+
+    const error = screen.getByTestId("ask-action-error");
+    expect(error.textContent).toContain("Your response was not saved");
+    expect(error.textContent).toContain("409");
+
+    // And the operator can try again: a failed attempt must not leave the ask
+    // permanently unanswerable.
+    expect((screen.getByRole("button", { name: /Run it/ }) as HTMLButtonElement).disabled).toBe(
+      false
+    );
+  });
+
+  test("a 503 is distinguishable from a 409 — the operator sees which one happened", async () => {
+    // Same silent path before mt#4503, but opposite remedies: a 409 means
+    // someone else answered it, a 503 means the store is down and retrying later
+    // is the move. Collapsing both into "the tab closed" told the operator
+    // neither.
+    stubResolve(503, { error: "Ask repository unavailable" });
+    renderAskPage(ID);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Run it/ }));
+
+    await waitFor(() => expect(screen.getByTestId("ask-action-error")).toBeTruthy());
+    expect(screen.getByTestId("ask-action-error").textContent).toContain("503");
+  });
+
+  test("the success path still settles — the operator lands on /asks", async () => {
+    stubResolve(200, { ok: true });
+
+    // A local render that MOUNTS `/asks`, so the assertion is that we ARRIVED
+    // there rather than that the detail body went away. Waiting on a
+    // disappearance is what made the first version of this test load-sensitive:
+    // `queryByText(...) === null` is already true during the re-render the
+    // navigation causes, so the polling `waitFor` was racing the tab machinery
+    // instead of observing it. `findBy*` on the destination has one settling
+    // condition and no race.
+    render(
+      <MemoryRouter initialEntries={[`/ask/${ID}`]}>
+        <QueryClientProvider client={createTestQueryClient()}>
+          <TabsProvider>
+            <Routes>
+              <Route path="/ask/:id" element={<AskPage />} />
+              <Route path="/asks" element={<div>THE ASKS LIST</div>} />
+            </Routes>
+          </TabsProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Run it/ }));
+
+    // The regression guard on moving the handler off `onSettled`: success must
+    // still close the tab and navigate.
+    expect(await screen.findByText("THE ASKS LIST")).toBeTruthy();
+    expect(screen.queryByTestId("ask-action-error")).toBeNull();
+  });
+});

@@ -19,7 +19,43 @@ import { injectable } from "tsyringe";
 import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
-import { memoriesTable } from "../storage/schemas/memory-embeddings";
+import {
+  memoriesTable,
+  PROJECT_AGNOSTIC_MEMORY_SCOPES,
+} from "../storage/schemas/memory-embeddings";
+import {
+  collectUnresolvedRefs,
+  combineStaleness,
+  computeStaleness,
+  extractTrackingTaskRefs,
+} from "./staleness";
+import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
+
+/**
+ * Ceiling on measurement-decay lookups per search page (mt#4452, PR #3271 R1).
+ *
+ * Set above a normal page size rather than below it: the goal is a backstop against unbounded
+ * growth, not a throttle on ordinary pages. `memory_search`'s default limit is 10, and only
+ * 2.30% of records carry a dated measurement, so this is not reached in practice today.
+ */
+const MAX_MEASUREMENT_LOOKUPS_PER_PAGE = 25;
+
+/**
+ * The WHERE fragment for "scoped to one project" (mt#4530).
+ *
+ * Matches memories belonging to `projectScope` PLUS memories whose scope says they are not
+ * bound to any project. `project_id = <uuid>` alone is not that predicate: it excludes every
+ * `user` and `cross_project` memory, because those are stored with a NULL `project_id` by
+ * design. Filtering them out is the opposite of what the scope values mean.
+ *
+ * Both read paths (`list` and the search post-filter) share this so they cannot drift.
+ */
+function scopedToProject(projectScope: string) {
+  return or(
+    eq(memoriesTable.projectId, projectScope),
+    inArray(memoriesTable.scope, PROJECT_AGNOSTIC_MEMORY_SCOPES)
+  );
+}
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -106,6 +142,36 @@ export interface MemoryServiceDeps {
   db: MemoryServiceDb;
   vectorStorage: VectorStorage;
   embeddingService: EmbeddingService;
+  /**
+   * Batched task-status lookup used to decide whether a memory's own retirement clause has
+   * already been met (mt#1709). Given task ids, return a map from id to current status;
+   * omit an id (or map it to `undefined`) when it cannot be resolved — that is reported as
+   * `unresolved`, never as "nothing is stale".
+   *
+   * An injected callback rather than a `TaskServiceInterface` for two reasons. It keeps the
+   * detection path testable without standing up a task service, matching
+   * `../tasks/spec-freshness.ts`'s injected-lookup shape; and it keeps the memory domain
+   * from taking a hard dependency on the tasks domain for what is a read-time annotation.
+   *
+   * OPTIONAL by design: every existing construction site keeps working untouched, and a
+   * MemoryService built without it simply returns unannotated results. Degrading to "no
+   * annotation" is the correct failure here — a staleness banner is an enhancement to a
+   * search result, never a precondition for returning one.
+   */
+  taskStatusLookup?: (taskIds: string[]) => Promise<ReadonlyMap<string, string | undefined>>;
+  /**
+   * Tasks that reached a completed status AFTER `since` and whose spec cites any of
+   * `subsystems` (mt#4452, trigger 2). Used to decide whether a memory's dated measurement
+   * still describes the system it measured.
+   *
+   * Same injected-callback shape and same optionality as `taskStatusLookup` above, for the
+   * same reasons: the detection core stays testable without a task service, and a MemoryService
+   * built without it returns results annotated by trigger 1 only.
+   */
+  interveningTaskLookup?: (
+    subsystems: string[],
+    since: Date
+  ) => Promise<{ taskId: string; title: string; rowUpdatedAt?: string }[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +530,7 @@ export class MemoryService implements MemoryServiceSurface {
     }
     // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
     if (filter?.projectScope && !isAllProjects(filter.projectScope)) {
-      conditions.push(eq(memoriesTable.projectId, filter.projectScope));
+      conditions.push(scopedToProject(filter.projectScope));
     } else if (filter?.projectId) {
       conditions.push(eq(memoriesTable.projectId, filter.projectId));
     }
@@ -640,7 +706,7 @@ export class MemoryService implements MemoryServiceSurface {
     }
     // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
     if (opts?.filter?.projectScope && !isAllProjects(opts.filter.projectScope)) {
-      conditions.push(eq(memoriesTable.projectId, opts.filter.projectScope));
+      conditions.push(scopedToProject(opts.filter.projectScope));
     } else if (opts?.filter?.projectId) {
       conditions.push(eq(memoriesTable.projectId, opts.filter.projectId));
     }
@@ -664,10 +730,141 @@ export class MemoryService implements MemoryServiceSurface {
       }
     }
 
+    // Read-time staleness annotation (mt#1709). Mutates only the response, never the row.
+    await this.annotateStaleness(results);
+
     // Access tracking: bump non-blocking (fire-and-forget).
     this.bumpAccessCount(results.map((r) => r.record.id));
 
     return { results, backend: "embeddings", degraded: false };
+  }
+
+  /**
+   * Attach a staleness verdict to each result whose record declares a retirement clause
+   * (mt#1709). Mutates `results` in place; the stored rows are untouched.
+   *
+   * ONE lookup for the whole result set, not one per result: the refs from every record are
+   * unioned before the single `taskStatusLookup` call, so a K=10 search costs one query
+   * rather than ten (`efficient-database-queries`).
+   *
+   * Fail-open, and deliberately so — a search that returns unannotated results is strictly
+   * better than a search that throws. But note the asymmetry this creates: a lookup failure
+   * is indistinguishable from "no memory declared a clause", both being silent. That is
+   * acceptable HERE because the annotation is additive; it would not be acceptable for a
+   * check whose silence reads as a pass, which is exactly why `computeStaleness` reports
+   * `unresolved` separately from `current` one level down.
+   */
+  private async annotateStaleness(results: MemorySearchResult[]): Promise<void> {
+    const lookup = this.deps.taskStatusLookup;
+    if (!lookup || results.length === 0) return;
+
+    const perResult = results.map((r) => extractTrackingTaskRefs(r.record));
+    const allRefs = [...new Set(perResult.flatMap((p) => p.refs))];
+    if (allRefs.length === 0) return;
+
+    let statuses: ReadonlyMap<string, string | undefined>;
+    try {
+      statuses = await lookup(allRefs);
+    } catch (err) {
+      log.warn("[memory.search] Staleness lookup failed; returning unannotated results", { err });
+      return;
+    }
+
+    for (const [i, result] of results.entries()) {
+      const extracted = perResult[i];
+      if (!extracted) continue;
+      const staleness = computeStaleness(extracted.refs, extracted.source, statuses);
+      if (staleness) result.staleness = staleness;
+    }
+
+    // mt#4452: trigger 2 folds in on top, and can promote a `current` verdict to `stale` —
+    // an open tracking task says nothing about whether the record's numbers still hold.
+    await this.annotateMeasurementDecay(results);
+
+    // AT4: a memory naming a task id that does not resolve is a graceful no-annotation AND a
+    // logged warning — the record is citing something the task graph cannot account for, which
+    // is worth knowing even though it must not block or annotate the search. The decision of
+    // what to warn about is a pure function so it can be tested without asserting on a logger
+    // the test harness silences.
+    const unresolved = collectUnresolvedRefs(
+      results.map((r) => ({ memoryId: r.record.id, staleness: r.staleness }))
+    );
+    if (unresolved.length > 0) {
+      log.warn("[memory.search] Memory cites tracking task ids that could not be resolved", {
+        unresolved,
+      });
+    }
+  }
+
+  /**
+   * Fold measurement-decay findings into each result's verdict (mt#4452, trigger 2).
+   *
+   * Runs AFTER trigger 1 so it can combine with (and promote) that verdict.
+   *
+   * Unlike trigger 1's single union'd lookup, this issues one query PER RECORD carrying a
+   * dated measurement, because each has its own `since` date and its own subsystem set —
+   * there is no single query covering them. That is bounded in practice rather than in
+   * principle: measured over the live corpus at planning time, 28 of 1215 records (2.30%)
+   * carry a dated measurement at all, and a search page is at most `limit` records, so a K=10
+   * page issues at most 10 and typically zero. If that ratio moves, batch by unioning the
+   * subsystems and filtering per-record in memory.
+   *
+   * Fail-open per record: one record's lookup failing must not cost the whole page its
+   * annotations, nor the search its results.
+   */
+  private async annotateMeasurementDecay(results: MemorySearchResult[]): Promise<void> {
+    const lookup = this.deps.interveningTaskLookup;
+    if (!lookup || results.length === 0) return;
+
+    const now = new Date();
+    // Hard ceiling on lookups per page, so the per-record shape cannot degrade into an
+    // unbounded N+1 if the corpus's measurement density rises (PR #3271 R1, non-blocking).
+    // Measured at 2.30% of records today, so this is never reached in practice — which is
+    // exactly why it is a cap rather than a comment: the reasoning that makes per-record
+    // acceptable is a property of the DATA, and data moves.
+    let lookupsRemaining = MAX_MEASUREMENT_LOOKUPS_PER_PAGE;
+
+    for (const result of results) {
+      const measurement = extractMeasurement(result.record);
+      if (!measurement) continue;
+
+      // A dated measurement whose subsystem cannot be resolved is UNRESOLVED, not silent —
+      // we found something worth checking and could not check it. Renders nothing either way,
+      // but stays distinguishable in the structured field, per the same discipline
+      // `computeStaleness` applies to an unknown task id.
+      if (measurement.subsystems.length === 0) {
+        result.staleness = result.staleness ?? {
+          outcome: "unresolved",
+          source: "text",
+          completedTasks: [],
+          unresolvedTasks: [],
+        };
+        continue;
+      }
+
+      if (lookupsRemaining <= 0) {
+        log.warn("[memory.search] Measurement-decay lookup cap reached; page partially annotated", {
+          cap: MAX_MEASUREMENT_LOOKUPS_PER_PAGE,
+        });
+        break;
+      }
+
+      try {
+        lookupsRemaining--;
+        const intervening = await lookup(
+          measurement.subsystems,
+          new Date(`${measurement.measuredOn}T00:00:00Z`)
+        );
+        const decay = computeMeasurementDecay(measurement, intervening, now);
+        const combined = combineStaleness(result.staleness, decay);
+        if (combined) result.staleness = combined;
+      } catch (err) {
+        log.warn("[memory.search] Intervening-task lookup failed for one record", {
+          memoryId: result.record.id,
+          err,
+        });
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -712,16 +909,16 @@ export class MemoryService implements MemoryServiceSurface {
 
     const ids = filtered.map((r) => r.id);
 
-    // mt#2939: cross-check against the live `memories` table's project_id, the same
-    // way search()/list() already do (ADR-021, mt#2416). A uuid projectScope adds an
-    // equality predicate; ALL_PROJECTS (or omitted) adds none — any candidate whose
-    // row falls outside the scope simply isn't in `rows`, so it's dropped below by
-    // rowById.get(sr.id) returning undefined (same "missing row => drop" pattern
-    // search() already relies on for excludeSuperseded/type/scope filters).
+    // mt#2939: cross-check against the live `memories` table's project scope, the same
+    // way search()/list() already do (ADR-021, mt#2416). A uuid projectScope adds the
+    // shared `scopedToProject` predicate; ALL_PROJECTS (or omitted) adds none — any
+    // candidate whose row falls outside the scope simply isn't in `rows`, so it's
+    // dropped below by rowById.get(sr.id) returning undefined (same "missing row =>
+    // drop" pattern search() already relies on for excludeSuperseded/type/scope filters).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conditions: any[] = [inArray(memoriesTable.id, ids)];
     if (opts?.projectScope && !isAllProjects(opts.projectScope)) {
-      conditions.push(eq(memoriesTable.projectId, opts.projectScope));
+      conditions.push(scopedToProject(opts.projectScope));
     }
 
     const rows = (await this.deps.db

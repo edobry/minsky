@@ -10,6 +10,7 @@
  * route awaits the SAME cached init promise, so a client connecting during
  * warmup waits for channel subscriptions instead of missing them.
  */
+import { hasListenCapableSqlConnection } from "@minsky/domain/persistence/types";
 import { randomUUID } from "crypto";
 import type express from "express";
 import { log } from "@minsky/shared/logger";
@@ -249,13 +250,10 @@ async function initSseBrokerOnce(): Promise<SseBroker | null> {
     // non-object provider would otherwise throw here and be misclassified as
     // "init failed" (503) by the outer catch, instead of degrading to the
     // documented no-op-listener fallback below.
-    if (
-      typeof provider !== "object" ||
-      provider === null ||
-      !("getListenCapableSqlConnection" in provider) ||
-      typeof (provider as { getListenCapableSqlConnection?: unknown })
-        .getListenCapableSqlConnection !== "function"
-    ) {
+    // Capability + the optional accessor, via the one guard (mt#4543) — which fails
+    // closed on the non-object case the comment above describes, so the degrade-to-noop
+    // path below still gets it rather than the outer catch's 503.
+    if (!hasListenCapableSqlConnection(provider)) {
       const noopListener = createNoopChannelListener();
       const broker = new SseBroker(noopListener);
       return adoptSseBroker(broker, epochAtBuild);

@@ -18,7 +18,7 @@ import { describe, test, expect, afterEach, mock } from "bun:test";
 import { render, cleanup, waitFor, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AskDetail, type AskItem } from "./AskDetail";
+import { AskDetail, type AskItem, type AskActionInFlight } from "./AskDetail";
 
 const originalFetch = global.fetch;
 
@@ -50,7 +50,10 @@ function baseAsk(overrides: Partial<AskItem> = {}): AskItem {
   };
 }
 
-function renderAsk(ask: AskItem) {
+function renderAsk(
+  ask: AskItem,
+  actionState: { acting?: AskActionInFlight | null; actionError?: unknown } = {}
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -60,7 +63,8 @@ function renderAsk(ask: AskItem) {
           onResolve={() => {}}
           onDefer={() => {}}
           onEscalate={() => {}}
-          resolving={false}
+          acting={actionState.acting ?? null}
+          actionError={actionState.actionError}
           onClose={() => {}}
         />
       </MemoryRouter>
@@ -209,5 +213,169 @@ describe("AskDetail — option letter prefixes are not doubled (mt#3253)", () =>
     // Only the LABEL carries a rendered letter beside it; a description is
     // prose and must not be rewritten.
     expect(container.textContent).toContain("B — this is the description");
+  });
+});
+
+describe("AskDetail — credential-request render mode (mt#4030)", () => {
+  /**
+   * The mt#4030 ↔ mt#4447 seam decision in test form: a `metadata` key selects
+   * which control replaces the option buttons. These two tests pin the dispatch
+   * — one that it fires on the payload, one that it does NOT fire without it.
+   */
+  const CREDENTIAL_REQUEST_ASK: Partial<AskItem> = {
+    kind: "authorization.approve",
+    state: "routed",
+    title: "Add the Supabase service_role credential",
+    question: "A queued step needs it.",
+    metadata: { credentialRequest: { provider: "supabase-service-role" } },
+  };
+
+  function mockProviders() {
+    global.fetch = mock(async (url: string) => {
+      if (url.startsWith("/api/credentials/providers")) {
+        return jsonResponse({
+          providers: [
+            {
+              id: "supabase-service-role",
+              displayName: "Supabase service_role",
+              acquireUrl: "https://supabase.com/dashboard/project/_/settings/api",
+              scopeGuidance: "service_role, not the anon key",
+            },
+          ],
+        });
+      }
+      return fallback();
+    }) as unknown as typeof fetch;
+  }
+
+  test("a credential-request ask renders the masked form instead of approve/deny", async () => {
+    mockProviders();
+    renderAsk(baseAsk(CREDENTIAL_REQUEST_ASK));
+
+    await waitFor(() => expect(screen.getByTestId("credential-request-form")).toBeTruthy());
+    const input = screen.getByTestId("credential-request-token-input");
+    expect(input.getAttribute("type")).toBe("password");
+
+    // The lettered pair must be gone: an "A) Approve" here would settle the ask
+    // without a credential ever being entered, which the presence-based resolver
+    // would then never reconcile.
+    expect(screen.queryByRole("button", { name: /^A\) Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^B\) Deny/ })).toBeNull();
+  });
+
+  test("negative control: a plain authorization.approve ask still renders approve/deny and no form", async () => {
+    mockProviders();
+    renderAsk(baseAsk({ kind: "authorization.approve", state: "routed", metadata: {} }));
+
+    expect(screen.queryByTestId("credential-request-form")).toBeNull();
+    expect(screen.getByRole("button", { name: /^A\) Approve/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^B\) Deny/ })).toBeTruthy();
+  });
+
+  test("defer and escalate survive the render-mode switch", async () => {
+    mockProviders();
+    renderAsk(baseAsk(CREDENTIAL_REQUEST_ASK));
+
+    await waitFor(() => expect(screen.getByTestId("credential-request-form")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /Defer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Escalate/ })).toBeTruthy();
+  });
+});
+
+describe("AskDetail — the in-flight action is visible and named (mt#4503)", () => {
+  const TWO_OPTIONS = {
+    state: "routed" as const,
+    options: [
+      { label: "Run it", value: "run" },
+      { label: "Hold off", value: "hold" },
+    ],
+  };
+
+  function optionButton(label: RegExp): HTMLButtonElement {
+    return screen.getByRole("button", { name: label }) as HTMLButtonElement;
+  }
+
+  test("at rest, no control claims to be working", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    renderAsk(baseAsk(TWO_OPTIONS));
+
+    expect(screen.queryByTestId("ask-action-status")).toBeNull();
+    expect(screen.queryByTestId("pending-spinner")).toBeNull();
+    expect(optionButton(/Run it/).disabled).toBe(false);
+  });
+
+  test("the spinner lands on the clicked option, and only on it", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    // The whole point of replacing the old `resolving: boolean`. A boolean could
+    // say the panel was busy; it could not say WHICH of these two answers is the
+    // one being saved, and that is the question an operator mid-click has.
+    renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "resolve", optionLetter: "B" } });
+
+    const chosen = optionButton(/Hold off/);
+    const sibling = optionButton(/Run it/);
+
+    expect(chosen.querySelector('[data-testid="pending-spinner"]')).not.toBeNull();
+    expect(chosen.getAttribute("aria-busy")).toBe("true");
+
+    // The sibling is disabled — a second answer must not be sendable — but it
+    // does NOT claim to be saving. Before mt#4503 both rendered identically.
+    expect(sibling.disabled).toBe(true);
+    expect(sibling.querySelector('[data-testid="pending-spinner"]')).toBeNull();
+    expect(sibling.getAttribute("aria-busy")).toBeNull();
+  });
+
+  test("the status line says what is happening, and is announced", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "resolve", optionLetter: "A" } });
+
+    const status = screen.getByTestId("ask-action-status");
+    expect(status.textContent).toBe("Saving your response…");
+    // Not merely visual: a screen reader has to be told too, which is why the
+    // button's own spinner is aria-hidden and this carries the announcement.
+    expect(status.getAttribute("role")).toBe("status");
+  });
+
+  test("defer and escalate name themselves rather than borrowing the resolve wording", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+
+    const { unmount } = renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "defer" } });
+    expect(screen.getByTestId("ask-action-status").textContent).toBe("Deferring…");
+    expect(optionButton(/Defer/).getAttribute("aria-busy")).toBe("true");
+    unmount();
+
+    renderAsk(baseAsk(TWO_OPTIONS), { acting: { kind: "escalate" } });
+    expect(screen.getByTestId("ask-action-status").textContent).toBe("Escalating…");
+    expect(optionButton(/Escalate/).getAttribute("aria-busy")).toBe("true");
+  });
+
+  test("a failure is rendered where the operator clicked, with the server's own message", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    renderAsk(baseAsk(TWO_OPTIONS), {
+      acting: null,
+      actionError: new Error("resolve failed (409): Ask is in \"closed\" state"),
+    });
+
+    const error = screen.getByTestId("ask-action-error");
+    expect(error.textContent).toContain("Your response was not saved");
+    // The status code is what tells a 409 (someone else already answered) from a
+    // 503 (persistence is down) — two failures with very different remedies.
+    expect(error.textContent).toContain("409");
+    // ErrorState's role="alert": a failure the operator did not ask about must
+    // interrupt, where an in-progress status merely reports.
+    expect(error.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  test("an in-flight action supersedes a stale failure rather than stacking with it", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    // A retry after a failed attempt: the mutation has not cleared its previous
+    // error yet, and showing "not saved" beneath a live spinner would read as a
+    // second failure that has not happened.
+    renderAsk(baseAsk(TWO_OPTIONS), {
+      acting: { kind: "resolve", optionLetter: "A" },
+      actionError: new Error("resolve failed (500): boom"),
+    });
+
+    expect(screen.getByTestId("ask-action-status").textContent).toBe("Saving your response…");
+    expect(screen.queryByTestId("ask-action-error")).toBeNull();
   });
 });

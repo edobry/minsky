@@ -33,7 +33,30 @@ of is not evidence, it is an argument. Present the full, uncropped artifact at a
 viewport and let the principal judge, without an accompanying verdict.
 
 Objective defects in that same render ARE yours to catch and to state. The split: what is BROKEN
-is yours; whether it LOOKS RIGHT is theirs.
+is yours; whether it LOOKS RIGHT is theirs. The same split over a cost figure is the section below.
+
+### Cost is yours to measure; affordability is not yours to judge
+
+One axis over: what a thing COSTS is yours; whether it is AFFORDABLE is theirs. **Measuring is
+agent work** — rates, volumes, call counts, the arithmetic, the sensitivity to assumptions.
+**Deciding whether it is worth paying is the principal's.** The failure is never a sentence asking
+to be noticed; it is a **trailing clause on the measurement**: "…which is negligible", "…so cost
+isn't the constraint", "…effectively free", "…self-financing", "…well within budget". Delete the
+clause, keep the number. Note the direction — it is always "that's cheap", never "that's
+expensive", because an agent proposing work has an interest in its cost reading as affordable.
+
+Correct shape: the figure, its assumptions, and its sensitivity, then stop — *"$100/month, assuming
+~2,000 input tokens per call; ±50% on that moves it to $50–$150."* Compare only to another MEASURED
+figure ("~1/6th of the reviewer's current bill"), never to a threshold you invented. When the cost
+is decision-relevant, surface it with the decision it bears on and ask; do not pre-resolve it.
+**A relayed verdict is still a verdict** — an advisor saying "self-financing" is that agent's
+judgment, and repeating it unmarked adopts it (`claim-confidence.mdc §A relayed claim is never
+verified`).
+
+This does not weaken `communication-contract.mdc §Judgment calls are load-bearing`: that governs a
+call you HAD to make and must surface; this governs one that was never yours. Reservation:
+`principal-context.mdc §Decisions Eugene reserves` (vendor commitments), applied to spend at
+mem#625. Incident: mt#4564 (2026-08-25).
 
 ## Escalation packaging
 

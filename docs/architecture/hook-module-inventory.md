@@ -59,13 +59,13 @@ larger than a subtraction from 60 suggests.
 
 | Bucket         | Count   |
 | -------------- | ------- |
-| already-domain | 10      |
-| movable        | 80      |
-| immovable      | 77      |
-| **total**      | **167** |
+| already-domain | 11      |
+| movable        | 84      |
+| immovable      | 79      |
+| **total**      | **174** |
 
-Of the 84 movable, **14** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
+Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -73,7 +73,7 @@ Immovable splits by reason class:
 
 | Reason class                    | Count |
 | ------------------------------- | ----- |
-| no-decision: library            | 41    |
+| no-decision: library            | 42    |
 | no-decision: store              | 11    |
 | host-lifecycle                  | 10    |
 | no-decision: registry           | 10    |
@@ -127,7 +127,7 @@ decision inline — `code-mechanism-assertion-detector.ts` does exactly that acr
 domain call covers one of its surfaces rather than its decision. Recording it as already-domain would
 overstate the baseline in exactly the way this document exists to correct.
 
-## already-domain (10)
+## already-domain (11)
 
 The hook module parses, calls, and relays; the verdict is a domain function. This is the shape
 mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "the thin adapter".
@@ -141,17 +141,18 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `flakiness-control-detector.ts`        | dispatcher-guard | `detectFlakinessAttribution (detectors/flakiness-attribution)`       | side-effecting (injector+recorder)            | plant |
 | `negative-existence-claim-detector.ts` | dispatcher-guard | `detectNegativeExistenceClaim (detectors/negative-existence-claim)`  | side-effecting (recorder)                     | plant |
 | `post-merge-unasked-direction-scan.ts` | standalone-hook  | `UnaskedDirectionAnalyzer (detectors/unasked-direction-analyzer)`    | decides-only (derived: no fs write, no spawn) | plant |
+| `secret-request-in-chat-detector.ts`   | dispatcher-guard | `detectSecretRequestInProse (detectors/secret-request-in-chat)`      | side-effecting (recorder)                     | plant |
 | `spec-criterion-claim-detector.ts`     | dispatcher-guard | `detectSpecCriterionClaims (detectors/spec-criterion-claim)`         | side-effecting (recorder)                     | plant |
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (80)
+## movable (84)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (66)
+### ADR-026 tier 2 — no persistence reach (68)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
@@ -186,6 +187,7 @@ bootstrap requirement.
 | `evidence-record-provenance.ts`                | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
 | `guard-health-escalation-detector.ts`          | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
 | `inject-current-time.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
+| `inject-ask-responses.ts`                      | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | advisory   |
 | `inject-dispatch-watchdog.ts`                  | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
 | `inject-git-state.ts`                          | dispatcher-guard | detectDefaultBranch                                               | decides-only (injector)                       | plant | advisory   |
 | `inject-memory-capture.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
@@ -210,6 +212,7 @@ bootstrap requirement.
 | `retrospective-completeness-detector.ts`       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | preference |
 | `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                  | side-effecting (injector+recorder)            | plant | preference |
 | `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                  | decides-only (injector)                       | plant | advisory   |
+| `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `stop-at-decision-scan.ts`                     | dispatcher-guard | detectDecisionStop                                                | side-effecting (recorder)                     | plant | advisory   |
 | `substrate-bypass-detector.ts`                 | dispatcher-guard | detectVerbalCommitment, detectSkillBypass                         | side-effecting (injector+recorder)            | plant | preference |
 | `truncated-outcome-read-detector.ts`           | dispatcher-guard | scanCommand                                                       | side-effecting (recorder)                     | plant | advisory   |
@@ -225,7 +228,7 @@ bootstrap requirement.
 | `verify-subagent-model.ts`                     | standalone-hook  | decideModelCheck                                                  | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `wall-of-text-detector.ts`                     | dispatcher-guard | measureWallOfText, findOpeningPromptIndex                         | side-effecting (recorder)                     | plant | preference |
 
-### ADR-026 tier 1 — reaches persistence (14)
+### ADR-026 tier 1 — reaches persistence (16)
 
 These call `ensureHookDomainBootstrap`. Per mt#4368's direction decision, a guard here must go through
 that bootstrap and its acceptance evidence must show the guard **decided**, not merely ran.
@@ -246,14 +249,18 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `stamp-pr-author-link.ts`                  | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `stamp-session-creator-link.ts`            | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
 | `turn-end-stale-state-assertion-scan.ts`   | dispatcher-guard | findPendingClaims, classifyResolved                               | side-effecting (recorder)                     | plant | advisory   |
+| `warn-peer-task-activity.ts`               | standalone-hook  | decidePeerActivity, callerSessionIdFromCwd                        | side-effecting (injector+recorder)            | plant | advisory   |
+| `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 
-## immovable (77)
+## immovable (79)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
 | `agent-dispatch-stamp.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `ask-conversation-map.ts`                 | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-grant-store.ts`                      | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-verification.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `authored-spec-text.ts`                   | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `bare-entity-ref-scan.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `canary-runner.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `canary-transcript.ts`                    | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
@@ -329,13 +336,21 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `types.ts`                                | library             | product-baseline closure — SPEC.md's observability-baseline rule: transitive imports must stay node-stdlib + same-directory, because the baseline runs from an arbitrary install path.                                                                                                             | side-effecting (derived: writes fs / spawns)  | product |
 | `unrendered-result-fields.ts`             | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 
-## Divergence: matched by the pinned grep, no import (30)
+## Divergence: matched by the pinned grep, no import (31)
 
 Every module below is inside mt#4368's `60` and reaches no domain code. Listed per mt#4372 SC3, which
 requires the grep figure to be carried as a cross-check with its divergences named.
 
+**Scope: the `.minsky/hooks/` source-of-truth twin only** (PR #3321 R1 asked). Every module name in
+this document — this table and the three bucket tables alike — refers to `.minsky/hooks/<name>`,
+which is what mt#4368 defines as the unit ("`.claude/hooks/**` generated output — the source tree
+`.minsky/hooks/**` is the unit"). The census test agrees structurally rather than by convention: it
+enumerates `HOOKS_DIR`, which resolves to `.minsky/hooks`, so a generated twin is never counted and
+a change to the generator's naming cannot silently add or drop rows here.
+
 | Module                                         | Bucket    |
 | ---------------------------------------------- | --------- |
+| `ask-conversation-map.ts`                      | immovable |
 | `ask-grant-store.ts`                           | immovable |
 | `ask-verification.ts`                          | immovable |
 | `block-secret-file-read.ts`                    | movable   |
@@ -396,6 +411,7 @@ requires the grep figure to be carried as a cross-check with its divergences nam
 | `record-subagent-invocation.ts`               | movable        | yes         |
 | `require-deploy-verification-before-merge.ts` | movable        | no          |
 | `retrospective-trigger-scanner.ts`            | movable        | yes         |
+| `secret-request-in-chat-detector.ts`          | already-domain | —           |
 | `spec-criterion-claim-detector.ts`            | already-domain | —           |
 | `stale-signal-sweep.ts`                       | movable        | yes         |
 | `stamp-pr-author-link.ts`                     | movable        | yes         |

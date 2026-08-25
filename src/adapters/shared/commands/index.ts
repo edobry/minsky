@@ -90,7 +90,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   registerSetupLocalHttpCommand();
 
   // Register config commands
-  registerConfigCommands();
+  registerConfigCommands(container);
 
   // Register debug commands
   registerDebugCommands();

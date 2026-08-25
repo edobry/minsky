@@ -25,7 +25,7 @@ interface Recorded {
     localId: string;
     harnessSessionId: string;
     harness: string;
-    actuatorGeneration?: number;
+    driverGeneration?: number;
     adoptionReason: string;
   }>;
   links: Array<{ agentSessionId: string; minskySessionId: string }>;
@@ -43,7 +43,7 @@ function makeRecord(overrides: Partial<DrivenSessionRecord> = {}): DrivenSession
     startedAt: "2026-08-21T18:00:00.000Z",
     minskySessionId: null,
     harnessSessionId: "conv-a",
-    actuatorGeneration: 0,
+    driverGeneration: 0,
     ...overrides,
   } as unknown as DrivenSessionRecord;
 }
@@ -121,12 +121,12 @@ describe("createDrivenInitObserver — the adoption is not behind the link's gat
     const recorded = makeRecorded();
     createDrivenInitObserver(
       makeDeps(recorded, { adoptionReason: "prior-conversation-unrecoverable" })
-    )(makeRecord({ actuatorGeneration: 2 }));
+    )(makeRecord({ driverGeneration: 2 }));
     await settle();
 
     expect(recorded.adoptions[0]?.adoptionReason).toBe("prior-conversation-unrecoverable");
     expect(recorded.adoptions[0]?.harness).toBe(DRIVEN_SESSION_HARNESS);
-    expect(recorded.adoptions[0]?.actuatorGeneration).toBe(2);
+    expect(recorded.adoptions[0]?.driverGeneration).toBe(2);
   });
 });
 

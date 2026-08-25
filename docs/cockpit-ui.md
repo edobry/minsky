@@ -344,7 +344,7 @@ names — only the copy changed.
 pipeline delivered it, and it accepts **either** id:
 
 - a harness **conversation uuid**, or
-- an actuator's spawn-time **local id** — a permanently valid alias, resolved
+- a session driver's spawn-time **local id** — a permanently valid alias, resolved
   internally rather than redirected, so stored links keep working.
 
 Resolution is a lookup against the registry snapshot (`GET /api/driven-session`),
@@ -352,13 +352,13 @@ never a guess from the id's shape: a default local id is minted as
 `randomUUID()`, so it is uuid-shaped and indistinguishable from a conversation
 id by inspection, while an entity-thread local id is not uuid-shaped at all.
 
-Before the harness `init` frame an actuator has **no** conversation id — there
+Before the harness `init` frame a session driver has **no** conversation id — there
 is nothing to resolve the local id INTO — so the route renders a first-class
 "starting" state rather than a 404, and advances on its own when the frame
-arrives. An actuator that reached a terminal status without ever linking says so
+arrives. A session driver that reached a terminal status without ever linking says so
 instead of starting forever.
 
-**The route is read-only.** No composer, send path, or actuator channel is
+**The route is read-only.** No composer, send path, or session driver channel is
 reachable on it — it never opens the driven WebSocket at all. Controllability
 lives on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325
 can mount a composer here safely.
@@ -526,7 +526,7 @@ detail).
 
 ### `POST /api/driven-session/attach`
 
-Attach an actuator to a conversation Minsky did **not** spawn — one the
+Attach a session driver to a conversation Minsky did **not** spawn — one the
 operator started in their own terminal (mt#3095). Body: `{ "conversationId":
 "<uuid>" }`. Mutation, same auth as the spawn route above.
 
@@ -539,7 +539,7 @@ session — same row shape, same WebSocket, same cost/link recording.
 | ------ | -------------------------------------------------------------------------------------- |
 | `201`  | Attached. Body is the same session summary the spawn route returns.                    |
 | `409`  | **Refused** — a writer holds (or may hold) the conversation. See below.                |
-| `423`  | Another _cockpit_ actuator won the advisory lock. A retry may succeed.                 |
+| `423`  | Another _cockpit_ session driver won the advisory lock. A retry may succeed.           |
 | `404`  | No on-disk transcript for that id, or one with no recoverable cwd.                     |
 | `400`  | Missing, empty, or syntactically impossible `conversationId` (rejected with zero I/O). |
 

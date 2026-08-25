@@ -192,6 +192,17 @@
       },
       {
         "_comment": "mt#4168: the spec-WRITE seam. These three tools rewrite an EXISTING task spec and carried NO PreToolUse guard of any kind before claim-provenance-scan — which is exactly where both of that guard's originating incidents wrote, since /implement-task §0a and /plan-task both operate on a task that already exists. Timeout is DERIVED (mt#3981) from the one guard routed here (claim-provenance-scan 5s) plus the 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block.",
+        "matcher": "mcp__minsky__tasks_spec_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the task event ledger for peer activity..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit|mcp__minsky__tasks_spec_search_replace",
         "hooks": [
           {
@@ -232,17 +243,30 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tasks-status-set-guard.ts",
             "timeout": 10,
             "statusMessage": "Validating task status transition..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the task event ledger for peer activity..."
+          },
+          {
+            "_comment": "mt#4535: on a DONE transition only, surface decision records that still describe this task's work as future work. Standalone rather than dispatcher-routed, following this matcher's existing convention (tasks-status-set-guard, warn-peer-task-activity). Timeout 15s covers the 8s title-read deadline plus the corpus scan; advisory, never denies.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-stale-forward-reference.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for decision records that call this work pending..."
           }
         ]
       },
       {
-        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start|mcp__minsky__tasks_dispatch",
+        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start|mcp__minsky__tasks_dispatch|mcp__minsky__asks_create|mcp__minsky__asks_edit",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-task-spec-read.ts",
             "timeout": 10,
-            "statusMessage": "Checking the task spec was read before advancing/binding..."
+            "statusMessage": "Checking the task spec was read before advancing/binding/recommending..."
           }
         ]
       },
@@ -452,6 +476,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/deploy-verification-after-merge.ts",
             "timeout": 30,
             "statusMessage": "Checking for deploy-surface changes needing post-merge verification..."
+          },
+          {
+            "_comment": "mt#4545: the REAL DONE seam. This hook is also registered PreToolUse on tasks_status_set, but that surface is near-dead by policy — at merge, session-merge-status-sync.ts calls taskService.setTaskStatus() directly, which no tool-level hook observes. Verified by fire log before this registration existed: 1 record, guardOutcome unset. ADR-042's discriminator — fire where the trace first exists. PostToolUse so it fires on a merge that actually succeeded. Timeout 15s covers the 8s title-read deadline plus the corpus scan; advisory, never blocks.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-stale-forward-reference.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for decision records that call this work pending..."
           }
         ]
       },
@@ -486,6 +517,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-pr-author-link.ts",
             "timeout": 20,
             "statusMessage": "Recording the authoring conversation for this PR..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__minsky__asks_create",
+        "hooks": [
+          {
+            "_comment": "mt#3564 ask->conversation attribution. Records which conversation filed an ask, so `inject-ask-responses` can tell that conversation when the ask is answered. Registered here rather than in GUARD_REGISTRY for the same reason the two sibling stamp hooks above are: `asks_create` is not among the tool names that already spawn the dispatcher, so a registry entry would need a new settings.json dispatcher slot anyway. Timeout=5 (not the siblings' 20): unlike them this hook touches no database — it reads the payload and writes one small local JSON file — so it has no connect cost to budget for. Fail-open and silent on every path.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-ask-conversation.ts",
+            "timeout": 5,
+            "statusMessage": "Recording the conversation that filed this ask..."
           }
         ]
       },
@@ -547,7 +590,7 @@
             "_comment": "ADR-028 D1 guard-dispatcher UserPromptSubmit entrypoint: the SOLE settings.json entry for EVERY UserPromptSubmit guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered UserPromptSubmit guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block, which fails naming this entry if a guard's budget changes without this value following. This replaces the hand-recomputed-comment convention (prior history: mem#746 found the comment's own prose disagreeing with its own arithmetic) with a checked derivation.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 215,
+            "timeout": 230,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]

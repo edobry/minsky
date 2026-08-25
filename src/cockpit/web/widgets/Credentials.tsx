@@ -17,186 +17,29 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import {
+  type CredentialCheckResult,
+  type AddCredentialResult,
+  type ProviderMeta,
+  type CredentialListing,
+  CredentialApiError,
+  isManaged,
+  fetchCredentials,
+  fetchProviders,
+  validateCredential,
+  addCredential,
+  removeCredential,
+} from "../lib/credentials-api";
+import { CredentialValidationResult } from "../components/CredentialValidationResult";
+// Re-exported: this module was the original home of the error class and other
+// modules import it from here (mt#4030 moved the implementation, not the name).
+export { CredentialApiError } from "../lib/credentials-api";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-
-// ---------------------------------------------------------------------------
-// API types — mirrors domain types without importing server code
-// ---------------------------------------------------------------------------
-
-interface CredentialListing {
-  provider: string;
-  displayName: string;
-  configPath: string;
-  configured: boolean;
-  /**
-   * "provider" — a managed credential: add/remove/recheck all work.
-   * "schema" — presence-only, derived from the config schema with no provider
-   * module behind it. `removeCredential` would throw "Unknown credential
-   * provider" for these, so the row must not offer the action (mt#3569).
-   *
-   * Optional only for wire-compat with a server that predates the field. Absence
-   * means "provider", not "unknown": a server without this field also has no
-   * schema-derived rows, so everything it sends IS manageable. Treating absence as
-   * unmanaged would strip Remove from every row against such a server — which is
-   * how the first draft broke an existing widget test.
-   */
-  source?: "provider" | "schema";
-  lastValidatedAt?: string;
-  lastValidationDetail?: string;
-}
-
-/**
- * Whether this entry supports add/remove/recheck. See `source`.
- *
- * Keyed on the presence of "schema" rather than the presence of "provider" so an
- * absent field keeps the pre-mt#3569 behavior exactly.
- */
-function isManaged(listing: CredentialListing): boolean {
-  return listing.source !== "schema";
-}
-
-interface CredentialCheckResult {
-  ok: boolean;
-  detail: string;
-  unauthorized?: boolean;
-  scopeGap?: boolean;
-}
-
-interface AddCredentialResult {
-  provider: string;
-  validate: CredentialCheckResult;
-  stored?: { configFilePath: string };
-  test?: CredentialCheckResult;
-}
-
-interface ProviderMeta {
-  id: string;
-  displayName: string;
-  acquireUrl: string;
-  scopeGuidance: string;
-}
-
-// ---------------------------------------------------------------------------
-// API fetch helpers
-// ---------------------------------------------------------------------------
-
-type CredentialApiErrorCode =
-  | "invalid_body"
-  | "missing_field"
-  | "unknown_provider"
-  | "validation_failed"
-  | "internal";
-
-interface CredentialApiErrorBody {
-  error?: { code?: CredentialApiErrorCode; message?: string };
-  validate?: CredentialCheckResult;
-}
-
-export class CredentialApiError extends Error {
-  readonly code: CredentialApiErrorCode | "unknown";
-  readonly validate?: CredentialCheckResult;
-  constructor(code: CredentialApiErrorCode | "unknown", message: string, validate?: CredentialCheckResult) {
-    super(message);
-    this.name = "CredentialApiError";
-    this.code = code;
-    this.validate = validate;
-  }
-}
-
-function userSafeMessage(
-  code: CredentialApiErrorCode | "unknown",
-  fallback: string
-): string {
-  switch (code) {
-    case "invalid_body":
-      return "The request could not be processed. Try again.";
-    case "missing_field":
-      return "Required information is missing. Re-check the form and try again.";
-    case "unknown_provider":
-      return "Unknown credential provider.";
-    case "validation_failed":
-      return "Credential validation failed.";
-    case "internal":
-      return "Something went wrong. Try again, or check the cockpit logs.";
-    default:
-      return fallback;
-  }
-}
-
-async function parseApiError(res: Response, fallback: string): Promise<CredentialApiError> {
-  let body: CredentialApiErrorBody = {};
-  try {
-    body = (await res.json()) as CredentialApiErrorBody;
-  } catch {
-    // Body wasn't JSON — fall through to the fallback message
-  }
-  const code = body.error?.code ?? "unknown";
-  const message = userSafeMessage(code, fallback);
-  return new CredentialApiError(code, message, body.validate);
-}
-
-async function fetchCredentials(): Promise<CredentialListing[]> {
-  const res = await fetch("/api/credentials");
-  if (!res.ok) {
-    throw await parseApiError(res, "Failed to load credentials.");
-  }
-  const data = (await res.json()) as { credentials: CredentialListing[] };
-  return data.credentials;
-}
-
-async function fetchProviders(): Promise<ProviderMeta[]> {
-  const res = await fetch("/api/credentials/providers");
-  if (!res.ok) {
-    throw await parseApiError(res, "Failed to load credential providers.");
-  }
-  const data = (await res.json()) as { providers: ProviderMeta[] };
-  return data.providers;
-}
-
-async function validateCredential(
-  provider: string,
-  token: string
-): Promise<CredentialCheckResult> {
-  const res = await fetch("/api/credentials/validate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider, token }),
-  });
-  if (!res.ok) {
-    throw await parseApiError(res, "Validation failed.");
-  }
-  return res.json() as Promise<CredentialCheckResult>;
-}
-
-async function addCredential(
-  provider: string,
-  token: string
-): Promise<AddCredentialResult> {
-  const res = await fetch("/api/credentials/add", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider, token }),
-  });
-  if (!res.ok) {
-    throw await parseApiError(res, "Could not add credential.");
-  }
-  return res.json() as Promise<AddCredentialResult>;
-}
-
-async function removeCredential(provider: string): Promise<{ removed: boolean }> {
-  const res = await fetch(`/api/credentials/${encodeURIComponent(provider)}`, {
-    method: "DELETE",
-  });
-  if (!res.ok) {
-    throw await parseApiError(res, "Could not remove credential.");
-  }
-  return res.json() as Promise<{ removed: boolean }>;
-}
 
 // ---------------------------------------------------------------------------
 // Relative-time helper
@@ -220,38 +63,6 @@ function formatRelative(isoTimestamp: string): string {
 // ---------------------------------------------------------------------------
 // Validate/add result inline feedback
 // ---------------------------------------------------------------------------
-
-function ValidationResult({
-  result,
-  label,
-}: {
-  result: CredentialCheckResult;
-  label?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-start gap-2 rounded px-2 py-1.5 text-xs",
-        result.ok
-          ? "bg-accent/20 text-foreground"
-          : "bg-destructive/10 text-destructive"
-      )}
-      role="status"
-      aria-live="polite"
-    >
-      <span className="flex-shrink-0 font-mono select-none" aria-hidden="true">
-        {result.ok ? "✓" : "✗"}
-      </span>
-      <span>
-        {label && <span className="font-medium">{label}: </span>}
-        {result.detail}
-        {result.scopeGap && (
-          <span className="ml-1 text-muted-foreground">(scope gap — token stored)</span>
-        )}
-      </span>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Add form sub-component
@@ -447,7 +258,7 @@ function AddCredentialForm() {
       )}
 
       {validateResult && (
-        <ValidationResult result={validateResult} label="Validate" />
+        <CredentialValidationResult result={validateResult} label="Validate" />
       )}
 
       {validateError && !validateResult && (
@@ -464,7 +275,7 @@ function AddCredentialForm() {
       {addMutation.isSuccess && addMutation.data && (
         <div className="space-y-1">
           {addMutation.data.validate && (
-            <ValidationResult result={addMutation.data.validate} label="Validate" />
+            <CredentialValidationResult result={addMutation.data.validate} label="Validate" />
           )}
           {addMutation.data.stored && (
             <div className="text-xs text-muted-foreground px-2">
@@ -472,7 +283,7 @@ function AddCredentialForm() {
             </div>
           )}
           {addMutation.data.test && (
-            <ValidationResult result={addMutation.data.test} label="Smoke test" />
+            <CredentialValidationResult result={addMutation.data.test} label="Smoke test" />
           )}
         </div>
       )}

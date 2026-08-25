@@ -15,6 +15,7 @@ import type {
   MemorySearchResult,
 } from "@minsky/domain/memory/types";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { ASSOCIATION_TYPE_NAMES } from "@minsky/domain/memory/associations";
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
 
@@ -837,5 +838,250 @@ describe("resolveMemoryIdInput (mt#2966)", () => {
   test("throws a clean not-found error for a mem#N with no matching row", async () => {
     const ctx = await fakeCtxWithRows([]);
     await expect(resolveMemoryIdInput("mem#999", ctx)).rejects.toThrow(/not found/i);
+  });
+});
+
+// ─── ADR-012 association vocabulary + tracksTask derivation (mt#4448) ─────────
+
+describe("memory.create — association vocabulary and derivation (mt#4448)", () => {
+  /**
+   * A fake that CAPTURES the create input, so the derived `associations` can be asserted.
+   * The shared `makeFakeMemoryService` above discards it. Injected rather than spied: the
+   * command takes its service through deps, so observing the call needs no patching.
+   */
+  const NOT_REGISTERED = "memory.create not registered";
+
+  /** Fetch the create command, failing loudly if registration regressed. */
+  function createCommand(deps: MemoryCommandsDeps) {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, deps);
+    const cmd = registry.getCommand(CREATE_CMD);
+    if (!cmd) throw new Error(NOT_REGISTERED);
+    return cmd;
+  }
+
+  function makeCapturingDeps(): {
+    deps: MemoryCommandsDeps;
+    captured: { input?: MemoryCreateInput };
+  } {
+    const captured: { input?: MemoryCreateInput } = {};
+    const base = makeFakeMemoryService();
+    const service: MemoryServiceSurface = {
+      ...base,
+      create: async (input) => {
+        captured.input = input;
+        return makeRecord();
+      },
+    };
+    return { deps: { memoryService: service }, captured };
+  }
+
+  async function runCreate(
+    params: Record<string, unknown>
+  ): Promise<{ input?: MemoryCreateInput }> {
+    const { deps, captured } = makeCapturingDeps();
+    const cmd = createCommand(deps);
+    await cmd.execute({ type: "user", name: "m", description: "d", scope: "user", ...params }, {});
+    return captured;
+  }
+
+  // AT4 — a retirement clause in the body populates tracksTask with no explicit argument.
+  test("AT4: a 'Tracking task: mt#N' clause derives tracksTask without an associations arg", async () => {
+    const captured = await runCreate({
+      content: "Bridge until the real fix lands. Tracking task: mt#4448",
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual(["mt#4448"]);
+  });
+
+  test("AT4: a 'Budget: retire when mt#N ships' clause also derives it", async () => {
+    const captured = await runCreate({
+      content: "Workaround for the flaky path. Budget: retire when mt#1709 ships.",
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual(["mt#1709"]);
+  });
+
+  // AT5 — the negative control for derivation: no clause, no association.
+  test("AT5: content with no retirement clause leaves associations empty", async () => {
+    const captured = await runCreate({
+      content: "edobry prefers incremental commits so failures are recoverable",
+    });
+    expect(captured.input?.associations ?? {}).toEqual({});
+  });
+
+  test("AT5: a BARE task mention is not a retirement clause and derives nothing", async () => {
+    // The precision half. A looser extractor would mint the same noise this task just
+    // removed from the backfill (9438 ids across 1146 records).
+    const captured = await runCreate({
+      content: "This came up while working on mt#4448 and mt#1709, but tracks neither.",
+    });
+    expect(captured.input?.associations ?? {}).toEqual({});
+  });
+
+  test("an explicit tracksTask argument always wins over derivation", async () => {
+    const captured = await runCreate({
+      content: "Tracking task: mt#4448",
+      associations: { tracksTask: ["mt#9999"] },
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual(["mt#9999"]);
+  });
+
+  test("an explicit EMPTY tracksTask suppresses derivation rather than being overwritten", async () => {
+    const captured = await runCreate({
+      content: "Tracking task: mt#4448",
+      associations: { tracksTask: [] },
+    });
+    expect(captured.input?.associations?.["tracksTask"]).toEqual([]);
+  });
+
+  test("an out-of-vocabulary key is rejected, naming the nearest valid type", async () => {
+    const cmd = createCommand(makeCapturingDeps().deps);
+    await expect(
+      cmd.execute(
+        {
+          type: "user",
+          name: "m",
+          description: "d",
+          scope: "user",
+          content: "a genuine insight worth keeping",
+          associations: { tasks: ["mt#4317"] },
+        },
+        {}
+      )
+    ).rejects.toThrow('Did you mean "relatedTask"');
+  });
+
+  test("force=true does NOT bypass the vocabulary check", async () => {
+    // force covers the mt#960 derivation heuristic only. An override here would restore
+    // the condition the mt#4448 census measured.
+    const cmd = createCommand(makeCapturingDeps().deps);
+    await expect(
+      cmd.execute(
+        {
+          type: "user",
+          name: "m",
+          description: "d",
+          scope: "user",
+          content: "a genuine insight worth keeping",
+          associations: { prs: ["3200"] },
+          force: true,
+        },
+        {}
+      )
+    ).rejects.toThrow("not an ADR-012 association type");
+  });
+});
+
+// ─── The PARAMETER SCHEMA itself (mt#4528) ───────────────────────────────────
+
+describe("memory.create associations PARAMETER SCHEMA (mt#4528)", () => {
+  /**
+   * These parse the registered parameter's Zod schema DIRECTLY, and that is the whole point.
+   *
+   * Every test above calls `cmd.execute(...)`, which runs the handler body — and the handler
+   * body is BENEATH the shared registry's parameter parse. So the runtime validator had 21
+   * tests while the schema had none, and when mt#4448 tightened the schema to
+   * `z.record(z.enum(...))` nothing here could see that Zod 4 treats an enum-keyed `record`
+   * as EXHAUSTIVE. Every valid partial map was rejected in production; typecheck, lint, 445
+   * tests and a reviewer APPROVE all passed over it.
+   *
+   * The defect lived in the one layer with no coverage. These tests are that layer.
+   */
+  function associationsSchema() {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, makeDeps());
+    const cmd = registry.getCommand(CREATE_CMD);
+    const schema = cmd?.parameters["associations"]?.schema;
+    if (!schema) throw new Error("memory.create has no associations parameter schema");
+    return schema;
+  }
+
+  test("a single valid key is ACCEPTED — the regression case", () => {
+    expect(associationsSchema().safeParse({ tracksTask: ["mt#4448"] }).success).toBe(true);
+  });
+
+  test("several valid keys are accepted", () => {
+    const r = associationsSchema().safeParse({
+      tracksTask: ["mt#1"],
+      relatedTask: ["mt#2"],
+      citedInReview: ["PR#3"],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  test("an empty map is accepted", () => {
+    expect(associationsSchema().safeParse({}).success).toBe(true);
+  });
+
+  test("every vocabulary key is individually accepted on its own", () => {
+    // Guards the exhaustiveness bug directly: under `z.record` each of these fails because
+    // the other seven are absent.
+    for (const key of ASSOCIATION_TYPE_NAMES) {
+      const r = associationsSchema().safeParse({ [key]: ["mt#1"] });
+      expect({ key, ok: r.success }).toEqual({ key, ok: true });
+    }
+  });
+
+  test("an out-of-vocabulary key is still REJECTED", () => {
+    // The property the tightening was for — it must survive the fix.
+    expect(associationsSchema().safeParse({ tasks: ["mt#4317"] }).success).toBe(false);
+  });
+
+  test("a valid key alongside an invalid one is rejected", () => {
+    const r = associationsSchema().safeParse({ tracksTask: ["mt#1"], tasks: ["mt#2"] });
+    expect(r.success).toBe(false);
+  });
+
+  test("a non-array value under a valid key is rejected", () => {
+    expect(associationsSchema().safeParse({ tracksTask: "mt#1" }).success).toBe(false);
+  });
+});
+
+describe("memory.update associations PARAMETER SCHEMA — removal must stay possible (mt#4528 SC4)", () => {
+  /**
+   * The update schema is deliberately NOT enum-keyed (PR #3295 R1): an empty array REMOVES a
+   * key under this command's merge semantics, and the keys most needing removal are exactly
+   * the out-of-vocabulary ones. An enum here would reject the very key you are deleting and
+   * make the divergent records uncleanable through the supported write path.
+   *
+   * That was asserted in a comment and in domain-level `validateAssociations` tests, and NOT
+   * at this schema — which is the same layer the mt#4528 defect lived in. The reviewer caught
+   * it as SC4 Not Met, correctly: verifying the layer BENEATH the schema is what caused this
+   * regression in the first place.
+   */
+  function updateAssociationsSchema() {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, makeDeps());
+    const cmd = registry.getCommand(UPDATE_CMD);
+    const schema = cmd?.parameters["associations"]?.schema;
+    if (!schema) throw new Error("memory.update has no associations parameter schema");
+    return schema;
+  }
+
+  test("an empty array under an OUT-OF-VOCABULARY key is accepted — this is key removal", () => {
+    expect(updateAssociationsSchema().safeParse({ tasks: [] }).success).toBe(true);
+    expect(updateAssociationsSchema().safeParse({ docs: [], prs: [] }).success).toBe(true);
+  });
+
+  test("an empty array under a vocabulary key is accepted", () => {
+    expect(updateAssociationsSchema().safeParse({ tracksTask: [] }).success).toBe(true);
+  });
+
+  test("a normal vocabulary write is accepted", () => {
+    expect(updateAssociationsSchema().safeParse({ tracksTask: ["mt#1"] }).success).toBe(true);
+  });
+
+  test("a non-array value is still rejected", () => {
+    expect(updateAssociationsSchema().safeParse({ tracksTask: "mt#1" }).success).toBe(false);
+  });
+
+  test("update's schema is NOT the create schema — they diverge deliberately", () => {
+    // If someone later "unifies" these, this fails and points at the reason.
+    const createRegistry = createSharedCommandRegistry();
+    registerMemoryCommands(createRegistry, makeDeps());
+    const createSchema = createRegistry.getCommand(CREATE_CMD)?.parameters["associations"]?.schema;
+    if (!createSchema) throw new Error("memory.create has no associations parameter schema");
+
+    expect(createSchema.safeParse({ tasks: [] }).success).toBe(false);
+    expect(updateAssociationsSchema().safeParse({ tasks: [] }).success).toBe(true);
   });
 });

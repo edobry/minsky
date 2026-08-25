@@ -1,0 +1,1 @@
+CREATE INDEX "wake_pending_delivered_by_ask" ON "wake_pending" USING btree ("ask_id","drained_at") WHERE "wake_pending"."drained_at" IS NOT NULL AND "wake_pending"."agent_id" IS NOT NULL;

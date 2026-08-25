@@ -394,6 +394,36 @@ export interface WallOfTextMeasurement {
   wordCount: number;
   /** Line count of the final assistant text block. */
   lineCount: number;
+  /**
+   * Words in the LARGEST single assistant text block of the turn (mt#4531) —
+   * the measurement the over-budget leg now keys on.
+   *
+   * `wordCount` above is the FINAL block, and the two differ exactly when the
+   * wall is not the last thing said. That is the R7 shape: a turn carrying
+   * 854 words across four blocks, 597 of them in the FIRST block and 110 in
+   * the last, drew "This is way too much information. I cannot process all of
+   * this" while measuring 110 here — under the 200-word budget, no fire.
+   *
+   * Never LESS than `wordCount` (the final block is one of the candidates),
+   * so the over-budget leg strictly subsumes its old behaviour: measured over
+   * 2574 replayed turns, 590 fired on the final block and 746 on the largest,
+   * exactly 590 + 156 newly-firing.
+   */
+  largestBlockWords: number;
+  /**
+   * Words across EVERY assistant text block in the turn.
+   *
+   * Recorded, deliberately NOT triggered on. It was the other candidate metric
+   * and the replay disqualified it: 977 newly-firing turns, **444 of them
+   * heartbeat-shaped** (>=20 tool calls with no single block over the
+   * threshold) — the shape `user-preferences.mdc §Progress heartbeats`
+   * MANDATES. A metric that fires on a rule being obeyed is a false positive
+   * by construction. Kept on the record so a future calibration pass can
+   * re-examine that call against real data instead of re-deriving it.
+   */
+  totalWords: number;
+  /** How many assistant lines in the turn carried non-empty text. */
+  blockCount: number;
   /** Names of SKILL_LABEL_PATTERNS that hit inside the lead window. */
   leadLabelHits: string[];
   /** Count of minsky:// deeplinks anywhere in the report. */
@@ -464,8 +494,112 @@ export function extractFinalAssistantText(turnLines: TranscriptLine[]): string {
   return "";
 }
 
-/** Measure a turn-end report against the Tier-1 contract shape. */
-export function measureWallOfText(finalText: string): WallOfTextMeasurement {
+/**
+ * The turn's principal-facing prose, block by block (mt#4531).
+ *
+ * `finalText` is the turn-end report — still what the LABEL leg is scanned
+ * against, because the contract's label rule is about the report's LEAD, and
+ * widening that leg is a separate false-positive question this task did not
+ * measure. The block statistics feed the OVER-BUDGET leg, which is the one the
+ * R7 incident showed measuring the wrong thing.
+ */
+export interface TurnProse {
+  /** The final assistant text block — the turn-end report. */
+  finalText: string;
+  /** Words in the largest single assistant text block. */
+  largestBlockWords: number;
+  /** Words across every assistant text block. */
+  totalWords: number;
+  /** How many assistant lines carried non-empty text. */
+  blockCount: number;
+}
+
+/**
+ * Collect every assistant text block in the turn, plus the final one (mt#4531).
+ *
+ * **How this stands with ADR-031, which it deviates from.** That ADR classifies
+ * this module as the family's one TEXT-ONLY detector and assigns its
+ * sub-operation (2) to the `Stop`-recorded `last_assistant_message` — a field
+ * that, per the vendor's own wording, "contains the text content of Claude's
+ * final response." So it can supply the FINAL block and no other, and a
+ * whole-turn measurement cannot come from it.
+ *
+ * The deviation is narrow and keeps both halves of the ADR's benefit:
+ * `resolveFinalAssistantText` still PREFERS the recorded value for the final
+ * block, so the lag-tolerance ADR-031 bought is intact and unchanged; the
+ * earlier blocks come from the transcript window the module already receives,
+ * which is the same source sub-operation (3) already reads for tool calls. What
+ * changes is only the ADR's CLASSIFICATION — this module is no longer
+ * text-only in the sense of needing nothing but that one field. The event
+ * assignment (Stop anchor, `UserPromptSubmit` detect-and-inject) is untouched.
+ *
+ * Pure: both the lines and the resolved final text arrive as arguments.
+ */
+export function collectTurnProse(turnLines: TranscriptLine[], finalText: string): TurnProse {
+  const blockTexts: string[] = [];
+  for (const line of turnLines) {
+    if (!line) continue;
+    const text = extractAssistantText([line]);
+    if (text.trim().length === 0) continue;
+    blockTexts.push(text);
+  }
+
+  const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
+  const finalTrimmed = finalText.trim();
+
+  // The ADR-031 lag case: `resolveFinalAssistantText` prefers the `Stop`-recorded
+  // `last_assistant_message`, which can carry a final block the transcript has
+  // not flushed yet. When it does, that block is an ADDITIONAL one — it is not
+  // in `blockTexts` — so every statistic has to account for it, not just the
+  // maximum.
+  //
+  // PR #3310 R1 (BLOCKING): the first cut folded the recorded block into
+  // `largestBlockWords` via `Math.max` and then took `totalWords` /
+  // `blockCount` from the transcript blocks alone, so a lagged turn undercounted
+  // both — [50, 60] blocks with a recorded 500-word final reported 500 total and
+  // 2 blocks instead of 610 and 3. The reminder and the calibration record both
+  // carry those numbers, so both were wrong exactly when the lag preference this
+  // module relies on was doing its job. Patching ONE field for the lag case and
+  // leaving its two siblings on the un-lagged path is the whole defect; deriving
+  // all three from one candidate list is what prevents it recurring.
+  const lastTranscriptBlock = blockTexts[blockTexts.length - 1];
+  const recordedBlockIsUnflushed =
+    finalTrimmed.length > 0 && lastTranscriptBlock?.trim() !== finalTrimmed;
+
+  const candidates = blockTexts.map(countWords);
+  if (recordedBlockIsUnflushed) candidates.push(countWords(finalText));
+  // A turn with no assistant text at all and an empty recorded final: measure
+  // zero rather than throwing on `Math.max()` of an empty list.
+  if (candidates.length === 0) candidates.push(0);
+
+  return {
+    finalText,
+    largestBlockWords: Math.max(...candidates),
+    totalWords: candidates.reduce((a, b) => a + b, 0),
+    blockCount: candidates.length,
+  };
+}
+
+/**
+ * Measure a turn against the Tier-1 contract shape.
+ *
+ * Accepts a bare string for the single-block case — which is what every caller
+ * measuring only a report has, and what the module did exclusively before
+ * mt#4531. A string is treated as a one-block turn, so the returned
+ * `largestBlockWords` equals `wordCount` and the verdict is byte-identical to
+ * the pre-mt#4531 behaviour. That equivalence is what lets the widening ship
+ * without re-deriving every existing expectation.
+ */
+export function measureWallOfText(input: string | TurnProse): WallOfTextMeasurement {
+  const prose: TurnProse =
+    typeof input === "string"
+      ? (() => {
+          const n = input.split(/\s+/).filter(Boolean).length;
+          return { finalText: input, largestBlockWords: n, totalWords: n, blockCount: 1 };
+        })()
+      : input;
+
+  const finalText = prose.finalText;
   const words = finalText.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
   const lineCount = finalText.split("\n").filter((l) => l.trim().length > 0).length;
@@ -476,7 +610,11 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
   const deeplinkCount = (finalText.match(DEEPLINK_RE) ?? []).length;
   const namedRefCount = (finalText.match(NAMED_REF_RE) ?? []).length;
 
-  const overBudget = wordCount >= WORD_COUNT_THRESHOLD;
+  // mt#4531: the over-budget leg keys on the LARGEST block, not the final one.
+  // The label leg keeps its `wordCount` floor deliberately — it is a claim
+  // about the REPORT's lead, and both its threshold and its patterns were
+  // calibrated against final-block text (mt#3336 / ask#6448).
+  const overBudget = prose.largestBlockWords >= WORD_COUNT_THRESHOLD;
   const hasLeadLabels = leadLabelHits.length > 0 && wordCount >= LEAD_LABELS_MIN_WORDS;
   const matched = overBudget || hasLeadLabels;
   const trigger =
@@ -502,6 +640,9 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
     trigger,
     wordCount,
     lineCount,
+    largestBlockWords: prose.largestBlockWords,
+    totalWords: prose.totalWords,
+    blockCount: prose.blockCount,
     leadLabelHits,
     deeplinkCount,
     namedRefCount,
@@ -521,6 +662,43 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
  * the just-measured over-budget report, not the whole session history.
  */
 export const DEPTH_REQUEST_LOOKBACK_TURNS = 3;
+
+/**
+ * How many real user-prompt slots {@link recentUserPromptTexts} may scan
+ * BACKWARD to collect its {@link DEPTH_REQUEST_LOOKBACK_TURNS} principal
+ * prompts (mt#4109).
+ *
+ * **These two numbers answer different questions, and conflating them is the
+ * defect this constant exists to fix.** `DEPTH_REQUEST_LOOKBACK_TURNS` is the
+ * SEMANTIC window — how much of the principal's recent conversation may excuse
+ * a long report. This is the SCAN budget — how much harness noise the walk may
+ * step over on its way to those prompts. Until mt#4109 there was only the
+ * first, and it was spent on both: `recentUserPromptTexts` took the last three
+ * REAL prompts and filtered nothing, so a run of harness turns consumed the
+ * entire semantic window.
+ *
+ * That was not a known tradeoff. This file's own
+ * {@link QUESTION_ANSWER_LOOKBACK_TURNS} comment asserted the opposite — that
+ * the depth gate's slots are "already principal-authored" — and
+ * `docs/architecture/hooks/wall-of-text-detector.md` repeated it. Measured
+ * across 2,914 turns: **714 depth windows (24.5%) contained no principal text
+ * at all**, and 1,533 more were partly harness markup. Harness turns arrive in
+ * RUNS (a `/model` invocation and its `Set model to …` echo are two consecutive
+ * turns), so three slots fill easily.
+ *
+ * **Sized at 15 by measurement, not by symmetry with the constant above.**
+ * Newly-suppressed turns by scan cap, over the same 2,914: cap 3 → 0 (a filter
+ * with no scan budget only loses), 5 → 46, 8 → 76, 10 → 81, **15 → 87**,
+ * 25 → 87. Fifteen is where the curve reaches the UNBOUNDED result, so the
+ * bound costs nothing on the measured corpus and exists purely as a guard
+ * against a pathological harness storm. Three turns lose a match at every cap,
+ * including 15 — those are turns whose depth match came from harness text, so
+ * losing them is the correction, not a regression.
+ *
+ * Raising this does NOT widen how far into real conversation the gate reaches:
+ * that stays fixed at three principal prompts. Only the noise tolerance moves.
+ */
+export const DEPTH_REQUEST_SCAN_LIMIT = 15;
 
 /**
  * Phrasings the principal uses to explicitly ask for MORE depth/detail than
@@ -646,22 +824,52 @@ export function findOpeningPromptIndex(lines: TranscriptLine[]): number | undefi
 }
 
 /**
- * Text of the last `lookback` REAL user prompts at or before `throughIndex`
- * (inclusive) — the lookback window for the depth-request override. Callers
- * pass {@link findOpeningPromptIndex}'s result as `throughIndex` so the
- * window never reaches into the CURRENT prompt (which arrives after the
- * report being measured and so cannot have caused it).
+ * Text of the last `lookback` PRINCIPAL user prompts at or before
+ * `throughIndex` (inclusive) — the lookback window for the depth-request
+ * override. Callers pass {@link findOpeningPromptIndex}'s result as
+ * `throughIndex` so the window never reaches into the CURRENT prompt (which
+ * arrives after the report being measured and so cannot have caused it).
+ *
+ * **PRINCIPAL, not merely REAL, since mt#4109.** `isRealUserPrompt` admits any
+ * user-role line carrying text, which includes harness-generated turns the
+ * principal never typed — a slash-command echo, a local command's captured
+ * stdout, a background-task notification. This walk skips every
+ * {@link isNonPrincipalTurnOpener} hit, bounded by
+ * {@link DEPTH_REQUEST_SCAN_LIMIT} real slots, and returns oldest-first so
+ * {@link detectDepthRequest} scans them in conversational order.
+ *
+ * Before mt#4109 it took the last `lookback` real prompts unfiltered, which
+ * made the depth gate the ONLY consumer of this transcript that read harness
+ * output as the principal's words: {@link resolveQuestionAnswerCheck} has
+ * skipped them via {@link findRecentPrincipalPromptIndex} since mt#3972. That
+ * asymmetry is what mt#4109 measured — 24.5% of windows were entirely harness
+ * markup — and it went unexamined because the sibling constant's own comment
+ * asserted this window could not contain them.
+ *
+ * Fails OPEN in the sense that matters here: when the scan finds no principal
+ * prompt within its bound, it returns an empty array and
+ * {@link detectDepthRequest} reports no match, so the fire is UNSUPPRESSED —
+ * matching {@link resolveDepthCheck}'s documented fail-closed posture rather
+ * than excusing a report on the strength of text nobody wrote.
  */
 export function recentUserPromptTexts(
   lines: TranscriptLine[],
   throughIndex: number,
-  lookback: number = DEPTH_REQUEST_LOOKBACK_TURNS
+  lookback: number = DEPTH_REQUEST_LOOKBACK_TURNS,
+  scanLimit: number = DEPTH_REQUEST_SCAN_LIMIT
 ): string[] {
   const promptIndices = findRealPromptIndices(lines).filter((i) => i <= throughIndex);
-  const recent = promptIndices.slice(-lookback);
-  return recent
-    .map((i) => extractUserPromptText(lines[i] as TranscriptLine))
-    .filter((t) => t.length > 0);
+  const collected: string[] = [];
+  let scanned = 0;
+  for (let i = promptIndices.length - 1; i >= 0; i--) {
+    if (scanned >= scanLimit || collected.length >= lookback) break;
+    scanned++;
+    const text = extractUserPromptText(lines[promptIndices[i] as number] as TranscriptLine);
+    if (text.length === 0) continue;
+    if (isNonPrincipalTurnOpener(text)) continue;
+    collected.push(text);
+  }
+  return collected.reverse();
 }
 
 export interface DepthRequestResult {
@@ -791,13 +999,59 @@ export function detectSubstantiveQuestion(text: string): QuestionAnswerResult {
  *     wire format prepends ahead of a `<task-notification>` block (observed
  *     directly in this file's own implementation session).
  *
+ * **Reconciled against the full inventory (mt#4109).** The three tags above
+ * were the whole list until 2026-08-25, and the nine added alongside them are
+ * every remaining member of `HARNESS_MARKUP_TAGS` — the command-wrapper group,
+ * the local-command group, and the bash-mode group. The omission was drift,
+ * not judgment: measured across 2,914 turns, 343 were opened by one of the
+ * MISSING tags, and the three most common (`<local-command-stdout`,
+ * `<command-name`, `<bash-stdout`) account for all 16 harness-anchored records
+ * in the calibration log. Sync this list when `harness-markup.ts` gains a tag;
+ * `wall-of-text-detector.test.ts` pins the current set so a silent drop fails.
+ *
+ * Two DELIBERATE divergences from the inventory, both load-bearing:
+ *
+ *   - `[SYSTEM NOTIFICATION` is here and NOT in the inventory — it is a
+ *     plain-text preamble, not a tag, so it has no place in a tag list.
+ *   - `local-command-stderr` is in NEITHER, and must stay out.
+ *     `harness-markup.ts` says so in its own words: "A `local-command-stderr`
+ *     tag does NOT exist in the corpus; do not add one on symmetry grounds
+ *     without observing it first." An earlier revision of mt#4109's SC1 asked
+ *     for exactly that; the ask was withdrawn on reading the inventory.
+ *
+ * **`<bash-input` is here for a different reason than its neighbours, and the
+ * difference matters if you ever re-check this list.** Every other entry is
+ * content the principal did not author. `<bash-input` carries the operator's
+ * OWN typed command (`harness-markup.ts`: "`bash-input` is role `user` and
+ * carries the operator's typed command") — so it is principal-authored, and it
+ * is skipped anyway because it is not a PROMPT. Running a shell command does
+ * not supersede the question the principal asked two turns earlier, and it
+ * never requests depth or asks anything. The inventory answers "is this
+ * operator prose, for display?"; this list answers "did the principal solicit
+ * this length?" — `<bash-input` is the one tag where those diverge.
+ *
  * Checked as a PREFIX of the trimmed text, matching how these tags open a
  * block when they constitute the whole turn — the only shape
  * `isRealUserPrompt` lets through as "real" in the first place.
  */
 const NON_PRINCIPAL_OPENER_PREFIXES: readonly string[] = [
-  "<task-notification",
+  // COMMAND_WRAPPER_TAGS — a slash-command or skill invocation echo.
+  "<command-name",
+  "<command-message",
+  "<command-args",
+  "<skill-format",
+  // LOCAL_COMMAND_TAGS — a local command's captured output, plus the
+  // model-directed caveat the harness attaches to it.
+  "<local-command-stdout",
+  "<local-command-caveat",
+  // BASH_MODE_TAGS — what the harness records for a `!`-prefixed command.
+  "<bash-input",
+  "<bash-stdout",
+  "<bash-stderr",
+  // SYSTEM_REMINDER_TAGS / TASK_NOTIFICATION_TAGS.
   "<system-reminder",
+  "<task-notification",
+  // NOT in the inventory, deliberately — see the doc comment above.
   "[SYSTEM NOTIFICATION",
 ];
 
@@ -830,18 +1084,48 @@ export function isNonPrincipalTurnOpener(text: string): boolean {
  * subagents finishing near-simultaneously) between the principal's real
  * question and the report answering it.
  *
- * Set to 5, matching the precedent of this file's OWN sibling
+ * **This is a SCAN budget, not a lookback** — the name predates the
+ * distinction and is kept for contract stability. It is larger than
+ * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because that one is a SEMANTIC
+ * window over principal prompts, while this counts real slots stepped over.
+ * This gate looks for exactly ONE principal prompt and stops at the first it
+ * finds, so raising this can NEVER make it reach an older prompt than the most
+ * recent principal one — it only makes it more likely to find that prompt
+ * through intervening harness turns. There is therefore no over-suppression
+ * risk on this axis, which is why it is sized generously.
+ *
+ * **Raised 5 → 15 by measurement (mt#4109, PR #3329 R1).** The reviewer caught
+ * that the depth gate got a scan budget while its sibling kept the conflated
+ * one, and the sibling's population is the larger of the two. Measured over
+ * 2,926 turns with the widened prefix list in place: **395 anchors resolved to
+ * `undefined` — the 5 slots held nothing but harness markup** — and the gate
+ * failed closed on every one. Rescued anchors by budget: 5 → 0, 8 → 165,
+ * 10 → 207, **15 → 248**, 25 → 258; newly question-suppressed turns: 0 / 54 /
+ * 73 / **98** / 108. Set to 15 to match {@link DEPTH_REQUEST_SCAN_LIMIT}, so
+ * both gates tolerate the same amount of harness noise and there is one number
+ * to reason about rather than two.
+ *
+ * Retains the precedent of this file's OWN sibling
  * `RETRO_INVOCATION_LOOKBACK_TURNS` (retrospective-trigger-scanner.ts) for
  * "a bounded recent-turns window is on the order of a handful, not a
- * multi-turn conversation stretch" — larger than
- * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because THIS gate's window has to
- * accommodate injected non-principal slots consuming budget that
+ * multi-turn conversation stretch" in the sense that matters: the PRINCIPAL
+ * reach is still one prompt.
+ *
+ * **Correction (mt#4109).** This comment used to end "...that
  * `DEPTH_REQUEST_LOOKBACK_TURNS` never has to (every slot it counts is
- * already principal-authored), not because this gate is meant to look
- * further into genuine principal-to-principal conversation history than that
- * one does.
+ * already principal-authored)", and `docs/architecture/hooks/` repeated it.
+ * That parenthetical was FALSE, and stated the situation backwards: this gate
+ * is the one that SKIPS injected turns (via
+ * {@link findRecentPrincipalPromptIndex}); the depth gate filtered nothing at
+ * all, so its every slot could be — and 24.5% of the time entirely was —
+ * harness markup. The claim was a load-bearing assertion about a SIBLING code
+ * path, made in a comment about this one, where no test could reach it; it is
+ * why six calibration windows read the depth gate's misses as a vocabulary
+ * problem and never checked its input. The depth gate now has its own scan
+ * budget ({@link DEPTH_REQUEST_SCAN_LIMIT}), so the two constants are
+ * genuinely parallel and this sentence is true as rewritten.
  */
-export const QUESTION_ANSWER_LOOKBACK_TURNS = 5;
+export const QUESTION_ANSWER_LOOKBACK_TURNS = 15;
 
 /**
  * Index of the most recent PRINCIPAL real user prompt at or before
@@ -1147,6 +1431,15 @@ function buildCalibrationRecord(
     session_id: input.session_id,
     wordCount: m.wordCount,
     lineCount: m.lineCount,
+    // mt#4531: the whole-turn measurements. `wordCount` above stays the FINAL
+    // block so every record ever written keeps meaning the same thing; these
+    // three are additive, and records predating this change simply lack them
+    // (the sweep treats new fields as optional, as it did for `excerpt`).
+    // `totalWords` is recorded but NOT triggered on — see its field doc for the
+    // heartbeat-shape measurement that disqualified it as a trigger.
+    largestBlockWords: m.largestBlockWords,
+    totalWords: m.totalWords,
+    blockCount: m.blockCount,
     trigger: m.trigger,
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
@@ -1270,7 +1563,8 @@ export function run(
   try {
     finalText = resolveFinalAssistantText(turnLines, ctx.recordedAnchor);
     if (finalText.length === 0) return null;
-    measurement = measureWallOfText(finalText);
+    // mt#4531: measure the whole turn's prose, not only the final block.
+    measurement = measureWallOfText(collectTurnProse(turnLines, finalText));
   } catch (err) {
     process.stderr.write(
       `[wall-of-text-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1335,19 +1629,46 @@ export function run(
   return outcome;
 }
 
+/**
+ * The injected reminder (mt#4531 SC2).
+ *
+ * **It must name what was actually MEASURED.** The pre-mt#4531 text said "the
+ * prior turn's final report ran N words" — true of the final block, and
+ * satisfiable by shrinking the tail alone. In the R7 incident that is exactly
+ * what happened: a 346-word fire landed in the next turn's context, the next
+ * turn's final block came back at 110 words, and total turn prose rose from 655
+ * to 854. The reminder was COMPLIED WITH while the harm grew. A reminder that
+ * names a quantity the agent can reduce without reducing what the principal
+ * reads is not a weak reminder, it is the wrong one.
+ *
+ * So when the wall is NOT the final block, say where it is and how big it was.
+ */
 function buildInjectionReminder(m: WallOfTextMeasurement): string {
+  // Kept tight on purpose: this guard's declared `denialMessageSizeChars` is
+  // 400 (registry.ts), and a detector whose whole subject is output volume is
+  // the last one that should answer a breach by raising its own ceiling.
+  const wallIsElsewhere = m.largestBlockWords > m.wordCount;
+  const sizing = wallIsElsewhere
+    ? `The prior turn ran ${m.totalWords} words across ${m.blockCount} messages — largest ` +
+      `${m.largestBlockWords}, closing ${m.wordCount}. The budget covers the whole turn, so ` +
+      `trimming only the last message does not meet it.`
+    : `The prior turn's final report ran ${m.wordCount} words.`;
+
   return [
-    "[wall-of-text-detector] Turn-end report shape violation detected (mt#2870).",
+    "[wall-of-text-detector] Turn shape violation (mt#2870, mt#4531).",
     "",
-    `The prior turn's final report ran ${m.wordCount} words${
-      m.leadLabelHits.length > 0
-        ? ` and led with skill-internal labels (${m.leadLabelHits.join(", ")}).`
-        : "."
-    }`,
+    sizing,
+    ...(m.leadLabelHits.length > 0
+      ? ["", `Its lead also carried skill-internal labels (${m.leadLabelHits.join(", ")}).`]
+      : []),
     "",
-    "The Tier-1 turn-report contract (communication-contract.mdc): what happened /",
-    "what you need to know / what's next, each 1-3 sentences, ~200 words total,",
-    "plain-language lead, detail behind pointers.",
+    // A POINTER, not a restatement. `communication-contract.mdc` is
+    // always-loaded, so quoting its three parts back cost ~125 chars to tell
+    // the reader something already in their context — which is the
+    // "re-narrating the substrate" anti-pattern the contract itself names,
+    // committed by the detector that enforces it. The chars bought the SIZING
+    // sentence instead, which is the part the reader does not already have.
+    "Contract: communication-contract.mdc §The Tier-1 turn-report contract.",
   ].join("\n");
 }
 
@@ -1426,7 +1747,10 @@ export async function main(): Promise<void> {
     if (finalText.length === 0) {
       process.exit(0);
     }
-    measurement = measureWallOfText(finalText);
+    // mt#4531: same whole-turn measurement as run(). Kept in lockstep
+    // deliberately — the CLI and dispatcher paths diverging is the
+    // asymmetry PR #2175 R1 flagged on the transcript-resolution half.
+    measurement = measureWallOfText(collectTurnProse(turnLines, finalText));
   } catch (err) {
     console.error(
       `[wall-of-text-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}`

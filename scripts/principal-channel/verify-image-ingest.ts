@@ -7,7 +7,7 @@
  * `claude` binary accepts an `image` content block over `--input-format
  * stream-json` and that the model actually SEES the pixels.
  *
- * Why it cannot be a unit test: every test in this cluster stubs the actuator
+ * Why it cannot be a unit test: every test in this cluster stubs the session driver
  * seam or the fetch, so all of them would pass against a binary that silently
  * dropped the image block. The originating defect (mt#3235) was exactly that
  * class — a whole message shape vanishing with every gate green.
@@ -27,7 +27,7 @@
 
 import { deflateSync } from "node:zlib";
 
-import { createDrivenSessionActuator } from "../../src/cockpit/principal-channel-actuator";
+import { createDrivenSessionDriver } from "../../src/cockpit/principal-channel-driver";
 import { DrivenSessionRegistry } from "../../src/cockpit/driven-session-host";
 
 /**
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
   const cwd = argValue("--cwd") ?? process.cwd();
   const startedAt = Date.now();
 
-  const actuator = createDrivenSessionActuator({
+  const sessionDriver = createDrivenSessionDriver({
     cwd,
     registry: new DrivenSessionRegistry(),
     respondToAsk: async () => "unused",
@@ -158,18 +158,18 @@ async function main(): Promise<void> {
 
   let reply: string;
   try {
-    reply = await actuator.converse(PROMPT, {
+    reply = await sessionDriver.converse(PROMPT, {
       images: [{ base64: MAGENTA_PNG_BASE64, mediaType: "image/png" }],
     });
   } catch (err) {
     console.error(
       `FAIL after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`
     );
-    await actuator.reset();
+    await sessionDriver.reset();
     process.exit(1);
   }
 
-  await actuator.reset();
+  await sessionDriver.reset();
 
   const normalized = reply.trim().toLowerCase();
   const recognized = ACCEPTED.some((colour) => normalized.includes(colour));

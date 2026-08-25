@@ -528,6 +528,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "inject-ask-responses",
+    {
+      description:
+        "Tells the agent that an ask THIS conversation filed has been answered or otherwise settled, so it stops reporting the ask as open from memory of having filed it. Fires once per response.",
+      failureClasses: ["stale-context", "lost-signal"],
+      provenance: [hook("inject-ask-responses")],
+      stratum: "registry",
+    },
+  ],
+  [
     "memory-search",
     {
       description:
@@ -618,6 +628,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it returned at most one hit and the prose cites a task that already shipped the thing. Log-only.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("negative-existence-claim-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "secret-request-in-chat-detector",
+    {
+      description:
+        "Records the assistant asking the principal to hand over a secret through the conversation — 'paste your bot token here'. The transcript is persisted and ingested, so the value becomes durable searchable data; the correct surface is credentials.request. Suppresses the agent REFUSING, and prose describing the antipattern rather than committing it. Log-only.",
+      failureClasses: ["secret-exposure"],
+      provenance: [hook("secret-request-in-chat-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -928,7 +948,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "check-task-spec-read",
     {
       description:
-        "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case.",
+        "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case. On `asks_create` / `asks_edit` the same check ADVISES rather than blocks: an ask recommends a task to the principal, and a status field says where a task sits in the lifecycle while only its body says whether it is still worth doing.",
       failureClasses: ["unfounded-claim", "duplicate-work"],
       provenance: [hook("check-task-spec-read"), HOOK_FILES_RULE],
       stratum: "standalone",
@@ -961,6 +981,26 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Validates a `tasks_status_set` transition against the canonical task state machine, denying transitions the machine does not permit.",
       failureClasses: ["corrupt-record"],
       provenance: [hook("tasks-status-set-guard"), HOOK_FILES_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
+    "warn-peer-task-activity",
+    {
+      description:
+        "Reads the TASK EVENT LEDGER on `tasks_status_set` / `tasks_spec_patch` and injects an advisory naming any `session.started` (minus the caller's own) or recent `task.status_changed` — the one peer-presence signal keyed to the task rather than to an actor, so it does not inherit the attribution defect every probe in `user-preferences.mdc §Probe before claiming a shared resource` reads through. Never denies: prevention is a principal-owned question (substrate RFC Open question 4).",
+      failureClasses: ["duplicate-work"],
+      provenance: [hook("warn-peer-task-activity"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
+    "warn-stale-forward-reference",
+    {
+      description:
+        "On a `tasks_status_set` transition to DONE, scans the ADR corpus and `.minsky/rules` for paragraphs that describe THIS task's deliverable as still-pending — a forward-looking marker plus either the task id or two distinct tokens from the task's title — and injects them as reconciliation candidates with file, line and excerpt. The title-token path exists because the originating instance (ADR-006's \"upgrade path if that bites\", left stale by mt#3900) names no task id at all, so an id-only index would have missed exactly the class that matters. Advisory and log-only: the heuristic half's false-positive rate is unmeasured.",
+      failureClasses: ["stale-context"],
+      provenance: [hook("warn-stale-forward-reference"), HOOK_OBSERVERS_RULE],
       stratum: "standalone",
     },
   ],

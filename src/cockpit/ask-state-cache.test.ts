@@ -107,6 +107,39 @@ describe("buildAskStateSnapshot", () => {
     expect(asks?.[ASK_A]).toEqual({ found: false });
   });
 
+  test("carries the tool-call seam's delivery watermark across (mt#4476)", async () => {
+    const asks = await buildAskStateSnapshot(
+      stubSql([
+        {
+          id: ASK_A,
+          state: "responded",
+          responded_at: "2026-08-24T15:00:00.000Z",
+          wake_delivered_at: "2026-08-24T15:00:07.000Z",
+        },
+      ]),
+      [ASK_A]
+    );
+
+    const entry = asks?.[ASK_A];
+    expect(entry?.found).toBe(true);
+    // This field is the only route the two delivery seams have to each other: the
+    // prompt-seam hook writes no DB by design, so without this it would re-announce
+    // an answer the tool-call seam already delivered.
+    expect(entry).toMatchObject({ wakeDeliveredAt: "2026-08-24T15:00:07.000Z" });
+  });
+
+  test("omits the watermark when the wake was written but never drained", async () => {
+    const asks = await buildAskStateSnapshot(
+      stubSql([{ id: ASK_A, state: "responded", responded_at: "2026-08-24T15:00:00.000Z" }]),
+      [ASK_A]
+    );
+
+    // Absent, not null. The subquery filters on `drained_at IS NOT NULL`, so an
+    // undrained wake produces no timestamp — and the prompt seam must still announce,
+    // because nothing has actually reached the agent yet.
+    expect(asks?.[ASK_A]).not.toHaveProperty("wakeDeliveredAt");
+  });
+
   test("precomputes `open` from the producer-owned state set", async () => {
     const asks = await buildAskStateSnapshot(
       stubSql([

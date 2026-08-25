@@ -38,6 +38,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { PendingButton } from "../components/PendingButton";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { EntityRef } from "../components/EntityRef";
@@ -106,10 +107,16 @@ type Filters = {
 
 function useInlineAskActions() {
   const queryClient = useQueryClient();
-  const [pendingId, setPendingId] = useState<string | null>(null);
 
+  /**
+   * Refresh the lists so the answered row leaves the inbox.
+   *
+   * `onSuccess`, not `onSettled` (mt#4503): `onSettled` runs on both outcomes,
+   * so a FAILED inline action cleared the pending marker and re-rendered the row
+   * exactly as an idle one — the operator's click produced a brief gray-out and
+   * then nothing at all, while the ask stayed open server-side.
+   */
   const settle = () => {
-    setPendingId(null);
     void queryClient.invalidateQueries({ queryKey: ["asks"] });
     void queryClient.invalidateQueries({ queryKey: ["attention"] });
   };
@@ -117,17 +124,56 @@ function useInlineAskActions() {
   const resolveMutation = useMutation({
     mutationFn: ({ ask, optionLetter }: { ask: AskItem; optionLetter: string }) =>
       resolveAsk(ask.id, composeResolvePayload(ask, optionLetter, "inbox")),
-    onMutate: ({ ask }) => setPendingId(ask.id),
-    onSettled: settle,
+    onSuccess: settle,
   });
 
   const deferMutation = useMutation({
     mutationFn: (askId: string) => deferAsk(askId),
-    onMutate: (askId) => setPendingId(askId),
-    onSettled: settle,
+    onSuccess: settle,
   });
 
-  return { resolveMutation, deferMutation, pendingId };
+  /**
+   * The row whose action is in flight, and which control within it (mt#4503).
+   *
+   * Derived from the mutations rather than tracked in a `pendingId` state the
+   * hook set from `onMutate` — that flag was a hand-rolled `isPending`, and
+   * rebuilding it left the sibling `isError` unread, which is the whole reason
+   * a failed inline action was invisible.
+   */
+  /**
+   * Each mutation's variables, read ONCE and guarded (PR #3285 R1).
+   *
+   * `MutationObserverBaseResult.variables` is `TVariables | undefined`; the
+   * pending and error VARIANTS narrow it to `TVariables`, which is why the
+   * unguarded reads typechecked. The guard does not fix a reachable crash — it
+   * removes the dependency on that narrowing holding, since a discriminated
+   * union is a library-version detail and nothing here would fail loudly if a
+   * future version widened it.
+   *
+   * Note `deferMutation.variables` is the ask id itself (a bare string), so it
+   * needs the same guard for a different reason: `askId: undefined` would make
+   * `failure.askId === ask.id` false for every row and silently swallow the
+   * error rather than throw.
+   */
+  const resolveVars = resolveMutation.variables;
+  const deferVars = deferMutation.variables;
+
+  const acting: { askId: string; optionLetter?: string } | null =
+    resolveMutation.isPending && resolveVars
+      ? { askId: resolveVars.ask.id, optionLetter: resolveVars.optionLetter }
+      : deferMutation.isPending && deferVars
+        ? { askId: deferVars }
+        : null;
+
+  /** Which ask the last failure belongs to, so only that row shows it. */
+  const failure =
+    resolveMutation.error && resolveVars
+      ? { askId: resolveVars.ask.id, error: resolveMutation.error }
+      : deferMutation.error && deferVars
+        ? { askId: deferVars, error: deferMutation.error }
+        : null;
+
+  return { resolveMutation, deferMutation, acting, failure, pendingId: acting?.askId ?? null };
 }
 
 type InlineAskActions = ReturnType<typeof useInlineAskActions>;
@@ -182,35 +228,59 @@ function InlineActionBar({
   inline: InlineAction[];
   pending: boolean;
 }) {
+  // Which control in THIS row is mid-request. `pending` says the row is busy;
+  // this says which button the operator actually clicked (mt#4503) — on a row
+  // offering three options, the first is not an answer to the second.
+  const acting = actions.acting?.askId === ask.id ? actions.acting : null;
+  const failure = actions.failure?.askId === ask.id ? actions.failure : null;
+
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1">
-      {inline.map((a) =>
-        a.action === "resolve" ? (
-          <Button
-            key={a.label}
-            size="sm"
-            variant={a.optionLetter === "A" ? "default" : "outline"}
-            className={cn("h-6 min-w-0 px-2 text-xs", ACTION_LABEL_MAX_W)}
-            disabled={pending}
-            title={optionTitle(ask, a)}
-            onClick={() =>
-              actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
-            }
-          >
-            <span className="truncate">{stripOptionLetterPrefix(a.label)}</span>
-          </Button>
-        ) : (
-          <Button
-            key={a.label}
-            size="sm"
-            variant="ghost"
-            className="h-6 flex-shrink-0 px-2 text-xs"
-            disabled={pending}
-            onClick={() => actions.deferMutation.mutate(ask.id)}
-          >
-            {a.label}
-          </Button>
-        )
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {inline.map((a) =>
+          a.action === "resolve" ? (
+            <PendingButton
+              key={a.label}
+              size="sm"
+              variant={a.optionLetter === "A" ? "default" : "outline"}
+              className={cn("h-6 min-w-0 px-2 text-xs", ACTION_LABEL_MAX_W)}
+              pending={acting?.optionLetter === (a.optionLetter ?? "A")}
+              disabled={pending}
+              title={optionTitle(ask, a)}
+              onClick={() =>
+                actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
+              }
+            >
+              <span className="truncate">{stripOptionLetterPrefix(a.label)}</span>
+            </PendingButton>
+          ) : (
+            <PendingButton
+              key={a.label}
+              size="sm"
+              variant="ghost"
+              className="h-6 flex-shrink-0 px-2 text-xs"
+              pending={acting !== null && acting.optionLetter === undefined}
+              disabled={pending}
+              onClick={() => actions.deferMutation.mutate(ask.id)}
+            >
+              {a.label}
+            </PendingButton>
+          )
+        )}
+      </div>
+      {acting !== null && (
+        <p role="status" className="text-xs text-muted-foreground" data-testid="inline-ask-status">
+          {acting.optionLetter === undefined ? "Deferring…" : "Saving your response…"}
+        </p>
+      )}
+      {acting === null && failure !== null && (
+        <div data-testid="inline-ask-error">
+          <ErrorState
+            prefix="Your response was not saved"
+            error={failure.error}
+            className="text-xs"
+          />
+        </div>
       )}
     </div>
   );

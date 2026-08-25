@@ -15,7 +15,7 @@
  * One row per LOCAL SESSION (not per turn — contrast
  * ./driven-session-cost-schema.ts, which is one row per turn). `localId` is
  * the daemon's spawn-time id (see `DrivenSessionRecord.localId`'s doc comment
- * in driven-session-host.ts) and is stable across an actuator swap (a
+ * in driven-session-host.ts) and is stable across a session driver swap (a
  * resume-respawn constructs a NEW in-memory record but keeps the same
  * `localId` — see the R1 delta #3 "record replacement, not mutation"
  * constraint) — so this table's PK never changes across a resume.
@@ -33,7 +33,7 @@
  * (deleted cwd, spawn-died-before-init, policy-blocked respawn) is persisted
  * as `"unrecoverable"` with `unrecoverableReason` set (R1 delta #2).
  *
- * `actuatorGeneration` counts actuator swaps (R1 delta #3) — incremented each
+ * `driverGeneration` counts session driver swaps (R1 delta #3) — incremented each
  * time a resume-respawn replaces the in-memory record; persisted so cost
  * continuity (R1 delta #7) can attribute rows to a generation without
  * resetting/double-counting across a respawn.
@@ -93,9 +93,9 @@ export const drivenSessionsTable = pgTable(
     pid: integer("pid"),
     pidCmdline: text("pid_cmdline"),
 
-    // Actuator-swap generation counter (R1 delta #3/#7) — 0 for the
+    // Session driver-swap generation counter (R1 delta #3/#7) — 0 for the
     // original spawn, incremented once per resume-respawn.
-    actuatorGeneration: integer("actuator_generation").notNull().default(0),
+    driverGeneration: integer("driver_generation").notNull().default(0),
 
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     /**
@@ -249,11 +249,11 @@ export const drivenSessionConversationsTable = pgTable(
     harness: text("harness").notNull(),
 
     /**
-     * `driven_sessions.actuator_generation` AT ADOPTION TIME. That column
-     * counts actuator swaps but is overwritten with the rest of the row; here
+     * `driven_sessions.driver_generation` AT ADOPTION TIME. That column
+     * counts session driver swaps but is overwritten with the rest of the row; here
      * each generation finally gets a durable per-generation record (RFC §5).
      */
-    actuatorGeneration: integer("actuator_generation").notNull().default(0),
+    driverGeneration: integer("driver_generation").notNull().default(0),
 
     adoptedAt: timestamp("adopted_at", { withTimezone: true }).defaultNow().notNull(),
 

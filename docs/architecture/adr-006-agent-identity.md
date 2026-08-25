@@ -76,6 +76,22 @@ in-process conversation switch (`/clear`, in-process resume) attributes calls to
 conversation until the next reconnect respawns the proxy; upgrade path if that bites is a
 SessionStart hook writing a `<claude-pid> → sessionId` mapping the proxy re-reads per request.
 
+**Amendment (2026-08-24, mt#3900 + mt#3812):** the "upgrade path if that bites" named at the end
+of the previous paragraph SHIPPED — read that Known limitation as resolved on one transport and
+still live on the other, not as open future work. mt#3900 implemented the `<claude-pid> →
+sessionId` mapping (`@minsky/shared/conversation-pid-map`), and
+`src/mcp/stdio-proxy/conversation-identity.ts` resolves it per request, so an in-process `/clear`
+or resume no longer attributes calls to the pre-switch conversation **on the stdio-proxy path**.
+It is NOT fixed uniformly: `minsky mcp shim` (ADR-038, mt#3812) deliberately does not import that
+module — the shim's v1 scope names only the `CLAUDE_CODE_SESSION_ID` env-var path, and the import
+would pull a `ps`-shelling dependency into a footprint the spec bounds — so spawn-pinning remains
+exactly as described above on the shim — the local-daemon transport, which is the path in
+use for this repo's own MCP access (verified 2026-08-24: a daemon serving port 48765). ADR-038
+Question 6 still frames a default-flip as pending, so do not read this as a repo-wide default. Consumers that read
+the env var directly rather than going through either writer are pinned regardless of transport;
+mt#4440 tracks the presence-claim writer as one such case, where a claim can therefore carry
+another conversation's id.
+
 ### Layer 2 — Declared
 
 A cooperating caller sets `_meta["io.minsky/agent_id"]` on each MCP request. Populated by:

@@ -630,7 +630,7 @@ async function executeMutations(
       const { resolveProjectScope } = await import("../project/scope-resolver");
       const { isAllProjects } = await import("../project/scope");
       const identity = resolveProjectIdentity({ repoPath: sessionDir });
-      const scope = await resolveProjectScope(identity, dbForScopeResolution);
+      const scope = await resolveProjectScope(identity, dbForScopeResolution, "session.start");
       resolvedProjectId = isAllProjects(scope) ? undefined : scope;
     }
   } catch (err: unknown) {

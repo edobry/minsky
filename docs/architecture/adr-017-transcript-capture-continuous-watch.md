@@ -109,7 +109,10 @@ Implemented under the mt#2234 umbrella:
   (`JsonlTailer`), ingest-on-append via the idempotent `ingestSession`. Health
   on the cockpit `/api/health` `transcriptWatcher` field.
 - **Sweep backstop — mt#2321:** `startTranscriptSweepBackstop`
-  (`src/cockpit/server.ts`) runs a full-discovery `ingestAll()` + vector-only
+  (`src/cockpit/transcript-sweep-backstop.ts` — this line read `server.ts` until
+  mt#4480; it moved to `sweepers.ts` with mt#2615 and out again into its own
+  module when that file reached the `max-lines` ceiling) runs a full-discovery
+  `ingestAll()` + vector-only
   `index-embeddings` backfill on a **configurable cadence** (default 30m, env
   override `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS`), fail-open. Health on the
   cockpit `/api/health` `transcriptSweep` field (counts + ISO timestamps only;

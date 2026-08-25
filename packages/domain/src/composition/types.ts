@@ -55,10 +55,17 @@ export interface AppServices {
   taskRoutingService: TaskRoutingService;
 
   /**
-   * MCP client capability registry — surfaces the active client's advertised
-   * capabilities (e.g., `elicitation`) to the Ask router. Defaults to a no-op
-   * registry when no MCP host is attached. Replaced at the MCP composition
-   * root by the per-connection-aware `MCPClientCapabilityRegistry` (mt#1457).
+   * Caller-agnostic fallback for client capabilities. In practice this stays at
+   * the no-op default: real host capabilities reach the Ask router per REQUEST,
+   * as `CommandExecutionContext.callerCapabilities`, not through this key.
+   *
+   * mt#4451: this doc previously called the MCP composition root's override
+   * "per-connection-aware", and the MCP root did replace this key with it. It
+   * was not per-connection — it answered for every registered connection at
+   * once, which under ADR-038's shared daemon meant one client's capabilities
+   * decided routing for asks filed by all the others. That override is gone;
+   * anything reading this key now gets a caller-agnostic answer, which is the
+   * safe one for a caller whose connection cannot be resolved.
    */
   clientCapabilityRegistry: ClientCapabilityRegistry;
 }

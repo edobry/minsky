@@ -95,8 +95,36 @@ which is the growth the consolidation exists to stop.
   can't discriminate at the distances real duplicates sit at (mem#819). Closes the bypass where
   `/create-task` Step 1a is skipped by calling the tool directly.
   `MINSKY_SKIP_DUPLICATE_RECORD`.
-- **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
+- **Bind/advance spec-read** — status/session op w/o spec-read. Same guard ADVISES (never denies) on `asks_create`/`asks_edit` naming a task whose spec this session never opened (mt#4551) — an ask recommends rather than acts, and denying one can strand an escalation. `MINSKY_SKIP_SPEC_READ_CHECK` covers both legs.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
 - **Dispatch-intent write gate** — writes under read-only intent. none.
 - **Nested-fork dispatch** — undeclared nested fork. `MINSKY_ALLOW_NESTED_FORK`.
+
+## Adding a hook module: the registries it obliges (mt#4508)
+
+One new `.minsky/hooks/<name>.ts` obliges several registries, and they fail at DIFFERENT gates —
+so an author who fixes them one at a time learns the count by exhausting it. mt#4494 hit four
+across three separate signals; mem#1206 records the full sequence.
+
+- `.claude/settings.json` — registration (or `GUARD_REGISTRY`, for a dispatcher-routed guard).
+- `packages/domain/src/rules/enforcement-mapping.ts` — `ENFORCEMENT_MAPPINGS` if it DENIES, else
+  `NON_ENFORCEMENT_CLAUDE_HOOKS` with a non-empty reason. Pre-commit (mt#4367).
+- `interceptor-descriptions.ts` — description + failureClasses + provenance + stratum.
+- `interceptor-coordinates.ts` — required for every DESCRIBED interceptor, so describing a module
+  CREATES this obligation.
+- `docs/architecture/hook-module-inventory.md` — a classified row plus the count bumps.
+
+**The fast gate now selects the tree's census tests for any `.minsky/hooks/` change (mt#4508).**
+`hook-module-inventory.test.ts` fires on the mere ADDITION of a module; `interceptor-coordinates.test.ts`
+fires a step later, once it is described. Before mt#4508 a new module selected ZERO related tests, so
+every local check passed and the first signal was full CI on an already-approved PR. Check with
+`bun scripts/run-related-tests.ts .minsky/hooks/<name>.ts`.
+
+**mt#4521 then closed the general case:** the selector's graph scope is now `GRAPH_ROOTS`
+(`ROOTS` + `./.minsky/hooks`), separate from the runner's `ROOTS`, so a hooks change selects its
+real IMPORTERS too — not just its sibling and the two census tests.
+
+Still true, and narrowed rather than retired: `ROOTS` deliberately still excludes the tree, so the
+pre-PUSH gated runner cannot execute it — run `bun run test:hooks` before pushing a hook change,
+for the residue no edge reaches (mem#1206).

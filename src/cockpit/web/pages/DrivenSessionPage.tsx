@@ -59,7 +59,7 @@ export function DrivenSessionPage() {
   // (mt#3038) is exhausted with the session never having reported ANY frame
   // (no `init` event, so no `harnessSessionId`: auth failure / unknown
   // session / a resume that never succeeded). While a reconnect is in
-  // flight (`status === "reconnecting"` — an actuator-swap redial, or a
+  // flight (`status === "reconnecting"` — a session driver-swap redial, or a
   // still-retrying never-opened channel) this deliberately does NOT show the
   // ErrorState; that IS the mt#3038 fix for the originating "Could not
   // connect... may not exist" crash on every daemon restart. A session that

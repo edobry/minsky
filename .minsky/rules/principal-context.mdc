@@ -23,7 +23,8 @@ execution`, principal-level decisions stay with Eugene:
 - Architectural moves that affect customer experience or product surface
 - Authorization for shared / production state changes
 - Scope changes to in-flight work
-- Vendor commitments (signup actions, paid plan upgrades)
+- Vendor commitments (signup actions, paid plan upgrades) — for the spend judgment behind one,
+  see `humility.mdc §Cost is yours to measure; affordability is not yours to judge`
 - **Framework choices** when stakes are principal-level
 - Preferences that set a **durable default** — the default model, a standing tool or format
   choice, anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and
@@ -66,7 +67,7 @@ Three tiers decide whether a term gets a gloss:
    nothing; an unglossed gap stalls the reader mid-sentence and charges an attention tax
    without consent.
 
-**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18).
+**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18); `CSCW` (2026-08-22).
 
 **When a term's status matters and you cannot settle it, ask him — the model is not only
 something to consult, it is something to update.** He is a party with state you can query, not

@@ -21,7 +21,12 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import {
+  hasListenCapableSqlConnection,
+  hasRawSqlConnection,
+  isSqlCapable,
+} from "@minsky/domain/persistence/types";
+import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
   getCachedPersistenceProvider,
@@ -29,17 +34,11 @@ import {
   getServerFollowUpService,
   getServerTaskService,
 } from "./db-providers";
-import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
-import {
-  getSchemaReadiness,
-  isSchemaBehind,
-  refreshSchemaReadinessFromDb,
-} from "./schema-readiness";
 import { createPresenceSweepState } from "./conversation-presence-sweep";
 // mt#3744: the ask-state sweeper's two cheap, pure-fs halves are imported
 // statically (the DB half stays a dynamic import, like every sibling sweeper's).
-import { readWatermarkAskIds } from "./ask-state-cache";
+import { collectAllTrackedAskIds } from "./ask-state-cache";
 import { findRepoRoot } from "./web-dist";
 
 // ---------------------------------------------------------------------------
@@ -1273,6 +1272,13 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
           );
         }
         await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
+
+        // Credential-request resolution (mt#4030) rides this tick rather than
+        // its own timer: same repository, same cadence, and the same job of
+        // reconciling pending asks against what is true now. It swallows its own
+        // failures, so neither pass can mask the other's.
+        await runCredentialRequestResolutionTick(repo);
+
         return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1651,20 +1657,13 @@ async function subscribeReaperToWindowEvents(reaperRef: {
   ]);
 
   const provider = await getCachedPersistenceProvider();
-  if (
-    typeof provider !== "object" ||
-    provider === null ||
-    !("getListenCapableSqlConnection" in provider) ||
-    typeof (provider as { getListenCapableSqlConnection?: unknown })
-      .getListenCapableSqlConnection !== "function"
-  ) {
+  // Capability + the optional accessor, via the one guard (mt#4543); the null/typeof
+  // preamble and the cast both go with it.
+  if (!hasListenCapableSqlConnection(provider)) {
     throw new Error("persistence provider has no LISTEN-capable connection");
   }
 
-  const sqlProvider = provider as {
-    getListenCapableSqlConnection: () => Promise<ReturnType<typeof import("postgres")>>;
-  };
-  const listener = new PostgresChannelListener(await sqlProvider.getListenCapableSqlConnection());
+  const listener = new PostgresChannelListener(await provider.getListenCapableSqlConnection());
 
   // Both handlers discard their return value: `onWindowClosed` resolves to a
   // summary the listener contract has no channel for, and `ChannelListenerFn`
@@ -1831,13 +1830,8 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const svc = await getSharedPersistenceService();
           const provider = svc.getProvider();
-          return "getRawSqlConnection" in provider &&
-            typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection ===
-              "function"
-            ? (
-                provider as { getRawSqlConnection: () => Promise<unknown> }
-              ).getRawSqlConnection.bind(provider)
-            : null;
+          // Capability + the optional accessor, via the one guard (mt#4543).
+          return hasRawSqlConnection(provider) ? provider.getRawSqlConnection.bind(provider) : null;
         },
         refresh: async (sql, nowIso) => {
           const { refreshProdStateCache } = await import("./prod-state-cache");
@@ -1892,19 +1886,14 @@ export function startShortIdMapSweeper(intervalMs?: number): () => void {
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      const hasRawSql =
-        "getRawSqlConnection" in provider &&
-        typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
-      if (!hasRawSql) {
+      if (!hasRawSqlConnection(provider)) {
         // Not a quiet no-op (mt#4412) — a provider without raw SQL cannot
         // refresh the map, which is the same condition
         // `runProdStateRefreshTick` already reports as a failure.
         log.warn("cockpit: short-id map refresh skipped — provider exposes no raw SQL connection");
         return { ok: false };
       }
-      const sql = await (
-        provider as { getRawSqlConnection: () => Promise<unknown> }
-      ).getRawSqlConnection();
+      const sql = await provider.getRawSqlConnection();
       const { refreshShortIdMapCache } = await import("./short-id-map-cache");
       // `refreshShortIdMapCache` has ALWAYS returned its own boolean outcome;
       // the tick simply discarded it (mt#4412). No new signal is invented
@@ -2018,18 +2007,17 @@ export function startAskStateRefreshSweeper(intervalMs?: number): () => void {
     tick: () =>
       runAskStateRefreshTick({
         resolveRepoRoot: () => findRepoRoot([process.cwd()]) ?? process.cwd(),
-        readAskIds: (repoRoot) => readWatermarkAskIds(repoRoot),
+        // mt#3564: two id sources, not one — the calibration watermarks PLUS the asks
+        // attributed to a conversation by `stamp-ask-conversation.ts`. Unioned inside
+        // `collectAllTrackedAskIds` so both consumers read a single snapshot and an ask
+        // present in both sources is still looked up once.
+        readAskIds: (repoRoot) => collectAllTrackedAskIds(repoRoot),
         resolveRawSql: async () => {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const svc = await getSharedPersistenceService();
           const provider = svc.getProvider();
-          return "getRawSqlConnection" in provider &&
-            typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection ===
-              "function"
-            ? (
-                provider as { getRawSqlConnection: () => Promise<unknown> }
-              ).getRawSqlConnection.bind(provider)
-            : null;
+          // Capability + the optional accessor, via the one guard (mt#4543).
+          return hasRawSqlConnection(provider) ? provider.getRawSqlConnection.bind(provider) : null;
         },
         refresh: async (sql, askIds, nowIso) => {
           const { refreshAskStateCache } = await import("./ask-state-cache");
@@ -2139,310 +2127,13 @@ export function startTopologySweeper(intervalMs?: number): () => void {
 }
 
 // ---------------------------------------------------------------------------
-// Transcript sweep backstop (mt#2321)
+// Transcript sweep backstop (mt#2321) — moved to transcript-sweep-backstop.ts
+// (mt#4480). This file had reached the 1500-line max-lines ceiling exactly, so
+// the largest self-contained sweeper was lifted into the module its own test
+// file was already named after. Deliberately NOT re-exported from here: a
+// re-export would make sweepers.ts and transcript-sweep-backstop.ts a cycle,
+// since the extracted code imports createIntervalSweeper from this file.
 // ---------------------------------------------------------------------------
-
-/**
- * Default cadence for the transcript sweep backstop. Longer than the prod-state
- * sweeper (10m) because a full ingestAll + embedding backfill is heavy — it
- * re-discovers every JSONL session in ~/.claude/projects and calls the DB for each.
- * 30m keeps the backstop meaningful (catches sessions missed while the daemon was
- * down, dropped FS events) without hammering the DB on a tight loop.
- */
-const TRANSCRIPT_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
-
-/**
- * Per-tick timeout for the transcript sweep backstop (mt#2625): larger than
- * {@link DEFAULT_TICK_TIMEOUT_MS} because a full ingestAll + embedding
- * backfill over a large historical corpus can legitimately take longer than
- * the simpler sweepers' work — an aggressive timeout here would false-positive
- * on a cold-start sweep over a big `~/.claude/projects` tree, not just on a
- * genuine hang.
- */
-const TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
-
-/**
- * Resolve the sweep cadence (SC1 — externally configurable). An explicit
- * `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` env override (positive-integer
- * milliseconds) wins; otherwise the default. Env-var config mirrors the
- * cockpit's existing `MINSKY_COCKPIT_*` reads — no config-schema change needed.
- */
-export function resolveSweepIntervalMs(): number {
-  const raw = process.env.MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS;
-  if (raw !== undefined && raw !== "") {
-    const parsed = Number.parseInt(raw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-    log.warn("cockpit: ignoring invalid MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", { raw });
-  }
-  return TRANSCRIPT_SWEEP_INTERVAL_MS;
-}
-
-/**
- * Injectable runners for the sweep tick — separate from the real DB wiring so
- * unit tests can inject spies without a real DB or filesystem.
- */
-export interface TranscriptSweepDeps {
-  /** Run a full ingest sweep (wraps ingestAll). Must be idempotent/HWM-gated. */
-  runIngest: () => Promise<{
-    sessionsProcessed: number;
-    sessionsErrored: number;
-    /** mt#3278 — sessions skipped because they are quarantined. */
-    sessionsQuarantined?: number;
-  }>;
-  /** Run the embedding backfill (wraps PerTurnEmbeddingPipeline.run). May throw. */
-  runEmbeddings: () => Promise<void>;
-  /** Tracker singleton to record observability counters. */
-  tracker: TranscriptSweepTracker;
-}
-
-/** Options accepted by startTranscriptSweepBackstop. */
-export interface TranscriptSweepBackstopOptions {
-  /** Cadence override in milliseconds (default: TRANSCRIPT_SWEEP_INTERVAL_MS). */
-  intervalMs?: number;
-  /**
-   * Injectable deps for testing. When absent, the real DB path is used
-   * (ClaudeCodeTranscriptSource + AgentTranscriptIngestService + PerTurnEmbeddingPipeline).
-   */
-  deps?: TranscriptSweepDeps;
-  /**
-   * Set false to skip the schema-readiness gate (mt#3297). Tests that inject
-   * `deps` have no real database for the check to interrogate, so leaving it on
-   * would make every such test depend on live persistence.
-   */
-  schemaReadiness?: boolean;
-}
-
-/**
- * Build the real sweep deps from the shared persistence service.
- * Returns null when the provider is not SQL-capable.
- */
-async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
-  const { getSharedPersistenceService } = await import("./shared-persistence");
-  const svc = await getSharedPersistenceService();
-  const provider = svc.getProvider();
-
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
-
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
-  const db = await sqlProvider.getDatabaseConnection();
-  if (!db) return null;
-
-  const tracker = TranscriptSweepTracker.getInstance();
-
-  const runIngest = async (): Promise<{
-    sessionsProcessed: number;
-    sessionsErrored: number;
-    sessionsQuarantined: number;
-  }> => {
-    const { ClaudeCodeTranscriptSource } = await import(
-      "@minsky/domain/transcripts/claude-code-transcript-source"
-    );
-    const { AgentTranscriptIngestService } = await import(
-      "@minsky/domain/transcripts/agent-transcript-ingest-service"
-    );
-    const source = new ClaudeCodeTranscriptSource();
-    const svcIngest = new AgentTranscriptIngestService(
-      db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-      source
-    );
-    const result = await svcIngest.ingestAll();
-    return {
-      sessionsProcessed: result.sessionsProcessed,
-      sessionsErrored: result.sessionsErrored,
-      sessionsQuarantined: result.sessionsQuarantined,
-    };
-  };
-
-  const runEmbeddings = async (): Promise<void> => {
-    // createEmbeddingServiceFromConfig throws when no embedding provider is
-    // configured or reachable. The tick's outer try/catch (fail-open) handles
-    // that case: the sweep ingest counters are already recorded, and only the
-    // embedding backfill is skipped — per SC2's requirement that a missing
-    // embedding provider must not crash the sweep.
-    const { createEmbeddingServiceFromConfig } = await import(
-      "@minsky/domain/ai/embedding-service-factory"
-    );
-    const embeddingService = await createEmbeddingServiceFromConfig();
-    const { PerTurnEmbeddingPipeline } = await import(
-      "@minsky/domain/transcripts/per-turn-embedding-pipeline"
-    );
-    const pipeline = new PerTurnEmbeddingPipeline(
-      db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-      embeddingService
-    );
-    await pipeline.run();
-  };
-
-  return { runIngest, runEmbeddings, tracker };
-}
-
-/**
- * Start the periodic transcript sweep backstop in this cockpit process (mt#2321).
- *
- * BACKSTOP half of ADR-017 (the primary capture path is the FS watcher, mt#2320).
- * Covers failure modes the watcher cannot recover:
- *   - Dropped / coalesced / lost FS-watch events
- *   - Sessions that completed while the cockpit daemon was DOWN
- *   - Sessions predating the watcher's attach that seedExisting did not cover
- *   - Stale / missing pgvector embeddings (via the embedded backfill pass)
- *
- * Sweeper convention (mirrors startAskAdvancementSweeper and startProdStateRefreshSweeper):
- *   - `running` flag skips overlapping ticks
- *   - fail-open try/catch + log.warn on every failure path
- *   - `void tick()` boot pass
- *   - `setInterval` + `.unref()` so the process never stays alive for the sweep alone
- *   - returns `() => clearInterval(id)` stop function
- *   - per-tick timeout + watchdog (mt#2625) via the shared createIntervalSweeper factory
- *
- * Deps are injectable so the sweep core can be unit-tested without a real DB or filesystem.
- *
- * @see docs/architecture/cockpit.md — Transcript sweep backstop (cadence + /api/health payload)
- * @returns stop function (clears the interval).
- */
-export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptions): () => void {
-  const resolvedInterval = opts?.intervalMs ?? resolveSweepIntervalMs();
-
-  return createIntervalSweeper({
-    name: "transcript sweep backstop",
-    intervalMs: resolvedInterval,
-    tickTimeoutMs: TRANSCRIPT_SWEEP_TICK_TIMEOUT_MS,
-    tick: async (): Promise<SweepTickResult> => {
-      try {
-        // Resolve deps: injected (for tests) or real (for production).
-        let sweepDeps: TranscriptSweepDeps | null;
-        if (opts?.deps) {
-          sweepDeps = opts.deps;
-        } else {
-          sweepDeps = await buildRealSweepDeps();
-        }
-
-        if (!sweepDeps) {
-          // mt#4412 — cannot sweep, so not a healthy no-op.
-          log.debug("cockpit: transcript sweep: no SQL-capable DB, skipping tick");
-          return { ok: false };
-        }
-
-        const { runIngest, runEmbeddings, tracker } = sweepDeps;
-
-        // ── Phase 0: schema readiness (mt#3297) ───────────────────────────────
-        // Every write below targets columns this build expects the DB to have.
-        // After a merge that carries a migration, the tray restarts the daemon
-        // onto the new code within seconds while the migration is (correctly)
-        // NOT applied automatically to a shared database — so there is a window
-        // where all of this fails on a missing column. Skipping the sweep once,
-        // with a reason, replaces one failure per session per tick.
-        //
-        // Re-checked every tick rather than only at boot, so applying the
-        // migration lifts the pause on the next tick with no restart.
-        if (opts?.schemaReadiness !== false) {
-          await refreshSchemaReadinessFromDb();
-          if (isSchemaBehind()) {
-            // At debug, not warn: `refreshSchemaReadinessFromDb` already logged
-            // the transition into behind at warn, and repeating the reason on
-            // every tick would make a check whose purpose is bounding log volume
-            // into a recurring writer (PR #2379 R1). The standing condition is
-            // on /api/health.
-            log.debug("cockpit: transcript sweep skipped — schema behind", {
-              pending: getSchemaReadiness().pending,
-            });
-            // mt#4412: a domain failure, even though the pause is DELIBERATE
-            // and correct. The sweep is not doing its work, and a daemon left
-            // schema-behind indefinitely is exactly the standing inertness
-            // this field exists to expose. Self-clearing — the next tick after
-            // the migration lands reports ok again — and harmless, because
-            // domain failures are reported, never acted on (no re-init, no
-            // restart; see the domain-outcome block in createIntervalSweeper).
-            return { ok: false };
-          }
-        }
-
-        // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
-        let ingestResult: {
-          sessionsProcessed: number;
-          sessionsErrored: number;
-          sessionsQuarantined?: number;
-        };
-        try {
-          ingestResult = await runIngest();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.warn("cockpit: transcript sweep: ingest failed", { message });
-          sweepDeps.tracker.recordSweepError();
-          // Can't meaningfully record a completed sweep if ingest threw.
-          return { ok: false };
-        }
-
-        // Record ingest counters (includes error count — surfaced, not dropped).
-        if (ingestResult.sessionsErrored > 0) {
-          log.warn("cockpit: transcript sweep: ingest completed with per-session errors", {
-            sessionsProcessed: ingestResult.sessionsProcessed,
-            sessionsErrored: ingestResult.sessionsErrored,
-          });
-        }
-        // mt#3278: a quarantined session is not an error this pass — nothing was
-        // attempted — but it IS a standing condition an operator needs to see,
-        // so it is logged every sweep rather than only when it first happens.
-        if ((ingestResult.sessionsQuarantined ?? 0) > 0) {
-          log.warn("cockpit: transcript sweep: sessions quarantined and not attempted", {
-            sessionsQuarantined: ingestResult.sessionsQuarantined,
-          });
-        }
-        tracker.recordSweepCompleted(
-          ingestResult.sessionsProcessed,
-          ingestResult.sessionsErrored,
-          ingestResult.sessionsQuarantined ?? 0
-        );
-
-        // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
-        // SC2: default semantic-embedding backfill, run off the critical path.
-        // A missing embedding provider, API error, or DB timeout must NOT crash
-        // the sweep or prevent the ingest counters from being recorded.
-        let embeddingsOk = true;
-        try {
-          await runEmbeddings();
-          tracker.recordEmbedRunCompleted();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.warn("cockpit: transcript sweep: embedding backfill failed (non-fatal)", {
-            message,
-          });
-          tracker.recordSweepError();
-          embeddingsOk = false;
-          // No return: the ingest phase already completed successfully.
-        }
-
-        // mt#4412: this sweep has TWO phases, so one boolean has to say
-        // something honest about both. Non-fatal to the tick is not the same
-        // as fine — a permanently failing embedding backfill already called
-        // `recordSweepError()` on every pass, and reporting `ok: true` beside
-        // that would be the contradiction this task exists to remove.
-        // `sessionsErrored` is included for the same reason: a sweep that
-        // processes every session and errors on all of them did not succeed.
-        return { ok: embeddingsOk && ingestResult.sessionsErrored === 0 };
-      } catch (err) {
-        // Outermost safety net — unexpected throw escaping either phase.
-        const message = err instanceof Error ? err.message : String(err);
-        log.warn("cockpit: transcript sweep: unexpected error in tick", { message });
-        // If we have injected deps, at least record an error.
-        if (opts?.deps) {
-          opts.deps.tracker.recordSweepError();
-        } else {
-          TranscriptSweepTracker.getInstance().recordSweepError();
-        }
-        return { ok: false };
-      }
-    },
-  });
-}
 
 // ---------------------------------------------------------------------------
 // deploy.smoke sweep (mt#2599)
@@ -2650,16 +2341,8 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
         const svc = await getSharedPersistenceService();
         const provider = svc.getProvider();
 
-        const getDb =
-          "getDatabaseConnection" in provider &&
-          typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
-            "function"
-            ? (
-                provider as {
-                  getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
-                }
-              ).getDatabaseConnection.bind(provider)
-            : null;
+        // Capability + method, via the one guard (mt#4543); the cast goes with it.
+        const getDb = isSqlCapable(provider) ? provider.getDatabaseConnection.bind(provider) : null;
         if (!getDb) {
           // mt#4412: cannot do the work, so not a healthy no-op.
           log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
@@ -2671,13 +2354,9 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
           return { ok: false };
         }
 
-        const getRawSql =
-          "getRawSqlConnection" in provider &&
-          typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
-            ? (
-                provider as { getRawSqlConnection: () => Promise<unknown> }
-              ).getRawSqlConnection.bind(provider)
-            : null;
+        const getRawSql = hasRawSqlConnection(provider)
+          ? provider.getRawSqlConnection.bind(provider)
+          : null;
 
         const { listConversationsQuietSince } = await import(
           "@minsky/domain/conversation-run-state/read"
@@ -2759,18 +2438,10 @@ async function buildRealTitleSweepDeps(): Promise<ConversationTitleSweepDeps | n
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
@@ -2900,18 +2571,10 @@ async function buildRealSummarySweepDeps(): Promise<ConversationSummarySweepDeps
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
 
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
@@ -3043,17 +2706,9 @@ async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | n
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
-    return null;
-  }
-  const sqlProvider = provider as {
-    getDatabaseConnection: () => Promise<
-      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
-    >;
-  };
+  // Capability + method, via the one guard (mt#4543); the cast goes with the narrowing.
+  if (!isSqlCapable(provider)) return null;
+  const sqlProvider = provider;
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 

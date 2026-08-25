@@ -205,6 +205,56 @@ when this amendment was written, so the edit had to be net-negative: the precede
 the section compressed to 14,982. That constraint is why the incident narrative lives here rather
 than in the rule.
 
+### The sequence had no member that could answer the question (mt#4494)
+
+**The originating incident recurred, three months later, in the same shape.** §Probe before
+claiming a shared resource opens with mt#1965 (2026-05-20): an agent recommended
+`/implement-task mt#1964` without detecting that another agent had advanced it PLANNING→READY
+during the same session — _"the status change was a visible signal not interpreted as evidence."_
+
+On 2026-08-24 an agent actioning a handoff ran the sequence against mt#4439, and concluded "no
+peer" while a peer walked that task TODO → PLANNING (13:38:45) → READY (13:48:36) →
+`session.started` (13:52:04). It then ran a full parallel `/plan-task` and appended two sections to
+a spec the peer was mid-flight on. The `updatedAt` anomaly was noticed, written down as
+"suspicious," and explained away — the same sentence the May incident earned, about the same field.
+
+**Walking the sequence against that incident shows why discipline was not the missing variable:**
+
+| probe              | returned                              | why it did not settle it                                                                                                                                             |
+| ------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — claims         | 2 fresh claims                        | the rule calls this "a signal, not proof" and routes to 1–4. Correct, deliberately non-decisive — and one of the two was the agent's OWN read under a stale proxy id |
+| 1 — status change  | `updatedAt` moved 20s before the read | the signal was in hand; the rule said "identify them" and named no procedure                                                                                         |
+| 2 — `session_list` | timed out twice (120s each)           | the only LEADING probe, unavailable                                                                                                                                  |
+| 3 — PR             | clean                                 | lagging — a peer with a session and no push is invisible by construction                                                                                             |
+| 4 — recent commits | clean                                 | lagging — same                                                                                                                                                       |
+
+Probes 3 and 4 can only see a peer that has already produced output, so their clean results
+corroborated nothing while reading as corroboration. Probe 2 was the sole leading member and it
+failed. That leaves probe 0's signal plus an interpretation step — and an interpretation step is
+where a motivated reading enters, most strongly at the moment an agent has just been handed a task
+to start.
+
+**What actually resolved it was one call that is not in the sequence:**
+`events_list --relatedTaskId mt#4439` returned the status transitions and the `session.started`
+row naming session `6ef3fabf-…`. No inference, no actor-identity question.
+
+**Why that axis is clean.** Every probe in the original sequence reads an ACTOR-side artifact — a
+claim's id, a conversation's transcript mtime, a session list — and therefore inherits the
+attribution problem mt#3889 / mt#3900 / mt#4440 have spent three tasks on. Task events are keyed to
+the TASK and written by the backend; the record exists whether or not any process can name itself
+correctly. Measured the same session: a task 24 seconds old, known to no other actor, carried a
+claim under a DIFFERENT conversation's id 190ms after its author's own write — re-tested under
+control with the prediction registered first (`lastRefreshedAt` 14:05:12.251 → 14:07:15.248 under
+the wrong id). So the claims table can invent a peer as readily as it can hide one; mem#952 had
+already measured the hiding direction, and mem#1231 records the inventing one.
+
+**Enforcement.** The `ready`-seam guard ADR-042 row (g) assigns is a **transcript join** — did the
+probe calls happen — and it would have PASSED this incident, because they did. That mechanism
+covers the skipped-probe failure and is structurally blind to the wrong-conclusion failure, which is
+why the guard added here reads the event ledger instead. It ships ADVISORY: denying is the
+_prevention_ side of the substrate RFC's Open question 4 (`367937f0`, Draft), which is queued for
+principal discussion and should not be settled as a side effect of adding a probe.
+
 ## Plain-language first in chat reports (mt#2801)
 
 **Originating incident:** 2026-07-15, mt#2777 planning. The gate output led with a four-part

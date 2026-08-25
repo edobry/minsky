@@ -633,7 +633,7 @@ describe("sendDrivenSessionInput", () => {
       minskySessionId: null,
       status: "reconnecting",
       unrecoverableReason: null,
-      actuatorGeneration: 1,
+      driverGeneration: 1,
       startedAt: new Date().toISOString(),
     });
 
@@ -775,7 +775,7 @@ describe("no Agent SDK on the drive path", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. Actuator swap / resume-respawn (mt#3038 R1 deltas #2/#3/#5)
+// 7. Session driver swap / resume-respawn (mt#3038 R1 deltas #2/#3/#5)
 // ---------------------------------------------------------------------------
 
 describe("buildResumeSessionArgs", () => {
@@ -826,7 +826,7 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
         taskId: original.taskId,
         minskySessionId: original.minskySessionId,
         startedAt: original.startedAt,
-        actuatorGeneration: original.actuatorGeneration,
+        driverGeneration: original.driverGeneration,
       },
       spawnFn,
       registry,
@@ -834,7 +834,7 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
 
     expect(resumed.localId).toBe(original.localId);
     expect(resumed.harnessSessionId).toBe(RESUME_HARNESS_SESSION_ID);
-    expect(resumed.actuatorGeneration).toBe(1);
+    expect(resumed.driverGeneration).toBe(1);
     expect(resumed.status).toBe("spawned");
     expect(registry.get(original.localId)).toBe(resumed);
 
@@ -845,7 +845,7 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
   });
 
   test("mt#3377: a resume re-provisions the MCP config rather than dropping it", () => {
-    // The conversation is durable and the actuator is disposable — so a resume
+    // The conversation is durable and the session driver is disposable — so a resume
     // that forgot the servers would silently strip the whole MCP tool surface
     // at the first daemon restart, mid-conversation.
     const { spawnFn, calls } = makeFakeSpawnFn();
@@ -868,7 +868,7 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
         taskId: original.taskId,
         minskySessionId: original.minskySessionId,
         startedAt: original.startedAt,
-        actuatorGeneration: original.actuatorGeneration,
+        driverGeneration: original.driverGeneration,
       },
       spawnFn,
       registry,
@@ -898,7 +898,7 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
         taskId: null,
         minskySessionId: null,
         startedAt: new Date().toISOString(),
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         model: "fable",
       },
       spawnFn,
@@ -922,7 +922,7 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
         taskId: null,
         minskySessionId: null,
         startedAt: new Date().toISOString(),
-        actuatorGeneration: 0,
+        driverGeneration: 0,
       },
       spawnFn,
       registry,
@@ -945,13 +945,13 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
         taskId: null,
         minskySessionId: null,
         startedAt: new Date().toISOString(),
-        actuatorGeneration: 3,
+        driverGeneration: 3,
       },
       spawnFn,
       registry,
       skipInterruptionNotice: true,
     });
-    expect(resumed.actuatorGeneration).toBe(4);
+    expect(resumed.driverGeneration).toBe(4);
     const proc = resumed.proc as unknown as FakeClaudeProcess;
     expect(readStdinWrites(proc)).toBe("");
   });
@@ -982,7 +982,7 @@ describe("DrivenSessionRegistry.replace — forces existing subscribers to swap"
     const replacement: DrivenSessionRecord = {
       ...original,
       status: "spawned",
-      actuatorGeneration: original.actuatorGeneration + 1,
+      driverGeneration: original.driverGeneration + 1,
       subscribers: new Set(),
     };
     registry.replace(original.localId, replacement);
@@ -1065,7 +1065,7 @@ describe("boot-reconciliation placeholder's proc is inert (never wired, never fi
       minskySessionId: null,
       status: "reconnecting",
       unrecoverableReason: null,
-      actuatorGeneration: 0,
+      driverGeneration: 0,
       startedAt: new Date().toISOString(),
     });
 
@@ -1126,7 +1126,7 @@ describe("isDrivenSessionMidTurn (mt#3048)", () => {
     expect(isDrivenSessionMidTurn(record)).toBe(true);
   });
 
-  test("is NOT mid-turn once the actuator has exited (latest event is minsky_exit)", () => {
+  test("is NOT mid-turn once the session driver has exited (latest event is minsky_exit)", () => {
     const { spawnFn } = makeFakeSpawnFn();
     const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
@@ -1147,7 +1147,7 @@ describe("isDrivenSessionMidTurn (mt#3048)", () => {
     expect(isDrivenSessionMidTurn(record)).toBe(false);
   });
 
-  test("a 'reconnecting' boot-placeholder record is NOT mid-turn (no live actuator to interrupt)", () => {
+  test("a 'reconnecting' boot-placeholder record is NOT mid-turn (no live session driver to interrupt)", () => {
     const record = buildReconnectingDrivenSessionRecord({
       localId: "local-reconnecting-1",
       harnessSessionId: "harness-reconnecting-1",
@@ -1157,7 +1157,7 @@ describe("isDrivenSessionMidTurn (mt#3048)", () => {
       minskySessionId: null,
       status: "reconnecting",
       unrecoverableReason: null,
-      actuatorGeneration: 1,
+      driverGeneration: 1,
       startedAt: new Date().toISOString(),
     });
     expect(isDrivenSessionMidTurn(record)).toBe(false);
@@ -1173,7 +1173,7 @@ describe("isDrivenSessionMidTurn (mt#3048)", () => {
       minskySessionId: null,
       status: "unrecoverable",
       unrecoverableReason: "spawn-died-before-init",
-      actuatorGeneration: 0,
+      driverGeneration: 0,
       startedAt: new Date().toISOString(),
     });
     expect(isDrivenSessionMidTurn(record)).toBe(false);
@@ -1257,7 +1257,7 @@ describe("resumeDrivenSession — missing cwd (mt#3397, acceptance test 1)", () 
         taskId: null,
         minskySessionId: null,
         startedAt: original.startedAt,
-        actuatorGeneration: original.actuatorGeneration,
+        driverGeneration: original.driverGeneration,
       },
       spawnFn,
       registry,
@@ -1267,10 +1267,10 @@ describe("resumeDrivenSession — missing cwd (mt#3397, acceptance test 1)", () 
     expect(calls.length).toBe(spawnsBeforeResume);
     expect(record.status).toBe("unrecoverable");
     expect(record.unrecoverableReason).toContain(MISSING_CWD);
-    // Same conversation, same actuator count — nothing new was started.
+    // Same conversation, same session driver count — nothing new was started.
     expect(record.localId).toBe(original.localId);
     expect(record.harnessSessionId).toBe(RESUME_HARNESS_SESSION_ID);
-    expect(record.actuatorGeneration).toBe(original.actuatorGeneration);
+    expect(record.driverGeneration).toBe(original.driverGeneration);
     expect(registry.get(original.localId)).toBe(record);
   });
 
@@ -1301,7 +1301,7 @@ describe("resumeDrivenSession — missing cwd (mt#3397, acceptance test 1)", () 
         taskId: null,
         minskySessionId: null,
         startedAt: original.startedAt,
-        actuatorGeneration: 0,
+        driverGeneration: 0,
       },
       spawnFn,
       registry,

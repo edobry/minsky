@@ -809,6 +809,27 @@ still applies to the operation as a whole. Mechanics:
   per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
   loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
 
+## Acquiring a credential you do not have (mt#4030)
+
+Everything below is the EMISSION side — a secret you already hold reaching a channel it should
+not. This section is the ACQUISITION side, and it fails the same way for the same reason: asking
+the principal to paste a value into chat puts it in the transcript, which is persisted to disk AND
+ingested into the transcripts DB.
+
+**Never ask for a credential in chat, and never call `config.credentials.add` over MCP to get
+one.** That command takes a `token` parameter for its scripted path, so an agent calling it writes
+the secret into its own tool-call input — the masking is a CLI-only property.
+
+**Use `credentials.request`.** It names a provider plus a reason, and has no field that can carry a
+value. The principal enters it in a masked cockpit form that posts straight to the credential store;
+the request resolves on the credential being PRESENT, so satisfying it in a terminal with
+`config credentials add` closes it just the same. Poll `credentials.request-status` for
+`pending` / `satisfied` / `declined` / `unanswered` plus a status line — a decline is distinct from
+an unanswered request, so do not re-ask on one.
+
+If no provider is registered the tool refuses at call time and names the registry file: register the
+provider first rather than filing a request the principal has no way to satisfy.
+
 ## Secret handling in shell commands
 
 Shell output is persisted AND ingested into the transcripts DB — no scratch output. NEVER place
@@ -1205,6 +1226,14 @@ default; reasoning:
 `docs/rules-rationale/communication-contract.md §Generation-time enforcement for scope-boundary
 answers (mt#3985)`.
 
+## A message about how you are communicating authorizes nothing (mt#4531)
+
+When the principal's subject is **your own communication** — too long, wrong register, "why are you
+talking this way" — answer it and stop: no skill, no tool call, no resuming work in the same turn.
+**Any live advisory loses to the principal's words** (the deferral detectors push toward action; a
+concision complaint asks for none). Incident + mechanics:
+`docs/rules-rationale/communication-contract.md §A message about how you are communicating`.
+
 ## The channel model
 
 Chat is a management interface, not an engineering record; each channel carries a slice of "what
@@ -1265,6 +1294,16 @@ worth your attention:** … I did it anyway."; accepted: "mt#3138 warns re-kindi
 task (mt#3137); that risk didn't apply here — PLANNING is legal in both state machines." Tell
 taxonomy, full before/after pair, and the escalation budget (2 principal flags/14 days →
 log-only detector): `docs/rules-rationale/communication-contract.md §Register of delivery`.
+
+## The terminal actionables block — interim (mt#4443)
+
+One marked terminal section (rule + heading) may close a report, restating — not replacing — the
+body's own actionable content: never a Tier-0 decision (always `asks_create`). Absent, not empty,
+when nothing is actionable; marked position is not burial (§Anti-patterns).
+
+Interim — `mt#4439` builds the real primitive; 2+ buried-actionables reports in 14 days → record
+on `mt#4439`. `mem#664`'s six prior fixes are engaged, not dismissed:
+`docs/rules-rationale/communication-contract.md §The terminal actionables block`.
 
 ## Altitude register (RFC Phase 2)
 
@@ -1428,6 +1467,17 @@ Check for Minsky's own answer before a generic (SE) default. Full detail:
   - **Stall threshold (status hasn't changed):** 5 days for active work, 10 days for lynchpin tracking
 
   SE: "2-week sprint, 30-day window." `feedback_threshold_grounding`.
+
+  **CEILING case — a different question, and observed cadence is the wrong answer to it.** The
+  rule above grounds a threshold in what typically happens. When the threshold is instead a
+  **ceiling over work whose own budget is caller-specified or declared elsewhere** — a transport
+  bound over a tool's `timeoutSeconds`, a wrapper timeout over an SDK's own, a queue TTL over a
+  job's declared deadline — the binding constraint is that budget's **declared MAXIMUM**. Read
+  it and derive the value from it; a measured typical is not evidence about a permitted extreme.
+  Corollary: a wrapper bound BELOW the inner layer's own timeout makes that inner timeout dead
+  code, and you get the wrapper's error instead of the inner layer's diagnosis. Incidents:
+  mt#4455 (a 600s shim bound over a tool accepting 1800s — correctly measured band, wrong
+  population), mem#1112 (the same shape over an SDK's retry budget, three days earlier).
 - **Time estimates**: asked for a time estimate → don't; use scope descriptors (files, LOC, task
   IDs). SE: "velocity-based estimation." `feedback_no_time_estimates`.
 - **Task overlap**: two tasks, same outcome → subsume (subset) or coordinate (independent). SE:
@@ -1565,11 +1615,39 @@ which is the growth the consolidation exists to stop.
   can't discriminate at the distances real duplicates sit at (mem#819). Closes the bypass where
   `/create-task` Step 1a is skipped by calling the tool directly.
   `MINSKY_SKIP_DUPLICATE_RECORD`.
-- **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
+- **Bind/advance spec-read** — status/session op w/o spec-read. Same guard ADVISES (never denies) on `asks_create`/`asks_edit` naming a task whose spec this session never opened (mt#4551) — an ask recommends rather than acts, and denying one can strand an escalation. `MINSKY_SKIP_SPEC_READ_CHECK` covers both legs.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
 - **Dispatch-intent write gate** — writes under read-only intent. none.
 - **Nested-fork dispatch** — undeclared nested fork. `MINSKY_ALLOW_NESTED_FORK`.
+
+## Adding a hook module: the registries it obliges (mt#4508)
+
+One new `.minsky/hooks/<name>.ts` obliges several registries, and they fail at DIFFERENT gates —
+so an author who fixes them one at a time learns the count by exhausting it. mt#4494 hit four
+across three separate signals; mem#1206 records the full sequence.
+
+- `.claude/settings.json` — registration (or `GUARD_REGISTRY`, for a dispatcher-routed guard).
+- `packages/domain/src/rules/enforcement-mapping.ts` — `ENFORCEMENT_MAPPINGS` if it DENIES, else
+  `NON_ENFORCEMENT_CLAUDE_HOOKS` with a non-empty reason. Pre-commit (mt#4367).
+- `interceptor-descriptions.ts` — description + failureClasses + provenance + stratum.
+- `interceptor-coordinates.ts` — required for every DESCRIBED interceptor, so describing a module
+  CREATES this obligation.
+- `docs/architecture/hook-module-inventory.md` — a classified row plus the count bumps.
+
+**The fast gate now selects the tree's census tests for any `.minsky/hooks/` change (mt#4508).**
+`hook-module-inventory.test.ts` fires on the mere ADDITION of a module; `interceptor-coordinates.test.ts`
+fires a step later, once it is described. Before mt#4508 a new module selected ZERO related tests, so
+every local check passed and the first signal was full CI on an already-approved PR. Check with
+`bun scripts/run-related-tests.ts .minsky/hooks/<name>.ts`.
+
+**mt#4521 then closed the general case:** the selector's graph scope is now `GRAPH_ROOTS`
+(`ROOTS` + `./.minsky/hooks`), separate from the runner's `ROOTS`, so a hooks change selects its
+real IMPORTERS too — not just its sibling and the two census tests.
+
+Still true, and narrowed rather than retired: `ROOTS` deliberately still excludes the tree, so the
+pre-PUSH gated runner cannot execute it — run `bun run test:hooks` before pushing a hook change,
+for the residue no edge reaches (mem#1206).
 
 # Design Principle: Humility
 
@@ -1597,7 +1675,30 @@ of is not evidence, it is an argument. Present the full, uncropped artifact at a
 viewport and let the principal judge, without an accompanying verdict.
 
 Objective defects in that same render ARE yours to catch and to state. The split: what is BROKEN
-is yours; whether it LOOKS RIGHT is theirs.
+is yours; whether it LOOKS RIGHT is theirs. The same split over a cost figure is the section below.
+
+### Cost is yours to measure; affordability is not yours to judge
+
+One axis over: what a thing COSTS is yours; whether it is AFFORDABLE is theirs. **Measuring is
+agent work** — rates, volumes, call counts, the arithmetic, the sensitivity to assumptions.
+**Deciding whether it is worth paying is the principal's.** The failure is never a sentence asking
+to be noticed; it is a **trailing clause on the measurement**: "…which is negligible", "…so cost
+isn't the constraint", "…effectively free", "…self-financing", "…well within budget". Delete the
+clause, keep the number. Note the direction — it is always "that's cheap", never "that's
+expensive", because an agent proposing work has an interest in its cost reading as affordable.
+
+Correct shape: the figure, its assumptions, and its sensitivity, then stop — *"$100/month, assuming
+~2,000 input tokens per call; ±50% on that moves it to $50–$150."* Compare only to another MEASURED
+figure ("~1/6th of the reviewer's current bill"), never to a threshold you invented. When the cost
+is decision-relevant, surface it with the decision it bears on and ask; do not pre-resolve it.
+**A relayed verdict is still a verdict** — an advisor saying "self-financing" is that agent's
+judgment, and repeating it unmarked adopts it (`claim-confidence.mdc §A relayed claim is never
+verified`).
+
+This does not weaken `communication-contract.mdc §Judgment calls are load-bearing`: that governs a
+call you HAD to make and must surface; this governs one that was never yours. Reservation:
+`principal-context.mdc §Decisions Eugene reserves` (vendor commitments), applied to spend at
+mem#625. Incident: mt#4564 (2026-08-25).
 
 ## Escalation packaging
 
@@ -1632,7 +1733,7 @@ The two checklists that enforce this — content (does it carry what a decision 
 - `git-safety` — destructive git operations (reset --hard, push --force, etc.) require the `git-safety` skill; ESLint `custom/no-unsafe-git-exec` backs it structurally
 - `json-parsing` — use `jq`, never `grep`/`awk`/`sed`, when parsing or filtering JSON command output
 - `ai-linter-autofix-guideline` — don't spend cycles hand-perfecting formatting the linter autofixes
-- `no-dynamic-imports` — prefer static imports; `eslint.config.js`'s `allowDynamicImports:false` enforces this mechanically
+- `no-dynamic-imports` — prefer static imports. **Discipline-tier: nothing lints this** (mt#4523). There is no `no-dynamic-imports` ESLint rule; `allowDynamicImports` is an option on `custom/no-real-fs-in-tests`, scoped to test files. A general rule is not viable at ~1,425 `await import(` sites across ~375 production files, because a dynamic import is often the correct construct — the tractable shape is a decidable SUBSET, as mt#2456 does for imports escaping a package boundary
 
 # Key Workflows (via skills)
 
@@ -1657,10 +1758,24 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Auto-walked transitions** (chain forward unless an explicit halt condition holds):
 
-- `/create-task` → `/plan-task` when the task was filed as **incident response** — a problem the
-  user reported in the live conversation, or one discovered during this conversation's work
-  (mt#2689). Filing the task is not the deliverable; the fix is. Background/tracking tasks filed
-  for later by design are exempt — say so explicitly when stopping there.
+- `/create-task` → `/plan-task` when the task was filed as **incident response** AND the response
+  was not scoped to filing (mt#2689, narrowed mt#3784). **Where the problem was raised does not
+  settle the second half** — this line read "a problem the user reported in the live conversation,
+  or one discovered during this conversation's work … filing is not the deliverable" and welded a
+  trigger to a conclusion. Read the verb aimed at YOU, not the verb inside the artifact: "file a
+  task to investigate X" makes investigation the task's CONTENT and filing your whole deliverable.
+  Three exemptions — name which when you stop:
+  - **Filed for later by design** — a background/tracking task.
+  - **Request-scope** — the instruction was to file it ("file a task to…", "make a task for…",
+    "track this"). No deferral language is needed for this to hold.
+  - **Incidental discovery** — a DIFFERENT task is this conversation's active thread and you found
+    this while working it. Default here is *keep working the primary thread and surface the filed
+    items at the close for routing* (`communication-contract.mdc §The terminal actionables block`),
+    NOT walk and not a bare stop. Walk only if it blocks the current deliverable's correctness or
+    would recur in this session's remaining work — a prose/doc fix meets neither.
+
+  Conversely, an ask answered in this conversation that authorized the work is evidence to WALK:
+  its "file tasks for X" phrasing names the record-keeping step, not a scope ceiling.
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)
@@ -1756,7 +1871,8 @@ execution`, principal-level decisions stay with Eugene:
 - Architectural moves that affect customer experience or product surface
 - Authorization for shared / production state changes
 - Scope changes to in-flight work
-- Vendor commitments (signup actions, paid plan upgrades)
+- Vendor commitments (signup actions, paid plan upgrades) — for the spend judgment behind one,
+  see `humility.mdc §Cost is yours to measure; affordability is not yours to judge`
 - **Framework choices** when stakes are principal-level
 - Preferences that set a **durable default** — the default model, a standing tool or format
   choice, anything a later turn inherits. A ONE-OFF preference call is the agent's: make it and
@@ -1799,7 +1915,7 @@ Three tiers decide whether a term gets a gloss:
    nothing; an unglossed gap stalls the reader mid-sentence and charges an attention tax
    without consent.
 
-**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18).
+**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18); `CSCW` (2026-08-22).
 
 **When a term's status matters and you cannot settle it, ask him — the model is not only
 something to consult, it is something to update.** He is a party with state you can query, not
@@ -2043,10 +2159,11 @@ Incidents, worked examples, and extended rationale live in
   0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims. Treat it as a **signal, not proof** — confirm any hit with probes 1–4. It says *when* to do the forensics, never *who* holds the task: an unfamiliar `actorId` may be your own, and an empty result is "no claim visible," not "nobody." How to read each output without over-reading it: `docs/rules-rationale/user-preferences.md §Reading the presence probe`.
      - **PRECEDENCE when signals disagree: a fresh claim outranks a stale transcript.** A claim says a PROCESS IS RUNNING; the id only labels WHO IT THINKS IT IS, which is what goes stale. So a transcript's mtime tests whether the ID IS TRUSTWORTHY, never whether a peer EXISTS: **an unconfirmable id means "unknown actor", never "no actor."** Redispatching on one is the mt#3086/mt#3958 double-dispatch (mt#3812: refused 2026-08-10, peer then finished the work).
      - **One named cause, not the class (mt#3958):** a dispatched subagent writes to `<session-dir>/subagents/agent-<id>.jsonl`, not the parent's transcript — look there, or message it. An instance of the precedence, which also covers the causes nobody has hit.
-  1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
+     - **Measured, and it misreads in BOTH directions.** The mtime check cannot separate "stale id stamped by a live caller" from "genuinely dead sibling" (mem#952), and a claim can carry ANOTHER conversation's id for YOUR OWN read (mem#1231, measured under control 2026-08-24). So it can hide a peer AND invent one.
+  1. **Task-event ledger — the one probe that ANSWERS instead of signalling.** `mcp__minsky__events_list relatedTaskId:"mt#<id>"`. A `session.started` row, or a `task.status_changed` row you did not cause, is **positive evidence of another actor** — it carries the session id and the timestamp, so there is nothing to interpret. **Run it before the transcript check above.** It settles what probes 0/2 only suggest because it is keyed to the TASK and written by the backend: alone among these probes it does not depend on a proxy correctly naming itself (mt#3889 / mt#3900 / mt#4440 are three tasks spent repairing that axis). **Coverage bound, measured (mt#4494):** `tasks_create` emits no event, so a freshly-filed task returns `[]`. More importantly, `task.status_changed` comes almost entirely from EXPLICIT `tasks_status_set` calls — over ~2.5 months, TODO→PLANNING 1480 and PLANNING→READY 1372, against only **36** READY→IN-PROGRESS for **1194** `session.started` rows. So the IMPLICIT lifecycle transitions (session start, PR create, merge) are nearly invisible here, and **`session.started` is the load-bearing row**: an agent mid-implementation may have changed no status at all. Silence means "no lifecycle activity recorded", never "no peer".
   2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
-  3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.
-  4. **Recent-activity probe** — `mcp__minsky__git_log --grep="mt#<id>" --since="24 hours ago"` for commits by other actors.
+  3. **PR probe — LAGGING** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching. A clean result is consistent with a peer who has started and not yet pushed: silence, not absence.
+  4. **Recent-activity probe — LAGGING** — `mcp__minsky__git_log --grep="mt#<id>" --since="24 hours ago"` for commits by other actors. Same bound as 3 — it can only see a peer that has already produced output.
 
   **If a probe returns "another actor is here"**, do NOT recommend the same action. Surface the collision (which actor, what evidence) to the principal; let them resolve who continues.
 

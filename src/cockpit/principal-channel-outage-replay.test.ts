@@ -16,7 +16,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { runPollCycle, type ChannelActuator, type PollCycleDeps } from "./principal-channel-poller";
+import { runPollCycle, type ChannelDriver, type PollCycleDeps } from "./principal-channel-poller";
 import {
   createEventLogCursor,
   getPrincipalChannelStatus,
@@ -55,8 +55,8 @@ function update(updateId: number, text: string): unknown {
 
 interface OutageHarness {
   deps: PollCycleDeps;
-  /** Every `converse` the actuator was asked to run — the blast radius, counted. */
-  actuatorCalls: string[];
+  /** Every `converse` the session driver was asked to run — the blast radius, counted. */
+  driverCalls: string[];
   /** Every reply actually sent to Telegram. */
   sentTexts: string[];
   /** The `offset` each poll asked for; `null` when the request carried none. */
@@ -76,16 +76,16 @@ interface OutageHarness {
  * THROWS (it throws on a null handle too, which is the likelier outage path).
  */
 function outageHarness(initial: unknown[]): OutageHarness {
-  const actuatorCalls: string[] = [];
+  const driverCalls: string[] = [];
   const sentTexts: string[] = [];
   const offsetsRequested: Array<number | null> = [];
   let served = initial;
   let dbUp = false;
   let durableHighest: number | undefined;
 
-  const actuator: ChannelActuator = {
+  const sessionDriver: ChannelDriver = {
     converse: async (text) => {
-      actuatorCalls.push(text);
+      driverCalls.push(text);
       return `answered: ${text}`;
     },
     interrupt: async () => "stopped",
@@ -131,7 +131,7 @@ function outageHarness(initial: unknown[]): OutageHarness {
     token: TOKEN,
     chatId: CHAT,
     auth: { allowedChatId: CHAT },
-    actuator,
+    sessionDriver,
     cursor: createEventLogCursor(readHighestUpdateId, recordAdvance),
     recordEvent: async () => {
       if (!dbUp) throw new Error("persistence unavailable");
@@ -143,7 +143,7 @@ function outageHarness(initial: unknown[]): OutageHarness {
 
   return {
     deps,
-    actuatorCalls,
+    driverCalls,
     sentTexts,
     offsetsRequested,
     serve: (updates) => {
@@ -183,7 +183,7 @@ describe("mt#4252 — the channel under a persistence outage", () => {
     // The heart of it: three cycles, one agent turn, one reply. Before this
     // change these were 3 and 3 — three real `claude -p` turns against a
     // message the principal had already been answered.
-    expect(h.actuatorCalls).toEqual(["deploy the thing"]);
+    expect(h.driverCalls).toEqual(["deploy the thing"]);
     expect(h.sentTexts).toEqual(["answered: deploy the thing"]);
 
     // And the cause is visibly gone: only the FIRST poll went out offset-less.
@@ -204,14 +204,14 @@ describe("mt#4252 — the channel under a persistence outage", () => {
     // The whole point of the two fail-opens is that the channel must not go
     // silent because Postgres blinked. Suppressing replays must not suppress
     // traffic — if this ever fails, the fix has become the bug it replaced.
-    expect(h.actuatorCalls).toEqual(["first", "second"]);
+    expect(h.driverCalls).toEqual(["first", "second"]);
   });
 
   test("AT3: a recovered read returning a LOWER id does not re-open the window", async () => {
     const h = outageHarness([update(101, "first")]);
 
     await runCycleLikeThePoller(h.deps);
-    expect(h.actuatorCalls).toEqual(["first"]);
+    expect(h.driverCalls).toEqual(["first"]);
 
     // The DB comes back, but its highest recorded id is BEHIND what this
     // process already served — the rows for 101 never landed, because that is
@@ -221,7 +221,7 @@ describe("mt#4252 — the channel under a persistence outage", () => {
     await runCycleLikeThePoller(h.deps);
     await runCycleLikeThePoller(h.deps);
 
-    expect(h.actuatorCalls).toEqual(["first"]);
+    expect(h.driverCalls).toEqual(["first"]);
     expect(h.offsetsRequested.slice(1)).toEqual([102, 102]);
   });
 

@@ -119,6 +119,14 @@ for (const [file, lines] of sources) {
     if (!BARE_PHRASES.some((re) => re.test(line))) return;
     // A comment describing behavior is not a message a user ever sees.
     if (isCommentLine(line)) return;
+    // Cause-carrying on the same line is not a violation (mt#4543). Pass 2 has always
+    // had this exemption; pass 1 did not, so a message naming the capability AND
+    // interpolating the cause — which is exactly what this check wants — was reported as
+    // cause-free. The word "bare" in BARE_PHRASES is the intent: the docblock above says
+    // the defect is a message that says ONLY "not SQL-capable". Without this, the
+    // available fixes are to reword around the checker or to mark the site exempt, and
+    // the marker would misrepresent a message that does carry its cause.
+    if (/describe\w*Unavailab\w*\(/.test(line)) return;
     if (markedAbove(lines, i)) return;
     violations.push(`${file}:${i + 1}: ${line.trim()}`);
   });

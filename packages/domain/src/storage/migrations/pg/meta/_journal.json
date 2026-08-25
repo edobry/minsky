@@ -729,6 +729,41 @@
       "when": 1787343124694,
       "tag": "0103_misty_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1787513309793,
+      "tag": "0104_steady_payback",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1787586328345,
+      "tag": "0105_lame_harrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1787586387457,
+      "tag": "0106_zippy_whizzer",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1787588710502,
+      "tag": "0107_spooky_saracen",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1787624917353,
+      "tag": "0108_robust_tyrannus",
+      "breakpoints": true
     }
   ]
 }

@@ -8,7 +8,12 @@
  *   - config/validate-doctor-commands.ts — config.validate, config.doctor
  */
 
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { sharedCommandRegistry } from "../command-registry";
+import {
+  createCredentialRequestRegistration,
+  createCredentialRequestStatusRegistration,
+} from "./config/credential-request-command";
 import { configListRegistration, configShowRegistration } from "./config/list-show-commands";
 import {
   configGetRegistration,
@@ -27,9 +32,13 @@ import {
 } from "./config/credentials-commands";
 
 /**
- * Register all config commands
+ * Register all config commands.
+ *
+ * @param container Optional DI container. `credentials.request` (mt#4030) writes
+ *   an Ask, so it needs the same repository resolution every other ask-writing
+ *   command uses; the parameter is optional so existing callers are unaffected.
  */
-export function registerConfigCommands() {
+export function registerConfigCommands(container?: AppContainerInterface) {
   sharedCommandRegistry.registerCommand(configListRegistration);
   sharedCommandRegistry.registerCommand(configShowRegistration);
   sharedCommandRegistry.registerCommand(configGetRegistration);
@@ -41,4 +50,6 @@ export function registerConfigCommands() {
   sharedCommandRegistry.registerCommand(configCredentialsListRegistration);
   sharedCommandRegistry.registerCommand(configCredentialsRemoveRegistration);
   sharedCommandRegistry.registerCommand(configCredentialsRecheckRegistration);
+  sharedCommandRegistry.registerCommand(createCredentialRequestRegistration(container));
+  sharedCommandRegistry.registerCommand(createCredentialRequestStatusRegistration(container));
 }

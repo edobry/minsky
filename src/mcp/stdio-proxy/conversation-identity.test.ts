@@ -47,6 +47,15 @@ describe("resolveLiveConversationAgentId (mt#3900)", () => {
   test("the SessionStart mapping WINS over the stale spawn-time env value", () => {
     // The whole point. When the two disagree it is always the env value that is
     // stale, because it cannot change without a respawn.
+    //
+    // This is also the BOUNDARY mt#3994's isolation must not cross (its SC3).
+    // `scripts/verify-conv-identity-injection.ts` needs the opposite outcome —
+    // the env value winning — so that its fall-through cases can assert an
+    // ABSENT stamp. It gets there by pointing a spawned child's XDG_STATE_HOME
+    // at an empty dir, so the mapping the child reads is genuinely empty; it
+    // does NOT invert this precedence, and this assertion is what says so. If a
+    // future change makes that script pass by weakening the rule below instead,
+    // this test fails — which is the point of naming the boundary here.
     const agentId = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
       readMapping: () => SWITCHED_UUID,
     });

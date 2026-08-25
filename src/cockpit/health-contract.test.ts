@@ -103,6 +103,67 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     expect(actualFields).toEqual(fixtureFields);
   });
 
+  // mt#4489 — the route half of the cwd guard. `findRepoRoot`'s own negative
+  // case is covered at web-dist.test.ts:23 with an injected `exists`; what is
+  // NOT covered there, and is the entire point of this field, is that the route
+  // re-resolves against the LIVE cwd on each request rather than a boot-time
+  // constant. A test that only asserted the healthy shape would pass against a
+  // hardcoded `resolved: <repo>`, so the flip is asserted directly.
+  test("workspaceRoot reports resolves: true from a healthy cwd", async () => {
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as {
+      workspaceRoot: { resolves: boolean; checkedAt: string };
+    };
+
+    expect(body.workspaceRoot.resolves).toBe(true);
+    expect(Number.isNaN(Date.parse(body.workspaceRoot.checkedAt))).toBe(false);
+  });
+
+  test("workspaceRoot reports resolves: false when the cwd is not a repo root", async () => {
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    // The condition this field exists for is a cwd that STOPS resolving under a
+    // running process. Deleting the real cwd mid-test is not available to us, so
+    // we move to a directory that cannot resolve — `/` has no `src/cockpit/web`
+    // at or above it — which reaches the route through the same code path.
+    // Restored in `finally` so a failed assertion cannot leak a bad cwd into
+    // any test that runs after this one.
+    const original = process.cwd();
+    try {
+      process.chdir(path.sep);
+      const res = await fetch(`${url}/api/health`);
+      const body = (await res.json()) as { workspaceRoot: { resolves: boolean } };
+      expect(body.workspaceRoot.resolves).toBe(false);
+    } finally {
+      process.chdir(original);
+    }
+  });
+
+  // PR #3296 R1 — the reviewer caught `workspaceRoot` publishing absolute paths
+  // on this unauthenticated endpoint. Guarding the CLASS rather than the one
+  // field: any future addition that serializes a path fails here, which is the
+  // check that was missing when the field was added.
+  test("the unauthenticated payload carries no absolute filesystem path", async () => {
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const raw = await res.text();
+
+    // The operator's home directory is the specific thing that leaked, and it is
+    // the cheapest true positive to assert against. `homedir()` is used rather
+    // than a hardcoded prefix so this is meaningful on any machine and in CI.
+    expect(raw).not.toContain(os.homedir());
+    // Any other rooted POSIX path that looks like a real directory, as a JSON
+    // string value. Narrow on purpose: bare "/" appears in URLs and ISO strings,
+    // so only a multi-segment absolute path counts.
+    expect(raw).not.toMatch(/"\/(?:[A-Za-z0-9._-]+\/){2,}/);
+  });
+
   test("live response field types match the shared golden fixture", async () => {
     const fixture = loadFixture();
     const { url, close } = await startTestServer();

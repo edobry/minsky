@@ -39,6 +39,7 @@ import {
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import { APPROVAL_TOKEN_EXAMPLES, isApproveShapedToken } from "@minsky/shared/ask-approval";
+import { emitAnsweredAskWakeBestEffort } from "./asks-answered-wake";
 import {
   DrizzleAskRepository,
   type AskRepository,
@@ -78,6 +79,8 @@ import {
   type ElicitationClosedAsk,
 } from "@minsky/domain/ask/transports/elicitation";
 import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
+import { repairAskGraph } from "@minsky/domain/ask/repair";
+import { asksRepairParams, buildRepairDeps } from "./asks-repair";
 import {
   askWaitForResponse,
   type AskWaitForResponseResult,
@@ -834,6 +837,24 @@ export const asksCreateParams = {
     description: "AgentId of the requestor; defaults to a session-unknown marker",
     required: false,
   },
+  callerActorId: {
+    schema: z.string(),
+    description:
+      "mt#4476: the caller's resolved conversation-grain agentId (ADR-006), persisted as " +
+      "`Ask.filedByAgentId` so an answer to this ask can be delivered back to the " +
+      "conversation that filed it on its next tool call. Server-injected from the resolved " +
+      "MCP identity (src/mcp/server.ts) — never supplied by hand, and any hand-supplied " +
+      "value is overwritten there. That overwrite is the point: `requestor` above is the " +
+      "same nominal thing accepted from the caller, and is why it cannot be used as a " +
+      "delivery key. Absent on the CLI path and whenever identity falls back to ADR-006 " +
+      "Layer 1 (a process hash, which is not conversation-scoped); an ask filed without it " +
+      "still works, it just cannot be woken on the tool-call seam.",
+    required: false,
+    // Server-injected only — hide from the CLI surface so it is not advertised as a
+    // hand-passable flag (mirrors observability.calibration-review and
+    // tasks.dispatch-recover).
+    cliHidden: true,
+  },
   // Service-window fields (mt#1411 spine — mt#1488)
   serviceStrategy: {
     schema: z.enum(["asap", "scheduled", "deadline-bound"] as const).optional(),
@@ -1106,7 +1127,19 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
       // warning's job is to put category (b) in front of the author at the
       // moment of escalation; blocking would let a wrong guess about someone
       // else's infrastructure withhold a real page from the principal.
-      m.check !== "asserted-not-self-resolving"
+      m.check !== "asserted-not-self-resolving" &&
+      // mt#4516: both calibration-first, per the mt#2263 ladder — a new check
+      // earns a blocking leg from measured fires, not from the author's
+      // confidence in its pattern. `domain-jargon` exists as a sibling of
+      // `internal-tool-id` rather than a widening of it precisely so that this
+      // line can hold: widening the blocking check would have shipped new hard
+      // rejects with no fire history behind them.
+      m.check !== "domain-jargon" &&
+      // Additionally, `meta-lede` matches natural language, where recall is
+      // partial by construction (see its pattern's doc comment). Blocking on a
+      // check that cannot see half its own class would reject the authors who
+      // phrase it one way and wave through the ones who phrase it another.
+      m.check !== "meta-lede"
   );
 }
 
@@ -1270,6 +1303,8 @@ export interface CreateAskParams {
   metadata?: Record<string, unknown>;
   classifierVersion?: string;
   requestor?: string;
+  /** Server-injected caller identity (mt#4476) — see the `callerActorId` param. */
+  callerActorId?: string;
   /** Service-window routing strategy (mt#1411 spine — mt#1488). When absent, per-kind default applies. */
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
   /** Named window to target when strategy is "scheduled". When absent, per-kind default applies. */
@@ -1324,6 +1359,39 @@ export interface CreateAskParams {
  *     populated for `"responded"` / `"closed"` states. The cancelled/
  *     suspended return values intentionally omit it.
  */
+/**
+ * Pick the capability registry that decides how THIS ask routes (mt#4451).
+ *
+ * Extracted as a pure function so the preference is directly assertable: the
+ * call site lives inside a `registerCommand` closure, and observing it there
+ * would mean patching a collaborator rather than reading a returned value.
+ *
+ * The order is the whole point:
+ *
+ * 1. **The caller's own connection**, when the request arrived over MCP.
+ *    `src/mcp/server.ts` builds a `SingleConnectionCapabilityRegistry` per
+ *    CallTool from the `Server` handling that request.
+ * 2. **The container's registry**, which since mt#4451 is the caller-agnostic
+ *    no-op in production — `createStartCommand` no longer overrides it with
+ *    the fleet-wide tracker. Tests may inject their own.
+ * 3. **Nothing**, leaving the router with no capability registry at all, which
+ *    it treats as "no elicitation".
+ *
+ * Steps 2 and 3 both mean "no elicitation" in production. That is deliberate:
+ * a caller whose connection cannot be resolved must not inherit some other
+ * connection's capabilities (SC3).
+ */
+export function selectCapabilityRegistry(
+  callerCapabilities: ClientCapabilityRegistry | undefined,
+  container: { has(key: string): boolean; get(key: string): unknown } | undefined
+): ClientCapabilityRegistry | undefined {
+  if (callerCapabilities) return callerCapabilities;
+  if (container?.has("clientCapabilityRegistry")) {
+    return container.get("clientCapabilityRegistry") as ClientCapabilityRegistry;
+  }
+  return undefined;
+}
+
 export async function createAsk(
   repo: AskRepository,
   params: CreateAskParams,
@@ -1350,6 +1418,9 @@ export async function createAsk(
     kind: params.kind,
     classifierVersion: params.classifierVersion ?? "v1.0.0",
     requestor: params.requestor ?? "minsky.agent:unknown",
+    // mt#4476: server-injected, never caller-supplied. Trimmed-empty is treated as
+    // absent so a blank injection cannot become a key nothing can match.
+    filedByAgentId: params.callerActorId?.trim() ? params.callerActorId.trim() : undefined,
     title: params.title,
     question: params.question,
     options: params.options,
@@ -1390,6 +1461,29 @@ export async function createAsk(
     const registry = routerOptions.capabilityRegistry;
     const server = registry?.activeElicitationServer();
     if (server) {
+      // mt#4450: persist the route outcome BEFORE dispatching, so the row
+      // carries the `routingTarget` the router already chose.
+      //
+      // This branch RETURNS, so it never reaches the shared
+      // `persistRouteOutcome` call below — and `dispatchToElicitation` walks
+      // state only (`advanceToSuspended` issues `repo.transition` calls and
+      // writes no other column). The result was an elicitation-routed ask
+      // persisted with `routingTarget = NULL` even though `pickTransport`
+      // returned "operator" for it, which is not cosmetic: the cockpit inbox
+      // filters on `routingTarget === "operator"` and its resolve endpoint
+      // refuses anything else (`src/cockpit/routes/asks.ts:407`, `:615`), so a
+      // dispatch that failed left an ask the operator could neither see nor
+      // answer. The warn at `:1431` already existed for exactly this shape and
+      // was firing into the log with nothing to fix it.
+      //
+      // Reuses `routeResultToOutcomeWrite` rather than writing the field
+      // directly so this path inherits the same authority rules as every
+      // other — notably that a creator-specified "operator" beats the
+      // kind→target default (mt#3491). The write lands `state: "routed"`;
+      // `advanceToSuspended` then walks routed → suspended as before, so the
+      // state machine is untouched and only the missing column is added.
+      const { write: elicitationWrite } = routeResultToOutcomeWrite(routed, ask.routingTarget);
+      await repo.persistRouteOutcome(ask.id, elicitationWrite);
       return await dispatchToElicitation(routed, { server, repo });
     }
     log.warn(
@@ -1667,6 +1761,30 @@ export async function createAskWithFormLint(
 // asks.wait-for-response — schemas + render helper (mt#2266)
 // ---------------------------------------------------------------------------
 
+/**
+ * Parameters for `asks.wait-for-response`.
+ *
+ * ## `timeoutSeconds` is not reliably reachable over MCP (mt#4455)
+ *
+ * This command emits **no progress notifications**. `context.onProgress?.()`
+ * (mt#2677) exists so a long-running command produces transport activity
+ * instead of silence; the emitters are the PR-polling commands
+ * (`session.pr.checks`, `session.pr.wait-for-review`, and `session.pr.drive`
+ * through its delegation to the latter) plus `session.migrate`. This command is
+ * not among them, so a wait here is silent for its whole duration, the
+ * connection looks IDLE to the transport underneath, and it can be closed
+ * before the requested budget elapses (~225 s measured 2026-08-22 on the
+ * sibling `deployment.wait-for-latest`).
+ *
+ * The clamp below still says `[1, 1800]` because it is the DOMAIN's contract and
+ * remains correct on the CLI path; over MCP the reachable ceiling is lower and
+ * not stated by any schema. Mechanism: **mt#1576** Occurrence 8. Transport-side
+ * decision: **mt#4455** (the shim's absolute bound is sized above 1800 s; the
+ * idle half is separate and unfixed).
+ *
+ * For an ask that may take minutes, prefer filing and continuing over blocking
+ * here — which is the shape mt#3564's answered-ask injection exists to support.
+ */
 const asksWaitForResponseParams = {
   id: {
     schema: z.string().trim().min(1),
@@ -1675,7 +1793,10 @@ const asksWaitForResponseParams = {
   },
   timeoutSeconds: {
     schema: z.number().int().positive(),
-    description: "Max seconds to wait (default 600; clamped to [1, 1800])",
+    description:
+      "Max seconds to wait (default 600; clamped to [1, 1800]). " +
+      "NOTE (mt#4455): over MCP this command emits no progress, so the transport's " +
+      "idle timeout can end the call before this budget elapses.",
     required: false,
     defaultValue: 600,
   },
@@ -2083,10 +2204,7 @@ async function resolveCurrentProjectScope(
     if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistenceProvider.getDatabaseConnection();
     if (!rawDb) return undefined;
-    const scope = await resolveProjectScope(
-      identity,
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-    );
+    const scope = await resolveProjectScope(identity, rawDb, caller);
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
@@ -2287,6 +2405,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
               responder: (params.responder as string | undefined) ?? null,
             },
           });
+          // mt#4476: the same event, addressed to the conversation that filed the ask
+          // rather than to the activity stream. Until this existed, `asks.respond`
+          // emitted the line above and nothing else — an agent mid-turn learned of its
+          // own answer only when its turn ended and a new prompt fired mt#3564's hook.
+          await emitAnsweredAskWakeBestEffort(() => buildCompositeWakeSink(container), result.ask);
           return result;
         });
       },
@@ -2371,11 +2494,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
 
         // mt#1457: pull the capability registry from the container so the
-        // router consults it and the elicitation transport can dispatch
-        // through the active MCP Server.
-        const capabilityRegistry =
-          container?.has("clientCapabilityRegistry") &&
-          (container.get("clientCapabilityRegistry") as ClientCapabilityRegistry);
+        // mt#1457 pulled a capability registry from the container so the router
+        // could consult it. mt#4451 changed WHICH registry: the one describing
+        // the connection that filed THIS ask, never a fleet-wide view. See
+        // `selectCapabilityRegistry` for the order and why the fallback is
+        // caller-agnostic.
+        const capabilityRegistry = selectCapabilityRegistry(ctx?.callerCapabilities, container);
 
         const routerOptions: PolicyFirstRouteOptions = capabilityRegistry
           ? { capabilityRegistry }
@@ -2399,6 +2523,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             metadata: params.metadata as Record<string, unknown> | undefined,
             classifierVersion: params.classifierVersion as string | undefined,
             requestor: params.requestor as string | undefined,
+            // mt#4476: the MCP server overwrote this with the resolved caller identity
+            // before the handler ran, so it is trustworthy in a way `requestor` is not.
+            callerActorId: params.callerActorId as string | undefined,
             // Service-window fields (mt#1411 spine — mt#1488)
             serviceStrategy: params.serviceStrategy as
               | "asap"
@@ -2631,6 +2758,55 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           metadata: params.metadata as Record<string, unknown> | undefined,
           editor: params.editor as string | undefined,
         });
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.repair",
+      category: CommandCategory.TOOLS,
+      name: "repair",
+      description:
+        "Repair a non-terminal Ask's GRAPH fields — its parent task, or a routingTarget the " +
+        "router failed to persist (mt#4305). Distinct from asks_edit, which owns CONTENT: " +
+        "routing fields are mechanism-owned and deliberately not reachable there. State is " +
+        "never changed — a suspended Ask stays suspended and stays in the operator queue, so " +
+        "this is not a way to retire an ask (use asks_cancel). Terminal asks are rejected. " +
+        "`repairRoutingTarget` only FILLS an absent target, re-deriving the value from the " +
+        "router itself; an Ask that already carries one is rejected, and there is no parameter " +
+        "that can name a target. Every repair appends an editHistory provenance note carrying " +
+        "the touched fields, the editor, and the prior parent when one was replaced. `id` " +
+        "accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+      // requiresSetup: false — same posture as asks.edit / asks.respond: this
+      // depends on the persistence provider, not on global Minsky config.
+      requiresSetup: false,
+      parameters: asksRepairParams,
+      validate: async (params) => {
+        // Reject a no-op call at the parameter boundary so the caller gets
+        // immediate feedback rather than a domain-layer error after two reads.
+        if (params.parentTaskId === undefined && !params.repairRoutingTarget) {
+          throw new Error(
+            "asks.repair: at least one repair must be requested (parentTaskId, repairRoutingTarget)."
+          );
+        }
+      },
+      execute: async (params): Promise<{ ask: Ask; repaired: string[] }> => {
+        const repo = await requireAskRepository(container, "asks.repair");
+        // mt#2696: resolve a short-prefix / ask#N citation before it reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
+        return repairAskGraph(
+          repo,
+          {
+            id,
+            parentTaskId: params.parentTaskId as string | undefined,
+            repairRoutingTarget: params.repairRoutingTarget as boolean | undefined,
+            editor: params.editor as string | undefined,
+          },
+          buildRepairDeps(container)
+        );
       },
     })
   );

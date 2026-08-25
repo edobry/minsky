@@ -7,6 +7,7 @@
 
 import type { CommandMapper } from "../../mcp/command-mapper";
 import type { ToolProgressReporter } from "../../mcp/server";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -542,7 +543,8 @@ export function registerSharedCommandsWithMcp(
         handler: async (
           args: Record<string, unknown>,
           _projectContext,
-          progress?: ToolProgressReporter
+          progress?: ToolProgressReporter,
+          callerCapabilities?: ClientCapabilityRegistry
         ) => {
           const startTime = Date.now();
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args: redact(args) });
@@ -563,6 +565,12 @@ export function registerSharedCommandsWithMcp(
               // otherwise, so poll loops' `context.onProgress?.(...)` calls
               // are unconditionally safe no-ops when absent).
               onProgress: progress,
+              // mt#4451: capabilities of the connection that made THIS call.
+              // Undefined on every non-MCP interface, and consumers treat
+              // undefined as "no elicitation" rather than reaching for a
+              // process-wide view — see the field's docblock on
+              // CommandExecutionContext.
+              callerCapabilities,
             };
             // Omit `container` from debug logs: it holds the full DI container,
             // which is expensive to walk and produces huge [Circular]-laden output.

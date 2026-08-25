@@ -119,6 +119,12 @@ for the full mechanism, and
 [Overriding the Pool Size](./persistence-configuration.md#overriding-the-pool-size) to change how
 many connections one process opens.
 
+**Different symptom, different mechanism:** DB-backed calls that HANG rather than fail, while a CLI
+DB read returns promptly, are this process's own pool being full — not the pooler refusing it. Since
+mt#4473 that produces a bounded `EPOOLADMISSIONTIMEOUT` refusal instead of an indefinite wait; see
+[In-process admission bound](./persistence-configuration.md#in-process-admission-bound-mt2773-extended-mt4473)
+for how to read the saturation counters and what to do about it.
+
 ## Schema-drift audit (Postgres)
 
 `minsky persistence check` runs a **read-only schema-drift audit** on the Postgres backend

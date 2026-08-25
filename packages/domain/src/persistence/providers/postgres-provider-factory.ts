@@ -17,6 +17,7 @@ import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
+  CLOSE_TIMEOUT_SECONDS,
 } from "./postgres-provider";
 
 /**
@@ -112,8 +113,12 @@ export class PostgresProviderFactory {
       // The probe failed before any provider adopted the client — end it here to
       // avoid leaking the pool. Guard the cleanup so an end() failure can't mask
       // the original probe error (matches the provider's initialize() catch).
+      // Bounded (mt#4515, PR #3308 R1): guarding against a THROW does not guard
+      // against a HANG, and an unbounded end() on a probe that just failed —
+      // quite possibly because the connection is half-open — never settles. That
+      // would stall boot itself, since this runs on the cold-start path.
       try {
-        await probedSql.end();
+        await probedSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
       } catch {
         /* ignore cleanup errors */
       }

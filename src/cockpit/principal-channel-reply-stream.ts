@@ -98,7 +98,7 @@ export interface ReplyStreamOptions {
 export interface ReplyStream {
   /**
    * Report the text accumulated so far. Never throws and never blocks — it is
-   * called from the actuator's event subscriber, which must not be made to wait
+   * called from the session driver's event subscriber, which must not be made to wait
    * on a network round-trip.
    */
   push(accumulated: string): void;

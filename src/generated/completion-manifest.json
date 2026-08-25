@@ -4985,6 +4985,64 @@
                 }
               ],
               "commandId": "config.credentials.recheck"
+            },
+            {
+              "name": "request",
+              "description": "request commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request",
+                  "description": "Ask the principal for a credential you cannot read. Routes to a masked cockpit form; resolves when the credential is present. Never accepts or returns the value.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    },
+                    {
+                      "flags": ["--reason"],
+                      "description": "Why this credential is needed now, in the principal's terms. Shown on the request.",
+                      "takesValue": true
+                    },
+                    {
+                      "flags": ["--parent-task-id"],
+                      "description": "Task blocked by this request. Set it — the task is what holds the pending state when the requesting conversation ends.",
+                      "takesValue": true
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request"
+            },
+            {
+              "name": "request-status",
+              "description": "request-status commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request-status",
+                  "description": "Check a credential request filed with credentials.request. Returns pending / satisfied / declined / unanswered plus a status line. Never returns the credential.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "requestId",
+                      "required": true,
+                      "description": "The requestId returned by credentials.request."
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request-status"
             }
           ]
         }
@@ -5635,7 +5693,7 @@
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Max seconds to wait (default 600; clamped to [1, 1800])",
+                  "description": "Max seconds to wait (default 600; clamped to [1, 1800]). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
@@ -5700,6 +5758,34 @@
                 }
               ],
               "commandId": "asks.edit"
+            },
+            {
+              "name": "repair",
+              "description": "Repair a non-terminal Ask's GRAPH fields — its parent task, or a routingTarget the router failed to persist (mt#4305). Distinct from asks_edit, which owns CONTENT: routing fields are mechanism-owned and deliberately not reachable there. State is never changed — a suspended Ask stays suspended and stays in the operator queue, so this is not a way to retire an ask (use asks_cancel). Terminal asks are rejected. `repairRoutingTarget` only FILLS an absent target, re-deriving the value from the router itself; an Ask that already carries one is rejected, and there is no parameter that can name a target. Every repair appends an editHistory provenance note carrying the touched fields, the editor, and the prior parent when one was replaced. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+              "options": [
+                {
+                  "flags": ["--parent-task-id"],
+                  "description": "Move the Ask to this parent task. The task must exist; a reparent to the parent it already has is rejected. State is never changed — reparenting is not a way to retire an ask (use asks_cancel for that).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repair-routing-target"],
+                  "description": "Fill an ABSENT routingTarget by re-deriving it from the router. Rejected when the Ask already carries a target — this fills a field the router failed to write, it does not re-route. There is deliberately no way to specify WHICH target."
+                },
+                {
+                  "flags": ["--editor"],
+                  "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID, unambiguous prefix, or ask#N short id) to repair"
+                }
+              ],
+              "commandId": "asks.repair"
             }
           ]
         },
@@ -6042,7 +6128,7 @@
                 },
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes).",
+                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout (~225s measured) can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
@@ -6421,7 +6507,7 @@
             },
             {
               "flags": ["--associations"],
-              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). See ADR-012 for type-string conventions.",
+              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). Allowed keys: tracksTask, relatedTask, originatesRule, originatesSkill, informsAsk, extractedFromSession, extractedFromTranscript, citedInReview. See ADR-012.",
               "takesValue": true
             },
             {
@@ -6496,7 +6582,7 @@
             },
             {
               "flags": ["--associations"],
-              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
+              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed. Non-empty values must use an ADR-012 type; any key may be set to [] to remove it.",
               "takesValue": true
             }
           ],
@@ -7501,7 +7587,7 @@
         },
         {
           "name": "call",
-          "description": "Call a specific MCP tool",
+          "description": "Call a specific MCP tool.\n\nArgument marshalling: --arg splits on the FIRST '=' only, so a value may itself contain '=' characters and is passed through whole. Every value is sent as a STRING, so a tool parameter typed as a number or boolean will fail schema validation (e.g. --arg 'limit=8' is rejected as \"expected number, received string\"); omit such parameters or use a native CLI command instead.\nFor long or structured content, prefer a native command with real options (e.g. 'minsky memory update <id> --content \"$(cat body.md)\"'). Run 'minsky <noun> --help' to see whether one exists before falling back to 'mcp call'.",
           "options": [
             {
               "flags": ["--repo"],
@@ -7510,7 +7596,7 @@
             },
             {
               "flags": ["--arg"],
-              "description": "Tool arguments in key=value format (can be used multiple times)",
+              "description": "Tool arguments in key=value format (can be used multiple times). Splits on the first '=' only; the value keeps any later '=' characters. Values are always sent as strings.",
               "takesValue": true
             },
             {
@@ -7587,6 +7673,22 @@
             }
           ],
           "commandId": "mcp.register"
+        },
+        {
+          "name": "status",
+          "description": "Report the local MCP daemon's liveness, including whether a query can currently get through its connection pool",
+          "commandId": "mcp.status"
+        },
+        {
+          "name": "restart",
+          "description": "Restart the local MCP daemon (the tray respawns it). Previews by default; pass --execute to act.",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Actually restart the daemon rather than previewing"
+            }
+          ],
+          "commandId": "mcp.restart"
         },
         {
           "name": "proxy",

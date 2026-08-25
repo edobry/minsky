@@ -47,6 +47,12 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // mt#3997 — registered immediately before inject-dispatch-watchdog
       "inject-memory-capture",
       "inject-dispatch-watchdog",
+      // mt#3564 — registered immediately before memory-search. Not part of the
+      // Phase 2a/2b legacy-settings.json migration this test otherwise pins
+      // byte-for-byte; it is a new state injector, and its position among the
+      // other injectors carries no meaning beyond keeping the family contiguous
+      // (the merged block is ordered by contextPriority, not array position).
+      "inject-ask-responses",
       "memory-search",
       "skill-staleness-detector",
       "mcp-daemon-staleness-detector",
@@ -60,6 +66,12 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "pre-narration-detector",
       "causal-premise-detector",
       "negative-existence-claim-detector",
+      // mt#2428 — appended after its nearest sibling rather than at the block's
+      // end. This list pins RELATIVE order against the pre-migration
+      // settings.json block; a guard registered after that migration has no
+      // pre-migration position to preserve, so placement beside the detector it
+      // most resembles is the readable choice.
+      "secret-request-in-chat-detector",
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
       // mt#3125 — root-tier sibling of the guidance-detector family above

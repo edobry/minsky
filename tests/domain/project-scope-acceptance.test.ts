@@ -512,6 +512,24 @@ function evalMemWhere(sql: string, params: unknown[], row: MemoryRow): boolean {
     return row[colName] === null;
   }
 
+  // `"memories"."col" in ($2, $3)` — added for mt#4530, whose project filter matches
+  // `project_id = <uuid> OR scope IN ('user','cross_project')`. The fail-closed throw
+  // below is what surfaced the gap: it named the exact unhandled pattern rather than
+  // silently matching every row, which would have made the new filter look correct.
+  const inMatch = /^"memories"\."(\w+)" in \(([^)]*)\)$/.exec(s.trim());
+  if (inMatch) {
+    const colName = inMatch[1] as keyof MemoryRow;
+    const values = (inMatch[2] as string)
+      .split(",")
+      .map((p) => p.trim())
+      .map((p) => {
+        const idx = /^\$(\d+)$/.exec(p);
+        if (!idx) throw new Error(`evalMemWhere: non-parameter in IN list: ${p}`);
+        return params[Number(idx[1]) - 1];
+      });
+    return values.includes(row[colName]);
+  }
+
   // Fail-closed: unrecognized WHERE patterns must throw so a deviating Drizzle
   // query shape fails the test loudly instead of silently matching all rows.
   throw new Error(`evalMemWhere: unrecognized WHERE pattern: ${s}`);
@@ -754,6 +772,96 @@ describe("Memory — MemoryService.list projectScope filtering (ADR-021, mt#2416
 
     const results = await service.list();
     expect(results.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3a-bis. Memory — a project-scoped read must not hide project-AGNOSTIC scopes (mt#4530)
+// ---------------------------------------------------------------------------
+
+/**
+ * The three-way behaviour a project-scoped read owes (mt#4530).
+ *
+ * `memory_scope` has three values and only ONE of them binds a memory to a project.
+ * `user` means "about the operator, wherever they work" and `cross_project` means
+ * "deliberately spans projects"; both are stored with a NULL `project_id`. A filter written
+ * as `project_id = <uuid>` therefore excludes both — which is the opposite of what those
+ * values mean, and is what hid 367 memories the moment project scoping first worked.
+ *
+ * The suite above covers `project` rows only, so it passes either way. That is why this
+ * block exists rather than another case inside it.
+ */
+describe("Memory — project-scoped reads keep user/cross_project memories (mt#4530)", () => {
+  const USER_SCOPED = "about-the-operator";
+  const CROSS_PROJECT_SCOPED = "spans-projects";
+  const OWNED_BY_A = "belongs-to-A";
+  const OWNED_BY_B = "belongs-to-B";
+
+  let db: ReturnType<typeof createMemoryFakeDb>;
+  let service: MemoryService;
+
+  beforeEach(async () => {
+    memIdCounter = 1;
+    db = createMemoryFakeDb();
+    const vectorStorage = new MemoryVectorStorage(4);
+    service = new MemoryService({ db, vectorStorage, embeddingService: mockEmbeddingService });
+
+    await service.create({
+      type: "user",
+      name: OWNED_BY_A,
+      description: "d",
+      content: "a",
+      scope: "project",
+      projectId: PROJECT_A,
+    });
+    await service.create({
+      type: "user",
+      name: OWNED_BY_B,
+      description: "d",
+      content: "b",
+      scope: "project",
+      projectId: PROJECT_B,
+    });
+    await service.create({
+      type: "user",
+      name: USER_SCOPED,
+      description: "d",
+      content: "u",
+      scope: "user",
+    });
+    await service.create({
+      type: "user",
+      name: CROSS_PROJECT_SCOPED,
+      description: "d",
+      content: "x",
+      scope: "cross_project",
+    });
+  });
+
+  it("returns this project's memories PLUS the two project-agnostic scopes", async () => {
+    const names = (await service.list({ projectScope: PROJECT_A })).map((m) => m.name).sort();
+
+    expect(names).toEqual([USER_SCOPED, OWNED_BY_A, CROSS_PROJECT_SCOPED]);
+  });
+
+  it("still excludes another project's memories", async () => {
+    const names = (await service.list({ projectScope: PROJECT_A })).map((m) => m.name);
+
+    expect(names).not.toContain(OWNED_BY_B);
+  });
+
+  it("each project-agnostic scope is visible from BOTH projects, not just one", async () => {
+    // A filter that happened to match one of them by accident would pass the first case.
+    for (const scope of [PROJECT_A, PROJECT_B]) {
+      const names = (await service.list({ projectScope: scope })).map((m) => m.name);
+      expect(names).toContain(USER_SCOPED);
+      expect(names).toContain(CROSS_PROJECT_SCOPED);
+    }
+  });
+
+  it("ALL_PROJECTS still returns everything", async () => {
+    const names = (await service.list({ projectScope: ALL_PROJECTS })).map((m) => m.name);
+    expect(names.length).toBe(4);
   });
 });
 

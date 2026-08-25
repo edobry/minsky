@@ -19,6 +19,10 @@ import {
   type ConnectionFailure,
 } from "@minsky/domain/persistence/connection-failure";
 import type { PersistenceHealthMode } from "@minsky/domain/persistence/health";
+// mt#4515: the drain budget `close()` hands postgres-js. Imported rather than
+// duplicated so the ordering against RECYCLE_CLOSE_TIMEOUT_MS below is checkable
+// (and is checked, in this file's test) instead of being two numbers that drift.
+import { CLOSE_TIMEOUT_SECONDS } from "@minsky/domain/persistence/providers/postgres-provider";
 import type { PersistenceService } from "@minsky/domain/persistence/service";
 import type {
   PersistenceProvider,
@@ -328,7 +332,12 @@ const defaultReachabilityProbe: DbReachabilityProbe = async () => {
   // packages/domain/src/ask/attention-windows/notify.ts — at runtime this is
   // the pooler-guarded instance; the declared union is not narrow enough to
   // call through directly.
-  const sql = raw as import("postgres").Sql;
+
+  // mt#4473 widened GuardedRawSql's `.unsafe()` return to carry postgres-js's recordable builder
+  // methods, which makes it and `Sql` structurally non-overlapping; the double assertion is what
+  // the compiler now requires to say "this Proxy IS that instance at runtime".
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- deliberate boundary cast, above
+  const sql = raw as unknown as import("postgres").Sql;
   // Two deliberate choices here, both from mt#2773:
   //
   // 1. The query is PARAMETERIZED. Zero-bind queries are the shape that wedges
@@ -337,7 +346,12 @@ const defaultReachabilityProbe: DbReachabilityProbe = async () => {
   //    pool health must not be able to cause the condition it reports.
   // 2. It goes through `.unsafe()` rather than a tagged template, so it is
   //    subject to the pooler guard's in-flight cap like every other raw query
-  //    instead of reaching the unguarded underlying instance.
+  //    instead of reaching the unguarded underlying instance. Since mt#4473
+  //    that cap also bounds the WAIT: under saturation this probe now REJECTS
+  //    with PoolAdmissionTimeoutError after the admission deadline rather than
+  //    hanging. That is the intended outcome here — a rejected probe marks the
+  //    connection degraded exactly as a timed-out one did, and it does so with
+  //    a message naming the cause, so mt#3638's recycle trigger still fires.
   return sql.unsafe("select $1::int as reachable", [1]);
 };
 
@@ -623,16 +637,110 @@ export interface DbRecycle {
   lastRecycleAt: string | null;
   /** Recycles since process start. A rising count is the recurrence signal. */
   recycleCount: number;
+  /**
+   * Closes that returned inside the drain budget — the pool emptied on its own.
+   * (mt#4549)
+   */
+  closesDrained: number;
+  /**
+   * Closes that took at least the drain budget, so postgres-js's own destroy timer
+   * almost certainly fired and terminated the connections. This is the mt#4515 fix
+   * WORKING, not a fault — a wedged pool is supposed to end up here.
+   */
+  closesForceTerminated: number;
+  /**
+   * Closes that never returned at all, so the outer deadline abandoned them.
+   *
+   * **A rise here is the alarm.** Before mt#4515 this was the only outcome that
+   * ever occurred — 88 of them across every retained log rotation, with zero
+   * clean closes — because `close()` passed no timeout and postgres-js therefore
+   * never armed its destroy path. Now that the inner bound exists, reaching here
+   * means the driver's own terminate did not complete either, which is a worse
+   * and unhandled condition.
+   *
+   * **Read it against `recycleCount`, not alone.** Zero here with `recycleCount: 0`
+   * means nothing has been tested; zero with a non-zero `recycleCount` means
+   * recycles happened and all of them released. Those are different claims and the
+   * counter cannot distinguish them by itself (mem#704).
+   */
+  closesAbandoned: number;
+  /**
+   * Closes whose `close()` REJECTED before the outer deadline (PR #3319 R1).
+   *
+   * A fault, but a different one from `closesAbandoned`: teardown errored and
+   * said so, rather than never returning. Kept separate so the abandoned counter
+   * stays a trustworthy alarm — folding these in would inflate it with events
+   * that are not "connections stranded because nothing terminated them".
+   */
+  closesFailed: number;
 }
 
 let _recycleLastAtMs: number | null = null;
 let _recycleCount = 0;
+let _closesDrained = 0;
+let _closesForceTerminated = 0;
+let _closesAbandoned = 0;
+let _closesFailed = 0;
 
-/** Read-only recycle telemetry; pairs with {@link getDbStatus}. */
+/** Which way a recycle's close went. Recorded by {@link closeAbandonedService}. */
+export type RecycleCloseOutcome = "drained" | "force-terminated" | "abandoned" | "failed";
+
+/**
+ * Marks the outer deadline's own rejection so it can be told apart from a
+ * `close()` that REJECTED (PR #3319 R1).
+ *
+ * Both land in the same `.catch`, and they are different events: the deadline
+ * means the close never returned and connections are probably stranded — the
+ * alarm — while an early rejection means teardown ERRORED, which is a fault but
+ * not this one. Counting the second as `abandoned` would manufacture false
+ * alarms in the exact counter whose value is that it is trustworthy.
+ *
+ * A symbol rather than a message match: the message is prose that a later edit
+ * would silently break, and this discrimination is load-bearing.
+ */
+const RECYCLE_CLOSE_DEADLINE = Symbol("recycle-close-deadline");
+
+/** True when `err` is the outer deadline this module raised, not a close failure. */
+function isRecycleCloseDeadline(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as Record<symbol, unknown>)[RECYCLE_CLOSE_DEADLINE] === true
+  );
+}
+
+/**
+ * Record how a recycle's close ended (mt#4549).
+ *
+ * Exists because the outcome used to live ONLY in a log line, which is how the
+ * mt#4515 leak ran for months unnoticed: nothing counted it, nothing exposed it,
+ * and it surfaced only when an unrelated investigation grepped the daemon log.
+ */
+function recordRecycleCloseOutcome(outcome: RecycleCloseOutcome): void {
+  if (outcome === "drained") _closesDrained++;
+  else if (outcome === "force-terminated") _closesForceTerminated++;
+  else if (outcome === "abandoned") _closesAbandoned++;
+  else _closesFailed++;
+}
+
+/**
+ * Read-only recycle telemetry; pairs with {@link getDbStatus}.
+ *
+ * Deliberately all numbers plus one timestamp, with no `state`/`mode`/`status`
+ * field: `health-liveness-invariant.ts` decides scope BY SHAPE, and its docblock
+ * names `dbRecycle` as out of scope precisely because it carries no liveness
+ * discriminator. Adding an `outcome` string here would pull it into that check and
+ * demand a dating field it does not need — `lastRecycleAt` already dates these.
+ * The counts carry the same information without the shape.
+ */
 export function getDbRecycle(): DbRecycle {
   return {
     lastRecycleAt: _recycleLastAtMs === null ? null : new Date(_recycleLastAtMs).toISOString(),
     recycleCount: _recycleCount,
+    closesDrained: _closesDrained,
+    closesForceTerminated: _closesForceTerminated,
+    closesAbandoned: _closesAbandoned,
+    closesFailed: _closesFailed,
   };
 }
 
@@ -787,23 +895,79 @@ export function recycleSharedPersistence(cause: string): void {
   }
 }
 
-/** Fire-and-forget close of a recycled service, bounded by a logging deadline. */
+/**
+ * Fire-and-forget close of a recycled service, bounded by a logging deadline.
+ *
+ * The deadline here is a BACKSTOP, not the primary bound (mt#4515). The real one
+ * lives inside `close()`, which hands postgres-js `{ timeout: CLOSE_TIMEOUT_SECONDS }`
+ * so the driver's own `destroy()` terminates the sockets. That must fire first —
+ * `CLOSE_TIMEOUT_SECONDS` (3s) is deliberately below `RECYCLE_CLOSE_TIMEOUT_MS` (5s),
+ * asserted in this file's test.
+ *
+ * Until mt#4515 there was no inner bound, so this deadline was the ONLY one, and
+ * winning it meant abandoning connections nothing had terminated: 88 abandoned
+ * closes and zero clean ones across every retained log rotation. A fire here now
+ * means something worse than a wedged pool — the driver's own destroy did not
+ * complete either — so it is logged as such rather than as routine.
+ */
 function closeAbandonedService(svc: PersistenceService): void {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`close() still pending after ${RECYCLE_CLOSE_TIMEOUT_MS}ms`)),
+      () =>
+        reject(
+          Object.assign(new Error(`close() still pending after ${RECYCLE_CLOSE_TIMEOUT_MS}ms`), {
+            [RECYCLE_CLOSE_DEADLINE]: true,
+          })
+        ),
       RECYCLE_CLOSE_TIMEOUT_MS
     );
     timer.unref?.();
   });
   void Promise.race([Promise.resolve(svc.close?.()), deadline])
-    .then(() => log.debug("[shared-persistence] recycled pool closed cleanly"))
-    .catch((err: unknown) =>
-      log.warn("[shared-persistence] abandoned close of recycled pool", {
-        message: err instanceof Error ? err.message : String(err),
-      })
-    )
+    .then(() => {
+      const elapsedMs = Date.now() - startedAt;
+      // postgres-js resolves `end({ timeout })` the same way whether it drained
+      // or force-destroyed, so it cannot tell us which happened. Elapsed time
+      // against the drain budget is the discriminator available, and it is
+      // labelled as an inference rather than reported as fact.
+      const forced = elapsedMs >= CLOSE_TIMEOUT_SECONDS * 1000;
+      recordRecycleCloseOutcome(forced ? "force-terminated" : "drained");
+      log.info("[shared-persistence] recycled pool closed", {
+        elapsedMs,
+        outcome: forced ? "likely-force-terminated" : "drained",
+        basis: forced
+          ? `close() took >= the ${CLOSE_TIMEOUT_SECONDS}s drain budget, so postgres-js's destroy timer almost certainly fired`
+          : `close() returned inside the ${CLOSE_TIMEOUT_SECONDS}s drain budget`,
+      });
+    })
+    .catch((err: unknown) => {
+      const elapsedMs = Date.now() - startedAt;
+      const message = err instanceof Error ? err.message : String(err);
+      // Two very different events reach here (PR #3319 R1), and only the first is
+      // the alarm. Discriminated on the deadline's own marker rather than on its
+      // message, which is prose a later edit would silently break.
+      if (!isRecycleCloseDeadline(err)) {
+        recordRecycleCloseOutcome("failed");
+        log.warn("[shared-persistence] close of recycled pool REJECTED", {
+          message,
+          elapsedMs,
+          note: "teardown errored and said so — distinct from an abandoned close, where nothing returned at all. Connections may or may not have been released; the driver reported a failure rather than hanging.",
+        });
+        return;
+      }
+      recordRecycleCloseOutcome("abandoned");
+      log.warn(
+        "[shared-persistence] abandoned close of recycled pool — the INNER bound did not fire either, so connections may be stranded",
+        {
+          message,
+          elapsedMs,
+          innerBoundSeconds: CLOSE_TIMEOUT_SECONDS,
+          outerBoundMs: RECYCLE_CLOSE_TIMEOUT_MS,
+        }
+      );
+    })
     .finally(() => {
       if (timer) clearTimeout(timer);
     });
@@ -1009,6 +1173,14 @@ export function __resetSharedPersistenceForTests(): void {
   _degradedRunSinceMs = null;
   _recycleLastAtMs = null;
   _recycleCount = 0;
+  // mt#4549: the close-outcome counters are recycle state on the same footing.
+  // mt#3575 records this file's module state as one of the ~9 clusters that fail
+  // under real test randomization; leaving these unreset would make a test's
+  // reading depend on which tests ran before it, and add a tenth.
+  _closesDrained = 0;
+  _closesForceTerminated = 0;
+  _closesAbandoned = 0;
+  _closesFailed = 0;
   _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
   _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
   // mt#3826: classification state is module-level too — a leftover

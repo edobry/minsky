@@ -60,6 +60,93 @@ describe("principal-reserved deferral phrases", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mt#4483 — a negating complement inverts the phrase the matcher reports
+// ---------------------------------------------------------------------------
+
+describe("mt#4483 — a principal-reserved phrase negated by its own complement", () => {
+  /**
+   * The captured fire, verbatim from
+   * `.minsky/ask-routing-deferral-calibration.jsonl` at 2026-08-23T18:34:29.951Z
+   * (session 3f37535b), match `[principal-reserved/needs your call]`.
+   */
+  const CAPTURED_FIRE = "- **mt#4458 needs your call on nothing — it needs the daemon.";
+
+  test("SC2: the captured fire produces no principal-reserved match", () => {
+    const matches = detectDeferralPhrases(CAPTURED_FIRE);
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);
+  });
+
+  for (const complement of ["on nothing", "for nothing", "about nothing"]) {
+    test(`SC1: "${complement}" suppresses`, () => {
+      const matches = detectDeferralPhrases(`mt#4458 needs your call ${complement}.`);
+      expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);
+    });
+  }
+
+  // PR #3330 R1: punctuation between the phrase and its complement.
+  for (const sep of ["—", "–", "-", ",", ":"]) {
+    test(`PR #3330 R1: "${sep}" between phrase and complement still suppresses`, () => {
+      const matches = detectDeferralPhrases(`mt#4458 needs your call${sep}on nothing.`);
+      expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);
+    });
+  }
+
+  /**
+   * The separator class must not swallow a clause boundary: after a period the
+   * next words are a new assertion, not this phrase's complement.
+   */
+  test("PR #3330 R1: a clause-ending period does NOT bridge to the complement", () => {
+    const matches = detectDeferralPhrases("mt#4458 needs your call. On nothing else does it wait.");
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(true);
+  });
+
+  test("SC1: the complement match is case-insensitive", () => {
+    const matches = detectDeferralPhrases("mt#4458 needs your call ON NOTHING.");
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);
+  });
+
+  /**
+   * SC3, load-bearing. Without this the fix is indistinguishable from deleting
+   * the pattern: `needs your call` is the class's most-fired phrase, and a
+   * suppression that swallows the un-negated form has removed the class rather
+   * than narrowed it.
+   */
+  test("SC3 (negative control): the un-negated form still fires", () => {
+    const matches = detectDeferralPhrases("mt#4458 needs your call on the daemon question.");
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(true);
+  });
+
+  /**
+   * The narrowing must not trade a false positive for a false negative. The
+   * detector takes ONE match per class, so a naive "skip and move to the next
+   * pattern" would drop the genuine second mention here.
+   */
+  test("a negated mention does not mask a genuine one later in the same turn", () => {
+    const text =
+      "mt#4458 needs your call on nothing — it needs the daemon. " +
+      "But mt#4460 needs your call on the retention window.";
+    const matches = detectDeferralPhrases(text);
+    const principal = matches.find((m) => m.cls === PRINCIPAL_RESERVED);
+    expect(principal).toBeDefined();
+    expect(principal?.sentence).toContain("mt#4460");
+  });
+
+  /** SC1's stated non-coverage, pinned so a later widening is a deliberate edit. */
+  test("sentence-level negation is NOT covered, deliberately", () => {
+    const matches = detectDeferralPhrases("This does not need your call.");
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(true);
+  });
+
+  /** SC4: the sibling class is untouched by this change. */
+  test("SC4: deferral-menu still fires on a negated-complement turn", () => {
+    const text = "mt#4458 needs your call on nothing. What's your call?";
+    const matches = detectDeferralPhrases(text);
+    expect(matches.some((m) => m.cls === PRINCIPAL_RESERVED)).toBe(false);
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DEFERRAL-MENU sub-class (the 2026-06-11 post-closeout incident shape)
 // ---------------------------------------------------------------------------
 

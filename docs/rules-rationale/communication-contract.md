@@ -282,11 +282,243 @@ next escalation, if warranted, is generation-time steering (e.g. a mid-turn nudg
 post-hoc scan — untried, not recommended here, and out of this task's scope to build
 speculatively.
 
+## A message about how you are communicating (mt#4531)
+
+Rule: `communication-contract.mdc §A message about how you are communicating authorizes nothing`.
+
+**The incident (R7, mem#664, 2026-08-24).** After the principal wrote _"you need to be way more
+concise. This is way too much information. I cannot process all of this. We already have
+communication style guidelines don't we? Why are you talking this way?"_, the agent acknowledged in
+two sentences, invoked a skill and resumed tool work. The principal's next message: _"Okay, no, I
+wanted you to summarize all this concisely, not just keep going. Come on."_ The transcript
+corroborates it exactly — that turn carried 38 + 5 words of prose and 10 tool calls.
+
+**Why the pull is strong here specifically.** The complaint interrupts work that feels urgent, and
+it arrives with no explicit stop instruction, so "acknowledge and continue" reads as efficient.
+Aggravating in R7: the `ask-routing-deferral` detector had fired on the agent's prior question, so
+at the exact moment the principal wanted fewer words and no action, a live advisory was pushing
+toward action. Two advisories pulled opposite ways and the wrong one won. That is what the
+precedence half of the rule settles.
+
+**Why the deferral detector's payload does not restate the precedence rule.** It would be the
+obvious place — the conflicting pull originates there — and it is the wrong place. That guard's
+`attentionCost.denialMessageSizeChars` is 1121, and its declaration in
+`registry-prompt-scan-guards.ts` records that number as an exact measurement of the saturated
+render, states that raising it again is not the fix (trimming the prose is), and notes that raising
+it cascades into `MERGED_CONTEXT_BUDGET_CHARS`. The same comment warns off redesigning that payload
+while mt#4201 / mt#3932 / mt#4175 are in flight on what makes the detector FIRE. And the rule is
+always-loaded, so it is already in context whenever the detector fires — a second copy would cost
+~142 chars per fire plus a budget cascade to say something the reader already has. The pointer
+lives in `hook-observers.mdc`'s entry for the detector and at its `buildReminder` call site.
+
+### Revisited after R7 (mt#4531, 2026-08-25): the prose choice stands, and one premise above is now wrong
+
+R7 arrived thirteen days after this decision shipped, and the task that filed it claimed the
+recurrence falsified "deliberately prose, not a default." **It does not.** R7 is a different
+surface — a turn-end report that ran long, not a scope-boundary answer — so it is not a test of the
+decision recorded here, which is scoped to "substance owned elsewhere." Read the paragraphs above
+as still current on their own subject.
+
+**What R7 does correct is a factual premise stated above**: _"The family's only enforcement-tier
+fix is the wall-of-text detector … and it fired accurately elsewhere in the R6 session."_ The
+accuracy claim was inherited rather than checked. Replaying the R7 session showed the detector
+measuring only the FINAL assistant block of a turn, so a 597-word wall sitting in the FIRST block
+of an 854-word turn measured as 110 words and produced no fire at all. It was not a Stop-time
+signal arriving too late; on that turn it was a signal that could not see the thing it was built to
+see. mt#4531 fixed the measured unit (largest block, chosen by replaying 2574 turns).
+
+**Two consequences for this section's reasoning, in opposite directions.** The Stop-time limit it
+names is real and unchanged — a post-hoc scan still cannot prevent a generation-time failure. But
+"no cheaper or more mechanical tier was found" was reached partly on the belief that the existing
+detector was working correctly and was simply mistimed. One of the two was false, and a
+measurement defect is exactly the kind of thing a "no mechanism fits" conclusion should be checked
+against before it is recorded. The prose tier stands here; the lesson is that the SURVEY behind a
+tier decision deserves the same verification as the decision.
+
+**Also corrected: R7 is not evidence that an advisory carries no weight at generation time.** The
+original filing said the detector fired and three more over-budget turns followed. The transcript
+shows one fire, and the three turns after it measured 110, 5 and 152 words at the final block — the
+reminder was COMPLIED WITH, narrowly, while total turn prose rose. mem#664's R7 entry carries the
+correction.
+
 ### Cross-references
 
-mem#664 (family root, R1–R6) · mt#2870/mt#3112 (the one enforcement-tier fix that exists, and its
-Stop-time limit) · mt#2838 (wrong-register escalation budget) · `/retrospective` step 4 (tier
-selection discipline).
+mem#664 (family root, R1–R7) · mt#2870/mt#3112 (the one enforcement-tier fix that exists, and its
+Stop-time limit) · mt#4531 (the R7 measurement fix; ADR-031 amendment) · mt#4540 (the
+depth-request override R7 also implicates) · mt#2838 (wrong-register escalation budget) ·
+`/retrospective` step 4 (tier selection discipline).
+
+## The terminal actionables block (mt#4443)
+
+### The reconciliation with §Anti-patterns
+
+"Burying the needed-decision below the fold" was written as a placement complaint, but its own
+parenthetical already names the actual violation: **"a Tier-0 decision routed through prose
+instead of Asks."** The failure is ROUTING (prose in place of an Ask), not position. A Tier-0
+decision that never reaches `asks_create` is buried wherever it sits in a report — first sentence
+or last — because nothing marks it as decision-grade and nothing routes it to where a
+decision-grade item is supposed to land. Conversely, a non-blocking item set off by a rule and a
+heading at the very end is findable without reading the body, which is the opposite of buried. The
+terminal block and the anti-pattern bind on different axes (routing vs. marking) and do not
+contradict once that is made explicit — which is why the rule text ties the anti-pattern's
+parenthetical directly to §The terminal actionables block rather than leaving two clauses a single
+report could be judged against in opposite directions.
+
+### Engaging mem#664 — the six failed prose fixes
+
+mem#664 records `family:principal-altitude`'s R1 through R6, all DONE, all of which failed to
+contain principal-facing information landing at the wrong altitude. Its own diagnosis for WHY
+prose fixes kept failing is explicit: _"the family kept spawning new surfaces because the norm was
+never stated surface-generally"_ — recurrences moved to gate output, RFC bodies, closeout reports,
+and ordinary conversational answering, surfaces none of the six fixes named.
+
+The mt#4443 spec's defense for shipping a seventh prose change is a granularity claim: the six
+failed fixes required running discipline across an entire report (plain-language-first
+throughout, avoid narrative tells throughout, stay under a word budget throughout) — many small
+decisions, each cheap to skip under pressure — while the terminal block is one compositional
+decision, made once, at the natural pause of turn-end.
+
+**Checking the claim against the record rather than accepting it:** the family's very first fix,
+mt#2713 (R1), was ALSO a compositional, turn-end structural change — the three-part BLUF ordering
+— and the family still produced five further recurrences afterward, including one (R4,
+2026-07-22) on the SAME surface (a chat turn-end report) about one week later. On inspection,
+though, R4(a)'s specific defect was a word-budget overrun and label-led framing — axes that
+mt#2801 and mt#3287 fixed LATER, not the three-part ordering mt#2713 shipped — so R4 is not
+literally "the same fix decaying on its own terms." mem#664's own causal account (surface
+enumeration, not utterance granularity) is the stronger explanation for why the family recurred,
+and it does not obviously predict that a compositional fix is safer than a running one.
+
+**Conclusion: the granularity distinction is real in kind, and it is not established as
+sufficient by this record.** It is plausible — a single decision at a natural pause is a smaller
+ask than continuous vigilance — but the corpus has not yet tested that specific shape and failed,
+so absence-of-failure is not evidence of success either. This is why the rule text does not claim
+the argument settles anything: the escalation threshold (2 reports of buried actionables in 14
+days → record it on mt#4439 as evidence) is the actual check, not the granularity argument. Ship
+this as what it is — a cheap, falsifiable, interim measure — not as a fix the corpus has reason to
+expect will hold.
+
+### Why this is defensible to ship anyway
+
+Despite the above, shipping is still the right call, for reasons independent of the granularity
+argument:
+
+1. **The cost of being wrong is low and bounded.** If the block decays like its predecessors, the
+   escalation threshold catches it within two incidents and routes the finding to mt#4439 — the
+   design already in flight — rather than spawning an eighth ad hoc prose patch.
+2. **It costs two rule edits and is trivially reversible.** Unlike the six prior fixes, this one is
+   explicitly labelled interim in its own text, so a future editor is not misled into treating it
+   as settled.
+3. **It is field-tested at n=1** (roughly eight turns in the conversation that produced it) — weak,
+   stated as weak, not cited as validation.
+
+### Cross-references
+
+mem#664 (`family:principal-altitude`, R1–R6, all fixes DONE) · mt#4439 (the composition-layer RFC
+this is the interim of) · mt#4442 (the umbrella workstream) · `work-completion.mdc §Temporary
+mechanism budget` (the escalation-threshold discipline this follows).
+
+## The composition layer — register/volume vs channel/sort (mt#4439)
+
+The altitude register above is a **volume** dial: receipts / standard / executive control HOW MUCH
+gets said on one channel. A separate axis was never addressed — **which channel a given utterance
+belongs to at all.** This section records the distinction, and the principal's brief that produced
+it, so that a later reader cannot collapse the two and "fix" a sorting complaint by turning the
+register down.
+
+Full design: **RFC: The composition layer — a delivery boundary for the agent↔principal channel**
+(Notion `3c6937f0-3cb4-81dc-95d0-d6cdf59dfaee`), Draft 2026-08-24. Task record: mt#4439.
+
+### The two axes, stated so they cannot be conflated
+
+- **Register / volume (SHIPPED, mt#2867).** How much is said. A verbose report and a terse report
+  differ on this axis.
+- **Channel / sort (THIS, open).** Whether an utterance is working-noise or composed delivery. A
+  verbose composed report and a terse composed report are BOTH composed; a wall of
+  thinking-while-working is composed at NEITHER volume.
+
+**The one-sentence test** (an acceptance criterion of mt#4439): turning the register down makes the
+stream shorter without making it sorted — which is why the register shipping in July did not
+prevent the complaint that arrived on 2026-08-22.
+
+### The principal's brief, verbatim — including the correction
+
+The task was first filed on the diagnosis _"he reads to the end, so put actionables at the end."_
+**He corrected that himself, the same day**, and the correction is preserved here because inheriting
+the original framing would re-derive the wrong fix:
+
+> _"The fact that I read to the end is a consequence. It's a contingent consequence of the way that
+> I've been trained to interact with AI ... There's a big wall of text and my eyes kind of glaze
+> over it because a lot of it is thinking done while working versus a direct response to me."_
+
+**End-reading is an ADAPTATION to the defect, not a property of the reader.** A placement rule
+optimizing for it would cement the symptom and leave the cause.
+
+What he asked for instead is attunement:
+
+> _"Really on a higher level what I'm asking for here is more about attunement ... for the agent to
+> attune to what I, or honestly any supervisor or entities interacting with a counterparty
+> interlocutor, would want to know."_
+
+The managerial coaching he offered as the model — note that it is neither "say less" nor "reorder,"
+but _build a model of the counterparty and sort your material against it_:
+
+> _"Hey don't just dump all the technical context and all that stuff on to everybody there. Keep
+> that aside and then figure out what information is actually relevant to communicate."_
+
+And the structural diagnosis, which is a claim about the substrate rather than about discipline:
+
+> _"When the agent speaks, the agent does tool calls and then the agent sometimes does thinking.
+> All those are basically the same ... To me it feels like there's a sort of missing layer. There
+> isn't room for the agent to carve out some space explicitly to structure the communication with
+> the outside world within."_
+
+**Personal-register note.** The principal introduced the meetings analogy through his own
+description of his own history. Reuse it as HIS analogy if it is quoted; do not restate it as a
+characterization of anyone else, and do not treat it as a description of the agent's defect. The
+transferable content is the coaching, not the label.
+
+### Why two adjacent mechanisms do not cover it
+
+- **The heartbeat rule MANDATES the noise.** `user-preferences.mdc §Progress heartbeats` requires a
+  status line every 10 minutes or 15 tool calls, at _every_ register, explicitly as scroll lines.
+  That rule is correct — silent stretches left the principal blind — and it has nowhere to put its
+  output but chat. Part of the wall is a rule working as designed.
+- **The cockpit's fold cannot absorb it.** `turnIsFoldable`
+  (`src/cockpit/web/lib/conversation-action-bursts.ts:154`) folds only turns that are pure
+  machinery; its docblock states the rule outright — _"A turn holding BOTH prose and a tool call is
+  not foldable — it has speech in it, so it stays."_ Process narration IS prose, so it is exactly
+  the class that escapes the fold.
+
+### The three categories, and the one with no home
+
+|                       | what it is                                    | audience                              | home today                       |
+| --------------------- | --------------------------------------------- | ------------------------------------- | -------------------------------- |
+| Reasoning / CoT       | cognition that happens to be legible          | none — the model to itself            | yes; harnesses collapse it       |
+| **Process narration** | _"Let me check X." "Now wiring the handler."_ | the principal, live, for supervision  | **NO**                           |
+| Composed delivery     | the answer, the report, the packaged result   | the principal, at the decision moment | yes — chat, PR body, task record |
+
+The middle row is speech-shaped and addressed (so not CoT) and unsorted and uncomposed (so not
+delivery). **It enters the delivery channel because that is the only channel it can reach.**
+
+mt#4441's survey recut this by **value half-life** rather than audience, which exposes a fourth
+class the audience cut leaves homeless: **durable content emitted mid-work** ("the prod config was
+already broken") — not narration, because it does not expire; not composed delivery, because nobody
+packaged it. Under half-life it defines composition's job: **composition is the act of sweeping the
+durables out of the ephemeral stream into the package.**
+
+### The honest limit
+
+**Structure creates the room, not the attunement.** A boundary and a fold neither build nor apply a
+model of the counterparty. The mechanism guarantees the MOMENT of composition, not its QUALITY —
+and the RFC says so plainly rather than letting a reader infer that shipping the primitive
+discharges the brief.
+
+### Cross-references
+
+mt#4439 (the design) · mt#4441 (the CSCW / agent-framework survey that corrected it) · mt#4443
+(§The terminal actionables block — the interim this retires) · mt#4026 (surface declaration, a
+prerequisite for the two-renderer split) · mt#2531 (fatigued compressor) · mt#4444 (Suchman's
+double-edge, principal-reserved) · mem#903 (the 2026-08-08 narration-theatre correction).
 
 ## Cross-references
 

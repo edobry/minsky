@@ -83,7 +83,8 @@ export async function resolveCockpitProjectScope(
     const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
     return await resolveProjectScope(
       { kind: "resolved", slug: projectParam, source: "explicit-flag" },
-      db
+      db,
+      "cockpit.route"
     );
   } catch (err) {
     log.warn(

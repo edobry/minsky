@@ -32,6 +32,14 @@ import {
   STDIO_SESSION_KEY,
   type McpDisconnectEvent,
 } from "./disconnect-tracker";
+// mt#4499: the set and predicate moved out of the tracker into this
+// dependency-free module so the cockpit widget could import them too.
+import {
+  SERVER_INITIATED_CAUSES,
+  isEscalationEligible,
+  SHORT_LIVED_THRESHOLD_MS,
+} from "./disconnect-escalation";
+import { isEscalationEligible as widgetIsEscalationEligible } from "../cockpit/widgets/s3-gauges";
 
 const SHAPE_TEST_LABEL = "emits event with correct shape";
 
@@ -217,7 +225,9 @@ describe("DisconnectTracker", () => {
       const event = tracker.recordReconnect();
       expect(event.serverName).toBe("test-server");
       expect(event.kind).toBe("reconnect");
-      expect(event.cause).toBe("unknown");
+      // mt#4511: was "unknown", which put every reconnect in the same bucket as a
+      // genuinely unclassified disconnect. Now the tautological kind-as-cause.
+      expect(event.cause).toBe("reconnect");
       expect(event.error).toBeUndefined();
     });
 
@@ -333,6 +343,32 @@ describe("DisconnectTracker", () => {
       expect(summary.byCause.signal_sigterm).toBe(1);
     });
 
+    // mt#4511: `byCause` used to accumulate over EVERY event kind, so reconnects —
+    // whose cause defaulted to `unknown` — landed in the same bucket as genuinely
+    // unclassified disconnects. On the live log that made 183 reconnects read as
+    // unclassified disconnects, and the headline "two thirds of events are cause
+    // unknown" was an artifact of the pooling rather than a fact about disconnects.
+    test("byCause counts disconnect events only — reconnect volume cannot inflate it (mt#4511)", () => {
+      tracker.recordDisconnect("unknown");
+      tracker.recordProcessStart();
+      for (let i = 0; i < 5; i++) {
+        tracker.recordReconnect();
+      }
+
+      const summary = tracker.getSummary();
+      // Exactly one disconnect was recorded, so the cause distribution has exactly
+      // one entry — the 5 reconnects and the process_start are different populations.
+      expect(summary.byCause).toEqual({ unknown: 1 });
+      // The narrowing loses no information: byKind still carries the kind totals.
+      expect(summary.byKind.reconnect).toBe(5);
+      expect(summary.byKind.process_start).toBe(1);
+    });
+
+    test("a reconnect records the tautological `reconnect` cause, not `unknown` (mt#4511)", () => {
+      const event = tracker.recordReconnect();
+      expect(event.cause).toBe("reconnect");
+    });
+
     test("last reflects the most recently recorded event", () => {
       tracker.recordDisconnect("stdin_close");
       const reconnect = tracker.recordReconnect();
@@ -437,6 +473,100 @@ describe("DisconnectTracker", () => {
   // -------------------------------------------------------------------------
   // Process-role classification (mt#1705)
   // -------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Per-session uptime (mt#4511)
+  //
+  // `uptimeMs` was `now - processStartTime` for every disconnect. For stdio that is
+  // right (one process == one session). For HTTP it is not: many short sessions live
+  // inside one long-running daemon, so each one reported the DAEMON's age. Because
+  // `isEscalationEligible` excludes short-lived harness probes via
+  // `uptimeMs < SHORT_LIVED_THRESHOLD_MS`, that exclusion could never fire for an HTTP
+  // session, and routine poll churn counted toward escalation. Measured on the live log
+  // at 2026-08-25T00:58Z: zero of 56 unclassified disconnects had an uptime under 10
+  // minutes — they were all reporting process age.
+  // ---------------------------------------------------------------------------
+
+  describe("per-session uptime (mt#4511)", () => {
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+    test("a short HTTP session in a long-lived process reports the SESSION's lifetime", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-1");
+
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-session-1" });
+
+      // The daemon is 6h old; this session just opened. Pre-fix this read ~6h.
+      expect(event.uptimeMs).toBeLessThan(SHORT_LIVED_THRESHOLD_MS);
+    });
+
+    test("that short HTTP session is NOT escalation-eligible", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-1");
+      // Give it a tool call so processRole is "main_session" — this pins the test on
+      // the UPTIME filter specifically. Without it, the helper-role exclusion would
+      // make the assertion pass for an unrelated reason and the test would not
+      // discriminate (mem#704).
+      tracker.incrementToolCallCount("http-session-1");
+
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-session-1" });
+
+      expect(event.processRole).toBe("main_session");
+      expect(isEscalationEligible(event)).toBe(false);
+      // Also assert through the tracker's own accounting — the production path.
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
+    });
+
+    test("a genuinely long-lived HTTP session IS still escalation-eligible", () => {
+      // Positive control: the fix must not simply exclude every HTTP session.
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-2");
+      tracker.incrementToolCallCount("http-session-2");
+      // Rewind this session's start well past the threshold.
+      tracker.noteSessionStartForTest("http-session-2", Date.now() - 10 * 60 * 1000);
+
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-session-2" });
+
+      expect(event.uptimeMs).toBeGreaterThan(SHORT_LIVED_THRESHOLD_MS);
+      expect(isEscalationEligible(event)).toBe(true);
+    });
+
+    test("stdio is unaffected: with no session start recorded, uptime is process uptime", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      // No noteSessionStart — the stdio path never calls it.
+      const event = tracker.recordDisconnect("stdin_close");
+
+      expect(event.uptimeMs).toBeGreaterThanOrEqual(SIX_HOURS_MS);
+    });
+
+    // PR #3304 R1: the HTTP wiring stamps the session start BEFORE installing the
+    // onclose hook, so even a session that closes at the first opportunity has a start
+    // on file. Were the order reversed, this disconnect would find no entry and fall
+    // back to process uptime — the defect this change removes, in the case hardest to
+    // notice, since an immediately-closing session is the most likely to be a probe.
+    test("a session that closes immediately still reports its own lifetime, not the process's", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+
+      // Exactly the production order in server.ts: stamp, then wire, then the close
+      // arrives with no work in between.
+      tracker.noteSessionStart("http-immediate");
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-immediate" });
+
+      expect(event.uptimeMs).toBeLessThan(SHORT_LIVED_THRESHOLD_MS);
+      expect(isEscalationEligible(event)).toBe(false);
+    });
+
+    test("the session's start time is evicted at disconnect, like its tool-call count", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-3");
+      tracker.recordDisconnect("unknown", { sessionKey: "http-session-3" });
+
+      // A second disconnect on the same key finds no entry and falls back to process
+      // uptime — proving the first one evicted it rather than leaking the map.
+      const second = tracker.recordDisconnect("unknown", { sessionKey: "http-session-3" });
+      expect(second.uptimeMs).toBeGreaterThanOrEqual(SIX_HOURS_MS);
+    });
+  });
 
   describe("processRole classification", () => {
     test("disconnect event has processRole 'helper' when no tool calls recorded", () => {
@@ -726,6 +856,185 @@ describe("DisconnectTracker persistence", () => {
 
     const t = DisconnectTracker.resetForTest("srv", tmpPath);
     expect(t.getEvents().length).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4481 — the legacy→JSONL seam
+  //
+  // The hybrid test above builds its fixture as
+  //   `${JSON.stringify(legacy, null, 2)}\n${jsonl}`
+  // — with a newline between the two halves. That shape cannot occur in
+  // production: the mt#1645 writer emitted `JSON.stringify(events, null, 2)`,
+  // which ends in `]` with NO trailing newline, and `appendEvent` writes a
+  // trailing newline only. So the real file's first append is GLUED to the
+  // closing bracket, and the one shape that actually shipped was the one the
+  // fixture did not build.
+  //
+  // Consequence on the operator read path: `jq` aborts a stream at its first
+  // parse error, and `]{...}` is the first line a `"kind":"process_start"`
+  // grep matches — so the restart query dies at exit 5 with zero rows while
+  // the `disconnect` recipes, which never match that line, run clean.
+  // -------------------------------------------------------------------------
+
+  test("appending after a legacy array does not glue the first JSONL line to its closing bracket", () => {
+    const legacyEvents = [
+      {
+        timestamp: "2026-05-07T10:00:00.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+    ];
+    // Byte-for-byte what the mt#1645 writer left behind.
+    fs.writeFileSync(tmpPath, JSON.stringify(legacyEvents, null, 2), "utf-8");
+    // Precondition — if this ever ends in a newline the test proves nothing.
+    expect((fs.readFileSync(tmpPath, "utf-8") as string).endsWith("\n")).toBe(false);
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    t.recordProcessStart();
+    t.recordDisconnect("stdin_close");
+
+    const raw = fs.readFileSync(tmpPath, "utf-8") as string;
+    expect(raw).not.toContain("]{");
+
+    // Every line from the closing bracket onward must stand alone as JSON —
+    // that is exactly what a line-oriented `grep | jq` read requires.
+    const lines = raw.split("\n");
+    const bracketIndex = lines.findIndex((l) => l.trim() === "]");
+    expect(bracketIndex).toBeGreaterThanOrEqual(0);
+    const jsonlLines = lines.slice(bracketIndex + 1).filter((l) => l.trim() !== "");
+    expect(jsonlLines.length).toBe(2);
+    for (const line of jsonlLines) {
+      const obj = JSON.parse(line);
+      expect(typeof obj.kind).toBe("string");
+    }
+  });
+
+  test("loads a hybrid file whose first JSONL line is glued to the legacy closing bracket", () => {
+    // The shape that actually exists on disk today, reproduced exactly: no
+    // separator between `]` and the first appended record. The loader already
+    // handles this (its cursor advances past the matched bracket before it
+    // line-splits) — this pins that behavior so the append fix above cannot
+    // regress the read side for files already carrying a seam.
+    const legacyEvents = [
+      {
+        timestamp: "2026-05-07T10:00:00.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+    ];
+    const newEvents = [
+      {
+        timestamp: "2026-05-08T10:00:00.000Z",
+        serverName: "srv",
+        kind: "process_start",
+        cause: "process_start",
+        pid: 91211,
+      },
+      {
+        timestamp: "2026-05-08T10:00:01.000Z",
+        serverName: "srv",
+        kind: "disconnect",
+        cause: "staleness_exit",
+        uptimeMs: 1000,
+      },
+    ];
+    const glued = `${JSON.stringify(legacyEvents, null, 2)}${newEvents
+      .map((e) => JSON.stringify(e))
+      .join("\n")}\n`;
+    expect(glued).toContain("]{");
+    fs.writeFileSync(tmpPath, glued, "utf-8");
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    const loaded = t.getEvents();
+    expect(loaded.length).toBe(3);
+    expect(loaded[0]?.cause).toBe("unknown"); // from the legacy array
+    // The glued record is the one at risk: it must survive, not be swallowed
+    // by the loader's `startsWith("]")` bracket-residue skip.
+    expect(loaded[1]?.kind).toBe("process_start");
+    expect(loaded[1]?.pid).toBe(91211);
+    expect(loaded[2]?.cause).toBe("staleness_exit");
+  });
+});
+
+// ===========================================================================
+// mt#4481 — the cadence rule's escalation-eligibility list must match the code
+//
+// `SERVER_INITIATED_CAUSES` is the code's exclusion set;
+// `.minsky/rules/mcp-disconnect-cadence.mdc` §Recurrence-threshold escalation
+// restates it in prose for operators. mt#2830 added `"signal"` to the set and
+// to neither the rule's list nor its cause-class entries, so the rule read
+// "counts toward escalation" for a cause the code silently excluded — for
+// months, until a reviewer caught it on PR #3280.
+//
+// A restatement that nothing checks is a restatement that drifts. This asserts
+// the two are the same set, so the next person to change one is told to change
+// the other.
+// ===========================================================================
+
+describe("cadence rule escalation list matches SERVER_INITIATED_CAUSES (mt#4481)", () => {
+  const RULE_PATH = path.resolve(__dirname, "../../.minsky/rules/mcp-disconnect-cadence.mdc");
+
+  test("the rule documents exactly the causes the code excludes", () => {
+    const rule = fs.readFileSync(RULE_PATH, "utf-8") as string;
+
+    // The rule states it as: `cause ∉ {a, b, c}` inside a bullet.
+    const match = rule.match(/`cause ∉ \{([^}]*)\}`/);
+    expect(match).not.toBeNull();
+
+    const documented = new Set(
+      (match?.[1] ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "")
+    );
+
+    // Compare as sorted arrays so a mismatch prints both sides rather than
+    // "expected Set to equal Set".
+    expect([...documented].sort()).toEqual([...SERVER_INITIATED_CAUSES].sort());
+  });
+
+  test("the crash causes that DO escalate are absent from the set", () => {
+    // Guards the other direction: an over-eager future edit that "tidies" all
+    // the signal-shaped causes into one place would silence real crashes.
+    // `signal` joined this list in mt#4499 — it is the proxy's catch-all for
+    // SIGSEGV / SIGABRT / SIGBUS, which is a crash, not a clean shutdown.
+    expect(SERVER_INITIATED_CAUSES.has("signal_sigkill")).toBe(false);
+    expect(SERVER_INITIATED_CAUSES.has("proxy_observed_crash")).toBe(false);
+    expect(SERVER_INITIATED_CAUSES.has("signal")).toBe(false);
+  });
+
+  test("a crash-signal disconnect is escalation-eligible end to end (mt#4499)", () => {
+    // The membership assertions above are about a Set. This one goes through
+    // the predicate, which is what actually decides escalation — and it is the
+    // behaviour 156 recorded crashes did not get before mt#4499.
+    const crash = {
+      kind: "disconnect",
+      cause: "signal",
+      uptimeMs: 515_356,
+      processRole: "main_session",
+    };
+    expect(isEscalationEligible(crash)).toBe(true);
+
+    // The three clean-shutdown signals stay excluded — this change is scoped to
+    // the catch-all, not to signals generally.
+    for (const cause of ["signal_sigterm", "signal_sigint", "signal_sighup"]) {
+      expect(isEscalationEligible({ ...crash, cause })).toBe(false);
+    }
+
+    // And the other filters still apply to a crash: a sub-5s helper probe that
+    // happens to crash is still not a reliability signal.
+    expect(isEscalationEligible({ ...crash, uptimeMs: 44 })).toBe(false);
+    expect(isEscalationEligible({ ...crash, processRole: "helper" })).toBe(false);
+  });
+
+  test("the cockpit S3-gauge widget uses the same predicate, not a copy (mt#4499)", () => {
+    // The widget re-implemented this and its copy drifted — it was missing
+    // `signal`, so the gauge and debug_systemInfo disagreed about the same
+    // events in the same file. Identity is a stronger guarantee than equal
+    // behaviour on sampled inputs, and cheaper: there is nothing left to drift.
+    expect(widgetIsEscalationEligible).toBe(isEscalationEligible);
   });
 });
 

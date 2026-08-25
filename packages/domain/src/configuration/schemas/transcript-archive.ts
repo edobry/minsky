@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 /**
- * Transcript raw-archive configuration (ADR-025 / mt#2680).
+ * Transcript raw-archive configuration (mt#2680; ADR-025, re-scoped by ADR-045).
  *
- * The archive is a PRIVATE Supabase Storage bucket holding each agent
- * session's raw transcript file as the immutable system of record.
+ * The archive is a PRIVATE Supabase Storage bucket. Under ADR-045 it is a COLD
+ * TIER that seals a session's raw transcript after close — not the system of
+ * record, which is the insert-only Postgres `transcript_lines` table. The
+ * settings below are unaffected by that re-scope.
  * Credentials live under `supabase.url` / `supabase.serviceRoleKey`; this
  * section holds only archive-specific settings.
  */

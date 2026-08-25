@@ -557,9 +557,9 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     mechanisms: [
       {
         type: "claude-code-hook",
-        name: "PreToolUse[tasks_status_set|session_start|tasks_dispatch]: check-task-spec-read.ts",
+        name: "PreToolUse[tasks_status_set|session_start|tasks_dispatch|asks_create|asks_edit]: check-task-spec-read.ts",
         description:
-          "Blocks a status-transition or session-binding operation on a task whose spec was not read this conversation. MINSKY_SKIP_SPEC_READ_CHECK is the documented override.",
+          "Blocks a status-transition or session-binding operation on a task whose spec was not read this conversation. On the ask surfaces (asks_create/asks_edit, mt#4551) the same check ADVISES instead of blocking: an ask recommends a task rather than acting on one, and denying one can strand an escalation. MINSKY_SKIP_SPEC_READ_CHECK is the documented override for both legs.",
         configPath: ".claude/hooks/check-task-spec-read.ts",
         portability: "harness-trapped",
       },
@@ -783,6 +783,16 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "mt#3257 subagent model-tier verification — PostToolUse observer that warns on requested-vs-resolved mismatch; no permission decision, fail-open (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/warn-peer-task-activity.ts",
+    reason:
+      "mt#4494 peer-activity advisory — reads the task event ledger on tasks_status_set and injects additionalContext naming any session.started / recent status change; never denies, fail-open on a degraded DB path. Deliberately advisory rather than blocking: denying is the prevention side of the substrate RFC's Open question 4 (Notion 367937f0, Draft), a principal-level design-philosophy question this hook must not settle as a side effect",
+  },
+  {
+    configPath: ".claude/hooks/warn-stale-forward-reference.ts",
+    reason:
+      "mt#4535 stale-forward-reference advisory — on a DONE transition only, scans the ADR and rule corpus for paragraphs that describe this task's deliverable as future work and injects them as reconciliation candidates; never denies, fails open on a degraded DB path or an unreadable corpus. Log-only by design: the description-path match is a title-token heuristic whose false-positive rate against the corpus is unmeasured, so the calibration record ships before any enforcement",
+  },
+  {
     configPath: ".claude/hooks/record-subagent-invocation.ts",
     reason:
       "SubagentStop recording — writes dispatch-row columns, makes no permission decision (hook-observers.mdc)",
@@ -835,6 +845,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
     configPath: ".claude/hooks/stamp-pr-author-link.ts",
     reason:
       "Stamps the workspace<->conversation link at session_pr_create — recording, not enforcement (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/stamp-ask-conversation.ts",
+    reason:
+      "Stamps the ask<->conversation attribution at asks_create (mt#3564) — recording, not enforcement; writes one local JSON file and denies nothing (hook-observers.mdc)",
   },
   {
     configPath: ".claude/hooks/bridge-memory-retirement.ts",

@@ -1000,6 +1000,9 @@ describe("toAsk — service-window NULL coalescing (B2, mt#1488 R3)", () => {
       id: "00000000-0000-0000-0000-000000000001",
       // Legacy row predates the short_id column (mt#2965) — NULL until backfilled.
       shortId: null,
+      // Likewise predates filed_by_agent_id (mt#4476) — NULL on every row written
+      // before that migration, which is exactly what this legacy fixture models.
+      filedByAgentId: null,
       kind: "quality.review",
       classifierVersion: "v1.0.0",
       state: "detected",

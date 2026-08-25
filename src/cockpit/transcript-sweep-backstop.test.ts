@@ -10,15 +10,24 @@
  *     the ingest counters from being recorded (fail-open)
  *   - idempotency is delegated to ingestAll (HWM-gated) — just assert it's called
  *
- * @see src/cockpit/sweepers.ts — startTranscriptSweepBackstop (mt#2615 — moved from server.ts)
+ * @see src/cockpit/transcript-sweep-backstop.ts — the unit under test
+ *   (mt#2615 moved it out of server.ts into sweepers.ts; mt#4480 moved it again,
+ *   into the module this test file was already named after)
  * @see src/cockpit/transcript-sweep-tracker.ts — TranscriptSweepTracker
  * @see mt#2321 — cockpit-daemon transcript sweep backstop
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./sweepers";
-import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
-import type { TranscriptSweepDeps } from "./sweepers";
+// mt#4489: scanning the real source tree IS the contract here (same rationale as
+// epoch-cache-coverage.test.ts). Scoped to this import and the single read below
+// rather than the whole file, because every other test here uses injected deps and
+// should stay covered by the rule.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import * as fs from "fs";
+import * as path from "path";
+import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./transcript-sweep-backstop";
+import { deriveEmbedOverdueBoundMs, TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
 
 // Helper: wait for an async condition to become true (polls at 5ms intervals).
 // The bound was 500ms and measured the MACHINE, not the code: every condition
@@ -92,6 +101,75 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       expect(summary.embedRuns).toBe(1);
       expect(summary.lastSweepAt).not.toBeNull();
       expect(summary.lastErrorAt).toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  // mt#4524 — the PRODUCTION-WIRING assertion, and the one that actually covers
+  // the reported defect. The tracker unit tests below prove the tracker CAN
+  // report in-flight; only this one proves the sweep tick actually marks it,
+  // because it samples the health summary from INSIDE the awaited backfill —
+  // the exact window in which the live daemon reported a standing failure.
+  test("the health summary reads in-flight DURING the backfill, not never-succeeded", async () => {
+    let duringBackfill: ReturnType<TranscriptSweepTracker["getSummary"]> | null = null;
+
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 1494, sessionsErrored: 0 }),
+      runEmbeddings: async () => {
+        // Phase 1 has completed by now (`recordSweepCompleted` already fired),
+        // which is precisely the state that made the old derivation misreport.
+        duringBackfill = tracker.getSummary();
+      },
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+
+    try {
+      await waitFor(() => tracker.getSummary().sweepsRun >= 1);
+
+      expect(duringBackfill).not.toBeNull();
+      const during = duringBackfill as unknown as ReturnType<TranscriptSweepTracker["getSummary"]>;
+      // Phase 1 done, Phase 2 running.
+      expect(during.sweepsRun).toBe(1);
+      expect(during.embedRuns).toBe(0);
+      expect(during.lastErrorAt).toBeNull();
+      // The defect, now correct on all three of its faces.
+      expect(during.embedPhase).toBe("in-flight");
+      expect(during.embedInFlightAgeMs).not.toBeNull();
+      expect(during.embedNeverSucceeded).toBe(false);
+
+      // And it concludes cleanly once the await returns.
+      const after = tracker.getSummary();
+      expect(after.embedPhase).toBe("succeeded");
+      expect(after.embedInFlightAgeMs).toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  test("a failed backfill concludes as failed, and sets embedNeverSucceeded (mt#4524)", async () => {
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 3, sessionsErrored: 0 }),
+      runEmbeddings: async () => {
+        throw new Error("embedding provider unreachable");
+      },
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+
+    try {
+      await waitFor(() => tracker.getSummary().embedFailures >= 1);
+
+      const s = tracker.getSummary();
+      expect(s.embedPhase).toBe("failed");
+      expect(s.embedInFlightAgeMs).toBeNull();
+      expect(s.embedRuns).toBe(0);
+      expect(s.embedNeverSucceeded).toBe(true);
+      // The sweep-level error timestamp is still set by the same catch block.
+      expect(s.lastErrorAt).not.toBeNull();
     } finally {
       stop();
     }
@@ -246,6 +324,89 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     }
   });
 
+  // ── mt#4480: an abandoned pass is not a sweep ──────────────────────────────
+
+  test("an aborted ingest is recorded as an abort, never as a completed sweep", async () => {
+    // The whole point. In production, five passes in a row returned
+    // `sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0` after
+    // the pool was recycled under them — and each one incremented `sweepsRun`
+    // and added 1,502 to `sessionsIngested`, so the health surface read like a
+    // busy, healthy sweep while nothing at all was being ingested.
+    let embedRan = false;
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({
+        sessionsProcessed: 12,
+        sessionsErrored: 12,
+        totalIngested: 0,
+        aborted: {
+          afterSessionsProcessed: 12,
+          consecutiveInfraFailures: 10,
+          failureKind: "connection-lost",
+        },
+      }),
+      runEmbeddings: async () => {
+        embedRan = true;
+      },
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+
+    try {
+      // Default 5 s deadline, not the 500 ms its neighbours pass: mt#3501
+      // records that five tests in this file poll ms-scale conditions against
+      // a 500 ms wall-clock deadline and fail under load. No reason to enlarge
+      // that population while it is still open.
+      await waitFor(() => tracker.getSummary().sweepsAborted >= 1);
+
+      const summary = tracker.getSummary();
+      expect(summary.sweepsAborted).toBe(1);
+      expect(summary.lastAbortAt).not.toBeNull();
+      // Not counted as a sweep, and its sessions are not counted as swept.
+      expect(summary.sweepsRun).toBe(0);
+      expect(summary.sessionsIngested).toBe(0);
+      expect(summary.lastSweepAt).toBeNull();
+      // An abandoned pass IS a sweep-level error.
+      expect(summary.lastErrorAt).not.toBeNull();
+      // Phase 2 needs the same dead connection, so it must not have been tried.
+      expect(embedRan).toBe(false);
+      expect(summary.embedRuns).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("lastProductiveSweepAt advances only when the sweep actually ingested something", async () => {
+    // `lastSweepAt` says the mechanism RAN; this says it did its job. The gap
+    // between them is the freshness signal — a sweep that runs every 30
+    // minutes and ingests nothing looks identical to a healthy one on every
+    // other field here.
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({
+        sessionsProcessed: 5,
+        sessionsErrored: 0,
+        totalIngested: 0,
+      }),
+      runEmbeddings: async () => {},
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    try {
+      // Default deadline — see the mt#3501 note on the sibling test above.
+      await waitFor(() => tracker.getSummary().sweepsRun >= 1);
+      const summary = tracker.getSummary();
+      expect(summary.sweepsRun).toBe(1);
+      expect(summary.lastSweepAt).not.toBeNull();
+      expect(summary.lastProductiveSweepAt).toBeNull();
+    } finally {
+      stop();
+    }
+
+    tracker.recordSweepCompleted(5, 0, 0, 3);
+    expect(tracker.getSummary().lastProductiveSweepAt).not.toBeNull();
+  });
+
   // ── stop function ─────────────────────────────────────────────────────────
 
   test("stop() clears the interval (no further ticks after stop)", async () => {
@@ -271,6 +432,62 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     await new Promise((r) => setTimeout(r, 100));
     // Allow at most one extra tick that was in-flight when stop() fired.
     expect(ingestCount).toBeLessThanOrEqual(countAtStop + 1);
+  });
+});
+
+// ── mt#4489: dependencies must resolve at LOAD, not at first tick ────────────
+
+describe("transcript-sweep-backstop module resolution (mt#4489)", () => {
+  // Why this is a SOURCE assertion rather than a behavioural one, stated plainly
+  // so the next reader can judge it: the defect is that a bare `@minsky/*`
+  // specifier resolves against a module tree that may be DELETED by the time a
+  // deferred import runs. Reproducing that behaviourally means starting a daemon
+  // from a throwaway repo tree and deleting it mid-flight — real, but far too
+  // heavy for a unit test. What this asserts instead is the invariant that makes
+  // the failure impossible: nothing in this module defers a bare-specifier
+  // import past load.
+  //
+  // What it does NOT prove: that the module actually loads, or that the sweep
+  // works. Those are covered by the injected-deps tests below and by the live
+  // verification in the PR body. It proves only that the regression cannot
+  // silently return — which is exactly what a grep-shaped invariant is good for,
+  // and it fails against the pre-fix file.
+  //
+  // THIS IS A STOPGAP, and it is bounded (PR #3296 R1, non-blocking). A
+  // lint rule is the right tier for a source-shaped invariant, and the reason
+  // there isn't one is mt#4523: `.minsky/rules/no-dynamic-imports.mdc` claims
+  // `eslint.config.js` enforces this mechanically, and it does not — that option
+  // belongs to the test-scoped `custom/no-real-fs-in-tests`, and no
+  // `no-dynamic-imports` rule exists in `eslint-rules/`. **Delete this describe
+  // block when mt#4523 ships a real rule covering this file.** Escalation
+  // threshold: if a second module needs the same hand-written guard before
+  // mt#4523 lands, that is the signal the rule is overdue — raise it rather than
+  // copying this block a third time.
+  // Buffer + `toString()` rather than an encoding argument: this checker
+  // resolves `readFileSync`'s encoding overload to `string | Buffer`, so
+  // `.match` below would not typecheck, and its `Buffer.toString` accepts no
+  // arguments. The default decoding is utf8, which is what this file is.
+  const SELF = path.join(import.meta.dir, "transcript-sweep-backstop.ts");
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import above
+  const SOURCE = fs.readFileSync(SELF).toString();
+
+  test("no bare-specifier dynamic imports remain in this module", () => {
+    // Matches `await import("@minsky/...")` across line breaks, which is how
+    // the five removed calls were formatted after prettier wrapped them.
+    const deferredBareImports = SOURCE.match(/await\s+import\(\s*["']@minsky\//g) ?? [];
+    expect(deferredBareImports).toEqual([]);
+  });
+
+  test("the modules the sweep needs are imported statically", () => {
+    for (const specifier of [
+      "@minsky/domain/transcripts/claude-code-transcript-source",
+      "@minsky/domain/transcripts/agent-transcript-ingest-service",
+      "@minsky/domain/ai/embedding-service-factory",
+      "@minsky/domain/transcripts/per-turn-embedding-pipeline",
+    ]) {
+      // A top-level `import ... from "<specifier>"`, not an `await import(...)`.
+      expect(SOURCE).toContain(`from "${specifier}"`);
+    }
   });
 });
 
@@ -324,6 +541,154 @@ describe("TranscriptSweepTracker (mt#2321)", () => {
     tracker.recordEmbedRunCompleted();
     tracker.recordEmbedRunCompleted();
     expect(tracker.getSummary().embedRuns).toBe(2);
+  });
+
+  // mt#4489 — the whole value of this field is that it SEPARATES two states the
+  // raw counters render identically, so the three cases are asserted together.
+  // A test that only checked the true case would pass against a hardcoded
+  // `embedNeverSucceeded: true`.
+  test("embedNeverSucceeded is false before any sweep has run", () => {
+    // embedRuns is 0 here, but nothing is owed yet — the daemon has not swept.
+    // This is the case that made a bare `embedRuns: 0` unreadable.
+    expect(tracker.getSummary().embedNeverSucceeded).toBe(false);
+  });
+
+  // mt#4524 — these two cases previously asserted `embedNeverSucceeded: true`
+  // after nothing more than `recordSweepCompleted`. That WAS the defect: the old
+  // `sweepsRun > 0 && embedRuns === 0` derivation fires the moment Phase 1 ends,
+  // for the whole duration of a Phase 2 that is working correctly. The tests
+  // encoded the bug as the invariant, which is why every gate stayed green.
+  test("a completed sweep alone does NOT make embedNeverSucceeded true (mt#4524)", () => {
+    tracker.recordSweepCompleted(5, 0);
+    const s = tracker.getSummary();
+    expect(s.sweepsRun).toBe(1);
+    expect(s.embedRuns).toBe(0);
+    // Nothing has been ATTEMPTED yet, so nothing has failed.
+    expect(s.embedNeverSucceeded).toBe(false);
+    expect(s.embedPhase).toBe("never-attempted");
+  });
+
+  test("embedNeverSucceeded goes false as soon as one embed run succeeds", () => {
+    tracker.recordSweepCompleted(5, 0);
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunFailed();
+    expect(tracker.getSummary().embedNeverSucceeded).toBe(true);
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunCompleted();
+    expect(tracker.getSummary().embedNeverSucceeded).toBe(false);
+  });
+
+  // ── mt#4524: the four phase states, plus the overdue condition ─────────────
+  // SC1/SC4. Asserted together rather than one per case: the field's whole
+  // purpose is to SEPARATE states the raw counters render identically, so a
+  // suite that checked one state in isolation would pass against a constant.
+
+  test("embedPhase is never-attempted before any attempt starts", () => {
+    const s = tracker.getSummary();
+    expect(s.embedPhase).toBe("never-attempted");
+    expect(s.embedInFlightAgeMs).toBeNull();
+    expect(s.lastEmbedAttemptAt).toBeNull();
+    expect(s.embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedPhase is in-flight while an attempt runs, and reports its age", () => {
+    const t0 = 1_000_000;
+    tracker.recordSweepCompleted(1494, 0);
+    tracker.recordEmbedRunStarted(t0);
+
+    const s = tracker.getSummary(t0 + 90_000);
+    expect(s.embedPhase).toBe("in-flight");
+    expect(s.embedInFlightAgeMs).toBe(90_000);
+    expect(s.lastEmbedAttemptAt).not.toBeNull();
+    // The defect window, now correct: an attempt in flight is not a failure.
+    expect(s.embedNeverSucceeded).toBe(false);
+    expect(s.embedRuns).toBe(0);
+    expect(s.embedFailures).toBe(0);
+  });
+
+  test("embedPhase becomes in-flight-overdue past the bound, and not before", () => {
+    const t0 = 1_000_000;
+    tracker.setEmbedOverdueBoundMs(60_000);
+    tracker.recordEmbedRunStarted(t0);
+
+    // Exactly at the bound is still in-flight — the comparison is strict.
+    expect(tracker.getSummary(t0 + 60_000).embedPhase).toBe("in-flight");
+    expect(tracker.getSummary(t0 + 60_001).embedPhase).toBe("in-flight-overdue");
+    // Overdue is its OWN state: it must not be folded into never-succeeded,
+    // because a hang concludes nothing (mem#862).
+    expect(tracker.getSummary(t0 + 600_000).embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedPhase is succeeded after a concluded successful attempt", () => {
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunCompleted();
+
+    const s = tracker.getSummary();
+    expect(s.embedPhase).toBe("succeeded");
+    expect(s.embedInFlightAgeMs).toBeNull();
+    expect(s.embedRuns).toBe(1);
+    expect(s.embedNeverSucceeded).toBe(false);
+  });
+
+  test("embedPhase is failed, and embedNeverSucceeded true, after a concluded failure", () => {
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunFailed();
+
+    const s = tracker.getSummary();
+    expect(s.embedPhase).toBe("failed");
+    expect(s.embedInFlightAgeMs).toBeNull();
+    expect(s.embedFailures).toBe(1);
+    expect(s.embedRuns).toBe(0);
+    expect(s.embedNeverSucceeded).toBe(true);
+  });
+
+  // SC4 names the in-flight→concluded transition in BOTH directions explicitly.
+  test("the in-flight→concluded transition is observable in both directions", () => {
+    const t0 = 2_000_000;
+
+    tracker.recordEmbedRunStarted(t0);
+    expect(tracker.getSummary(t0 + 1_000).embedPhase).toBe("in-flight");
+    tracker.recordEmbedRunCompleted();
+    expect(tracker.getSummary(t0 + 2_000).embedPhase).toBe("succeeded");
+
+    tracker.recordEmbedRunStarted(t0 + 3_000);
+    expect(tracker.getSummary(t0 + 4_000).embedPhase).toBe("in-flight");
+    tracker.recordEmbedRunFailed();
+    expect(tracker.getSummary(t0 + 5_000).embedPhase).toBe("failed");
+  });
+
+  test("embedPhase reports the LAST outcome, not whichever counter is non-zero", () => {
+    // Once a process has one of each, `embedRuns > 0` and `embedFailures > 0`
+    // are both true and cannot order themselves — which is why the tracker
+    // stores the last outcome rather than inferring it.
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunCompleted();
+    tracker.recordEmbedRunStarted();
+    tracker.recordEmbedRunFailed();
+
+    const s = tracker.getSummary();
+    expect(s.embedRuns).toBe(1);
+    expect(s.embedFailures).toBe(1);
+    expect(s.embedPhase).toBe("failed");
+    // A backfill HAS succeeded in this process, so this stays false even though
+    // the most recent attempt failed.
+    expect(s.embedNeverSucceeded).toBe(false);
+  });
+
+  test("setEmbedOverdueBoundMs ignores non-positive and non-finite values", () => {
+    const before = tracker.getSummary().embedOverdueBoundMs;
+    tracker.setEmbedOverdueBoundMs(0);
+    tracker.setEmbedOverdueBoundMs(-1);
+    tracker.setEmbedOverdueBoundMs(Number.NaN);
+    // A zero bound would report every attempt overdue the instant it started.
+    expect(tracker.getSummary().embedOverdueBoundMs).toBe(before);
+  });
+
+  test("deriveEmbedOverdueBoundMs takes the sweep interval, capped by the tick timeout", () => {
+    // The interval is the operationally meaningful line (ticks start being
+    // skipped past it); the tick timeout caps it so the bound is never dead code.
+    expect(deriveEmbedOverdueBoundMs(30 * 60 * 1000, 60 * 60 * 1000)).toBe(30 * 60 * 1000);
+    expect(deriveEmbedOverdueBoundMs(2 * 60 * 60 * 1000, 60 * 60 * 1000)).toBe(60 * 60 * 1000);
   });
 
   test("recordSweepError sets lastErrorAt without changing sweep counters", () => {

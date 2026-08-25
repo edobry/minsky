@@ -45,7 +45,7 @@ async function resolveTaskSimilarityProjectScope(
       persistenceProvider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
     const db = await sqlProvider.getDatabaseConnection();
     if (!db) return ALL_PROJECTS;
-    return await resolveProjectScope(identity, db);
+    return await resolveProjectScope(identity, db, "tasks.similar");
   } catch (err) {
     log.debug("[tasks.similar] Project scope resolution failed; defaulting to ALL_PROJECTS", {
       error: err instanceof Error ? err.message : String(err),

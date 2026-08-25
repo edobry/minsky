@@ -690,7 +690,7 @@ export interface InboundTelegramMessage {
    *
    * File REFERENCES, not bytes: parsing is pure, and resolving a `file_id` to
    * bytes takes two network calls. The poller resolves these before handing the
-   * message to the actuator.
+   * message to the session driver.
    */
   attachments: InboundAttachmentRef[];
   /**
