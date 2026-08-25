@@ -119,6 +119,10 @@ export type McpEventKind = "process_start" | "disconnect" | "reconnect" | "trans
  * Other:
  * - `transport_error`: error on the underlying transport stream.
  * - `process_start`: synthetic cause for `process_start` events (no actual disconnect).
+ * - `reconnect`: synthetic cause for `reconnect` events (a session BEGINNING, so there is
+ *   no disconnect to attribute). Same kind-as-cause shape as `process_start` above; added
+ *   by mt#4511 to replace a `unknown` default that made every reconnect indistinguishable
+ *   from an unclassified disconnect in the raw log.
  * - `signal`: a signal with no dedicated cause above — SIGSEGV, SIGABRT, SIGBUS
  *   and friends. Emitted ONLY by the stdio proxy's `classifyExitForDisconnectLog`
  *   `default:` branch (mt#2830); read `event.signal` for the actual name. These
@@ -142,6 +146,7 @@ export type McpDisconnectCause =
   | "staleness_exit"
   | "proxy_observed_crash"
   | "process_start"
+  | "reconnect"
   | "unknown";
 
 /**
@@ -191,10 +196,17 @@ export interface McpDisconnectEvent {
    */
   pid?: number;
   /**
-   * Process uptime in milliseconds at the time of the event (now - process
-   * start). Always present on `disconnect` / `transport_error`. Used by the
-   * escalation filter to distinguish short-lived harness probes (uptimeMs < 5s,
-   * class 1) from genuine long-lived-session closures (class 3).
+   * How long the thing that just ended had been alive, in milliseconds. Always
+   * present on `disconnect` / `transport_error`. Used by the escalation filter to
+   * distinguish short-lived harness probes (uptimeMs < 5s, class 1) from genuine
+   * long-lived-session closures (class 3).
+   *
+   * **This is the SESSION's lifetime when the session's start is known, and the
+   * PROCESS's uptime otherwise (mt#4511).** The two coincide for stdio, where one
+   * process binds 1:1 with one session; they diverge sharply for HTTP, where many
+   * short sessions live inside one long-running daemon. Before mt#4511 it was
+   * unconditionally process uptime, which made the sub-5s probe filter inert for
+   * every HTTP session.
    */
   uptimeMs?: number;
   /**
@@ -252,7 +264,20 @@ export interface McpDisconnectSummary {
   byServer: Record<string, number>;
   /** Breakdown by event kind. */
   byKind: Record<McpEventKind, number>;
-  /** Breakdown by cause (all events combined). Lets operators see the cause distribution at a glance. */
+  /**
+   * Breakdown by cause — **`disconnect` events only** (mt#4511), matching `byRole` below.
+   *
+   * A cause answers "why did a connection END?", so it is only meaningful for an ending.
+   * Until mt#4511 this counted EVERY event kind, and the result was dominated by the two
+   * kinds that cannot have a cause: `reconnect` (whose cause defaulted to `unknown`, so
+   * every reconnect landed in the same bucket as a genuinely unclassified disconnect) and
+   * `process_start` (whose cause tautologically repeats its kind). Measured on the live log
+   * at 2026-08-25T00:58Z: 235 of 289 events read as `unknown`, of which 183 were reconnects
+   * — so the headline "two thirds of events are unclassified" was an artifact of the
+   * pooling, while the real figure, over disconnects, was 56 of 86.
+   *
+   * Kind totals are NOT lost by this narrowing: `byKind` above carries them.
+   */
   byCause: Record<string, number>;
   /**
    * Breakdown by process role (disconnect events only, last 24h). Populated from
@@ -492,6 +517,29 @@ export class DisconnectTracker {
    */
   private toolCallCounts: Map<string, number> = new Map();
   /**
+   * Per-session start times (mt#4511). Keyed by the same `sessionKey` as
+   * `toolCallCounts` above, and evicted on the same path in `recordDisconnect()`.
+   *
+   * Exists because `uptimeMs` was derived from `processStartTime` for EVERY
+   * disconnect, which conflates two different quantities. For stdio that is
+   * correct — one process binds 1:1 with one session for its lifetime, so process
+   * uptime IS session lifetime. For HTTP it is not: many short sessions live inside
+   * one long-running daemon, so a 200 ms poll session reported the daemon's
+   * multi-hour uptime.
+   *
+   * That mattered because `isEscalationEligible` excludes short-lived harness probes
+   * via `uptimeMs < SHORT_LIVED_THRESHOLD_MS` — a filter that could never fire for an
+   * HTTP session, so routine poll churn counted as escalation-eligible and pinned the
+   * escalation signal at `daily`. Measured on the live log at 2026-08-25T00:58Z: not
+   * one of the 56 unclassified disconnects had an uptime under 10 minutes, because
+   * every one of them was reporting the process's age rather than the session's.
+   *
+   * The argument is the same one already made for `toolCallCounts` above — a
+   * process-wide value misclassifies per-session disconnects — and it simply was
+   * never carried over to uptime.
+   */
+  private sessionStartTimes: Map<string, number> = new Map();
+  /**
    * Set to true when a server-initiated disconnect cause has been recorded
    * (staleness_exit, signal_*, server_close). The SDK's `Server.onclose`
    * fires during stdio teardown after these events; the wireDisconnectHooks
@@ -552,6 +600,16 @@ export class DisconnectTracker {
   }
 
   /**
+   * Override a session's recorded start time for test purposes (mt#4511). Lets
+   * uptime-filtering tests produce an arbitrary SESSION lifetime without sleeping,
+   * the same way `setProcessStartTimeForTest` does for process uptime. Only call
+   * from test code.
+   */
+  noteSessionStartForTest(sessionKey: string, timestamp: number): void {
+    this.sessionStartTimes.set(sessionKey, timestamp);
+  }
+
+  /**
    * Increment the tool-call counter for the given session (mt#1705).
    * Called from the `CallToolRequestSchema` handler in `server.ts` on each
    * tool invocation (before the handler runs, so the count is accurate even
@@ -566,6 +624,22 @@ export class DisconnectTracker {
    */
   incrementToolCallCount(sessionKey: string = DEFAULT_SESSION_KEY): void {
     this.toolCallCounts.set(sessionKey, (this.toolCallCounts.get(sessionKey) ?? 0) + 1);
+  }
+
+  /**
+   * Record when a session began, so its disconnect can report the SESSION's
+   * lifetime rather than the process's (mt#4511).
+   *
+   * Call this once per session, at the point the session is established — for HTTP
+   * that is beside the per-session `wireDisconnectHooks` call in `server.ts`.
+   *
+   * Deliberately NOT called for stdio: there, one process binds 1:1 with one session,
+   * so `processStartTime` already IS the session start, and `recordDisconnect` falls
+   * back to it when no entry exists. That fallback is also what keeps legacy and
+   * ad-hoc callers behaving exactly as before.
+   */
+  noteSessionStart(sessionKey: string = DEFAULT_SESSION_KEY): void {
+    this.sessionStartTimes.set(sessionKey, Date.now());
   }
 
   /**
@@ -692,7 +766,14 @@ export class DisconnectTracker {
     lastTransportEvent = sanitized.lastTransportEvent;
     errorMessage = sanitized.errorMessage;
 
-    const uptimeMs = Date.now() - this.processStartTime;
+    // mt#4511: measure THIS SESSION's lifetime when we know when it started, falling
+    // back to process uptime when we do not. The fallback is the stdio case (one
+    // process == one session, so they are the same number) and any legacy/ad-hoc
+    // caller. Without this, every HTTP session reported the daemon's uptime and the
+    // `uptimeMs < SHORT_LIVED_THRESHOLD_MS` probe filter in `isEscalationEligible`
+    // could not fire for HTTP at all — see `sessionStartTimes`.
+    const sessionStart = this.sessionStartTimes.get(sessionKey);
+    const uptimeMs = Date.now() - (sessionStart ?? this.processStartTime);
     // mt#1705: classify process role from PER-SESSION tool-call count at
     // disconnect time. Reading the process-wide counter (the original mt#1705
     // approach) misclassified HTTP per-session disconnects when any session
@@ -704,8 +785,9 @@ export class DisconnectTracker {
     const sessionToolCalls = this.toolCallCounts.get(sessionKey) ?? 0;
     const processRole: McpProcessRole =
       processRoleOverride ?? (sessionToolCalls === 0 ? "helper" : "main_session");
-    // Evict the entry — the session is closing and we've captured what we need.
+    // Evict the entries — the session is closing and we've captured what we need.
     this.toolCallCounts.delete(sessionKey);
+    this.sessionStartTimes.delete(sessionKey);
     const event: McpDisconnectEvent = {
       timestamp: new Date().toISOString(),
       serverName: this.serverName,
@@ -791,7 +873,15 @@ export class DisconnectTracker {
       timestamp: new Date().toISOString(),
       serverName: this.serverName,
       kind: "reconnect",
-      cause: cause ?? "unknown",
+      // mt#4511: a reconnect is a session BEGINNING and has no disconnect cause, so
+      // this defaults to the tautological `"reconnect"` rather than `"unknown"` —
+      // the same kind-as-cause shape `process_start` already uses. Defaulting to
+      // `"unknown"` put every reconnect in the same bucket as a genuinely
+      // unclassified disconnect, which is what made the log read as two-thirds
+      // unclassified. `byCause` now counts disconnects only, so this value never
+      // reaches the cause distribution; it is fixed here so that anyone reading the
+      // raw JSONL (mt#4487 does) is not misled by it either.
+      cause: cause ?? "reconnect",
     };
     this.push(event);
     log.info("mcp_reconnect", {
@@ -863,16 +953,20 @@ export class DisconnectTracker {
     for (const e of recent) {
       byServer[e.serverName] = (byServer[e.serverName] ?? 0) + 1;
       byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
-      byCause[e.cause] = (byCause[e.cause] ?? 0) + 1;
-      // byRole only counts disconnect events; role classification is only
-      // meaningful at disconnect time. Events without processRole come from
-      // pre-mt#1705 logs and are counted in the explicit "legacy" bucket so
-      // operators can see the fraction of the log still in the old format
-      // (it should shrink toward 0 as new-format events saturate the log).
-      // Note: `isEscalationEligible` still treats legacy/undefined events as
-      // eligible (conservative) — only the aggregate breakdown shows them
-      // separately.
+      // byCause and byRole BOTH count disconnect events only. Cause and role are
+      // properties of an ENDING: neither is meaningful for a `reconnect` (a session
+      // beginning) or a `process_start` (a lifecycle marker). Until mt#4511 only the
+      // role half applied that filter, so the cause distribution pooled three
+      // populations and read as mostly-unclassified no matter what the disconnects
+      // actually were — see `McpDisconnectSummary.byCause` for the measurement.
+      //
+      // Events without processRole come from pre-mt#1705 logs and are counted in the
+      // explicit "legacy" bucket so operators can see the fraction of the log still in
+      // the old format (it should shrink toward 0 as new-format events saturate the
+      // log). Note: `isEscalationEligible` still treats legacy/undefined events as
+      // eligible (conservative) — only the aggregate breakdown shows them separately.
       if (e.kind === "disconnect") {
+        byCause[e.cause] = (byCause[e.cause] ?? 0) + 1;
         const role = e.processRole ?? "legacy";
         byRole[role] = (byRole[role] ?? 0) + 1;
       }

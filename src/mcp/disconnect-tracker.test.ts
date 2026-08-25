@@ -34,7 +34,11 @@ import {
 } from "./disconnect-tracker";
 // mt#4499: the set and predicate moved out of the tracker into this
 // dependency-free module so the cockpit widget could import them too.
-import { SERVER_INITIATED_CAUSES, isEscalationEligible } from "./disconnect-escalation";
+import {
+  SERVER_INITIATED_CAUSES,
+  isEscalationEligible,
+  SHORT_LIVED_THRESHOLD_MS,
+} from "./disconnect-escalation";
 import { isEscalationEligible as widgetIsEscalationEligible } from "../cockpit/widgets/s3-gauges";
 
 const SHAPE_TEST_LABEL = "emits event with correct shape";
@@ -221,7 +225,9 @@ describe("DisconnectTracker", () => {
       const event = tracker.recordReconnect();
       expect(event.serverName).toBe("test-server");
       expect(event.kind).toBe("reconnect");
-      expect(event.cause).toBe("unknown");
+      // mt#4511: was "unknown", which put every reconnect in the same bucket as a
+      // genuinely unclassified disconnect. Now the tautological kind-as-cause.
+      expect(event.cause).toBe("reconnect");
       expect(event.error).toBeUndefined();
     });
 
@@ -337,6 +343,32 @@ describe("DisconnectTracker", () => {
       expect(summary.byCause.signal_sigterm).toBe(1);
     });
 
+    // mt#4511: `byCause` used to accumulate over EVERY event kind, so reconnects —
+    // whose cause defaulted to `unknown` — landed in the same bucket as genuinely
+    // unclassified disconnects. On the live log that made 183 reconnects read as
+    // unclassified disconnects, and the headline "two thirds of events are cause
+    // unknown" was an artifact of the pooling rather than a fact about disconnects.
+    test("byCause counts disconnect events only — reconnect volume cannot inflate it (mt#4511)", () => {
+      tracker.recordDisconnect("unknown");
+      tracker.recordProcessStart();
+      for (let i = 0; i < 5; i++) {
+        tracker.recordReconnect();
+      }
+
+      const summary = tracker.getSummary();
+      // Exactly one disconnect was recorded, so the cause distribution has exactly
+      // one entry — the 5 reconnects and the process_start are different populations.
+      expect(summary.byCause).toEqual({ unknown: 1 });
+      // The narrowing loses no information: byKind still carries the kind totals.
+      expect(summary.byKind.reconnect).toBe(5);
+      expect(summary.byKind.process_start).toBe(1);
+    });
+
+    test("a reconnect records the tautological `reconnect` cause, not `unknown` (mt#4511)", () => {
+      const event = tracker.recordReconnect();
+      expect(event.cause).toBe("reconnect");
+    });
+
     test("last reflects the most recently recorded event", () => {
       tracker.recordDisconnect("stdin_close");
       const reconnect = tracker.recordReconnect();
@@ -441,6 +473,100 @@ describe("DisconnectTracker", () => {
   // -------------------------------------------------------------------------
   // Process-role classification (mt#1705)
   // -------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Per-session uptime (mt#4511)
+  //
+  // `uptimeMs` was `now - processStartTime` for every disconnect. For stdio that is
+  // right (one process == one session). For HTTP it is not: many short sessions live
+  // inside one long-running daemon, so each one reported the DAEMON's age. Because
+  // `isEscalationEligible` excludes short-lived harness probes via
+  // `uptimeMs < SHORT_LIVED_THRESHOLD_MS`, that exclusion could never fire for an HTTP
+  // session, and routine poll churn counted toward escalation. Measured on the live log
+  // at 2026-08-25T00:58Z: zero of 56 unclassified disconnects had an uptime under 10
+  // minutes — they were all reporting process age.
+  // ---------------------------------------------------------------------------
+
+  describe("per-session uptime (mt#4511)", () => {
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+    test("a short HTTP session in a long-lived process reports the SESSION's lifetime", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-1");
+
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-session-1" });
+
+      // The daemon is 6h old; this session just opened. Pre-fix this read ~6h.
+      expect(event.uptimeMs).toBeLessThan(SHORT_LIVED_THRESHOLD_MS);
+    });
+
+    test("that short HTTP session is NOT escalation-eligible", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-1");
+      // Give it a tool call so processRole is "main_session" — this pins the test on
+      // the UPTIME filter specifically. Without it, the helper-role exclusion would
+      // make the assertion pass for an unrelated reason and the test would not
+      // discriminate (mem#704).
+      tracker.incrementToolCallCount("http-session-1");
+
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-session-1" });
+
+      expect(event.processRole).toBe("main_session");
+      expect(isEscalationEligible(event)).toBe(false);
+      // Also assert through the tracker's own accounting — the production path.
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
+    });
+
+    test("a genuinely long-lived HTTP session IS still escalation-eligible", () => {
+      // Positive control: the fix must not simply exclude every HTTP session.
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-2");
+      tracker.incrementToolCallCount("http-session-2");
+      // Rewind this session's start well past the threshold.
+      tracker.noteSessionStartForTest("http-session-2", Date.now() - 10 * 60 * 1000);
+
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-session-2" });
+
+      expect(event.uptimeMs).toBeGreaterThan(SHORT_LIVED_THRESHOLD_MS);
+      expect(isEscalationEligible(event)).toBe(true);
+    });
+
+    test("stdio is unaffected: with no session start recorded, uptime is process uptime", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      // No noteSessionStart — the stdio path never calls it.
+      const event = tracker.recordDisconnect("stdin_close");
+
+      expect(event.uptimeMs).toBeGreaterThanOrEqual(SIX_HOURS_MS);
+    });
+
+    // PR #3304 R1: the HTTP wiring stamps the session start BEFORE installing the
+    // onclose hook, so even a session that closes at the first opportunity has a start
+    // on file. Were the order reversed, this disconnect would find no entry and fall
+    // back to process uptime — the defect this change removes, in the case hardest to
+    // notice, since an immediately-closing session is the most likely to be a probe.
+    test("a session that closes immediately still reports its own lifetime, not the process's", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+
+      // Exactly the production order in server.ts: stamp, then wire, then the close
+      // arrives with no work in between.
+      tracker.noteSessionStart("http-immediate");
+      const event = tracker.recordDisconnect("unknown", { sessionKey: "http-immediate" });
+
+      expect(event.uptimeMs).toBeLessThan(SHORT_LIVED_THRESHOLD_MS);
+      expect(isEscalationEligible(event)).toBe(false);
+    });
+
+    test("the session's start time is evicted at disconnect, like its tool-call count", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - SIX_HOURS_MS);
+      tracker.noteSessionStart("http-session-3");
+      tracker.recordDisconnect("unknown", { sessionKey: "http-session-3" });
+
+      // A second disconnect on the same key finds no entry and falls back to process
+      // uptime — proving the first one evicted it rather than leaking the map.
+      const second = tracker.recordDisconnect("unknown", { sessionKey: "http-session-3" });
+      expect(second.uptimeMs).toBeGreaterThanOrEqual(SIX_HOURS_MS);
+    });
+  });
 
   describe("processRole classification", () => {
     test("disconnect event has processRole 'helper' when no tool calls recorded", () => {

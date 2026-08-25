@@ -309,6 +309,69 @@ grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
   | jq -r '.cause' | sort | uniq -c | awk '$2=="unknown"{u=$1} {t+=$1} END{printf "%d/%d (%.1f%%)\n", u+0, t, 100*(u+0)/t}'
 ```
 
+## `unknown` on an HTTP session is a protocol default, not a classification gap (mt#4511)
+
+Before re-filing "most disconnects are unclassified", read this section — mt#4511 was filed on
+exactly that premise and the premise was wrong.
+
+**Every recipe above scopes itself to `"kind":"disconnect"`, and that is load-bearing.** A cause
+answers "why did a connection END?", so it is meaningful only for an ending. Until mt#4511
+`debug_systemInfo`'s `mcpDisconnects.byCause` did NOT apply that filter — it counted every event
+kind, including `reconnect` (whose cause defaulted to `unknown`) and `process_start` (whose cause
+repeats its kind). So the tool surface and these recipes answered the same question differently,
+and the tool's answer was the misleading one. Measured 2026-08-25T00:58Z: `byCause` reported 235
+of 289 events `unknown` (81%), of which **183 were reconnects**; over disconnects alone the figure
+was 56 of 86 (65%). `byCause` now filters like `byRole` and agrees with these recipes; reconnects
+now record the tautological cause `reconnect`.
+
+**Of the disconnects that remain `unknown`, most are HTTP sessions closing normally.**
+`server.ts` wires every per-session HTTP `Server` with `"unknown"` as its default cause, because
+the transport close event does not distinguish client-initiated from server-initiated closes at
+the protocol level. That is a property of the protocol, not a gap in this taxonomy — adding cause
+markers cannot reduce it. Treat a large `unknown` share as expected for HTTP and interrogate it
+only when the DISCONNECT COUNT itself moves.
+
+**`uptimeMs` on a disconnect is the SESSION's lifetime, not the process's (mt#4511).** They
+coincide for stdio (one process binds 1:1 with one session) and diverge sharply for HTTP, where
+many short sessions live inside one long-running daemon. Before mt#4511 it was always process
+uptime, so the `uptimeMs >= 5000` leg of the eligibility predicate — the one that exists to
+exclude short-lived probes — could not fire for any HTTP session, and routine ~60s poll churn
+counted toward escalation. That is why escalation sat at `daily`: not a reliability regression,
+but per-minute poll sessions each reporting the daemon's multi-hour age. When reading events
+recorded BEFORE mt#4511, remember their `uptimeMs` is process age and cannot tell you how long
+the session lived.
+
+Consequence for the `Eligible-only count` recipe above: it hard-codes `.cause == "stdin_close"`,
+so it describes the stdio population and silently excludes HTTP sessions entirely. That is a
+narrower question than `escalation` answers — do not read the two as the same number.
+
+### The ~60s runs are distinct poll sessions, not one process re-recording (mt#4511)
+
+You will see runs of `unknown` disconnects spaced **exactly 60s apart, with `uptimeMs`
+incrementing by exactly 60,000 ms**. Measured 2026-08-25: 20 of 56 unclassified disconnects sat in
+5 such runs, the longest 7 events (00:38:13Z → 00:44:13Z). It reads like one live process emitting
+a disconnect per minute. **It is not — do not re-open this as a duplicate-recording bug.**
+
+`processRole` is the discriminator, and it is decisive. `recordDisconnect` EVICTS the session's
+tool-call count, so a single session disconnecting repeatedly would classify as `helper` on every
+event after the first. The observed sequences do the opposite:
+
+```
+run of 3: main_session -> main_session -> main_session
+run of 4: helper -> main_session -> main_session -> main_session
+run of 7: main_session -> main_session -> main_session -> main_session -> helper -> main_session -> helper
+```
+
+**12 of the 15 non-first events are `main_session`**, which is only possible if a DISTINCT session
+made its own tool call after the previous eviction. These are separate HTTP sessions on a ~60s
+client poll cadence.
+
+The exactly-60,000 ms uptime delta was itself the pre-mt#4511 bug, not evidence of a loop: every
+session stamped the DAEMON's age, so N sessions 60s apart in one daemon necessarily showed uptimes
+60s apart. Post-mt#4511 these same sessions report their own short lifetimes and drop out of
+escalation. Reproduce the check by grouping `kind=="disconnect"` events on `(gap ≈ 60s AND uptime
+delta ≈ 60s)` and reading the `processRole` sequence within each run.
+
 ## Cross-references
 
 - `mt#1645` — measurement layer (parent task)
