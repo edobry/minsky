@@ -557,6 +557,7 @@ describe("recycle close outcome counters (mt#4549)", () => {
     expect(r.closesDrained).toBe(0);
     expect(r.closesForceTerminated).toBe(0);
     expect(r.closesAbandoned).toBe(0);
+    expect(r.closesFailed).toBe(0);
 
     // SC3, and the reason `closesAbandoned` must never be read on its own: this
     // reading and "12 recycles, none abandoned" are the same zero and completely
@@ -594,6 +595,35 @@ describe("recycle close outcome counters (mt#4549)", () => {
     expect(r.closesDrained).toBe(1);
     expect(r.closesForceTerminated).toBe(0);
     expect(r.closesAbandoned).toBe(0);
+  });
+
+  test("a close() that REJECTS counts as failed, never as abandoned (PR #3319 R1)", async () => {
+    // Both a rejected close and the outer deadline land in the same `.catch`.
+    // Only the deadline means "nothing returned, connections probably stranded",
+    // which is what `closesAbandoned` exists to alarm on. Counting a rejection
+    // there would inflate the alarm with a different fault — and an alarm that
+    // fires on the wrong thing is the failure this whole task exists to avoid.
+    //
+    // This case is also the FAST one: a rejection settles immediately, where the
+    // deadline branch would cost RECYCLE_CLOSE_TIMEOUT_MS of real time.
+    const factory: PersistenceServiceFactory = async () =>
+      ({
+        initialize: async () => {},
+        close: async () => {
+          throw new Error("teardown blew up");
+        },
+        getProvider: () => ({}),
+      }) as unknown as PersistenceService;
+
+    await getSharedPersistenceService(1_000, factory);
+    recycleSharedPersistence("rejecting close");
+    await new Promise((r) => setTimeout(r, 20));
+
+    const r = getDbRecycle();
+    expect(r.closesFailed).toBe(1);
+    expect(r.closesAbandoned).toBe(0);
+    expect(r.closesDrained).toBe(0);
+    expect(r.closesForceTerminated).toBe(0);
   });
 
   test("counters reset between tests, so a reading never depends on test order", () => {
@@ -739,6 +769,7 @@ describe("recycleSharedPersistence (mt#3638)", () => {
       closesDrained: 0,
       closesForceTerminated: 0,
       closesAbandoned: 0,
+      closesFailed: 0,
     });
 
     recycleSharedPersistence("telemetry test");

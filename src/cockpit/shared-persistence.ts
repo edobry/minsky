@@ -664,6 +664,15 @@ export interface DbRecycle {
    * counter cannot distinguish them by itself (mem#704).
    */
   closesAbandoned: number;
+  /**
+   * Closes whose `close()` REJECTED before the outer deadline (PR #3319 R1).
+   *
+   * A fault, but a different one from `closesAbandoned`: teardown errored and
+   * said so, rather than never returning. Kept separate so the abandoned counter
+   * stays a trustworthy alarm — folding these in would inflate it with events
+   * that are not "connections stranded because nothing terminated them".
+   */
+  closesFailed: number;
 }
 
 let _recycleLastAtMs: number | null = null;
@@ -671,9 +680,34 @@ let _recycleCount = 0;
 let _closesDrained = 0;
 let _closesForceTerminated = 0;
 let _closesAbandoned = 0;
+let _closesFailed = 0;
 
 /** Which way a recycle's close went. Recorded by {@link closeAbandonedService}. */
-export type RecycleCloseOutcome = "drained" | "force-terminated" | "abandoned";
+export type RecycleCloseOutcome = "drained" | "force-terminated" | "abandoned" | "failed";
+
+/**
+ * Marks the outer deadline's own rejection so it can be told apart from a
+ * `close()` that REJECTED (PR #3319 R1).
+ *
+ * Both land in the same `.catch`, and they are different events: the deadline
+ * means the close never returned and connections are probably stranded — the
+ * alarm — while an early rejection means teardown ERRORED, which is a fault but
+ * not this one. Counting the second as `abandoned` would manufacture false
+ * alarms in the exact counter whose value is that it is trustworthy.
+ *
+ * A symbol rather than a message match: the message is prose that a later edit
+ * would silently break, and this discrimination is load-bearing.
+ */
+const RECYCLE_CLOSE_DEADLINE = Symbol("recycle-close-deadline");
+
+/** True when `err` is the outer deadline this module raised, not a close failure. */
+function isRecycleCloseDeadline(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as Record<symbol, unknown>)[RECYCLE_CLOSE_DEADLINE] === true
+  );
+}
 
 /**
  * Record how a recycle's close ended (mt#4549).
@@ -685,7 +719,8 @@ export type RecycleCloseOutcome = "drained" | "force-terminated" | "abandoned";
 function recordRecycleCloseOutcome(outcome: RecycleCloseOutcome): void {
   if (outcome === "drained") _closesDrained++;
   else if (outcome === "force-terminated") _closesForceTerminated++;
-  else _closesAbandoned++;
+  else if (outcome === "abandoned") _closesAbandoned++;
+  else _closesFailed++;
 }
 
 /**
@@ -705,6 +740,7 @@ export function getDbRecycle(): DbRecycle {
     closesDrained: _closesDrained,
     closesForceTerminated: _closesForceTerminated,
     closesAbandoned: _closesAbandoned,
+    closesFailed: _closesFailed,
   };
 }
 
@@ -879,7 +915,12 @@ function closeAbandonedService(svc: PersistenceService): void {
   const startedAt = Date.now();
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`close() still pending after ${RECYCLE_CLOSE_TIMEOUT_MS}ms`)),
+      () =>
+        reject(
+          Object.assign(new Error(`close() still pending after ${RECYCLE_CLOSE_TIMEOUT_MS}ms`), {
+            [RECYCLE_CLOSE_DEADLINE]: true,
+          })
+        ),
       RECYCLE_CLOSE_TIMEOUT_MS
     );
     timer.unref?.();
@@ -902,12 +943,26 @@ function closeAbandonedService(svc: PersistenceService): void {
       });
     })
     .catch((err: unknown) => {
+      const elapsedMs = Date.now() - startedAt;
+      const message = err instanceof Error ? err.message : String(err);
+      // Two very different events reach here (PR #3319 R1), and only the first is
+      // the alarm. Discriminated on the deadline's own marker rather than on its
+      // message, which is prose a later edit would silently break.
+      if (!isRecycleCloseDeadline(err)) {
+        recordRecycleCloseOutcome("failed");
+        log.warn("[shared-persistence] close of recycled pool REJECTED", {
+          message,
+          elapsedMs,
+          note: "teardown errored and said so — distinct from an abandoned close, where nothing returned at all. Connections may or may not have been released; the driver reported a failure rather than hanging.",
+        });
+        return;
+      }
       recordRecycleCloseOutcome("abandoned");
       log.warn(
         "[shared-persistence] abandoned close of recycled pool — the INNER bound did not fire either, so connections may be stranded",
         {
-          message: err instanceof Error ? err.message : String(err),
-          elapsedMs: Date.now() - startedAt,
+          message,
+          elapsedMs,
           innerBoundSeconds: CLOSE_TIMEOUT_SECONDS,
           outerBoundMs: RECYCLE_CLOSE_TIMEOUT_MS,
         }
@@ -1125,6 +1180,7 @@ export function __resetSharedPersistenceForTests(): void {
   _closesDrained = 0;
   _closesForceTerminated = 0;
   _closesAbandoned = 0;
+  _closesFailed = 0;
   _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
   _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
   // mt#3826: classification state is module-level too — a leftover
