@@ -4289,6 +4289,37 @@
       "sourceFile": "wall-of-text-detector"
     },
     {
+      "guardName": "warn-main-workspace-mutation",
+      "description": "After every `Bash` call, reads the MAIN workspace's `git status` and injects an advisory naming tracked files that became modified DURING that call — the mutation style is irrelevant, because it observes git STATE rather than the command string. That is the point: the recurrence it was built for used `sed -i`, `cat >>` and a `python3` heredoc, none of which any destructive-verb list contains, and a heredoc that writes is not statically distinguishable from one that prints. The channel is uncovered because `require-session-for-main-workspace-edits` matches only Edit/Write/NotebookEdit while the harness's auto mode routes file changes to Bash. Fires at most once per file: the reported set is a diff against the last observation, so the tree's pre-existing modifications never flag. Untracked files are exempt — legitimate main-workspace scratch writes exist. Advisory and log-only; a deliberate main-workspace edit is the residual false-positive class and the advisory text says so.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [
+        ".minsky/hooks/warn-main-workspace-mutation.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-main-workspace-mutation"
+    },
+    {
       "guardName": "warn-peer-task-activity",
       "description": "Reads the TASK EVENT LEDGER on `tasks_status_set` / `tasks_spec_patch` and injects an advisory naming any `session.started` (minus the caller's own) or recent `task.status_changed` — the one peer-presence signal keyed to the task rather than to an actor, so it does not inherit the attribution defect every probe in `user-preferences.mdc §Probe before claiming a shared resource` reads through. Never denies: prevention is a principal-owned question (substrate RFC Open question 4).",
       "failureClasses": ["duplicate-work"],

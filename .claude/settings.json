@@ -457,6 +457,18 @@
         ]
       },
       {
+        "_comment": "mt#2358 main-workspace mutation observer — advisory, never blocks. Reads the MAIN workspace's git status after a Bash call and names tracked files that became modified during it. Outcome-based rather than syntax-based on purpose: the recurrence that reopened mt#2358 used sed -i, cat >> and a python3 heredoc, none of which a destructive-verb list contains. The channel is uncovered because require-session-for-main-workspace-edits.ts matches only Edit/Write/NotebookEdit (FILE_EDITING_TOOLS, line 99) while the harness's auto mode instructs agents to make file changes with sed and heredocs. The reported set is a DIFF against the last observation, so the tree's pre-existing modified files never flag and each file flags at most once. Timeout 10: one git status (measured 0.03-0.04s in this repo) plus two local file touches — no subprocess chain, no network, no DB. NO override var, deliberately: this injects text and records a fire — there is no decision to bypass, and minting a name is what ADR-028 D3 is retiring.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-main-workspace-mutation.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for main-workspace mutations..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_pr_merge|mcp__github__merge_pull_request",
         "hooks": [
           {

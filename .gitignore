@@ -71,6 +71,10 @@ services/reviewer/eval/results/
 # leave one behind; the next pass reaps it by mtime. Never a tracked artifact.
 **/.minsky/calibration-review-watermarks.lock/
 **/.minsky/calibration-review-cadence-last-warned.json
+# mt#2358: the main-workspace mutation observer's last-observed dirty set. Local
+# state, rewritten on every Bash call — tracking it would make the observer the
+# single largest source of the very dirty-tree noise it exists to report.
+**/.minsky/main-workspace-mutation-baseline.json
 
 # IntelliJ based IDEs
 .idea
