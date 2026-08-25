@@ -22,6 +22,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
+import { readJournalSummary } from "../transcript-sweep-journal";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import { getSweepLivenessSnapshot } from "../sweepers";
@@ -313,7 +314,20 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // green. `current: null` means the check could not run, and is
       // deliberately NOT reported as current.
       schema: getSchemaReadiness(),
-      transcriptSweep: sweepTracker.getSummary(),
+      // mt#4532: the tracker's counters are PROCESS-scoped and reset on every
+      // restart, which on a working day is a median 13.4 minutes — shorter than
+      // one sweep tick. `acrossRestarts` is the durable journal beside them, and
+      // it is nested here rather than made a top-level sibling deliberately: a
+      // reader asking "is the sweep working" must not be able to read the
+      // process-scoped counters WITHOUT the lifetime ones, which is exactly the
+      // misread `sweepLiveness`'s own field note had to warn about after being
+      // separated. `phase2ReachRate` is the one number that answers it.
+      //
+      // The read is a small synchronous local-file read, unlike the `db` probe
+      // above which is deliberately out-of-band: that one crosses the network
+      // and can wedge, this one cannot, so the route stays as fast as its own
+      // contract promises.
+      transcriptSweep: { ...sweepTracker.getSummary(), acrossRestarts: readJournalSummary() },
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),
       // mt#4384: the three sweep fields above are DOMAIN trackers, and a domain

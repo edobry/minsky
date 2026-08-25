@@ -25,6 +25,10 @@ import {
 } from "../../cockpit/sweepers";
 // mt#4480: lifted out of sweepers.ts when that file hit the max-lines ceiling.
 import { startTranscriptSweepBackstop } from "../../cockpit/transcript-sweep-backstop";
+import {
+  createFileJournalStore,
+  TranscriptSweepJournalRecorder,
+} from "../../cockpit/transcript-sweep-journal";
 // mt#4537: same reason — a sweep of its own rather than more of sweepers.ts.
 import { startWakePendingRetentionSweeper } from "../../cockpit/wake-pending-retention-sweeper";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
@@ -685,7 +689,13 @@ export function createStartCommand(): Command {
       // Transcript sweep backstop (mt#2321): BACKSTOP half of ADR-017 — periodic
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
-      const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // mt#4532: the cross-restart tick journal is constructed HERE, at the
+      // composition root, and passed in as a required dependency — the sweep
+      // deliberately has no default (ADR-026 rule 3), so this is the only place
+      // the real file-backed store is named.
+      const stopTranscriptSweep = startTranscriptSweepBackstop(
+        new TranscriptSweepJournalRecorder(createFileJournalStore())
+      );
       // Guard-events sweep backstop (mt#4035, mt#3334 phase 3): THE
       // CORRECTNESS LAYER for the guard/calibration exhaust ingest — the
       // SessionEnd hook is a latency optimization only (SessionEnd does not
