@@ -102,6 +102,9 @@ function repoSlug(): string {
   return m[1];
 }
 
+/** GitHub caps `per_page` at 100; 10 pages = 1,000 files, past any real PR here. */
+const MAX_FILE_PAGES = 10;
+
 const REPO = repoSlug();
 
 const listRaw = sh([
@@ -124,6 +127,7 @@ const rows: Row[] = [];
 let noTask = 0;
 let noSpec = 0;
 let nothingToCompare = 0;
+let pageCapped = 0;
 
 for (const pr of prs) {
   const taskId = taskIdFromTitle(pr.title);
@@ -141,9 +145,36 @@ for (const pr of prs) {
     nothingToCompare++;
     continue;
   }
-  const filesRaw = sh(["gh", "api", `repos/${REPO}/pulls/${pr.number}/files?per_page=100`]);
-  if (!filesRaw) continue;
-  const changed = (JSON.parse(filesRaw) as Array<{ filename: string }>).map((f) => f.filename);
+  // PAGINATE (PR #3340 R2). `per_page=100` is the API's cap, not the PR's size:
+  // a single page silently truncates a larger PR, and every enumerated path in
+  // the missing pages then reads as UNTOUCHED. That biases the flag rate the
+  // wrong way — upward, the direction that would make this check look noisier
+  // than it is — so the measurement SC6 rests on cannot use one page.
+  //
+  // Not hypothetical: PR #3253 in this repo has 188 files, and a one-page read
+  // of it during this task's own planning returned exactly 100 with no
+  // indication anything was missing.
+  const changed: string[] = [];
+  let truncated = false;
+  for (let page = 1; page <= MAX_FILE_PAGES; page++) {
+    const raw = sh([
+      "gh",
+      "api",
+      `repos/${REPO}/pulls/${pr.number}/files?per_page=100&page=${page}`,
+    ]);
+    if (!raw) break;
+    const batch = (JSON.parse(raw) as Array<{ filename: string }>).map((f) => f.filename);
+    changed.push(...batch);
+    if (batch.length < 100) break;
+    if (page === MAX_FILE_PAGES) truncated = true;
+  }
+  // A PR past the page ceiling is EXCLUDED rather than measured on partial
+  // data — an undercounted diff produces false flags, and a measurement that
+  // silently includes them is worse than one that reports a smaller n.
+  if (truncated) {
+    pageCapped++;
+    continue;
+  }
 
   const untouched = enumerated
     .filter((e) => !covered(e, changed))
@@ -158,6 +189,7 @@ console.log(`merged PRs examined:            ${prs.length}`);
 console.log(`  no task id in title:          ${noTask}`);
 console.log(`  spec unfetchable:             ${noSpec}`);
 console.log(`  nothing to compare (SC5):     ${nothingToCompare}`);
+console.log(`  excluded, past page cap:      ${pageCapped}`);
 console.log(`  comparable:                   ${rows.length}`);
 console.log(`  FLAGGED (>=1 untouched path): ${flagged.length}`);
 if (rows.length > 0) {
