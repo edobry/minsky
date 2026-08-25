@@ -137,8 +137,17 @@ export function LifecycleSpine({
   // buckets (mt#4599). It was computed and discarded until now: mt#4129 added it
   // precisely so a declared point with no station is REPORTED rather than
   // dropped, and the component destructured around it, so the guard existed with
-  // nothing wired to it. Empty today — `SPINE_STATIONS` covers every member of
-  // `INTERCEPTION_POINT_ORDER` — which is exactly why the gap was invisible.
+  // nothing wired to it.
+  //
+  // It is NOT empty. `SPINE_STATIONS` is built from `INTERCEPTION_POINT_ORDER`
+  // (9 points) while the `InterceptionPoint` union carries 15 — `SessionStart`,
+  // `StopFailure`, `Notification`, `PermissionRequest`, `PreCompact` and
+  // `PostCompact` have no station. In the live 148-entry catalog,
+  // `record-conversation-run-state` (PostCompact) and `session-start`
+  // (SessionStart) sit there, and both rendered nowhere at all until this wiring.
+  // Giving those six points stations is deliberately NOT done here: mt#4129
+  // reserves it as a spine-design decision, so reporting them is the correct
+  // behaviour today.
   const { placed, unplaced, stationless, excluded } = spinePopulation(entries);
   const snapshotReady = aggregateRows !== null;
 
