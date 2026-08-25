@@ -122,6 +122,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { claimSetSignature, shouldInjectClaimSet } from "./code-mechanism-assertion-dedup-store";
+import { readAuthoredSpecText } from "./authored-spec-text";
 import {
   CAPTURE_SCHEMA_FIELD,
   CAPTURE_SCHEMA_VERSION,
@@ -1109,14 +1110,74 @@ export function buildAddedCommentCorpus(turnLines: TranscriptLine[]): string {
  * justification for merging, and one in a spec or memory is read later as
  * settled fact.
  */
+/**
+ * **This list is a CLAIM about every path by which agent prose reaches a durable
+ * artifact — and it goes stale the moment one opens or is avoided (mt#4525).**
+ *
+ * Not a preference and not a performance bound: any name missing here is prose the
+ * corpus cannot see, and the miss is silent because an unlisted tool simply
+ * contributes nothing. There is no error to notice.
+ *
+ * **Review trigger — treat this regex as part of a new write path's consumer set.**
+ * When a tool that writes a spec, a PR body, a memory or an ask ships, this line is
+ * one of the things that must change with it (the gate-(h) contract-propagation
+ * enumeration, applied to a guard's own allowlist).
+ *
+ * `tasks_edit` was absent until mt#4525, so a spec written through it — inline via
+ * `specContent` or by reference via `specFile` — reached this corpus through neither
+ * path, while the same prose written through `tasks_spec_patch` was watched.
+ *
+ * **Known and NOT covered by this regex, deliberately:**
+ *
+ * - **A CLI-routed write** (`minsky tasks edit --spec-file …` through `Bash`). The
+ *   prose never appears as an MCP tool input at all; it reaches the DB through a
+ *   subprocess, so there is no `tool_use` name for this regex to match. Adding a name
+ *   here cannot fix it. **Owned by mt#4536**, which also records that half its
+ *   mechanism already shipped: `cli-mcp-substitution` (mt#4144) maps a Bash command
+ *   string back to its registry command id via `completion-manifest.json`. This is
+ *   the channel an agent switches to when the MCP path is failing — i.e. exactly when
+ *   it is least likely to notice the coverage it just lost.
+ * - **A git-tracked repo file** (an ADR, a rule, a doc) written via `Write`/`Edit`/
+ *   `Bash`. A different artifact CLASS rather than a missing name. **Owned by
+ *   mt#4534.**
+ */
 const ARTIFACT_TOOL_RE =
-  /(?:session_pr_create|session_pr_edit|tasks_create|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create)$/i;
+  /(?:session_pr_create|session_pr_edit|tasks_create|tasks_edit|tasks_spec_patch|tasks_spec_search_replace|memory_create|memory_update|asks_create)$/i;
 
 /**
  * Input keys carrying an artifact's PROSE body across those tools: a PR body,
  * a task spec or spec patch, a memory body, an ask's question text.
+ *
+ * `specContent` is `tasks_edit`'s inline body (mt#4525). Note that `spec` is ALSO in
+ * this list and is `tasks_create`'s body — but on `tasks_edit` the `spec` parameter
+ * is a BOOLEAN flag, not prose. The `typeof value === "string"` test in
+ * {@link buildArtifactProseCorpus} is what keeps that from mattering, so do not
+ * relax it into a truthiness check. PR #3063 R1 read those two as the same key on the
+ * sibling detector and was wrong.
  */
-const ARTIFACT_PROSE_INPUT_KEYS = ["body", "spec", "content", "question", "replace", "new_string"];
+const ARTIFACT_PROSE_INPUT_KEYS = [
+  "body",
+  "spec",
+  "specContent",
+  "content",
+  "question",
+  "replace",
+  "new_string",
+];
+
+/**
+ * Inline-body keys handed to the shared spec-text resolver for the BY-REFERENCE
+ * branch (mt#4525).
+ *
+ * Deliberately narrow: only `tasks_edit` accepts a `specFile`, and the resolver
+ * checks the inline key first so this map keeps it from re-reading a body the key
+ * loop above already collected. It is NOT this detector's scanning scope —
+ * {@link ARTIFACT_TOOL_RE} is — and it is passed in rather than shared, so extracting
+ * the resolver could not silently widen what any guard reads.
+ */
+const ARTIFACT_SPEC_INLINE_KEYS: Readonly<Record<string, string>> = {
+  tasks_edit: "specContent",
+};
 
 /**
  * Extract the prose an agent wrote INTO a durable artifact this turn (mt#3642).
@@ -1145,7 +1206,17 @@ const ARTIFACT_PROSE_INPUT_KEYS = ["body", "spec", "content", "question", "repla
  * Reads the tool INPUT, never the `tool_result` echo — the input is exactly what
  * the agent authored.
  */
-export function buildArtifactProseCorpus(turnLines: TranscriptLine[]): string {
+export function buildArtifactProseCorpus(
+  turnLines: TranscriptLine[],
+  /**
+   * Reader for the BY-REFERENCE (`specFile`) branch (mt#4525). Injectable so that
+   * branch is testable without touching a real filesystem —
+   * `testing-standards.mdc §Testable Design`, and the seam
+   * `custom/no-real-fs-in-tests` exists to require. Defaults to the shared
+   * repo-contained disk read.
+   */
+  readFile?: (path: string) => string | null
+): string {
   const parts = new Set<string>();
 
   const collect = (name: string, input: unknown): void => {
@@ -1155,6 +1226,19 @@ export function buildArtifactProseCorpus(turnLines: TranscriptLine[]): string {
     for (const key of ARTIFACT_PROSE_INPUT_KEYS) {
       const value = asRecord[key];
       if (typeof value === "string" && value.trim().length > 0) parts.add(value);
+    }
+
+    // A body carried by REFERENCE, not inline (mt#4525). `tasks_edit --spec-file`
+    // names a path whose CONTENTS become the spec, so the key loop above sees a
+    // filename and adds nothing — the same silent recall hole this detector's two
+    // sibling guards each hit independently. The shared resolver reads it
+    // defensively: a missing, oversized, unreadable, or out-of-repo path yields null
+    // rather than throwing, because an observer must never turn a valid `tasks_edit`
+    // into an error. `parts` is a Set, so a call carrying BOTH keys contributes its
+    // prose once.
+    const byReference = readAuthoredSpecText(name, asRecord, ARTIFACT_SPEC_INLINE_KEYS, readFile);
+    if (byReference.text !== null && byReference.text.trim().length > 0) {
+      parts.add(byReference.text);
     }
   };
 

@@ -132,3 +132,77 @@ describe("durable-artifact surface (mt#3642)", () => {
     });
   });
 });
+
+// mt#4525 — `tasks_edit` was absent from ARTIFACT_TOOL_RE entirely, so a claim
+// written through it reached this corpus through NEITHER of its two body paths.
+// Found in the failure it caused: `tasks_spec_patch` timed out twice during the
+// mt#4489 session, every subsequent spec write was routed through `tasks edit`,
+// and two of them carried a false mechanism claim nothing could see.
+describe("tasks_edit write paths (mt#4525)", () => {
+  const TASKS_EDIT = "mcp__minsky__tasks_edit";
+
+  /** The real claim that rode through the uncovered channel (filed as mt#4523). */
+  const LINT_CLAIM =
+    "Reconciling with `no-dynamic-imports` (`eslint.config.js` sets " +
+    "`allowDynamicImports: false`), production dynamic imports are already linted.";
+
+  test("a claim written inline via specContent reaches the corpus", () => {
+    const turn = artifactTurn(TASKS_EDIT, { taskId: "mt#4523", specContent: LINT_CLAIM });
+    expect(buildArtifactProseCorpus(turn)).toContain("allowDynamicImports");
+  });
+
+  test("end-to-end: a claim written via tasks_edit is DETECTED, not just collected", () => {
+    // Uses the mt#3092 socket claim rather than the lint one because this asserts
+    // through the recognizer, and only the corpus half is this task's subject —
+    // which claim SHAPES are recognized is a separate axis (mt#3775 owns it, and
+    // this spec's `## Scope` puts it out of scope). Pairing them here keeps the
+    // corpus assertion above from being the only evidence: the widened surface
+    // reaches the detector, not merely a string set.
+    const turn = artifactTurn(TASKS_EDIT, { taskId: "mt#3092", specContent: SOCKET_CLAIM });
+    const result = detectCodeMechanismAssertion(buildArtifactProseCorpus(turn), "", "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("connection.js");
+  });
+
+  test("a claim written BY REFERENCE via specFile reaches the corpus", () => {
+    // The reader is INJECTED rather than writing a real file: the branch under
+    // test is "a named path's contents become corpus prose", and a real write
+    // would test the filesystem instead (`custom/no-real-fs-in-tests`).
+    const turn = artifactTurn(TASKS_EDIT, { taskId: "mt#4523", specFile: "spec.md" });
+    const reads: string[] = [];
+    const corpus = buildArtifactProseCorpus(turn, (p) => {
+      reads.push(p);
+      return LINT_CLAIM;
+    });
+
+    expect(corpus).toContain("allowDynamicImports");
+    // The path actually reached the reader — without this the assertion above
+    // would pass against a corpus that ignored `specFile` and got the text some
+    // other way.
+    expect(reads).toEqual(["spec.md"]);
+  });
+
+  test("a specFile OUTSIDE the repo is not read (mt#4295 SC4)", () => {
+    // A PreToolUse observer runs against arbitrary tool input; it must not become
+    // a read primitive for an arbitrary path. The reference implementation this
+    // was extracted from did NOT have this check.
+    const turn = artifactTurn(TASKS_EDIT, { taskId: "mt#4523", specFile: "/etc/hosts" });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+
+  test("a specFile that does not exist contributes nothing and does not throw", () => {
+    const turn = artifactTurn(TASKS_EDIT, {
+      taskId: "mt#4523",
+      specFile: ".minsky/hooks/__fixtures__/mt4525-absent.md",
+    });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+
+  test("tasks_edit's boolean `spec` flag is not read as prose", () => {
+    // `spec` IS in ARTIFACT_PROSE_INPUT_KEYS (it is tasks_create's body), but on
+    // tasks_edit the same name is a boolean flag. PR #3063 R1 conflated the two on
+    // the sibling detector; the typeof guard is what keeps it from mattering here.
+    const turn = artifactTurn(TASKS_EDIT, { taskId: "mt#4523", spec: true });
+    expect(buildArtifactProseCorpus(turn)).toBe("");
+  });
+});

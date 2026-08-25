@@ -73,6 +73,9 @@ function ctxWith(lines: TranscriptLine[]): DispatchContext {
 /** The seam all three originating incidents actually wrote at. */
 const SPEC_PATCH_TOOL = "mcp__minsky__tasks_spec_patch";
 
+/** The other spec-write seam — the one with a by-reference body (mt#4295). */
+const EDIT_TOOL = "mcp__minsky__tasks_edit";
+
 /** A spec-patch call — the seam both originating incidents actually wrote at. */
 function patchInput(content: string): ToolHookInput {
   return {
@@ -107,9 +110,7 @@ describe("extractAuthoredSpecText", () => {
       })
     ).toBe("body");
     expect(extractAuthoredSpecText("mcp__minsky__tasks_create", { spec: "body" })).toBe("body");
-    expect(extractAuthoredSpecText("mcp__minsky__tasks_edit", { specContent: "body" })).toBe(
-      "body"
-    );
+    expect(extractAuthoredSpecText(EDIT_TOOL, { specContent: "body" })).toBe("body");
     expect(
       extractAuthoredSpecText("mcp__minsky__tasks_spec_search_replace", {
         search: "old",
@@ -549,7 +550,7 @@ describe("run — the class reaches every spec-WRITE seam (PR #3173 R1)", () => 
       (content) =>
         ({
           session_id: "sess-mt4299",
-          tool_name: "mcp__minsky__tasks_edit",
+          tool_name: EDIT_TOOL,
           tool_input: { taskId: "mt#1651", specContent: content },
         }) as unknown as ToolHookInput,
     ],
@@ -600,5 +601,76 @@ describe("run — the class reaches every spec-WRITE seam (PR #3173 R1)", () => 
     expect(
       run(createInput(REMAINING_WORK_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]
     ).toBe("matched");
+  });
+});
+
+// mt#4295 (subsumed into mt#4525) — `tasks_edit` also accepts `specFile`, whose
+// CONTENTS become the spec. Read only at `specContent`, a `--spec-file` write
+// produced no text and the guard recorded `skipped`, indistinguishable from a call
+// that legitimately carries no spec. A recall hole that reports itself as a clean
+// skip is not discoverable by use.
+describe("tasks_edit --spec-file recall (mt#4295, via mt#4525's shared resolver)", () => {
+  /** An ownership claim — the shape this guard exists to adjudicate. */
+  const FILE_BODY = "no task covers this today";
+  const SPEC_PATH = "docs/spec.md";
+
+  /** Injected reader: the branch under test is by-REFERENCE resolution, not the fs. */
+  const readsBody = (): string => FILE_BODY;
+
+  function editInput(toolInput: Record<string, unknown>): ToolHookInput {
+    return {
+      session_id: "sess-mt4295",
+      tool_name: EDIT_TOOL,
+      tool_input: toolInput,
+    } as unknown as ToolHookInput;
+  }
+
+  test("AT1 — a specFile-only call yields the file's contents, not null", () => {
+    expect(extractAuthoredSpecText(EDIT_TOOL, { specFile: SPEC_PATH }, readsBody)).toBe(FILE_BODY);
+  });
+
+  test("AT1 negative control — the inline key alone cannot see it", () => {
+    // The pre-fix behaviour, asserted directly rather than described: the map that
+    // WAS the whole story maps tasks_edit to `specContent`, and this input has none.
+    const input: Record<string, unknown> = { specFile: SPEC_PATH };
+    expect(input[SPEC_TEXT_FIELD_BY_TOOL["tasks_edit"] as string]).toBeUndefined();
+  });
+
+  test("AT2 — an unreadable specFile is `skipped` with a read-failure reason, never `clean`", () => {
+    // The default reader runs here: a path that does not resolve inside the repo
+    // yields null, which is the miss this reason string has to distinguish.
+    const out = run(editInput({ taskId: "mt#4295", specFile: "docs/absent.md" }), ctxWith([]));
+    expect(out?.calibration?.["outcome"]).toBe("skipped");
+    // The reason must DISTINGUISH the miss from "this call carries no spec" — a
+    // shared string would make lost coverage invisible in the calibration log.
+    expect(out?.calibration?.["reason"]).toBe("spec file named on this call could not be read");
+  });
+
+  test("AT2 — a call carrying no spec at all keeps its own distinct reason", () => {
+    const out = run(editInput({ taskId: "mt#4295" }), ctxWith([]));
+    expect(out?.calibration?.["outcome"]).toBe("skipped");
+    expect(out?.calibration?.["reason"]).toBe("no authored spec text on this call");
+  });
+
+  test("SC4 — a specFile outside the repo is not read", () => {
+    // No injected reader on purpose: this asserts the DEFAULT disk read refuses an
+    // out-of-repo path. A stub here would test the stub.
+    expect(extractAuthoredSpecText(EDIT_TOOL, { specFile: "/etc/hosts" })).toBeNull();
+  });
+
+  test("inline specContent still wins over specFile when both are present", () => {
+    const reads: string[] = [];
+    const text = extractAuthoredSpecText(
+      EDIT_TOOL,
+      { specContent: "inline", specFile: SPEC_PATH },
+      (p) => {
+        reads.push(p);
+        return FILE_BODY;
+      }
+    );
+    expect(text).toBe("inline");
+    // And the file was never opened — the inline form is checked first because it
+    // is both cheaper and the common case.
+    expect(reads).toEqual([]);
   });
 });
