@@ -173,6 +173,61 @@ function hasSourceCodeExtension(token: string): boolean {
 }
 
 /**
+ * Directory names that root this repo's PROGRAM SOURCE.
+ *
+ * The carve-out above keys on the FILE's extension, and a directory argument has
+ * none — so `packages/domain/src/credentials/` fell through to the generic name
+ * match and denied, while `packages/domain/src/credentials/lifecycle.ts` did not
+ * (mt#4581). The extension test that rescues a source file cannot rescue the
+ * directory that holds it.
+ */
+export const SOURCE_ROOT_SEGMENTS: readonly string[] = ["src", "packages", "scripts", "services"];
+
+/**
+ * Extensions that mark a token as a DATA store rather than program source.
+ *
+ * Mirrors the optional extension group in {@link GENERIC_SECRET_NAME_PATTERN} —
+ * these are the extensions that pattern itself treats as credential-store-shaped.
+ * A token under a source root is rescued only when it carries NONE of them,
+ * which is what keeps `packages/domain/src/secrets/prod.yaml` denying while
+ * `packages/domain/src/credentials/` is allowed.
+ */
+export const DATA_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".yaml",
+  ".yml",
+  ".json",
+  ".env",
+  ".txt",
+  ".conf",
+]);
+
+function hasDataExtension(token: string): boolean {
+  const base = token.slice(token.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return DATA_EXTENSIONS.has(base.slice(dot).toLowerCase());
+}
+
+/**
+ * Does this token TRAVERSE one of this repo's source roots?
+ *
+ * Matched at a path-segment boundary rather than anchored at the string start,
+ * because a session workspace is addressed by an ABSOLUTE path
+ * (`/Users/…/sessions/<uuid>/packages/domain/src/credentials/`) and a
+ * start-anchored test would leave the guard denying there — the very context
+ * mt#4581 was filed from.
+ *
+ * Segment-bounded on BOTH sides so a directory merely PREFIXED with a root's
+ * name (`services-archive/`, `srcfoo/`) does not qualify. Note this asks about
+ * one path ARGUMENT, never about the command string: SC3's "names a source
+ * TREE, not mentions a source root somewhere" is the distinction, and scanning
+ * the whole command is what it forbids.
+ */
+export function isUnderSourceRoot(token: string): boolean {
+  return SOURCE_ROOT_SEGMENTS.some((seg) => new RegExp(`(^|/)${seg}/`).test(token));
+}
+
+/**
  * Commands that EMIT file content to stdout. `grep`/`rg` are conditional —
  * see `isEmittingInvocation` — because their count/quiet forms are exactly the
  * safe presence-check this guard steers callers toward.
@@ -336,6 +391,13 @@ export function isSecretPath(token: string): boolean {
   if (EXPLICIT_SECRET_PATH_PATTERNS.some((re) => re.test(token))) return true;
   // The generic name-resemblance pattern alone must not condemn program source.
   if (hasSourceCodeExtension(token)) return false;
+  // ...nor the DIRECTORY that holds it (mt#4581). Conditioned on the extension
+  // as well as the root: a prefix-only test would newly permit
+  // `packages/domain/src/secrets/prod.yaml`, a real credential store sitting
+  // under source. Both checks sit BELOW the explicit list on purpose — the
+  // carve-out narrows GENERIC_SECRET_NAME_PATTERN alone, exactly as mt#3703's
+  // does, so `src/foo/.env` and `packages/.../key.pem` still deny above.
+  if (isUnderSourceRoot(token) && !hasDataExtension(token)) return false;
   return GENERIC_SECRET_NAME_PATTERN.test(token);
 }
 

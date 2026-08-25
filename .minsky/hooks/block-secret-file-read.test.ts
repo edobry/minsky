@@ -33,6 +33,7 @@ import {
   isKeyOnlyJqStage,
   positionalArgs,
   SECRET_DUMPING_CLI_SPECS,
+  isUnderSourceRoot,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -45,6 +46,10 @@ const CTX = {} as DispatchContext;
 
 /** The canonical emitting read of Minsky's own config — used by several suites. */
 const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
+
+/** The canonical value-dumping railway invocation (mt#4570), shared by its own
+ *  block and mt#4581's untouched-siblings check. */
+const RAILWAY_VARIABLES_JSON = "railway variables --json";
 
 // ── Process listings (mt#3850) ──────────────────────────────────────────────
 
@@ -254,7 +259,7 @@ describe("mt#4570 — vendor CLIs that dump env-var values", () => {
   test("isSecretDumpingCliInvocation returns the matching spec", () => {
     const railwaySpec = SECRET_DUMPING_CLI_SPECS.find((s) => s.program === "railway");
     expect(railwaySpec).toBeDefined();
-    expect(isSecretDumpingCliInvocation("railway", tokenize("railway variables --json"))).toBe(
+    expect(isSecretDumpingCliInvocation("railway", tokenize(RAILWAY_VARIABLES_JSON))).toBe(
       railwaySpec ?? null
     );
     expect(isSecretDumpingCliInvocation("railway", tokenize("railway status"))).toBeNull();
@@ -902,6 +907,131 @@ describe("mt#3703 — the two false-positive classes", () => {
 
     test("a pattern-only grep (reading stdin) drops it and finds no file", () => {
       expect(filePathCandidates("grep", ["grep", "credentials"])).toEqual([]);
+    });
+  });
+});
+
+describe("mt#4581 — a SOURCE directory argument is not a secret path", () => {
+  // mt#3703 rescued the source FILE by its extension; a directory argument has
+  // none, so `packages/domain/src/credentials/` still denied. These pin both
+  // directions of the fix — the false positive removed, and the coverage hole a
+  // prefix-only carve-out would have opened.
+
+  /** The command denied verbatim on 2026-08-25, during mt#4486's implementation. */
+  const DENIED_VERBATIM =
+    "grep -rn 'parentTaskId' --include='*.test.ts' " +
+    "src/adapters/shared/commands/config/ packages/domain/src/credentials/";
+
+  describe("AT1 — the regression case", () => {
+    test("the exact denied command is permitted", () => {
+      expect(findSecretReads(DENIED_VERBATIM)).toEqual([]);
+    });
+
+    test("the same directory without an --include filter is permitted", () => {
+      // SC1 says "whether or not it carries an --include filter" — the filter
+      // was incidental to the denial, so pin the bare form too.
+      expect(findSecretReads("grep -rn 'x' packages/domain/src/credentials/")).toEqual([]);
+    });
+
+    test("an ABSOLUTE session-workspace path is permitted", () => {
+      // Why isUnderSourceRoot matches at a segment boundary rather than at the
+      // string start: session workspaces are addressed absolutely, and that is
+      // the context this task was filed from.
+      expect(
+        findSecretReads(
+          "grep -rn 'x' /Users/e/.local/state/minsky/sessions/abc/packages/domain/src/credentials/"
+        )
+      ).toEqual([]);
+    });
+  });
+
+  describe("AT2 — the positive control", () => {
+    test("a real secret file still denies", () => {
+      // Without this, the fix would pass just as well if the whole check were
+      // disabled.
+      expect(findSecretReads(CAT_MINSKY_CONFIG).length).toBe(1);
+    });
+  });
+
+  describe("AT3 — negative controls: a DATA file under a source root still denies", () => {
+    // The hole a prefix-only carve-out would have opened. Neither case is
+    // covered by mt#3703's bare `secrets/prod.yaml` test, which carries no
+    // source-root prefix and so would have kept passing over the hole.
+    test.each([
+      ["cat packages/domain/src/secrets/prod.yaml", "prod.yaml"],
+      ["grep -rn 'x' src/credentials/fixtures/creds.json", "creds.json"],
+      ["cat services/reviewer/src/secrets/token.txt", "token.txt"],
+    ])("%s still denies", (command, expectedPath) => {
+      const hits = findSecretReads(command);
+      expect(hits.length).toBe(1);
+      expect(hits[0]?.path).toContain(expectedPath);
+    });
+
+    test("the explicit list still denies from under a source root", () => {
+      // The carve-out narrows GENERIC_SECRET_NAME_PATTERN alone; the explicit
+      // patterns are evaluated first and are unaffected (SC3).
+      expect(findSecretReads("cat src/foo/.env").length).toBe(1);
+      expect(findSecretReads("cat packages/domain/src/credentials/key.pem").length).toBe(1);
+    });
+  });
+
+  describe("AT4 — mt#3703's behaviour is unregressed", () => {
+    test("a source file under credentials/ is still permitted", () => {
+      expect(findSecretReads("grep -rn 'x' packages/domain/src/credentials/lifecycle.ts")).toEqual(
+        []
+      );
+    });
+
+    test("a data file under a NON-source secrets/ directory still denies", () => {
+      expect(findSecretReads("cat secrets/prod.yaml").length).toBe(1);
+    });
+  });
+
+  describe("isUnderSourceRoot — the discriminator in isolation", () => {
+    test("matches a source root at a path-segment boundary", () => {
+      expect(isUnderSourceRoot("packages/domain/src/credentials/")).toBe(true);
+      expect(isUnderSourceRoot("src/credentials/")).toBe(true);
+      expect(isUnderSourceRoot("/abs/path/services/reviewer/src/")).toBe(true);
+      expect(isUnderSourceRoot("scripts/foo/")).toBe(true);
+    });
+
+    test("a directory merely PREFIXED with a root's name does not qualify", () => {
+      expect(isUnderSourceRoot("services-archive/credentials/")).toBe(false);
+      expect(isUnderSourceRoot("srcfoo/credentials/")).toBe(false);
+    });
+
+    test("a token naming no source root does not qualify", () => {
+      expect(isUnderSourceRoot("docs/credentials/")).toBe(false);
+      expect(isUnderSourceRoot("~/.config/minsky/")).toBe(false);
+    });
+  });
+
+  describe("isSecretPath — the discriminator in isolation", () => {
+    test("a source-tree directory escapes only the generic pattern", () => {
+      expect(isSecretPath("packages/domain/src/credentials/")).toBe(false);
+      expect(isSecretPath("packages/domain/src/credentials")).toBe(false);
+      // ...but a data extension under the same root does not escape.
+      expect(isSecretPath("packages/domain/src/secrets/prod.yaml")).toBe(true);
+    });
+
+    test("the accepted residual: a source-root-less directory still matches", () => {
+      // Named in the spec's "Known residual, accepted" — widening the root list
+      // is a separate change with its own false-positive surface.
+      expect(isSecretPath("docs/credentials/")).toBe(true);
+    });
+  });
+
+  describe("the other three checks are untouched", () => {
+    test("the secret-emitting script check still denies", () => {
+      expect(findSecretScriptInvocations("bun scripts/drizzle-config-loader.ts").length).toBe(1);
+    });
+
+    test("the argv-column process listing still denies", () => {
+      expect(findProcessListingReads("ps -eo command").length).toBe(1);
+    });
+
+    test("the vendor-CLI env dump still denies", () => {
+      expect(findSecretDumpingCliReads(RAILWAY_VARIABLES_JSON).length).toBe(1);
     });
   });
 });
