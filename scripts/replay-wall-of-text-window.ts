@@ -201,8 +201,17 @@ function replaySession(sessionId: string, lines: TranscriptLine[]): TurnMetrics[
     const prose = collectTurnProse(turnLines, finalText);
     const sumWords = prose.totalWords;
     const maxWords = prose.largestBlockWords;
+    // PR #3317 R1 (BLOCKING): `indexOf(maxWords)` searches the TRANSCRIPT blocks
+    // only. In the ADR-031 lag case the largest block can be the recorded final
+    // text, which is not among them — `indexOf` then returns -1 and a
+    // `Math.max(0, …)` floor silently showed the FIRST block labelled as the
+    // largest. Same lag case mt#4531's counting fix addressed; this display path
+    // was the sibling site (class-not-instance).
     const perBlock = texts.map(countWords);
-    const largestIdx = Math.max(0, perBlock.indexOf(maxWords));
+    const transcriptLargest = perBlock.length > 0 ? Math.max(...perBlock) : 0;
+    const largestIsRecordedOnly = maxWords > transcriptLargest;
+    const largestIdx = largestIsRecordedOnly ? -1 : perBlock.indexOf(maxWords);
+    const largestSource = largestIsRecordedOnly ? finalText : (texts[largestIdx] ?? "");
 
     const depth = resolveDepthCheck(prefix);
     const question = resolveQuestionAnswerCheck(prefix);
@@ -223,7 +232,7 @@ function replaySession(sessionId: string, lines: TranscriptLine[]): TurnMetrics[
       firesMax: maxWords >= WORD_COUNT_THRESHOLD,
       suppressed: suppressionReasons.length > 0,
       suppressionReasons,
-      largestBlockLead: safeTruncate((texts[largestIdx] ?? "").replace(/\s+/g, " "), 220, "head"),
+      largestBlockLead: safeTruncate(largestSource.replace(/\s+/g, " "), 220, "head"),
       reactionText: promptTextOf(lines[closingIdx]),
       reactionAt: (lines[closingIdx] as { timestamp?: string } | undefined)?.timestamp,
     });
@@ -402,25 +411,32 @@ export function reportSuppressionAccuracy(all: TurnMetrics[], applyCutoff: boole
     return !Number.isNaN(ms) && ms >= cutoffMs;
   };
 
-  const firing = all.filter((t) => t.firesMax && inWindow(t));
-  const by = (pred: (t: TurnMetrics) => boolean) => firing.filter(pred);
+  // PR #3317 R1 (BLOCKING): a turn with NO reacting prompt text can never be a
+  // candidate but was still counted in the denominator, biasing every rate
+  // downward — and unevenly, since harness-opened turns are not spread evenly
+  // across the populations. Excluded here and REPORTED, because a silently
+  // narrowed corpus is the failure this whole script exists to avoid.
+  const hasReaction = (t: TurnMetrics): boolean => t.reactionText.trim().length > 0;
+  const windowed = all.filter(inWindow);
+  const droppedNoReaction = windowed.length - windowed.filter(hasReaction).length;
+  const scored = windowed.filter(hasReaction);
 
+  const firing = scored.filter((t) => t.firesMax);
+  const depth = (t: TurnMetrics) => t.suppressionReasons.includes("depth-request-override");
+  const qa = (t: TurnMetrics) => t.suppressionReasons.includes("question-answer-override");
+
+  // PR #3317 R1 (BLOCKING): the first cut counted a BOTH-gates turn in the
+  // depth population and excluded it from the question-answer one, so the two
+  // were not comparable — and the asymmetry sat on exactly the axis the finding
+  // rests on. The suppressed populations are now DISJOINT, with the both-gates
+  // row reported rather than folded into either.
   const populations: Array<[string, TurnMetrics[]]> = [
-    [
-      "suppressed: depth-request",
-      by((t) => t.suppressionReasons.includes("depth-request-override")),
-    ],
-    [
-      "suppressed: question-answer",
-      by(
-        (t) =>
-          t.suppressionReasons.includes("question-answer-override") &&
-          !t.suppressionReasons.includes("depth-request-override")
-      ),
-    ],
-    ["DELIVERED (reminder injected)", by((t) => !t.suppressed)],
+    ["suppressed: depth-request only", firing.filter((t) => depth(t) && !qa(t))],
+    ["suppressed: question-answer only", firing.filter((t) => qa(t) && !depth(t))],
+    ["suppressed: BOTH gates", firing.filter((t) => depth(t) && qa(t))],
+    ["DELIVERED (reminder injected)", firing.filter((t) => !t.suppressed)],
   ];
-  const control = all.filter((t) => !t.firesMax && inWindow(t));
+  const control = scored.filter((t) => !t.firesMax);
 
   process.stdout.write(
     `\n=== suppression accuracy (mt#4540) ===\n` +
@@ -428,6 +444,13 @@ export function reportSuppressionAccuracy(all: TurnMetrics[], applyCutoff: boole
       `\nlength-complaint CANDIDATES in the principal's reacting prompt.\n` +
       `These are NOT classified results — read each context below before quoting a rate.\n\n`
   );
+
+  if (droppedNoReaction > 0) {
+    process.stdout.write(
+      `  NOTE: ${droppedNoReaction} in-window turn(s) had no readable reacting prompt and are\n` +
+        `        excluded from every denominator below — not counted as "no complaint".\n\n`
+    );
+  }
 
   let suppressedCandidates = 0;
   for (const [label, set] of populations) {
