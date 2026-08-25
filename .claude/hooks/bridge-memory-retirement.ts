@@ -385,9 +385,10 @@ export function buildReminder(taskId: string, candidates: MemoryRecordLite[]): s
  *
  * Paths that emit no context: non-matching tool, failed result, not a DONE
  * transition, override env var set, lookup failure, or no bridge candidates
- * found. Only the last of those is genuinely silent — an override logs to
- * stdout and a lookup failure logs to stderr, so the two states that used to
- * be indistinguishable now report differently.
+ * found. Only the last of those is genuinely silent — an override and a
+ * lookup failure both log to stderr, so the two states that used to be
+ * indistinguishable now report differently. Nothing on any path writes to
+ * stdout except `writeOutput`'s single JSON object.
  *
  * Exported for testability with injectable deps.
  */
@@ -401,7 +402,13 @@ export function decide(
   // Override env var: suppress with audit log.
   const override = process.env[OVERRIDE_ENV_VAR];
   if (override === "1" || override === "true" || override === "yes") {
-    process.stdout.write(
+    // stderr, not stdout. `types.ts` states the contract: "Claude Code
+    // discards a hook's ENTIRE output when stdout carries anything besides
+    // the single JSON object, which silently voids even a different guard's
+    // `deny`" (mt#3625). This branch returns null so it emits no JSON of its
+    // own, but a bare line on stdout is a hazard regardless, and it was the
+    // one path in this file still inconsistent with that rule.
+    process.stderr.write(
       `[bridge-memory-retirement] override active (${OVERRIDE_ENV_VAR}=${override}) — skipping\n`
     );
     return null;

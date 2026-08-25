@@ -77,6 +77,22 @@ function doneInput(taskId: string): ToolHookInput {
   } as unknown as ToolHookInput;
 }
 
+/** Capture everything written to stdout while `fn` runs. */
+function captureStdout(fn: () => void): string {
+  const chunks: string[] = [];
+  const original = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    fn();
+  } finally {
+    process.stdout.write = original;
+  }
+  return chunks.join("");
+}
+
 /** Capture everything written to stderr while `fn` runs. */
 function captureStderr(fn: () => void): string {
   const chunks: string[] = [];
@@ -262,15 +278,29 @@ describe("decide fail-open contract (AT2)", () => {
     expect(reminder).toContain("bridge_thing");
   });
 
-  test("stays silent when the override env var is set", () => {
+  test("emits no context when the override env var is set, and audits to stderr not stdout", () => {
     const prior = process.env[OVERRIDE_ENV_VAR];
     process.env[OVERRIDE_ENV_VAR] = "1";
+    let out: string | null = "unset";
+    let stderr = "";
     try {
-      const out = decide(doneInput("mt#1"), () => ({
-        ok: true,
-        candidates: [{ id: "m", name: "n", description: "", content: "" }],
-      }));
+      const stdout = captureStdout(() => {
+        stderr = captureStderr(() => {
+          out = decide(doneInput("mt#1"), () => ({
+            ok: true,
+            candidates: [{ id: "m", name: "n", description: "", content: "" }],
+          }));
+        });
+      });
       expect(out).toBeNull();
+
+      // stdout carries ONLY the HookOutput JSON object. `types.ts`: "Claude
+      // Code discards a hook's ENTIRE output when stdout carries anything
+      // besides the single JSON object, which silently voids even a different
+      // guard's `deny`" (mt#3625). This branch emits no JSON, so stdout must
+      // be completely empty.
+      expect(stdout).toBe("");
+      expect(stderr).toContain("override active");
     } finally {
       if (prior === undefined) delete process.env[OVERRIDE_ENV_VAR];
       else process.env[OVERRIDE_ENV_VAR] = prior;
