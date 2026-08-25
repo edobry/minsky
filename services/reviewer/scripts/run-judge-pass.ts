@@ -53,6 +53,7 @@ import {
   type JudgeModelConfig,
   type JudgeResult,
 } from "../src/judge";
+import type { FindingVerdict } from "../src/eval-metrics";
 import { resolveProviderApiKey } from "./paired-eval-runner";
 
 // ---------------------------------------------------------------------------
@@ -168,6 +169,34 @@ interface JudgePassArtifact {
   disagreementCount: number;
   panel: string[];
   disagreementSubset: CorpusRow[];
+  /**
+   * Per-row judge verdicts, keyed by corpus row id (mt#2746).
+   *
+   * The panel already computes a verdict AND a one-line rationale per judge —
+   * `JudgeResult.perJudge[]` carries both — but until now the runner printed
+   * them to stdout and wrote only the selected CorpusRows. That made the
+   * artifact unable to answer the two questions its consumer asks: WHY was a
+   * row selected, and what did each judge actually say. Recomputing meant
+   * re-running the whole panel (114 rows x 3 models), so the data was
+   * effectively lost at write time.
+   *
+   * Deliberately keyed by id rather than positional: `disagreementSubset` is a
+   * FILTERED list, so its indices do not line up with the judged candidates,
+   * and a positional join would silently mis-pair rows with verdicts.
+   *
+   * NOT pushed to the human-labeling UI. Showing a labeler that the panel said
+   * NOISE anchors their label, and an anchored human reference inflates the
+   * very kappa it exists to measure — the gold set has to be blind. This lives
+   * in the committed repo artifact and is joined by id at scoring time.
+   */
+  judgeVerdicts: Record<
+    string,
+    {
+      aggregate: FindingVerdict;
+      agreement: boolean;
+      perJudge: { provider: string; model: string; verdict: FindingVerdict; rationale: string }[];
+    }
+  >;
   errors: string[];
 }
 
@@ -271,6 +300,27 @@ async function main() {
 
   const disagreementSubset = findDisagreementWeightedSubset(candidates, judgeResults);
 
+  // Persist what the panel actually said, keyed by row id (mt#2746). Built
+  // from the SAME index alignment findDisagreementWeightedSubset relies on —
+  // the error path above pushes a placeholder precisely to keep it — so the
+  // pairing here is the one the selection already trusted.
+  const judgeVerdicts: JudgePassArtifact["judgeVerdicts"] = {};
+  for (let i = 0; i < Math.min(candidates.length, judgeResults.length); i++) {
+    const row = candidates[i];
+    const result = judgeResults[i];
+    if (row === undefined || result === undefined) continue;
+    judgeVerdicts[row.id] = {
+      aggregate: result.verdict,
+      agreement: result.agreement,
+      perJudge: result.perJudge.map((j) => ({
+        provider: String(j.provider),
+        model: j.model,
+        verdict: j.verdict,
+        rationale: j.rationale,
+      })),
+    };
+  }
+
   const artifact: JudgePassArtifact = {
     runStartedAt,
     corpusPath: args.corpusPath,
@@ -280,6 +330,7 @@ async function main() {
     disagreementCount: disagreementSubset.length,
     panel: configs.map((c) => `${c.provider}:${c.model}`),
     disagreementSubset,
+    judgeVerdicts,
     errors,
   };
 
