@@ -61,7 +61,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           return null;
         }),
         getTaskStatus: mock(async () => "TODO"),
-        setTaskStatus: mock(async () => {}),
+        setTaskStatus: mock(async () => ({ recordsAffected: 1 })),
         getWorkspacePath: mock(() => "/test/workspace"),
         createTask: mock(async () => ({ id: "md#999", title: "Test Task" })),
         createTaskFromTitleAndSpec: mock(async () => ({ id: "md#999", title: "Test Task" })),
@@ -101,7 +101,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
         }),
         listTasks: mock(async () => []),
         getTaskStatus: mock(async () => "TODO"),
-        setTaskStatus: mock(async () => {}),
+        setTaskStatus: mock(async () => ({ recordsAffected: 1 })),
         getWorkspacePath: mock(() => "/test/workspace"),
         createTask: mock(async () => ({ id: "md#999", title: "Test Task" })),
         createTaskFromTitleAndSpec: mock(async () => ({ id: "md#999", title: "Test Task" })),
@@ -221,7 +221,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           },
         ]),
         getTaskStatus: mock(async () => "TODO"),
-        setTaskStatus: mock(async () => {}),
+        setTaskStatus: mock(async () => ({ recordsAffected: 1 })),
         getWorkspacePath: mock(() => "/test/workspace"),
         createTask: mock(async () => ({ id: qualifiedId, title: "Test Task" })),
         createTaskFromTitleAndSpec: mock(async () => ({

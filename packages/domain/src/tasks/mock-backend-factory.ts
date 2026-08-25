@@ -32,6 +32,9 @@ function bridgeToTaskBackend(backend: MultiBackendTaskBackend): TaskBackend {
     },
     setTaskStatus: async (id, status) => {
       await backend.updateTask(id, { status });
+      // mt#4457: `updateTask` throws on failure, so reaching here means the one
+      // addressed task was updated.
+      return { recordsAffected: 1 };
     },
     createTaskFromTitleAndSpec: async (title, spec, options) => {
       const mockSpec: TaskSpec = {

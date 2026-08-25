@@ -67,7 +67,7 @@ export function createTestContainer(overrides: Partial<AppServices> = {}): AppCo
       listTasks: async () => [],
       getTask: async () => null,
       getTaskStatus: async () => undefined,
-      setTaskStatus: async () => {},
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       createTask: async () => ({ id: "mt#1", title: "test", status: "TODO" }) as any,
       createTaskFromTitleAndSpec: async () =>
         ({ id: "mt#1", title: "test", status: "TODO" }) as any,

@@ -34,7 +34,7 @@ function makeStubTaskService(
     getTask: async () => null,
     getTasks: async () => [],
     getTaskStatus: async () => undefined,
-    setTaskStatus: async () => {},
+    setTaskStatus: async () => ({ recordsAffected: 1 }),
     createTaskFromTitleAndSpec:
       createTaskMock ??
       (async () => ({ id: "#test", title: "Test", status: "TODO" }) as unknown as Task),

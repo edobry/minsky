@@ -62,7 +62,9 @@ function fakeBackend(tasks: Task[] = []): TaskBackend {
     async getTaskStatus(taskId: string) {
       return tasks.find((t) => t.id === taskId)?.status;
     },
-    async setTaskStatus() {},
+    async setTaskStatus() {
+      return { recordsAffected: 1 };
+    },
     async createTaskFromTitleAndSpec() {
       throw new Error("not used");
     },

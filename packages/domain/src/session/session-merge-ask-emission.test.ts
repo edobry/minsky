@@ -304,7 +304,7 @@ describe("mergeSessionPr → quality.review Ask emission (mt#1475 SC#4)", () => 
     } as any;
 
     const stubTaskService = {
-      setTaskStatus: async () => undefined,
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       getTaskStatus: async () => "IN-REVIEW",
     } as any;
 
