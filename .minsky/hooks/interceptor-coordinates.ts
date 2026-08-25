@@ -559,6 +559,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["operator-deferral-ask-surface", lexicalRecorder],
   ["operator-deferral-detector", lexicalRecorder],
   ["pre-narration-detector", lexicalDetector],
+  ["secret-request-in-chat-detector", lexicalRecorder],
   [
     "record-agent-dispatch",
     {

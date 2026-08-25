@@ -59,10 +59,10 @@ larger than a subtraction from 60 suggests.
 
 | Bucket         | Count   |
 | -------------- | ------- |
-| already-domain | 10      |
+| already-domain | 11      |
 | movable        | 84      |
 | immovable      | 79      |
-| **total**      | **173** |
+| **total**      | **174** |
 
 Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
@@ -127,7 +127,7 @@ decision inline — `code-mechanism-assertion-detector.ts` does exactly that acr
 domain call covers one of its surfaces rather than its decision. Recording it as already-domain would
 overstate the baseline in exactly the way this document exists to correct.
 
-## already-domain (10)
+## already-domain (11)
 
 The hook module parses, calls, and relays; the verdict is a domain function. This is the shape
 mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "the thin adapter".
@@ -141,6 +141,7 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `flakiness-control-detector.ts`        | dispatcher-guard | `detectFlakinessAttribution (detectors/flakiness-attribution)`       | side-effecting (injector+recorder)            | plant |
 | `negative-existence-claim-detector.ts` | dispatcher-guard | `detectNegativeExistenceClaim (detectors/negative-existence-claim)`  | side-effecting (recorder)                     | plant |
 | `post-merge-unasked-direction-scan.ts` | standalone-hook  | `UnaskedDirectionAnalyzer (detectors/unasked-direction-analyzer)`    | decides-only (derived: no fs write, no spawn) | plant |
+| `secret-request-in-chat-detector.ts`   | dispatcher-guard | `detectSecretRequestInProse (detectors/secret-request-in-chat)`      | side-effecting (recorder)                     | plant |
 | `spec-criterion-claim-detector.ts`     | dispatcher-guard | `detectSpecCriterionClaims (detectors/spec-criterion-claim)`         | side-effecting (recorder)                     | plant |
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
@@ -402,6 +403,7 @@ requires the grep figure to be carried as a cross-check with its divergences nam
 | `record-subagent-invocation.ts`               | movable        | yes         |
 | `require-deploy-verification-before-merge.ts` | movable        | no          |
 | `retrospective-trigger-scanner.ts`            | movable        | yes         |
+| `secret-request-in-chat-detector.ts`          | already-domain | —           |
 | `spec-criterion-claim-detector.ts`            | already-domain | —           |
 | `stale-signal-sweep.ts`                       | movable        | yes         |
 | `stamp-pr-author-link.ts`                     | movable        | yes         |

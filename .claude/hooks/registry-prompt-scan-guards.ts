@@ -44,7 +44,12 @@
 // this split resolves (mt#4115).
 
 import { advisoryEffect, recorderEffect } from "./registry-effects";
-import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
+import {
+  userPromptLine,
+  toolUseLine,
+  toolResultLine,
+  assistantTextLine,
+} from "./canary-transcript";
 import type { GuardRegistration } from "./registry";
 
 export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
@@ -280,6 +285,41 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
         toolUseLine("toolu_canary_artifact", "mcp__minsky__tasks_create", {
           spec: "There are zero production call sites for the progress mechanism mt#2677 shipped.",
         }),
+        userPromptLine("second turn"),
+      ],
+      expects: "calibration",
+    },
+  },
+  {
+    // mt#2428. Full contract in the module's header; matcher in
+    // `packages/domain/src/detectors/secret-request-in-chat.ts`.
+    name: "secret-request-in-chat-detector",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./secret-request-in-chat-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./secret-request-in-chat-detector").then((m) => m.renderWorstCase()),
+    timeoutMs: 10000,
+    calibrationLog: "secret-request-in-chat",
+    denyCapable: false,
+    needsTranscript: true,
+    // MEASURED via `renderProbe`. The match axis is UNCAPPED — one line per
+    // matched pattern per surface — so this is a saturated sample, not a proved
+    // ceiling (`render-probe-sample`), and a cap is owed before injection is
+    // ever enabled.
+    attentionCost: { denialMessageSizeChars: 1700, optionCount: 2 },
+    // Calibration-first: asserts `calibration`, not additionalContext, so a
+    // later INJECTION_ENABLED flip gains an outcome rather than breaking this.
+    //
+    // The canary sentence is a DEPOSIT verb with no describing frame and no
+    // negation, so it exercises the fire path rather than a suppression — the
+    // suppressions have their own unit tests, and a canary that silently
+    // suppressed would assert nothing.
+    canary: {
+      input: { transcript_path: "mt2428-canary-transcript" },
+      transcriptLines: [
+        userPromptLine("first turn"),
+        assistantTextLine("Paste your bot token here and I'll wire up the sink."),
         userPromptLine("second turn"),
       ],
       expects: "calibration",
