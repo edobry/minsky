@@ -234,6 +234,19 @@ describe("mt#4591 — AT2: a glob matches by its actual pattern, not a prefix", 
     expect(pathIsCovered("src/**/x.ts", ["src/unrelated/deep/z.md"])).toBe(false);
   });
 
+  // PR #3351 R2 asserted that `**/` compiles to at-most-ONE directory and so
+  // could not match `src/a/b/x.ts`. Verified false: `.` matches `/` in a JS
+  // regex, so `(?:.*/)?` already spans any depth. Pinning the semantics with a
+  // test rather than answering the finding with an argument — the claim is
+  // reasonable on the face of the fragment, and a test is what makes the next
+  // reader's version of it cheap to settle.
+  test("`**/` spans zero or MORE directories, at any depth", () => {
+    expect(pathIsCovered("src/**/x.ts", ["src/a/b/x.ts"])).toBe(true);
+    expect(pathIsCovered("src/**/x.ts", ["src/a/b/c/d/x.ts"])).toBe(true);
+    expect(pathIsCovered("a/**/b/**/c.ts", ["a/one/two/b/three/four/c.ts"])).toBe(true);
+    expect(pathIsCovered("a/**/b/**/c.ts", ["a/one/two/c.ts"])).toBe(false);
+  });
+
   test("a single-segment star does not cross a directory boundary", () => {
     expect(pathIsCovered("src/*-gen/a.ts", ["src/proto-gen/a.ts"])).toBe(true);
     expect(pathIsCovered("src/*-gen/a.ts", ["src/proto-gen/nested/a.ts"])).toBe(false);
