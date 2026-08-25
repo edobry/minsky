@@ -430,4 +430,34 @@ describe.skipIf(!GATED)("answered-ask wake against a real Postgres (mt#4476 AT3)
     expect(snapshot?.[askId]).toMatchObject({ found: true, state: "responded" });
     expect(snapshot?.[askId]).toHaveProperty("wakeDeliveredAt");
   }, 180_000);
+
+  test("a drained SESSION-keyed row does not suppress the prompt seam (mt#4517 AT3)", async () => {
+    const db = await getDb();
+    void db;
+    const askId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+    await conn()`
+      INSERT INTO asks (id, state, short_id, title, responded_at, response)
+      VALUES (${askId}::uuid, 'responded', 'ask#2', 'title',
+              now(), ${JSON.stringify({ responder: "operator", payload: "yes" })}::jsonb)`;
+    // Delivered to a WORKSPACE SESSION, not to a conversation. The prompt-seam hook runs
+    // in a conversation, so this delivery reached a different addressee entirely and is
+    // no reason to suppress that seam's notice.
+    await conn()`
+      INSERT INTO wake_pending (ask_id, parent_session_id, payload_json, drained_at)
+      VALUES (${askId}, ${"11111111-1111-4111-8111-111111111111"}, '{}'::jsonb, now())`;
+
+    const adapter: UnsafeSql = {
+      unsafe: async (query, params) =>
+        (await conn().unsafe(query, params as never)) as Array<Record<string, unknown>>,
+    };
+
+    const snapshot = await buildAskStateSnapshot(adapter, [askId]);
+
+    // Found and answered, but NOT marked wake-delivered — so inject-ask-responses.ts
+    // will announce it. Before mt#4517 this row set wakeDeliveredAt and the answer was
+    // lost at both seams at once.
+    expect(snapshot?.[askId]).toMatchObject({ found: true, state: "responded" });
+    expect(snapshot?.[askId]).not.toHaveProperty("wakeDeliveredAt");
+  }, 180_000);
 });
