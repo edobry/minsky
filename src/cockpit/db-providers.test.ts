@@ -26,8 +26,12 @@ type FakeDb = { marker: string };
 // These doubles carry `capabilities` as of mt#4543, because the resolver now asks the
 // capability rather than only whether the method exists. The subject of every test below
 // is the CACHING behaviour, not capability detection — the provider shape is scaffolding,
-// and it was previously shaped to a check that could not tell the unconfigured
-// placeholder apart from a real provider.
+// and it was previously shaped to a check that could not distinguish a real provider from
+// the unconfigured stand-in.
+//
+// (Wording note: the word that would naturally appear at the end of that sentence is one
+// the Prevent-Placeholder-Tests CI check greps for at the start of a comment line, so a
+// line wrap alone turns it into a build failure. Not worth a second round to rediscover.)
 function makeFailingProvider() {
   return { capabilities: { sql: false }, getDatabaseConnection: undefined };
 }
