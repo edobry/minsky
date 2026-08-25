@@ -31,6 +31,7 @@ import {
   findSecretDumpingCliReads,
   isSecretDumpingCliInvocation,
   isKeyOnlyJqStage,
+  positionalArgs,
   SECRET_DUMPING_CLI_SPECS,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
@@ -70,6 +71,9 @@ const RAILWAY_INCIDENT_COMMAND = "railway variables --json";
  * callers straight onto the unsafe form the incident used.
  */
 const RAILWAY_SAFE_COMMAND = "railway variables --service minsky-reviewer --json | jq -r 'keys[]'";
+
+/** A value-LESS global flag before the noun — must not consume the next token. */
+const RAILWAY_VALUELESS_FLAG_COMMAND = "railway --json variable list";
 
 describe("mt#4570 — vendor CLIs that dump env-var values", () => {
   test("denies the verbatim railway incident command", () => {
@@ -165,6 +169,54 @@ describe("mt#4570 — vendor CLIs that dump env-var values", () => {
     ]) {
       expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
     }
+  });
+
+  test("a value-taking flag before the noun does not shift it out of position", () => {
+    // PR #3336 R1 (BLOCKING): `filter(t => !t.startsWith("-"))` treats a flag's
+    // VALUE as a positional, so the noun lands at index 1 and matches nothing —
+    // a silent BYPASS, not a cosmetic parsing gap. Every value-taking flag from
+    // `railway variable --help` is covered here, in both spellings.
+    for (const cmd of [
+      "railway -s api variable list",
+      "railway --service api variable list",
+      "railway -e production variable list",
+      "railway --environment production variable list",
+      "railway -p proj-id variable list",
+      "railway --project proj-id variable list",
+      "railway -s api -e production variable list",
+      "railway --service api --json variables",
+      // attached form: the value rides on the flag token, nothing to skip
+      "railway --service=api variable list",
+      // `--` ends flag parsing
+      "railway --service api -- variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("the flag-value skip does not swallow the noun itself", () => {
+    // The inverse risk of the fix: over-consuming a token would make the guard
+    // blind. A value-less flag must NOT eat the next token.
+    expect(findSecretDumpingCliReads(RAILWAY_VALUELESS_FLAG_COMMAND).length).toBeGreaterThan(0);
+    expect(findSecretDumpingCliReads("railway -k variable list").length).toBeGreaterThan(0);
+    // ...and a safe verb is still reached through a value-taking flag.
+    expect(findSecretDumpingCliReads("railway --service api variable set A=b")).toEqual([]);
+  });
+
+  test("positionalArgs skips flag values, not positionals", () => {
+    const valueFlags = new Set(["-s", "--service"]);
+    expect(positionalArgs(tokenize("railway -s api variable list"), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+    expect(positionalArgs(tokenize("railway --service=api variable list"), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+    expect(positionalArgs(tokenize(RAILWAY_VALUELESS_FLAG_COMMAND), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
   });
 
   test("an unrecognised verb is treated as dumping (fail-closed)", () => {

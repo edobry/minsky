@@ -848,6 +848,20 @@ interface SecretDumpingCliSpec {
   readonly safeVerbs: ReadonlySet<string>;
   /** Human-readable name for the denial message. */
   readonly label: string;
+  /**
+   * Flags that consume the NEXT token as their value.
+   *
+   * Without these, a flag's value is misread as a positional and shifts the
+   * noun out of position — `railway -s api variable list` parses as
+   * noun=`api`, which matches nothing and silently ALLOWS the dump. Enumerate
+   * from the CLI's own `--help`; a flag missing here is a bypass, not a
+   * cosmetic gap. (PR #3336 R1, BLOCKING.)
+   */
+  readonly valueFlags: ReadonlySet<string>;
+  /** Vendor-specific lines for the denial message, so it is not Railway-hardcoded. */
+  readonly denialNotes: readonly string[];
+  /** The safe, value-suppressing form to recommend for this CLI. */
+  readonly safeForms: readonly string[];
 }
 
 /**
@@ -889,6 +903,27 @@ export const SECRET_DUMPING_CLI_SPECS: readonly SecretDumpingCliSpec[] = [
     nouns: new Set(["variable", "variables"]),
     safeVerbs: new Set(["set", "delete", "rm", "remove", "help"]),
     label: "Railway service variables",
+    // Enumerated from `railway variable --help`, 2026-08-25.
+    valueFlags: new Set([
+      "-s",
+      "--service",
+      "-e",
+      "--environment",
+      "-p",
+      "--project",
+      "--set",
+      "--set-from-stdin",
+    ]),
+    denialNotes: [
+      "The vendor says so itself. `railway variable --help` carries an Automation",
+      'notes section: "JSON and KV output include raw variable values. Avoid',
+      'sharing command output from secret-bearing variable commands." There is no',
+      "keys-only flag — `--json` and `-k`/`--kv` both render raw values.",
+    ],
+    safeForms: [
+      "railway variable list --json | jq -r 'keys[]'",
+      "railway variable list --json | jq -r 'keys | length'",
+    ],
   },
 ];
 
@@ -970,6 +1005,39 @@ export function isValueSuppressingStage(program: string, tokens: string[]): bool
   return isNonEmittingSink(program, tokens) || isKeyOnlyJqStage(program, tokens);
 }
 
+/**
+ * The POSITIONAL arguments of a command, skipping flags AND their values.
+ *
+ * A naive `filter(t => !t.startsWith("-"))` treats a flag's value as a
+ * positional, which shifts every later positional left by one. That is a
+ * silent BYPASS rather than a parsing nicety: `railway -s api variable list`
+ * yields noun=`api`, matches no spec, and the dump is allowed.
+ *
+ * `--flag=value` needs no skip — the value rides on the flag token. A bare
+ * `--` terminator ends flag parsing entirely.
+ */
+export function positionalArgs(tokens: string[], valueFlags: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  const args = tokens.slice(1);
+  let flagsDone = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const t = args[i];
+    if (t === undefined) continue;
+    if (!flagsDone && t === "--") {
+      flagsDone = true;
+      continue;
+    }
+    if (!flagsDone && t.startsWith("-") && t !== "-") {
+      if (t.includes("=")) continue; // `--service=api` carries its own value
+      if (valueFlags.has(t)) i++; // consume the flag's VALUE
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
+}
+
 /** Would this invocation print environment-variable values? */
 export function isSecretDumpingCliInvocation(
   program: string,
@@ -978,8 +1046,7 @@ export function isSecretDumpingCliInvocation(
   const spec = SECRET_DUMPING_CLI_SPECS.find((s) => s.program === program);
   if (!spec) return null;
 
-  // Positional arguments only — flags may appear before the subcommand.
-  const positionals = tokens.slice(1).filter((t) => !t.startsWith("-"));
+  const positionals = positionalArgs(tokens, spec.valueFlags);
   const noun = positionals[0];
   if (noun === undefined || !spec.nouns.has(noun)) return null;
 
@@ -1137,22 +1204,18 @@ export function buildDenialReason(hits: SecretReadHit[]): string {
       "Blocked command(s) — this CLI prints every variable WITH its value:",
       cliDumpHits.map((h) => `  - ${h.reader} (${h.path})`).join("\n"),
       "",
-      "The vendor says so itself. `railway variable --help` carries an Automation",
-      'notes section: "JSON and KV output include raw variable values. Avoid',
-      'sharing command output from secret-bearing variable commands." There is no',
-      "keys-only flag — `--json` and `-k`/`--kv` both render raw values.",
-      "",
+      // Vendor-specific lines come from the matched spec(s), so adding a CLI
+      // does not leave the denial talking about Railway (PR #3336 R1).
+      ...cliDumpSpecsFor(cliDumpHits).flatMap((s) => [...s.denialNotes, ""]),
       "Project the keys, which is ALLOWED and is the recommended form:",
-      "  railway variable list --json | jq -r 'keys[]'",
-      "  railway variable list --json | jq -r 'keys | length'",
+      ...cliDumpSpecsFor(cliDumpHits).flatMap((s) => s.safeForms.map((f) => `  ${f}`)),
       "",
       "If a keys-only run came back empty, do NOT re-run it without the filter to",
       "see the error — that is how this channel leaked on 2026-08-25. Show stderr",
-      "and KEEP the filter:",
-      "  railway variable list --service <name> --json | jq -r 'keys[]'",
+      "and KEEP the filter, then read the error above the key list.",
       "",
       "To read ONE value without rendering it, assign it instead of printing:",
-      "  V=$(railway variable list --json | jq -r '.SOME_KEY'); [ -n \"$V\" ] && echo present",
+      "  V=$(<list-cmd> --json | jq -r '.SOME_KEY'); [ -n \"$V\" ] && echo present",
       ""
     );
   }
@@ -1166,6 +1229,17 @@ export function buildDenialReason(hits: SecretReadHit[]): string {
   );
 
   return lines.join("\n");
+}
+
+/**
+ * The distinct specs behind a set of cli-env-dump hits, in list order.
+ *
+ * Lets the denial render each matched vendor's own guidance instead of
+ * hardcoding Railway's (PR #3336 R1, non-blocking).
+ */
+function cliDumpSpecsFor(hits: SecretReadHit[]): SecretDumpingCliSpec[] {
+  const programs = new Set(hits.map((h) => h.reader));
+  return SECRET_DUMPING_CLI_SPECS.filter((s) => programs.has(s.program));
 }
 
 /** True when the override env var is set to an affirmative value. */
