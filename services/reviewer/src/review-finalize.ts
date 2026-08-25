@@ -99,6 +99,13 @@ export interface ReviewRunContext {
   priorReviewIngestion: PriorReviewIngestionResult;
   totalWallClockMs: number;
   outputToolsActive: boolean;
+  /**
+   * The configuration arm this review ran under (mt#4556), built once in
+   * `runReviewBody` where `ReviewerConfig` is in scope. A per-review invariant,
+   * which is what this context is for — every terminal path stamps the same
+   * value.
+   */
+  configFingerprint: string;
   /** `reviewerIdentity.login` — used for the human-thread guard + emit payload. */
   reviewerLogin: string;
   /** Bound `pr.review_posted` emitter (injected seam in tests, MCP-backed in prod). */
@@ -180,6 +187,7 @@ async function writeMainPathTiming(ctx: ReviewRunContext): Promise<void> {
     toolUseActive: outputToolsActive,
     provider: output.provider,
     model: output.model,
+    configFingerprint: ctx.configFingerprint,
     ...timingTokenFields(output),
   });
 }

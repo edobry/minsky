@@ -1,11 +1,17 @@
 import { describe, it, expect } from "bun:test";
 import {
+  agreementCells,
+  bootstrapKappaCI,
+  cohensKappa,
   fisherExactTwoSided,
   mcnemarExactTwoSided,
   holmAdjust,
   newcombePairedDifferenceCI,
   pairedBootstrapMeanDifferenceCI,
+  replicateGroups,
+  selectPrimaryRows,
   wilson,
+  type Row,
 } from "./analyze-field-compliance-run";
 
 /**
@@ -314,5 +320,246 @@ describe("holmAdjust", () => {
 
   it("is exactly Bonferroni for the SMALLEST p-value, which is where the correction binds", () => {
     expect(holmAdjust([0.01, 0.9])[0]).toBeCloseTo(0.02, 12);
+  });
+});
+
+/**
+ * mt#4409. Same discipline as the block above: every expected value here is worked out from
+ * kappa's definition on paper, independently of the implementation, and the arithmetic is
+ * written into each test so a reader can check the expectation itself rather than trusting
+ * that someone once did.
+ *
+ * kappa = (po - pe) / (1 - pe), where po is observed agreement and pe is the agreement two
+ * raters would reach by chance given their marginal rates.
+ */
+describe("cohensKappa", () => {
+  it("matches a hand-computed table: 20/5/10/15 gives exactly 0.4", () => {
+    // n = 50. po = (20+15)/50 = 0.7. First says yes 25/50 = 0.5; second 30/50 = 0.6.
+    // pe = 0.5*0.6 + 0.5*0.4 = 0.5.  kappa = (0.7 - 0.5) / (1 - 0.5) = 0.4.
+    expect(cohensKappa({ bothYes: 20, onlyFirst: 5, onlySecond: 10, bothNo: 15 })).toBeCloseTo(
+      0.4,
+      12
+    );
+  });
+
+  it("matches a second hand-computed table: 45/15/25/15 gives 0.06/0.46", () => {
+    // n = 100. po = (45+15)/100 = 0.6. Marginals 0.6 and 0.7.
+    // pe = 0.6*0.7 + 0.4*0.3 = 0.54.  kappa = 0.06/0.46 = 0.130434782608...
+    expect(cohensKappa({ bothYes: 45, onlyFirst: 15, onlySecond: 25, bothNo: 15 })).toBeCloseTo(
+      0.06 / 0.46,
+      12
+    );
+  });
+
+  it("scores mt#4370's disjoint shape slightly BELOW chance, not near-perfect", () => {
+    // The shape this whole task exists for: 8 and 22 finding-bearing of 250, zero shared.
+    // po = 220/250 = 0.88 — which reads as 88% agreement and means nothing, because at these
+    // base rates chance agreement alone is pe = 0.032*0.088 + 0.968*0.912 = 0.885632.
+    // kappa = (0.88 - 0.885632) / 0.114368 = -0.0492445...
+    const kappa = cohensKappa({ bothYes: 0, onlyFirst: 8, onlySecond: 22, bothNo: 220 });
+    expect(kappa).toBeCloseTo(-0.04924, 4);
+    expect(kappa as number).toBeLessThan(0);
+  });
+
+  it("is 1 on perfect agreement and 0 on independence at a 50% base rate", () => {
+    expect(cohensKappa({ bothYes: 10, onlyFirst: 0, onlySecond: 0, bothNo: 10 })).toBeCloseTo(
+      1,
+      12
+    );
+    // po = 0.5, marginals 0.5 and 0.5, pe = 0.5 — exactly what two coin flips produce.
+    expect(cohensKappa({ bothYes: 25, onlyFirst: 25, onlySecond: 25, bothNo: 25 })).toBeCloseTo(
+      0,
+      12
+    );
+  });
+
+  it("returns null when NEITHER call ever says yes, rather than claiming perfect agreement", () => {
+    // The realistic degenerate case at a 3% base rate: a sample where nothing was found. po is
+    // 1 and pe is 1, so kappa is 0/0. Reporting 1.0 here would claim the detector is perfectly
+    // reliable on the strength of a sample containing no findings at all.
+    expect(cohensKappa({ bothYes: 0, onlyFirst: 0, onlySecond: 0, bothNo: 50 })).toBeNull();
+    expect(cohensKappa({ bothYes: 50, onlyFirst: 0, onlySecond: 0, bothNo: 0 })).toBeNull();
+  });
+
+  it("returns null on an empty table instead of dividing by zero", () => {
+    expect(cohensKappa({ bothYes: 0, onlyFirst: 0, onlySecond: 0, bothNo: 0 })).toBeNull();
+  });
+});
+
+describe("agreementCells", () => {
+  it("tallies each pair into exactly one cell", () => {
+    const cells = agreementCells([
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+      [false, false],
+    ]);
+    expect(cells).toEqual({ bothYes: 1, onlyFirst: 1, onlySecond: 1, bothNo: 2 });
+  });
+});
+
+describe("bootstrapKappaCI", () => {
+  const pairs: (readonly [boolean, boolean])[] = [
+    ...Array.from({ length: 20 }, () => [true, true] as const),
+    ...Array.from({ length: 5 }, () => [true, false] as const),
+    ...Array.from({ length: 5 }, () => [false, true] as const),
+    ...Array.from({ length: 20 }, () => [false, false] as const),
+  ];
+
+  it("is deterministic for a given seed", () => {
+    expect(bootstrapKappaCI(pairs, 1234, 500)).toEqual(bootstrapKappaCI(pairs, 1234, 500));
+  });
+
+  it("brackets the point estimate it is an interval for", () => {
+    const point = cohensKappa(agreementCells(pairs)) as number;
+    const ci = bootstrapKappaCI(pairs, 20260822, 2000);
+    expect(ci).not.toBeNull();
+    expect((ci as { lo: number }).lo).toBeLessThanOrEqual(point);
+    expect((ci as { hi: number }).hi).toBeGreaterThanOrEqual(point);
+  });
+
+  it("returns null when every resample is degenerate, rather than an interval around nothing", () => {
+    const allNegative = Array.from({ length: 30 }, () => [false, false] as const);
+    expect(bootstrapKappaCI(allNegative, 7, 200)).toBeNull();
+  });
+
+  it("counts degenerate resamples rather than dropping them silently", () => {
+    // One finding-bearing pair in 30: many resamples will draw none of it, and the interval
+    // must arrive with that count attached so a reader can see how thin it is.
+    const sparse: (readonly [boolean, boolean])[] = [
+      [true, true],
+      ...Array.from({ length: 29 }, () => [false, false] as const),
+    ];
+    const ci = bootstrapKappaCI(sparse, 99, 500);
+    expect(ci).not.toBeNull();
+    const { degenerateResamples, iterations } = ci as {
+      degenerateResamples: number;
+      iterations: number;
+    };
+    expect(degenerateResamples).toBeGreaterThan(0);
+    // The count is only readable as a share if the denominator comes back with it — the
+    // report's caution threshold is a fraction of the iterations actually run.
+    expect(iterations).toBe(500);
+    expect(degenerateResamples).toBeLessThanOrEqual(iterations);
+  });
+});
+
+const fixtureRow = (over: Partial<Row> & Pick<Row, "conversationId" | "arm">): Row => ({
+  totalMessages: 10,
+  analyzedMessages: 10,
+  fullWindow: true,
+  promptChars: 5000,
+  outcome: { kind: "ok", findingCount: 0, summaryChars: 20 },
+  ...over,
+});
+
+describe("selectPrimaryRows", () => {
+  it("keeps first calls and rows predating the field, and drops later copies", () => {
+    const rows: Row[] = [
+      fixtureRow({ conversationId: "a", arm: "old-run" }),
+      fixtureRow({
+        conversationId: "b",
+        arm: "window-400",
+        armBase: "window-400",
+        replicateIndex: 1,
+      }),
+      fixtureRow({
+        conversationId: "b",
+        arm: "window-400~2",
+        armBase: "window-400",
+        replicateIndex: 2,
+      }),
+    ];
+    expect(selectPrimaryRows(rows).map((r) => r.arm)).toEqual(["old-run", "window-400"]);
+  });
+});
+
+describe("replicateGroups", () => {
+  const pair = (conversationId: string, findings: [number, number]): Row[] => [
+    fixtureRow({
+      conversationId,
+      arm: "window-400",
+      armBase: "window-400",
+      replicateIndex: 1,
+      outcome: { kind: "ok", findingCount: findings[0], summaryChars: 20 },
+    }),
+    fixtureRow({
+      conversationId,
+      arm: "window-400~2",
+      armBase: "window-400",
+      replicateIndex: 2,
+      outcome: { kind: "ok", findingCount: findings[1], summaryChars: 20 },
+    }),
+  ];
+
+  it("pairs the two calls of one arm by conversation", () => {
+    const groups = replicateGroups([...pair("a", [1, 0]), ...pair("b", [0, 2])]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.base).toBe("window-400");
+    expect(groups[0]?.armNames).toEqual(["window-400", "window-400~2"]);
+    expect(groups[0]?.pairs.map((p) => p.conversationId).sort()).toEqual(["a", "b"]);
+    expect(groups[0]?.incomplete).toBe(0);
+  });
+
+  it("drops a transcript only one call answered, and counts it rather than half-scoring it", () => {
+    const rows = [
+      ...pair("a", [1, 1]),
+      fixtureRow({
+        conversationId: "lonely",
+        arm: "window-400",
+        armBase: "window-400",
+        replicateIndex: 1,
+      }),
+      fixtureRow({
+        conversationId: "other",
+        arm: "window-400~2",
+        armBase: "window-400",
+        replicateIndex: 2,
+      }),
+    ];
+    const groups = replicateGroups(rows);
+    expect(groups[0]?.pairs).toHaveLength(1);
+    expect(groups[0]?.incomplete).toBe(2);
+  });
+
+  it("produces no group for a dataset with no replicates", () => {
+    expect(replicateGroups([fixtureRow({ conversationId: "a", arm: "baseline" })])).toEqual([]);
+  });
+
+  it("keeps two different base arms in separate groups", () => {
+    const rows = [
+      ...pair("a", [1, 1]),
+      fixtureRow({
+        conversationId: "a",
+        arm: "window-150",
+        armBase: "window-150",
+        replicateIndex: 1,
+      }),
+      fixtureRow({
+        conversationId: "a",
+        arm: "window-150~2",
+        armBase: "window-150",
+        replicateIndex: 2,
+      }),
+    ];
+    expect(
+      replicateGroups(rows)
+        .map((g) => g.base)
+        .sort()
+    ).toEqual(["window-150", "window-400"]);
+  });
+
+  it("reports copies beyond the second as unscored instead of ignoring them", () => {
+    const rows = [
+      ...pair("a", [1, 1]),
+      fixtureRow({
+        conversationId: "a",
+        arm: "window-400~3",
+        armBase: "window-400",
+        replicateIndex: 3,
+      }),
+    ];
+    expect(replicateGroups(rows)[0]?.unscoredCopies).toEqual(["window-400~3"]);
   });
 });

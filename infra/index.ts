@@ -214,14 +214,39 @@ export const reviewerService = new railway.Service("reviewer", {
   // config_path. `services/reviewer/railway.json` is retired for the same
   // reason (see services/reviewer/deploy.config.ts's mt#3117 comment).
   //
-  // LIVE-STATE CAVEAT (mt#1815/mt#2777, unresolved as of this task): the
-  // live reviewer service's `configPath` has been independently observed
+  // LIVE-STATE CAVEAT (historical, mt#1815/mt#2777 — both CLOSED 2026-08-25):
+  // the live reviewer service's `configPath` had been independently observed
   // drifted to null in production — i.e. even the PRE-mt#3117 config-as-code
   // state was not reliably applying to the live service. `pulumi up`
   // against this declaration is what reconciles the live service to
   // sourceImage; running it, and flipping the dashboard's Settings > Source
   // to Docker Image, are documented OPERATOR follow-ups performed after
   // this PR merges (see services/reviewer/DEPLOY.md) — not an in-PR action.
+  //
+  // Verified 2026-08-25 — flip DONE, reconcile UNVERIFIED. Settles with: per-step, below.
+  //
+  // Both operator steps above remain mechanically correct; only their status
+  // is recorded here, per `documentation-taxonomy.mdc §Operator-instruction
+  // blocks carry a verification stamp`. Do NOT read "both tasks closed" as
+  // "no operator step remains" — that is the exact inference mt#4392 exists
+  // to prevent, and mt#4087 still owns retiring the flip.
+  //   - Flip: DONE 2026-07-24 (mem#700/mem#717, the mt#3142 recovery).
+  //     Settles with: `railway deployment list --json --service
+  //     3913e8a4-81ab-465a-aad8-b76b5e3f66ed --environment
+  //     b3ea3f5d-8560-40ea-8824-17fe3ca0b32a | jq -r '.[0].meta.image'`
+  //     — a non-null image means image-source. The `--environment` flag is
+  //     REQUIRED: without it the CLI falls back to the linked context, which
+  //     may target a different environment and produce a false read.
+  //   - Reconcile: UNVERIFIED. Settles with: a TARGETED `pulumi preview
+  //     --target 'urn:pulumi:prod::minsky-infra::railway:index/service:Service::reviewer'`
+  //     (blanket preview has a measured 6-change blast radius — mem#700).
+  // Both commands match the ones in services/reviewer/DEPLOY.md's stamp
+  // character-for-character once this comment's `//` wrapping is removed. Keep
+  // them that way: a settler that differs between two artifacts is not
+  // deterministic, which is the property this convention exists to provide.
+  // The configPath drift itself is now MOOT rather than fixed: this service is
+  // image-source, and Railway rejects `config_path` alongside `source_image`.
+  // Full evidence: mt#1815 `## Findings`, mem#551.
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
@@ -263,8 +288,11 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   // DUPLICATE services/reviewer/railway.json's `deploy.drainingSeconds` /
   // `deploy.overlapSeconds` as a belt-and-suspenders measure, because the
   // live reviewer service's `configPath` had been observed drifted to null
-  // in production (memory mt1815_soak_still_failing_2026_07_15, tracked as
-  // mt#1815/mt#2777 SC#3, unresolved as of this task).
+  // in production (memory mt1815_soak_still_failing_2026_07_15 = mem#627,
+  // tracked as mt#1815/mt#2777 SC#3). Both tasks CLOSED 2026-08-25 and
+  // mem#627 is SUPERSEDED — its finding was resolved by mt#3117 making the
+  // field inapplicable, not by repairing the drift. mem#551 carries the
+  // current mechanism and diagnostic; do not act on mem#627 as current.
   //
   // mt#3117 UPDATE: `services/reviewer/railway.json` is now RETIRED (the
   // service converted from repo-source to image-source deploy — Railway
