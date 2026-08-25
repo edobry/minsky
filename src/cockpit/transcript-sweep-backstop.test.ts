@@ -28,6 +28,15 @@ import * as path from "path";
 import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./transcript-sweep-backstop";
 import { deriveEmbedOverdueBoundMs, TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
+import {
+  createMemoryJournalStore,
+  emptyJournal,
+  foldPhase2Started,
+  foldTickStarted,
+  summarizeJournal,
+  TranscriptSweepJournalRecorder,
+  type SweepJournalStore,
+} from "./transcript-sweep-journal";
 
 // Helper: wait for an async condition to become true (polls at 5ms intervals).
 // The bound was 500ms and measured the MACHINE, not the code: every condition
@@ -43,6 +52,18 @@ import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
 // unmodified tree, including once with all other changes stashed. Landed here
 // because it was blocking mt#4159's commit and the gate has no override for a
 // failing (as opposed to timing-out) related test — see scripts/run-related-tests.ts:232.
+/**
+ * A throwaway journal recorder backed by memory (mt#4532).
+ *
+ * `startTranscriptSweepBackstop` takes its recorder as a REQUIRED parameter
+ * (ADR-026 rule 3 — no `?? createRealOne()` fallback), so every test supplies
+ * one. Most tests here are not about the journal and just need it not to touch
+ * the real state dir; the tests that ARE about it keep a handle on the store.
+ */
+function memoryJournal(): TranscriptSweepJournalRecorder {
+  return new TranscriptSweepJournalRecorder(createMemoryJournalStore());
+}
+
 async function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
   // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() is used for timing, not path creation; the rule's regex fires on the call pattern but there is no filesystem interaction here
   const deadline = Date.now() + timeoutMs;
@@ -82,7 +103,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
       intervalMs: 60_000, // Don't tick again during the test.
       deps,
     });
@@ -124,7 +145,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
 
     try {
       await waitFor(() => tracker.getSummary().sweepsRun >= 1);
@@ -158,7 +179,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
 
     try {
       await waitFor(() => tracker.getSummary().embedFailures >= 1);
@@ -188,7 +209,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 20, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 20, deps });
 
     try {
       await waitFor(() => ingestCount >= 2, 2000);
@@ -219,7 +240,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     };
 
     // Interval of 1ms so a second tick fires immediately.
-    const stop = startTranscriptSweepBackstop({ intervalMs: 1, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 1, deps });
 
     try {
       // Wait until at least one ingest call is in flight.
@@ -250,7 +271,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
 
     try {
       // Wait for the tick to finish (sweepsRun stays 0 when ingest throws —
@@ -278,7 +299,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
 
     try {
       // Ingest succeeds → recordSweepCompleted fires → sweepsRun becomes 1.
@@ -306,7 +327,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
 
     try {
       await waitFor(() => tracker.getSummary().sweepsRun >= 1, 500);
@@ -350,7 +371,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
 
     try {
       // Default 5 s deadline, not the 500 ms its neighbours pass: mt#3501
@@ -391,7 +412,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
     try {
       // Default deadline — see the mt#3501 note on the sibling test above.
       await waitFor(() => tracker.getSummary().sweepsRun >= 1);
@@ -421,7 +442,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop({ intervalMs: 10, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 10, deps });
 
     // Wait for the boot pass to complete.
     await waitFor(() => ingestCount >= 1, 500);
@@ -754,6 +775,169 @@ describe("resolveSweepIntervalMs (SC1 — externally configurable cadence)", () 
     for (const bad of ["abc", "0", "-5", ""]) {
       process.env[ENV] = bad;
       expect(resolveSweepIntervalMs()).toBe(DEFAULT_MS);
+    }
+  });
+});
+
+// ── mt#4532: the tick's outcome reaches the cross-restart journal ────────────
+//
+// The journal's own folds are unit-tested in transcript-sweep-journal.test.ts.
+// What is tested HERE is the WIRING: that each of the tick's exit paths reports
+// the outcome it actually took. That distinction matters — the journal is the
+// only surface that survives a restart, so a tick whose exit path forgets to
+// call it is indistinguishable from a tick that was never scheduled, which is
+// the exact ambiguity mt#4532 exists to remove.
+
+describe("transcript sweep journal wiring (mt#4532)", () => {
+  let tracker: TranscriptSweepTracker;
+
+  beforeEach(() => {
+    tracker = TranscriptSweepTracker.resetForTest();
+  });
+
+  afterEach(() => {
+    TranscriptSweepTracker.resetForTest();
+  });
+
+  /** Start the sweep against an injected journal store, and hand both back. */
+  function startWithJournal(deps: TranscriptSweepDeps): {
+    store: SweepJournalStore;
+    stop: () => void;
+  } {
+    const store = createMemoryJournalStore();
+    const stop = startTranscriptSweepBackstop(new TranscriptSweepJournalRecorder(store), {
+      intervalMs: 60_000,
+      deps,
+    });
+    return { store, stop };
+  }
+
+  test("a tick that completes both phases is recorded as completed, having reached Phase 2", async () => {
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 3, sessionsErrored: 0, totalIngested: 3 }),
+      runEmbeddings: async () => {},
+      tracker,
+    };
+    const { store, stop } = startWithJournal(deps);
+
+    try {
+      await waitFor(() => store.read().totals.completed >= 1);
+
+      const j = store.read();
+      expect(j.inFlight).toBeNull();
+      expect(j.totals).toMatchObject({ started: 1, completed: 1, reachedPhase2: 1 });
+      expect(j.recent[0]).toMatchObject({ outcome: "completed", reachedPhase2: true });
+    } finally {
+      stop();
+    }
+  });
+
+  test("an aborted ingest is recorded as aborted and never reaches Phase 2", async () => {
+    // The mt#4480 abort path returns BEFORE Phase 2 — it needs the same dead
+    // connection. So `reachedPhase2` must stay 0 here, and that zero beside a
+    // non-zero `started` is precisely the starvation signal.
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({
+        sessionsProcessed: 12,
+        sessionsErrored: 12,
+        totalIngested: 0,
+        aborted: {
+          afterSessionsProcessed: 12,
+          consecutiveInfraFailures: 10,
+          failureKind: "connection-lost",
+        },
+      }),
+      runEmbeddings: async () => {},
+      tracker,
+    };
+    const { store, stop } = startWithJournal(deps);
+
+    try {
+      await waitFor(() => store.read().totals.aborted >= 1);
+
+      const j = store.read();
+      expect(j.totals).toMatchObject({ started: 1, aborted: 1, reachedPhase2: 0 });
+      expect(j.recent[0]).toMatchObject({ outcome: "aborted", reachedPhase2: false });
+      expect(summarizeJournal(j).phase2ReachRate).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a failing backfill still counts as having reached Phase 2", async () => {
+    // `embed-failed` and `aborted` both leave the backfill undone, and the
+    // journal must not conflate them: one got there and broke, the other never
+    // arrived. Only the second is starvation.
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 1, sessionsErrored: 0, totalIngested: 1 }),
+      runEmbeddings: async () => {
+        throw new Error("no embedding provider configured");
+      },
+      tracker,
+    };
+    const { store, stop } = startWithJournal(deps);
+
+    try {
+      await waitFor(() => store.read().totals.embedFailed >= 1);
+
+      const j = store.read();
+      expect(j.totals).toMatchObject({ started: 1, embedFailed: 1, reachedPhase2: 1 });
+      expect(j.recent[0]).toMatchObject({ outcome: "embed-failed", reachedPhase2: true });
+    } finally {
+      stop();
+    }
+  });
+
+  test("an ingest that throws is recorded as failed", async () => {
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => {
+        throw new Error("PersistenceService.initialize() timed out after 68168ms");
+      },
+      runEmbeddings: async () => {},
+      tracker,
+    };
+    const { store, stop } = startWithJournal(deps);
+
+    try {
+      await waitFor(() => store.read().totals.failed >= 1);
+
+      const j = store.read();
+      expect(j.totals).toMatchObject({ started: 1, failed: 1, reachedPhase2: 0 });
+      expect(j.inFlight).toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  test("a tick left in flight by a dead process is folded as interrupted at boot", async () => {
+    // The restart case, end to end: a journal left carrying an in-flight tick
+    // mid-Phase-2 from a process that is gone, then a fresh sweep boots and
+    // reconciles it. 4_194_303 is one past Linux's default pid_max and is the
+    // same never-assigned pid `port-recovery.test.ts` uses to exercise
+    // `isProcessAlive`'s false branch.
+    const orphaned = foldPhase2Started(
+      foldTickStarted(emptyJournal(), "2026-08-25T20:33:05.000Z", 4_194_303)
+    );
+    const store = createMemoryJournalStore(orphaned);
+    const deps: TranscriptSweepDeps = {
+      runIngest: async () => ({ sessionsProcessed: 0, sessionsErrored: 0, totalIngested: 0 }),
+      runEmbeddings: async () => {},
+      tracker,
+    };
+
+    const stop = startTranscriptSweepBackstop(new TranscriptSweepJournalRecorder(store), {
+      intervalMs: 60_000,
+      deps,
+    });
+
+    try {
+      await waitFor(() => store.read().totals.interrupted >= 1);
+
+      const j = store.read();
+      expect(j.totals.interrupted).toBe(1);
+      expect(j.recent.some((t) => t.outcome === "interrupted" && t.pid === 4_194_303)).toBe(true);
+    } finally {
+      stop();
     }
   });
 });
