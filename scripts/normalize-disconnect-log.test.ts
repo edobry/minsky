@@ -25,6 +25,7 @@ import {
   recordMultiset,
   readExactPrefix,
   readFrom,
+  writeThenRename,
 } from "./normalize-disconnect-log";
 
 const NEWLINE = String.fromCharCode(10);
@@ -347,4 +348,56 @@ describe("findMatchingBracket (mt#4558)", () => {
   test("returns -1 when the array never closes", () => {
     expect(findMatchingBracket(`[{"a": 1}`, 0)).toBe(-1);
   });
+});
+
+describe("writeThenRename (mt#4558, reviewer R3)", () => {
+  // Real fs again, and for the same reason as the R2 suite: the behaviour under
+  // test is what a FAILED rename leaves on disk, which a fake does not model.
+  /* eslint-disable custom/no-real-fs-in-tests */
+  const scratch = () =>
+    path.join(os.tmpdir(), `normalize-r3-${process.pid}-${Math.random().toString(36).slice(2)}`);
+
+  test("the happy path replaces the file and leaves no temp behind", () => {
+    const file = scratch();
+    fs.writeFileSync(file, "before\n", "utf-8");
+    try {
+      const err = writeThenRename(file, "after\n", 0o644);
+      expect(err).toBeUndefined();
+      expect(fs.readFileSync(file, "utf-8")).toBe("after\n");
+      expect(fs.existsSync(`${file}.tmp-${process.pid}`)).toBe(false);
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
+
+  test("REGRESSION (R3): the failure path cleans up and returns the error", () => {
+    // R3 claimed `tmp` was out of scope in the `catch`, so touching it there
+    // would throw `ReferenceError` — masking the real error and skipping
+    // cleanup. It was not (it was declared in the ENCLOSING try, one level up),
+    // and this asserts the behaviour rather than the scoping: force a real
+    // failure and check BOTH that the original error comes back AND that the
+    // cleanup reference actually executed.
+    //
+    // Forcing mechanism: rename onto a NON-EMPTY DIRECTORY, which the kernel
+    // refuses. It leaves the temp path a regular file, so the cleanup under
+    // test is the ordinary one rather than a directory edge case.
+    const target = scratch();
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "occupant"), "x", "utf-8");
+    try {
+      const err = writeThenRename(target, "replacement\n", 0o644);
+      expect(err).toBeDefined();
+      // The real errno, not a ReferenceError about `tmp`.
+      expect(err?.name).not.toBe("ReferenceError");
+      expect(String(err?.message)).not.toContain("tmp is not defined");
+      // Cleanup ran, which is only possible if the reference resolved.
+      expect(fs.existsSync(`${target}.tmp-${process.pid}`)).toBe(false);
+      // And the target is untouched.
+      expect(fs.readFileSync(path.join(target, "occupant"), "utf-8")).toBe("x");
+    } finally {
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.rmSync(`${target}.tmp-${process.pid}`, { force: true });
+    }
+  });
+  /* eslint-enable custom/no-real-fs-in-tests */
 });

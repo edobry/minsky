@@ -226,6 +226,41 @@ export function readFrom(fd: number, offset: number): string {
   return new TextDecoder().decode(buf);
 }
 
+/**
+ * Write `body` to a sibling temp file and rename it over `logPath`.
+ *
+ * Extracted from `main()` (reviewer R3) so the temp path lives in one short
+ * function instead of a `try` nested inside a `try` nested inside `main`. The
+ * finding that prompted this — that `tmp` was out of scope in the `catch` — was
+ * FALSE (see the PR body for the runtime falsification), but nesting a careful
+ * reader misreads is worth flattening even when it is correct.
+ *
+ * Returns the error rather than throwing, so the caller keeps its own control
+ * flow and its own message. Cleans up the temp file on every failure path.
+ */
+export function writeThenRename(logPath: string, body: string, mode: number): Error | undefined {
+  const tmp = `${logPath}.tmp-${process.pid}`;
+  try {
+    const fd = fs.openSync(tmp, "w");
+    try {
+      fs.writeSync(fd, body.endsWith(NEWLINE) || body === "" ? body : `${body}${NEWLINE}`);
+      // Durability before the rename, so a crash cannot leave a renamed-but-
+      // empty file where the log used to be (reviewer R1, non-blocking).
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, logPath);
+    return undefined;
+  } catch (err) {
+    // Never leave a stray tmp behind on a failure path (reviewer R1,
+    // non-blocking).
+    if (fs.existsSync(tmp)) fs.rmSync(tmp, { force: true });
+    return err as Error;
+  }
+}
+
 /** Non-blank lines that do NOT independently parse as JSON. */
 export function countNonParsingLines(raw: string): number {
   let bad = 0;
@@ -344,24 +379,9 @@ function main(): number {
     const offsetAfterPreTail = sizeBefore + Buffer.byteLength(preRenameTail, "utf-8");
 
     const body = `${result.content ?? ""}${preRenameTail.replace(/^\s+/, "")}`;
-    const tmp = `${logPath}.tmp-${process.pid}`;
-    try {
-      const fd = fs.openSync(tmp, "w");
-      try {
-        fs.writeSync(fd, body.endsWith(NEWLINE) || body === "" ? body : `${body}${NEWLINE}`);
-        // Durability before the rename, so a crash cannot leave a renamed-but-
-        // empty file where the log used to be (reviewer R1, non-blocking).
-        fs.fsyncSync(fd);
-      } finally {
-        fs.closeSync(fd);
-      }
-      fs.chmodSync(tmp, originalMode);
-      fs.renameSync(tmp, logPath);
-    } catch (err) {
-      // Never leave a stray tmp behind on a failure path (reviewer R1,
-      // non-blocking).
-      if (fs.existsSync(tmp)) fs.rmSync(tmp, { force: true });
-      console.error(`FAIL: could not replace ${logPath}: ${(err as Error).message}`);
+    const writeError = writeThenRename(logPath, body, originalMode);
+    if (writeError) {
+      console.error(`FAIL: could not replace ${logPath}: ${writeError.message}`);
       console.error(`The original is untouched. Backup: ${stampedBackup}`);
       return 1;
     }
