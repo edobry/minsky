@@ -22,6 +22,24 @@ git checkout 2b092b670f7d6cae6d429babaaee18948b4bdacb
 cd offline && uv sync
 ```
 
+**From inside a Minsky session, `git clone` is unavailable** — `session_exec` denies the `git`
+CLI outright (`block-git-gh-cli.ts`), even for a non-Minsky external repo; there is no scoped
+carve-out for "clone somewhere outside the repo." Use a tarball instead, which produces the
+identical pinned tree without invoking `git`:
+
+```bash
+mkdir -p /tmp/martian-bench && \
+curl -sL https://github.com/withmartian/code-review-benchmark/archive/2b092b670f7d6cae6d429babaaee18948b4bdacb.tar.gz \
+  -o /tmp/martian-bench.tar.gz && \
+tar -xzf /tmp/martian-bench.tar.gz -C /tmp/martian-bench --strip-components=1
+cd /tmp/martian-bench/offline && uv sync
+```
+
+`uv` itself may not be preinstalled on the machine running the session (`session_exec` runs on
+the host, not in a container with a fixed toolchain) — `brew install uv` if `which uv` comes back
+empty. Both steps discovered running this task's own validation, not assumed from the pinned
+checkout's docs.
+
 ## What we use from the pinned checkout, and what we don't
 
 The benchmark's own `offline/README.md` documents a 6-step pipeline (fork → download → extract →
@@ -64,6 +82,36 @@ point `MARTIAN_BASE_URL` at an OpenAI-compatible endpoint we already hold creden
 - `anthropic_claude-opus-4-5-20251101`
 - `anthropic_claude-sonnet-4-5-20250929`
 - `openai_gpt-5.2`
+
+**Resolved: `openai_gpt-5.2`, `MARTIAN_BASE_URL=https://api.openai.com/v1`.** Vendor coverage is
+tied across all three (49 tools each, counted directly off the pinned checkout's own committed
+`results/<judge>/evaluations.json` files — not the live dashboard, which is a JS SPA WebFetch
+can't render). Two things worth recording because they contradicted a prediction made before
+testing:
+
+- `gpt-5` (the reviewer's own generation model) fails the judge/extraction call with `400
+Unsupported value: 'temperature' does not support 0.0 with this model` — the pipeline hardcodes
+  `temperature=0.0`, and gpt-5 is reasoning-tier. `gpt-5.2` does **not** hit this, tested directly
+  against the real pipeline call (zero errors) — it is evidently not gated the same way, though
+  nothing here explains why; treat it as an observed fact about this specific model pair, not a
+  generalizable rule about "reasoning models."
+- Anthropic's models were the a priori safer-looking choice (no OpenAI-reasoning-tier
+  temperature restriction) but were never actually tried against `AsyncOpenAI(base_url=...)` —
+  Anthropic's Messages API is not guaranteed OpenAI-chat-completions-wire-compatible, and that
+  compatibility was not verified before `gpt-5.2` was confirmed working and selected instead. If
+  a future run needs an Anthropic judge, verify the base_url compatibility directly rather than
+  assuming it from the vendor coverage tie.
+
+Cost is real, not estimated: a scratch `sitecustomize.py`, loaded via `PYTHONPATH` (never
+modifying a file inside the pinned checkout itself), patches the installed `openai` client to
+log each call's `usage` to a JSONL file. Measured against the single-PR validation sample:
+extraction (1 call) + dedup (1 call) + judge (~30 calls, golden×candidate pairs) = 32 calls,
+8,745 prompt tokens (1,152 cached) + 2,497 completion tokens, **$0.0485 for that one review** at
+gpt-5.2's standard rate ($1.75 / $0.175 cached / $14.00 per MTok, input/cached/output — read
+2026-08-25 from `developers.openai.com/api/docs/pricing`, not in this repo's own
+`token-cost.ts`, which only prices the reviewer's own configured models). Projected to 50
+reviews: ~$2.42 for extraction+dedup+judge, plus ~$7.07 for generation (measured separately,
+see the spec's Planning Audit) — **~$9.49 total**, comfortably under the spec's ~$17 budget.
 
 Full investigation trail, the SC3 split-hypothesis resolution, and the remaining implementation
 steps live in the mt#4577 task spec's "Planning Audit" section.
