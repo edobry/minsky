@@ -8,6 +8,21 @@
  *
  * Tasks: mt#1205 (umbrella), mt#1364 (child A — Supabase), mt#1365 (child C — Testcontainers raw PG)
  *
+ * What each test actually covers (mt#4347) — the four are NOT interchangeable:
+ *
+ *   - AT-1 / AT-2 call `withPgPoolRetry` DIRECTLY, passing their own retry
+ *     options (`maxAttempts: 5, initialDelayMs: 50`). They prove the helper
+ *     retries, and say NOTHING about the defaults production runs on — measured:
+ *     forcing DEFAULT_MAX_ATTEMPTS to 1 leaves both of them green.
+ *   - AT-3 / AT-4 go through real production classes
+ *     (`PostgresPersistenceProvider`, `PostgresVectorStorage`) on DEFAULT retry
+ *     options. They are the only coverage of the shipped configuration — the
+ *     same DEFAULT_MAX_ATTEMPTS=1 edit fails both.
+ *
+ * That asymmetry is why AT-3/AT-4 going vacuous mattered more than their count
+ * suggests: they were the only two testing what production uses, and both were
+ * silently non-saturating for 119 days.
+ *
  * Usage:
  *   import { runSaturationSuite } from "./postgres-pool-saturation.shared";
  *   runSaturationSuite({
@@ -156,9 +171,18 @@ async function assertSaturated(
 export function runSaturationSuite(options: SaturationSuiteOptions): void {
   const { connectionString, poolSize = 15, label } = options;
 
-  // Number of concurrent clients to saturate the pool.
-  // poolSize + 5 guarantees we exceed pool_size even with minor variance.
+  // Number of concurrent clients used to saturate the pool. Deliberately MORE
+  // than the server can accept: over-provisioning is what makes saturation
+  // independent of the target's actual ceiling, so no test has to know it. Every
+  // test holds this many (mt#4347) — AT-1/AT-2 then race this many consumers,
+  // AT-3/AT-4 open one.
   const saturatingClients = poolSize + 5;
+
+  // Floor for AT-4's elapsed-time corroboration of backoff: initialDelayMs (150)
+  // * minimum jitter (0.8) = the shortest possible single retry wait. Named so
+  // the assertion and the logged margin read from one source (mt#4347) — a
+  // literal in both is how they drift apart.
+  const BACKOFF_FLOOR_MS = 120;
 
   // Timeout for individual tests — retries add up to ~600 ms per caller
   // and we run many concurrent ones, so be generous.
@@ -567,17 +591,25 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           const results = await vectorStorage.search([1, 0, 0], { limit: 5 });
           // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() in a BinaryExpression for elapsed-time measurement, not path creation; the rule's BinaryExpression check produces a false positive
           const elapsedMs = Date.now() - startMs;
+          // Report the MARGIN, not just the outcome (mt#4347): a reader who sees
+          // only "returned 1 result(s)" cannot tell a comfortable pass from one
+          // sitting a millisecond above the floor. Both numbers come from
+          // BACKOFF_FLOOR_MS below so the log and the assertion cannot drift.
           process.stdout.write(
-            `[saturation/${label}] AT-4: vector search returned ${results.length} result(s) in ${elapsedMs}ms\n`
+            `[saturation/${label}] AT-4: vector search returned ${results.length} result(s) in ` +
+              `${elapsedMs}ms (backoff floor ${BACKOFF_FLOOR_MS}ms, margin ` +
+              `${elapsedMs - BACKOFF_FLOOR_MS}ms)\n`
           );
           expect(Array.isArray(results)).toBe(true);
           // At least the seed row must come back
           expect(results.length).toBeGreaterThan(0);
-          // Backoff proof: search must have taken at least one retry cycle.
-          // Threshold of 120ms = initialDelayMs (150) * minimum jitter (0.8).
-          // If elapsed < 120ms, withPgPoolRetry never had to wait, meaning
-          // saturation was not actually encountered (test vacuous).
-          expect(elapsedMs).toBeGreaterThanOrEqual(120);
+          // Backoff corroboration: search must have taken at least one retry
+          // cycle. If elapsed < BACKOFF_FLOOR_MS, withPgPoolRetry never had to
+          // wait. What that MEANS is now unambiguous — assertSaturated() already
+          // proved the pool was refusing connections, so a short elapsed here is
+          // a fault in the retry path rather than the silent "saturation was
+          // never achieved" it used to indicate (mt#4347).
+          expect(elapsedMs).toBeGreaterThanOrEqual(BACKOFF_FLOOR_MS);
         } finally {
           clearTimeout(releaseTimer);
           // Guaranteed release if timer hasn't fired yet.
