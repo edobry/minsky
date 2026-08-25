@@ -343,6 +343,26 @@ re-fetching the body and re-running the matchers answers "what would the detecto
 say TODAY", never "what was it judging when it fired" — mt#3584 lost a real false
 positive exactly that way, because the body had been edited in between.
 
+**For `retrospective-trigger`, recovering the judged turn is REQUIRED before you
+classify a record — not an option (mt#3931).** A confirmed fire stores the
+NOMINATED SEGMENT as its phrase, and that segment is routinely not the sentence
+that justified the fire. Classifying from it inverts the verdict. Measured
+2026-08-12: all four records this detector's tune task was built on were rated
+false positives from a 160-character excerpt, and every recovered turn contains a
+first-person admission the excerpt never showed — _"each round I fixed one layer
+instead of tracing the flow end to end"_, _"I guessed a data shape instead of
+reading it"_, _"I was relaying the schema file's claim, not checking it"_. Three
+were rated by one pass, a fourth by a second pass, and the drafted remedy would
+have taught the detector to ignore three genuine admissions. Recover first:
+
+```
+bun scripts/replay-retrospective-trigger-calibration.ts --session <id> --out /tmp/turns.json
+bun scripts/pilot-rung3-confirm.ts --recovered /tmp/turns.json   # optional: re-run the pipeline
+```
+
+A record you cannot recover a turn for is `unclassifiable`, which is a real and
+reportable disposition — it is not a licence to rate the phrase instead.
+
 **A pre-capture record may still be RECOVERABLE from the transcript (mt#3821).**
 "Unrecoverable from the record" and "unrecoverable" are different claims, and the
 corpus had been treating them as one. For `retrospective-trigger`,
