@@ -41,6 +41,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { applyArmToConfig, assignArm } from "./config-arm";
 import {
   createOctokit,
   fetchIncrementalDiffSince,
@@ -339,7 +340,7 @@ export interface RunReviewDeps {
 }
 
 export async function runReview(
-  config: ReviewerConfig,
+  baseConfig: ReviewerConfig,
   owner: string,
   repo: string,
   prNumber: number,
@@ -348,6 +349,26 @@ export async function runReview(
   headSha?: string,
   deps: RunReviewDeps = {}
 ): Promise<ReviewResult> {
+  // mt#4569: resolve this PR's configuration arm BEFORE anything reads the
+  // config. Every downstream consumer — the model call, `review_timing.model`,
+  // and `fingerprintForReview` — reads it through `config`, so substituting
+  // here is what makes the arm recoverable from the row rather than from the
+  // row's timestamp. Returns `baseConfig` unchanged when no experiment is
+  // configured, which is the default.
+  const armAssignment = assignArm(prNumber, baseConfig);
+  const config = applyArmToConfig(baseConfig, prNumber);
+
+  if (armAssignment.experimentActive) {
+    log.info("reviewer_config_arm_assigned", {
+      event: "reviewer_config_arm_assigned",
+      owner,
+      repo,
+      pr: prNumber,
+      arm: armAssignment.arm,
+      model: armAssignment.model,
+    });
+  }
+
   log.info(
     "runReview_start",
     buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown")
