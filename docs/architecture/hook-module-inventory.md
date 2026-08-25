@@ -61,11 +61,11 @@ larger than a subtraction from 60 suggests.
 | -------------- | ------- |
 | already-domain | 10      |
 | movable        | 84      |
-| immovable      | 78      |
-| **total**      | **172** |
+| immovable      | 79      |
+| **total**      | **173** |
 
-Of the 84 movable, **14** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
+Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -73,7 +73,7 @@ Immovable splits by reason class:
 
 | Reason class                    | Count |
 | ------------------------------- | ----- |
-| no-decision: library            | 41    |
+| no-decision: library            | 42    |
 | no-decision: store              | 11    |
 | host-lifecycle                  | 10    |
 | no-decision: registry           | 10    |
@@ -251,7 +251,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-peer-task-activity.ts`               | standalone-hook  | decidePeerActivity, callerSessionIdFromCwd                        | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 
-## immovable (78)
+## immovable (79)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
@@ -259,6 +259,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `ask-conversation-map.ts`                 | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-grant-store.ts`                      | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-verification.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `authored-spec-text.ts`                   | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `bare-entity-ref-scan.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `canary-runner.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `canary-transcript.ts`                    | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |

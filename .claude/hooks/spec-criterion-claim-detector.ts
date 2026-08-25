@@ -52,7 +52,9 @@ import {
   type AuthorizingSource,
   type SpecCriterionClaimResult,
 } from "../../packages/domain/src/detectors/spec-criterion-claim";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { readAuthoredSpecText, readSpecFileFromDisk } from "./authored-spec-text";
+import type { SpecTextRead } from "./authored-spec-text";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
@@ -100,66 +102,42 @@ export const EVALUATION_LOG = ".minsky/spec-criterion-claim-evaluations.jsonl";
  * boolean is not scannable, so there is nothing to add for it.
  */
 const SPEC_KEY_BY_TOOL: Readonly<Record<string, string>> = {
-  mcp__minsky__tasks_create: "spec",
-  mcp__minsky__tasks_spec_patch: "content",
-  mcp__minsky__tasks_edit: "specContent",
+  tasks_create: "spec",
+  tasks_spec_patch: "content",
+  tasks_edit: "specContent",
 };
 
 /**
- * Tool-input key naming a FILE whose contents become the spec (PR #3063 R1).
+ * The `specFile` map, the size ceiling and the defensive disk read that used to live
+ * here moved to `./authored-spec-text` (mt#4525).
  *
- * `tasks_edit` accepts `specFile` as an alternative to `specContent`, and an edit
- * that uses it was scanned as if it carried no spec at all — a silent coverage hole
- * in SC1's "reads a task's spec at `tasks_create` / `tasks_edit` time", not a
- * calibration question. Only `tasks_edit` has this parameter; `tasks_create` takes
- * the body inline only.
- */
-const SPEC_FILE_KEY_BY_TOOL: Readonly<Record<string, string>> = {
-  mcp__minsky__tasks_edit: "specFile",
-};
-
-/**
- * Size ceiling for a `specFile` read. A spec is prose — the largest in this repo is
- * comfortably under 100 KB — so anything past this is not a spec, and the hook
- * declines rather than pulling an arbitrarily large file into a PreToolUse budget.
- */
-const MAX_SPEC_FILE_BYTES = 512 * 1024;
-
-/**
- * Read a `specFile` from disk, or null if it cannot be read as a spec.
+ * This file is where the hole was first found and patched (PR #3063 R1), and its own
+ * comment called it "a silent coverage hole" — then the identical hole was found
+ * again in `claim-provenance-scan` (mt#4295) and a third time, worse, in
+ * `code-mechanism-assertion-detector` (mt#4525), because each guard carried its own
+ * copy. Keeping a private copy HERE is what made it a class. Re-exported below so
+ * this module's existing callers and tests are unaffected.
  *
- * Every failure is a null rather than a throw: this is an observer that must not
- * turn a valid `tasks_edit` into an error. A null is not silent — the caller records
- * `specFileUnreadable` on the evaluation record, so the miss stays measurable (SC5)
- * instead of looking like a call that carried no spec.
+ * The extraction also ADDED something this implementation never had: the shared
+ * reader refuses a path outside the repo (mt#4295 SC4). A PreToolUse observer runs
+ * against arbitrary tool input, and this one would have read any path it was given.
  */
-export function readSpecFileFromDisk(path: string): string | null {
-  try {
-    if (!existsSync(path)) return null;
-    if (statSync(path).size > MAX_SPEC_FILE_BYTES) return null;
-    const text = readFileSync(path, "utf8");
-    return text.trim() === "" ? null : text;
-  } catch {
-    // intentional-swallow: an unreadable spec file is a coverage miss, recorded by
-    // the caller on the evaluation record — never a reason to fail the tool call.
-    return null;
-  }
-}
+export { readSpecFileFromDisk };
+export type { SpecTextRead };
 
 /** Max chars of a criterion carried into a calibration record. */
 const MAX_EXCERPT_CHARS = 200;
 
-/** What a spec-body read produced, and — when it produced nothing — why. */
-export interface SpecTextRead {
-  text: string | null;
-  /** A `specFile` was named and could not be read. Distinguishes a MISS from "no spec here". */
-  specFileUnreadable: boolean;
-}
-
 /**
  * Read the spec body out of a tool call, or null when this call carries none.
  *
- * The file reader is a parameter so the `specFile` branch is testable without
+ * Now a thin adapter over the shared resolver (mt#4525). The SCANNING SCOPE stays
+ * this detector's own — `SPEC_KEY_BY_TOOL` is passed in rather than merged with the
+ * siblings' maps, which deliberately keeps this guard reading the same three tools it
+ * always did. Sharing the resolution must not widen anyone's corpus; a widened corpus
+ * changes fire rates and confounds the replay each of these guards is calibrated by.
+ *
+ * The file reader stays a parameter so the `specFile` branch is testable without
  * touching a real filesystem (`testing-standards.mdc §Testable Design` — inject the
  * collaborator rather than patching it).
  */
@@ -168,31 +146,7 @@ export function readSpecText(
   toolInput: Record<string, unknown> | undefined,
   readFile: (path: string) => string | null = readSpecFileFromDisk
 ): SpecTextRead {
-  const miss = { text: null, specFileUnreadable: false };
-  if (!toolName || !toolInput) return miss;
-
-  const key = SPEC_KEY_BY_TOOL[toolName];
-  if (key !== undefined) {
-    const value = toolInput[key];
-    if (typeof value === "string" && value.trim() !== "") {
-      return { text: value, specFileUnreadable: false };
-    }
-  }
-
-  // Only after the inline body is absent: `specContent` and `specFile` are
-  // alternatives, and the inline form is both cheaper and the common case.
-  const fileKey = SPEC_FILE_KEY_BY_TOOL[toolName];
-  if (fileKey !== undefined) {
-    const path = toolInput[fileKey];
-    if (typeof path === "string" && path.trim() !== "") {
-      const text = readFile(path);
-      return text === null
-        ? { text: null, specFileUnreadable: true }
-        : { text, specFileUnreadable: false };
-    }
-  }
-
-  return miss;
+  return readAuthoredSpecText(toolName, toolInput, SPEC_KEY_BY_TOOL, readFile);
 }
 
 /**

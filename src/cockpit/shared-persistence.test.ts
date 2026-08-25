@@ -31,9 +31,12 @@ import {
   shouldRecycleNow,
   __setRecycleThresholdsForTests,
   RECYCLE_AFTER_DEGRADED_MS,
+  RECYCLE_CLOSE_TIMEOUT_MS,
   RECYCLE_MIN_INTERVAL_MS,
   type PersistenceServiceFactory,
 } from "./shared-persistence";
+// mt#4515: the inner drain budget, asserted against the outer deadline above.
+import { CLOSE_TIMEOUT_SECONDS } from "@minsky/domain/persistence/providers/postgres-provider";
 
 const ENV_KEY = "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS";
 
@@ -540,6 +543,34 @@ describe("refreshDbReachability review fixes (PR #2558 R1)", () => {
 
     expect(issued).toBe(1);
     expect(status).toBe("ok");
+  });
+});
+
+describe("recycle close bounds (mt#4515)", () => {
+  test("the inner drain budget fires strictly before the outer recycle deadline", () => {
+    // These two live in different packages and neither can see the other's
+    // value at runtime, so the invariant is asserted here — the one place both
+    // are importable — rather than restated as a comment in each.
+    //
+    // Direction matters and is not symmetric. The INNER bound
+    // (`CLOSE_TIMEOUT_SECONDS`, handed to postgres-js's `end({ timeout })`) is
+    // what actually terminates sockets. The OUTER one only stops the recycle
+    // path from awaiting forever. If the outer fires first, the recycle
+    // abandons the close before the driver has terminated anything and the
+    // connections leak — which is exactly the pre-mt#4515 behaviour, where the
+    // inner bound did not exist at all and the outer one was therefore always
+    // the winner: 88 abandoned closes, zero clean, across every retained log.
+    expect(CLOSE_TIMEOUT_SECONDS * 1000).toBeLessThan(RECYCLE_CLOSE_TIMEOUT_MS);
+  });
+
+  test("the margin between them leaves room for the terminate round-trip", () => {
+    // A bound that is merely lower is not enough — `destroy()` still has to
+    // await `c.terminate()` on every connection after the timer fires. Assert a
+    // real margin so a future tweak that makes them near-equal (which would
+    // reintroduce the race non-deterministically, the worst version of this
+    // bug) fails here instead of in production.
+    const marginMs = RECYCLE_CLOSE_TIMEOUT_MS - CLOSE_TIMEOUT_SECONDS * 1000;
+    expect(marginMs).toBeGreaterThanOrEqual(1000);
   });
 });
 
