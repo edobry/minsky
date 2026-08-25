@@ -75,6 +75,20 @@ on:
         description: "Also run the Docker/testcontainer Postgres-saturation suite"
         type: boolean
         default: false
+  # Nightly, for the `docker-suite` job ONLY (mt#4347). Every other job in this
+  # file explicitly opts OUT of this trigger, so their behaviour is unchanged —
+  # see the `github.event_name != 'schedule'` guards below.
+  #
+  # Why: the Docker suite was reachable only by a deliberate workflow_dispatch
+  # with an explicit input, AND is continue-on-error, so a failure in it had no
+  # audience at all. It went 119 days with a red test nobody could see (mt#4347).
+  # A nightly run does not make it a merge blocker — it just means a failure
+  # lands somewhere with a timestamp.
+  #
+  # 07:17 UTC = 03:17 EDT, off-hours for the operator; offset from the hour
+  # because scheduled runs bunch up and get delayed at :00.
+  schedule:
+    - cron: "17 7 * * *"
 
 env:
   # Secondary hedge for the mt#3623 install flake: disables the streaming
@@ -95,6 +109,12 @@ jobs:
   # jobs to consume via `needs.<job>.outputs.<name>`.
   check-secrets:
     name: Check optional integration-test secrets
+    # Opt OUT of the nightly schedule (mt#4347): that trigger exists for
+    # `docker-suite` alone. Skipping this job also skips `github-api` and
+    # `supabase`, which both `needs:` it — so the nightly run's blast radius
+    # stays exactly one job. Whether those should ALSO run nightly is a real
+    # question and deliberately not decided here.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     outputs:
       has_github_token: ${{ steps.check.outputs.has_github_token }}
@@ -119,6 +139,8 @@ jobs:
 
   credential-free:
     name: Integration (credential-free)
+    # Opt OUT of the nightly schedule — see check-secrets above (mt#4347).
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -232,6 +254,8 @@ jobs:
   # `.github/workflows/cold-start-migrate.yml`, which established this pattern.
   postgres-service:
     name: Integration (Postgres service container)
+    # Opt OUT of the nightly schedule — see check-secrets above (mt#4347).
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     services:
@@ -337,7 +361,7 @@ jobs:
         # database that has the table; see the mt#3482 PR body for their output.
 
   docker-suite:
-    name: Integration (Docker/testcontainer — manual only)
+    name: Integration (Docker/testcontainer — nightly + manual)
     # NOTE: `inputs.run_docker_suite == true` (boolean comparison) is correct
     # here, NOT a bug. Since GitHub's June 2022 change, the `inputs` context
     # (unlike the legacy `github.event.inputs` context, which stringifies
@@ -345,11 +369,18 @@ jobs:
     # comparing against the string 'true' would be the actual mistake, since
     # a real boolean never equals a string. See
     # https://github.com/orgs/community/discussions/9343.
-    if: github.event_name == 'workflow_dispatch' && inputs.run_docker_suite == true
+    # Runs on the nightly schedule, or on a workflow_dispatch that explicitly
+    # opts in. The schedule half is mt#4347: `continue-on-error` plus
+    # dispatch-only reachability meant a failure here had no audience, and one
+    # sat red for 119 days. Nightly gives it one without making it a blocker.
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_docker_suite == true)
     runs-on: ubuntu-latest
     # Cold image pull + documented Bun/testcontainers quirks (see the test
-    # file's header) make this the most flake-prone suite; never a hard
-    # block, and it never runs unless explicitly requested.
+    # file's header) make this the most flake-prone suite; never a hard block.
+    #
+    # Keep continue-on-error even now that it runs nightly: the deliberate
+    # decision is that a flaky container suite must not gate merges. What
+    # changed is that the run happens at all — visibility, not enforcement.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4

@@ -8,6 +8,21 @@
  *
  * Tasks: mt#1205 (umbrella), mt#1364 (child A — Supabase), mt#1365 (child C — Testcontainers raw PG)
  *
+ * What each test actually covers (mt#4347) — the four are NOT interchangeable:
+ *
+ *   - AT-1 / AT-2 call `withPgPoolRetry` DIRECTLY, passing their own retry
+ *     options (`maxAttempts: 5, initialDelayMs: 50`). They prove the helper
+ *     retries, and say NOTHING about the defaults production runs on — measured:
+ *     forcing DEFAULT_MAX_ATTEMPTS to 1 leaves both of them green.
+ *   - AT-3 / AT-4 go through real production classes
+ *     (`PostgresPersistenceProvider`, `PostgresVectorStorage`) on DEFAULT retry
+ *     options. They are the only coverage of the shipped configuration — the
+ *     same DEFAULT_MAX_ATTEMPTS=1 edit fails both.
+ *
+ * That asymmetry is why AT-3/AT-4 going vacuous mattered more than their count
+ * suggests: they were the only two testing what production uses, and both were
+ * silently non-saturating for 119 days.
+ *
  * Usage:
  *   import { runSaturationSuite } from "./postgres-pool-saturation.shared";
  *   runSaturationSuite({
@@ -20,7 +35,10 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import postgres from "postgres";
 import { randomUUID } from "crypto";
-import { withPgPoolRetry } from "@minsky/domain/persistence/postgres-retry";
+import {
+  withPgPoolRetry,
+  isPgPoolExhaustionError,
+} from "@minsky/domain/persistence/postgres-retry";
 import { PostgresPersistenceProvider } from "@minsky/domain/persistence/providers/postgres-provider";
 import { PostgresVectorStorage } from "@minsky/domain/storage/vector/postgres-vector-storage";
 
@@ -55,22 +73,37 @@ function makeSingleClient(connectionString: string): ReturnType<typeof postgres>
  * Each client issues a trivial query to make sure the connection is
  * actually established before returning.
  *
- * Returns a cleanup function that ends all held clients.
+ * Returns a cleanup function that ends all held clients, plus the DENOMINATOR
+ * (mt#4347): how many of the `count` requested connections were actually
+ * established. Swallowing the overflow failures is deliberate — asking for more
+ * than the ceiling is how a caller guarantees saturation without knowing the
+ * exact ceiling — but a caller that cannot see how many it got cannot tell
+ * "held the whole ceiling" from "held almost none", and those produce opposite
+ * test outcomes. See `mem#1079`: a check must assert its own denominator.
  */
 async function holdConnections(
   connectionString: string,
   count: number
-): Promise<{ clients: ReturnType<typeof postgres>[]; cleanup: () => Promise<void> }> {
+): Promise<{
+  clients: ReturnType<typeof postgres>[];
+  established: number;
+  attempted: number;
+  cleanup: () => Promise<void>;
+}> {
   const clients: ReturnType<typeof postgres>[] = [];
+  let established = 0;
 
   for (let i = 0; i < count; i++) {
     const client = makeSingleClient(connectionString);
     clients.push(client);
     try {
       await client`SELECT 1`;
+      established++;
     } catch {
-      // Some connections may fail to open if pool is already partially full;
-      // that's acceptable — we've still consumed what we could.
+      // Expected once the ceiling is reached: an over-provisioned request
+      // (see `assertSaturated`) deliberately asks for more than the server can
+      // give. The count above is what makes the shortfall visible instead of
+      // silent.
     }
   }
 
@@ -78,7 +111,80 @@ async function holdConnections(
     await Promise.allSettled(clients.map((c) => c.end()));
   };
 
-  return { clients, cleanup };
+  return { clients, established, attempted: count, cleanup };
+}
+
+/**
+ * Assert that the server is ACTUALLY refusing new connections right now
+ * (mt#4347).
+ *
+ * The single-consumer tests (AT-3, AT-4) depend on a precondition they never
+ * checked: that the connections held above consumed the entire server ceiling,
+ * so the one client they then open must retry. When that precondition silently
+ * stops holding, AT-4 fails on a wall-clock proxy 100+ lines later and AT-3 —
+ * which has no such proxy — passes green while testing nothing.
+ *
+ * This makes the precondition explicit and falsifiable: open one more
+ * connection and require it to be REFUSED. A success here means saturation was
+ * not achieved, and the test that follows would be vacuous — so fail loudly,
+ * naming the denominator, rather than proceeding to assert something that
+ * cannot discriminate.
+ *
+ * The probe consumes no slot on success-of-the-test (it is refused) and is
+ * called BEFORE the release timer is armed, so it does not eat the retry window.
+ */
+async function assertSaturated(
+  connectionString: string,
+  label: string,
+  test: string,
+  held: { established: number; attempted: number }
+): Promise<void> {
+  const probe = makeSingleClient(connectionString);
+  let error: unknown;
+  let refused = false;
+  try {
+    await probe`SELECT 1`;
+  } catch (err) {
+    refused = true;
+    error = err;
+  } finally {
+    await probe.end().catch(() => {});
+  }
+
+  if (!refused) {
+    throw new Error(
+      `[saturation/${label}] ${test}: PRECONDITION FAILED — the pool is not saturated. ` +
+        `Held ${held.established} of ${held.attempted} requested connections, and a further ` +
+        `connection still succeeded, so the consumer under test will not have to retry and ` +
+        `this test would pass without exercising withPgPoolRetry at all. ` +
+        `Raise the hold count above the server's max_connections (mt#4347).`
+    );
+  }
+
+  const observed = (error as { code?: string })?.code ?? "unknown";
+
+  // A refusal is not automatically a SATURATION refusal. An unreachable host, a
+  // bad credential or a dropped network gives us an error too, and accepting any
+  // of them here would report "saturation confirmed" for a server that is simply
+  // broken — re-creating, inside the guard itself, the exact vacuity it exists to
+  // prevent. Require the refusal to be the pool-exhaustion shape, using the same
+  // predicate withPgPoolRetry itself keys on, so this check and the mechanism
+  // under test cannot disagree about what saturation looks like.
+  if (!isPgPoolExhaustionError(error)) {
+    throw new Error(
+      `[saturation/${label}] ${test}: PRECONDITION FAILED — a further connection was refused, ` +
+        `but NOT because the pool is exhausted (code=${observed}: ` +
+        `${error instanceof Error ? error.message : String(error)}). ` +
+        `Held ${held.established} of ${held.attempted} requested connections. ` +
+        `The target is unreachable or misconfigured rather than saturated, so this test would be ` +
+        `testing the failure rather than the retry path (mt#4347).`
+    );
+  }
+
+  process.stdout.write(
+    `[saturation/${label}] ${test}: saturation confirmed — held ${held.established}/${held.attempted}, ` +
+      `further connection refused as pool-exhausted (code=${observed})\n`
+  );
 }
 
 /**
@@ -88,9 +194,31 @@ async function holdConnections(
 export function runSaturationSuite(options: SaturationSuiteOptions): void {
   const { connectionString, poolSize = 15, label } = options;
 
-  // Number of concurrent clients to saturate the pool.
-  // poolSize + 5 guarantees we exceed pool_size even with minor variance.
+  // Number of concurrent clients used to saturate the pool. Deliberately MORE
+  // than the server can accept: over-provisioning makes saturation independent
+  // of the target's actual ceiling, so a test using it does not have to know
+  // that ceiling.
+  //
+  // The two groups of tests use it DIFFERENTLY, and the asymmetry is deliberate
+  // (mt#4347):
+  //
+  //   - AT-1 / AT-2 HOLD `poolSize` and RACE `saturatingClients` consumers.
+  //     Total concurrent demand is poolSize + saturatingClients (21 against a
+  //     ceiling of 10 on the testcontainer target), so the racers alone exceed
+  //     any plausible ceiling — and both tests carry their own vacuity guard
+  //     (`expect(totalRetryAttempts).toBeGreaterThan(0)`), which FAILS if
+  //     saturation did not happen. They can neither miss it nor hide it.
+  //   - AT-3 / AT-4 HOLD `saturatingClients` and open ONE consumer. A single
+  //     consumer adds nothing to the pressure, so for them the held connections
+  //     ARE the entire saturation mechanism — which is why they, and only they,
+  //     need the over-hold.
   const saturatingClients = poolSize + 5;
+
+  // Floor for AT-4's elapsed-time corroboration of backoff: initialDelayMs (150)
+  // * minimum jitter (0.8) = the shortest possible single retry wait. Named so
+  // the assertion and the logged margin read from one source (mt#4347) — a
+  // literal in both is how they drift apart.
+  const BACKOFF_FLOOR_MS = 120;
 
   // Timeout for individual tests — retries add up to ~600 ms per caller
   // and we run many concurrent ones, so be generous.
@@ -313,16 +441,38 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
     test(
       "AT-3: PostgresPersistenceProvider.initialize() recovers under saturation",
       async () => {
-        const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
+        // Hold `saturatingClients`, NOT `poolSize` (mt#4347). This test opens a
+        // SINGLE consumer instead of racing many, so it exercises the retry path
+        // only if the held connections consume the server's WHOLE ceiling.
+        // Holding exactly `poolSize` silently assumed `poolSize == ceiling` — an
+        // assumption that stopped holding for the testcontainer target when
+        // max_connections was raised to 10 against a POOL_SIZE of 8, leaving two
+        // free slots and no reason for anything to retry. Over-provisioning
+        // removes the assumption entirely: ask for more than the ceiling and keep
+        // whatever the server gives.
+        const held = await holdConnections(connectionString, saturatingClients);
 
-        // Guard: ensure releaseHeld() is called at most once even though the
-        // timer and finally block both attempt to call it.
+        // Guard: ensure the held connections are released at most once even
+        // though the timer, the precondition check and the finally block can all
+        // reach for it.
         let released = false;
         const releaseOnce = async (): Promise<void> => {
           if (released) return;
           released = true;
-          await releaseHeld();
+          await held.cleanup();
         };
+
+        // Precondition, checked BEFORE the release timer is armed so a failure
+        // here cannot leak the held connections into the rest of the suite. This
+        // is the vacuity guard AT-3 never had: without it a non-saturating run
+        // reports green, because the assertion below ("connected") is true
+        // whether or not any retry happened.
+        try {
+          await assertSaturated(connectionString, label, "AT-3", held);
+        } catch (err) {
+          await releaseOnce();
+          throw err;
+        }
 
         // Release the held connections shortly after so the provider can
         // complete its retry on the SELECT 1 health check.
@@ -410,16 +560,34 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
           await setup.end().catch(() => {});
         }
 
-        const { cleanup: releaseHeld } = await holdConnections(connectionString, poolSize);
+        // Hold `saturatingClients`, NOT `poolSize` — see the matching comment in
+        // AT-3 (mt#4347). This is the defect that made AT-4 fail its own vacuity
+        // guard on the testcontainer target: 8 held against a ceiling of 10 left
+        // free slots, the search connected on its first try in ~7ms, and no
+        // backoff was ever exercised.
+        const held = await holdConnections(connectionString, saturatingClients);
 
-        // Guard: ensure releaseHeld() is called at most once even though the
-        // timer and finally block both attempt to call it.
+        // Guard: ensure the held connections are released at most once even
+        // though the timer, the precondition check and the finally block can all
+        // reach for it.
         let released = false;
         const releaseOnce = async (): Promise<void> => {
           if (released) return;
           released = true;
-          await releaseHeld();
+          await held.cleanup();
         };
+
+        // Precondition, checked BEFORE the release timer is armed so a failure
+        // here cannot leak the held connections into the rest of the suite. The
+        // elapsed-time assertion below is a PROXY for backoff; this is the direct
+        // check, and it is what makes a failure name the actual cause instead of
+        // reporting a millisecond count 100 lines away.
+        try {
+          await assertSaturated(connectionString, label, "AT-4", held);
+        } catch (err) {
+          await releaseOnce();
+          throw err;
+        }
 
         // Release held connections so the vector search can succeed
         const releaseTimer = setTimeout(() => void releaseOnce(), 300);
@@ -437,32 +605,48 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
         });
 
         try {
-          // Time-based proof of backoff: PostgresVectorStorage.search wraps
-          // its DB ops in withPgPoolRetry internally. We can't observe the
-          // retry counter from outside, but we can prove it fired by
-          // measuring elapsed time. With holders acquiring poolSize slots
-          // and search starting immediately, the first connection attempt
-          // must fail; withPgPoolRetry then waits ~150ms (initialDelayMs)
-          // ±20% jitter (so 120-180ms minimum) before retrying. The held
-          // connections are released ~300ms in, so search succeeds on at
-          // least the second attempt. Any total elapsed time below ~120ms
-          // means no retry waited — saturation wasn't actually achieved
-          // and the test is vacuous.
+          // Time-based CORROBORATION of backoff: PostgresVectorStorage.search
+          // wraps its DB ops in withPgPoolRetry internally. We can't observe the
+          // retry counter from outside, so elapsed time is the closest available
+          // proxy. Saturation itself is no longer inferred from this number —
+          // assertSaturated() above checked it directly (mt#4347), which is what
+          // this assertion USED to be silently standing in for.
+          //
+          // With the ceiling fully consumed and search starting immediately, the
+          // first connection attempt must fail; withPgPoolRetry then waits ~150ms
+          // (initialDelayMs) ±20% jitter (so 120-180ms minimum) before retrying.
+          // The held connections are released ~300ms in, so search succeeds on
+          // the second or third attempt. Any total elapsed time below ~120ms
+          // means no retry waited.
+          //
+          // Do NOT treat this threshold as latency-proof: against a REMOTE target
+          // an ordinary round trip can clear 120ms on its own, so a pass here is
+          // evidence of backoff only in combination with the direct precondition
+          // check above.
           const startMs = Date.now();
           const results = await vectorStorage.search([1, 0, 0], { limit: 5 });
           // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() in a BinaryExpression for elapsed-time measurement, not path creation; the rule's BinaryExpression check produces a false positive
           const elapsedMs = Date.now() - startMs;
+          // Report the MARGIN, not just the outcome (mt#4347): a reader who sees
+          // only "returned 1 result(s)" cannot tell a comfortable pass from one
+          // sitting a millisecond above the floor. Both numbers read from the
+          // BACKOFF_FLOOR_MS declared at the top of runSaturationSuite, so the
+          // log and the assertion cannot drift.
           process.stdout.write(
-            `[saturation/${label}] AT-4: vector search returned ${results.length} result(s) in ${elapsedMs}ms\n`
+            `[saturation/${label}] AT-4: vector search returned ${results.length} result(s) in ` +
+              `${elapsedMs}ms (backoff floor ${BACKOFF_FLOOR_MS}ms, margin ` +
+              `${elapsedMs - BACKOFF_FLOOR_MS}ms)\n`
           );
           expect(Array.isArray(results)).toBe(true);
           // At least the seed row must come back
           expect(results.length).toBeGreaterThan(0);
-          // Backoff proof: search must have taken at least one retry cycle.
-          // Threshold of 120ms = initialDelayMs (150) * minimum jitter (0.8).
-          // If elapsed < 120ms, withPgPoolRetry never had to wait, meaning
-          // saturation was not actually encountered (test vacuous).
-          expect(elapsedMs).toBeGreaterThanOrEqual(120);
+          // Backoff corroboration: search must have taken at least one retry
+          // cycle. If elapsed < BACKOFF_FLOOR_MS, withPgPoolRetry never had to
+          // wait. What that MEANS is now unambiguous — assertSaturated() already
+          // proved the pool was refusing connections, so a short elapsed here is
+          // a fault in the retry path rather than the silent "saturation was
+          // never achieved" it used to indicate (mt#4347).
+          expect(elapsedMs).toBeGreaterThanOrEqual(BACKOFF_FLOOR_MS);
         } finally {
           clearTimeout(releaseTimer);
           // Guaranteed release if timer hasn't fired yet.
