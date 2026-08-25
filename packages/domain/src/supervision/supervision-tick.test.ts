@@ -12,6 +12,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import {
+  HOLD_ABANDONED,
   HOLD_ALL_BLOCKED,
   HOLD_FRONTIER_EMPTY,
   HOLD_LIVE_WRITER,
@@ -366,6 +367,65 @@ describe("runSupervisionTick — single actuator (SC6)", () => {
     expect(tick.advances[0]?.holdReason).toBe("lock-held-elsewhere");
     // Not an error: another daemon doing the work is the correct outcome.
     expect(tick.ok).toBe(true);
+  });
+});
+
+describe("runSupervisionTick — abandonment (mt#4335, PR #3356 R1)", () => {
+  test("an already-aborted tick spawns nothing at all", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph(twoNodeDag());
+    const spawner = new FakeSpawner();
+    store.addSupervision({ umbrellaTaskId: "mt#900", statusFilter: ["READY"] });
+
+    const controller = new AbortController();
+    controller.abort();
+    await runSupervisionTick(buildDeps(store, graph, spawner), controller.signal);
+
+    // Most sweeps only read, so abandonment costs a held connection. This one
+    // spawns real processes, so continuing past abandonment keeps ACTUATING.
+    expect(spawner.calls).toEqual([]);
+    expect(store.dispatches).toEqual([]);
+  });
+
+  test("aborting mid-pass stops further spawns and says why", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph([
+      { id: "mt#900", title: "umbrella", status: "IN-PROGRESS" },
+      { id: "mt#901", title: "A", status: "READY", parent: "mt#900" },
+      { id: "mt#902", title: "B", status: "READY", parent: "mt#900" },
+      { id: "mt#903", title: "C", status: "READY", parent: "mt#900" },
+    ]);
+    const spawner = new FakeSpawner();
+    store.addSupervision({ umbrellaTaskId: "mt#900", statusFilter: ["READY"] });
+
+    const controller = new AbortController();
+    const deps = buildDeps(store, graph, spawner);
+    // Abort as soon as the first child has been dispatched.
+    const realDispatch = deps.dispatchChild;
+    deps.dispatchChild = async (input) => {
+      const result = await realDispatch(input);
+      controller.abort();
+      return result;
+    };
+
+    const tick = await runSupervisionTick(deps, controller.signal);
+
+    expect(tick.advances[0]?.dispatched).toEqual(["mt#901"]);
+    expect(spawner.calls).toHaveLength(1);
+    expect(tick.advances[0]?.holdReason).toBe(HOLD_ABANDONED);
+  });
+
+  test("a tick that is never aborted is unaffected", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph(twoNodeDag());
+    const spawner = new FakeSpawner();
+    store.addSupervision({ umbrellaTaskId: "mt#900", statusFilter: ["READY"] });
+
+    const tick = await runSupervisionTick(
+      buildDeps(store, graph, spawner),
+      new AbortController().signal
+    );
+    expect(tick.advances[0]?.dispatched).toEqual(["mt#901"]);
   });
 });
 

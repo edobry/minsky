@@ -227,7 +227,8 @@ export async function buildSupervisionTickDeps(): Promise<SupervisionTickDeps | 
  * `./sweepers.ts` stays a two-line binding and this module owns the behaviour.
  */
 export async function runTaskSupervisionSweepTick(
-  deps?: SupervisionTickDeps
+  deps?: SupervisionTickDeps,
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; result: SupervisionTickResult | null }> {
   const resolved = deps ?? (await buildSupervisionTickDeps());
   if (!resolved) {
@@ -235,7 +236,11 @@ export async function runTaskSupervisionSweepTick(
     return { ok: false, result: null };
   }
 
-  const result = await runSupervisionTick(resolved);
+  // mt#4335's abandonment signal, threaded to the tick (PR #3356 R1). Honouring
+  // it matters more for this sweep than for a read-only one: each remaining
+  // iteration spawns a real `claude` process and binds a workspace, so an
+  // abandoned tick that keeps going keeps ACTUATING, not merely reading.
+  const result = await runSupervisionTick(resolved, signal);
 
   for (const advance of result.advances) {
     if (advance.dispatched.length > 0 || advance.settled.length > 0) {

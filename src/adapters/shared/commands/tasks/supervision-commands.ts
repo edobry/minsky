@@ -252,7 +252,18 @@ export function createTasksSupervisionStatusCommand(getPersistenceProvider: () =
           success: true,
           umbrellaTaskId,
           supervised: false,
-          output: `${umbrellaTaskId}: not supervised. Start one with tasks_supervise.`,
+          // Names BOTH invocations rather than picking one (PR #3356 R1). The
+          // reviewer read `tasks_supervise` as a typo for the command id
+          // `tasks.supervise`; it is neither a typo nor the id, it is the MCP
+          // tool name — the same form the sibling `tasks.orchestrate` prints
+          // (`tasks_dispatch(...)`, `session_start(...)`). But this string has
+          // two audiences: an agent reading MCP output, for which the id is not
+          // callable, and a human reading the CLI, for whom neither the id nor
+          // the tool name is typeable. Ambiguous either way with one name, so
+          // give both.
+          output:
+            `${umbrellaTaskId}: not supervised. ` +
+            "Start one with the `tasks_supervise` MCP tool, or `minsky tasks supervise <taskId>` on the CLI.",
         };
       }
 

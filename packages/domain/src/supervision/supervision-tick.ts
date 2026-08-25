@@ -80,6 +80,8 @@ export const HOLD_ALL_BLOCKED = "all-children-blocked";
 export const HOLD_ALREADY_DISPATCHED = "frontier-already-dispatched";
 /** Every dispatchable child already has a live driven session on it (SC6). */
 export const HOLD_LIVE_WRITER = "live-writer-on-every-candidate";
+/** The tick was abandoned past `tickTimeoutMs` and stopped spawning (mt#4335). */
+export const HOLD_ABANDONED = "tick-abandoned";
 
 /** True when a supervision has gone longer than the threshold without advancing. */
 export function isSupervisionStalled(
@@ -104,7 +106,8 @@ export function isSupervisionStalled(
  */
 export async function runSupervisionPass(
   supervision: SupervisionView,
-  deps: SupervisionTickDeps
+  deps: SupervisionTickDeps,
+  signal?: AbortSignal
 ): Promise<SupervisionAdvance> {
   const { store } = deps;
   const now = deps.now();
@@ -217,6 +220,17 @@ export async function runSupervisionPass(
     for (const candidate of candidates) {
       if (dispatchAttempts >= freeSlots) break;
 
+      // Abandonment stops further SPAWNS (mt#4335's signal, PR #3356 R1).
+      // This matters more here than for a read-only sweep: every remaining
+      // iteration starts a real `claude` process and a workspace, and an
+      // abandoned tick that keeps actuating is strictly worse than one that
+      // merely holds a connection. Checked between candidates rather than
+      // mid-spawn — a half-started child is not something to abort into.
+      if (signal?.aborted) {
+        advance.holdReason = HOLD_ABANDONED;
+        break;
+      }
+
       // SC6's single-actuator invariant, at the point it actually binds here.
       // The supervisor never resumes a conversation, so mt#3038's
       // conversation-keyed resume lock guards nothing for it — but
@@ -305,16 +319,20 @@ async function settle(
  * that is failing every pass indistinguishable from one with nothing to do.
  */
 export async function runSupervisionTick(
-  deps: SupervisionTickDeps
+  deps: SupervisionTickDeps,
+  signal?: AbortSignal
 ): Promise<SupervisionTickResult> {
   const supervisions = await deps.store.listActiveSupervisions();
   const advances: SupervisionAdvance[] = [];
   let ok = true;
 
   for (const supervision of supervisions) {
+    // An abandoned tick stops taking on NEW supervisions as well as new
+    // spawns — the outer bound on how much an abandoned pass can still do.
+    if (signal?.aborted) break;
     try {
       const result = await deps.store.withSupervisionLock(supervision.id, () =>
-        runSupervisionPass(supervision, deps)
+        runSupervisionPass(supervision, deps, signal)
       );
       if (result === null) {
         // Another actuator holds it. Not an error and not a stall — say so

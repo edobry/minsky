@@ -2148,10 +2148,14 @@ export function startTaskSupervisionSweeper(intervalMs?: number): () => void {
   return createIntervalSweeper({
     name: "task supervision",
     intervalMs: intervalMs ?? TASK_SUPERVISION_SWEEP_INTERVAL_MS,
-    tick: async (): Promise<SweepTickResult> => {
+    tick: async (signal: AbortSignal): Promise<SweepTickResult> => {
       try {
         const { runTaskSupervisionSweepTick } = await import("./task-supervision-sweep");
-        const { ok } = await runTaskSupervisionSweepTick();
+        // Honours the abandonment signal (mt#4335). Most sweeps read; this one
+        // SPAWNS, so an abandoned tick that keeps iterating keeps starting real
+        // `claude` processes — the tick stops taking on new candidates and new
+        // supervisions once the signal fires.
+        const { ok } = await runTaskSupervisionSweepTick(undefined, signal);
         return { ok };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
