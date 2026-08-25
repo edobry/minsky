@@ -23,6 +23,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import {
+  isDriverStarting,
   sessionDriverMayStillLink,
   resolveConversationAddress,
   type SessionDriverSummary,
@@ -84,7 +85,7 @@ export function useConversationAddress(id: string | undefined): ConversationAddr
       const data = q.state.data;
       if (!id || !data) return false;
       const address = resolveConversationAddress(id, data);
-      if (address.kind !== "driver-starting") return false;
+      if (!isDriverStarting(address)) return false;
       // A terminal-but-unlinked session driver never links, so re-reading it can
       // never change the answer.
       return sessionDriverMayStillLink(address.sessionDriver) ? STARTING_REFETCH_MS : false;
