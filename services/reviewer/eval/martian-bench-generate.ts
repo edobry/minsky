@@ -323,6 +323,36 @@ interface MartianBenchmarkEntry {
   reviews: MartianReview[];
 }
 
+/** One row of the `-generation-meta.json` sidecar — also the shape resume support (mt#4577)
+ * reads back off disk to restore `generationMeta` for already-completed PRs. */
+interface GenerationMetaEntry {
+  pr: string;
+  tokensUsed?: number;
+  /** Token breakdown by billing class (ReviewUsage) — required to compute a real dollar
+   * cost, since uncached input / cached input / output bill at different rates
+   * (token-cost.ts's USD_PER_MTOK). tokensUsed alone cannot answer a cost question. */
+  usage?: {
+    promptTokens?: number;
+    cachedTokens: number;
+    /** Uncached portion of promptTokens, i.e. what's actually billed at the full input
+     * rate — computed here so a reader doesn't have to re-derive it. */
+    uncachedPromptTokens?: number;
+    completionTokens?: number;
+    reasoningTokens?: number;
+    totalTokens?: number;
+  };
+  /** USD, computed via token-cost.ts's computeCostUsd (the same function that prices
+   * production review_timing rows) — not hand-derived from the rates in prose. */
+  costUsd: number | null;
+  roundsUsed?: number;
+  maxRounds?: number;
+  /** Whether the model called conclude_review itself in-loop (true) vs. the loop
+   * exhausting maxRounds and a forced pass supplying it (false/undefined) — the
+   * question of whether roundsUsed measures a FINISHED review or a TRUNCATED one. */
+  concludedInLoop?: boolean;
+  concludedAtRound: number | null;
+}
+
 /** `submit_finding`'s args always carry `file` + `line` (both required —
  * `SubmitFindingArgsSchema` in `output-tools.ts`), so every finding maps to a "line-specific"
  * Martian comment shape. CORRECTED (verified against the pinned step2_extract_comments.py, not
@@ -432,37 +462,32 @@ async function main() {
   const octokit = new Octokit({ auth: githubToken });
 
   const output: Record<string, MartianBenchmarkEntry> = {};
-  const generationMeta: Array<{
-    pr: string;
-    tokensUsed?: number;
-    /** Token breakdown by billing class (ReviewUsage) — required to compute a real dollar
-     * cost, since uncached input / cached input / output bill at different rates
-     * (token-cost.ts's USD_PER_MTOK). tokensUsed alone cannot answer a cost question. */
-    usage?: {
-      promptTokens?: number;
-      cachedTokens: number;
-      /** Uncached portion of promptTokens, i.e. what's actually billed at the full input
-       * rate — computed here so a reader doesn't have to re-derive it. */
-      uncachedPromptTokens?: number;
-      completionTokens?: number;
-      reasoningTokens?: number;
-      totalTokens?: number;
-    };
-    /** USD, computed via token-cost.ts's computeCostUsd (the same function that prices
-     * production review_timing rows) — not hand-derived from the rates in prose. */
-    costUsd: number | null;
-    roundsUsed?: number;
-    maxRounds?: number;
-    /** Whether the model called conclude_review itself in-loop (true) vs. the loop
-     * exhausting maxRounds and a forced pass supplying it (false/undefined) — the
-     * question of whether roundsUsed measures a FINISHED review or a TRUNCATED one. */
-    concludedInLoop?: boolean;
-    concludedAtRound: number | null;
-  }> = [];
+  const generationMeta: GenerationMetaEntry[] = [];
 
   const outDir = dirname(args.out);
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
   const metaPath = args.out.replace(/\.json$/, "-generation-meta.json");
+
+  // Resume support (mt#4577): the OpenAI account ran out of credits mid-run at 24/50 and the
+  // process died — the 24 completed reviews already cost real money and regenerating them would
+  // both waste that spend and add nothing. If --out already has completed entries, load them
+  // into `output`/`generationMeta` and skip those PRs below rather than reprocessing everything.
+  // Keyed on `pr.goldenUrl` (the same key `output` and `generationMeta` entries use), so a
+  // partial file from ANY prior run (not just this specific incident) resumes correctly.
+  if (existsSync(args.out)) {
+    const existingOutput = JSON.parse(readFileSync(args.out, "utf-8")) as Record<
+      string,
+      MartianBenchmarkEntry
+    >;
+    Object.assign(output, existingOutput);
+    if (existsSync(metaPath)) {
+      const existingMeta = JSON.parse(readFileSync(metaPath, "utf-8")) as {
+        reviews: GenerationMetaEntry[];
+      };
+      generationMeta.push(...existingMeta.reviews);
+    }
+    console.log(`Resuming: ${Object.keys(output).length} reviews already completed in ${args.out}`);
+  }
 
   /** Writes both output files after each batch — a 50-PR sequential run is long enough that
    * losing partial progress to an unrelated failure partway through would be expensive. */
@@ -478,8 +503,8 @@ async function main() {
     );
   }
 
-  async function processOnePr(pr: ResolvedPr, idx: number): Promise<void> {
-    console.log(`\n[${idx + 1}/${prs.length}] ${pr.owner}/${pr.repo}#${pr.prNumber}...`);
+  async function processOnePr(pr: ResolvedPr, idx: number, total: number): Promise<void> {
+    console.log(`\n[${idx + 1}/${total}] ${pr.owner}/${pr.repo}#${pr.prNumber}...`);
     const ctx = await fetchPrContext(octokit, pr.owner, pr.repo, pr.prNumber);
     const reviewOutput = await generateReview(args.model, resolvedApiKey, ctx, pr.prNumber);
 
@@ -554,13 +579,21 @@ async function main() {
     );
   }
 
+  // Skip PRs already present in `output` (loaded above from a prior partial run) — this is
+  // what makes resume actually resume rather than regenerate everything. `pending` may be
+  // shorter than `prs`; log both counts so a resumed run's console output is unambiguous.
+  const pending = prs.filter((pr) => !(pr.goldenUrl in output));
+  if (pending.length < prs.length) {
+    console.log(`Skipping ${prs.length - pending.length} already-completed PRs.`);
+  }
+
   // Bounded-concurrency batches, not full sequential: 50 PRs at the smoke run's ~2-4 min each
   // would run 100-200+ minutes sequentially. Default 3 is conservative against the reviewer's
   // own per-PR round budget (10 rounds, each a real model call) stacking rate-limit pressure
   // across concurrent reviews — raise via --concurrency if the provider tier allows more.
-  for (let i = 0; i < prs.length; i += args.concurrency) {
-    const batch = prs.slice(i, i + args.concurrency);
-    await Promise.all(batch.map((pr, j) => processOnePr(pr, i + j)));
+  for (let i = 0; i < pending.length; i += args.concurrency) {
+    const batch = pending.slice(i, i + args.concurrency);
+    await Promise.all(batch.map((pr, j) => processOnePr(pr, i + j, pending.length)));
     saveProgress();
   }
 
