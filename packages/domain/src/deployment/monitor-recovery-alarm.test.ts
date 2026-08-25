@@ -11,9 +11,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   classifyRecycleCounters,
+  classifyRetryCounters,
+  combineRecoveryReadings,
   readRecycleCounters,
+  readRetryCounters,
   toRecoveryCheckSummary,
   type RecycleCounters,
+  type RetryCounters,
 } from "./monitor-recovery-alarm";
 
 /** A counter set with everything at zero — what a freshly booted process reports. */
@@ -189,5 +193,130 @@ describe("toRecoveryCheckSummary", () => {
     const summary = toRecoveryCheckSummary(readRecycleCounters({ service: "minsky-mcp" }));
 
     expect(summary).toMatchObject({ outcome: "not-applicable", problem: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4562 — the RETRY mechanism's counters
+// ---------------------------------------------------------------------------
+
+const retry = (overrides: Partial<RetryCounters> = {}): RetryCounters => ({
+  saturationRetries: 0,
+  staleConnectionRetries: 0,
+  retriesExhausted: 0,
+  lastRetryAt: null,
+  ...overrides,
+});
+
+describe("classifyRetryCounters", () => {
+  test("an all-zero payload reads UNTESTED, never healthy", () => {
+    const reading = classifyRetryCounters(retry());
+
+    expect(reading.state).toBe("untested");
+    expect(reading.state === "untested" && reading.detail).toContain("UNEXERCISED");
+  });
+
+  test("a zero saturation count is described as EXPECTED, not as a fault", () => {
+    // The load-bearing correction from mt#3497: pool exhaustion needs more
+    // concurrent clients than production runs, so zero there is structural. A
+    // detector that read it as a symptom would alarm on a healthy system
+    // forever.
+    const reading = classifyRetryCounters(retry());
+
+    expect(reading.state === "untested" && reading.detail).toContain("EXPECTED");
+  });
+
+  test("retries that were absorbed read HEALTHY", () => {
+    const reading = classifyRetryCounters(
+      retry({ staleConnectionRetries: 4, lastRetryAt: "2026-08-25T12:00:00.000Z" })
+    );
+
+    expect(reading.state).toBe("healthy");
+  });
+
+  test("an exhausted budget is the ALARM", () => {
+    const reading = classifyRetryCounters(
+      retry({ staleConnectionRetries: 6, retriesExhausted: 2 })
+    );
+
+    expect(reading.state).toBe("alarm");
+    expect(reading.state === "alarm" && reading.detail).toContain("EXHAUSTED");
+  });
+
+  test("exhaustion alarms even when no retry was attempted in this window", () => {
+    // Guards the ordering: the untested branch must not shadow the alarm.
+    expect(classifyRetryCounters(retry({ retriesExhausted: 1 })).state).toBe("alarm");
+  });
+});
+
+describe("readRetryCounters", () => {
+  test("a service with no dbRetry key reads NO-SURFACE", () => {
+    expect(readRetryCounters({ status: "ok", service: "minsky-site" }).state).toBe("no-surface");
+  });
+
+  test("a PARTIAL dbRetry is unparseable rather than zero-filled", () => {
+    const reading = readRetryCounters({ dbRetry: { saturationRetries: 1 } });
+
+    expect(reading.state).toBe("unparseable");
+    expect(reading.state === "unparseable" && reading.detail).toContain("retriesExhausted");
+  });
+
+  test("reads a full payload", () => {
+    expect(
+      readRetryCounters({
+        dbRetry: {
+          saturationRetries: 0,
+          staleConnectionRetries: 3,
+          retriesExhausted: 0,
+          lastRetryAt: "2026-08-25T12:00:00.000Z",
+        },
+      }).state
+    ).toBe("healthy");
+  });
+});
+
+describe("combineRecoveryReadings", () => {
+  test("an empty list is no-surface", () => {
+    expect(combineRecoveryReadings([]).state).toBe("no-surface");
+  });
+
+  test("the MORE SEVERE reading wins, so a healthy sibling cannot mask a fault", () => {
+    const combined = combineRecoveryReadings([
+      classifyRecycleCounters({ ...zeroed, recycleCount: 2, closesDrained: 2 }),
+      classifyRetryCounters(retry({ retriesExhausted: 1 })),
+    ]);
+
+    expect(combined.state).toBe("alarm");
+  });
+
+  test("untested loses to healthy — one exercised mechanism is a real observation", () => {
+    const combined = combineRecoveryReadings([
+      classifyRecycleCounters(zeroed),
+      classifyRetryCounters(retry({ staleConnectionRetries: 1 })),
+    ]);
+
+    expect(combined.state).toBe("healthy");
+  });
+
+  test("an alarm outranks an unparseable sibling", () => {
+    const combined = combineRecoveryReadings([
+      readRetryCounters({ dbRetry: 7 }),
+      classifyRecycleCounters({ ...zeroed, recycleCount: 1, closesAbandoned: 1 }),
+    ]);
+
+    expect(combined.state).toBe("alarm");
+  });
+
+  test("both silent stays silent", () => {
+    const combined = combineRecoveryReadings([
+      readRecycleCounters({ service: "minsky-site" }),
+      readRetryCounters({ service: "minsky-site" }),
+    ]);
+
+    expect(combined.state).toBe("no-surface");
+    expect(toRecoveryCheckSummary(combined)).toMatchObject({
+      outcome: "not-applicable",
+      problem: false,
+    });
   });
 });

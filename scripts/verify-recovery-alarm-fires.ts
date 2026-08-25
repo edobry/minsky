@@ -75,8 +75,13 @@ import {
 import type { PersistenceService } from "../packages/domain/src/persistence/service";
 import {
   readRecycleCounters,
+  readRetryCounters,
   toRecoveryCheckSummary,
 } from "../packages/domain/src/deployment/monitor-recovery-alarm";
+import {
+  getPgRetryCounters,
+  withPgPoolRetry,
+} from "../packages/domain/src/persistence/postgres-retry";
 import {
   scoreService,
   type CheckSummary,
@@ -84,6 +89,8 @@ import {
 } from "../packages/domain/src/deployment/monitor-verdict";
 
 const HEALTHY_MODE = process.argv.includes("--healthy");
+/** mt#4562: verify the RETRY mechanism's alarm instead of the recycle's. */
+const RETRY_MODE = process.argv.includes("--retry");
 
 /** Margin over the outer deadline, so the abandon has definitely been recorded. */
 const WAIT_MS = RECYCLE_CLOSE_TIMEOUT_MS + 1_500;
@@ -118,7 +125,87 @@ function log(line: string): void {
   console.log(line);
 }
 
+/**
+ * mt#4562 — the RETRY mechanism's half of the same chain.
+ *
+ * Drives the real `withPgPoolRetry` to budget exhaustion, reads the real
+ * counters it recorded, and runs the same detector + scorer over them. As with
+ * the recycle above, the only substitution is the CAUSE of the failure: a thrown
+ * `CONNECTION_CLOSED` stands in for a real dropped socket, and
+ * `isPgStaleConnectionError` cannot tell the difference — it matches on the code
+ * and the pre-send `query` shape, both of which are identical either way.
+ */
+async function runRetryCheck(): Promise<number> {
+  log("mt#4562 retry-alarm verification");
+  log("");
+
+  const before = getPgRetryCounters();
+  if (before.retriesExhausted !== 0) {
+    log(`  FAIL: expected clean module state, got ${JSON.stringify(before)}`);
+    return 1;
+  }
+  log(`  baseline: ${JSON.stringify(before)}`);
+
+  // The real helper, the real predicates, the real backoff loop.
+  let attempts = 0;
+  try {
+    await withPgPoolRetry(
+      async () => {
+        attempts++;
+        // A real Error, not a literal — and `query` must be an OWN property
+        // whose value is `undefined`, which is exactly what
+        // `hasNonRetryableQueryShape` tests for to prove the failure was
+        // pre-send. `Object.assign` creates it; omitting the key entirely would
+        // take a different branch in the predicate.
+        throw Object.assign(new Error("Connection terminated"), {
+          code: "CONNECTION_CLOSED",
+          query: undefined,
+        });
+      },
+      "mt#4562 verification",
+      { maxAttempts: 3, initialDelayMs: 1, jitter: () => 0 }
+    );
+    log("  FAIL: withPgPoolRetry resolved; it was supposed to exhaust its budget.");
+    return 1;
+  } catch {
+    // Expected — exhaustion surfaces the error to the caller.
+  }
+
+  const after = getPgRetryCounters();
+  log(`  attempts: ${attempts}`);
+  log(`  counters: ${JSON.stringify(after)}`);
+
+  const reading = readRetryCounters({ dbRetry: after });
+  const summary: ServiceCheckSummary = {
+    service: "minsky-mcp",
+    deploy: ran(),
+    health: ran(),
+    digest: ran(),
+    recovery: toRecoveryCheckSummary(reading),
+  };
+  const score = scoreService(summary, false);
+
+  log(`  reading:  ${reading.state}`);
+  log(`  verdict:  ${score.verdict}`);
+  log(`  alerts:   ${JSON.stringify(score.alerts.map((a) => a.class))}`);
+  log("");
+
+  if (after.retriesExhausted !== 1) {
+    log(`  FAIL: expected exactly 1 exhausted call, got ${after.retriesExhausted}.`);
+    return 1;
+  }
+  if (!score.alerts.some((a) => a.class === "recovery-degraded")) {
+    log("  FAIL: counters show an exhaustion but no recovery-degraded alert was raised.");
+    return 1;
+  }
+
+  log("  PASS: a real retry-budget exhaustion, recorded by the real helper, produced a");
+  log("        recovery-degraded alert end to end.");
+  return 0;
+}
+
 async function main(): Promise<number> {
+  if (RETRY_MODE) return runRetryCheck();
   log(`mt#1495 recovery-alarm verification — mode: ${HEALTHY_MODE ? "healthy" : "wedged"}`);
   log("");
 
