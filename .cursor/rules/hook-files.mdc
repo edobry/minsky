@@ -71,7 +71,13 @@ which is the growth the consolidation exists to stop.
   process passed as an argument lands in the output even though the command names no secret and
   no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
   sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
-  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
+  the safe form the rule teaches. Extended mt#4570 with a FOURTH check: a vendor CLI whose
+  ordinary output is every env var WITH its value (`railway variable`/`variables`, bare or
+  `list`/`ls`, in every flag form — `--json` and `-k`/`--kv` both document that they render raw
+  values, and there is no keys-only flag). Keyed on the value-dumping SUBCOMMAND, so `railway
+  status`/`whoami`/`logs` stay allowed, and PIPELINE-scoped like the third: a key-projecting
+  stage (`| jq -r 'keys[]'`) or a counting sink permits it. Same matcher class again, so no new
+  guard and no calibration ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers all four checks.
 - **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
   (`--execute`/`--apply`) while another process is already running that same script. Denies with
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous

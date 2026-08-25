@@ -692,7 +692,13 @@ which is the growth the consolidation exists to stop.
   process passed as an argument lands in the output even though the command names no secret and
   no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
   sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
-  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
+  the safe form the rule teaches. Extended mt#4570 with a FOURTH check: a vendor CLI whose
+  ordinary output is every env var WITH its value (`railway variable`/`variables`, bare or
+  `list`/`ls`, in every flag form — `--json` and `-k`/`--kv` both document that they render raw
+  values, and there is no keys-only flag). Keyed on the value-dumping SUBCOMMAND, so `railway
+  status`/`whoami`/`logs` stay allowed, and PIPELINE-scoped like the third: a key-projecting
+  stage (`| jq -r 'keys[]'`) or a counting sink permits it. Same matcher class again, so no new
+  guard and no calibration ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers all four checks.
 - **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
   (`--execute`/`--apply`) while another process is already running that same script. Denies with
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
@@ -1260,6 +1266,24 @@ ps -eo pid,etime,comm                 # safe: no argv column
 ps -eo command | grep -c 'gho_'       # safe: counts, renders no row
 ```
 
+**A deployment CLI's variable listing is the fourth channel (mt#4570).** `railway variable list`
+and its aliases print every env var WITH its value — `--json` and `-k`/`--kv` both document that
+they render raw values, and there is NO keys-only flag. Same tell as the third channel: your
+command names no secret and no path. Project the keys instead, which is what the guard permits:
+
+```bash
+railway variable list --json | jq -r 'keys[]'        # safe: key names only
+V=$(railway variable list --json | jq -r '.SOME_KEY') # safe: assigned, not printed
+```
+
+**A safe probe that FAILS is where this one bites — the diagnostic re-run inherits the safety
+requirement.** When a keys-only probe comes back empty and you re-run it with stderr visible to
+find out why, un-redirecting stderr and un-filtering stdout feel like a single act of unmuting.
+They are two, and only one of them is what you wanted. On 2026-08-25 that dropped a `jq keys`
+filter along with a `2>/dev/null` and printed a live production key. Restate the filter on the
+re-run, or better: fix the invocation with `--help`/`status` and never re-run the value-bearing
+form at all.
+
 **A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
 UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
 a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
@@ -1282,9 +1306,11 @@ check itself did not complete — never conflated with a clean pass). Reuses the
 transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
-File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
-(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
-channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+The file-read, process-listing and vendor-CLI channels are all enforced by the
+`block-secret-file-read` guard (`hook-files.mdc`); the rest is discipline-tier. **An MCP server's
+launch config is a fifth channel** — and unlike the four above it is not a command you run, which
+is why it is numbered last rather than beside them: a `$(…)` in an `args` field computes a secret
+into a child's argv (mt#4140); how to
 audit one for that and for a literal token at rest:
 `docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
 Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
