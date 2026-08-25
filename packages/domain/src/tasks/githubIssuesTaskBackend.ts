@@ -21,7 +21,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../../../src/types/tasks/taskData";
-import type { TaskBackend } from "./types";
+import type { TaskBackend, StatusWriteOutcome } from "./types";
 import { log } from "@minsky/shared/logger";
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
 import { shouldIncludeTaskStatus } from "./task-filters";
@@ -268,22 +268,34 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     return results.filter((task): task is Task => task !== null);
   }
 
+  /**
+   * mt#4457: a failed read is an error, not an absent status.
+   *
+   * This used to log and return `undefined`, which the caller cannot distinguish
+   * from "this issue genuinely has no status" — so a GitHub API outage, a rate
+   * limit, or an auth failure all rendered as a task with no status. The log line
+   * went to a channel no caller reads. Rethrow instead; the log stays, because it
+   * carries the id, but it no longer stands in for the failure.
+   */
   async getTaskStatus(id: string): Promise<string | undefined> {
     try {
       const task = await this.getTask(id);
       return task?.status || undefined;
     } catch (error) {
       log.error("Failed to get task status", { id, error: getErrorMessage(error) });
-      return undefined;
+      throw error;
     }
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
+  async setTaskStatus(id: string, status: string): Promise<StatusWriteOutcome> {
     const task = await this.getTask(id);
     if (!task) {
       throw new Error(`Task ${id} not found`);
     }
     await updateIssueStatus(this.octokit, this.owner, this.repo, id, status, this.statusLabels);
+    // `updateIssueStatus` throws on a failed API call, so reaching here means the
+    // one addressed issue was updated. GitHub has no rowcount to report (mt#4457).
+    return { recordsAffected: 1 };
   }
 
   async createTaskFromTitleAndDescription(

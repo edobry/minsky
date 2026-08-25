@@ -178,11 +178,17 @@ export class TasksStatusSetCommand extends BaseTaskCommand<typeof tasksStatusSet
     const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
     this.debug("Task status set successfully");
 
+    // mt#4457: `changed` is DERIVED from the write's reported effect, not asserted.
+    // It was the literal `true` until 2026-08-25, which meant the payload said the
+    // same thing whether or not the update reached the row — the exact shape a
+    // caller cannot check. The domain layer now throws on a zero-record write, so
+    // this should always be true; deriving it anyway keeps the payload honest if a
+    // future backend reports zero without raising.
     return this.formatResult(
       this.createSuccessResult(validatedTaskId, message, {
         previousStatus,
         newStatus: status,
-        changed: true,
+        changed: result.recordsAffected > 0,
         result,
       }),
       params.json

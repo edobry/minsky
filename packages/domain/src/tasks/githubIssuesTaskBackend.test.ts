@@ -486,8 +486,12 @@ This is a test task description.
         createGitHubLabelsFn: mockCreateGitHubLabels,
       }) as GitHubIssuesTaskBackend;
 
-      // Should NOT throw
-      await expect(backendSuccess.setTaskStatus("gh#1", "PLANNING")).resolves.toBeUndefined();
+      // Should NOT throw, and must report the write's effect (mt#4457 — this
+      // used to resolve to `undefined`, which said nothing about whether the
+      // write landed).
+      await expect(backendSuccess.setTaskStatus("gh#1", "PLANNING")).resolves.toEqual({
+        recordsAffected: 1,
+      });
     });
   });
 });

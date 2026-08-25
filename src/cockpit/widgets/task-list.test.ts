@@ -83,7 +83,7 @@ function makeCapturingTaskService(
     },
     getTask: async () => null,
     getTaskStatus: async () => undefined,
-    setTaskStatus: async () => {},
+    setTaskStatus: async () => ({ recordsAffected: 1 }),
     createTaskFromTitleAndSpec: async () => {
       throw new Error("not implemented in fake");
     },

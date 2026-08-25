@@ -58,7 +58,7 @@ describe("Session Approve", () => {
       const svc = new FakeTaskService({
         initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
       });
-      svc.setTaskStatus = () => Promise.resolve();
+      svc.setTaskStatus = () => Promise.resolve({ recordsAffected: 1 });
       svc.getBackendForTask = (() =>
         Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
       return svc;
@@ -120,7 +120,7 @@ describe("Session Approve", () => {
       const svc = new FakeTaskService({
         initialTasks: [{ id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS }],
       });
-      svc.setTaskStatus = () => Promise.resolve();
+      svc.setTaskStatus = () => Promise.resolve({ recordsAffected: 1 });
       svc.getBackendForTask = (() =>
         Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any;
       return svc;
@@ -173,7 +173,7 @@ describe("Session Approve", () => {
 
     const mockTaskService = (() => {
       const svc = new FakeTaskService();
-      svc.setTaskStatus = () => Promise.resolve();
+      svc.setTaskStatus = () => Promise.resolve({ recordsAffected: 1 });
       svc.getBackendForTask = (() => Promise.resolve({})) as any;
       return svc;
     })();

@@ -5,6 +5,7 @@ import type {
   TaskListOptions,
   CreateTaskOptions,
   DeleteTaskOptions,
+  StatusWriteOutcome,
 } from "./types";
 export type { TaskBackend } from "./types";
 import type { TaskServiceInterface, TaskSpecContentResult } from "../tasks";
@@ -465,54 +466,71 @@ export class TaskServiceImpl implements TaskService {
     // 1. Dedicated status read on the routed backend (single source of truth
     //    when available). Avoids early-returning from `backend.getTask`, which
     //    could surface backend-internal caches.
+    let backend: TaskBackend;
     try {
-      const backend = this.routeToBackend(id);
-      try {
-        const status = await backend.getTaskStatus(id);
-        if (typeof status !== "undefined") return status;
-      } catch {
-        // ignore: backend may not implement getTaskStatus directly
-      }
-
-      // 1b. Backend list-scan fallback for partial-implementation mocks where
-      //     getTaskStatus is unimplemented but listTasks populates rows.
-      try {
-        const list = await backend.listTasks();
-        const found = list.find((t) => {
-          if (t.id === id) return true;
-          const taskLocalId = t.id.includes("#") ? t.id.split("#").pop() : t.id;
-          const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
-          if (taskLocalId === searchLocalId) return true;
-          if (!/^#/.test(id) && t.id === `#${id}`) return true;
-          if (id.startsWith("#") && t.id === id.substring(1)) return true;
-          return false;
-        });
-        if (found && typeof found.status !== "undefined") return found.status;
-      } catch {
-        // ignore list errors in mocked environments
-      }
+      backend = this.routeToBackend(id);
     } catch {
       // routeToBackend threw (no prefix routes, no default backend); fall
       // through to the cross-backend aggregated search below rather than
       // throwing — preserves previous tolerance during boot / partial wiring.
+      const bootTask = await this.getTask(id);
+      return typeof bootTask?.status !== "undefined" ? bootTask.status : undefined;
+    }
+
+    // mt#4457: these reads are deliberately NOT wrapped in a catch.
+    //
+    // They used to be. The stated reason was tolerance for partial-implementation
+    // mocks ("backend may not implement getTaskStatus directly"), but a bare catch
+    // cannot distinguish that from a database read that FAILED — so under lock
+    // contention a failing read silently degraded to the list-scan and then to the
+    // cross-backend aggregate, returning a plausible value instead of an error.
+    // A caller cannot tell such a value from a healthy read, which is the same
+    // class of defect as the write path's false success.
+    //
+    // The capability check below buys the mock tolerance precisely, without
+    // swallowing anything: an unimplemented method is answered by asking whether
+    // it exists, and a read that exists and throws now propagates.
+    if (typeof backend.getTaskStatus === "function") {
+      const status = await backend.getTaskStatus(id);
+      if (typeof status !== "undefined") return status;
+    }
+
+    // 1b. Backend list-scan fallback for partial-implementation mocks where
+    //     getTaskStatus is unimplemented but listTasks populates rows.
+    if (typeof backend.listTasks === "function") {
+      const list = await backend.listTasks();
+      const found = list.find((t) => {
+        if (t.id === id) return true;
+        const taskLocalId = t.id.includes("#") ? t.id.split("#").pop() : t.id;
+        const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
+        if (taskLocalId === searchLocalId) return true;
+        if (!/^#/.test(id) && t.id === `#${id}`) return true;
+        if (id.startsWith("#") && t.id === id.substring(1)) return true;
+        return false;
+      });
+      if (found && typeof found.status !== "undefined") return found.status;
     }
 
     // 2. Cross-backend aggregated search as final fallback. Tolerant of
-    //    routing failures and unqualified IDs that match across backends.
+    //    unqualified IDs that match across backends.
     const task = await this.getTask(id);
     return typeof task?.status !== "undefined" ? task.status : undefined;
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
+  async setTaskStatus(id: string, status: string): Promise<StatusWriteOutcome> {
     const backend = this.routeToBackend(id);
-    await backend.setTaskStatus(id, status);
-    // Ensure cached reads see the updated status in mocked environments
+    const outcome = await backend.setTaskStatus(id, status);
+    // Ensure cached reads see the updated status in mocked environments.
+    // mt#4457: this touch-read stays swallowed deliberately — it is a cache
+    // nudge whose result is discarded by design, and it runs AFTER the write
+    // whose effect `outcome` already carries. Swallowing here cannot mask the
+    // write, which is what the surrounding changes are about.
     try {
       await backend.getTask(id); // touch backend to refresh any caches; ignore result
     } catch (_e) {
-      // ignore errors from touch read in tests
+      // intentional-swallow: cache-refresh nudge; the write's effect is in `outcome`
     }
-    return;
+    return outcome;
   }
 
   getWorkspacePath(): string {

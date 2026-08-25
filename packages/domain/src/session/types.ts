@@ -1,4 +1,5 @@
 import type { TaskServiceInterface } from "../tasks";
+import type { StatusWriteOutcome } from "../tasks/types";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
@@ -343,7 +344,7 @@ export interface SessionApprovalDependencies {
   sessionDB?: SessionProviderInterface;
   gitService?: GitServiceInterface;
   taskService?: {
-    setTaskStatus?: (taskId: string, status: string) => Promise<void>;
+    setTaskStatus?: (taskId: string, status: string) => Promise<StatusWriteOutcome>;
     getBackendForTask?: (taskId: string) => Promise<string>;
   };
   workspaceUtils?: WorkspaceUtilsInterface;

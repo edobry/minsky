@@ -21,7 +21,7 @@ import {
   TaskServiceOptions,
   TaskServiceInterface,
 } from "../taskService";
-import type { Task } from "../types";
+import type { Task, StatusWriteOutcome } from "../types";
 import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import {
   taskStatusSetParamsSchema,
@@ -174,7 +174,7 @@ export async function setTaskStatusFromParams(
     resolveMainWorkspacePath?: () => Promise<string>;
     taskGraphService?: Pick<TaskGraphService, "listChildren">;
   }
-): Promise<void> {
+): Promise<StatusWriteOutcome> {
   try {
     // Normalize taskId before validation
     const qualifiedTaskId = normalizeTaskIdInput(params.taskId);
@@ -275,10 +275,25 @@ export async function setTaskStatusFromParams(
       }
     }
 
-    // Set the task status
-    await taskService.setTaskStatus(validParams.taskId, validParams.status);
+    // Set the task status.
+    //
+    // mt#4457: the outcome is CHECKED, not discarded. A Postgres UPDATE that
+    // matches no rows raises nothing, so before this check a write that never
+    // landed returned normally and the adapter above reported success for it —
+    // observed twice on 2026-08-23, on three different task rows. `getTask`
+    // above proves the row existed when we read it; it does not prove the
+    // UPDATE reached it, and those are different moments.
+    const outcome = await taskService.setTaskStatus(validParams.taskId, validParams.status);
+    if (outcome.recordsAffected === 0) {
+      throw new Error(
+        `Status write for ${validParams.taskId} did not persist: the update matched 0 records ` +
+          `(intended ${task.status} -> ${validParams.status}). The task's status is unchanged. ` +
+          `This is a failed write, not a no-op — do not treat it as success.`
+      );
+    }
 
     // Auto-commit functionality was removed - no backend-specific handling needed
+    return outcome;
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(

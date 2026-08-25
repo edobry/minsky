@@ -9,6 +9,27 @@ import type { FsLike } from "../interfaces/fs-like";
 import type { ProjectScope } from "../project/scope";
 
 /**
+ * What a status write actually did, as reported by the backend's own store (mt#4457).
+ *
+ * `setTaskStatus` used to return `Promise<void>`, so the only signal a caller had was
+ * "no exception was thrown". That is not the same question as "did the row change":
+ * a Postgres UPDATE matching zero rows raises nothing, and the CLI/MCP adapter above
+ * it reported a hardcoded `changed: true` regardless. A status write that did not land
+ * was therefore indistinguishable from one that did, at every layer.
+ *
+ * Backends return the count rather than a boolean so the caller can tell "did not
+ * land" (0) from "landed" (1) from "matched more rows than it should have" (>1) —
+ * the last being a corruption signal a boolean would silently discard.
+ */
+export interface StatusWriteOutcome {
+  /**
+   * Records the write affected. 0 means the write did NOT persist and the caller
+   * must treat the operation as failed, regardless of the absence of an error.
+   */
+  recordsAffected: number;
+}
+
+/**
  * Simple backend capabilities interface
  * Defines what basic operations each backend supports
  */
@@ -80,7 +101,7 @@ export interface TaskBackend {
   listTasks(options?: TaskListOptions): Promise<Task[]>;
   getTask(id: string): Promise<Task | null>;
   getTaskStatus(id: string): Promise<string | undefined>;
-  setTaskStatus(id: string, status: string): Promise<void>;
+  setTaskStatus(id: string, status: string): Promise<StatusWriteOutcome>;
   createTaskFromTitleAndSpec(
     title: string,
     spec: string,
