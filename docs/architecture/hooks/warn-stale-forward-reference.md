@@ -1,8 +1,29 @@
 # `warn-stale-forward-reference`
 
-**Task:** mt#4535 · **Event:** `PreToolUse` on `mcp__minsky__tasks_status_set` ·
-**Posture:** advisory, log-only — it cannot deny, and has no override because there is
-nothing to override.
+**Task:** mt#4535, seam corrected by mt#4545 · **Posture:** advisory, log-only — it cannot deny,
+and has no override because there is nothing to override.
+
+**Events — two surfaces, and the distinction matters:**
+
+| Surface                         | Event         | When it fires                                                                                                |
+| ------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
+| `mcp__minsky__session_pr_merge` | `PostToolUse` | On a SUCCESSFUL merge. **This is the one that fires in practice** — merge is where DONE is written.          |
+| `mcp__minsky__tasks_status_set` | `PreToolUse`  | Only when an agent sets `status: DONE` explicitly, which `task-status-workflow-protocol.mdc` says not to do. |
+
+> **mt#4535 shipped with the status-set surface ALONE, and consequently never fired.**
+> At merge, `packages/domain/src/session/session-merge-status-sync.ts:239` calls
+> `taskService.setTaskStatus()` — a direct domain-service call no tool-level hook can see.
+> Caught within minutes of merge by checking the fire log for a coverage receipt: one record,
+> `guardOutcome` unset (the process ran; the guard never evaluated), against 249 for the sibling
+> `warn-peer-task-activity` on the same matcher. Every unit test passed throughout, because they
+> exercised the pure matcher and nothing asserted the trigger was reachable. mt#4545 added the
+> merge surface and a registration test. The frame that names the error is ADR-042's own:
+> _"each backstop fires at the seam where that trace first exists."_
+>
+> The event-ledger seam is NOT an alternative: `task.status_changed` is emitted from
+> `src/adapters/shared/commands/tasks/status-commands.ts` — the command adapter — so it has the
+> identical blind spot. That is also why the ledger shows 1372 PLANNING→READY rows against 36
+> READY→IN-PROGRESS.
 
 ## What it catches
 
