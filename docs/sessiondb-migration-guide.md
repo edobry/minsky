@@ -28,9 +28,11 @@ persistence:
 ```
 
 `backend` accepts only `postgres` — the type itself has no other member (mt#2339).
-`maxConnections` is optional — the built-in default is derived from the pooler's client budget and
-currently evaluates to `8` (the `15` above is an explicit override, not the default); see
-[Postgres Persistence Configuration](./persistence-configuration.md) for pool-sizing guidance.
+`maxConnections` is optional — the built-in default is derived from the pooler's client budget (the
+`15` above is an explicit override, not the default). The derived value moves whenever the measured
+inputs move, so it is deliberately NOT restated here; see
+[Postgres Persistence Configuration](./persistence-configuration.md) for the current number, the
+derivation table, and the command that re-checks it.
 Equivalent environment variables:
 
 | Variable                                      | Config key                                     | Notes                                                   |

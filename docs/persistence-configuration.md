@@ -128,8 +128,8 @@ The pool size is resolved in priority order (highest wins):
 1. **Config file** — `persistence.postgres.maxConnections` in `.minsky/config.yaml` or
    `~/.config/minsky/config.yaml`
 2. **Environment variable** — `MINSKY_POSTGRES_MAX_CONNECTIONS`
-3. **Built-in default** — derived, currently **8** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`; see the
-   derivation table above)
+3. **Built-in default** — derived, currently **25** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`; see the
+   derivation table above, which is the single source for this number — do not restate it elsewhere)
 
 Example config override:
 
