@@ -637,16 +637,74 @@ export interface DbRecycle {
   lastRecycleAt: string | null;
   /** Recycles since process start. A rising count is the recurrence signal. */
   recycleCount: number;
+  /**
+   * Closes that returned inside the drain budget — the pool emptied on its own.
+   * (mt#4549)
+   */
+  closesDrained: number;
+  /**
+   * Closes that took at least the drain budget, so postgres-js's own destroy timer
+   * almost certainly fired and terminated the connections. This is the mt#4515 fix
+   * WORKING, not a fault — a wedged pool is supposed to end up here.
+   */
+  closesForceTerminated: number;
+  /**
+   * Closes that never returned at all, so the outer deadline abandoned them.
+   *
+   * **A rise here is the alarm.** Before mt#4515 this was the only outcome that
+   * ever occurred — 88 of them across every retained log rotation, with zero
+   * clean closes — because `close()` passed no timeout and postgres-js therefore
+   * never armed its destroy path. Now that the inner bound exists, reaching here
+   * means the driver's own terminate did not complete either, which is a worse
+   * and unhandled condition.
+   *
+   * **Read it against `recycleCount`, not alone.** Zero here with `recycleCount: 0`
+   * means nothing has been tested; zero with a non-zero `recycleCount` means
+   * recycles happened and all of them released. Those are different claims and the
+   * counter cannot distinguish them by itself (mem#704).
+   */
+  closesAbandoned: number;
 }
 
 let _recycleLastAtMs: number | null = null;
 let _recycleCount = 0;
+let _closesDrained = 0;
+let _closesForceTerminated = 0;
+let _closesAbandoned = 0;
 
-/** Read-only recycle telemetry; pairs with {@link getDbStatus}. */
+/** Which way a recycle's close went. Recorded by {@link closeAbandonedService}. */
+export type RecycleCloseOutcome = "drained" | "force-terminated" | "abandoned";
+
+/**
+ * Record how a recycle's close ended (mt#4549).
+ *
+ * Exists because the outcome used to live ONLY in a log line, which is how the
+ * mt#4515 leak ran for months unnoticed: nothing counted it, nothing exposed it,
+ * and it surfaced only when an unrelated investigation grepped the daemon log.
+ */
+function recordRecycleCloseOutcome(outcome: RecycleCloseOutcome): void {
+  if (outcome === "drained") _closesDrained++;
+  else if (outcome === "force-terminated") _closesForceTerminated++;
+  else _closesAbandoned++;
+}
+
+/**
+ * Read-only recycle telemetry; pairs with {@link getDbStatus}.
+ *
+ * Deliberately all numbers plus one timestamp, with no `state`/`mode`/`status`
+ * field: `health-liveness-invariant.ts` decides scope BY SHAPE, and its docblock
+ * names `dbRecycle` as out of scope precisely because it carries no liveness
+ * discriminator. Adding an `outcome` string here would pull it into that check and
+ * demand a dating field it does not need — `lastRecycleAt` already dates these.
+ * The counts carry the same information without the shape.
+ */
 export function getDbRecycle(): DbRecycle {
   return {
     lastRecycleAt: _recycleLastAtMs === null ? null : new Date(_recycleLastAtMs).toISOString(),
     recycleCount: _recycleCount,
+    closesDrained: _closesDrained,
+    closesForceTerminated: _closesForceTerminated,
+    closesAbandoned: _closesAbandoned,
   };
 }
 
@@ -834,6 +892,7 @@ function closeAbandonedService(svc: PersistenceService): void {
       // against the drain budget is the discriminator available, and it is
       // labelled as an inference rather than reported as fact.
       const forced = elapsedMs >= CLOSE_TIMEOUT_SECONDS * 1000;
+      recordRecycleCloseOutcome(forced ? "force-terminated" : "drained");
       log.info("[shared-persistence] recycled pool closed", {
         elapsedMs,
         outcome: forced ? "likely-force-terminated" : "drained",
@@ -842,7 +901,8 @@ function closeAbandonedService(svc: PersistenceService): void {
           : `close() returned inside the ${CLOSE_TIMEOUT_SECONDS}s drain budget`,
       });
     })
-    .catch((err: unknown) =>
+    .catch((err: unknown) => {
+      recordRecycleCloseOutcome("abandoned");
       log.warn(
         "[shared-persistence] abandoned close of recycled pool — the INNER bound did not fire either, so connections may be stranded",
         {
@@ -851,8 +911,8 @@ function closeAbandonedService(svc: PersistenceService): void {
           innerBoundSeconds: CLOSE_TIMEOUT_SECONDS,
           outerBoundMs: RECYCLE_CLOSE_TIMEOUT_MS,
         }
-      )
-    )
+      );
+    })
     .finally(() => {
       if (timer) clearTimeout(timer);
     });
@@ -1058,6 +1118,13 @@ export function __resetSharedPersistenceForTests(): void {
   _degradedRunSinceMs = null;
   _recycleLastAtMs = null;
   _recycleCount = 0;
+  // mt#4549: the close-outcome counters are recycle state on the same footing.
+  // mt#3575 records this file's module state as one of the ~9 clusters that fail
+  // under real test randomization; leaving these unreset would make a test's
+  // reading depend on which tests ran before it, and add a tenth.
+  _closesDrained = 0;
+  _closesForceTerminated = 0;
+  _closesAbandoned = 0;
   _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
   _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
   // mt#3826: classification state is module-level too — a leftover
