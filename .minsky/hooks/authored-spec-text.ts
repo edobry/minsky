@@ -41,7 +41,7 @@
  *   module cannot help there; it resolves an argument of a tool call that happened.
  */
 
-import { existsSync, readFileSync, statSync } from "fs";
+import { closeSync, fstatSync, openSync, readSync, realpathSync } from "fs";
 import { isAbsolute, relative, resolve } from "path";
 
 /**
@@ -80,7 +80,8 @@ export function normalizeSpecToolName(toolName: string): string {
 }
 
 /**
- * Is `path` inside the repo working tree?
+ * Is one REAL path inside another? Pure string comparison, and it is only sound
+ * because {@link canonicalizeInsideRepo} has already expanded both.
  *
  * mt#4295 SC4. A PreToolUse guard runs against arbitrary tool input, so the file key
  * is attacker-adjacent in the same sense any tool argument is; an observer should not
@@ -92,15 +93,61 @@ export function normalizeSpecToolName(toolName: string): string {
  * given. So the extraction is not a pure move: it closes a hole in its own reference,
  * which is the criterion mt#4295 carried and the sibling never had.
  *
- * Boundary is `process.cwd()`, which for every hook process is the workspace root the
- * tool call is operating in.
+ * Exported for its own tests: containment is a decision worth asserting directly
+ * rather than only through a file read, and a pure function is testable without
+ * touching a filesystem (`custom/no-real-fs-in-tests`).
  */
-function isInsideRepo(path: string, repoRoot: string = process.cwd()): boolean {
-  const resolved = resolve(repoRoot, path);
-  const rel = relative(repoRoot, resolved);
+export function isInsideRepo(realPath: string, realRepoRoot: string): boolean {
+  const rel = relative(realRepoRoot, realPath);
   // `relative` returns "" for the root itself, a `..`-prefixed path for anything
   // above it, and an absolute path when the two are on different roots.
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/**
+ * Canonicalize a candidate spec path and decide whether it is inside the repo.
+ *
+ * **Both arguments must already be REAL paths — that is the whole fix (PR #3309 R1).**
+ * The first version of this check compared `resolve()`d strings, which is LEXICAL: it
+ * never touches the filesystem, so an in-repo symlink pointing outside
+ * (`docs/spec.md -> /etc/passwd`) produced a relative path of `docs/spec.md` — no
+ * `..`, not absolute — and sailed through, while `readFileSync` cheerfully followed
+ * the link. The reviewer caught it, and it was correct: the check reintroduced the
+ * exact class it was written to close, which is worse than not having it, because the
+ * comment above it asserted the protection.
+ *
+ * The repo ROOT is canonicalized too, not just the candidate. On macOS the session
+ * workspaces and `/tmp` are themselves symlinked (`/tmp` → `/private/tmp`), so
+ * comparing a real path against a non-real root rejects legitimate in-repo files.
+ *
+ * `realpathSync` throws on a path that does not exist, which is why this returns a
+ * discriminated result rather than a boolean: the caller must not report a missing
+ * file as "outside the repo".
+ */
+export function canonicalizeInsideRepo(
+  path: string,
+  /**
+   * Injected so the SYMLINK case is assertable without creating one on a real
+   * filesystem (`custom/no-real-fs-in-tests`). This seam is what makes the fix
+   * testable at all: a test of {@link isInsideRepo} alone cannot discriminate,
+   * because the old lexical code ALSO returned false for `/etc/passwd` — its bug
+   * was that it never obtained the real path in the first place. Stubbing the
+   * expansion is the only way to assert that expansion HAPPENS.
+   */
+  realpath: (p: string) => string = realpathSync,
+  cwd: () => string = () => process.cwd()
+): string | null {
+  try {
+    const realRoot = realpath(cwd());
+    // resolve() first so a relative path is anchored to the repo, THEN realpath so
+    // every symlink in the chain — including intermediate directories — is expanded.
+    const realPath = realpath(resolve(realRoot, path));
+    return isInsideRepo(realPath, realRoot) ? realPath : null;
+  } catch {
+    // intentional-swallow: a nonexistent or unreadable path is a coverage miss the
+    // caller records, never a reason to fail the tool call.
+    return null;
+  }
 }
 
 /**
@@ -113,16 +160,46 @@ function isInsideRepo(path: string, repoRoot: string = process.cwd()): boolean {
  * input has not adjudicated it, and must not record `clean`.
  */
 export function readSpecFileFromDisk(path: string): string | null {
+  const realPath = canonicalizeInsideRepo(path);
+  if (realPath === null) return null;
+
+  // ONE descriptor for the size check and the read (PR #3309 R1, non-blocking).
+  // The previous shape was existsSync → statSync(path) → readFileSync(path): three
+  // separate resolutions of the same name, so the file could be swapped between the
+  // size check and the read. Sizing via `fstatSync` on the descriptor we then read
+  // from means the bytes measured are the bytes returned.
+  let fd: number | null = null;
   try {
-    if (!isInsideRepo(path)) return null;
-    if (!existsSync(path)) return null;
-    if (statSync(path).size > MAX_SPEC_FILE_BYTES) return null;
-    const text = readFileSync(path, "utf8");
+    fd = openSync(realPath, "r");
+    const stat = fstatSync(fd);
+    // Not a regular file — a directory, fifo or device. `readSync` on one of those
+    // either throws or blocks, and neither is a spec.
+    if (!stat.isFile()) return null;
+    if (stat.size > MAX_SPEC_FILE_BYTES) return null;
+    if (stat.size === 0) return null;
+
+    const buffer = Buffer.allocUnsafe(stat.size);
+    let read = 0;
+    while (read < stat.size) {
+      const n = readSync(fd, buffer, read, stat.size - read, read);
+      if (n <= 0) break;
+      read += n;
+    }
+    const text = buffer.subarray(0, read).toString("utf8");
     return text.trim() === "" ? null : text;
   } catch {
     // intentional-swallow: an unreadable spec file is a coverage miss, recorded by the
     // caller via `specFileUnreadable` — never a reason to fail the tool call.
     return null;
+  } finally {
+    if (fd !== null) {
+      try {
+        closeSync(fd);
+      } catch {
+        // intentional-swallow: a failed close cannot change the value already read,
+        // and must not turn a successful read into an error.
+      }
+    }
   }
 }
 
