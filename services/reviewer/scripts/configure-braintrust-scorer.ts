@@ -48,7 +48,27 @@ export const SCORE_CATEGORIES = [
   { name: "valid_blocking", value: 1 },
 ] as const;
 
-const API_BASE = "https://api.braintrust.dev";
+/**
+ * Normalize a configured Braintrust endpoint into a base for URL building.
+ *
+ * Exists so the endpoint is taken from config rather than hardcoded: `apiUrl`
+ * / `BRAINTRUST_API_URL` is what a self-hosted or region-pinned install sets,
+ * and a hardcoded host would silently create the scorer somewhere else.
+ */
+export function normalizeApiBase(configuredUrl: string): string {
+  return configuredUrl.replace(/\/+$/, "");
+}
+
+/**
+ * List URL for a project's human-review scores, SCOPED to one project.
+ *
+ * Unscoped, the list spans every project the API key can see — so a same-named
+ * score in an unrelated project reads as "already exists" here and this script
+ * skips creation, leaving the intended project with no scorer at all.
+ */
+export function buildProjectScoreListUrl(apiBase: string, projectId: string): string {
+  return `${apiBase}/v1/project_score?limit=100&project_id=${encodeURIComponent(projectId)}`;
+}
 
 export function buildScorePayload(projectId: string): Record<string, unknown> {
   return {
@@ -70,13 +90,22 @@ async function main(): Promise<void> {
   const cfg = await readBraintrustConfig();
   if (!cfg) throw new Error("Braintrust config unresolved — refusing.");
 
+  // Use the CONFIGURED endpoint, not a hardcoded host: `apiUrl` /
+  // `BRAINTRUST_API_URL` exists so a self-hosted or region-pinned install can
+  // point elsewhere, and hardcoding would silently create the scorer in the
+  // wrong place for anyone who set it. `readBraintrustConfig` surfaces it as
+  // `appUrl` (which is derived from `apiUrl` — see the docblock in
+  // push-braintrust-gold-set.ts on why that name is misleading).
+  const apiBase = normalizeApiBase(cfg.appUrl);
+  console.log(`API: ${apiBase}`);
+
   const headers = {
     Authorization: `Bearer ${cfg.apiKey}`,
     "Content-Type": "application/json",
   };
 
   const projectRes = await fetch(
-    `${API_BASE}/v1/project?project_name=${encodeURIComponent(cfg.projectName)}`,
+    `${apiBase}/v1/project?project_name=${encodeURIComponent(cfg.projectName)}`,
     { headers, signal: AbortSignal.timeout(30000) }
   );
   if (!projectRes.ok) {
@@ -87,7 +116,13 @@ async function main(): Promise<void> {
   console.log(`Project: ${cfg.projectName} (${project.id})`);
 
   // Starter allows ONE human-review score per project — check before creating.
-  const existingRes = await fetch(`${API_BASE}/v1/project_score?limit=100`, {
+  //
+  // Scoped by `project_id`: unscoped, the list spans every project the key can
+  // see, so a same-named score in an unrelated project would make this report
+  // "already exists" and skip creation, leaving THIS project without a scorer.
+  // The listing is deliberately not also filtered by name — seeing every score
+  // in the project is what makes the one-per-project ceiling visible.
+  const existingRes = await fetch(buildProjectScoreListUrl(apiBase, project.id), {
     headers,
     signal: AbortSignal.timeout(30000),
   });
@@ -109,7 +144,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const res = await fetch(`${API_BASE}/v1/project_score`, {
+  const res = await fetch(`${apiBase}/v1/project_score`, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),

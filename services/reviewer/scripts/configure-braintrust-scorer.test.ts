@@ -4,7 +4,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { buildScorePayload, SCORE_CATEGORIES } from "./configure-braintrust-scorer";
+import {
+  buildProjectScoreListUrl,
+  buildScorePayload,
+  normalizeApiBase,
+  SCORE_CATEGORIES,
+} from "./configure-braintrust-scorer";
 
 describe("SCORE_CATEGORIES", () => {
   test("carries exactly the 4 labels the scorer maps to", () => {
@@ -48,5 +53,35 @@ describe("buildScorePayload", () => {
       expect(typeof c.name).toBe("string");
       expect(typeof c.value).toBe("number");
     }
+  });
+});
+
+describe("normalizeApiBase", () => {
+  test("uses the configured endpoint rather than a hardcoded host", () => {
+    expect(normalizeApiBase("https://bt.internal.example")).toBe("https://bt.internal.example");
+  });
+
+  test("strips trailing slashes so URL joining cannot double them", () => {
+    expect(normalizeApiBase("https://api.braintrust.dev/")).toBe("https://api.braintrust.dev");
+    expect(normalizeApiBase("https://api.braintrust.dev///")).toBe("https://api.braintrust.dev");
+  });
+});
+
+describe("buildProjectScoreListUrl", () => {
+  test("scopes the lookup to one project", () => {
+    // Unscoped, a same-named score in an unrelated project reads as "already
+    // exists" and this project silently ends up with no scorer.
+    const url = buildProjectScoreListUrl("https://api.braintrust.dev", "proj-abc");
+    expect(url).toContain("project_id=proj-abc");
+  });
+
+  test("percent-encodes the project id", () => {
+    expect(buildProjectScoreListUrl("https://x", "a/b c")).toContain("project_id=a%2Fb%20c");
+  });
+
+  test("builds against the given base, not a fixed host", () => {
+    expect(buildProjectScoreListUrl("https://bt.internal.example", "p")).toStartWith(
+      "https://bt.internal.example/v1/project_score"
+    );
   });
 });
