@@ -60,9 +60,9 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 11      |
-| movable        | 87      |
+| movable        | 88      |
 | immovable      | 80      |
-| **total**      | **178** |
+| **total**      | **179** |
 
 Of the 86 movable, **17** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
@@ -146,13 +146,13 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (87)
+## movable (88)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (69)
+### ADR-026 tier 2 — no persistence reach (70)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
@@ -211,6 +211,7 @@ bootstrap requirement.
 | `require-review-before-merge.ts`               | standalone-hook  | classifyZeroCheckRuns, evaluateCheckRunsPresence                                                | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `require-session-for-main-workspace-edits.ts`  | standalone-hook  | checkFilePathDenial                                                                             | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `retrospective-completeness-detector.ts`       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | preference |
+| `retrospective-discharge.ts`                   | library          | analyzeDischarge, hasDurableArtifact, hasDeclineMarker                                          | decides-only (derived: no fs write, no spawn) | plant | preference |
 | `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                                                | side-effecting (injector+recorder)            | plant | preference |
 | `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                                                | decides-only (injector)                       | plant | advisory   |
 | `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (derived: writes fs / spawns)  | plant | —          |

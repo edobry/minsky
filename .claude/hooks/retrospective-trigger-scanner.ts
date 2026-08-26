@@ -55,7 +55,7 @@ import type { TranscriptLine } from "./transcript";
  * turnaround (typically 2-3 turns) with slack; larger windows risk
  * suppressing a genuinely fresh admission in a long conversation.
  */
-const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
+export const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";

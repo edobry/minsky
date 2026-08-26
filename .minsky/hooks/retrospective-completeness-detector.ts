@@ -45,7 +45,12 @@ import type { ClaudeHookInput } from "./types";
 import { extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { hasRetrospectiveSkillInvocation } from "./retrospective-trigger-scanner";
+import {
+  hasRetrospectiveSkillInvocation,
+  RETRO_INVOCATION_LOOKBACK_TURNS,
+} from "./retrospective-trigger-scanner";
+import { analyzeDischarge, type DischargeFinding } from "./retrospective-discharge";
+import { readFlagged, writeFlagged } from "./turn-end-scan-store";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_RETRO_COMPLETENESS";
 
@@ -250,9 +255,38 @@ export function analyze(text: string, turnLines: TranscriptLine[]): Completeness
 // Hook entry point
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve, record and return the discharge findings for this session's prior
+ * flagged turns (mt#4566).
+ *
+ * `storeDir` is a test seam, mirroring `turn-end-retro-scan.run`'s; the
+ * dispatcher never passes it. Failing to persist the reported-marker is
+ * non-fatal — the cost is a repeated finding, never a missed one.
+ */
+function collectDischargeFindings(
+  sessionId: string,
+  lines: TranscriptLine[],
+  storeDir?: string
+): DischargeFinding[] {
+  const flagged = readFlagged(sessionId, storeDir);
+  if (flagged.size === 0) return [];
+
+  const { findings, reportedKeys } = analyzeDischarge(
+    lines,
+    flagged,
+    RETRO_INVOCATION_LOOKBACK_TURNS
+  );
+  if (reportedKeys.length > 0) {
+    for (const key of reportedKeys) flagged.add(key);
+    writeFlagged(sessionId, flagged, storeDir);
+  }
+  return findings;
+}
+
 export async function run(
   input: ClaudeHookInput,
-  ctx: DispatchContext
+  ctx: DispatchContext,
+  storeDir?: string
 ): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
@@ -279,8 +313,30 @@ export async function run(
     const lines = ctx.transcriptLines;
     if (lines.length === 0) return null;
 
+    // mt#4566 — did a PRIOR turn's fired retrospective trigger get discharged?
+    // Independent of the completeness check below: it asks about turns that
+    // have already closed, so it must run ahead of every early return here,
+    // including the ones taken when THIS turn is not retrospective-shaped —
+    // which is precisely the case a prose-only response produces.
+    const dischargeFindings = collectDischargeFindings(
+      input.session_id ?? "unknown",
+      lines,
+      storeDir
+    );
+    const dischargeOnly = (): GuardOutcome | null =>
+      dischargeFindings.length === 0
+        ? null
+        : {
+            calibration: {
+              source: "live",
+              timestamp: new Date().toISOString(),
+              session_id: input.session_id,
+              discharge: dischargeFindings,
+            },
+          };
+
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
-    if (turnLines.length === 0) return null;
+    if (turnLines.length === 0) return dischargeOnly();
 
     const text = extractAssistantText(turnLines);
 
@@ -288,11 +344,11 @@ export async function run(
     // The tool-call signal is primary — it keys on STATE, not on wording, so a
     // retrospective that produced almost no prose still counts.
     const skillInvoked = hasRetrospectiveSkillInvocation(turnLines);
-    if (!skillInvoked && !hasRetrospectiveShape(text)) return null;
+    if (!skillInvoked && !hasRetrospectiveShape(text)) return dischargeOnly();
 
     const finding = analyze(text, turnLines);
     if (finding.missingSections.length === 0 && finding.unverifiedTaskIds.length === 0) {
-      return null;
+      return dischargeOnly();
     }
 
     // LOG-ONLY: calibration record, no `additionalContext`. The FP rate has to
@@ -307,6 +363,7 @@ export async function run(
         family_count: finding.familyCount,
         missing_sections: finding.missingSections,
         unverified_task_ids: finding.unverifiedTaskIds,
+        ...(dischargeFindings.length > 0 ? { discharge: dischargeFindings } : {}),
       },
     };
   } catch (err) {
