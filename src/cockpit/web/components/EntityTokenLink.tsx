@@ -9,17 +9,29 @@
  * the hover card and the click-to-peek gesture. Two call sites hand-rolling that
  * branch is how the two prose paths drifted apart in the first place.
  *
- * Falls back to a bare `<Link>` when the path names no routable entity. That is
- * defensive rather than expected — every `kind: "link"` token is built by
- * `entityToPath`, so the inverse resolves in practice — and it preserves the
- * failure-tolerance guarantee `EntityRef`'s module doc describes: a resolution
- * gap degrades to today's plain linked text, never to a dead span.
+ * The `<Link>` fallback is defensive rather than expected — every `kind: "link"`
+ * token is built by `entityToPath`, so the inverse resolves in practice — and it
+ * preserves the failure-tolerance guarantee `EntityRef`'s module doc describes:
+ * a resolution gap degrades to plain linked text, never to a dead span.
  *
- * `mono` defaults to TRUE, which is `JsonView`'s pre-existing behavior: it
- * rendered every token through `EntityRef`'s own mono default and did not
- * consult `token.mono`. Callers that DO care pass it explicitly — `LinkifiedText`
- * does, because prose distinguishes an id (mono) from a `minsky://` URI's label
- * (not mono), and it did so before this component existed.
+ * ## `mono` is optional, and omitting it is NOT the same as passing `true`
+ *
+ * The two branches did not agree on typography before this component existed,
+ * and the seam has to preserve that rather than tidy it away (PR #3375 R1 —
+ * an earlier draft defaulted the prop to `true`, which silently made the
+ * fallback branch always monospace):
+ *
+ * | branch | `JsonView`'s prior behavior |
+ * | --- | --- |
+ * | resolved → `<EntityRef>` | always mono — it passed no `mono`, taking `EntityRef`'s own default, and never consulted `token.mono` |
+ * | unresolved → `<Link>` | mono IFF `token.mono` |
+ *
+ * So `mono` left UNDEFINED reproduces exactly that split: the entity branch
+ * falls through to `EntityRef`'s default, the fallback honors `token.mono`.
+ * Passing it EXPLICITLY overrides both branches together, which is what
+ * `LinkifiedText` does with `token.mono` — prose distinguishes an id (mono) from
+ * a `minsky://` link's label (not mono) on both branches alike, and did so
+ * before this component existed.
  */
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -28,13 +40,18 @@ import { EntityRef } from "./EntityRef";
 
 export interface EntityTokenLinkProps {
   token: Extract<EntityToken, { kind: "link" }>;
-  /** Render in the monospace face. Defaults to true — see the module doc. */
+  /**
+   * Force the monospace face on BOTH branches. Omit to keep each branch's own
+   * prior default — see the table in the module doc; omitting is not `true`.
+   */
   mono?: boolean;
 }
 
-export function EntityTokenLink({ token, mono = true }: EntityTokenLinkProps) {
+export function EntityTokenLink({ token, mono }: EntityTokenLinkProps) {
   const entity = tokenEntity(token);
   if (entity) {
+    // `mono` undefined falls through to EntityRef's own `mono = true` default,
+    // which is what this branch has always rendered.
     return (
       <EntityRef type={entity.type} id={entity.id} mono={mono}>
         {token.text}
@@ -44,7 +61,10 @@ export function EntityTokenLink({ token, mono = true }: EntityTokenLinkProps) {
   return (
     <Link
       to={token.to}
-      className={cn("text-primary underline-offset-2 hover:underline", mono && "font-mono")}
+      className={cn(
+        "text-primary underline-offset-2 hover:underline",
+        (mono ?? token.mono) && "font-mono"
+      )}
     >
       {token.text}
     </Link>

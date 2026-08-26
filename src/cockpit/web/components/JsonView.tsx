@@ -14,9 +14,8 @@
  * @see ../lib/entity-linkifier.tsx — tokenizeEntities (Tier-2 leaf linkification)
  */
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { tokenizeEntities, type EntityIndex, type EntityToken } from "../lib/entity-linkifier";
+import { tokenizeEntities, type EntityIndex } from "../lib/entity-linkifier";
 import { EntityTokenLink } from "./EntityTokenLink";
 
 // Recognized task/ask status enums → subtle leaf color.
