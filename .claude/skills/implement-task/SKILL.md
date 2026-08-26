@@ -167,11 +167,15 @@ parallel-agent graph this window is often hours, sometimes overnight (evidence: 
 eceb6092, mt#2752's spec authored before mt#2766/2767/2768, mt#2441, and mt#2756 all shipped).
 Immediately after fetching the spec, call `mcp__minsky__tasks_spec_freshness` with the task ID:
 
-- **`hasDrift: false`** → proceed silently. No ritual output — this is the common case and must
-  not interrupt the flow.
+- **`hasDrift: false`** → proceed silently, but read `baselineUsed` first (mt#4420). On
+  `"spec-authored"` this is the full check and a clean pass is real. On `"spec-last-edited"` no
+  authoring timestamp was available, so drift predating the spec's last edit was never compared —
+  the message says so, and it is weaker evidence than it looks. No ritual output either way; this
+  is the common case and must not interrupt the flow.
 - **`hasDrift: true`** → the tool returns a `drift` array, one entry per changed ref (`ref`,
-  `kind`, `currentStatus`, `refUpdatedAt`, `daysSinceSpecEdit`). Render it as a table to the user
-  and require an explicit disposition, recorded in the transcript, before writing any code:
+  `kind`, `currentStatus`, `refUpdatedAt`, `daysSinceSpecEdit`, `precedesLastSpecEdit`). Render it
+  as a table to the user and require an explicit disposition, recorded in the transcript, before
+  writing any code:
   - **Amend** — the drift changes what the spec should say (a cited dependency shipped, a blocker
     cleared, a stated assumption no longer holds). Call `mcp__minsky__tasks_spec_patch` to update
     the spec with the change and its basis; the amendment itself is the disposition record.
@@ -181,6 +185,19 @@ Immediately after fetching the spec, call `mcp__minsky__tasks_spec_freshness` wi
     change needed") and continue.
   - Rendering the drift table and then silently continuing past it — neither amending nor stating
     an acknowledgment — is a process violation of this step.
+
+**`precedesLastSpecEdit: true` is not a lesser finding — it is the class that used to be
+INVISIBLE (mt#4420).** It means the ref changed while the spec already existed but BEFORE the spec
+was last written, so whoever made that edit did not necessarily see the drift: editing one section
+silently vouched for the whole document. Until mt#4420 the baseline was the last edit, so every
+such ref was suppressed — measured on prod, that made **43% of all clean passes false**, and **71%
+of clean passes on specs authored in the last 7 days**, which is the population this step actually
+runs against. Give these entries the same disposition as any other row.
+
+**Do not read your OWN planning edits as the reason a check is clean.** `/plan-task` amends the
+spec repeatedly, and before mt#4420 that reset the baseline to minutes-wide — so a clean result
+here said more about your recent writes than about the world. The authoring floor is what removes
+that; `baselineUsed` tells you whether you actually got it.
 
 This is a mechanical, status-timestamp-only check (v1, per the mt#2826 spec's Scope) — it detects
 "something about this ref changed since the spec was written," not "the spec's specific claim
