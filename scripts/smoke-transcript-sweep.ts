@@ -187,6 +187,60 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // ── 4c. mt#4601: the BACKFILL sweep's own real path ──────────────────────────
+  //
+  // The backfill is its own sweep now, so §7a's "exercise each production
+  // branch" applies: the section above verifies the ingest sweep, and this
+  // verifies the one that was split out. It runs the REAL
+  // `startTranscriptBackfillSweep` against a real `resolveDeps`, with the real
+  // embedding pipeline — a bounded run (2,000 candidates max) doing the
+  // system's own routine work.
+  const { startTranscriptBackfillSweep } = await import("../src/cockpit/transcript-backfill-sweep");
+  const { buildRealSweepDeps } = await import("../src/cockpit/transcript-sweep-backstop");
+  const backfillStore = createMemoryJournalStore();
+  const stopBackfill = startTranscriptBackfillSweep(
+    new TranscriptSweepJournalRecorder(backfillStore, "embedding backfill"),
+    {
+      intervalMs: 24 * 60 * 60 * 1000, // 24h — the boot tick only.
+      resolveDeps: async () => {
+        const d = await buildRealSweepDeps();
+        return d === null ? null : { runEmbeddings: d.runEmbeddings, tracker: d.tracker };
+      },
+    }
+  );
+
+  // 15 minutes: a full 2,000-candidate run is ~13 min at the MEASURED ~8s batch
+  // latency, and this stays inside the sweep's own 20-minute tick timeout so a
+  // smoke that passes cannot describe a run production would have abandoned.
+  // It was 4 minutes and the run blew through it — that is what surfaced the
+  // 18x error in mt#4212's inherited ~45s figure.
+  const BACKFILL_DEADLINE_MS = 15 * 60 * 1000;
+  const backfillDeadline = Date.now() + BACKFILL_DEADLINE_MS;
+  while (backfillStore.read().totals.started === 0 && Date.now() < backfillDeadline) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  while (backfillStore.read().inFlight !== null && Date.now() < backfillDeadline) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  stopBackfill();
+
+  const backfillJournal = summarizeJournal(backfillStore.read());
+
+  if (backfillJournal.totals.started < 1) {
+    console.error(
+      `FAIL: the backfill sweep did not start a tick within ${BACKFILL_DEADLINE_MS / 1000}s. ` +
+        `Journal: ${JSON.stringify(backfillJournal.totals)}`
+    );
+    process.exit(1);
+  }
+
+  if (backfillJournal.inFlight !== null) {
+    console.error(
+      "FAIL: the backfill tick was still in flight at the deadline — it did not conclude."
+    );
+    process.exit(1);
+  }
+
   // ── 5. Output (redacted: no absolute paths, no raw error strings) ────────────
   console.log(
     JSON.stringify(
@@ -202,6 +256,13 @@ async function main(): Promise<void> {
           totals: journal.totals,
           completionRate: journal.completionRate,
           lastOutcome: journal.lastOutcome,
+        },
+        backfillSweep: {
+          totals: backfillJournal.totals,
+          completionRate: backfillJournal.completionRate,
+          lastOutcome: backfillJournal.lastOutcome,
+          embedRuns: tracker.getSummary().embedRuns,
+          embedPhase: tracker.getSummary().embedPhase,
         },
       },
       null,

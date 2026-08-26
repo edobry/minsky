@@ -2,21 +2,33 @@
  * Embedding-backfill sweep for the cockpit daemon (mt#4601).
  *
  * Split out of `transcript-sweep-backstop.ts`, where it ran as "Phase 2" of the
- * transcript sweep's tick. The split is structural, and three measured numbers
- * are the whole argument:
+ * transcript sweep's tick.
  *
- * - A backfill run is **bounded at ~45 s** — `DEFAULT_MAX_CANDIDATES_PER_RUN` is
- *   2,000 at `batchSize` 20, i.e. 100 provider calls, against a measured
- *   worst-case batch latency of 449 ms (`packages/domain/src/ai/request-resilience.ts:23`).
- * - The ingest pass it sat behind takes **~12 minutes** over ~1,500 sessions.
- * - The daemon's median lifetime on a working day is **13.4 minutes** (mt#4532
- *   measured 23 boots in one day).
+ * **Batch latency, measured 2026-08-26 rather than inherited.** One batch of 20
+ * candidates through the real pipeline against the live database took
+ * **8,054 ms** (one provider call, 20 turns embedded). That is **~18x** the
+ * 449 ms this task originally sized against — `request-resilience.ts:23` records
+ * `p50 368ms p90 449ms max 449ms`, but explicitly for a *"batch of 20 (~2KB
+ * each)"*, and real transcript turns are far larger than 2 KB. The figure is
+ * accurate about its own payload size and silent about this one, which is why it
+ * had to be re-measured here instead of cited.
  *
- * So a 45-second job was queued behind a 12-minute one inside a 13-minute
- * process, and then skipped outright whenever ingest aborted or failed — every
- * early return in that tick bails before reaching it. On the shipped mt#4532
- * journal, immediately before this change: **0 of 4 ticks reached Phase 2**, two
- * of them interrupted by a restart.
+ * What that implies, and the constants below are derived from it:
+ *
+ * | quantity | value |
+ * | --- | --- |
+ * | one batch of 20 | **~8 s** (measured) |
+ * | a FULL run at the 2,000-candidate cap | 100 batches ≈ **~13 min** |
+ * | a steady-state run (554 candidates when measured) | 28 batches ≈ **~4 min** |
+ * | the ingest pass it used to queue behind | ~12 min over ~1,500 sessions |
+ * | the daemon's median lifetime on a working day | 13.4 min (mt#4532) |
+ *
+ * **The split still holds, on a smaller margin than first claimed.** A run that
+ * usually takes ~4 minutes was queued behind a 12-minute ingest inside a
+ * 13.4-minute process, and skipped outright whenever ingest aborted or failed —
+ * every early return in that tick bails before reaching it. On the shipped
+ * mt#4532 journal, immediately before this change: **0 of 4 ticks reached Phase
+ * 2**, two of them interrupted by a restart.
  *
  * **What this does NOT fix, stated up front because the filing overstated it.**
  * mt#4601's planning pass measured the real backlog at **919 turns**, with nine
@@ -46,29 +58,39 @@ import type { SweepTickResult } from "./sweepers";
 /**
  * Default cadence for the embedding backfill.
  *
- * **10 minutes, not the ingest sweep's 30**, and the difference is the point.
- * The cadence a periodic job wants is set by its own duration and by how long
- * its host process lives, not by the job it used to share a tick with. At ~45 s
- * per run against a 13.4-minute median daemon lifetime, a 10-minute cadence gives
- * roughly one attempt per process — where the old arrangement gave a bounded job
- * a window that opened at minute 12 of a 30-minute cycle.
+ * **10 minutes, not the ingest sweep's 30**, and the difference is the point:
+ * the cadence a periodic job wants is set by its own duration and by how long its
+ * host process lives, not by the job it used to share a tick with.
  *
- * Grounded per `decision-defaults.mdc §Thresholds` rather than picked round:
- * 10 min is the same cadence `prod-state refresh` already uses for a comparably
- * short DB-backed job, so this adds no new number to the system.
+ * A cadence SHORTER than a worst-case run is deliberate, not an oversight.
+ * `createIntervalSweeper`'s `running` guard skips an overlapping tick, so during
+ * a large drain this simply means the sweep runs continuously — which is what you
+ * want while there is a backlog. In steady state a run is ~4 min against a 10-min
+ * cadence, so the sweep is idle most of the time and lag stays bounded by roughly
+ * one cadence. Freshness is the goal (see the module docblock), and a longer
+ * cadence would trade it away for nothing.
  */
 const TRANSCRIPT_BACKFILL_INTERVAL_MS = 10 * 60 * 1000;
 
 /**
- * Per-tick timeout.
+ * Per-tick timeout: **20 minutes**, derived from the measured batch latency.
  *
- * 5 minutes against a ~45 s expected run: generous enough that a slow provider
- * or a large batch does not trip it, tight enough that a WEDGED run is abandoned
- * inside one cadence rather than holding the guard for an hour the way the
- * combined tick's 1-hour bound did (that bound was sized for ingest's full-corpus
- * pass, and the backfill inherited it for no reason of its own).
+ * A full run at the 2,000-candidate cap is 100 batches at ~8 s ≈ **13 minutes**,
+ * so this is ~1.5x the worst legitimate run.
+ *
+ * **This was 5 minutes until the measurement, and 5 minutes was a bug.** It was
+ * derived from mt#4212's "~45 s per full run", which assumed a 449 ms batch —
+ * a figure measured on ~2KB payloads, not on real transcript turns. At the real
+ * ~8 s a 5-minute timeout abandons every full backfill run, which is precisely
+ * the starvation this task exists to remove: the fix would have re-created the
+ * defect through a different mechanism. Caught by running the sweep against the
+ * live database before shipping (it did not conclude in 242 s), not by review.
+ *
+ * Still far tighter than the 1-hour bound the combined tick used — that was
+ * sized for ingest's full-corpus pass, and the backfill inherited it for no
+ * reason of its own.
  */
-const TRANSCRIPT_BACKFILL_TICK_TIMEOUT_MS = 5 * 60 * 1000;
+const TRANSCRIPT_BACKFILL_TICK_TIMEOUT_MS = 20 * 60 * 1000;
 
 /** Env override for the backfill cadence, mirroring the ingest sweep's. */
 export function resolveBackfillIntervalMs(): number {
