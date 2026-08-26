@@ -147,6 +147,13 @@ export interface SegmentListDeps {
 export interface SegmentFsDeps extends SegmentListDeps {
   statSync: (p: string) => { size: number };
   renameSync: (from: string, to: string) => void;
+  /**
+   * Remove a path. Used for EXACTLY ONE thing: cleaning up the empty
+   * placeholder this module itself just created when the rename onto it fails.
+   * It never touches a segment holding records — the retention decision forbids
+   * deleting those, and nothing here has a code path that could.
+   */
+  rmSync: (p: string) => void;
   openSync: (p: string, flags: string) => number;
   readSync: (
     fd: number,
@@ -163,6 +170,7 @@ export const defaultSegmentFsDeps: SegmentFsDeps = {
   statSync: (p) => fs.statSync(p),
   readdirSync: (p) => fs.readdirSync(p),
   renameSync: (from, to) => fs.renameSync(from, to),
+  rmSync: (p) => fs.rmSync(p, { force: true }),
   openSync: (p, flags) => fs.openSync(p, flags),
   readSync: (fd, buf, offset, length, position) => fs.readSync(fd, buf, offset, length, position),
   closeSync: (fd) => fs.closeSync(fd),
@@ -378,15 +386,56 @@ export function rollIfNeeded(
     // PERPETUATING a duplicate. A duplicate already sitting on disk when we
     // arrive is not something rotation can repair, because the only repair is
     // deletion.
-    let target = segmentPathFor(activePath, decision.month);
-    for (let n = 2; deps.existsSync(target) && n <= MAX_SEGMENT_ORDINAL; n++) {
-      target = segmentPathFor(activePath, `${decision.month}-${n}`);
+    for (let n = 1; n <= MAX_SEGMENT_ORDINAL; n++) {
+      const target =
+        n === 1
+          ? segmentPathFor(activePath, decision.month)
+          : segmentPathFor(activePath, `${decision.month}-${n}`);
+
+      // RESERVE the name atomically before renaming onto it (reviewer R2).
+      //
+      // An existsSync probe followed by a rename is NOT safe, and the unsafety
+      // is the dangerous direction: POSIX `rename(2)` OVERWRITES its
+      // destination, verified rather than recalled — a rename onto a file
+      // holding "IMPORTANT HISTORY" replaced it outright. So two processes that
+      // both probed and both saw the same ordinal free would have one silently
+      // destroying the other's just-written segment. That is reachable here
+      // rather than theoretical: this host records up to 326 MCP process starts
+      // in a day, and every one of them constructs a tracker and rolls at load.
+      //
+      // `wx` is O_CREAT|O_EXCL, which throws EEXIST when the name is taken
+      // (also verified). Exactly one racer can win it, so the winner renames
+      // onto a placeholder IT owns and the loser moves to the next ordinal.
+      let fd: number;
+      try {
+        fd = deps.openSync(target, "wx");
+      } catch {
+        // intentional-swallow: EEXIST is the expected, load-bearing outcome
+        // here — the name is taken, so try the next ordinal.
+        continue;
+      }
+      deps.closeSync(fd);
+
+      try {
+        deps.renameSync(activePath, target);
+        return target;
+      } catch {
+        // The rename failed after we reserved. Remove OUR OWN empty
+        // placeholder so the name is free again — otherwise a repeatedly
+        // failing rename would leave one empty file per boot, which is the
+        // file-spraying the ordinal ceiling exists to prevent.
+        try {
+          deps.rmSync(target);
+        } catch {
+          // intentional-swallow: an orphaned empty placeholder is harmless to
+          // readers (zero records) and must not fail the boot.
+        }
+        return null;
+      }
     }
-    // Ordinals exhausted — refuse rather than overwrite. Duplication is bad;
+    // Ordinals exhausted. Refuse rather than overwrite: duplication is bad,
     // deletion is worse, and this needs a human either way.
-    if (deps.existsSync(target)) return null;
-    deps.renameSync(activePath, target);
-    return target;
+    return null;
   } catch {
     // intentional-swallow: a failed roll leaves the active file exactly as it
     // was. The log keeps growing, which is the pre-mt#4495 status quo — strictly

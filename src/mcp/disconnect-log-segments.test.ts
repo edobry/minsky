@@ -7,6 +7,12 @@
  * neither needs a real file to be exercised.
  */
 import { describe, test, expect } from "bun:test";
+// Real fs/os/path for the contention suite at the bottom of this file, which
+// must exercise the kernel's rename and O_EXCL semantics rather than a fake's.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   monthOf,
   segmentPathFor,
@@ -17,11 +23,14 @@ import {
   readTail,
   rollIfNeeded,
   SEGMENT_MAX_BYTES,
+  defaultSegmentFsDeps,
   type SegmentFsDeps,
 } from "./disconnect-log-segments";
 
 const ACTIVE = "/state/minsky/mcp-disconnect-log.json";
 const segmentPath = (month: string) => `/state/minsky/mcp-disconnect-log-${month}.json`;
+/** Basename of the active log, for the real-fs suites that build a tmpdir. */
+const ACTIVE_BASENAME = "mcp-disconnect-log.json";
 const SEG_2026_05 = segmentPath("2026-05");
 const SEG_2026_06 = segmentPath("2026-06");
 const SEG_2026_07 = segmentPath("2026-07");
@@ -45,16 +54,32 @@ function fakeFs(files: Record<string, string>): SegmentFsDeps & { files: Record<
         .filter((p) => p.slice(0, p.lastIndexOf("/")) === dir)
         .map((p) => p.slice(p.lastIndexOf("/") + 1)),
     renameSync: (from, to) => {
+      // POSIX semantics: the destination is REPLACED if it exists. Modelling
+      // this is what makes a clobber visible to a test instead of invisible.
       if (!Object.prototype.hasOwnProperty.call(store, from)) throw new Error(`ENOENT: ${from}`);
       store[to] = store[from] as string;
       delete store[from];
     },
-    openSync: (p) => {
-      if (!Object.prototype.hasOwnProperty.call(store, p)) throw new Error(`ENOENT: ${p}`);
+    openSync: (p, flags) => {
+      // Faithful `wx` (O_CREAT|O_EXCL): throws when the name is taken, creates
+      // it otherwise. Reviewer R2 correctly noted the old fake modelled neither
+      // this nor POSIX rename's overwrite, which is precisely what let a
+      // clobbering race pass its tests.
+      if (flags === "wx") {
+        if (Object.prototype.hasOwnProperty.call(store, p)) {
+          const err = new Error(`EEXIST: ${p}`) as Error & { code?: string };
+          err.code = "EEXIST";
+          throw err;
+        }
+        store[p] = "";
+      } else if (!Object.prototype.hasOwnProperty.call(store, p)) {
+        throw new Error(`ENOENT: ${p}`);
+      }
       const fd = nextFd++;
       openHandles.set(fd, p);
       return fd;
     },
+    rmSync: (p) => void delete store[p],
     readSync: (fd, buf, offset, length, position) => {
       const p = openHandles.get(fd);
       if (p === undefined) throw new Error(`EBADF: ${fd}`);
@@ -335,4 +360,135 @@ describe("rollIfNeeded (mt#4495)", () => {
     ).toBeNull();
     expect(deps.existsSync(ACTIVE)).toBe(true);
   });
+});
+
+describe("rollIfNeeded under contention — REAL filesystem (mt#4495, reviewer R2)", () => {
+  // Real fs deliberately. The hazard R2 identified is a property of the SYSCALLS
+  // — POSIX `rename(2)` replaces its destination — and an in-memory fake is
+  // exactly where that property goes missing. R2's own words: the old fake
+  // "also overwrites the target, masking this risk." A fake cannot establish
+  // that the reservation actually excludes; only the kernel can.
+  /* eslint-disable custom/no-real-fs-in-tests */
+  const realDeps = defaultSegmentFsDeps;
+
+  test("POSIX rename overwrites — the hazard being defended against is real", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "seg-race-a-"));
+    try {
+      const victim = path.join(dir, "victim");
+      const source = path.join(dir, "source");
+      fs.writeFileSync(victim, "IRREPLACEABLE HISTORY\n");
+      fs.writeFileSync(source, "new\n");
+      fs.renameSync(source, victim);
+      // If this ever asserts the other way, the reservation below is
+      // unnecessary — and this test says so out loud rather than leaving the
+      // defense unexplained.
+      expect(fs.readFileSync(victim, "utf-8")).toBe("new\n");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("N rollers against one directory lose NOTHING and never share a segment", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "seg-race-b-"));
+    try {
+      const active = path.join(dir, ACTIVE_BASENAME);
+      const decision = { roll: true as const, month: "2026-07", reason: "calendar" as const };
+      const bodies: string[] = [];
+
+      // Each roller writes a DISTINCT active file and rolls it. Sequentially
+      // interleaved rather than forked, which is enough: the reservation is
+      // what makes the winner unique, and a loser must climb rather than
+      // clobber. Every body must survive in its own segment.
+      for (let i = 0; i < 5; i++) {
+        const body = `${JSON.stringify({ timestamp: "2026-07-01T00:00:00.000Z", roller: i })}\n`;
+        bodies.push(body);
+        fs.writeFileSync(active, body);
+        const target = rollIfNeeded(active, decision, realDeps);
+        expect(target).not.toBeNull();
+      }
+
+      const segments = listSegmentPaths(active, realDeps);
+      expect(segments).toHaveLength(5);
+      const contents = segments.map((p) => fs.readFileSync(p, "utf-8"));
+      // Nothing lost...
+      for (const body of bodies) expect(contents).toContain(body);
+      // ...and nothing shared a home.
+      expect(new Set(contents).size).toBe(5);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("REGRESSION (R2): a STALE existence check must not clobber another process's segment", () => {
+    // This is the race window itself, modelled exactly rather than approximated.
+    //
+    // Sequential rollers do NOT reproduce it — I wrote that test first and a
+    // negative control passed against the un-fixed code, which per mt#4512
+    // means the test was inert, not that the fix was unnecessary. The race
+    // needs A's existence check to have happened BEFORE B created the file.
+    //
+    // So: the segment EXISTS on disk, and the deps report it as absent. That is
+    // precisely the state process A is in after B wins. Check-then-rename
+    // renames onto it and destroys B's records; a `wx` reservation asks the
+    // kernel instead of the caller, gets EEXIST regardless of the stale view,
+    // and climbs.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "seg-race-d-"));
+    try {
+      const active = path.join(dir, ACTIVE_BASENAME);
+      const contended = segmentPathFor(active, "2026-07");
+      const otherProcessData = `${JSON.stringify({ timestamp: "2026-07-01T00:00:00.000Z", from: "process-B" })}\n`;
+      fs.writeFileSync(contended, otherProcessData);
+      fs.writeFileSync(
+        active,
+        `${JSON.stringify({ timestamp: "2026-07-02T00:00:00.000Z", from: "process-A" })}\n`
+      );
+
+      const staleView: SegmentFsDeps = {
+        ...defaultSegmentFsDeps,
+        existsSync: (p) => (p === contended ? false : defaultSegmentFsDeps.existsSync(p)),
+      };
+
+      const target = rollIfNeeded(
+        active,
+        { roll: true, month: "2026-07", reason: "calendar" },
+        staleView
+      );
+
+      // B's segment is untouched — the assertion that fails against
+      // check-then-rename.
+      expect(fs.readFileSync(contended, "utf-8")).toBe(otherProcessData);
+      // And A's records still found a home rather than being dropped.
+      expect(target).toBe(segmentPathFor(active, "2026-07-2"));
+      expect(fs.readFileSync(target as string, "utf-8")).toContain("process-A");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a reserved-but-unrenamed placeholder does not permanently consume the name", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "seg-race-c-"));
+    try {
+      const active = path.join(dir, ACTIVE_BASENAME);
+      fs.writeFileSync(active, `${JSON.stringify({ timestamp: "2026-07-01T00:00:00.000Z" })}\n`);
+      // Force the rename to fail AFTER the reservation succeeds.
+      const failingRename: SegmentFsDeps = {
+        ...defaultSegmentFsDeps,
+        renameSync: () => {
+          throw new Error("EPERM");
+        },
+      };
+      expect(
+        rollIfNeeded(active, { roll: true, month: "2026-07", reason: "calendar" }, failingRename)
+      ).toBeNull();
+      // The placeholder was cleaned up, so a later roll takes the PRIMARY name
+      // rather than being pushed to an ordinal by our own debris.
+      expect(listSegmentPaths(active, realDeps)).toHaveLength(0);
+      expect(
+        rollIfNeeded(active, { roll: true, month: "2026-07", reason: "calendar" }, realDeps)
+      ).toBe(segmentPathFor(active, "2026-07"));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  /* eslint-enable custom/no-real-fs-in-tests */
 });
