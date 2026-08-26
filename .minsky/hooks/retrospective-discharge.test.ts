@@ -317,12 +317,42 @@ describe("analyzeDischarge", () => {
     expect(findings).toEqual([]);
   });
 
-  test("a turn key absent from the transcript is skipped, not guessed", () => {
-    // It may predate the visible transcript; inventing either verdict would be
-    // worse than saying nothing.
+  /**
+   * AT5 — a turn the scan cannot resolve is not silently dropped.
+   *
+   * It is reported as `unresolved` rather than as `degraded`, because the scan
+   * COMPLETED and correctly declined to judge — the expected outcome for a turn
+   * that rolled out of the visible transcript. Degrading it would fire on every
+   * long session; dropping it silently would hide a store/transcript drift.
+   */
+  test("AT5: a turn key absent from the transcript is skipped AND counted, not guessed", () => {
     const lines: TranscriptLine[] = [prompt("p-other"), assistantText("hi"), prompt("p-now")];
-    const { findings } = analyzeDischarge(lines, new Set([FLAGGED_KEY]), LOOKBACK);
+    const { findings, unresolved } = analyzeDischarge(lines, new Set([FLAGGED_KEY]), LOOKBACK);
     expect(findings).toEqual([]);
+    expect(unresolved).toEqual(["p-flagged"]);
+  });
+
+  test("AT5 control: a resolvable turn contributes nothing to unresolved", () => {
+    // Without this pair, `unresolved` could be unconditionally populated and
+    // AT5 would still pass.
+    const lines: TranscriptLine[] = [
+      prompt("p-flagged"),
+      assistantText(FLAGGED_PHRASE),
+      SKILL_CALL,
+      prompt("p-now"),
+    ];
+    const { unresolved } = analyzeDischarge(lines, new Set([FLAGGED_KEY]), LOOKBACK);
+    expect(unresolved).toEqual([]);
+  });
+
+  test("AT5: a transcript with no real prompts at all reports every flagged turn unresolved", () => {
+    const { findings, unresolved } = analyzeDischarge(
+      [assistantText("no prompts here")],
+      new Set([FLAGGED_KEY]),
+      LOOKBACK
+    );
+    expect(findings).toEqual([]);
+    expect(unresolved).toEqual(["p-flagged"]);
   });
 
   test("an empty flag set does no transcript work", () => {

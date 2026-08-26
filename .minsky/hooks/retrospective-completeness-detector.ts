@@ -267,11 +267,11 @@ function collectDischargeFindings(
   sessionId: string,
   lines: TranscriptLine[],
   storeDir?: string
-): DischargeFinding[] {
+): { findings: DischargeFinding[]; unresolved: string[] } {
   const flagged = readFlagged(sessionId, storeDir);
-  if (flagged.size === 0) return [];
+  if (flagged.size === 0) return { findings: [], unresolved: [] };
 
-  const { findings, reportedKeys } = analyzeDischarge(
+  const { findings, reportedKeys, unresolved } = analyzeDischarge(
     lines,
     flagged,
     RETRO_INVOCATION_LOOKBACK_TURNS
@@ -280,7 +280,7 @@ function collectDischargeFindings(
     for (const key of reportedKeys) flagged.add(key);
     writeFlagged(sessionId, flagged, storeDir);
   }
-  return findings;
+  return { findings, unresolved };
 }
 
 export async function run(
@@ -318,22 +318,26 @@ export async function run(
     // have already closed, so it must run ahead of every early return here,
     // including the ones taken when THIS turn is not retrospective-shaped —
     // which is precisely the case a prose-only response produces.
-    const dischargeFindings = collectDischargeFindings(
-      input.session_id ?? "unknown",
-      lines,
-      storeDir
-    );
+    const { findings: dischargeFindings, unresolved: dischargeUnresolved } =
+      collectDischargeFindings(input.session_id ?? "unknown", lines, storeDir);
+    const dischargeFields = {
+      ...(dischargeFindings.length > 0 ? { discharge: dischargeFindings } : {}),
+      ...(dischargeUnresolved.length > 0
+        ? { discharge_unresolved: dischargeUnresolved.length }
+        : {}),
+    };
+    const hasDischargeSignal = Object.keys(dischargeFields).length > 0;
     const dischargeOnly = (): GuardOutcome | null =>
-      dischargeFindings.length === 0
-        ? null
-        : {
+      hasDischargeSignal
+        ? {
             calibration: {
               source: "live",
               timestamp: new Date().toISOString(),
               session_id: input.session_id,
-              discharge: dischargeFindings,
+              ...dischargeFields,
             },
-          };
+          }
+        : null;
 
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return dischargeOnly();
@@ -363,7 +367,7 @@ export async function run(
         family_count: finding.familyCount,
         missing_sections: finding.missingSections,
         unverified_task_ids: finding.unverifiedTaskIds,
-        ...(dischargeFindings.length > 0 ? { discharge: dischargeFindings } : {}),
+        ...dischargeFields,
       },
     };
   } catch (err) {

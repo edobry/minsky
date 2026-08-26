@@ -242,21 +242,38 @@ export function analyzeDischarge(
   lines: TranscriptLine[],
   flagged: Set<string>,
   lookbackTurns: number
-): { findings: DischargeFinding[]; reportedKeys: string[] } {
+): { findings: DischargeFinding[]; reportedKeys: string[]; unresolved: string[] } {
   const findings: DischargeFinding[] = [];
   const reportedKeys: string[] = [];
+  /**
+   * Flagged turns whose key matches no real prompt in the visible transcript.
+   *
+   * Reported as a COUNT rather than as a `degraded` marker, and the distinction
+   * is deliberate. ADR-024's invariant is that a scan which cannot COMPLETE
+   * must not silently pass; this scan completes and correctly declines to
+   * judge, which is the expected outcome for a turn that has rolled out of the
+   * visible transcript. Marking it degraded would fire on every long session.
+   * Surfacing the count keeps it from being invisible — a rising number is the
+   * signal that the store and the transcript have drifted apart.
+   */
+  const unresolved: string[] = [];
 
   const byTurn = groupFlaggedByTurn(flagged);
-  if (byTurn.size === 0) return { findings, reportedKeys };
+  if (byTurn.size === 0) return { findings, reportedKeys, unresolved };
 
   const promptIndices = findRealPromptIndices(lines);
-  if (promptIndices.length === 0) return { findings, reportedKeys };
+  if (promptIndices.length === 0) {
+    return { findings, reportedKeys, unresolved: [...byTurn.keys()] };
+  }
 
   for (const [turnKey, families] of byTurn) {
     if (flagged.has(flagKey(turnKey, DISCHARGE_REPORTED_FAMILY, ""))) continue;
 
     const slot = promptIndices.findIndex((idx) => promptIdentity(lines[idx]) === turnKey);
-    if (slot < 0) continue;
+    if (slot < 0) {
+      unresolved.push(turnKey);
+      continue;
+    }
 
     // The last real prompt is the one being submitted now, so the flagged turn
     // has completed only if at least one prompt has opened after it.
@@ -301,5 +318,5 @@ export function analyzeDischarge(
     reportedKeys.push(flagKey(turnKey, DISCHARGE_REPORTED_FAMILY, ""));
   }
 
-  return { findings, reportedKeys };
+  return { findings, reportedKeys, unresolved };
 }
