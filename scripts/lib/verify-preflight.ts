@@ -171,6 +171,11 @@ export type ReachOutcome =
    * the confirm step's own failure, and/or (mt#4624) a first probe whose socket
    * was interrupted rather than merely slow. It is present on a measured
    * outcome too, which is why `verdictForReach` renders it in both arms.
+   *
+   * It is ORIGIN-ANNOTATED at construction: a first-probe failure is written as
+   * `first attempt: …`, and a composite as `first attempt: …; then …`. The
+   * renderer therefore never has to guess where a `detail` came from, and both
+   * arms can print it identically (PR #3372 R1).
    */
   | {
       kind: "slow";
@@ -272,14 +277,27 @@ export async function probeReachability(
    * A first-probe failure that was neither our budget nor a definitive absence —
    * the connection reached a listener and then broke. Carried into the outcome so
    * the report names the interruption instead of implying the target was slow.
+   * Already origin-annotated, so `verdictForReach` renders it the same way in
+   * both arms.
    */
   let interrupted: string | undefined;
   try {
     await doFetch(url, { signal: AbortSignal.timeout(budgets.budgetMs) });
     return { kind: "reached", elapsedMs: now() - started };
   } catch (err) {
-    if (isDefinitelyAbsent(err)) return { kind: "absent", detail: describeError(err) };
-    if (!isBudgetAbort(err)) interrupted = describeError(err);
+    /**
+     * OUR budget must be asked FIRST, and the order is load-bearing (PR #3372
+     * R1). `isBudgetAbort` reads `name`; `isDefinitelyAbsent` reads `code`, and
+     * nothing stops one error carrying both — a proxy layer or a wrapper that
+     * rethrows can stamp `code: "ConnectionRefused"` onto an abort. Asking the
+     * allowlist first would classify our own timeout as `absent` and exit 0,
+     * which is exactly the guarantee the docblock above makes we never do.
+     * Budget abort wins; only then is it absent-or-interrupted.
+     */
+    if (!isBudgetAbort(err)) {
+      if (isDefinitelyAbsent(err)) return { kind: "absent", detail: describeError(err) };
+      interrupted = `first attempt: ${describeError(err)}`;
+    }
   }
 
   const confirmStarted = now();
@@ -343,8 +361,14 @@ export function verdictForReach(
             // latency, and "answered in Nms, past its budget" alone would report
             // it as plain slowness. Naming the interruption is the whole point of
             // routing it here instead of calling it absent.
+            //
+            // Rendered IDENTICALLY to the unmeasured arm above (PR #3372 R1).
+            // `detail` annotates its own origin at construction — the first-probe
+            // string is built as `first attempt: …` in `probeReachability` — so
+            // neither arm adds wording the other lacks, and a `detail` that ever
+            // comes from somewhere else cannot be mislabelled by the renderer.
             `answered in ${outcome.measuredMs}ms, past its ${outcome.budgetMs}ms budget${
-              outcome.detail ? ` (first attempt: ${outcome.detail})` : ""
+              outcome.detail ? ` (${outcome.detail})` : ""
             }`;
       return {
         action: "incomplete",

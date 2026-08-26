@@ -193,6 +193,46 @@ describe("probeReachability (classification)", () => {
     expect(outcome.detail).toContain(CONNECTION_RESET_CODE);
   });
 
+  it("lets OUR budget abort win over the absence allowlist, whatever code it carries", async () => {
+    // PR #3372 R1. `isBudgetAbort` reads `name`, `isDefinitelyAbsent` reads
+    // `code`, and one error can carry both — a proxy or a rethrowing wrapper can
+    // stamp a connect code onto an abort. Asking the allowlist first would turn
+    // our own timeout into `absent` + exit 0, the exact fail-open this task
+    // exists to close. Order is behaviour, so it gets a test.
+    // A plain Error rather than a DOMException, because `DOMException.code` is a
+    // readonly accessor and cannot be stamped — which is itself the point: the
+    // realistic carrier of both fields is a wrapper that rethrows, and what it
+    // rethrows is an ordinary Error.
+    const abortWearingAConnectCode = new Error("The operation timed out.") as Error & {
+      code?: string;
+    };
+    abortWearingAConnectCode.name = "TimeoutError";
+    abortWearingAConnectCode.code = CONNECTION_REFUSED_CODE;
+    expect(isBudgetAbort(abortWearingAConnectCode)).toBe(true);
+    expect(isDefinitelyAbsent(abortWearingAConnectCode)).toBe(true);
+
+    let clock = 1000;
+    let attempt = 0;
+    const outcome = await probeReachability(
+      "http://target",
+      { budgetMs: 3000, confirmBudgetMs: 30000 },
+      {
+        fetchImpl: async () => {
+          attempt += 1;
+          if (attempt === 1) throw abortWearingAConnectCode;
+          clock += 88;
+          return {};
+        },
+        now: () => clock,
+      }
+    );
+    expect(outcome.kind).toBe("slow");
+    if (outcome.kind !== "slow") return;
+    expect(outcome.measuredMs).toBe(88);
+    // A budget abort is not an interruption either — nothing to annotate.
+    expect(outcome.detail).toBeUndefined();
+  });
+
   it("stays slow — never absent — for an unrecognized failure code", async () => {
     // Fail-closed: a code the allowlist has never seen must not become
     // `skip` + exit 0. Asserted with an injected error because there is no real
@@ -428,7 +468,12 @@ describe("probeReachability (real fetch binding)", () => {
       );
       expect(outcome.kind).toBe("slow");
       if (outcome.kind !== "slow") return;
-      expect(outcome.detail).toContain(CONNECTION_RESET_CODE);
+      // Deliberately NOT coupled to Bun's exact code string (PR #3372 R1): the
+      // behaviour under test is the CLASSIFICATION, so assert the outcome and
+      // that the interruption was named at all. The exact strings are pinned
+      // once, on purpose, by the canary describe below.
+      expect(outcome.detail).toMatch(/^first attempt: /);
+      expect(outcome.detail).toMatch(/closed|reset/i);
       // The consequence that actually matters: a non-zero exit, so no caller
       // downstream can read this as a performed-and-passed check.
       const verdict = verdictForReach(outcome, DESCRIBE);
@@ -450,6 +495,67 @@ describe("probeReachability (real fetch binding)", () => {
       expect(outcome.kind).toBe("reached");
     } finally {
       server.stop(true);
+    }
+  });
+});
+
+/**
+ * The one place that couples to Bun's exact `code` strings — on purpose.
+ *
+ * `isDefinitelyAbsent`'s allowlist is a literal string match, so PRODUCTION
+ * correctness depends on these codes, not just the tests. Pinning them here
+ * keeps the coupling in a single named place instead of scattered through the
+ * behaviour tests (PR #3372 R1), and a Bun upgrade that renames one fails HERE,
+ * with a name that says what actually moved.
+ *
+ * Deliberately NOT gated on `Bun.version`, contrary to the review's suggestion:
+ * a version-gated canary stops checking on exactly the version where the premise
+ * may have changed, which is the one run where you need it. Note the failure
+ * direction is safe either way — a renamed absent-code makes `isDefinitelyAbsent`
+ * stop matching, so everything becomes `slow`/`EXIT_INCOMPLETE`. Noisy, never a
+ * silent exit 0.
+ */
+describe("Bun's error surface — canary for the isDefinitelyAbsent allowlist (mt#4624)", () => {
+  it("emits ConnectionRefused when nothing is listening", async () => {
+    const doomed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+    const closedPort = doomed.port;
+    doomed.stop(true);
+
+    const err = await fetch(`http://127.0.0.1:${closedPort}/`, {
+      signal: AbortSignal.timeout(3000),
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).not.toBeNull();
+    expect((err as Error & { code?: string }).code).toBe(CONNECTION_REFUSED_CODE);
+    // The premise the production allowlist rests on, asserted directly.
+    expect(isDefinitelyAbsent(err)).toBe(true);
+  });
+
+  it("emits ECONNRESET — NOT an absent code — when a listener resets the socket", async () => {
+    const resetter = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        open: (socket) => socket.terminate(),
+        data: () => {},
+      },
+    });
+    try {
+      const err = await fetch(`http://127.0.0.1:${resetter.port}/`, {
+        signal: AbortSignal.timeout(3000),
+      }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(err).not.toBeNull();
+      expect((err as Error & { code?: string }).code).toBe(CONNECTION_RESET_CODE);
+      // The whole point of mt#4624: this reached a listener, so it is not absent.
+      expect(isDefinitelyAbsent(err)).toBe(false);
+      expect(isBudgetAbort(err)).toBe(false);
+    } finally {
+      resetter.stop(true);
     }
   });
 });
