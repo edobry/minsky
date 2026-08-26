@@ -158,8 +158,13 @@ export interface TranscriptSweepBackstopOptions {
 /**
  * Build the real sweep deps from the shared persistence service.
  * Returns null when the provider is not SQL-capable.
+ *
+ * EXPORTED since mt#4601 so the composition root can hand the same builder to
+ * the backfill sweep's required `resolveDeps` — one construction path, two
+ * consumers, rather than a second copy of the persistence wiring that could
+ * drift from this one.
  */
-async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
+export async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
@@ -293,7 +298,10 @@ export function startTranscriptSweepBackstop(
           return { ok: false };
         }
 
-        const { runIngest, runEmbeddings, tracker } = sweepDeps;
+        // `runEmbeddings` is deliberately NOT destructured here (mt#4601): it is
+        // still a member of the shared deps type, but this sweep no longer calls
+        // it — `startTranscriptBackfillSweep` does.
+        const { runIngest, tracker } = sweepDeps;
 
         // ── Phase 0: schema readiness (mt#3297) ───────────────────────────────
         // Every write below targets columns this build expects the DB to have.
@@ -387,49 +395,31 @@ export function startTranscriptSweepBackstop(
           ingestResult.totalIngested
         );
 
-        // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
-        // SC2: default semantic-embedding backfill, run off the critical path.
-        // A missing embedding provider, API error, or DB timeout must NOT crash
-        // the sweep or prevent the ingest counters from being recorded.
-        let embeddingsOk = true;
-        // mt#4524: mark the attempt STARTED before the await, not only after it
-        // returns. Phase 1's `recordSweepCompleted` has already fired, so
-        // without this the tracker cannot distinguish "backfill running" from
-        // "backfill never succeeded" for the entire duration of Phase 2 — which
-        // over ~1500 sessions is minutes, not milliseconds.
-        tracker.recordEmbedRunStarted();
-        // mt#4532 — the same reasoning, one level up: the journal marks Phase 2
-        // ENTERED here, so `reachedPhase2` counts a tick killed mid-backfill.
-        journal.phase2Started();
-        try {
-          await runEmbeddings();
-          tracker.recordEmbedRunCompleted();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.warn("cockpit: transcript sweep: embedding backfill failed (non-fatal)", {
-            message,
-          });
-          // Both, deliberately: `recordSweepError` timestamps a sweep-level
-          // error shared with the ingest phase, and cannot say WHICH phase
-          // failed; `recordEmbedRunFailed` concludes the attempt so `embedPhase`
-          // leaves `in-flight` and `embedNeverSucceeded` can become true.
-          tracker.recordEmbedRunFailed();
-          tracker.recordSweepError();
-          embeddingsOk = false;
-          // No return: the ingest phase already completed successfully.
-        }
-
-        // mt#4412: this sweep has TWO phases, so one boolean has to say
-        // something honest about both. Non-fatal to the tick is not the same
-        // as fine — a permanently failing embedding backfill already called
-        // `recordSweepError()` on every pass, and reporting `ok: true` beside
-        // that would be the contradiction this task exists to remove.
-        // `sessionsErrored` is included for the same reason: a sweep that
-        // processes every session and errors on all of them did not succeed.
-        journal.tickEnded(embeddingsOk ? "completed" : "embed-failed");
-        return { ok: embeddingsOk && ingestResult.sessionsErrored === 0 };
+        // ── The embedding backfill USED to run here, as Phase 2 (mt#4601) ─────
+        //
+        // It now has its own sweep (`transcript-backfill-sweep.ts`). The split is
+        // the whole of mt#4601, and the reason is structural rather than tidiness:
+        // a backfill run is bounded at ~45 s (mt#4212's 2,000 candidates at 100
+        // provider calls), and it was queued behind an ingest pass that takes ~12
+        // minutes over ~1,500 sessions — then skipped outright by every early
+        // return above, because each of them bails before reaching it. Measured
+        // on the shipped mt#4532 journal before this change: 0 of 4 ticks reached
+        // Phase 2, 2 of them interrupted by a daemon restart.
+        //
+        // What that cost is narrower than it sounds, and the record should not
+        // over-claim: mt#4601's planning pass measured the real backlog at 919
+        // turns with nine prior days fully drained, so the backfill was still
+        // getting its work done. The cost is FRESHNESS — search over the last few
+        // hours going stale on days the sweep is being interrupted — not lost
+        // embeddings.
+        //
+        // `ok` is now a statement about ingest alone, which is what this sweep
+        // does. mt#4412's requirement that the boolean be honest about the whole
+        // tick is satisfied more simply by the tick having one job.
+        journal.tickEnded("completed");
+        return { ok: ingestResult.sessionsErrored === 0 };
       } catch (err) {
-        // Outermost safety net — unexpected throw escaping either phase.
+        // Outermost safety net — unexpected throw escaping the ingest pass.
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: transcript sweep: unexpected error in tick", { message });
         journal.tickEnded("failed");

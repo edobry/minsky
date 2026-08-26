@@ -33,13 +33,40 @@ import fs from "fs";
 import { log } from "@minsky/shared/logger";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 
-/** Journal filename under the Minsky state dir. */
+/** Journal filename for the INGEST sweep, under the Minsky state dir. */
 export const TRANSCRIPT_SWEEP_JOURNAL_FILENAME = "transcript-sweep-journal.json";
 
-/** Absolute path to the transcript-sweep journal file. */
+/**
+ * Journal filename for the EMBEDDING BACKFILL sweep (mt#4601).
+ *
+ * A second FILE rather than a second key inside the first: the store already
+ * takes a path, so two independent sweeps get two independent journals with no
+ * shape change and no migration of the file already in production. Each sweep's
+ * counters then mean exactly one thing, which is the property the split exists
+ * to create.
+ */
+export const TRANSCRIPT_BACKFILL_JOURNAL_FILENAME = "transcript-backfill-journal.json";
+
+/** Absolute path to the ingest sweep's journal file. */
 export function getTranscriptSweepJournalPath(): string {
   return path.join(getStateDir(), TRANSCRIPT_SWEEP_JOURNAL_FILENAME);
 }
+
+/** Absolute path to the embedding backfill's journal file. */
+export function getTranscriptBackfillJournalPath(): string {
+  return path.join(getStateDir(), TRANSCRIPT_BACKFILL_JOURNAL_FILENAME);
+}
+
+/**
+ * The two sweep labels, shared so producer and tests cannot drift (mt#4601).
+ *
+ * Each appears in every log line its journal writes, and a recorder's label is
+ * the only thing distinguishing "previous tick was INTERRUPTED" between the two
+ * sweeps — so a typo in one call site would silently mis-attribute an incident
+ * rather than fail anything.
+ */
+export const INGEST_SWEEP_LABEL = "transcript sweep";
+export const BACKFILL_SWEEP_LABEL = "embedding backfill";
 
 /**
  * How many concluded ticks to retain for eyeballing.
@@ -54,42 +81,31 @@ export function getTranscriptSweepJournalPath(): string {
 export const JOURNAL_RECENT_LIMIT = 20;
 
 /**
- * Which phase a tick had reached when it was recorded.
- *
- * `ingest` is Phase 1; `embed` is Phase 2, the embedding backfill. The whole
- * subject of mt#4532 is how rarely a tick reaches `embed` at all, so this is the
- * discriminator every consumer reads.
- */
-export type SweepTickPhase = "ingest" | "embed";
-
-/**
  * How a tick ENDED. Five outcomes, and the distinction between them is the
  * finding rather than bookkeeping:
  *
- * - `completed` — both phases ran to conclusion.
- * - `embed-failed` — Phase 1 completed, Phase 2 was attempted and threw.
- * - `aborted` — Phase 1 abandoned mid-pass because the DB connection died
- *   (mt#4480). Phase 2 is never reached: it needs the same dead connection.
- * - `failed` — the tick errored before Phase 1 concluded (an ingest throw, or a
+ * - `completed` — the tick's work ran to conclusion.
+ * - `aborted` — the pass was abandoned mid-flight because the DB connection died
+ *   (mt#4480). Ingest-specific in practice; the backfill has no such marker.
+ * - `failed` — the tick threw (an ingest throw, a failing backfill, or a
  *   `PersistenceService.initialize()` timeout).
  * - `skipped` — the tick declined to run: schema behind (mt#3297) or no
  *   SQL-capable provider. Deliberate and correct, and still not work done.
  * - `interrupted` — no terminal record was ever written, because the process was
  *   replaced. Reconstructed at boot, never written by the tick itself.
+ *
+ * **`embed-failed` and the `phase` discriminator were RETIRED by mt#4601**, which
+ * split the embedding backfill into its own sweep. They existed to say WHERE
+ * inside a two-phase tick something happened; once each sweep has exactly one
+ * job, the sweep's own journal answers that and a phase field would be a
+ * constant. A failing backfill is now plainly `failed` in the backfill's journal.
  */
-export type SweepTickOutcome =
-  | "completed"
-  | "embed-failed"
-  | "aborted"
-  | "failed"
-  | "skipped"
-  | "interrupted";
+export type SweepTickOutcome = "completed" | "aborted" | "failed" | "skipped" | "interrupted";
 
 /** A tick currently in flight, as recorded at its START. */
 export interface InFlightTick {
   startedAt: string;
   pid: number;
-  phase: SweepTickPhase;
 }
 
 /** A concluded tick. */
@@ -98,21 +114,16 @@ export interface ConcludedTick {
   endedAt: string;
   pid: number;
   outcome: SweepTickOutcome;
-  /** Whether Phase 2 was entered at all — SC1's numerator. */
-  reachedPhase2: boolean;
 }
 
 /** Cumulative counts, never truncated. */
 export interface SweepTickTotals {
   started: number;
   completed: number;
-  embedFailed: number;
   aborted: number;
   failed: number;
   skipped: number;
   interrupted: number;
-  /** Ticks that entered Phase 2, whether or not it then succeeded. */
-  reachedPhase2: number;
 }
 
 /** The on-disk journal. */
@@ -130,12 +141,10 @@ export function emptyJournal(): TranscriptSweepJournal {
     totals: {
       started: 0,
       completed: 0,
-      embedFailed: 0,
       aborted: 0,
       failed: 0,
       skipped: 0,
       interrupted: 0,
-      reachedPhase2: 0,
     },
   };
 }
@@ -147,7 +156,6 @@ export function emptyJournal(): TranscriptSweepJournal {
 /** Which totals key an outcome increments. */
 const OUTCOME_TOTALS_KEY: Record<SweepTickOutcome, keyof SweepTickTotals> = {
   completed: "completed",
-  "embed-failed": "embedFailed",
   aborted: "aborted",
   failed: "failed",
   skipped: "skipped",
@@ -162,27 +170,8 @@ export function foldTickStarted(
 ): TranscriptSweepJournal {
   return {
     ...journal,
-    inFlight: { startedAt, pid, phase: "ingest" },
+    inFlight: { startedAt, pid },
     totals: { ...journal.totals, started: journal.totals.started + 1 },
-  };
-}
-
-/**
- * Record that the tick entered Phase 2.
- *
- * Marks the attempt at its START, not at its conclusion — the same correction
- * mt#4524 made to `embedPhase` for the same reason: over ~1,500 sessions Phase 2
- * is minutes long, and a record written only at the end cannot distinguish
- * "running" from "never got there" for that whole window. `reachedPhase2` is
- * incremented HERE, so a tick killed inside Phase 2 still counts as having
- * reached it.
- */
-export function foldPhase2Started(journal: TranscriptSweepJournal): TranscriptSweepJournal {
-  if (journal.inFlight === null) return journal;
-  return {
-    ...journal,
-    inFlight: { ...journal.inFlight, phase: "embed" },
-    totals: { ...journal.totals, reachedPhase2: journal.totals.reachedPhase2 + 1 },
   };
 }
 
@@ -206,7 +195,6 @@ export function foldTickEnded(
     endedAt,
     pid: inFlight.pid,
     outcome,
-    reachedPhase2: inFlight.phase === "embed",
   };
   const key = OUTCOME_TOTALS_KEY[outcome];
   return {
@@ -377,8 +365,16 @@ export function createMemoryJournalStore(
  * observes inverts the point of it.
  */
 export class TranscriptSweepJournalRecorder {
+  /**
+   * @param label names WHICH sweep this journal belongs to, and appears in every
+   *   log line it writes (mt#4601). Two sweeps now keep journals of the same
+   *   shape, so an unlabelled "previous tick was INTERRUPTED" would not say
+   *   whether ingest or the backfill was the one replaced — which is the single
+   *   question the line exists to answer.
+   */
   constructor(
     private readonly store: SweepJournalStore,
+    private readonly label: string = "transcript sweep",
     private readonly now: () => Date = () => new Date(),
     private readonly pid: number = process.pid
   ) {}
@@ -388,7 +384,7 @@ export class TranscriptSweepJournalRecorder {
     try {
       this.store.write(fn(this.store.read()));
     } catch (err) {
-      log.warn("cockpit: transcript sweep journal: write failed (non-fatal)", {
+      log.warn(`cockpit: ${this.label} journal: write failed (non-fatal)`, {
         op,
         message: err instanceof Error ? err.message : String(err),
       });
@@ -397,10 +393,6 @@ export class TranscriptSweepJournalRecorder {
 
   tickStarted(): void {
     this.mutate((j) => foldTickStarted(j, this.now().toISOString(), this.pid), "tickStarted");
-  }
-
-  phase2Started(): void {
-    this.mutate(foldPhase2Started, "phase2Started");
   }
 
   tickEnded(outcome: SweepTickOutcome): void {
@@ -422,11 +414,9 @@ export class TranscriptSweepJournalRecorder {
       );
       if (interrupted === null) return;
       this.store.write(journal);
-      log.error("cockpit: transcript sweep: previous tick was INTERRUPTED — process replaced", {
+      log.error(`cockpit: ${this.label}: previous tick was INTERRUPTED — process replaced`, {
         startedAt: interrupted.startedAt,
         pid: interrupted.pid,
-        phase: interrupted.phase,
-        reachedPhase2: interrupted.phase === "embed",
       });
     } catch (err) {
       log.warn("cockpit: transcript sweep journal: boot reconcile failed (non-fatal)", {
@@ -440,11 +430,11 @@ export class TranscriptSweepJournalRecorder {
 // Health projection
 // ---------------------------------------------------------------------------
 
-/** The cross-restart block projected under `/api/health`'s `transcriptSweep`. */
+/** The cross-restart block projected under `/api/health`. */
 export interface SweepJournalSummary {
   totals: SweepTickTotals;
-  /** `reachedPhase2 / started`, rounded to 3 decimals — null before any tick started. */
-  phase2ReachRate: number | null;
+  /** `completed / started`, rounded to 3 decimals — null before any tick started. */
+  completionRate: number | null;
   /** The tick running right now, or null. Present ONLY while one is in flight. */
   inFlight: InFlightTick | null;
   lastOutcome: SweepTickOutcome | null;
@@ -454,18 +444,26 @@ export interface SweepJournalSummary {
 /**
  * Project the journal for `/api/health`.
  *
- * `phase2ReachRate` is SC1's answer in one number, and it is deliberately a rate
- * over LIFETIME ticks rather than over a window: the failure this task exists to
- * surface is that the rate is low, and a window short enough to be "current" is
- * also short enough to contain zero ticks on a daemon that keeps restarting —
- * which reads as no-opinion exactly when the news is worst.
+ * **`completionRate` REPLACES mt#4532's `phase2ReachRate` (mt#4601).** That field
+ * asked how often a two-phase tick reached its second phase, which stopped being
+ * a question the moment the backfill became its own sweep. It was also the wrong
+ * OUTCOME metric even before the split: mt#4601's planning pass measured the real
+ * backlog at 919 turns with nine prior days fully drained, so a low reach rate
+ * was real and was not costing the completeness it appeared to. Each sweep now
+ * reports how often its OWN ticks finish, which is a question each can answer
+ * about itself.
+ *
+ * Deliberately a rate over LIFETIME ticks rather than a window: a window short
+ * enough to be "current" is also short enough to contain zero ticks on a daemon
+ * that keeps restarting — which reads as no-opinion exactly when the news is
+ * worst. Read it beside the actual backlog, never instead of it.
  */
 export function summarizeJournal(journal: TranscriptSweepJournal): SweepJournalSummary {
   const last = journal.recent[journal.recent.length - 1] ?? null;
-  const { started, reachedPhase2 } = journal.totals;
+  const { started, completed } = journal.totals;
   return {
     totals: journal.totals,
-    phase2ReachRate: started === 0 ? null : Math.round((reachedPhase2 / started) * 1000) / 1000,
+    completionRate: started === 0 ? null : Math.round((completed / started) * 1000) / 1000,
     inFlight: journal.inFlight,
     lastOutcome: last === null ? null : last.outcome,
     lastEndedAt: last === null ? null : last.endedAt,
@@ -494,21 +492,25 @@ export function summarizeJournal(journal: TranscriptSweepJournal): SweepJournalS
  * and fetches `/api/health`, which goes through this path. An explicitly-passed
  * store bypasses the memo entirely, which is what every other test uses.
  */
-let cachedFileSummary: { key: string; summary: SweepJournalSummary } | null = null;
+const cachedFileSummaries = new Map<string, { key: string; summary: SweepJournalSummary }>();
 
 /**
  * Read-and-summarize for the health route. Never throws; degrades to an empty
  * journal.
  *
- * An explicitly-passed store bypasses the memo entirely — it is a different
- * source, and caching across stores would make one test's journal visible to the
- * next.
+ * Keyed by PATH (mt#4601) — two sweeps keep two journals, and a single-slot memo
+ * would thrash between them on every poll, serving each request the other's
+ * freshly-computed miss. An explicitly-passed store bypasses the memo entirely:
+ * it is a different source, and caching across stores would make one test's
+ * journal visible to the next.
  */
-export function readJournalSummary(store?: SweepJournalStore): SweepJournalSummary {
+export function readJournalSummary(
+  store?: SweepJournalStore,
+  filePath: string = getTranscriptSweepJournalPath()
+): SweepJournalSummary {
   try {
     if (store !== undefined) return summarizeJournal(store.read());
 
-    const filePath = getTranscriptSweepJournalPath();
     let key: string;
     try {
       const st = fs.statSync(filePath);
@@ -520,13 +522,15 @@ export function readJournalSummary(store?: SweepJournalStore): SweepJournalSumma
       key = "";
     }
 
-    if (key !== "" && cachedFileSummary?.key === key) return cachedFileSummary.summary;
+    const cached = cachedFileSummaries.get(filePath);
+    if (key !== "" && cached?.key === key) return cached.summary;
 
     const summary = summarizeJournal(createFileJournalStore(filePath).read());
-    if (key !== "") cachedFileSummary = { key, summary };
+    if (key !== "") cachedFileSummaries.set(filePath, { key, summary });
     return summary;
   } catch (err) {
     log.warn("cockpit: transcript sweep journal: summary read failed", {
+      filePath,
       message: err instanceof Error ? err.message : String(err),
     });
     return summarizeJournal(emptyJournal());

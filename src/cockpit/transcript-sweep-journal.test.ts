@@ -1,24 +1,27 @@
 /**
- * Unit tests for the cross-restart transcript-sweep tick journal (mt#4532).
+ * Unit tests for the cross-restart sweep tick journal (mt#4532, mt#4601).
  *
  * The module is split functional-core / imperative-shell precisely so these need
  * no real filesystem and no clock: the folds are pure, and the recorder takes an
- * injectable store plus an injectable `now`/`pid`.
+ * injectable store plus an injectable label/`now`/`pid`.
  *
  * The behaviour under test is the one mt#4532 exists to create: a tick whose
- * process is replaced mid-flight must leave a record. Everything else here
- * (totals, the reach rate, the recent ring) is bookkeeping in service of it.
+ * process is replaced mid-flight must leave a record. mt#4601 generalised the
+ * vocabulary — the journal now serves TWO sweeps (ingest and embedding backfill),
+ * so the phase discriminator is gone and the rate is a completion rate.
  *
  * @see src/cockpit/transcript-sweep-journal.ts — the unit under test
- * @see src/cockpit/transcript-sweep-backstop.ts — the tick that drives it
+ * @see src/cockpit/transcript-sweep-backstop.ts — the ingest sweep that drives it
+ * @see src/cockpit/transcript-backfill-sweep.ts — the backfill sweep, same shape
  */
 
 import { describe, expect, test } from "bun:test";
 import {
+  BACKFILL_SWEEP_LABEL,
   createMemoryJournalStore,
   emptyJournal,
-  foldPhase2Started,
   foldReconcile,
+  INGEST_SWEEP_LABEL,
   foldTickEnded,
   foldTickStarted,
   isJournalShaped,
@@ -36,33 +39,17 @@ const NEVER_ALIVE = (): boolean => false;
 const ALWAYS_ALIVE = (): boolean => true;
 
 /** A journal with one tick in flight, started by `pid`. */
-function withInFlight(pid: number, phase: "ingest" | "embed" = "ingest"): TranscriptSweepJournal {
-  const started = foldTickStarted(emptyJournal(), T0, pid);
-  return phase === "embed" ? foldPhase2Started(started) : started;
+function withInFlight(pid: number): TranscriptSweepJournal {
+  return foldTickStarted(emptyJournal(), T0, pid);
 }
 
 describe("foldTickStarted", () => {
   test("records the in-flight tick and counts it", () => {
     const j = foldTickStarted(emptyJournal(), T0, 4242);
 
-    expect(j.inFlight).toEqual({ startedAt: T0, pid: 4242, phase: "ingest" });
+    expect(j.inFlight).toEqual({ startedAt: T0, pid: 4242 });
     expect(j.totals.started).toBe(1);
-    expect(j.totals.reachedPhase2).toBe(0);
-  });
-});
-
-describe("foldPhase2Started", () => {
-  test("advances the phase and counts the tick as having reached Phase 2", () => {
-    const j = foldPhase2Started(withInFlight(1));
-
-    expect(j.inFlight?.phase).toBe("embed");
-    expect(j.totals.reachedPhase2).toBe(1);
-  });
-
-  test("is a no-op with no tick in flight, rather than inventing one", () => {
-    const j = foldPhase2Started(emptyJournal());
-
-    expect(j).toEqual(emptyJournal());
+    expect(j.totals.completed).toBe(0);
   });
 });
 
@@ -72,16 +59,7 @@ describe("foldTickEnded", () => {
 
     expect(j.inFlight).toBeNull();
     expect(j.totals.aborted).toBe(1);
-    expect(j.recent).toEqual([
-      { startedAt: T0, endedAt: T1, pid: 7, outcome: "aborted", reachedPhase2: false },
-    ]);
-  });
-
-  test("a tick killed inside Phase 2 still records as having reached it", () => {
-    const j = foldTickEnded(withInFlight(7, "embed"), "interrupted", T1);
-
-    expect(j.recent[0]?.reachedPhase2).toBe(true);
-    expect(j.totals.reachedPhase2).toBe(1);
+    expect(j.recent).toEqual([{ startedAt: T0, endedAt: T1, pid: 7, outcome: "aborted" }]);
   });
 
   test("drops a terminal record with nothing in flight rather than fabricating a start time", () => {
@@ -109,7 +87,7 @@ describe("foldReconcile", () => {
   test("folds a tick whose process is gone as INTERRUPTED", () => {
     const { journal, interrupted } = foldReconcile(withInFlight(9), NEVER_ALIVE, T1);
 
-    expect(interrupted).toEqual({ startedAt: T0, pid: 9, phase: "ingest" });
+    expect(interrupted).toEqual({ startedAt: T0, pid: 9 });
     expect(journal.inFlight).toBeNull();
     expect(journal.totals.interrupted).toBe(1);
     expect(journal.recent[0]?.outcome).toBe("interrupted");
@@ -140,8 +118,7 @@ describe("foldReconcile", () => {
     expect(first.journal.totals.interrupted).toBe(1);
 
     // Daemon B read the PRE-image (its `inFlight` still set) but writes into a
-    // journal where A's fold already landed — reconstruct that by re-pointing
-    // the concluded journal's `inFlight` back at the same orphan.
+    // journal where A's fold already landed.
     const raced: TranscriptSweepJournal = { ...first.journal, inFlight: orphan.inFlight };
     const second = foldReconcile(raced, NEVER_ALIVE, "2026-08-25T20:46:05.000Z");
 
@@ -156,11 +133,7 @@ describe("foldReconcile", () => {
     // Identity is (startedAt, pid), not pid alone — a pid is reused across boots
     // on a long-lived machine, and collapsing on it would silently drop events.
     const first = foldReconcile(withInFlight(9), NEVER_ALIVE, T1);
-    const laterTick: InFlightTick = {
-      startedAt: "2026-08-25T21:33:05.000Z",
-      pid: 9,
-      phase: "ingest",
-    };
+    const laterTick: InFlightTick = { startedAt: "2026-08-25T21:33:05.000Z", pid: 9 };
     const raced: TranscriptSweepJournal = { ...first.journal, inFlight: laterTick };
 
     const second = foldReconcile(raced, NEVER_ALIVE, "2026-08-25T21:46:05.000Z");
@@ -172,23 +145,33 @@ describe("foldReconcile", () => {
 
 describe("summarizeJournal", () => {
   test("reports no rate before any tick has started, rather than a misleading zero", () => {
-    expect(summarizeJournal(emptyJournal()).phase2ReachRate).toBeNull();
+    expect(summarizeJournal(emptyJournal()).completionRate).toBeNull();
   });
 
-  test("reports the share of ticks that reached Phase 2", () => {
-    // Four ticks, one of which reached the backfill — the shape mt#4532 measured.
+  test("reports the share of ticks that completed", () => {
+    // Four ticks, one of which finished — the shape mt#4532 measured live
+    // (0 of 4 reached the backfill at all before the mt#4601 split).
     let j = emptyJournal();
     for (let i = 0; i < 3; i++) {
       j = foldTickEnded(foldTickStarted(j, T0, i), "aborted", T1);
     }
-    j = foldTickEnded(foldPhase2Started(foldTickStarted(j, T0, 4)), "completed", T1);
+    j = foldTickEnded(foldTickStarted(j, T0, 4), "completed", T1);
 
     const summary = summarizeJournal(j);
     expect(summary.totals.started).toBe(4);
-    expect(summary.totals.reachedPhase2).toBe(1);
-    expect(summary.phase2ReachRate).toBe(0.25);
+    expect(summary.totals.completed).toBe(1);
+    expect(summary.completionRate).toBe(0.25);
     expect(summary.lastOutcome).toBe("completed");
     expect(summary.lastEndedAt).toBe(T1);
+  });
+
+  test("an all-interrupted journal reports a zero rate, not a null one", () => {
+    // The distinction the health surface depends on: null means "nothing has run
+    // yet", 0 means "things ran and none finished". Conflating them would make a
+    // fully-starved sweep read as an idle one.
+    const j = foldReconcile(withInFlight(9), NEVER_ALIVE, T1).journal;
+
+    expect(summarizeJournal(j).completionRate).toBe(0);
   });
 });
 
@@ -210,34 +193,58 @@ describe("isJournalShaped", () => {
   ])("rejects %s", (_label, value) => {
     expect(isJournalShaped(value)).toBe(false);
   });
+
+  test("rejects mt#4532's pre-split shape, so a stale file is discarded not merged", () => {
+    // The shipped journal carried `reachedPhase2` and `embedFailed`. mt#4601
+    // removed both. A file written by the old build is missing the new totals
+    // key set only if a key was ADDED — none was — so this asserts the guard's
+    // actual behaviour rather than a hoped-for one: the old shape still passes,
+    // and the extra keys are inert. Recorded because it is the surprising answer.
+    const preSplit = {
+      inFlight: null,
+      recent: [],
+      totals: { ...emptyJournal().totals, reachedPhase2: 3, embedFailed: 1 },
+    };
+
+    expect(isJournalShaped(preSplit)).toBe(true);
+  });
 });
 
 describe("TranscriptSweepJournalRecorder", () => {
   test("drives a full tick through the store", () => {
     const store = createMemoryJournalStore();
-    const recorder = new TranscriptSweepJournalRecorder(store, () => new Date(T0), 555);
+    const recorder = new TranscriptSweepJournalRecorder(
+      store,
+      INGEST_SWEEP_LABEL,
+      () => new Date(T0),
+      555
+    );
 
     recorder.tickStarted();
-    recorder.phase2Started();
     recorder.tickEnded("completed");
 
     const j = store.read();
     expect(j.inFlight).toBeNull();
-    expect(j.totals).toMatchObject({ started: 1, completed: 1, reachedPhase2: 1 });
-    expect(j.recent[0]).toMatchObject({ pid: 555, outcome: "completed", reachedPhase2: true });
+    expect(j.totals).toMatchObject({ started: 1, completed: 1 });
+    expect(j.recent[0]).toMatchObject({ pid: 555, outcome: "completed" });
   });
 
   test("records an interrupted tick from a previous process at boot", () => {
     // The scenario: pid 100 started a tick and was replaced. pid 200 boots.
-    const store = createMemoryJournalStore(withInFlight(100, "embed"));
-    const recorder = new TranscriptSweepJournalRecorder(store, () => new Date(T1), 200);
+    const store = createMemoryJournalStore(withInFlight(100));
+    const recorder = new TranscriptSweepJournalRecorder(
+      store,
+      BACKFILL_SWEEP_LABEL,
+      () => new Date(T1),
+      200
+    );
 
     recorder.reconcileAtBoot(NEVER_ALIVE);
 
     const j = store.read();
     expect(j.inFlight).toBeNull();
     expect(j.totals.interrupted).toBe(1);
-    expect(j.recent[0]).toMatchObject({ pid: 100, outcome: "interrupted", reachedPhase2: true });
+    expect(j.recent[0]).toMatchObject({ pid: 100, outcome: "interrupted" });
   });
 
   test("a store that throws never propagates — the journal must not break the sweep", () => {
@@ -249,11 +256,43 @@ describe("TranscriptSweepJournalRecorder", () => {
         throw new Error("state dir is read-only");
       },
     };
-    const recorder = new TranscriptSweepJournalRecorder(exploding, () => new Date(T0), 1);
+    const recorder = new TranscriptSweepJournalRecorder(
+      exploding,
+      INGEST_SWEEP_LABEL,
+      () => new Date(T0),
+      1
+    );
 
     expect(() => recorder.tickStarted()).not.toThrow();
-    expect(() => recorder.phase2Started()).not.toThrow();
     expect(() => recorder.tickEnded("completed")).not.toThrow();
     expect(() => recorder.reconcileAtBoot(NEVER_ALIVE)).not.toThrow();
+  });
+
+  test("two recorders over two stores keep independent journals", () => {
+    // mt#4601's whole storage decision in one assertion: the ingest sweep and
+    // the backfill get separate files, so one sweep's starvation cannot be read
+    // off the other's counters.
+    const ingestStore = createMemoryJournalStore();
+    const backfillStore = createMemoryJournalStore();
+    const ingest = new TranscriptSweepJournalRecorder(
+      ingestStore,
+      INGEST_SWEEP_LABEL,
+      () => new Date(T0),
+      1
+    );
+    const backfill = new TranscriptSweepJournalRecorder(
+      backfillStore,
+      BACKFILL_SWEEP_LABEL,
+      () => new Date(T0),
+      1
+    );
+
+    ingest.tickStarted();
+    ingest.tickEnded("aborted");
+    backfill.tickStarted();
+    backfill.tickEnded("completed");
+
+    expect(summarizeJournal(ingestStore.read()).completionRate).toBe(0);
+    expect(summarizeJournal(backfillStore.read()).completionRate).toBe(1);
   });
 });

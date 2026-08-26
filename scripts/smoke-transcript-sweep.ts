@@ -200,7 +200,7 @@ async function main(): Promise<void> {
         lastErrorAt: summary.lastErrorAt,
         journal: {
           totals: journal.totals,
-          phase2ReachRate: journal.phase2ReachRate,
+          completionRate: journal.completionRate,
           lastOutcome: journal.lastOutcome,
         },
       },
