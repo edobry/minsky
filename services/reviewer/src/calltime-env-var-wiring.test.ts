@@ -46,12 +46,35 @@ const THIS_FILE = "calltime-env-var-wiring.test.ts";
 const REGISTRY_KEYS = Object.keys(REVIEWER_CALLTIME_ENV_VAR_NAMES);
 const REGISTRY_VALUES = Object.values(REVIEWER_CALLTIME_ENV_VAR_NAMES);
 
-/** Every `.ts` under `src/`, recursively, as `[relativePath, contents]`. */
+/**
+ * Strip comments before scanning (PR #3391 R1, NON-BLOCKING — and confirmed
+ * live rather than accepted on description).
+ *
+ * The scan looks for a key name in source text, and this change's own docblocks
+ * NAME the keys in prose — `providers.ts` says "the TOOLLOOP_RETRY_TIMEOUT_MS
+ * entry in config.ts's registry". So a comment alone satisfied the consumption
+ * check: deleting the real `process.env[...TOOLLOOP_RETRY_TIMEOUT_MS]` read and
+ * leaving the docblock kept all 10 tests green. A genuine orphan was maskable
+ * by the very prose this task added.
+ *
+ * The mt#4619 orphan control did not reach it, because the bogus key it added
+ * appeared in no comment anywhere — a control proves the probe can fail for the
+ * ONE case reverted, never that it covers the defect class.
+ *
+ * Over-stripping is the safe direction: it can only HIDE a real reference,
+ * which fails the consumption test loudly. Under-stripping hides an orphan,
+ * silently — which is the failure being fixed.
+ */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+}
+
+/** Every `.ts` under `src/`, recursively, as `[relativePath, code-without-comments]`. */
 function readSourceTree(): Array<[string, string]> {
   return readdirSync(SRC_DIR, { recursive: true })
     .map(String)
     .filter((p) => p.endsWith(".ts"))
-    .map((p) => [p, readFileSync(join(SRC_DIR, p), "utf8")] as [string, string]);
+    .map((p) => [p, stripComments(readFileSync(join(SRC_DIR, p), "utf8"))] as [string, string]);
 }
 
 const TREE = readSourceTree();
@@ -70,6 +93,19 @@ describe("call-time env-var registry — every declared name is read (SC3)", () 
       ([path, src]) => path !== DECLARING_FILE && path !== THIS_FILE && src.includes(key)
     );
     expect(readers.length).toBeGreaterThan(0);
+  });
+
+  test("a key named only in a comment is not a reader (PR #3391 R1)", () => {
+    // Regression test for the hole the reviewer found: this change's own
+    // docblocks name the keys, so before stripping, prose alone satisfied the
+    // consumption check and a real orphan could hide behind it.
+    const key = String(REGISTRY_KEYS[0]);
+    const proseOnly = `/**\n * mentions ${key} in a block comment\n */\n// and ${key} again\nconst unrelated = 1;`;
+    expect(stripComments(proseOnly).includes(key)).toBe(false);
+    // The other direction matters just as much: stripping must not eat real
+    // code, or every key would read as an orphan and the suite would go red for
+    // the wrong reason.
+    expect(stripComments(`const v = REGISTRY.${key};`).includes(key)).toBe(true);
   });
 
   test("a key nothing references is not found — the scan can fail", () => {
