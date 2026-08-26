@@ -58,11 +58,11 @@ The reasoning existed in each guard's source the whole time; this ADR carried th
 statement of its own edge, so nothing on **this** side said stop.
 
 **The cheapest architecture and the compliant one coincide here — and the reason is scope, not
-budget.** mt#4565 measured climbing every detector at ~$394/mo, ~$336/mo of which is those three
-high-volume guards; not climbing them removes the bulk of that bill. That is a consequence, not the
+budget.** These are the family's highest-volume guards, so not climbing them removes the bulk of
+what a climb-everything design would cost. **mt#4565 measured that cost and is where to read it**;
+no figure is repeated here, so there is one copy to keep true. The saving is a consequence, not the
 justification: a larger budget would not make a paraphrase axis exist. Do not re-read this
-exclusion later as a cost concession that more money reverses. Figures and method live in mt#4565
-and are cited here rather than duplicated.
+exclusion later as a cost concession that more money reverses.
 
 **Same test, sibling subject.** ADR-042 §"The discriminator, and why it is not a preference"
 applies it to the gate-battery checkers — _"A checker that reads an ARTIFACT … or joins against
