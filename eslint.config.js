@@ -36,6 +36,7 @@ import requireGuardOutcomeInFireLog from "./eslint-rules/require-guard-outcome-i
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
 import requireRegisteredCockpitLoop from "./eslint-rules/require-registered-cockpit-loop.js";
 import noSilentCatch from "./eslint-rules/no-silent-catch.js";
+import preferLoggableErrorSummary from "./eslint-rules/prefer-loggable-error-summary.js";
 import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
 import noSpyPatching from "./eslint-rules/no-spy-patching.js";
 
@@ -321,6 +322,7 @@ export default [
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
           "require-registered-cockpit-loop": requireRegisteredCockpitLoop,
           "no-silent-catch": noSilentCatch,
+          "prefer-loggable-error-summary": preferLoggableErrorSummary,
           "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
           "no-spy-patching": noSpyPatching,
         },
@@ -573,6 +575,37 @@ export default [
       // those files — no directory-level slice is clean enough to flip to
       // "error" today. Bulk cleanup + flip to "error" tracked at mt#3312.
       "custom/no-silent-catch": "off",
+
+      // mt#4632 — flag a caught error rendered as `err.message` /
+      // `getErrorMessage(err)` when that value is written into a LOG record,
+      // and recommend `getLoggableErrorSummary` (mt#2903), which walks the
+      // `.cause` chain so a wrapped error's real diagnosis survives. Shares
+      // `no-silent-catch`'s logger matcher via `eslint-rules/logger-detection.js`
+      // rather than growing a second one.
+      //
+      // MEASURED before choosing this posture (2026-08-26), which is the whole
+      // reason it is "off" rather than "warn":
+      //   - 599 sites flagged across src/packages/services/scripts.
+      //   - A raw grep for the expression finds 878, so the rule's log-flow
+      //     filter excludes 279 (~32%) that never reach a log — throws,
+      //     returns, plain assignments. The grep count OVERSTATES the
+      //     actionable population by a third; that is what the AST buys.
+      //   - 30-site spread sample hand-classified: 0 false positives against
+      //     the rule's definition. Every one was a caught error going into a
+      //     `log.*` / `console.*` call.
+      //
+      // "off" for the same zero-tolerance-warning-gate reason as
+      // no-silent-catch above (mt#1097, no override): 599 violations cannot
+      // ship at "warn". Bulk cleanup + flip tracked as this rule's sibling
+      // task, on the mt#3312 / mt#3313 model.
+      //
+      // One sub-category the cleanup should decide rather than mass-rewrite:
+      // ~4 of the 30 sampled were CLI user-facing `console.error` in scripts/
+      // (e.g. status-command.ts:20), where the terse message is arguably the
+      // right output for a human at a terminal, not a diagnostic log. Those
+      // are correctly flagged by the definition and may still want to stay as
+      // they are.
+      "custom/prefer-loggable-error-summary": "off",
 
       // mt#3299 — flag execSync/spawnSync/fetch call sites lacking a
       // timeout/AbortSignal argument (mechanizable slice of the
