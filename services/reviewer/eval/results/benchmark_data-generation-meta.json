@@ -1,0 +1,860 @@
+{
+  "model": {
+    "provider": "openai",
+    "model": "gpt-5"
+  },
+  "generatedAt": "2026-08-26T00:29:45.735Z",
+  "reviews": [
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/keycloak-greptile/pull/1",
+      "tokensUsed": 238846,
+      "usage": {
+        "promptTokens": 227464,
+        "cachedTokens": 205184,
+        "uncachedPromptTokens": 22280,
+        "completionTokens": 11382,
+        "reasoningTokens": 8768,
+        "totalTokens": 238846
+      },
+      "costUsd": 0.167318,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/32918",
+      "tokensUsed": 197507,
+      "usage": {
+        "promptTokens": 184350,
+        "cachedTokens": 167808,
+        "uncachedPromptTokens": 16542,
+        "completionTokens": 13157,
+        "reasoningTokens": 11200,
+        "totalTokens": 197507
+      },
+      "costUsd": 0.173224,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/33832",
+      "tokensUsed": 228651,
+      "usage": {
+        "promptTokens": 211894,
+        "cachedTokens": 179456,
+        "uncachedPromptTokens": 32438,
+        "completionTokens": 16757,
+        "reasoningTokens": 13376,
+        "totalTokens": 228651
+      },
+      "costUsd": 0.23055,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/37038",
+      "tokensUsed": 323413,
+      "usage": {
+        "promptTokens": 315181,
+        "cachedTokens": 277504,
+        "uncachedPromptTokens": 37677,
+        "completionTokens": 8232,
+        "reasoningTokens": 4992,
+        "totalTokens": 323413
+      },
+      "costUsd": 0.164104,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/36882",
+      "tokensUsed": 175253,
+      "usage": {
+        "promptTokens": 166497,
+        "cachedTokens": 153472,
+        "uncachedPromptTokens": 13025,
+        "completionTokens": 8756,
+        "reasoningTokens": 6976,
+        "totalTokens": 175253
+      },
+      "costUsd": 0.123025,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/36880",
+      "tokensUsed": 315805,
+      "usage": {
+        "promptTokens": 302076,
+        "cachedTokens": 261760,
+        "uncachedPromptTokens": 40316,
+        "completionTokens": 13729,
+        "reasoningTokens": 11392,
+        "totalTokens": 315805
+      },
+      "costUsd": 0.220405,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/38446",
+      "tokensUsed": 234407,
+      "usage": {
+        "promptTokens": 223799,
+        "cachedTokens": 202240,
+        "uncachedPromptTokens": 21559,
+        "completionTokens": 10608,
+        "reasoningTokens": 8000,
+        "totalTokens": 234407
+      },
+      "costUsd": 0.158309,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/37634",
+      "tokensUsed": 276362,
+      "usage": {
+        "promptTokens": 265254,
+        "cachedTokens": 232448,
+        "uncachedPromptTokens": 32806,
+        "completionTokens": 11108,
+        "reasoningTokens": 9152,
+        "totalTokens": 276362
+      },
+      "costUsd": 0.181144,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/37429",
+      "tokensUsed": 412464,
+      "usage": {
+        "promptTokens": 396056,
+        "cachedTokens": 342784,
+        "uncachedPromptTokens": 53272,
+        "completionTokens": 16408,
+        "reasoningTokens": 12992,
+        "totalTokens": 412464
+      },
+      "costUsd": 0.273518,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/keycloak/keycloak/pull/40940",
+      "tokensUsed": 150967,
+      "usage": {
+        "promptTokens": 144168,
+        "cachedTokens": 135552,
+        "uncachedPromptTokens": 8616,
+        "completionTokens": 6799,
+        "reasoningTokens": 5120,
+        "totalTokens": 150967
+      },
+      "costUsd": 0.095704,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/103633",
+      "tokensUsed": 190259,
+      "usage": {
+        "promptTokens": 180790,
+        "cachedTokens": 164992,
+        "uncachedPromptTokens": 15798,
+        "completionTokens": 9469,
+        "reasoningTokens": 7680,
+        "totalTokens": 190259
+      },
+      "costUsd": 0.135062,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/79265",
+      "tokensUsed": 188630,
+      "usage": {
+        "promptTokens": 178019,
+        "cachedTokens": 162048,
+        "uncachedPromptTokens": 15971,
+        "completionTokens": 10611,
+        "reasoningTokens": 8064,
+        "totalTokens": 188630
+      },
+      "costUsd": 0.14633,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/107534",
+      "tokensUsed": 159955,
+      "usage": {
+        "promptTokens": 151601,
+        "cachedTokens": 140928,
+        "uncachedPromptTokens": 10673,
+        "completionTokens": 8354,
+        "reasoningTokens": 5824,
+        "totalTokens": 159955
+      },
+      "costUsd": 0.114497,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/76186",
+      "tokensUsed": 224403,
+      "usage": {
+        "promptTokens": 212804,
+        "cachedTokens": 193536,
+        "uncachedPromptTokens": 19268,
+        "completionTokens": 11599,
+        "reasoningTokens": 9216,
+        "totalTokens": 224403
+      },
+      "costUsd": 0.164267,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/106778",
+      "tokensUsed": 341921,
+      "usage": {
+        "promptTokens": 327366,
+        "cachedTokens": 287360,
+        "uncachedPromptTokens": 40006,
+        "completionTokens": 14555,
+        "reasoningTokens": 12096,
+        "totalTokens": 341921
+      },
+      "costUsd": 0.231478,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/90939",
+      "tokensUsed": 130643,
+      "usage": {
+        "promptTokens": 123831,
+        "cachedTokens": 118144,
+        "uncachedPromptTokens": 5687,
+        "completionTokens": 6812,
+        "reasoningTokens": 5504,
+        "totalTokens": 130643
+      },
+      "costUsd": 0.089997,
+      "roundsUsed": 9,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 8
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/90045",
+      "tokensUsed": 273844,
+      "usage": {
+        "promptTokens": 263548,
+        "cachedTokens": 234624,
+        "uncachedPromptTokens": 28924,
+        "completionTokens": 10296,
+        "reasoningTokens": 8064,
+        "totalTokens": 273844
+      },
+      "costUsd": 0.168443,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/80329",
+      "tokensUsed": 212120,
+      "usage": {
+        "promptTokens": 198212,
+        "cachedTokens": 181760,
+        "uncachedPromptTokens": 16452,
+        "completionTokens": 13908,
+        "reasoningTokens": 11776,
+        "totalTokens": 212120
+      },
+      "costUsd": 0.182365,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/97529",
+      "tokensUsed": 167490,
+      "usage": {
+        "promptTokens": 159639,
+        "cachedTokens": 147840,
+        "uncachedPromptTokens": 11799,
+        "completionTokens": 7851,
+        "reasoningTokens": 5760,
+        "totalTokens": 167490
+      },
+      "costUsd": 0.111739,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/grafana/grafana/pull/94942",
+      "tokensUsed": 264075,
+      "usage": {
+        "promptTokens": 252726,
+        "cachedTokens": 215424,
+        "uncachedPromptTokens": 37302,
+        "completionTokens": 11349,
+        "reasoningTokens": 9216,
+        "totalTokens": 264075
+      },
+      "costUsd": 0.187046,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/1",
+      "tokensUsed": 155442,
+      "usage": {
+        "promptTokens": 142953,
+        "cachedTokens": 134272,
+        "uncachedPromptTokens": 8681,
+        "completionTokens": 12489,
+        "reasoningTokens": 10496,
+        "totalTokens": 155442
+      },
+      "costUsd": 0.152525,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3",
+      "tokensUsed": 168790,
+      "usage": {
+        "promptTokens": 158351,
+        "cachedTokens": 146944,
+        "uncachedPromptTokens": 11407,
+        "completionTokens": 10439,
+        "reasoningTokens": 8640,
+        "totalTokens": 168790
+      },
+      "costUsd": 0.137017,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+      "tokensUsed": 234824,
+      "usage": {
+        "promptTokens": 219355,
+        "cachedTokens": 195456,
+        "uncachedPromptTokens": 23899,
+        "completionTokens": 15469,
+        "reasoningTokens": 13248,
+        "totalTokens": 234824
+      },
+      "costUsd": 0.208996,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/2",
+      "tokensUsed": 203432,
+      "usage": {
+        "promptTokens": 187086,
+        "cachedTokens": 169600,
+        "uncachedPromptTokens": 17486,
+        "completionTokens": 16346,
+        "reasoningTokens": 14272,
+        "totalTokens": 203432
+      },
+      "costUsd": 0.206518,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7",
+      "tokensUsed": 242564,
+      "usage": {
+        "promptTokens": 231958,
+        "cachedTokens": 228736,
+        "uncachedPromptTokens": 3222,
+        "completionTokens": 10606,
+        "reasoningTokens": 8960,
+        "totalTokens": 242564
+      },
+      "costUsd": 0.13868,
+      "roundsUsed": 9,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 8
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/5",
+      "tokensUsed": 155274,
+      "usage": {
+        "promptTokens": 144728,
+        "cachedTokens": 136960,
+        "uncachedPromptTokens": 7768,
+        "completionTokens": 10546,
+        "reasoningTokens": 8192,
+        "totalTokens": 155274
+      },
+      "costUsd": 0.13229,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/6",
+      "tokensUsed": 157673,
+      "usage": {
+        "promptTokens": 144142,
+        "cachedTokens": 133632,
+        "uncachedPromptTokens": 10510,
+        "completionTokens": 13531,
+        "reasoningTokens": 11648,
+        "totalTokens": 157673
+      },
+      "costUsd": 0.165152,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/9",
+      "tokensUsed": 149682,
+      "usage": {
+        "promptTokens": 141095,
+        "cachedTokens": 133248,
+        "uncachedPromptTokens": 7847,
+        "completionTokens": 8587,
+        "reasoningTokens": 7168,
+        "totalTokens": 149682
+      },
+      "costUsd": 0.112335,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10",
+      "tokensUsed": 249838,
+      "usage": {
+        "promptTokens": 230782,
+        "cachedTokens": 205056,
+        "uncachedPromptTokens": 25726,
+        "completionTokens": 19056,
+        "reasoningTokens": 17216,
+        "totalTokens": 249838
+      },
+      "costUsd": 0.24835,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/8",
+      "tokensUsed": 234775,
+      "usage": {
+        "promptTokens": 214101,
+        "cachedTokens": 170624,
+        "uncachedPromptTokens": 43477,
+        "completionTokens": 20674,
+        "reasoningTokens": 18816,
+        "totalTokens": 234775
+      },
+      "costUsd": 0.282414,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/1",
+      "tokensUsed": 170461,
+      "usage": {
+        "promptTokens": 164208,
+        "cachedTokens": 154496,
+        "uncachedPromptTokens": 9712,
+        "completionTokens": 6253,
+        "reasoningTokens": 4352,
+        "totalTokens": 170461
+      },
+      "costUsd": 0.093982,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/2",
+      "tokensUsed": 215921,
+      "usage": {
+        "promptTokens": 206078,
+        "cachedTokens": 188416,
+        "uncachedPromptTokens": 17662,
+        "completionTokens": 9843,
+        "reasoningTokens": 8064,
+        "totalTokens": 215921
+      },
+      "costUsd": 0.14406,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/3",
+      "tokensUsed": 223249,
+      "usage": {
+        "promptTokens": 211161,
+        "cachedTokens": 192128,
+        "uncachedPromptTokens": 19033,
+        "completionTokens": 12088,
+        "reasoningTokens": 9600,
+        "totalTokens": 223249
+      },
+      "costUsd": 0.168687,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/getsentry/sentry/pull/93824",
+      "tokensUsed": 189058,
+      "usage": {
+        "promptTokens": 175935,
+        "cachedTokens": 165760,
+        "uncachedPromptTokens": 10175,
+        "completionTokens": 13123,
+        "reasoningTokens": 11136,
+        "totalTokens": 189058
+      },
+      "costUsd": 0.164669,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/getsentry/sentry/pull/67876",
+      "tokensUsed": 173800,
+      "usage": {
+        "promptTokens": 159661,
+        "cachedTokens": 151936,
+        "uncachedPromptTokens": 7725,
+        "completionTokens": 14139,
+        "reasoningTokens": 12992,
+        "totalTokens": 173800
+      },
+      "costUsd": 0.170038,
+      "roundsUsed": 9,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 8
+    },
+    {
+      "pr": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/5",
+      "tokensUsed": 783195,
+      "usage": {
+        "promptTokens": 768433,
+        "cachedTokens": 635008,
+        "uncachedPromptTokens": 133425,
+        "completionTokens": 14762,
+        "reasoningTokens": 11456,
+        "totalTokens": 783195
+      },
+      "costUsd": 0.393777,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/getsentry/sentry/pull/80528",
+      "tokensUsed": 211362,
+      "usage": {
+        "promptTokens": 200013,
+        "cachedTokens": 162688,
+        "uncachedPromptTokens": 37325,
+        "completionTokens": 11349,
+        "reasoningTokens": 9664,
+        "totalTokens": 211362
+      },
+      "costUsd": 0.180482,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/getsentry/sentry/pull/77754",
+      "tokensUsed": 178900,
+      "usage": {
+        "promptTokens": 169089,
+        "cachedTokens": 143744,
+        "uncachedPromptTokens": 25345,
+        "completionTokens": 9811,
+        "reasoningTokens": 8128,
+        "totalTokens": 178900
+      },
+      "costUsd": 0.147759,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/getsentry/sentry/pull/95633",
+      "tokensUsed": 266531,
+      "usage": {
+        "promptTokens": 252434,
+        "cachedTokens": 210304,
+        "uncachedPromptTokens": 42130,
+        "completionTokens": 14097,
+        "reasoningTokens": 11904,
+        "totalTokens": 266531
+      },
+      "costUsd": 0.219921,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/getsentry/sentry/pull/80168",
+      "tokensUsed": 205769,
+      "usage": {
+        "promptTokens": 196658,
+        "cachedTokens": 177536,
+        "uncachedPromptTokens": 19122,
+        "completionTokens": 9111,
+        "reasoningTokens": 7424,
+        "totalTokens": 205769
+      },
+      "costUsd": 0.137205,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/10600",
+      "tokensUsed": 227887,
+      "usage": {
+        "promptTokens": 213669,
+        "cachedTokens": 190976,
+        "uncachedPromptTokens": 22693,
+        "completionTokens": 14218,
+        "reasoningTokens": 12032,
+        "totalTokens": 227887
+      },
+      "costUsd": 0.194418,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/8087",
+      "tokensUsed": 199673,
+      "usage": {
+        "promptTokens": 182568,
+        "cachedTokens": 165760,
+        "uncachedPromptTokens": 16808,
+        "completionTokens": 17105,
+        "reasoningTokens": 15040,
+        "totalTokens": 199673
+      },
+      "costUsd": 0.21278,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/7232",
+      "tokensUsed": 204545,
+      "usage": {
+        "promptTokens": 196587,
+        "cachedTokens": 177792,
+        "uncachedPromptTokens": 18795,
+        "completionTokens": 7958,
+        "reasoningTokens": 6208,
+        "totalTokens": 204545
+      },
+      "costUsd": 0.125298,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/10967",
+      "tokensUsed": 285057,
+      "usage": {
+        "promptTokens": 275478,
+        "cachedTokens": 244992,
+        "uncachedPromptTokens": 30486,
+        "completionTokens": 9579,
+        "reasoningTokens": 7360,
+        "totalTokens": 285057
+      },
+      "costUsd": 0.164522,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/22345",
+      "tokensUsed": 198045,
+      "usage": {
+        "promptTokens": 184189,
+        "cachedTokens": 167296,
+        "uncachedPromptTokens": 16893,
+        "completionTokens": 13856,
+        "reasoningTokens": 11520,
+        "totalTokens": 198045
+      },
+      "costUsd": 0.180588,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 9
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/8330",
+      "tokensUsed": 185536,
+      "usage": {
+        "promptTokens": 177296,
+        "cachedTokens": 165120,
+        "uncachedPromptTokens": 12176,
+        "completionTokens": 8240,
+        "reasoningTokens": 5696,
+        "totalTokens": 185536
+      },
+      "costUsd": 0.11826,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/14943",
+      "tokensUsed": 132392,
+      "usage": {
+        "promptTokens": 125827,
+        "cachedTokens": 121728,
+        "uncachedPromptTokens": 4099,
+        "completionTokens": 6565,
+        "reasoningTokens": 5376,
+        "totalTokens": 132392
+      },
+      "costUsd": 0.08599,
+      "roundsUsed": 9,
+      "maxRounds": 10,
+      "concludedInLoop": true,
+      "concludedAtRound": 8
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/11059",
+      "tokensUsed": 293547,
+      "usage": {
+        "promptTokens": 282857,
+        "cachedTokens": 199680,
+        "uncachedPromptTokens": 83177,
+        "completionTokens": 10690,
+        "reasoningTokens": 8000,
+        "totalTokens": 293547
+      },
+      "costUsd": 0.235831,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/22532",
+      "tokensUsed": 222429,
+      "usage": {
+        "promptTokens": 212327,
+        "cachedTokens": 180224,
+        "uncachedPromptTokens": 32103,
+        "completionTokens": 10102,
+        "reasoningTokens": 8320,
+        "totalTokens": 222429
+      },
+      "costUsd": 0.163677,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    },
+    {
+      "pr": "https://github.com/calcom/cal.com/pull/14740",
+      "tokensUsed": 241172,
+      "usage": {
+        "promptTokens": 226054,
+        "cachedTokens": 173568,
+        "uncachedPromptTokens": 52486,
+        "completionTokens": 15118,
+        "reasoningTokens": 12736,
+        "totalTokens": 241172
+      },
+      "costUsd": 0.238484,
+      "roundsUsed": 10,
+      "maxRounds": 10,
+      "concludedInLoop": false,
+      "concludedAtRound": null
+    }
+  ],
+  "failures": []
+}

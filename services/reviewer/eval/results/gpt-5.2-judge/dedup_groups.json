@@ -1,0 +1,152 @@
+{
+  "https://github.com/getsentry/sentry/pull/93824": {
+    "minsky": [[0], [1], [2, 3], [4], [5]]
+  },
+  "https://github.com/ai-code-review-evaluation/keycloak-greptile/pull/1": {
+    "minsky": [[0, 1], [2], [3], [4]]
+  },
+  "https://github.com/keycloak/keycloak/pull/32918": {
+    "minsky": [[0, 1, 2], [3], [4]]
+  },
+  "https://github.com/keycloak/keycloak/pull/33832": {
+    "minsky": [[0, 1], [2, 3], [4, 5], [6, 7], [8], [9], [10], [11]]
+  },
+  "https://github.com/keycloak/keycloak/pull/37038": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/keycloak/keycloak/pull/36882": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/keycloak/keycloak/pull/36880": {
+    "minsky": [[0, 1], [2, 3], [4], [5], [6]]
+  },
+  "https://github.com/keycloak/keycloak/pull/38446": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/keycloak/keycloak/pull/37634": {
+    "minsky": [[0], [1], [2], [3], [4]]
+  },
+  "https://github.com/keycloak/keycloak/pull/37429": {
+    "minsky": [[0, 1], [2], [3], [4, 5], [6], [7], [8], [9]]
+  },
+  "https://github.com/keycloak/keycloak/pull/40940": {
+    "minsky": [[0], [1], [2], [3], [4], [5], [6]]
+  },
+  "https://github.com/grafana/grafana/pull/103633": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/grafana/grafana/pull/79265": {
+    "minsky": [[0, 2, 3], [1], [4], [5], [6], [7]]
+  },
+  "https://github.com/grafana/grafana/pull/107534": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/grafana/grafana/pull/76186": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/grafana/grafana/pull/106778": {
+    "minsky": [[0], [1], [2], [3], [4]]
+  },
+  "https://github.com/grafana/grafana/pull/90939": {
+    "minsky": [[0], [1], [2]]
+  },
+  "https://github.com/grafana/grafana/pull/90045": {
+    "minsky": [[0], [1], [2], [3], [4], [5], [6], [7]]
+  },
+  "https://github.com/grafana/grafana/pull/80329": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/grafana/grafana/pull/97529": {
+    "minsky": [[0, 1, 2], [3, 4], [5], [6, 7]]
+  },
+  "https://github.com/grafana/grafana/pull/94942": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/1": {
+    "minsky": [[0, 1, 2], [3], [4], [5], [6]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3": {
+    "minsky": [[0], [1], [2], [3], [4], [5], [6]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4": {
+    "minsky": [[0, 1], [3, 4], [2], [5], [6], [7], [8]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/2": {
+    "minsky": [[0, 1], [2], [3], [4], [5], [6], [7]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/5": {
+    "minsky": [[0, 1], [2], [3], [4], [5], [6], [7]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/6": {
+    "minsky": [[0], [1], [2], [3], [4]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/9": {
+    "minsky": [[0], [1], [2], [3], [4]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10": {
+    "minsky": [[0, 1], [2], [3], [4], [5]]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/8": {
+    "minsky": [[0, 2], [1], [3], [4, 5], [6]]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/1": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/2": {
+    "minsky": [[0], [1], [2], [3], [4]]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/3": {
+    "minsky": [[0, 1], [2, 3], [4], [5], [6]]
+  },
+  "https://github.com/getsentry/sentry/pull/67876": {
+    "minsky": [[0], [1], [2]]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/5": {
+    "minsky": [[0], [1], [2], [3], [4], [5], [6], [7], [8]]
+  },
+  "https://github.com/getsentry/sentry/pull/80528": {
+    "minsky": [[0], [1], [2], [3], [4]]
+  },
+  "https://github.com/getsentry/sentry/pull/77754": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/getsentry/sentry/pull/95633": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/getsentry/sentry/pull/80168": {
+    "minsky": [[0, 1], [2], [3]]
+  },
+  "https://github.com/calcom/cal.com/pull/10600": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/calcom/cal.com/pull/8087": {
+    "minsky": [[0, 1, 3], [2]]
+  },
+  "https://github.com/calcom/cal.com/pull/7232": {
+    "minsky": [[0], [1], [2], [3]]
+  },
+  "https://github.com/calcom/cal.com/pull/10967": {
+    "minsky": [[0, 1], [2], [3], [4], [5], [6]]
+  },
+  "https://github.com/calcom/cal.com/pull/22345": {
+    "minsky": [[0], [1, 3], [2], [4]]
+  },
+  "https://github.com/calcom/cal.com/pull/8330": {
+    "minsky": [[0], [1], [2], [3], [4], [5], [6]]
+  },
+  "https://github.com/calcom/cal.com/pull/14943": {
+    "minsky": [[0], [1], [2]]
+  },
+  "https://github.com/calcom/cal.com/pull/11059": {
+    "minsky": [[0], [1], [2], [3, 4, 5, 6, 7], [8, 10], [9], [11], [12], [13], [14]]
+  },
+  "https://github.com/calcom/cal.com/pull/22532": {
+    "minsky": [[0], [1], [2], [3], [4], [5]]
+  },
+  "https://github.com/calcom/cal.com/pull/14740": {
+    "minsky": [[0, 1, 2], [3, 4], [5], [6], [7, 9], [8]]
+  }
+}

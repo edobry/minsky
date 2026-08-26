@@ -43,7 +43,17 @@ services/reviewer/eval/cache/
 # mt#2726: paired-eval-runner.ts / run-judge-pass.ts run outputs (regenerable
 # comparative JSON artifacts, non-clobbering timestamped filenames — not
 # committed, same rationale as the diff cache above)
-services/reviewer/eval/results/
+services/reviewer/eval/results/*
+# mt#4577: Martian Code Review Bench outputs are the exception to the blanket ignore
+# above — NOT regenerable without re-running a ~$11 external benchmark pass against a
+# pinned third-party commit, and committing them (SC2) is this task's own acceptance
+# criterion. Everything else under results/ (paired-eval-runner.ts's own timestamped
+# comparative runs) stays ignored per the rationale above.
+!services/reviewer/eval/results/benchmark_data.json
+!services/reviewer/eval/results/benchmark_data-generation-meta.json
+!services/reviewer/eval/results/REPORT.md
+!services/reviewer/eval/results/gpt-5.2-judge/
+!services/reviewer/eval/results/gpt-5.2-judge/*.json
 *.tsbuildinfo
 
 # Hook-calibration telemetry + calibration-review state (mt#2667) — local
