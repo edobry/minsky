@@ -2917,16 +2917,31 @@ export function startInterceptorAggregatesSweeper(intervalMs?: number): () => vo
     name: "interceptor-aggregates",
     intervalMs: intervalMs ?? INTERCEPTOR_AGGREGATES_INTERVAL_MS,
     tickTimeoutMs: INTERCEPTOR_AGGREGATES_TICK_TIMEOUT_MS,
-    // Both numbers are sized against THIS sweep's 5-minute cadence and the two
-    // measured outages, not picked round (`decision-defaults §Thresholds`).
+    // Both numbers are sized against THIS sweep's 5-minute cadence, not picked
+    // round (`decision-defaults §Thresholds`).
+    //
+    // OBSERVATION SET these derive from, named so the next re-derivation has a
+    // baseline (mt#4598): two outages of 15-25 min, and one PARTIAL degradation
+    // of ~95 min on 2026-08-25 (2 abandoned ticks, 2 backoff engagements,
+    // 84 reachability-probe failures in its worst hour).
     //
     // afterFailures: 2 -> ~10 minutes of continuous failure before any tick is
-    // skipped, which is past a transient pooler blip (seconds) and well inside
-    // the 15-25 minute window both recorded outages actually lasted.
+    // skipped, which is past a transient pooler blip (seconds).
     //
-    // maxSkippedTicks: 6 -> a 30-minute floor cadence, deliberately just past
-    // the longest observed outage (25 min) so a database that recovered is
-    // re-probed within roughly one cadence of recovering, never abandoned.
+    // maxSkippedTicks: 6 -> a 30-minute floor cadence, so a database that
+    // recovered is re-probed within one cadence of recovering, never abandoned.
+    //
+    // The 95-minute window is ~4x the longest outage these were first sized
+    // against, and the VALUES still hold — but the original RATIONALE did not,
+    // and is corrected here rather than re-confirmed. It read "deliberately
+    // just past the longest observed outage (25 min)", which derives the number
+    // from a quantity it has nothing to do with: the floor cadence bounds
+    // WORST-CASE RE-PROBE LATENCY AFTER RECOVERY, and that bound is 30 minutes
+    // whether the outage ran 25 minutes or 95. An outage longer than the floor
+    // does not degrade the property; it just means more skipped ticks while the
+    // DB is down, which is what the backoff is for. So a future observation of
+    // a longer outage is NOT by itself a reason to revisit these — the reason
+    // to revisit is a change in what re-probe latency is acceptable.
     domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 6 },
     tick: async () => {
       try {
