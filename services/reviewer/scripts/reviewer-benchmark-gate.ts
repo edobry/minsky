@@ -55,6 +55,7 @@
  * @see mt#2746 — the human gold set / calibration snapshot this gate trusts
  */
 
+import "reflect-metadata";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -244,7 +245,16 @@ async function resolveCredential(
       value = (value as Record<string, unknown> | undefined)?.[segment];
     }
     return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-  } catch {
+  } catch (error) {
+    // intentional-swallow: config resolution is a fallback path (env vars
+    // are checked first); a config-layer failure here should degrade to
+    // "no credential found" (surfaced by the caller's own error message)
+    // rather than crash the gate, but it is still worth a stderr trace for
+    // whoever is debugging a "no credential resolved" report.
+    console.error(
+      `resolveCredential: config fallback failed for ${envVarName}: ` +
+        `${error instanceof Error ? error.message : String(error)}`
+    );
     return undefined;
   }
 }
@@ -353,6 +363,12 @@ async function runPairedEval(
       cwd: REPO_ROOT,
       env: { ...process.env, OPENAI_API_KEY: openaiKey ?? "", GITHUB_TOKEN: githubToken },
       timeout: 10 * 60 * 1000,
+      // Explicit, not relying on the default: bun-types' generic defaults
+      // (`Err = "inherit"`) disagree with spawnSync's actual runtime default
+      // (`["ignore", "pipe", "pipe"]`, per Bun's own docblock on this
+      // overload) — pinning both to "pipe" here makes stdout/stderr typed
+      // as captured buffers, matching what actually happens at runtime.
+      stdio: ["ignore", "pipe", "pipe"],
     }
   );
   const stdout = result.stdout.toString("utf-8");

@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test --preload ../../tests/setup.ts",
     "reconcile-schema": "bun scripts/reconcile-schema.ts",
-    "reconcile-schema:execute": "bun scripts/reconcile-schema.ts --execute"
+    "reconcile-schema:execute": "bun scripts/reconcile-schema.ts --execute",
+    "benchmark-gate": "bun scripts/reviewer-benchmark-gate.ts",
+    "benchmark-gate:dry-run": "bun scripts/reviewer-benchmark-gate.ts --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
