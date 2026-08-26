@@ -29,6 +29,7 @@ import {
   SLOW_CONFIRM_BUDGET_ENV,
   verdictForReach,
   type FetchLike,
+  type ReachOutcome,
 } from "./verify-preflight";
 
 /** What `AbortSignal.timeout` rejects with — observed shape, not invented. */
@@ -57,6 +58,30 @@ function connectionReset(): Error {
   const err = new Error("The socket connection was closed unexpectedly.");
   (err as Error & { code?: string }).code = CONNECTION_RESET_CODE;
   return err;
+}
+
+/**
+ * Render an outcome for comparison against an EXPECTED kind, folding `detail`
+ * into the compared value only when the kind does NOT match (mt#4550).
+ *
+ * Why not a bare `expect(outcome.kind).toBe(...)`: that renders
+ * `Expected: "slow" / Received: "absent"` and discards the one field that
+ * explains it. `describeError` has already built that string by the time the
+ * outcome exists — the assertion is where it gets thrown away.
+ *
+ * That is not hypothetical. mt#4550's originating occurrence, in a full gated
+ * run on 2026-08-25, recorded exactly those two lines and nothing else. Naming
+ * the error took a separate investigation that had to reproduce the failure
+ * from scratch; the run that saw it first had the answer in hand and dropped it.
+ *
+ * Folding `detail` in ONLY on mismatch is load-bearing: since mt#4624 a correct
+ * `slow` can legitimately carry a `detail` (an interrupted first probe), so
+ * folding it in unconditionally would fail a passing case.
+ */
+function kindOrCause(outcome: ReachOutcome, expected: ReachOutcome["kind"]): string {
+  if (outcome.kind === expected) return expected;
+  const detail = (outcome as { detail?: string }).detail;
+  return detail === undefined ? outcome.kind : `${outcome.kind}: ${detail}`;
 }
 
 const DESCRIBE = { absentReason: "no cockpit reachable at http://x", slowSubject: "the cockpit" };
@@ -132,6 +157,42 @@ describe("isDefinitelyAbsent (mt#4624)", () => {
     expect(isDefinitelyAbsent(new TypeError("boom"))).toBe(false);
     expect(isDefinitelyAbsent(timeoutError())).toBe(false);
     expect(isDefinitelyAbsent(undefined)).toBe(false);
+  });
+});
+
+describe("kindOrCause — the assertion helper itself (mt#4550)", () => {
+  // A self-naming assertion that names nothing is worse than a bare one: it
+  // reads as though the evidence problem were solved. So the helper gets its
+  // own coverage rather than being trusted because it looks right.
+
+  it("returns the bare kind on a match, even when the outcome carries a detail", () => {
+    // The passing case must be unaffected. Since mt#4624 a CORRECT `slow` can
+    // carry a detail (an interrupted first probe), so a helper that folded it in
+    // unconditionally would fail this — which is the whole reason for the guard.
+    const slowWithDetail: ReachOutcome = {
+      kind: "slow",
+      budgetMs: 5,
+      measuredMs: 41,
+      confirmBudgetMs: 5000,
+      detail: "first attempt: reset",
+    };
+    expect(kindOrCause(slowWithDetail, "slow")).toBe("slow");
+  });
+
+  it("folds the detail into the compared value on a mismatch — the whole point", () => {
+    const absentWithCause: ReachOutcome = {
+      kind: "absent",
+      detail: "The socket connection was closed unexpectedly. (ECONNRESET)",
+    };
+    // This is what mt#4550's originating failure would have printed as
+    // `Received:` had the assertion been written this way.
+    expect(kindOrCause(absentWithCause, "slow")).toBe(
+      "absent: The socket connection was closed unexpectedly. (ECONNRESET)"
+    );
+  });
+
+  it("falls back to the bare kind on a mismatch with no detail to report", () => {
+    expect(kindOrCause({ kind: "reached", elapsedMs: 12 }, "slow")).toBe("reached");
   });
 });
 
@@ -415,7 +476,10 @@ describe("probeReachability (real fetch binding)", () => {
         { budgetMs: 5, confirmBudgetMs: 5000 },
         {}
       );
-      expect(outcome.kind).toBe("slow");
+      // mt#4550: compared through `kindOrCause` so a future mismatch names the
+      // error instead of reporting only `Received: "absent"`. This is the test
+      // whose 2026-08-25 failure recorded no cause at all.
+      expect(kindOrCause(outcome, "slow")).toBe("slow");
       if (outcome.kind !== "slow") return;
       // The follow-up measurement succeeded against a real server, so the report
       // carries a latency rather than only a lower bound.
@@ -440,7 +504,7 @@ describe("probeReachability (real fetch binding)", () => {
       { budgetMs: 3000, confirmBudgetMs: 5000 },
       {}
     );
-    expect(outcome.kind).toBe("absent");
+    expect(kindOrCause(outcome, "absent")).toBe("absent");
   });
 
   it("classifies a listener that resets the socket as slow, not absent", async () => {
@@ -466,7 +530,7 @@ describe("probeReachability (real fetch binding)", () => {
         { budgetMs: 3000, confirmBudgetMs: 3000 },
         {}
       );
-      expect(outcome.kind).toBe("slow");
+      expect(kindOrCause(outcome, "slow")).toBe("slow");
       if (outcome.kind !== "slow") return;
       // Deliberately NOT coupled to Bun's exact code string (PR #3372 R1): the
       // behaviour under test is the CLASSIFICATION, so assert the outcome and
@@ -492,7 +556,7 @@ describe("probeReachability (real fetch binding)", () => {
         { budgetMs: 3000, confirmBudgetMs: 5000 },
         {}
       );
-      expect(outcome.kind).toBe("reached");
+      expect(kindOrCause(outcome, "reached")).toBe("reached");
     } finally {
       server.stop(true);
     }
