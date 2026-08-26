@@ -42,6 +42,7 @@ import { getPgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import { getSurvivedExceptions } from "../daemon-error-policy";
 import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
+import { nextConsecutiveDegraded } from "../degraded-run-length";
 import { findRepoRoot } from "../web-dist";
 import type { WidgetModule } from "../types";
 
@@ -148,11 +149,9 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
     // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
     // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
     const dbStatus = getDbStatus();
-    if (dbStatus === "ok") {
-      consecutiveDegradedCount = 0;
-    } else {
-      consecutiveDegradedCount++;
-    }
+    // mt#4598: the rule itself lives in `degraded-run-length.ts` so it can be
+    // replayed against a recorded failure sequence without driving this handler.
+    consecutiveDegradedCount = nextConsecutiveDegraded(consecutiveDegradedCount, dbStatus);
 
     res.json({
       status: "ok",
