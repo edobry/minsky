@@ -313,6 +313,29 @@ describe("sessionPrDrivePostMerge session resolution after cleanup (mt#4425)", (
     ).rejects.toThrow(/No session found for task ID/);
   });
 
+  test("a non-not-found failure propagates unchanged rather than being relabelled", async () => {
+    // PR #3394 R1 BLOCKING: the guidance wrapper originally caught EVERY error,
+    // so a backend outage, an auth failure, or the ValidationError raised when a
+    // task matches multiple sessions all became "no session found" — sending
+    // callers that branch on error type, and observability, to the wrong cause.
+    const deps = makeDeps([]);
+    Object.assign(deps.sessionDB as unknown as Record<string, unknown>, {
+      getSessionByTaskId: async () => {
+        throw new Error("backend unavailable: connection refused");
+      },
+      listSessions: async () => [],
+    });
+
+    await expect(sessionPrDrivePostMerge({ task: "mt#4425" }, deps)).rejects.toThrow(
+      /backend unavailable/
+    );
+    // And it must NOT acquire the post-merge guidance, which would be actively
+    // misleading for a failure that has nothing to do with session cleanup.
+    await expect(sessionPrDrivePostMerge({ task: "mt#4425" }, deps)).rejects.not.toThrow(
+      /verify-deploy\.ts/
+    );
+  });
+
   test("negative control: a resolvable session still auto-detects, no throw", async () => {
     // Same code path, session present — so the guard above is specific to the
     // resolution failure and is not swallowing the happy path.

@@ -119,20 +119,50 @@ function parseArgs(argv: string[]): Args | { error: string } {
   let skipIfUnconfigured = false;
   let requireIdentity = false;
 
-  for (let i = 0; i < argv.length; i++) {
+  let i = 0;
+
+  /**
+   * Consume the token after a value-taking flag, refusing an absent one or
+   * another flag.
+   *
+   * Blindly taking `argv[++i]` silently accepts both: a trailing `--commit`
+   * yields `undefined`, which reads downstream as "no commit supplied" and
+   * degrades to an INDETERMINATE verdict; and `--commit --require-identity`
+   * captures the flag itself as the sha, which then gets compared against the
+   * deployment and can report a MISMATCH. Both are false verdicts out of a tool
+   * whose entire job is to not produce them (PR #3394 R1 BLOCKING).
+   */
+  function takeValue(flag: string): string | { error: string } {
+    const next = argv[i + 1];
+    if (next === undefined) return { error: `${flag} expects a value, but none was given` };
+    if (next.startsWith("--")) {
+      return { error: `${flag} expects a value, but the next argument is another flag: ${next}` };
+    }
+    i++;
+    return next;
+  }
+
+  for (; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
-      case "--merged-at":
-        mergedAt = argv[++i];
+      case "--merged-at": {
+        const value = takeValue("--merged-at");
+        if (typeof value !== "string") return value;
+        mergedAt = value;
         break;
-      case "--commit":
-        commit = argv[++i];
+      }
+      case "--commit": {
+        const value = takeValue("--commit");
+        if (typeof value !== "string") return value;
+        commit = value;
         break;
+      }
       case "--timeout-seconds": {
-        const raw = argv[++i];
-        const parsed = Number(raw);
+        const value = takeValue("--timeout-seconds");
+        if (typeof value !== "string") return value;
+        const parsed = Number(value);
         if (!Number.isFinite(parsed) || parsed <= 0) {
-          return { error: `--timeout-seconds expects a positive number, got ${String(raw)}` };
+          return { error: `--timeout-seconds expects a positive number, got ${value}` };
         }
         timeoutSeconds = parsed;
         break;

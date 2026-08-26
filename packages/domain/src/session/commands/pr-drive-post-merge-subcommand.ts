@@ -183,6 +183,15 @@ export async function sessionPrDrivePostMerge(
           allowAutoDetection: true,
         });
       } catch (err) {
+        // Only a genuine not-found gets the guidance treatment. Wrapping ANY
+        // failure would collapse error semantics: `resolveSessionContextWithFeedback`
+        // also throws ValidationError when a task matches MULTIPLE sessions, and
+        // backend I/O or auth failures surface as their own classes. Those need
+        // different handling — retry vs. disambiguate vs. tell the operator — and
+        // relabelling them all "not found" would send callers and observability
+        // to the wrong cause (PR #3394 R1 BLOCKING).
+        if (!(err instanceof ResourceNotFoundError)) throw err;
+
         const target = params.task ?? params.sessionId ?? "(auto-detect)";
         throw new ResourceNotFoundError(
           `Could not resolve a session for ${target} to auto-detect deploy services.\n\n` +
