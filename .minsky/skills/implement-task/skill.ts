@@ -689,6 +689,31 @@ CRASHED). Platform-neutral; the tool routes to the platform declared in
 candidates: Vercel, Cloudflare Pages, etc.). See
 \`docs/deployment-platforms.md\` for the abstraction.
 
+**The same three commands are on the CLI, so this capability does NOT vanish
+when MCP is down (mt#4425)** — which is exactly when you need it, since the CLI
+is the fallback:
+
+\`\`\`
+minsky deployment wait-for-latest --service <svc> --not-before <merge-iso>
+minsky deployment status --service <svc>
+minsky deployment logs <deploymentId> --type build --service <svc>
+\`\`\`
+
+They were reachable all along as \`minsky tools deployment ...\` and documented
+nowhere in that form, so \`minsky deployment ...\` returning \`unknown command\`
+read as "no CLI path exists". It now resolves at the top level. For the whole
+chain in one command — a deployment postdating the merge, the build-identity
+verdict, and a health probe asserting the body's \`service\` identity rather
+than the status code:
+
+\`\`\`
+bun scripts/verify-deploy.ts <svc> --merged-at <merge-iso> --commit <merge-sha>
+\`\`\`
+
+It exits non-zero on any failure, reads the Railway ids from
+\`services/<svc>/deploy.config.ts\`, and takes \`--require-identity\` to fail
+closed when WHICH change deployed could not be established.
+
 **ALWAYS pass \`notBefore\` — the merge's timestamp (mt#3890).** Without it,
 this call returns whatever deployment is newest, with no relationship to the
 merge you are verifying. That is not a theoretical weakness: from 2026-08-05
