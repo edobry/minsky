@@ -1872,6 +1872,24 @@ describe("mt#4387 — extraction artifacts are not claims", () => {
     expect(kept.map((c) => c.symbol).sort()).toEqual(["Object.defineProperty", "defineProperty"]);
   });
 
+  test("PR #3392 R1 — a BACKED artifact does not inflate the backing counters", () => {
+    // Filtering the finished `claims` array left `backedSeen` holding the artifact's key, so a
+    // record could report `backedClaimCount: 1` with zero claims — inconsistent with itself.
+    // The pair is now rejected before the backing lookup, so it counts in neither direction.
+    const text =
+      'The detector fired on `"inferred"` and `raise` — a confidence label and a ' +
+      "timeout value, not code symbols; no action needed.";
+
+    // A corpus that DOES contain the artifact symbol: without the pre-backing rejection this
+    // is exactly the input that produces the inconsistent record.
+    const result = detectCodeMechanismAssertion(text, "raise raise raise", "");
+
+    expect(result.claims).toEqual([]);
+    expect(result.matched).toBe(false);
+    expect(result.backedClaimCount).toBe(0);
+    expect(result.hadSameTurnRead).toBe(false);
+  });
+
   test("an ordinary claim is untouched — the filter is not a general narrowing", () => {
     const kept = dropArtifactClaims([{ symbol: "isHostedMcpServer", predicate: "returns" }]);
     expect(kept).toEqual([{ symbol: "isHostedMcpServer", predicate: "returns" }]);
