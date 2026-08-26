@@ -1766,26 +1766,27 @@ export async function createAskWithFormLint(
 /**
  * Parameters for `asks.wait-for-response`.
  *
- * ## `timeoutSeconds` is not reliably reachable over MCP (mt#4455)
+ * ## `timeoutSeconds` over MCP — fixed by mt#1576, and why it was broken
  *
- * This command emits **no progress notifications**. `context.onProgress?.()`
- * (mt#2677) exists so a long-running command produces transport activity
- * instead of silence; the emitters are the PR-polling commands
+ * The transport underneath the MCP shim applies an IDLE timeout, so a command
+ * holding a request open while emitting nothing is closed before the requested
+ * budget elapses (~225 s measured 2026-08-22 on the sibling
+ * `deployment.wait-for-latest`). `context.onProgress?.()` (mt#2677) is the
+ * mechanism that defeats it: a progress notification is transport activity.
+ *
+ * Until mt#1576 the emitters were only the PR-polling commands
  * (`session.pr.checks`, `session.pr.wait-for-review`, and `session.pr.drive`
- * through its delegation to the latter) plus `session.migrate`. This command is
- * not among them, so a wait here is silent for its whole duration, the
- * connection looks IDLE to the transport underneath, and it can be closed
- * before the requested budget elapses (~225 s measured 2026-08-22 on the
- * sibling `deployment.wait-for-latest`).
+ * through its delegation to the latter), and this command was not among them —
+ * its execute handler did not even take a `ctx`. **It now emits once per poll**,
+ * so the `[1, 1800]` clamp below is reachable over MCP as well as on the CLI.
  *
- * The clamp below still says `[1, 1800]` because it is the DOMAIN's contract and
- * remains correct on the CLI path; over MCP the reachable ceiling is lower and
- * not stated by any schema. Mechanism: **mt#1576** Occurrence 8. Transport-side
- * decision: **mt#4455** (the shim's absolute bound is sized above 1800 s; the
- * idle half is separate and unfixed).
+ * Mechanism: **mt#1576** Occurrence 8, and Occurrence 9 FINAL's controlled A/B.
+ * Transport-side decision: **mt#4455** (the shim's ABSOLUTE bound, sized above
+ * 1800 s — a different bound from the idle one this addresses).
  *
- * For an ask that may take minutes, prefer filing and continuing over blocking
- * here — which is the shape mt#3564's answered-ask injection exists to support.
+ * Unchanged advice: for an ask that may take minutes, prefer filing and
+ * continuing over blocking here — the shape mt#3564's answered-ask injection
+ * exists to support. Blocking now works; it is still rarely the best move.
  */
 const asksWaitForResponseParams = {
   id: {
@@ -2633,7 +2634,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       // (like asks.respond), not on global Minsky configuration.
       requiresSetup: false,
       parameters: asksWaitForResponseParams,
-      execute: async (params): Promise<AskWaitForResponseResult> => {
+      execute: async (params, ctx): Promise<AskWaitForResponseResult> => {
         const repo = await requireAskRepository(container, "asks.wait-for-response");
 
         // mt#2696: resolve a short-prefix citation before it ever reaches a
@@ -2646,7 +2647,10 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             timeoutSeconds: params.timeoutSeconds as number | undefined,
             intervalSeconds: params.intervalSeconds as number | undefined,
           },
-          { repo }
+          // mt#1576: `ctx` was previously unused here, which is why this
+          // command emitted nothing and was capped by the transport's idle
+          // timeout well below its own 1800s ceiling.
+          { repo, onProgress: ctx?.onProgress }
         );
       },
     })

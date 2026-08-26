@@ -42,12 +42,47 @@ import type { AskRepository } from "./repository";
  */
 const RESPONSE_BEARING_STATES: ReadonlySet<AskState> = new Set<AskState>(["responded", "closed"]);
 
+/**
+ * Best-effort invocation of {@link AskWaitForResponseDependencies.onProgress}
+ * (mt#1576). A reporter that throws must never abort the wait it exists to
+ * keep alive.
+ *
+ * Exported for direct unit testing — the swallow branch is otherwise only
+ * reachable by making the whole poll loop run with a throwing reporter.
+ */
+export function notifyAskWaitProgress(
+  onProgress: AskWaitForResponseDependencies["onProgress"],
+  message: string
+): void {
+  if (!onProgress) return;
+  try {
+    onProgress(message);
+  } catch (error) {
+    log.warn("asks.wait-for-response: onProgress callback threw (swallowed, best-effort)", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export interface AskWaitForResponseDependencies {
   repo: AskRepository;
   /** Test seam: override the clock. Defaults to Date.now. */
   now?: () => number;
   /** Test seam: override the delay between polls. Defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Emit MCP transport activity once per poll (mt#1576).
+   *
+   * Not a test seam and not logging — the transport underneath the MCP shim
+   * applies an IDLE timeout, so a wait that stays silent is killed at roughly
+   * three minutes no matter what `timeoutSeconds` it was given. This command
+   * accepts up to 1800s and, until mt#1576, emitted nothing, so most of that
+   * budget was unreachable over MCP.
+   *
+   * Best-effort and optional: the CLI path omits it, and a throwing reporter
+   * must never abort the wait.
+   */
+  onProgress?: (message: string) => void;
 }
 
 export interface AskWaitForResponseParams {
@@ -191,6 +226,13 @@ export async function askWaitForResponse(
       log.debug(
         `asks.wait-for-response: Ask ${params.id} poll ${pollCount} state=${ask.state}; ` +
           `sleeping ${Math.round(sleepMs / 1000)}s (${Math.round(remaining / 1000)}s remaining)`
+      );
+      // mt#1576: emit BEFORE the sleep, so the transport sees activity at the
+      // start of each idle window rather than only after one has elapsed. The
+      // log.debug above is NOT a substitute — it never reaches the transport.
+      notifyAskWaitProgress(
+        deps.onProgress,
+        `ask ${params.id}: ${ask.state} (poll ${pollCount}, ${Math.round(remaining / 1000)}s remaining)`
       );
       await sleep(sleepMs);
     }
