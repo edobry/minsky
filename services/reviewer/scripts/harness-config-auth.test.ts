@@ -1,19 +1,46 @@
 /**
  * Tests for harness-config-auth.ts's env-first credential resolution (mt#4620).
  *
- * Covers only the ENV branch of `resolveProviderApiKeyWithConfig` — the config-fallback branch
- * requires a live `setupConfiguration()` against Minsky's real configuration system, which these
- * tests deliberately do not stand up (that path is exercised live by mt#4620's actual runner
- * invocation, recorded in that task's spec). What IS unit-testable, and load-bearing: an env var
- * present must win over config and must never trigger configuration initialization at all.
+ * The whitespace/empty-vs-meaningful distinction is tested against the pure
+ * `hasMeaningfulValue` helper directly (PR #3373 R3) rather than through the async
+ * `resolveProviderApiKeyWithConfig`/`resolveGitHubTokenWithConfig` wrappers: a non-meaningful env
+ * var falls through to the config-fallback branch, which calls `setupConfiguration()` — coupling
+ * these tests to Minsky's real configuration system for a question the pure helper already
+ * answers on its own. Only the "env var wins, config never touched" contract is exercised through
+ * the async wrappers, using a definitely-meaningful value so the config branch is never reached.
  */
 
 import { describe, test, expect, afterEach } from "bun:test";
-import { resolveProviderApiKeyWithConfig, getGitHubTokenSource } from "./harness-config-auth";
+import {
+  hasMeaningfulValue,
+  resolveProviderApiKeyWithConfig,
+  getGitHubTokenSource,
+} from "./harness-config-auth";
+
+describe("hasMeaningfulValue", () => {
+  test("undefined is not meaningful", () => {
+    expect(hasMeaningfulValue(undefined)).toBe(false);
+  });
+
+  test("empty string is not meaningful", () => {
+    expect(hasMeaningfulValue("")).toBe(false);
+  });
+
+  test("whitespace-only string is not meaningful (PR #3373 R1)", () => {
+    expect(hasMeaningfulValue("   ")).toBe(false);
+    expect(hasMeaningfulValue("\t\n")).toBe(false);
+  });
+
+  test("a real value, including one with padding, is meaningful", () => {
+    expect(hasMeaningfulValue("real-key-123")).toBe(true);
+    expect(hasMeaningfulValue(PADDED_KEY)).toBe(true);
+  });
+});
 
 const ENV_VAR = "MT4620_TEST_PROVIDER_KEY";
+const PADDED_KEY = "  real-key-with-padding  ";
 
-describe("resolveProviderApiKeyWithConfig", () => {
+describe("resolveProviderApiKeyWithConfig — env var wins over config, without touching it", () => {
   afterEach(() => {
     delete process.env[ENV_VAR];
   });
@@ -24,28 +51,10 @@ describe("resolveProviderApiKeyWithConfig", () => {
     expect(result).toBe("env-value-123");
   });
 
-  test("whitespace-only env var is treated as unset, not returned as a key (PR #3373 R1)", async () => {
-    process.env[ENV_VAR] = "   ";
-    // A whitespace-only env var must not mask a real config-stored credential: the presence
-    // check trims before deciding, so this falls through to the config lookup (undefined here,
-    // since no configuration is initialized in this test process) rather than returning "   ".
-    const result = await resolveProviderApiKeyWithConfig("anthropic", ENV_VAR);
-    expect(result).not.toBe("   ");
-  });
-
   test("a real key with meaningful leading/trailing whitespace still round-trips raw", async () => {
-    process.env[ENV_VAR] = "  real-key-with-padding  ";
+    process.env[ENV_VAR] = PADDED_KEY;
     const result = await resolveProviderApiKeyWithConfig("google", ENV_VAR);
-    expect(result).toBe("  real-key-with-padding  ");
-  });
-
-  test("empty-string env var is treated as unset (falls through, not returned as a key)", async () => {
-    process.env[ENV_VAR] = "";
-    // With no config initialized/available in this test process, the config fallback resolves to
-    // undefined too — the observable contract this test protects is that an empty string is never
-    // itself returned as though it were a real key.
-    const result = await resolveProviderApiKeyWithConfig("openai", ENV_VAR);
-    expect(result).not.toBe("");
+    expect(result).toBe(PADDED_KEY);
   });
 });
 
@@ -62,6 +71,8 @@ describe("getGitHubTokenSource — whitespace-only OCTOKIT_AUTH must not mask a 
     // The regression this guards: `OCTOKIT_AUTH || GITHUB_TOKEN` combined BEFORE trimming would
     // short-circuit on the whitespace-only OCTOKIT_AUTH (a non-empty string is truthy) and never
     // even look at GITHUB_TOKEN. Each must be checked for meaningful content independently.
+    // Both env vars here are meaningful-or-whitespace, never empty/undefined, so this never
+    // reaches the config-fallback branch.
     expect(source).toBe("GITHUB_TOKEN");
   });
 

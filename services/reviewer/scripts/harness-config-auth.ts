@@ -22,7 +22,7 @@ import { getConfiguration, isConfigurationInitialized } from "@minsky/domain/con
  * than returning it, which would silently mask a valid config-stored credential behind an env
  * var that was never meant to hold one.
  */
-function hasMeaningfulValue(v: string | undefined): v is string {
+export function hasMeaningfulValue(v: string | undefined): v is string {
   return v !== undefined && v.trim().length > 0;
 }
 
