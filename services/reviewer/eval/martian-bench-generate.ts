@@ -294,6 +294,35 @@ async function generateReview(
   });
 }
 
+/** A 120s per-round timeout inside the tool loop (`with-timeout.ts`, production reviewer code —
+ * NOT touched here) is occasionally reached by a large upstream OSS diff running the full
+ * 10-round budget. One retry is worth it for a call that usually succeeds; this is NOT a
+ * production timeout change, it is the eval script accepting that its own inputs (50 real
+ * external PRs, several of them large) will occasionally brush a bound production traffic
+ * rarely does. */
+const MAX_GENERATION_ATTEMPTS = 2;
+
+async function generateReviewWithRetry(
+  modelConfig: ModelConfigArg,
+  apiKey: string,
+  ctx: PrContext,
+  prNumber: number
+): Promise<ReviewOutput> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+    try {
+      return await generateReview(modelConfig, apiKey, ctx, prNumber);
+    } catch (err) {
+      lastErr = err;
+      const message = err instanceof Error ? err.message : String(err);
+      console.log(
+        `  ! PR #${prNumber} generation attempt ${attempt}/${MAX_GENERATION_ATTEMPTS} failed: ${message}`
+      );
+    }
+  }
+  throw lastErr;
+}
+
 // ---------------------------------------------------------------------------
 // Martian benchmark_data.json schema (offline/README.md -> "Data format")
 // ---------------------------------------------------------------------------
@@ -468,6 +497,13 @@ async function main() {
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
   const metaPath = args.out.replace(/\.json$/, "-generation-meta.json");
 
+  // Permanently-failed PRs (mt#4577): a PR whose generation exhausts MAX_GENERATION_ATTEMPTS is
+  // NOT a silent skip — it's a reportable finding. Comparability rests on all 50; an F1 computed
+  // over fewer is not the number the vendors were scored on. Recorded here (not just logged) so
+  // it survives the process and reaches the final report. A PR that failed on an earlier run and
+  // succeeds on a later resume is removed from this list when `output` gains its entry (below).
+  const failures: Array<{ pr: string; error: string; attempts: number }> = [];
+
   // Resume support (mt#4577): the OpenAI account ran out of credits mid-run at 24/50 and the
   // process died — the 24 completed reviews already cost real money and regenerating them would
   // both waste that spend and add nothing. If --out already has completed entries, load them
@@ -483,8 +519,12 @@ async function main() {
     if (existsSync(metaPath)) {
       const existingMeta = JSON.parse(readFileSync(metaPath, "utf-8")) as {
         reviews: GenerationMetaEntry[];
+        failures?: Array<{ pr: string; error: string; attempts: number }>;
       };
       generationMeta.push(...existingMeta.reviews);
+      // Carry forward failures from a prior run EXCEPT any PR that now has a real output entry
+      // (a later resume attempt can succeed where an earlier one didn't).
+      failures.push(...(existingMeta.failures ?? []).filter((f) => !(f.pr in output)));
     }
     console.log(`Resuming: ${Object.keys(output).length} reviews already completed in ${args.out}`);
   }
@@ -493,20 +533,48 @@ async function main() {
    * losing partial progress to an unrelated failure partway through would be expensive. */
   function saveProgress(): void {
     writeFileSync(args.out, JSON.stringify(output, null, 2));
+    // Filter at write time, not just at load time: a PR carried into `failures` from an earlier
+    // resume can succeed later in THIS run's processing, after which it has a real `output`
+    // entry and should no longer be reported as a failure.
+    const currentFailures = failures.filter((f) => !(f.pr in output));
     writeFileSync(
       metaPath,
       JSON.stringify(
-        { model: args.model, generatedAt: new Date().toISOString(), reviews: generationMeta },
+        {
+          model: args.model,
+          generatedAt: new Date().toISOString(),
+          reviews: generationMeta,
+          failures: currentFailures,
+        },
         null,
         2
       )
     );
   }
 
+  /** Isolates one PR's failure from the rest of the batch (mt#4577 incident: a single 120s
+   * per-round timeout on a large upstream OSS PR previously killed a `Promise.all` batch with
+   * 14 PRs still pending). This function never throws — a PR that exhausts
+   * MAX_GENERATION_ATTEMPTS is recorded in `failures` and processing continues. */
   async function processOnePr(pr: ResolvedPr, idx: number, total: number): Promise<void> {
     console.log(`\n[${idx + 1}/${total}] ${pr.owner}/${pr.repo}#${pr.prNumber}...`);
+    try {
+      await processOnePrInner(pr);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log(`  ! PR #${pr.prNumber} failed permanently after retries: ${message}`);
+      failures.push({ pr: pr.goldenUrl, error: message, attempts: MAX_GENERATION_ATTEMPTS });
+    }
+  }
+
+  async function processOnePrInner(pr: ResolvedPr): Promise<void> {
     const ctx = await fetchPrContext(octokit, pr.owner, pr.repo, pr.prNumber);
-    const reviewOutput = await generateReview(args.model, resolvedApiKey, ctx, pr.prNumber);
+    const reviewOutput = await generateReviewWithRetry(
+      args.model,
+      resolvedApiKey,
+      ctx,
+      pr.prNumber
+    );
 
     const createdAt = new Date().toISOString();
     const findings = reviewOutput.toolCalls
@@ -597,7 +665,17 @@ async function main() {
     saveProgress();
   }
 
+  const finalFailures = failures.filter((f) => !(f.pr in output));
   console.log(`\nWrote ${Object.keys(output).length} reviews to ${args.out}`);
+  if (finalFailures.length > 0) {
+    console.log(
+      `\n${finalFailures.length} PR(s) FAILED PERMANENTLY after ${MAX_GENERATION_ATTEMPTS} attempts each — ` +
+        `NOT a silent skip, carry this into the report as a limitation:`
+    );
+    for (const f of finalFailures) {
+      console.log(`  - ${f.pr}: ${f.error}`);
+    }
+  }
 }
 
 if (import.meta.main) {
