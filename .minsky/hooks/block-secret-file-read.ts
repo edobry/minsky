@@ -170,6 +170,71 @@ function hasSourceCodeExtension(token: string): boolean {
 }
 
 /**
+ * Directory names that root this repo's PROGRAM SOURCE.
+ *
+ * The carve-out above keys on the FILE's extension, and a directory argument has
+ * none — so `packages/domain/src/credentials/` fell through to the generic name
+ * match and denied, while `packages/domain/src/credentials/lifecycle.ts` did not
+ * (mt#4581). The extension test that rescues a source file cannot rescue the
+ * directory that holds it.
+ */
+export const SOURCE_ROOT_SEGMENTS: readonly string[] = ["src", "packages", "scripts", "services"];
+
+/**
+ * Extensions that mark a token as a DATA store rather than program source.
+ *
+ * Mirrors the optional extension group in {@link GENERIC_SECRET_NAME_PATTERN} —
+ * these are the extensions that pattern itself treats as credential-store-shaped.
+ * A token under a source root is rescued only when it carries NONE of them,
+ * which is what keeps `packages/domain/src/secrets/prod.yaml` denying while
+ * `packages/domain/src/credentials/` is allowed.
+ */
+export const DATA_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".yaml",
+  ".yml",
+  ".json",
+  ".env",
+  ".txt",
+  ".conf",
+]);
+
+function hasDataExtension(token: string): boolean {
+  const base = token.slice(token.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return DATA_EXTENSIONS.has(base.slice(dot).toLowerCase());
+}
+
+/**
+ * Is this token a REPO-RELATIVE path rooted at one of this repo's source roots?
+ *
+ * Anchored at the string start, NOT matched at any interior path-segment
+ * boundary. The first version of this used `(^|/)<root>/` so that an absolute
+ * session-workspace path would qualify; PR #3364 R1 caught that it also matches
+ * a source-root name appearing ANYWHERE, so `/var/secrets/services/credentials`
+ * and `~/.config/app/src/credentials` would have escaped the generic pattern —
+ * real secret paths, carved out by a rule meant for repo source. The carve-out
+ * belongs to THIS repo's top-level roots, which is what the spec's "under a
+ * source root" says and what anchoring implements literally.
+ *
+ * The absolute-path case that motivated the interior match was speculative and
+ * is not restored: the originating incident's command was repo-relative, run
+ * from inside a session, which is how agents address session files. An absolute
+ * path bearing a `credentials`/`secrets` directory still denies — an accepted
+ * residual alongside `docs/credentials/`, and a narrower one than permitting
+ * every interior `/services/`.
+ *
+ * Leading `./` is tolerated; a directory merely PREFIXED with a root's name
+ * (`services-archive/`, `srcfoo/`) is not, because the trailing `/` is required.
+ * Note this asks about one path ARGUMENT, never about the command string —
+ * SC3's "names a source TREE, not mentions a source root somewhere".
+ */
+export function isUnderSourceRoot(token: string): boolean {
+  const normalized = token.replace(/^(\.\/)+/, "");
+  return SOURCE_ROOT_SEGMENTS.some((seg) => normalized.startsWith(`${seg}/`));
+}
+
+/**
  * Commands that EMIT file content to stdout. `grep`/`rg` are conditional —
  * see `isEmittingInvocation` — because their count/quiet forms are exactly the
  * safe presence-check this guard steers callers toward.
@@ -333,6 +398,13 @@ export function isSecretPath(token: string): boolean {
   if (EXPLICIT_SECRET_PATH_PATTERNS.some((re) => re.test(token))) return true;
   // The generic name-resemblance pattern alone must not condemn program source.
   if (hasSourceCodeExtension(token)) return false;
+  // ...nor the DIRECTORY that holds it (mt#4581). Conditioned on the extension
+  // as well as the root: a prefix-only test would newly permit
+  // `packages/domain/src/secrets/prod.yaml`, a real credential store sitting
+  // under source. Both checks sit BELOW the explicit list on purpose — the
+  // carve-out narrows GENERIC_SECRET_NAME_PATTERN alone, exactly as mt#3703's
+  // does, so `src/foo/.env` and `packages/.../key.pem` still deny above.
+  if (isUnderSourceRoot(token) && !hasDataExtension(token)) return false;
   return GENERIC_SECRET_NAME_PATTERN.test(token);
 }
 
