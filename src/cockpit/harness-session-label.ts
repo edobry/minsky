@@ -43,6 +43,7 @@
  */
 
 import { writeFileSync } from "fs";
+import { dirname, resolve } from "path";
 
 import { log } from "@minsky/shared/logger";
 
@@ -57,7 +58,46 @@ import { log } from "@minsky/shared/logger";
  */
 export const HARNESS_SESSION_LABEL_PREFIX = "/tmp/claude-session-label-";
 
-/** Absolute path of the label file the guard will consume for this conversation. */
+/** Directory every label file must resolve into. The traversal backstop below anchors on it. */
+const HARNESS_SESSION_LABEL_DIR = "/tmp";
+
+/**
+ * Ids this module will splice into a filename (PR #3379 R2).
+ *
+ * `harnessSessionId` arrives from the child's stream-json `system/init` frame,
+ * and `extractHarnessSessionId` (`driven-session-host.ts:403-406`) accepts ANY
+ * non-empty string — it checks `typeof raw === "string" && raw.length > 0` and
+ * nothing else. So by the time the id reaches this module it has been parsed
+ * off a pipe and never validated, and this module then puts it in a path it
+ * writes to. That is the whole finding, and it is correct independently of how
+ * likely a hostile child is: a value spliced into a filesystem path should be
+ * checked where it is spliced, not assumed clean because of who produced it.
+ *
+ * The charset covers every id shape actually observed — UUIDs
+ * (`3a61b3a8-67a2-4536-8461-741a6c7f1b15`) and subagent ids
+ * (`agent-ad863113ed9b30247`) are both hex/alphanumeric plus hyphens. The
+ * length bound keeps a pathological id from tripping ENAMETOOLONG.
+ *
+ * Rejection is SILENT-ish by design: the thread stays untitled, which is this
+ * module's documented worst case, rather than the spawn failing.
+ */
+const SAFE_HARNESS_SESSION_ID = /^[A-Za-z0-9_-]{1,200}$/;
+
+/** Whether an id is safe to use as a filename component. */
+export function isSafeHarnessSessionId(harnessSessionId: string): boolean {
+  return SAFE_HARNESS_SESSION_ID.test(harnessSessionId);
+}
+
+/**
+ * Absolute path of the label file the guard will consume for this conversation.
+ *
+ * Deliberately still a plain concatenation: it must produce byte-for-byte what
+ * `auto-session-title.ts` computes from its own `input.session_id`, and that
+ * hook does no normalization. Validation is the CALLER's job — see
+ * {@link isSafeHarnessSessionId} and the anchor check in
+ * {@link writeHarnessSessionLabel} — so that this function stays a faithful
+ * mirror of the consuming half rather than diverging from it.
+ */
 export function harnessSessionLabelPath(harnessSessionId: string): string {
   return `${HARNESS_SESSION_LABEL_PREFIX}${harnessSessionId}.json`;
 }
@@ -124,7 +164,31 @@ export function writeHarnessSessionLabel(
   const harnessSessionId = input.harnessSessionId.trim();
   if (!harnessSessionId) return false;
 
+  // PR #3379 R2 — the id is untrusted stream-json, and it is about to become a
+  // filename. Reject rather than sanitize: a rewritten id would key the file to
+  // something the consuming guard (which computes the path from its OWN
+  // unmodified `session_id`) could never look up, so a "repaired" write is
+  // strictly worse than none.
+  if (!isSafeHarnessSessionId(harnessSessionId)) {
+    log.warn(
+      `[harness-session-label] refusing an unsafe conversation id (${harnessSessionId.length} chars) ` +
+        `— thread stays untitled`
+    );
+    return false;
+  }
+
   const path = harnessSessionLabelPath(harnessSessionId);
+
+  // Belt and braces. The charset above already excludes `/`, `\` and `.`, so
+  // this cannot fire today — it is here so that widening the charset later
+  // cannot silently reintroduce traversal without tripping a second check.
+  if (dirname(resolve(path)) !== HARNESS_SESSION_LABEL_DIR) {
+    log.error(
+      `[harness-session-label] refusing a path that escapes ${HARNESS_SESSION_LABEL_DIR} — thread stays untitled`
+    );
+    return false;
+  }
+
   try {
     (deps.writeFile ?? defaultWriteFile)(path, JSON.stringify(buildHarnessSessionLabel(input)));
     return true;

@@ -120,6 +120,48 @@ describe("writeHarnessSessionLabel", () => {
     expect(io.writes).toHaveLength(0);
   });
 
+  test("refuses a traversing id rather than writing outside /tmp", () => {
+    // PR #3379 R2. `extractHarnessSessionId` (driven-session-host.ts:403-406)
+    // accepts ANY non-empty string off the child's stream-json, so the id
+    // reaches this module unvalidated and becomes a filename.
+    const traversals = [
+      "/../../../home/user/.bashrc",
+      "../../etc/cron.d/evil",
+      "..",
+      "a/b",
+      "a\\b",
+      "id.with.dots",
+      "id with spaces",
+      "id\u0000null",
+      "x".repeat(201),
+    ];
+    for (const id of traversals) {
+      const io = recorder();
+      expect(
+        writeHarnessSessionLabel(
+          { harnessSessionId: id, ref: "ask#1", title: "T" },
+          { writeFile: io.writeFile }
+        )
+      ).toBe(false);
+      expect(io.writes).toHaveLength(0);
+    }
+  });
+
+  test("accepts the id shapes that actually occur", () => {
+    // A charset too strict would silently leave every real thread untitled —
+    // the failure mode this task exists to remove.
+    for (const id of [CONVERSATION, "agent-ad863113ed9b30247", "mt4621-live-probe-46984", "x"]) {
+      const io = recorder();
+      expect(
+        writeHarnessSessionLabel(
+          { harnessSessionId: id, ref: "ask#1", title: "T" },
+          { writeFile: io.writeFile }
+        )
+      ).toBe(true);
+      expect(io.writes[0]?.path).toBe(`/tmp/claude-session-label-${id}.json`);
+    }
+  });
+
   test("swallows a write failure — an untitled thread must not fail the spawn", () => {
     // This runs inside the host's stdout `init` frame; an escaping throw there
     // becomes an unhandled rejection on a detached promise for every spawn.
