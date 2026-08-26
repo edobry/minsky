@@ -147,6 +147,13 @@ describe("recomputeRow", () => {
       ]).agreement
     ).toBe(false);
   });
+
+  test("an EMPTY panel throws rather than recording vacuous unanimity (R1)", () => {
+    // `[].every(...)` is vacuously true, so an unguarded implementation would
+    // record `agreement: true` for a row judged by nobody — the same shape of
+    // silent lie this task exists to repair.
+    expect(() => recomputeRow([])).toThrow(/empty per-judge panel/);
+  });
 });
 
 describe("spliceJudge", () => {
@@ -314,6 +321,33 @@ describe("repairArtifact", () => {
     expect(calls).toHaveLength(0);
     expect(outcome.missingCorpusRows).toEqual(["row-a"]);
     expect(outcome.artifact.contaminatedIds).toEqual(["row-a"]);
+  });
+
+  test("R1: on an --only run, target-scoped and global failure counts are reported separately", async () => {
+    // Two contaminated rows; only one is targeted. Reporting the GLOBAL count
+    // as "rows still failing" would blame this run for a row it never tried.
+    const artifact = makeArtifact({
+      contaminatedIds: ["row-a", "row-b"],
+      judgeVerdicts: {
+        "row-a": { aggregate: "NOISE", agreement: false, perJudge: [FAILED, GOOD] },
+        "row-b": { aggregate: "VALID", agreement: false, perJudge: [FAILED, GOOD] },
+      },
+    });
+    const { run } = countingRunner("NOISE");
+    const targets = planRepair(artifact, ["row-a"]);
+
+    const outcome = await repairArtifact(
+      artifact,
+      targets,
+      new Map([["row-a", makeRow("row-a")]]),
+      alwaysHasKey,
+      run
+    );
+
+    expect(outcome.repaired).toBe(1);
+    expect(outcome.stillFailingInTargets).toBe(0);
+    expect(outcome.stillFailingGlobal).toBe(1);
+    expect(outcome.artifact.contaminatedIds).toEqual(["row-b"]);
   });
 });
 

@@ -54,6 +54,10 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+// Imported rather than taken off `globalThis`: Bun provides a global
+// `performance`, but the import is guaranteed across Node-compat contexts and
+// costs nothing (PR #3383 R1, non-blocking).
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 import { parseCorpusJsonlWithStats, type CorpusRow } from "../src/eval-corpus";
@@ -156,6 +160,20 @@ export function recomputeRow(perJudge: readonly StoredPerJudge[]): {
   aggregate: FindingVerdict;
   agreement: boolean;
 } {
+  // An empty panel is not a legal input here, and the failure would be silent
+  // rather than loud if we let it through: `every()` on an empty array is
+  // vacuously TRUE, so the row would be recorded as unanimous agreement among
+  // zero judges — the same shape of lie this whole task exists to repair
+  // (`aggregateVerdicts([])` separately returns the "VALID" default). Every
+  // row in the artifact carries at least one entry today; a malformed stored
+  // row or a future projection change should stop the run, not quietly assert
+  // consensus. (PR #3383 R1, non-blocking.)
+  if (perJudge.length === 0) {
+    throw new Error(
+      "recomputeRow: empty per-judge panel — refusing to record vacuous unanimity. " +
+        "A row with no judge entries is malformed input, not a consensus."
+    );
+  }
   const aggregate = aggregateVerdicts(perJudge.map((j) => j.verdict));
   const firstVerdict = perJudge[0]?.verdict;
   const agreement = perJudge.every((j) => j.verdict === firstVerdict);
@@ -244,8 +262,20 @@ export type KeyResolver = (provider: string) => Promise<string | undefined>;
 export interface RepairOutcome {
   artifact: RepairableArtifact;
   attempted: number;
+  /** Targeted rows that came out clean. Scoped to `targets`. */
   repaired: number;
-  stillFailing: number;
+  /**
+   * Targeted rows that are STILL contaminated. Scoped to `targets`, so an
+   * `--only` run reports on what it actually tried.
+   */
+  stillFailingInTargets: number;
+  /**
+   * Contaminated rows across the WHOLE artifact, including rows this run never
+   * targeted. Reported separately from `stillFailingInTargets` because mixing
+   * the two reads as a failure of this run when it is really untouched backlog
+   * (PR #3383 R1, non-blocking).
+   */
+  stillFailingGlobal: number;
   skippedNoKey: { rowId: string; provider: string }[];
   missingCorpusRows: string[];
 }
@@ -296,13 +326,15 @@ export async function repairArtifact(
   }
 
   const next = applyRepairs(artifact, repaired);
-  const repairedCount = targets.filter((t) => !next.contaminatedIds.includes(t.rowId)).length;
+  const stillContaminated = new Set(next.contaminatedIds);
+  const repairedCount = targets.filter((t) => !stillContaminated.has(t.rowId)).length;
 
   return {
     artifact: next,
     attempted,
     repaired: repairedCount,
-    stillFailing: next.contaminatedIds.length,
+    stillFailingInTargets: targets.length - repairedCount,
+    stillFailingGlobal: next.contaminatedIds.length,
     skippedNoKey,
     missingCorpusRows,
   };
@@ -395,7 +427,46 @@ async function main() {
   // each call can take up to the provider's own timeout (120s is what produced
   // half this contamination in the first place), so a run with no per-call
   // output is indistinguishable from a hung one for minutes at a time.
-  const totalCalls = targets.reduce((n, t) => n + t.failedJudges.length, 0);
+  //
+  // The denominator counts ATTEMPTABLE slots, not all failed slots. A judge
+  // whose provider has no configured key never reaches the runner, so counting
+  // it would leave the run ending at [24/28] — which reads as a hung or
+  // truncated run, and the summary's explanation arrives too late to undo that
+  // impression. Skipped slots are announced up front instead, so the counter
+  // and reality agree (PR #3383 R1, non-blocking).
+  const providersInPlay = [
+    ...new Set(targets.flatMap((t) => t.failedJudges.map((j) => j.provider))),
+  ];
+  const providerHasKey = new Map<string, boolean>();
+  for (const provider of providersInPlay) {
+    const key = await resolveProviderApiKey(provider as JudgeModelConfig["provider"]);
+    providerHasKey.set(provider, key !== undefined);
+  }
+  // A slot is unreachable for TWO independent reasons, and both must come out
+  // of the denominator. Subtracting only the no-key ones still overstates the
+  // total whenever a target id is absent from the corpus — caught by running
+  // this branch against a scratch artifact rather than by reasoning about it.
+  const skippedSlots = targets.flatMap((t) =>
+    t.failedJudges
+      .filter((j) => !providerHasKey.get(j.provider) || !corpusById.has(t.rowId))
+      .map((j) => ({
+        rowId: t.rowId,
+        judge: j,
+        reason: !corpusById.has(t.rowId)
+          ? ("id absent from corpus" as const)
+          : ("no API key configured for provider" as const),
+      }))
+  );
+  if (skippedSlots.length > 0) {
+    console.log(`\n${skippedSlots.length} slot(s) will be SKIPPED and are not counted below:`);
+    for (const skipped of skippedSlots) {
+      console.log(
+        `  ${skipped.rowId} via ${skipped.judge.provider}:${skipped.judge.model} — ${skipped.reason}`
+      );
+    }
+  }
+
+  const totalCalls = targets.reduce((n, t) => n + t.failedJudges.length, 0) - skippedSlots.length;
   let callIndex = 0;
   const loggingRunner: SingleJudgeRunner = async (row, config) => {
     callIndex++;
@@ -430,11 +501,12 @@ async function main() {
   writeFileSync(args.artifactPath, `${JSON.stringify(outcome.artifact, null, 2)}\n`, "utf-8");
 
   console.log("\n=== Summary ===");
-  console.log(`Judge calls attempted: ${outcome.attempted}`);
-  console.log(`Rows fully repaired:   ${outcome.repaired}/${targets.length}`);
-  console.log(`Rows still failing:    ${outcome.stillFailing}`);
+  console.log(`Judge calls attempted:        ${outcome.attempted}`);
+  console.log(`Rows fully repaired:          ${outcome.repaired}/${targets.length} (targeted)`);
+  console.log(`Rows still failing (targeted): ${outcome.stillFailingInTargets}`);
+  console.log(`Contaminated rows remaining, WHOLE artifact: ${outcome.stillFailingGlobal}`);
   const remainingSelected = outcome.artifact.contaminatedIds.filter((id) => selectedSet.has(id));
-  console.log(`  of which selected:   ${remainingSelected.length}`);
+  console.log(`  of which selected:          ${remainingSelected.length}`);
   if (outcome.skippedNoKey.length > 0) {
     console.log(`Skipped (no API key configured): ${outcome.skippedNoKey.length}`);
     for (const skipped of outcome.skippedNoKey) {
