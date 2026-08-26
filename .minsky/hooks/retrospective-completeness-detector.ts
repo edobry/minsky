@@ -325,7 +325,6 @@ export async function run(
     // fail-to-degraded invariant most needs to cover, and the only one it did
     // not. Surfaced by the AT7 test, which could not reach the branch at all.
     const lines = ctx.transcriptLines;
-    if (lines.length === 0) return null;
 
     // mt#4566 — did a PRIOR turn's fired retrospective trigger get discharged?
     // Independent of the completeness check below: it asks about turns that
@@ -356,6 +355,14 @@ export async function run(
             },
           }
         : null;
+
+    // An EMPTY transcript with flags present is the degraded case, not a
+    // no-op (PR #3382 R2, non-blocking). The `lines.length === 0` guard used to
+    // sit above the discharge block and returned null, so the marker added for
+    // exactly this situation could not fire in its emptiest instance — a
+    // degraded-reporting path with a hole in its own motivating case, which is
+    // the shape this whole task is about.
+    if (lines.length === 0) return dischargeOnly();
 
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return dischargeOnly();
