@@ -1310,7 +1310,7 @@
             },
             {
               "name": "freshness",
-              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited",
+              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was authored, flagging which changed before its last edit",
               "options": [
                 {
                   "flags": ["--repo"],

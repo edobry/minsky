@@ -22,7 +22,7 @@
  * baseline-side note below records.
  *
  * v1 is deliberately status-mechanical (per the task's Scope): it detects
- * "something about this ref changed since the spec was written," not
+ * "something about this ref changed since the spec was authored," not
  * "the spec's specific claim about this ref is now false" (that would need
  * semantic diffing, out of scope for v1). It requires no LLM call.
  *
@@ -196,7 +196,11 @@ export interface SpecFreshnessResult {
    * `hasDrift` silently changes meaning.
    */
   checked: boolean;
-  /** Refs whose current state changed after the citing spec was last edited. Empty when clean. */
+  /**
+   * Refs whose current state changed after the citing spec was AUTHORED. Empty
+   * when clean. Each entry's `precedesLastSpecEdit` says which side of the
+   * spec's last edit it falls on.
+   */
   drift: SpecFreshnessDriftEntry[];
   hasDrift: boolean;
   /** Refs that could not be checked (ref not found, or backend doesn't track updatedAt), with why. */

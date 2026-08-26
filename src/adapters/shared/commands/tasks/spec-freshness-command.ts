@@ -2,7 +2,7 @@
  * Task Spec Freshness Command (mt#2826)
  *
  * Checks whether the task/PR refs cited in a task's spec have drifted (changed
- * state) since the spec was last edited — catching the "consume-time" gap
+ * state) since the spec was authored — catching the "consume-time" gap
  * between spec authoring and implementation entry in a fast-moving
  * parallel-agent graph. See packages/domain/src/tasks/spec-freshness.ts for
  * the detection core; this command wires it to the same read-only
@@ -28,7 +28,7 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
   readonly id = "tasks.spec.freshness";
   readonly name = "freshness";
   readonly description =
-    "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited";
+    "Check whether task/PR refs cited in a task's spec changed state after the spec was authored, flagging which changed before its last edit";
   readonly parameters = tasksSpecFreshnessParams;
 
   constructor(
