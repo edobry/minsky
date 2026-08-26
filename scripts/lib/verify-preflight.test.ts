@@ -80,7 +80,12 @@ function connectionReset(): Error {
  */
 function kindOrCause(outcome: ReachOutcome, expected: ReachOutcome["kind"]): string {
   if (outcome.kind === expected) return expected;
-  const detail = (outcome as { detail?: string }).detail;
+  // Discriminated rather than cast (PR #3374 R1): `reached` is the only variant
+  // without a `detail`, so narrowing on it lets the compiler check the access.
+  // A cast would keep compiling if `ReachOutcome` ever gained a variant that
+  // carries a differently-shaped detail — exactly the drift this helper exists
+  // to make visible.
+  const detail = outcome.kind === "reached" ? undefined : outcome.detail;
   return detail === undefined ? outcome.kind : `${outcome.kind}: ${detail}`;
 }
 
