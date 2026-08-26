@@ -29,19 +29,24 @@
  * Flags:
  *   --golden <dir>   Path to the pinned checkout's `offline/golden_comments` directory
  *                    (5 JSON files: sentry.json, grafana.json, keycloak.json, discourse.json,
- *                    cal_dot_com.json). Required unless --dry-run with no golden dir available.
+ *                    cal_dot_com.json). Always required, including with --dry-run — dry-run's
+ *                    entire job is parsing and printing this directory's contents.
  *   --model <p:m>    "<provider>:<model>", e.g. "openai:gpt-5". Default: openai:gpt-5 (the
  *                    production reviewer's model).
  *   --out <path>     Output path. Default: ./results/benchmark_data.json (relative to this file).
  *   --limit N        Only process the first N PRs (across all golden files, in file order) —
- *                    for smoke-testing before a full 50-PR run.
+ *                    for smoke-testing before a full 50-PR run. Must parse as a positive integer;
+ *                    a non-numeric value is rejected at startup rather than silently producing an
+ *                    empty run (`Number.isNaN`/`<= 0` check in `parseArgs`).
+ *   --concurrency N  How many PRs to generate in parallel per batch. Default: 3. Same
+ *                    positive-integer validation as --limit.
  *   --dry-run        Parse the golden files, print the PR list + owner/repo/pull_number
  *                    resolution, and exit — no GitHub fetch, no model call.
  *
  * Live runs require OPENAI_API_KEY (or the credential matching --model's provider) plus
  * OCTOKIT_AUTH or GITHUB_TOKEN (read-only GitHub access to the 5 public benchmark source repos —
  * NOT the reviewer App's installation token; see the module docblock above). Neither is required
- * for --dry-run.
+ * for --dry-run, but --golden still is (see above).
  *
  * Cost note (SC7): this script records `output.usage`/`output.timing` per review into the
  * output artifact's `_generationMeta` field so the actual token cost of the run is measured, not
@@ -422,14 +427,24 @@ function parseArgs(argv: string[]): Args {
   let dryRun = false;
   let concurrency = 3;
 
+  const parsePositiveIntFlag = (flagName: string, raw: string | undefined): number => {
+    const parsed = Number(raw);
+    if (raw === undefined || !Number.isInteger(parsed) || parsed <= 0) {
+      console.error(`Error: ${flagName} requires a positive integer argument, got: ${raw}`);
+      process.exit(1);
+    }
+    return parsed;
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--golden") golden = argv[++i];
     else if (arg === "--model") model = argv[++i] ?? model;
     else if (arg === "--out") out = argv[++i] ?? out;
-    else if (arg === "--limit") limit = Number(argv[++i]);
+    else if (arg === "--limit") limit = parsePositiveIntFlag("--limit", argv[++i]);
     else if (arg === "--dry-run") dryRun = true;
-    else if (arg === "--concurrency") concurrency = Number(argv[++i]) || concurrency;
+    else if (arg === "--concurrency")
+      concurrency = parsePositiveIntFlag("--concurrency", argv[++i]);
   }
 
   return { golden, model: parseModelSpec(model), out, limit, dryRun, concurrency };

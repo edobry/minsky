@@ -52,8 +52,11 @@ services/reviewer/eval/results/*
 !services/reviewer/eval/results/benchmark_data.json
 !services/reviewer/eval/results/benchmark_data-generation-meta.json
 !services/reviewer/eval/results/REPORT.md
+# Negating the directory entry is sufficient — results/* only matches direct children of
+# results/, so once gpt-5.2-judge/ itself is un-ignored, nothing further excludes files
+# nested inside it. A second, file-level negation here would be redundant (verified via
+# `git check-ignore -v` against all three committed files in this directory).
 !services/reviewer/eval/results/gpt-5.2-judge/
-!services/reviewer/eval/results/gpt-5.2-judge/*.json
 *.tsbuildinfo
 
 # Hook-calibration telemetry + calibration-review state (mt#2667) — local
