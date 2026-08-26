@@ -155,6 +155,16 @@ async function main(): Promise<void> {
     headers,
     signal: AbortSignal.timeout(30000),
   });
+  // Fail closed on a failed lookup. Parsing an error body yields no `objects`,
+  // which falls through to `[]` — indistinguishable from "this project has no
+  // scores yet", so a 401 or a 500 would read as permission to create one. The
+  // cost of that mistake is not a retry: Starter allows a single human-review
+  // score per project, so a spurious create burns the only slot.
+  if (!existingRes.ok) {
+    throw new Error(
+      `GET /v1/project_score failed: ${existingRes.status} ${await existingRes.text()}`
+    );
+  }
   const returned = ((await existingRes.json()) as { objects?: ListedScore[] }).objects ?? [];
   const existing = filterScoresToProject(returned, project.id);
   if (existing.length !== returned.length) {
