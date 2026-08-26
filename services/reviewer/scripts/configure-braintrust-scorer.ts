@@ -37,6 +37,9 @@ import { readBraintrustConfig } from "@minsky/domain/observability/braintrust";
 
 const SCORE_NAME = "reviewer-finding-label";
 
+/** Page size for the existing-score listing. No pagination — see the caller. */
+const SCORE_PAGE_LIMIT = 100;
+
 /**
  * The 4 options. Values are identifiers (see docblock) — distinct, ordered
  * only so the assignment is stable across re-runs.
@@ -67,7 +70,33 @@ export function normalizeApiBase(configuredUrl: string): string {
  * skips creation, leaving the intended project with no scorer at all.
  */
 export function buildProjectScoreListUrl(apiBase: string, projectId: string): string {
-  return `${apiBase}/v1/project_score?limit=100&project_id=${encodeURIComponent(projectId)}`;
+  return `${apiBase}/v1/project_score?limit=${SCORE_PAGE_LIMIT}&project_id=${encodeURIComponent(projectId)}`;
+}
+
+/** One row of the project-score listing, as much of it as this script reads. */
+export interface ListedScore {
+  name: string;
+  id: string;
+  project_id?: string;
+}
+
+/**
+ * Keep only the scores belonging to `projectId`, as a second line of defense
+ * behind the `project_id` query param.
+ *
+ * The param is documented, but an ignored query param is silently accepted —
+ * the response looks identical whether or not it applied, so there would be
+ * nothing to notice if the scoping were inert.
+ *
+ * A row with NO `project_id` is kept, not dropped. Its scope is unknown, and
+ * treating unknown as "not ours" would hide a genuinely existing scorer and
+ * push this script into creating a duplicate against Braintrust's
+ * one-human-review-score-per-project ceiling. Between a spurious "already
+ * exists" (which stops and tells the operator) and a spurious create (which
+ * burns the project's only slot), stopping is the safer error.
+ */
+export function filterScoresToProject(scores: ListedScore[], projectId: string): ListedScore[] {
+  return scores.filter((s) => s.project_id === undefined || s.project_id === projectId);
 }
 
 export function buildScorePayload(projectId: string): Record<string, unknown> {
@@ -126,11 +155,28 @@ async function main(): Promise<void> {
     headers,
     signal: AbortSignal.timeout(30000),
   });
-  const existing = ((await existingRes.json()) as { objects?: { name: string; id: string }[] })
-    .objects;
-  console.log(`Existing project scores: ${existing?.length ?? 0}`);
-  for (const s of existing ?? []) console.log(`  - ${s.name} (${s.id})`);
-  if (existing?.some((s) => s.name === SCORE_NAME)) {
+  const returned = ((await existingRes.json()) as { objects?: ListedScore[] }).objects ?? [];
+  const existing = filterScoresToProject(returned, project.id);
+  if (existing.length !== returned.length) {
+    console.warn(
+      `NOTE: the API returned ${returned.length} score(s) but only ${existing.length} belong to ` +
+        `this project — the project_id filter did not apply server-side.`
+    );
+  }
+
+  // limit=100 with no pagination. Starter allows one human-review score per
+  // project, so a full page here means something unexpected, not a normal
+  // large project — say so rather than silently reading a truncated list.
+  if (returned.length >= SCORE_PAGE_LIMIT) {
+    console.warn(
+      `NOTE: hit the ${SCORE_PAGE_LIMIT}-row page limit; this listing may be truncated and an ` +
+        `existing "${SCORE_NAME}" could be beyond it.`
+    );
+  }
+
+  console.log(`Existing project scores: ${existing.length}`);
+  for (const s of existing) console.log(`  - ${s.name} (${s.id})`);
+  if (existing.some((s) => s.name === SCORE_NAME)) {
     console.log(`\n"${SCORE_NAME}" already exists — nothing to do.`);
     return;
   }

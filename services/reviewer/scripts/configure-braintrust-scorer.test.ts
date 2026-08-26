@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProjectScoreListUrl,
   buildScorePayload,
+  filterScoresToProject,
   normalizeApiBase,
   SCORE_CATEGORIES,
 } from "./configure-braintrust-scorer";
@@ -83,5 +84,32 @@ describe("buildProjectScoreListUrl", () => {
     expect(buildProjectScoreListUrl("https://bt.internal.example", "p")).toStartWith(
       "https://bt.internal.example/v1/project_score"
     );
+  });
+});
+
+describe("filterScoresToProject", () => {
+  test("drops scores belonging to another project", () => {
+    // Without this, a same-named score elsewhere reads as "already exists" and
+    // this project is left with no scorer.
+    const kept = filterScoresToProject(
+      [
+        { name: "reviewer-finding-label", id: "1", project_id: "other" },
+        { name: "mine", id: "2", project_id: "mine-proj" },
+      ],
+      "mine-proj"
+    );
+    expect(kept.map((s) => s.id)).toEqual(["2"]);
+  });
+
+  test("keeps a row whose project_id is absent rather than assuming it is foreign", () => {
+    // Unknown scope. Dropping it would hide a real scorer and push the script
+    // into burning the project's single human-review-score slot on a duplicate.
+    const kept = filterScoresToProject([{ name: "reviewer-finding-label", id: "1" }], "mine-proj");
+    expect(kept).toHaveLength(1);
+  });
+
+  test("is a no-op when every row is already in scope", () => {
+    const rows = [{ name: "a", id: "1", project_id: "p" }];
+    expect(filterScoresToProject(rows, "p")).toEqual(rows);
   });
 });
