@@ -15,6 +15,25 @@ can consume 30-100+ calls; concurrent agent work pushes the fleet past the limit
 Setting `OCTOKIT_AUTH` to a GitHub App installation token isolates the harness's
 rate-limit budget from the user's interactive work.
 
+### Config fallback (mt#3547, extended mt#4620)
+
+Scripts that call `resolveGitHubTokenWithConfig()` (in `scripts/harness-config-auth.ts`) check
+`OCTOKIT_AUTH` then `GITHUB_TOKEN` as above, but — unlike the env-only `resolveGitHubToken()` in
+`scripts/harness-auth.ts` — fall back to Minsky's own configuration (`github.token`) when neither
+env var is set. This matters on a developer machine or an agent session where the token lives in
+Minsky's config store rather than as an exported shell variable; an env-only harness reports "no
+GitHub token" there even when `minsky config credentials list` (or a live GitHub call) would
+succeed. `OCTOKIT_AUTH` still wins when present — it exists specifically to point harness traffic
+at a separate App installation token for rate-limit isolation, a deliberate override of whatever
+the config holds.
+
+The same env-first-then-config fallback applies to the reviewer/eval scripts' MODEL provider
+keys (`OPENAI_API_KEY` / `GOOGLE_AI_API_KEY` / `ANTHROPIC_API_KEY`, resolved via
+`resolveProviderApiKeyWithConfig()` in the same file, falling back to
+`ai.providers.<provider>.apiKey`) — used by `scripts/paired-eval-runner.ts` and
+`scripts/run-judge-pass.ts`. A whitespace-only env var is treated as unset rather than as a real
+key, so it cannot silently mask a valid config-stored credential.
+
 ### Setup
 
 **Option A: Reuse the reviewer App token (simplest)**

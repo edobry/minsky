@@ -18,6 +18,15 @@ import { setupConfiguration } from "@minsky/domain/config-setup";
 import { getConfiguration, isConfigurationInitialized } from "@minsky/domain/configuration/index";
 
 /**
+ * A whitespace-only env var is not a real credential (PR #3373 R1) — treat it as unset rather
+ * than returning it, which would silently mask a valid config-stored credential behind an env
+ * var that was never meant to hold one.
+ */
+export function hasMeaningfulValue(v: string | undefined): v is string {
+  return v !== undefined && v.trim().length > 0;
+}
+
+/**
  * Resolve the OpenAI API key for a harness script.
  *
  * Env first — that is how the DEPLOYED reviewer gets its key (`config.ts`'s
@@ -45,7 +54,7 @@ import { getConfiguration, isConfigurationInitialized } from "@minsky/domain/con
  */
 export async function resolveOpenAIKey(): Promise<string | undefined> {
   const fromEnv = process.env.OPENAI_API_KEY;
-  if (fromEnv) return fromEnv;
+  if (hasMeaningfulValue(fromEnv)) return fromEnv;
 
   if (!isConfigurationInitialized()) {
     await setupConfiguration();
@@ -69,8 +78,34 @@ export async function resolveOpenAIKeyOrSkip(): Promise<string> {
 
 /** Where the key came from, for the run header. Never returns the key itself. */
 export async function getOpenAIKeySource(): Promise<"OPENAI_API_KEY" | "minsky-config" | "none"> {
-  if (process.env.OPENAI_API_KEY) return "OPENAI_API_KEY";
+  if (hasMeaningfulValue(process.env.OPENAI_API_KEY)) return "OPENAI_API_KEY";
   return (await resolveOpenAIKey()) ? "minsky-config" : "none";
+}
+
+/**
+ * Config-backed key resolution for the non-OpenAI providers (mt#4620).
+ *
+ * `resolveOpenAIKey` above already does this for OpenAI (mt#3547); the same
+ * env-first-then-config fallback is needed for google/anthropic wherever a
+ * harness script gates a provider on an env var alone — reading env only is
+ * what makes a session with no raw `GOOGLE_AI_API_KEY`/`ANTHROPIC_API_KEY` in
+ * its shell conclude "no credential exists" while Minsky's own config (and
+ * therefore `ai_complete`/`ai_validate`) has one. Same two traps
+ * `resolveOpenAIKey` documents: `minsky config credentials list` is not a
+ * presence test, and `getConfiguration()` throws until `setupConfiguration()`
+ * has run — swallow neither.
+ */
+export async function resolveProviderApiKeyWithConfig(
+  provider: "openai" | "google" | "anthropic",
+  envVarName: string
+): Promise<string | undefined> {
+  const fromEnv = process.env[envVarName];
+  if (hasMeaningfulValue(fromEnv)) return fromEnv;
+
+  if (!isConfigurationInitialized()) {
+    await setupConfiguration();
+  }
+  return getConfiguration().ai?.providers?.[provider]?.apiKey || undefined;
 }
 
 /**
@@ -86,8 +121,13 @@ export async function getOpenAIKeySource(): Promise<"OPENAI_API_KEY" | "minsky-c
  * is a deliberate override of whatever the config holds.
  */
 export async function resolveGitHubTokenWithConfig(): Promise<string | undefined> {
-  const fromEnv = process.env.OCTOKIT_AUTH || process.env.GITHUB_TOKEN;
-  if (fromEnv) return fromEnv;
+  // PR #3373 R2: check each env var's meaningfulness INDIVIDUALLY, not `OCTOKIT_AUTH ||
+  // GITHUB_TOKEN` first and trim second — that combined-then-trimmed order let a
+  // whitespace-only OCTOKIT_AUTH short-circuit the `||` (a non-empty string is truthy) and
+  // mask a genuinely-set GITHUB_TOKEN, which the config fallback below would never see either
+  // since the whitespace value itself was being returned.
+  if (hasMeaningfulValue(process.env.OCTOKIT_AUTH)) return process.env.OCTOKIT_AUTH;
+  if (hasMeaningfulValue(process.env.GITHUB_TOKEN)) return process.env.GITHUB_TOKEN;
 
   if (!isConfigurationInitialized()) {
     await setupConfiguration();
@@ -111,7 +151,7 @@ export async function resolveGitHubTokenWithConfigOrSkip(): Promise<string> {
 export async function getGitHubTokenSource(): Promise<
   "OCTOKIT_AUTH" | "GITHUB_TOKEN" | "minsky-config" | "none"
 > {
-  if (process.env.OCTOKIT_AUTH) return "OCTOKIT_AUTH";
-  if (process.env.GITHUB_TOKEN) return "GITHUB_TOKEN";
+  if (hasMeaningfulValue(process.env.OCTOKIT_AUTH)) return "OCTOKIT_AUTH";
+  if (hasMeaningfulValue(process.env.GITHUB_TOKEN)) return "GITHUB_TOKEN";
   return (await resolveGitHubTokenWithConfig()) ? "minsky-config" : "none";
 }

@@ -59,10 +59,21 @@
  *                      fetch — the live path is what exercises
  *                      fetchIterationContext.
  *
- * Live runs require OPENAI_API_KEY (gating check below — at minimum one
- * configured provider must be reachable) plus OCTOKIT_AUTH or GITHUB_TOKEN
- * (for fetchIterationContext's PR-context reconstruction). Neither is
- * required for --dry-run.
+ * Live runs require at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY /
+ * ANTHROPIC_API_KEY matching a requested --model provider (gating check
+ * below — a missing key for one requested provider SKIPs just that arm; the
+ * whole run only skips when NONE of the requested providers are runnable),
+ * plus OCTOKIT_AUTH or GITHUB_TOKEN for fetchIterationContext's PR-context
+ * reconstruction. Neither is required for --dry-run.
+ *
+ * Credential resolution is env-first, then falls back to Minsky's own
+ * configuration (mt#3547 for OpenAI/GitHub, extended to google/anthropic by
+ * mt#4620 — see harness-config-auth.ts and services/reviewer/HARNESS.md's
+ * "Config fallback" section). On a developer machine or an agent session,
+ * the key or token typically lives in Minsky's config rather than as a raw
+ * exported env var; without the fallback this script reports "no key
+ * configured" even when e.g. `ai_complete`/`ai_validate` against that same
+ * provider would succeed.
  */
 
 import { Octokit } from "@octokit/rest";
@@ -94,7 +105,10 @@ import { REVIEWER_PROVIDERS } from "../src/config";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewerConfig } from "../src/config";
 import { fetchIterationContext, type IterationContext } from "./measure-calibration";
-import { resolveGitHubToken } from "./harness-auth";
+import {
+  resolveGitHubTokenWithConfig,
+  resolveProviderApiKeyWithConfig,
+} from "./harness-config-auth";
 
 // ---------------------------------------------------------------------------
 // Paths + constants
@@ -591,15 +605,23 @@ function mean(values: readonly number[]): number {
 
 /** Exported (PR #2151 R1): `run-judge-pass.ts` reuses this per-provider key
  * resolution rather than duplicating it — see that script's provider-gating
- * logic. */
-export function resolveProviderApiKey(provider: Provider): string | undefined {
+ * logic.
+ *
+ * Config-backed as of mt#4620: on a developer machine (or an agent session)
+ * the raw env var is typically unset while Minsky's own configuration has
+ * the key — `resolveProviderApiKeyWithConfig` falls back to
+ * `ai.providers.<provider>.apiKey` the same way `harness-config-auth.ts`
+ * already does for OpenAI (mt#3547). Reading env only made this runner
+ * report "no key configured" for every provider from a session shell even
+ * when `ai_complete`/`ai_validate` against that same provider succeeded. */
+export async function resolveProviderApiKey(provider: Provider): Promise<string | undefined> {
   switch (provider) {
     case "openai":
-      return process.env.OPENAI_API_KEY;
+      return resolveProviderApiKeyWithConfig("openai", "OPENAI_API_KEY");
     case "google":
-      return process.env.GOOGLE_AI_API_KEY;
+      return resolveProviderApiKeyWithConfig("google", "GOOGLE_AI_API_KEY");
     case "anthropic":
-      return process.env.ANTHROPIC_API_KEY;
+      return resolveProviderApiKeyWithConfig("anthropic", "ANTHROPIC_API_KEY");
   }
 }
 
@@ -852,19 +874,23 @@ async function main() {
   // individual config whose provider key is missing; this top-level check
   // only short-circuits the whole run when NONE of the requested configs
   // are runnable at all (nothing useful to do otherwise).
-  const runnableModels = args.models.filter((m) => resolveProviderApiKey(m.provider) !== undefined);
+  const runnableFlags = await Promise.all(
+    args.models.map(async (m) => (await resolveProviderApiKey(m.provider)) !== undefined)
+  );
+  const runnableModels = args.models.filter((_m, i) => runnableFlags[i]);
   if (runnableModels.length === 0) {
     const requestedProviders = [...new Set(args.models.map((m) => m.provider))];
     console.log(
       `\nSKIP: no API key configured for any requested provider (${requestedProviders.join(", ")}). ` +
         "Live paired-eval run requires at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY " +
+        "(env var, OR the matching key configured in Minsky — see HARNESS.md's Config fallback section) " +
         "matching a --model provider."
     );
     console.log("HINT: re-run with --dry-run to validate wiring without API calls.");
     process.exit(0);
   }
 
-  const githubToken = resolveGitHubToken();
+  const githubToken = await resolveGitHubTokenWithConfig();
   if (!githubToken) {
     console.error(
       "ERROR: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Live run requires GitHub API access."
@@ -877,7 +903,7 @@ async function main() {
 
   for (const modelConfig of args.models) {
     const configLabel = armLabel(modelConfig);
-    const apiKey = resolveProviderApiKey(modelConfig.provider);
+    const apiKey = await resolveProviderApiKey(modelConfig.provider);
     const errors: string[] = [];
 
     if (!apiKey) {
