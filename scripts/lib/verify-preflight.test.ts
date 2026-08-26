@@ -21,6 +21,7 @@ import {
   exitCodeForVerdict,
   HEALTH_BUDGET_ENV,
   isBudgetAbort,
+  isDefinitelyAbsent,
   probeReachability,
   readHealthBody,
   REACH_BUDGET_ENV,
@@ -42,6 +43,19 @@ const CONNECTION_REFUSED_CODE = "ConnectionRefused";
 function connectionRefused(): Error {
   const err = new Error("Unable to connect. Is the computer able to access the url?");
   (err as Error & { code?: string }).code = CONNECTION_REFUSED_CODE;
+  return err;
+}
+
+/** Bun's `code` for a socket that was accepted and then reset. Observed, not invented. */
+const CONNECTION_RESET_CODE = "ECONNRESET";
+
+/**
+ * What Bun rejects with when a listener accepts the socket and then tears it
+ * down. Observed shape (mt#4624) — the message is Bun's verbatim.
+ */
+function connectionReset(): Error {
+  const err = new Error("The socket connection was closed unexpectedly.");
+  (err as Error & { code?: string }).code = CONNECTION_RESET_CODE;
   return err;
 }
 
@@ -100,6 +114,27 @@ describe("isBudgetAbort", () => {
   });
 });
 
+describe("isDefinitelyAbsent (mt#4624)", () => {
+  it("recognizes the code Bun emits when nothing is listening", () => {
+    expect(isDefinitelyAbsent(connectionRefused())).toBe(true);
+  });
+
+  it("does NOT treat a reset socket as absent — it reached a listener", () => {
+    expect(isDefinitelyAbsent(connectionReset())).toBe(false);
+  });
+
+  it("defaults unknown failures to NOT-absent, so an unrecognized code fails closed", () => {
+    // The allowlist direction is the point: a Bun release inventing a code we
+    // have never seen must not silently become `skip` + exit 0.
+    const novel = new Error("something new") as Error & { code?: string };
+    novel.code = "ESOMETHINGNEW";
+    expect(isDefinitelyAbsent(novel)).toBe(false);
+    expect(isDefinitelyAbsent(new TypeError("boom"))).toBe(false);
+    expect(isDefinitelyAbsent(timeoutError())).toBe(false);
+    expect(isDefinitelyAbsent(undefined)).toBe(false);
+  });
+});
+
 describe("probeReachability (classification)", () => {
   it("reports reached, with the elapsed time, when a response arrives in budget", async () => {
     let clock = 1000;
@@ -130,6 +165,53 @@ describe("probeReachability (classification)", () => {
     expect(outcome.kind).toBe("absent");
     if (outcome.kind !== "absent") return;
     expect(outcome.detail).toContain(CONNECTION_REFUSED_CODE);
+  });
+
+  it("stays slow — never absent — when the first socket is reset and the confirm answers", async () => {
+    // mt#4624: a reset says the connection broke, not that nothing is listening.
+    // The confirm answering proves the target was there the whole time.
+    let clock = 1000;
+    let attempt = 0;
+    const outcome = await probeReachability(
+      "http://target",
+      { budgetMs: 3000, confirmBudgetMs: 30000 },
+      {
+        fetchImpl: async () => {
+          attempt += 1;
+          if (attempt === 1) throw connectionReset();
+          clock += 41;
+          return {};
+        },
+        now: () => clock,
+      }
+    );
+    expect(outcome.kind).toBe("slow");
+    if (outcome.kind !== "slow") return;
+    expect(outcome.measuredMs).toBe(41);
+    // The interruption is carried, not discarded — reporting it as plain
+    // slowness would hide the only fact that explains the first failure.
+    expect(outcome.detail).toContain(CONNECTION_RESET_CODE);
+  });
+
+  it("stays slow — never absent — for an unrecognized failure code", async () => {
+    // Fail-closed: a code the allowlist has never seen must not become
+    // `skip` + exit 0. Asserted with an injected error because there is no real
+    // socket condition that produces an arbitrary novel code.
+    const novel = new Error("brand new failure") as Error & { code?: string };
+    novel.code = "ESOMETHINGNEW";
+    const outcome = await probeReachability(
+      "http://target",
+      { budgetMs: 3000, confirmBudgetMs: 30000 },
+      {
+        fetchImpl: async () => {
+          throw novel;
+        },
+      }
+    );
+    expect(outcome.kind).toBe("slow");
+    if (outcome.kind !== "slow") return;
+    expect(outcome.measuredMs).toBeNull();
+    expect(outcome.detail).toContain("ESOMETHINGNEW");
   });
 
   it("reports slow — with the measured latency — for a target that answers past its budget", async () => {
@@ -319,6 +401,42 @@ describe("probeReachability (real fetch binding)", () => {
       {}
     );
     expect(outcome.kind).toBe("absent");
+  });
+
+  it("classifies a listener that resets the socket as slow, not absent", async () => {
+    // mt#4624's defect, against a REAL socket rather than an injected shape.
+    // `Bun.listen` + `terminate()` on open accepts the connection and tears it
+    // down, which is what produced the `ECONNRESET` observed in the wild — and it
+    // does so deterministically, unlike the ~1-in-5400 load-dependent original.
+    //
+    // Something IS listening here. Before this fix the probe reported `absent`,
+    // which `verdictForReach` maps to `skip` + exit 0 — a check reported as
+    // skipped when it was actually never performed.
+    const resetter = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        open: (socket) => socket.terminate(),
+        data: () => {},
+      },
+    });
+    try {
+      const outcome = await probeReachability(
+        `http://127.0.0.1:${resetter.port}/`,
+        { budgetMs: 3000, confirmBudgetMs: 3000 },
+        {}
+      );
+      expect(outcome.kind).toBe("slow");
+      if (outcome.kind !== "slow") return;
+      expect(outcome.detail).toContain(CONNECTION_RESET_CODE);
+      // The consequence that actually matters: a non-zero exit, so no caller
+      // downstream can read this as a performed-and-passed check.
+      const verdict = verdictForReach(outcome, DESCRIBE);
+      expect(verdict.action).toBe("incomplete");
+      expect(exitCodeForVerdict(verdict)).toBe(EXIT_INCOMPLETE);
+    } finally {
+      resetter.stop(true);
+    }
   });
 
   it("classifies a live, fast target as reached", async () => {

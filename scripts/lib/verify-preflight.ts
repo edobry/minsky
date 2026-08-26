@@ -29,7 +29,7 @@
  * own cockpit answered in **172 ms**. The render verification could not run, and
  * the script reported that as a skip.
  *
- * ## The three sub-operations, named separately
+ * ## The four sub-operations, named separately
  *
  * 1. **Is a target listening at all?** — ABSENT. Legitimately a `SKIP:` + exit 0;
  *    a bare checkout has no cockpit, and that is not a defect.
@@ -38,12 +38,23 @@
  *    the check was not performed, and nothing downstream may read that as a pass.
  * 3. **Is it the RIGHT service?** — asserted via `assertServiceIdentity`, not a
  *    bare 200 (mt#3148). A wrong service is a hard FAIL (exit 1).
+ * 4. **Did the connection break on the way?** — INDETERMINATE (mt#4624). A socket
+ *    that was accepted and then reset is evidence about the CONNECTION, not about
+ *    whether a listener exists. It routes to the confirm step and ends as SLOW,
+ *    so it exits {@link EXIT_INCOMPLETE} — never a silent `SKIP:` + exit 0.
  *
- * The absent/slow split is measured, not guessed: Bun rejects a fetch aborted by
- * our own `AbortSignal.timeout` with a `DOMException` named `TimeoutError`, and a
- * fetch to a port with nothing listening with an `Error` carrying
- * `code: "ConnectionRefused"` (both observed 2026-08-16 on Bun 1.2.x). See
- * {@link isBudgetAbort}.
+ * The splits are measured, not guessed. `AbortSignal.timeout` rejects with a
+ * `DOMException` named `TimeoutError` ({@link isBudgetAbort}); the codes that
+ * mean "nothing is there" are enumerated and measured at
+ * {@link isDefinitelyAbsent}, which carries the full observed table.
+ *
+ * Sub-operation 4 is the one this module originally missed, and it is the same
+ * conflation as sub-operation 2 entering by a different door. mt#4149 removed
+ * "present-but-SLOW read as absent"; a live target whose socket is reset was
+ * still read as absent, because the split was `isBudgetAbort` and everything
+ * else. Reproduced live 2026-08-25 under concurrent full-suite load: a real
+ * `Bun.serve` target, answering throughout, classified `absent` on an
+ * `ECONNRESET` — which `verdictForReach` maps to `skip` and exit 0.
  *
  * ## Shape
  *
@@ -155,6 +166,11 @@ export type ReachOutcome =
    * Something is there and did not answer in time. `measuredMs` is the latency
    * observed by the follow-up measurement, or null when even that did not
    * complete (the target is slower than `confirmBudgetMs`, or went away).
+   *
+   * `detail` names whatever went wrong that a bare latency does not explain:
+   * the confirm step's own failure, and/or (mt#4624) a first probe whose socket
+   * was interrupted rather than merely slow. It is present on a measured
+   * outcome too, which is why `verdictForReach` renders it in both arms.
    */
   | {
       kind: "slow";
@@ -177,12 +193,42 @@ export type ProbeDeps = {
  *
  * `AbortSignal.timeout` rejects with a `DOMException` named `TimeoutError`;
  * some runtimes surface a user abort as `AbortError`, so both are accepted.
- * Anything else — notably Bun's `Error` with `code: "ConnectionRefused"` — means
- * the connection never got far enough to be timed out.
+ * Anything else means the fetch failed for a reason of its own. Which of those
+ * reasons mean "nothing is there" is a SEPARATE question — see
+ * {@link isDefinitelyAbsent}.
  */
 export function isBudgetAbort(err: unknown): boolean {
   const name = (err as { name?: unknown } | null | undefined)?.name;
   return name === "TimeoutError" || name === "AbortError";
+}
+
+/**
+ * Does this error mean the prerequisite is genuinely NOT THERE — as opposed to a
+ * connection that reached a listener and then broke?
+ *
+ * Measured on Bun 1.3.14 (mt#4624), every row produced by a real socket:
+ *
+ * | Condition                                    | `name`         | `code`              |
+ * | -------------------------------------------- | -------------- | ------------------- |
+ * | nothing listening (port bound, then released) | `Error`        | `ConnectionRefused` |
+ * | DNS failure (`http://no-such-host.invalid/`)  | `Error`        | `ConnectionRefused` |
+ * | our own budget abort                          | `TimeoutError` | `23`                |
+ * | socket accepted, then reset                   | `Error`        | `ECONNRESET`        |
+ *
+ * Both genuinely-absent conditions collapse onto ONE code, which is why this is
+ * an ALLOWLIST and not a denylist of transient codes. The direction is the whole
+ * point: an unrecognized code falls through to the confirm step and ends as
+ * `slow` (exit {@link EXIT_INCOMPLETE}), never as a silent `skip` + exit 0. A new
+ * Bun release inventing a code we have not seen therefore fails safe.
+ *
+ * (Bun reporting DNS failure as `ConnectionRefused` is inaccurate as naming and
+ * harmless here: both answers mean the prerequisite is not there.)
+ */
+const DEFINITELY_ABSENT_CODES: ReadonlySet<string> = new Set(["ConnectionRefused"]);
+
+export function isDefinitelyAbsent(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" && DEFINITELY_ABSENT_CODES.has(code);
 }
 
 function describeError(err: unknown): string {
@@ -201,6 +247,17 @@ function describeError(err: unknown): string {
  * the outcome stays `slow`. That asymmetry is the point: a target that answers
  * on the second try in 20 s is not "reachable", it is slow, and saying so is
  * what stops the caller from exiting 0.
+ *
+ * The first probe's failure has THREE outcomes, not two (mt#4624):
+ *
+ * - a budget abort → fall through to the confirm step (as before);
+ * - an error whose code {@link isDefinitelyAbsent} recognizes → `absent`, which
+ *   `verdictForReach` maps to `skip` + exit 0. This is the bare-checkout case;
+ * - anything else → the connection reached a listener and broke, so the target's
+ *   presence is UNDETERMINED. Fall through to the confirm step and report the
+ *   interruption in `detail`. Never `absent`: "the socket was reset" is not
+ *   evidence that nothing is listening, and treating it as such exits 0 on a
+ *   check that was never performed.
  */
 export async function probeReachability(
   url: string,
@@ -211,11 +268,18 @@ export async function probeReachability(
   const now = deps.now ?? (() => Date.now());
 
   const started = now();
+  /**
+   * A first-probe failure that was neither our budget nor a definitive absence —
+   * the connection reached a listener and then broke. Carried into the outcome so
+   * the report names the interruption instead of implying the target was slow.
+   */
+  let interrupted: string | undefined;
   try {
     await doFetch(url, { signal: AbortSignal.timeout(budgets.budgetMs) });
     return { kind: "reached", elapsedMs: now() - started };
   } catch (err) {
-    if (!isBudgetAbort(err)) return { kind: "absent", detail: describeError(err) };
+    if (isDefinitelyAbsent(err)) return { kind: "absent", detail: describeError(err) };
+    if (!isBudgetAbort(err)) interrupted = describeError(err);
   }
 
   const confirmStarted = now();
@@ -226,6 +290,7 @@ export async function probeReachability(
       budgetMs: budgets.budgetMs,
       measuredMs: now() - confirmStarted,
       confirmBudgetMs: budgets.confirmBudgetMs,
+      ...(interrupted === undefined ? {} : { detail: interrupted }),
     };
   } catch (err) {
     return {
@@ -233,7 +298,10 @@ export async function probeReachability(
       budgetMs: budgets.budgetMs,
       measuredMs: null,
       confirmBudgetMs: budgets.confirmBudgetMs,
-      detail: describeError(err),
+      detail:
+        interrupted === undefined
+          ? describeError(err)
+          : `${interrupted}; then ${describeError(err)}`,
     };
   }
 }
@@ -271,7 +339,13 @@ export function verdictForReach(
         outcome.measuredMs === null
           ? `did not answer within ${outcome.budgetMs}ms, and still had not answered ` +
             `${outcome.confirmBudgetMs}ms later${outcome.detail ? ` (${outcome.detail})` : ""}`
-          : `answered in ${outcome.measuredMs}ms, past its ${outcome.budgetMs}ms budget`;
+          : // mt#4624: an interrupted first probe reaches here WITH a measured
+            // latency, and "answered in Nms, past its budget" alone would report
+            // it as plain slowness. Naming the interruption is the whole point of
+            // routing it here instead of calling it absent.
+            `answered in ${outcome.measuredMs}ms, past its ${outcome.budgetMs}ms budget${
+              outcome.detail ? ` (first attempt: ${outcome.detail})` : ""
+            }`;
       return {
         action: "incomplete",
         message:
