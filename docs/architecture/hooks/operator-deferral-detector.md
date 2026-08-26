@@ -437,6 +437,20 @@ second one unless you'd rather I switch"_ is suppressed (a completed decision of
 while _"Next step is X unless you'd rather Y"_ fires (a proposed next step handed over). The line
 between them is the one that docblock names.
 
+**This array is still Rung 1 only — the sibling has climbed and this one has not (mt#4404 / mt#4649).**
+`ask-routing-deferral-detector`'s array of the same name now runs beneath a Rung-2 embedding
+nominator, because three calibration windows measured the same settled decision recurring in
+grammatical renderings no first-person pattern list reaches (participial lead, present progressive,
+conditional mood, default-plus-escape continuation). The 2026-08-23 window measured that class as
+**4 of ~5** of THIS detector's false positives — a larger share than the sibling's — so the climb
+must follow here too. It is deliberately a separate task rather than the same change, for two
+reasons: ADR-024 gates rung climbs **per detector on that detector's own evidence**, and this array
+feeds `isPermissionAskSuppressed`, where suppressing a permission ask is a different consequence
+from suppressing a deferral warning and carries its own regression floor. Read
+`ask-routing-deferral-detector.md` §"Rung 2 — the climb that residual gated" for the mechanism and
+the measured threshold; do not copy that threshold here, since it was measured on the sibling's
+corpus (the mistake mt#4280 records).
+
 **A note on the AT5 test, worth carrying.** The destructive-exclusion case
 (_"I can force-push it, unless you'd rather review first."_) passed **vacuously** before this
 change: nothing suppressed it, because no `unless`-shaped entry existed for the exclusions to act

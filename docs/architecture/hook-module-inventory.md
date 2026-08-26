@@ -64,8 +64,8 @@ larger than a subtraction from 60 suggests.
 | immovable      | 80      |
 | **total**      | **178** |
 
-Of the 86 movable, **17** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
+Of the 86 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 69 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -160,7 +160,6 @@ bootstrap requirement.
 | Module                                         | Role             | Extraction unit                                                                                 | Effects                                       | Plane | Tuning     |
 | ---------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------- | ----- | ---------- |
 | `ask-permission-bridge.ts`                     | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `ask-routing-deferral-detector.ts`             | dispatcher-guard | findOfferShape, detectDeferralPhrases                                                           | side-effecting (injector+recorder)            | plant | preference |
 | `auto-session-title.ts`                        | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
 | `block-bulk-process-kill.ts`                   | dispatcher-guard | findKillInvocation, findKillVerb                                                                | side-effecting (recorder+validator)           | plant | invariant  |
 | `block-concurrent-bulk-mutation.ts`            | dispatcher-guard | findBulkMutationInvocation                                                                      | side-effecting (recorder+validator)           | plant | invariant  |
@@ -230,13 +229,14 @@ bootstrap requirement.
 | `wall-of-text-detector.ts`                     | dispatcher-guard | measureWallOfText, findOpeningPromptIndex                                                       | side-effecting (recorder)                     | plant | preference |
 | `warn-main-workspace-mutation.ts`              | standalone-hook  | parseModifiedTracked, decideMutation, buildAdvisory                                             | side-effecting (injector+recorder)            | plant | advisory   |
 
-### ADR-026 tier 1 — reaches persistence (17)
+### ADR-026 tier 1 — reaches persistence (18)
 
 These call `ensureHookDomainBootstrap`. Per mt#4368's direction decision, a guard here must go through
 that bootstrap and its acceptance evidence must show the guard **decided**, not merely ran.
 
 | Module                                     | Role             | Extraction unit                                                   | Effects                                       | Plane | Tuning     |
 | ------------------------------------------ | ---------------- | ----------------------------------------------------------------- | --------------------------------------------- | ----- | ---------- |
+| `ask-routing-deferral-detector.ts`         | dispatcher-guard | findOfferShape, detectDeferralPhrases                             | side-effecting (injector+recorder)            | plant | preference |
 | `calibration-review-cadence-detector.ts`   | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
 | `code-mechanism-assertion-detector.ts`     | dispatcher-guard | detectRelayContext, detectCodeMechanismAssertion                  | side-effecting (injector+recorder)            | plant | advisory   |
 | `constructed-identifier-batch-detector.ts` | dispatcher-guard | findConsumeSpec, detectBatchedMintAndConsume                      | side-effecting (recorder)                     | plant | advisory   |
