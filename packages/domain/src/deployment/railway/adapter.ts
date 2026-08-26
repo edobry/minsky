@@ -283,7 +283,14 @@ export async function acquireDeploymentAtOrAfter(
     }
     // mt#1576: emit BEFORE the sleep, so the transport sees activity at the
     // start of each idle window rather than only after one has already elapsed.
-    options.onPoll?.(
+    //
+    // Routed through `notifyProgress` rather than called directly (PR #3384 R1):
+    // this function is EXPORTED and called directly by tests and potentially
+    // other callers, so the best-effort guarantee its `onPoll` docblock makes has
+    // to hold here rather than only at the one call site in
+    // `waitForLatestDeployment` that happens to wrap it.
+    notifyProgress(
+      options.onPoll,
       newestSeen
         ? `waiting for a deployment newer than ${options.notBefore} (newest seen: ${newestSeen.createdAt})`
         : `waiting for a deployment newer than ${options.notBefore} (none seen yet)`
@@ -339,8 +346,10 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
       sleep,
       pollIntervalMs: pollIntervalSeconds * 1000,
       // mt#1576: the acquire phase is otherwise entirely silent, and it is
-      // where a post-merge wait spends most of its life.
-      onPoll: (message) => notifyProgress(options?.onProgress, message),
+      // where a post-merge wait spends most of its life. Passed raw because
+      // `acquireDeploymentAtOrAfter` does its own best-effort swallowing
+      // (PR #3384 R1) — wrapping here too would just nest two try/catches.
+      onPoll: options?.onProgress,
     });
 
     if (!initialNode) {

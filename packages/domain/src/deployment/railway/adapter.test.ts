@@ -392,6 +392,30 @@ describe("notBefore bound on deployment waits (mt#3890)", () => {
         expect(messages[0]).toContain("none seen yet");
       });
 
+      test("PR #3384 R1 — a throwing onPoll does not abort the acquire loop", async () => {
+        // The swallow has to live INSIDE this exported function, not only at the
+        // one call site in `waitForLatestDeployment` that wraps it: a direct
+        // caller passing a throwing reporter would otherwise lose the wait, and
+        // the `onPoll` docblock promises best-effort to every caller.
+        const sequence = [node(STALE), node("2026-08-09T03:52:00.000Z", "dep-new")];
+        let i = 0;
+        const got = await acquireDeploymentAtOrAfter({
+          fetchNewest: async () => sequence[Math.min(i++, sequence.length - 1)],
+          notBeforeMs: Date.parse(MERGE),
+          notBefore: MERGE,
+          timeoutSeconds: 600,
+          deadlineMs: Number.MAX_SAFE_INTEGER,
+          now: () => 0,
+          sleep: neverSleep,
+          pollIntervalMs: 10,
+          onPoll: () => {
+            throw new Error("reporter exploded");
+          },
+        });
+        // The wait still resolves to the qualifying deployment.
+        expect(got?.id).toBe("dep-new");
+      });
+
       test("omitting onPoll leaves the loop working — the CLI path", async () => {
         // The callback is optional; the CLI supplies nothing and must not break.
         const got = await acquireDeploymentAtOrAfter({
