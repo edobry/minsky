@@ -32,7 +32,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { getFileInfo } from "prettier";
 import { makeClaudeSkillsTarget } from "./targets/claude-skills";
@@ -239,6 +239,35 @@ describe("mt#4622 Part 2: markdown compile sources are exempt from Prettier", ()
     for (const definition of definitions) {
       expect(await prettierIgnores(definition)).toBe(false);
     }
+  });
+
+  test("rule sources need no exemption — two independent reasons, both pinned", async () => {
+    // The measured answer to Success Criterion 3's rules half. `.minsky/rules/*.mdc` was
+    // never exposed to this defect, and asserting WHY keeps the exemption from being
+    // "helpfully" widened to cover it — which would be inert at best and, if written as
+    // a directory pattern, would stop formatting real markdown.
+    const rules = readdirSync(join(REPO_ROOT, ".minsky", "rules")).filter((f) =>
+      f.endsWith(".mdc")
+    );
+    expect(rules.length).toBeGreaterThan(0);
+
+    // Reason 1: Prettier infers no parser for `.mdc`, so it would not format it anyway.
+    const info = await getFileInfo(join(REPO_ROOT, ".minsky", "rules", rules[0] as string), {
+      ignorePath: [GITIGNORE, PRETTIERIGNORE],
+    });
+    expect(info.inferredParser).toBeNull();
+
+    // Reason 2: lint-staged never hands it to Prettier — its glob is `*.{json,md}`, and
+    // `.mdc` is not `.md`. Independent of reason 1: either alone would suffice.
+    // (`./` prefix is the data-read edge again — see the PRETTIERIGNORE comment.)
+    const lintStaged: Record<string, unknown> = JSON.parse(
+      readFileSync(join(REPO_ROOT, "./.lintstagedrc.json"), "utf8")
+    );
+    const globs = Object.keys(lintStaged);
+    // Guards a vacuous pass: assert the markdown glob this reasoning is ABOUT is present,
+    // so the test fails loudly if lint-staged is reconfigured rather than quietly passing.
+    expect(globs.some((g) => g.includes("md"))).toBe(true);
+    expect(globs.filter((g) => g.includes("mdc"))).toEqual([]);
   });
 
   test("ordinary repo markdown is still formatted — the ignore is not a blanket", async () => {
