@@ -87,28 +87,49 @@ function makeDb(seed: SeedTurn[]) {
   // (mt#4212 — loading everything is the defect).
   let requestedLimit: number | null = null;
 
+  // How many columns the candidate query ordered by (mt#4623). Null means the
+  // query never ordered — which is the state in which the partial index is
+  // INERT, so a test asserts against it rather than only against the limit.
+  let orderedBy: number | null = null;
+
   const db = {
     select(_fields?: Record<string, unknown>) {
       return {
         from: (_table: unknown) => ({
           where: (_cond: unknown) => ({
-            limit: (n: number) => {
-              requestedLimit = n;
-              const cands = [...store.values()]
-                .filter(
-                  (r) => r.embedding === null && (r.userText !== null || r.assistantText !== null)
-                )
-                .slice(0, n);
-              selectOrder = cands.map((r) => key(r.agentSessionId, r.turnIndex));
-              ptr = 0;
-              return Promise.resolve(
-                cands.map((r) => ({
-                  agentSessionId: r.agentSessionId,
-                  turnIndex: r.turnIndex,
-                  userText: r.userText,
-                  assistantText: r.assistantText,
-                }))
-              );
+            // mt#4623: the candidate query is ORDERED, and the ordering is what
+            // makes `idx_agent_transcript_turns_embedding_backlog` usable at all
+            // — without it the planner takes a Seq Scan. The fake models the sort
+            // rather than swallowing the call, so a run's draw here matches what
+            // the real query returns.
+            orderBy: (...cols: unknown[]) => {
+              orderedBy = cols.length;
+              return {
+                limit: (n: number) => {
+                  requestedLimit = n;
+                  const cands = [...store.values()]
+                    .filter(
+                      (r) =>
+                        r.embedding === null && (r.userText !== null || r.assistantText !== null)
+                    )
+                    .sort(
+                      (a, b) =>
+                        a.agentSessionId.localeCompare(b.agentSessionId) ||
+                        a.turnIndex - b.turnIndex
+                    )
+                    .slice(0, n);
+                  selectOrder = cands.map((r) => key(r.agentSessionId, r.turnIndex));
+                  ptr = 0;
+                  return Promise.resolve(
+                    cands.map((r) => ({
+                      agentSessionId: r.agentSessionId,
+                      turnIndex: r.turnIndex,
+                      userText: r.userText,
+                      assistantText: r.assistantText,
+                    }))
+                  );
+                },
+              };
             },
           }),
         }),
@@ -132,7 +153,12 @@ function makeDb(seed: SeedTurn[]) {
     },
   };
 
-  return { db, store, getRequestedLimit: () => requestedLimit };
+  return {
+    db,
+    store,
+    getRequestedLimit: () => requestedLimit,
+    getOrderedBy: () => orderedBy,
+  };
 }
 
 type FakeDb = ReturnType<typeof makeDb>["db"];
@@ -266,6 +292,33 @@ describe("PerTurnEmbeddingPipeline (vector-only backfill)", () => {
     expect(result.turnsEmbedded).toBe(3);
     // 3 candidates, batchSize 2 → 2 generateEmbeddings calls (batches of 2 + 1).
     expect(result.embeddingCallsMade).toBe(2);
+  });
+});
+
+describe("candidate ordering (mt#4623)", () => {
+  test("the candidate query orders by the partial index's columns, so the index is usable", async () => {
+    const { db, getOrderedBy } = makeDb([
+      {
+        agentSessionId: SESSION_A,
+        turnIndex: 0,
+        userText: "t",
+        assistantText: null,
+        embedding: null,
+      },
+    ]);
+
+    await makePipeline(db, makeFakeEmbeddingService()).run();
+
+    // Two columns: (agent_session_id, turn_index), matching
+    // `idx_agent_transcript_turns_embedding_backlog`. This is not a style
+    // preference — measured on a 367,159-row / 313 MB reproduction of
+    // production, the planner IGNORES that index without the ordering (Seq
+    // Scan, 40,123 buffers, 63.0 ms) and uses it with (Index Scan, 17 buffers,
+    // 0.059 ms). It over-estimates the predicate at 141,913 rows against an
+    // actual 62, so LIMIT looks satisfiable early in a scan that in fact reads
+    // the whole table. An unordered query ships a 16 kB index that nothing
+    // reads.
+    expect(getOrderedBy()).toBe(2);
   });
 });
 
