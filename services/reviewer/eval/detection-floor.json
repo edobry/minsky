@@ -1,0 +1,79 @@
+{
+  "computedAt": "2026-08-26T18:04:11.701Z",
+  "corpusPath": "services/reviewer/eval/corpus/ground-truth-v1.jsonl",
+  "corpus": {
+    "totalRows": 374,
+    "positiveRows": 85,
+    "distinctPrsWithPositive": 65
+  },
+  "detectionFloor": {
+    "table": [
+      {
+        "effectPoints": 5,
+        "requiredN": 1600,
+        "reachable": false
+      },
+      {
+        "effectPoints": 10,
+        "requiredN": 400,
+        "reachable": false
+      },
+      {
+        "effectPoints": 15,
+        "requiredN": 178,
+        "reachable": false
+      },
+      {
+        "effectPoints": 20,
+        "requiredN": 100,
+        "reachable": false
+      },
+      {
+        "effectPoints": 25,
+        "requiredN": 64,
+        "reachable": true
+      },
+      {
+        "effectPoints": 30,
+        "requiredN": 45,
+        "reachable": true
+      }
+    ],
+    "floorPoints": 25,
+    "reconciliation": {
+      "advisorEstimatePoints": [12, 15],
+      "measuredPoints": 25,
+      "verdict": "The measured floor (computed here, reproducible) supersedes the advisor's inferred 12-15pp estimate. The advisor figure was never reduced to a formula or an n; its own stated caveats (PR-clustering, ~70% label validity) push the true number worse than 12-15, consistent with the larger measured floor rather than contradicting it."
+    }
+  },
+  "kappaGoldSetSizing": {
+    "table": [
+      {
+        "targetSE": 0.2,
+        "approxCiHalfWidth": 0.392,
+        "requiredN": 16
+      },
+      {
+        "targetSE": 0.15,
+        "approxCiHalfWidth": 0.294,
+        "requiredN": 29
+      },
+      {
+        "targetSE": 0.1,
+        "approxCiHalfWidth": 0.196,
+        "requiredN": 64
+      },
+      {
+        "targetSE": 0.075,
+        "approxCiHalfWidth": 0.147,
+        "requiredN": 114
+      },
+      {
+        "targetSE": 0.05,
+        "approxCiHalfWidth": 0.098,
+        "requiredN": 256
+      }
+    ],
+    "note": "po/pe are illustrative (chosen to land at kappa=0.6, the spec's proposed threshold) pending a real gold-set pass. Substitute measured po/pe once mt#2746's Braintrust labels exist -- as of this computation, 0 of 76 pushed rows are labeled (verified live against the Braintrust API); see mt#2991's spec for the finding."
+  }
+}
