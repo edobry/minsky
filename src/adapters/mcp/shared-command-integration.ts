@@ -17,6 +17,7 @@ import {
 } from "../shared/command-registry";
 import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
+import { boundWireResult } from "./bound-wire-result";
 import { z } from "zod";
 import { guardProjectSetup } from "@minsky/domain/configuration/guard";
 import { getErrorMessage } from "@minsky/domain/errors/index";
@@ -703,7 +704,13 @@ export function registerSharedCommandsWithMcp(
               config.strikeTracker.recordSuccess(taskId, command.id);
             }
 
-            return result as string | Record<string, unknown>;
+            // mt#4418: the ONE place every MCP result passes through, which is
+            // why the bound lives here rather than in each command. Drops
+            // strings the caller itself just sent (free — it has them) and, only
+            // when the payload is genuinely large, caps arrays with mt#2817's
+            // loud `{returned, total, truncated}` triple. A small result is
+            // returned by the same reference, untouched.
+            return boundWireResult(result, parameters) as string | Record<string, unknown>;
           } catch (error) {
             const duration = Date.now() - startTime;
 
