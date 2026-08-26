@@ -77,8 +77,15 @@ export function maxConsecutiveDegradedFromGaps(
   if (pollIntervalSeconds <= 0) {
     throw new Error(`pollIntervalSeconds must be positive, got ${pollIntervalSeconds}`);
   }
-  // The first logged failure is itself a run of 1.
-  let current = gapsSeconds.length >= 0 ? 1 : 0;
+  // No gaps means no failure sequence to replay — zero, not a run of 1.
+  // (PR #3365 R1: this was `gapsSeconds.length >= 0 ? 1 : 0`, which is always
+  // true, so an empty window reported a phantom run.)
+  if (gapsSeconds.length === 0) {
+    return { max: 0, runs: 0, gapsWithinOnePoll: 0 };
+  }
+  // A non-empty gap list implies at least two failures, and the first of them
+  // is itself a run of 1.
+  let current = 1;
   let max = current;
   let runs = 1;
   let gapsWithinOnePoll = 0;

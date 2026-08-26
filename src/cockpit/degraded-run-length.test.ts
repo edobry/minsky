@@ -145,7 +145,21 @@ describe("replay against the recorded windows", () => {
     expect(result.runs).toBe(1);
   });
 
-  test("a non-positive poll interval is refused rather than dividing by zero", () => {
-    expect(() => maxConsecutiveDegradedFromGaps([1, 2], 0)).toThrow("must be positive");
+  test("an empty window replays as zero, not as a phantom run of 1", () => {
+    // PR #3365 R1: the guard here was `gapsSeconds.length >= 0 ? 1 : 0`, always
+    // true, so a window with no failures reported max 1 / runs 1 — a run that
+    // never happened, in the direction that would overstate the counter.
+    expect(maxConsecutiveDegradedFromGaps([], POLL_INTERVAL_SECONDS)).toEqual({
+      max: 0,
+      runs: 0,
+      gapsWithinOnePoll: 0,
+    });
+  });
+
+  test("a non-positive poll interval is refused rather than treated as valid", () => {
+    // Asserted on the thrown type and the parameter it names, not on the exact
+    // sentence — the message is allowed to be reworded (PR #3365 R1).
+    expect(() => maxConsecutiveDegradedFromGaps([1, 2], 0)).toThrow(Error);
+    expect(() => maxConsecutiveDegradedFromGaps([1, 2], -5)).toThrow(/pollIntervalSeconds/);
   });
 });
