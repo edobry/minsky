@@ -206,24 +206,58 @@ describe("composeInitObservers", () => {
     expect(seen).toEqual(["a:x", "b:x"]);
   });
 
-  test("a throwing observer does not suppress the ones after it", () => {
-    // The adoption write is the durable ADR-044 record; a cosmetic label
-    // failure must never be able to take it down, or vice versa.
-    const seen: string[] = [];
-    composeInitObservers<string>(
-      () => {
-        throw new Error("adoption exploded");
-      },
-      (r) => seen.push(`survived:${r}`)
-    )("x");
-    expect(seen).toEqual(["survived:x"]);
-  });
-
-  test("never throws into the host's stdout frame", () => {
+  test("propagates a throw to the host, which owns the single error boundary", () => {
+    // PR #3379 R1: this used to swallow and log a WARN, duplicating the host's
+    // own catch (driven-session-host.ts:1089-1097, which logs at ERROR) and
+    // producing two logging surfaces at two levels for one failure.
     expect(() =>
       composeInitObservers<string>(() => {
         throw new Error("boom");
       })("x")
-    ).not.toThrow();
+    ).toThrow("boom");
+  });
+
+  test("a throw DOES skip later observers — which is what makes call-site order load-bearing", () => {
+    // Not a defect, but the reason the call site puts the throw-incapable
+    // observer first. Pinned so a future reader cannot mistake the ordering for
+    // arbitrary and reverse it.
+    const seen: string[] = [];
+    expect(() =>
+      composeInitObservers<string>(
+        () => {
+          throw new Error("first exploded");
+        },
+        (r) => seen.push(`after:${r}`)
+      )("x")
+    ).toThrow();
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("call-site observer ordering (PR #3379 R1)", () => {
+  test("the label write runs BEFORE the adoption observer, so a throwing adoption cannot suppress it", async () => {
+    // The property the removed try/catch was protecting, now carried by order.
+    const order: string[] = [];
+    await startEntityThreadSession({
+      seed: askToEntitySeed({ id: ASK_ID, question: "q", shortId: "ask#1" }),
+      cwd: TEST_CWD,
+      spawnFn: initEmittingSpawn(),
+      registry: new DrivenSessionRegistry(),
+      command: "fake-claude",
+      onStateChange: () => {},
+      onResultSummary: () => {},
+      onHarnessSessionLinked: () => {
+        order.push("adoption");
+        throw new Error("adoption exploded");
+      },
+      writeSessionLabel: () => {
+        order.push("label");
+        return true;
+      },
+    });
+    await flushInit();
+
+    // The label ran, and ran first — despite the adoption throwing after it.
+    expect(order).toEqual(["label", "adoption"]);
   });
 });

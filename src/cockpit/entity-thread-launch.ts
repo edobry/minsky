@@ -628,30 +628,37 @@ async function respawnThreadDriver(
  * guard and the panel can no longer disagree about whether an agent is there.
  */
 /**
- * Run two init observers off one `onHarnessSessionLinked` slot (mt#4621).
+ * Run several init observers off one `onHarnessSessionLinked` slot (mt#4621).
  *
- * `startDrivenSession` takes ONE callback, and an entity thread now has two
- * things to do at init. Each is wrapped so a throw in one cannot suppress the
- * other — the callback runs inside the host's stdout frame, where an escaping
- * error becomes an unhandled rejection on a detached promise for every spawn
- * (the hazard `createDrivenInitObserver` documents at length). Composing
- * without the isolation would hand exactly that failure mode to whichever
- * observer happens to be registered second.
+ * `startDrivenSession` takes ONE callback and an entity thread has two things
+ * to do at init, so they compose here.
+ *
+ * **Deliberately does NOT catch** (PR #3379 R1). An earlier revision wrapped
+ * each observer in its own try/catch, which the reviewer correctly flagged as a
+ * second error-handling layer for a concern the host already owns:
+ * `driven-session-host.ts:1089-1097` wraps this whole callback and logs at
+ * ERROR. Catching here too produced two logging surfaces at two levels for one
+ * failure, split across two modules — the drift risk is real and the
+ * duplication buys nothing.
+ *
+ * **The property that catch was protecting is preserved by ORDERING instead.**
+ * The host's boundary is callback-level, not observer-level, so an escaping
+ * throw from the first observer WOULD skip the rest — which is why the answer
+ * is not simply "delete it and rely on the host". Callers pass the observer
+ * that cannot throw FIRST (see the call site), so a failure in a later one
+ * cannot suppress it. Ordering is checkable by reading the call site; a catch
+ * is not.
+ *
+ * In practice neither of this file's observers throws synchronously today —
+ * `createDrivenInitObserver` detaches its async work behind its own error
+ * boundary, and `writeHarnessSessionLabel` swallows by contract — so the
+ * ordering is defense in depth against a future observer, not a live bug.
  */
 export function composeInitObservers<T>(
   ...observers: Array<(record: T) => void>
 ): (record: T) => void {
   return (record) => {
-    for (const observe of observers) {
-      try {
-        observe(record);
-      } catch (err) {
-        log.warn(
-          `[entity-thread] an init observer threw: ${getLoggableErrorSummary(err)} — ` +
-            `remaining observers still ran`
-        );
-      }
-    }
+    for (const observe of observers) observe(record);
   };
 }
 
@@ -757,12 +764,14 @@ export async function startEntityThreadSession(
     // conversation id — and this is the only moment it exists, so they compose
     // here rather than each re-deriving a hook into the host.
     //
-    // Order matters only for failure isolation: the adoption is the durable
-    // ADR-044 record and runs first; the label is cosmetic and cannot throw
-    // (see `writeHarnessSessionLabel`'s contract), so it can never prevent the
-    // adoption from having been attempted.
+    // ORDER IS LOAD-BEARING (PR #3379 R1). `composeInitObservers` does not
+    // catch — the host owns that boundary — so a throw from an earlier observer
+    // skips the later ones. The label write goes FIRST precisely because it is
+    // the one that cannot throw (`writeHarnessSessionLabel` swallows by
+    // contract), which means the durable ADR-044 adoption behind it can never
+    // be suppressed by a cosmetic failure. Reversing these two would put the
+    // only throw-capable observer ahead of the one that must always run.
     onHarnessSessionLinked: composeInitObservers(
-      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason }),
       (record) => {
         if (!record.harnessSessionId) return;
         (opts.writeSessionLabel ?? writeHarnessSessionLabel)({
@@ -770,7 +779,8 @@ export async function startEntityThreadSession(
           ref: opts.seed.shortRef ?? opts.seed.entityId,
           title: opts.seed.title,
         });
-      }
+      },
+      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason })
     ),
     onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
     onResultSummary: opts.onResultSummary ?? createDrivenResultObserver(),
