@@ -9,6 +9,61 @@ import type { FsLike } from "../interfaces/fs-like";
 import type { ProjectScope } from "../project/scope";
 
 /**
+ * What a status write actually did, as reported by the backend's own store (mt#4457).
+ *
+ * `setTaskStatus` used to return `Promise<void>`, so the only signal a caller had was
+ * "no exception was thrown". That is not the same question as "did the row change":
+ * a Postgres UPDATE matching zero rows raises nothing, and the CLI/MCP adapter above
+ * it reported a hardcoded `changed: true` regardless. A status write that did not land
+ * was therefore indistinguishable from one that did, at every layer.
+ *
+ * Backends return the count rather than a boolean so the caller can tell "did not
+ * land" (0) from "landed" (1) from "matched more rows than it should have" (>1) —
+ * the last being a corruption signal a boolean would silently discard.
+ */
+export interface StatusWriteOutcome {
+  /**
+   * Records the write affected. 0 means the write did NOT persist and the caller
+   * must treat the operation as failed, regardless of the absence of an error.
+   */
+  recordsAffected: number;
+}
+
+/**
+ * A status write that returned without error and did not persist (mt#4457).
+ *
+ * A distinct class rather than a bare `Error` (PR #3342 R1) so callers can
+ * discriminate it from a validation failure, a Zod error, or a backend fault —
+ * the three have different remedies, and a caller that cannot tell them apart
+ * will retry the ones it should surface and surface the ones it should retry.
+ */
+export class StatusWriteDidNotPersistError extends Error {
+  readonly taskId: string;
+  readonly fromStatus: string;
+  readonly toStatus: string;
+  readonly recordsAffected: number;
+
+  constructor(args: {
+    taskId: string;
+    fromStatus: string;
+    toStatus: string;
+    recordsAffected: number;
+  }) {
+    super(
+      `Status write for ${args.taskId} did not persist: the update matched ` +
+        `${args.recordsAffected} records (intended ${args.fromStatus} -> ${args.toStatus}). ` +
+        `The task's status is unchanged. This is a failed write, not a no-op — ` +
+        `do not treat it as success.`
+    );
+    this.name = "StatusWriteDidNotPersistError";
+    this.taskId = args.taskId;
+    this.fromStatus = args.fromStatus;
+    this.toStatus = args.toStatus;
+    this.recordsAffected = args.recordsAffected;
+  }
+}
+
+/**
  * Simple backend capabilities interface
  * Defines what basic operations each backend supports
  */
@@ -80,7 +135,7 @@ export interface TaskBackend {
   listTasks(options?: TaskListOptions): Promise<Task[]>;
   getTask(id: string): Promise<Task | null>;
   getTaskStatus(id: string): Promise<string | undefined>;
-  setTaskStatus(id: string, status: string): Promise<void>;
+  setTaskStatus(id: string, status: string): Promise<StatusWriteOutcome>;
   createTaskFromTitleAndSpec(
     title: string,
     spec: string,

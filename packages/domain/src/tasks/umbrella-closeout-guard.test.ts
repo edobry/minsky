@@ -32,7 +32,7 @@ function makeTaskService(opts: {
   parentStatus?: string;
   children?: ChildFixture[];
 }): TaskServiceInterface & { statusSpy: ReturnType<typeof mock> } {
-  const statusSpy = mock(async () => {});
+  const statusSpy = mock(async () => ({ recordsAffected: 1 }));
   const service = {
     getTask: mock(async () => ({
       id: "mt#9000",

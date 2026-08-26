@@ -20,10 +20,15 @@ import {
   AxisChips,
   FamilyChips,
   NO_FACETS,
+  POINT_FACET_OPTIONS,
   matchesFacets,
   type InterceptorFacets,
 } from "./InterceptorFacets";
-import type { InterceptorEntry } from "../hooks/useInterceptors";
+import {
+  ALL_INTERCEPTION_POINTS,
+  INTERCEPTION_POINT_ORDER,
+  type InterceptorEntry,
+} from "../hooks/useInterceptors";
 
 afterEach(cleanup);
 
@@ -259,5 +264,44 @@ describe("AxisChips — every axis renders a value or an explicit gap marker (AT
     const text = screen.getByTestId("interceptor-axes").textContent ?? "";
     expect(text).toContain("record(review)");
     expect(text).toContain("inject(agent)");
+  });
+});
+
+describe("the point facet's option domain matches what its predicate can test (mt#4603)", () => {
+  // The defect this pins is a RELATIONSHIP, not a list: the options came from
+  // INTERCEPTION_POINT_ORDER (the spine's deliberate nine) while matchesFacets
+  // compared against entry.point over the full fifteen-member union. Six points
+  // were therefore unselectable. Testing the two sides together is what makes a
+  // future narrowing fail here rather than in the principal's dropdown.
+
+  test("every point the predicate can test is offered as an option, and finds its entry", () => {
+    // Asserted against POINT_FACET_OPTIONS — the array the COMPONENT actually
+    // passes to the control — not against ALL_INTERCEPTION_POINTS. Asserting
+    // the constant would pass even if the component went back to reading the
+    // spine's list, which is the precise regression this guards.
+    const offered = POINT_FACET_OPTIONS.map((o) => o.value);
+    for (const point of ALL_INTERCEPTION_POINTS) {
+      expect(offered, `${point} is not offered as a facet option`).toContain(point);
+      expect(
+        matchesFacets(entry({ point }), { ...NO_FACETS, point }),
+        `selecting ${point} does not find an entry at ${point}`
+      ).toBe(true);
+    }
+    // And nothing offered is untestable by the predicate.
+    expect(offered.length).toBe(ALL_INTERCEPTION_POINTS.length);
+  });
+
+  test("SessionStart and PostCompact are offerable, and are NOT spine stations", () => {
+    // Named explicitly rather than left to the set comparison: these are the
+    // two of the six that have live catalog entries — `session-start` and
+    // `record-conversation-run-state` — so they are what the defect actually
+    // cost. A set assertion alone passes if someone drops them from both lists.
+    for (const point of ["SessionStart", "PostCompact"] as const) {
+      expect(ALL_INTERCEPTION_POINTS, `${point} must be filterable`).toContain(point);
+      // The other half of mt#4603's split: the spine subset must NOT absorb
+      // them. Giving them trajectory positions is the design decision mt#4129
+      // declined, and widening the wrong list is the tempting wrong fix.
+      expect(INTERCEPTION_POINT_ORDER, `${point} must not gain a station`).not.toContain(point);
+    }
   });
 });

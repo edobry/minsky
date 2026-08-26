@@ -65,13 +65,21 @@ class StubSource implements TranscriptSource {
     };
   }
 
-  async *readSession(): AsyncIterable<RawTurnLine> {
+  async *readSessionRaw(): AsyncIterable<RawTurnLine> {
     yield {
       type: "user",
       uuid: "u-1",
       timestamp: TS1,
       message: { role: "user", content: [] },
     } as unknown as RawTurnLine;
+  }
+
+  isRetainedLine(): boolean {
+    return true;
+  }
+
+  async *readSession(): AsyncIterable<RawTurnLine> {
+    yield* this.readSessionRaw();
   }
 
   getJsonlTimestamp(line: RawTurnLine): string | undefined {

@@ -60,12 +60,12 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 11      |
-| movable        | 84      |
-| immovable      | 79      |
-| **total**      | **174** |
+| movable        | 87      |
+| immovable      | 80      |
+| **total**      | **178** |
 
-Of the 84 movable, **16** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 68 are tier 2 —
+Of the 86 movable, **17** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 70 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -146,89 +146,91 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (84)
+## movable (87)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (68)
+### ADR-026 tier 2 — no persistence reach (69)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
 
-| Module                                         | Role             | Extraction unit                                                   | Effects                                       | Plane | Tuning     |
-| ---------------------------------------------- | ---------------- | ----------------------------------------------------------------- | --------------------------------------------- | ----- | ---------- |
-| `ask-permission-bridge.ts`                     | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `ask-routing-deferral-detector.ts`             | dispatcher-guard | findOfferShape, detectDeferralPhrases                             | side-effecting (injector+recorder)            | plant | preference |
-| `auto-session-title.ts`                        | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `block-bulk-process-kill.ts`                   | dispatcher-guard | findKillInvocation, findKillVerb                                  | side-effecting (recorder+validator)           | plant | invariant  |
-| `block-concurrent-bulk-mutation.ts`            | dispatcher-guard | findBulkMutationInvocation                                        | side-effecting (recorder+validator)           | plant | invariant  |
-| `block-git-gh-cli.ts`                          | standalone-hook  | classifyAgentTypeObservation, classifyRepoScope                   | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `block-out-of-band-merge.ts`                   | standalone-hook  | scanForTriggerPhrases                                             | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `block-secret-file-read.ts`                    | dispatcher-guard | findSecretReads, findSecretScriptInvocation                       | decides-only (validator)                      | plant | invariant  |
-| `block-subagent-bypass-merge.ts`               | standalone-hook  | findGhApiMethod, findPrMergeEndpointToken                         | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `block-subagent-merge-without-grant.ts`        | standalone-hook  | decideMergeGrant                                                  | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `bridge-memory-retirement.ts`                  | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `build-claim-injection-detector.ts`            | dispatcher-guard | findDeploySurfaceEditPaths, findMergeDeploySurfaceFiles           | side-effecting (recorder)                     | plant | advisory   |
-| `causal-premise-detector.ts`                   | dispatcher-guard | detectCausalPremise                                               | side-effecting (recorder)                     | plant | advisory   |
-| `chained-verification-commands-detector.ts`    | dispatcher-guard | scanCommand                                                       | side-effecting (recorder)                     | plant | advisory   |
-| `check-generated-file-edit.ts`                 | standalone-hook  | scanFileForBanner                                                 | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `check-guessed-session-path.ts`                | dispatcher-guard | findMissingSessionPaths, findMissingInToolInput                   | decides-only (validator)                      | plant | invariant  |
-| `check-prompt-watermark.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `check-task-spec-read.ts`                      | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `claim-provenance-scan.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
-| `context-fill-gauge.ts`                        | dispatcher-guard | findLastUsage, measureFill                                        | side-effecting (injector+recorder)            | plant | preference |
-| `deploy-verification-after-merge.ts`           | standalone-hook  | decideDeployReminder                                              | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `drive-ready-to-implementation.ts`             | standalone-hook  | decideReminder                                                    | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `duplicate-check-candidate-read.ts`            | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
-| `duplicate-check-search-provenance.ts`         | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
-| `enumeration-scope-check.ts`                   | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
-| `evidence-record-provenance.ts`                | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
-| `guard-health-escalation-detector.ts`          | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `inject-current-time.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `inject-ask-responses.ts`                      | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | advisory   |
-| `inject-dispatch-watchdog.ts`                  | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `inject-git-state.ts`                          | dispatcher-guard | detectDefaultBranch                                               | decides-only (injector)                       | plant | advisory   |
-| `inject-memory-capture.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `inject-prod-state.ts`                         | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `inject-success-criteria.ts`                   | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `loop-preflight-pr-merge-check.ts`             | standalone-hook  | checkPrState, checkTaskState                                      | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `mcp-daemon-staleness-detector.ts`             | dispatcher-guard | decideAndUpdate                                                   | decides-only (injector)                       | plant | advisory   |
-| `memory-search.ts`                             | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (injector)                       | plant | advisory   |
-| `new-surface-design-pass.ts`                   | dispatcher-guard | findDesignSkillsInvoked, decideOutcome                            | side-effecting (recorder)                     | plant | advisory   |
-| `nonexistent-search-path-detector.ts`          | dispatcher-guard | findPathOperands, scanCommand                                     | side-effecting (recorder)                     | plant | advisory   |
-| `operator-deferral-detector.ts`                | dispatcher-guard | detectCapabilityDeferral, detectDenialAnchoredDeferral            | side-effecting (recorder)                     | plant | advisory   |
-| `parallel-work-guard.ts`                       | standalone-hook  | findOverlappingFiles, checkOpenPrs                                | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `pre-narration-detector.ts`                    | dispatcher-guard | detectPreNarration, detectPreNarrationWithSuppression             | side-effecting (recorder)                     | plant | advisory   |
-| `record-turn-anchor.ts`                        | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | invariant  |
-| `require-checks-on-bypass-merge.ts`            | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `require-deploy-verification-before-merge.ts`  | standalone-hook  | checkDeployVerification, checkUsabilityClaim                      | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `require-duplicate-check-record.ts`            | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (validator)                      | plant | invariant  |
-| `require-execution-evidence-before-merge.ts`   | standalone-hook  | findNewTestFiles, findNewOperationalScripts                       | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `require-growth-justification-before-merge.ts` | standalone-hook  | findTouchedCeilingBreaches, findRulesDirFiles                     | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `require-review-before-merge.ts`               | standalone-hook  | classifyZeroCheckRuns, evaluateCheckRunsPresence                  | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `require-session-for-main-workspace-edits.ts`  | standalone-hook  | checkFilePathDenial                                               | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `retrospective-completeness-detector.ts`       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | preference |
-| `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                  | side-effecting (injector+recorder)            | plant | preference |
-| `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                  | decides-only (injector)                       | plant | advisory   |
-| `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `stop-at-decision-scan.ts`                     | dispatcher-guard | detectDecisionStop                                                | side-effecting (recorder)                     | plant | advisory   |
-| `substrate-bypass-detector.ts`                 | dispatcher-guard | detectVerbalCommitment, detectSkillBypass                         | side-effecting (injector+recorder)            | plant | preference |
-| `truncated-outcome-read-detector.ts`           | dispatcher-guard | scanCommand                                                       | side-effecting (recorder)                     | plant | advisory   |
-| `turn-end-bare-ref-scan.ts`                    | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
-| `turn-end-retro-scan.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | preference |
-| `turn-end-unescalated-incident-scan.ts`        | dispatcher-guard | detectUnescalatedIncident                                         | side-effecting (injector+recorder)            | plant | preference |
-| `turn-end-untaken-action-scan.ts`              | dispatcher-guard | detectReservedCategoryHalt, detectDestructiveNamedAction          | side-effecting (injector+recorder)            | plant | preference |
-| `turn-end-unwalked-task-scan.ts`               | dispatcher-guard | detectCliMintedIds, detectUnwalkedTasks                           | side-effecting (injector+recorder)            | plant | preference |
-| `two-strikes-record.ts`                        | standalone-hook  | detectOutcome                                                     | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `unowned-finding-scan.ts`                      | standalone-hook  | detectUnownedFindings, decideFindings                             | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `unrendered-result-field-scan.ts`              | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
-| `validate-task-spec.ts`                        | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read) | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `verify-subagent-model.ts`                     | standalone-hook  | decideModelCheck                                                  | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `wall-of-text-detector.ts`                     | dispatcher-guard | measureWallOfText, findOpeningPromptIndex                         | side-effecting (recorder)                     | plant | preference |
+| Module                                         | Role             | Extraction unit                                                                                 | Effects                                       | Plane | Tuning     |
+| ---------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------- | ----- | ---------- |
+| `ask-permission-bridge.ts`                     | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `ask-routing-deferral-detector.ts`             | dispatcher-guard | findOfferShape, detectDeferralPhrases                                                           | side-effecting (injector+recorder)            | plant | preference |
+| `auto-session-title.ts`                        | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `block-bulk-process-kill.ts`                   | dispatcher-guard | findKillInvocation, findKillVerb                                                                | side-effecting (recorder+validator)           | plant | invariant  |
+| `block-concurrent-bulk-mutation.ts`            | dispatcher-guard | findBulkMutationInvocation                                                                      | side-effecting (recorder+validator)           | plant | invariant  |
+| `block-git-gh-cli.ts`                          | standalone-hook  | classifyAgentTypeObservation, classifyRepoScope                                                 | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `block-out-of-band-merge.ts`                   | standalone-hook  | scanForTriggerPhrases                                                                           | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `block-secret-file-read.ts`                    | dispatcher-guard | findSecretReads, findSecretScriptInvocation, findProcessListingReads, findSecretDumpingCliReads | decides-only (validator)                      | plant | invariant  |
+| `block-subagent-bypass-merge.ts`               | standalone-hook  | findGhApiMethod, findPrMergeEndpointToken                                                       | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `block-subagent-merge-without-grant.ts`        | standalone-hook  | decideMergeGrant                                                                                | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `bridge-memory-retirement.ts`                  | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `build-claim-injection-detector.ts`            | dispatcher-guard | findDeploySurfaceEditPaths, findMergeDeploySurfaceFiles                                         | side-effecting (recorder)                     | plant | advisory   |
+| `causal-premise-detector.ts`                   | dispatcher-guard | detectCausalPremise                                                                             | side-effecting (recorder)                     | plant | advisory   |
+| `chained-verification-commands-detector.ts`    | dispatcher-guard | scanCommand                                                                                     | side-effecting (recorder)                     | plant | advisory   |
+| `check-generated-file-edit.ts`                 | standalone-hook  | scanFileForBanner                                                                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `check-guessed-session-path.ts`                | dispatcher-guard | findMissingSessionPaths, findMissingInToolInput                                                 | decides-only (validator)                      | plant | invariant  |
+| `check-prompt-watermark.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `check-task-spec-read.ts`                      | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `claim-provenance-scan.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | advisory   |
+| `context-fill-gauge.ts`                        | dispatcher-guard | findLastUsage, measureFill                                                                      | side-effecting (injector+recorder)            | plant | preference |
+| `deploy-verification-after-merge.ts`           | standalone-hook  | decideDeployReminder                                                                            | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `drive-ready-to-implementation.ts`             | standalone-hook  | decideReminder                                                                                  | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `duplicate-check-candidate-read.ts`            | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (injector+recorder)            | plant | advisory   |
+| `duplicate-check-search-provenance.ts`         | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (injector+recorder)            | plant | advisory   |
+| `enumeration-scope-check.ts`                   | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | advisory   |
+| `spec-scope-execution-check.ts`                | dispatcher-guard | `untouchedEnumeratedPaths`, `isQualifiedEntry`                                                  | side-effecting (recorder)                     | plant | advisory   |
+| `evidence-record-provenance.ts`                | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | advisory   |
+| `guard-health-escalation-detector.ts`          | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `inject-current-time.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `inject-ask-responses.ts`                      | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (derived: writes fs / spawns)  | plant | advisory   |
+| `inject-dispatch-watchdog.ts`                  | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `inject-git-state.ts`                          | dispatcher-guard | detectDefaultBranch                                                                             | decides-only (injector)                       | plant | advisory   |
+| `inject-memory-capture.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `inject-prod-state.ts`                         | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `inject-success-criteria.ts`                   | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `loop-preflight-pr-merge-check.ts`             | standalone-hook  | checkPrState, checkTaskState                                                                    | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `mcp-daemon-staleness-detector.ts`             | dispatcher-guard | decideAndUpdate                                                                                 | decides-only (injector)                       | plant | advisory   |
+| `memory-search.ts`                             | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (injector)                       | plant | advisory   |
+| `new-surface-design-pass.ts`                   | dispatcher-guard | findDesignSkillsInvoked, decideOutcome                                                          | side-effecting (recorder)                     | plant | advisory   |
+| `nonexistent-search-path-detector.ts`          | dispatcher-guard | findPathOperands, scanCommand                                                                   | side-effecting (recorder)                     | plant | advisory   |
+| `operator-deferral-detector.ts`                | dispatcher-guard | detectCapabilityDeferral, detectDenialAnchoredDeferral                                          | side-effecting (recorder)                     | plant | advisory   |
+| `parallel-work-guard.ts`                       | standalone-hook  | findOverlappingFiles, checkOpenPrs                                                              | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `pre-narration-detector.ts`                    | dispatcher-guard | detectPreNarration, detectPreNarrationWithSuppression                                           | side-effecting (recorder)                     | plant | advisory   |
+| `record-turn-anchor.ts`                        | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | invariant  |
+| `require-checks-on-bypass-merge.ts`            | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `require-deploy-verification-before-merge.ts`  | standalone-hook  | checkDeployVerification, checkUsabilityClaim                                                    | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `require-duplicate-check-record.ts`            | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (validator)                      | plant | invariant  |
+| `require-execution-evidence-before-merge.ts`   | standalone-hook  | findNewTestFiles, findNewOperationalScripts                                                     | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `require-growth-justification-before-merge.ts` | standalone-hook  | findTouchedCeilingBreaches, findRulesDirFiles                                                   | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `require-review-before-merge.ts`               | standalone-hook  | classifyZeroCheckRuns, evaluateCheckRunsPresence                                                | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `require-session-for-main-workspace-edits.ts`  | standalone-hook  | checkFilePathDenial                                                                             | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `retrospective-completeness-detector.ts`       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | preference |
+| `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                                                | side-effecting (injector+recorder)            | plant | preference |
+| `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                                                | decides-only (injector)                       | plant | advisory   |
+| `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `stop-at-decision-scan.ts`                     | dispatcher-guard | detectDecisionStop                                                                              | side-effecting (recorder)                     | plant | advisory   |
+| `substrate-bypass-detector.ts`                 | dispatcher-guard | detectVerbalCommitment, detectSkillBypass                                                       | side-effecting (injector+recorder)            | plant | preference |
+| `truncated-outcome-read-detector.ts`           | dispatcher-guard | scanCommand                                                                                     | side-effecting (recorder)                     | plant | advisory   |
+| `turn-end-bare-ref-scan.ts`                    | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (injector+recorder)            | plant | advisory   |
+| `turn-end-retro-scan.ts`                       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (injector+recorder)            | plant | preference |
+| `turn-end-unescalated-incident-scan.ts`        | dispatcher-guard | detectUnescalatedIncident                                                                       | side-effecting (injector+recorder)            | plant | preference |
+| `turn-end-untaken-action-scan.ts`              | dispatcher-guard | detectReservedCategoryHalt, detectDestructiveNamedAction                                        | side-effecting (injector+recorder)            | plant | preference |
+| `turn-end-unwalked-task-scan.ts`               | dispatcher-guard | detectCliMintedIds, detectUnwalkedTasks                                                         | side-effecting (injector+recorder)            | plant | preference |
+| `two-strikes-record.ts`                        | standalone-hook  | detectOutcome                                                                                   | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `unowned-finding-scan.ts`                      | standalone-hook  | detectUnownedFindings, decideFindings                                                           | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `unrendered-result-field-scan.ts`              | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                     | plant | advisory   |
+| `validate-task-spec.ts`                        | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn) | plant | —          |
+| `verify-subagent-model.ts`                     | standalone-hook  | decideModelCheck                                                                                | side-effecting (derived: writes fs / spawns)  | plant | —          |
+| `wall-of-text-detector.ts`                     | dispatcher-guard | measureWallOfText, findOpeningPromptIndex                                                       | side-effecting (recorder)                     | plant | preference |
+| `warn-main-workspace-mutation.ts`              | standalone-hook  | parseModifiedTracked, decideMutation, buildAdvisory                                             | side-effecting (injector+recorder)            | plant | advisory   |
 
-### ADR-026 tier 1 — reaches persistence (16)
+### ADR-026 tier 1 — reaches persistence (17)
 
 These call `ensureHookDomainBootstrap`. Per mt#4368's direction decision, a guard here must go through
 that bootstrap and its acceptance evidence must show the guard **decided**, not merely ran.
@@ -251,8 +253,9 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `turn-end-stale-state-assertion-scan.ts`   | dispatcher-guard | findPendingClaims, classifyResolved                               | side-effecting (recorder)                     | plant | advisory   |
 | `warn-peer-task-activity.ts`               | standalone-hook  | decidePeerActivity, callerSessionIdFromCwd                        | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
+| `warn-unwired-task-relationship.ts`        | dispatcher-guard | findRelationshipAssertions, isDischarged                          | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (79)
+## immovable (80)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
@@ -268,6 +271,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `claim-provenance-corpus-fixtures.ts`     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `code-mechanism-assertion-dedup-store.ts` | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `command-shape.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `consumer-account-evidence.ts`            | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `coverage-receipt.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `deploy-surface-detector.ts`              | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `dispatch-intent-store.ts`                | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |

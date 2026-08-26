@@ -872,6 +872,24 @@ ps -eo pid,etime,comm                 # safe: no argv column
 ps -eo command | grep -c 'gho_'       # safe: counts, renders no row
 ```
 
+**A deployment CLI's variable listing is the fourth channel (mt#4570).** `railway variable list`
+and its aliases print every env var WITH its value — `--json` and `-k`/`--kv` both document that
+they render raw values, and there is NO keys-only flag. Same tell as the third channel: your
+command names no secret and no path. Project the keys instead, which is what the guard permits:
+
+```bash
+railway variable list --json | jq -r 'keys[]'        # safe: key names only
+V=$(railway variable list --json | jq -r '.SOME_KEY') # safe: assigned, not printed
+```
+
+**A safe probe that FAILS is where this one bites — the diagnostic re-run inherits the safety
+requirement.** When a keys-only probe comes back empty and you re-run it with stderr visible to
+find out why, un-redirecting stderr and un-filtering stdout feel like a single act of unmuting.
+They are two, and only one of them is what you wanted. On 2026-08-25 that dropped a `jq keys`
+filter along with a `2>/dev/null` and printed a live production key. Restate the filter on the
+re-run, or better: fix the invocation with `--help`/`status` and never re-run the value-bearing
+form at all.
+
 **A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
 UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
 a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
@@ -894,9 +912,11 @@ check itself did not complete — never conflated with a clean pass). Reuses the
 transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
-File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
-(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
-channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+The file-read, process-listing and vendor-CLI channels are all enforced by the
+`block-secret-file-read` guard (`hook-files.mdc`); the rest is discipline-tier. **An MCP server's
+launch config is a fifth channel** — and unlike the four above it is not a command you run, which
+is why it is numbered last rather than beside them: a `$(…)` in an `args` field computes a secret
+into a child's argv (mt#4140); how to
 audit one for that and for a literal token at rest:
 `docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
 Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
@@ -1154,7 +1174,7 @@ at hand.
 
 - **Label = the clean human-readable ref, kept verbatim.** For a task that is the bare `mt#2370` (with the `#`, unencoded — only the URI gets `%23`). For a UUID entity use a short readable label (a name, or a short id prefix) so the principal is not reading a raw UUID; the target still carries the **full** id.
 - **Keep the label free of markdown-link metacharacters.** No `]`, `(`, or `)` in the label — those break the `[label](url)` syntax. A clean entity ref (`mt#2370`, a short id, a short name) never contains them. The id in the target is percent-encoded by the codec, so the URL side is always safe to close at the first `)`.
-- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
+- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts. This governs terminal/chat/cockpit emission; the one sanctioned host-carrying form is the https bridge below, for surfaces that reject the scheme outright.
 - **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
 - **Task and PR refs linkify themselves on Claude Code (mt#2565) — write the clean bare ref.** A `MessageDisplay` hook rewrites every bare `mt#NNNN` and `PR #N` into a deeplink as the message is displayed, while the stored transcript keeps the bare ref; a ref you linked by hand is left alone, and refs inside code fences, inline spans and blockquotes are never touched. This retires the old ration for these two classes — it capped linking at "typically the first mention," and the measured result was 31 linked vs 232 bare in one session, a fully compliant message that still read as not linkified. Two limits decide what authoring discipline still owns. The hook is **Claude Code only**, so hand-link when the output is bound elsewhere. Second, short ids resolve through a CACHE, so their coverage is best-effort: `ask#N` / `mem#N` / `ws#N` target a UUID (ADR-029) the display path cannot derive, so mt#3914 feeds the hook a short-id→UUID map refreshed out-of-band by a cockpit sweep. An id in the map is linked; an id absent from it — minted since the last refresh, or refreshed by nothing because no cockpit is running — stays bare. A wrong target is never emitted. **So the rules below still bind for these three: write the linked form when you hold the UUID.** The display path is a floor under the class that actually fails (mem#623 R6 measured 6 of 6 derivable refs linked and 0 of 3 of these, in a message handing the principal decisions), not a licence to stop. Detail: `docs/rules-rationale/cockpit-deeplinks.md §The one-link-per-entity ration is provisional`.
 
@@ -1164,6 +1184,23 @@ at hand.
 ## Examples
 
 `Implemented [mt#2519](minsky://task/mt%232519).` On a non-OSC-8 terminal this renders as plain text — still readable.
+
+## The https bridge form for https-only surfaces (mt#4604)
+
+Some destinations accept only http(s) link targets and strip a `minsky://` link at ingestion —
+Notion does (verified by read-back, 2026-08-25); GitHub-rendered bodies, Slack, and email are the
+same class. When a link is bound for such a surface, emit the bridge form — same label, same
+percent-encoding, the URI wrapped in the bridge route:
+
+```
+[mt#2865](https://minsky-mcp-production.up.railway.app/r/task/mt%232865)
+```
+
+`GET /r/<type>/<id>` on the MCP server (`src/mcp/deeplink-bridge.ts`) serves an interstitial that
+hands off to `minsky://<type>/<id>`; it validates through the shared codec, so the accepted types
+and id encoding are identical to the scheme form. `minsky://` stays canonical everywhere else. The
+path shape is host-stable: if a brand domain ever replaces the Railway host, relinking is a host
+swap only. Cockpit prose does not yet recognize the bridge form as an entity ref (mt#4607).
 
 ## Terminal caveats
 
@@ -1548,7 +1585,7 @@ which is the growth the consolidation exists to stop.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
-- **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
+- **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Five log-only calibration surfaces ride along. Four have their own override; the fifth, consumer-account (mt#4493), deliberately has NONE — a log-only surface has no decision to bypass, and minting a 100th `MINSKY_*` name is what ADR-028 D3 exists to stop, so `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge` covers it. It fires when a diff REMOVES a signal-producing call (`process.exit(`, `.emit(`, `.close(`, a state-file write) under `src`/`packages`/`cockpit-tray` and the body carries no `Consumer account:` section naming what consumed it and what replaces it; the finding is the missing account, never the removal, which is often right. The only surface reading diff HUNKS rather than the file list, so it alone makes a second `gh api` call — prefiltered to PRs touching a scanned root. `scripts/` is out: a one-shot script's exit is its own status code, supervised by nobody. The four with overrides: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
 - **Pre-commit steps** — NUL/conflict-marker/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
@@ -1576,7 +1613,14 @@ which is the growth the consolidation exists to stop.
   is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  name match no longer fires on a source file (`.ts`/`.js`). Narrowed again mt#4581 — nor on the
+  DIRECTORY holding it, since that rescue keys on the FILE's extension and a directory argument has
+  none. A token now escapes when it is a REPO-RELATIVE path rooted at
+  `src`/`packages`/`scripts`/`services` (anchored at the start, `./` tolerated) AND carries no data
+  extension; the second half is load-bearing — a root-prefix test alone would newly permit
+  `packages/domain/src/secrets/prod.yaml`. Anchoring is deliberate: matching such a segment
+  ANYWHERE would carve out `/var/secrets/services/credentials`. Residuals, both denying:
+  `docs/credentials/` and an ABSOLUTE path into repo source. Widened mt#4159 — `.mcp.json` joined
   the explicit list, and its admission criterion is now "reading the file EMITS a credential",
   not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
   `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
@@ -1591,7 +1635,13 @@ which is the growth the consolidation exists to stop.
   process passed as an argument lands in the output even though the command names no secret and
   no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
   sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
-  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
+  the safe form the rule teaches. Extended mt#4570 with a FOURTH check: a vendor CLI whose
+  ordinary output is every env var WITH its value (`railway variable`/`variables`, bare or
+  `list`/`ls`, in every flag form — `--json` and `-k`/`--kv` both document that they render raw
+  values, and there is no keys-only flag). Keyed on the value-dumping SUBCOMMAND, so `railway
+  status`/`whoami`/`logs` stay allowed, and PIPELINE-scoped like the third: a key-projecting
+  stage (`| jq -r 'keys[]'`) or a counting sink permits it. Same matcher class again, so no new
+  guard and no calibration ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers all four checks.
 - **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
   (`--execute`/`--apply`) while another process is already running that same script. Denies with
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous

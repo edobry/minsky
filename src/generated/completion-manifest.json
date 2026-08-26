@@ -2434,6 +2434,59 @@
           "commandId": "tasks.orchestrate"
         },
         {
+          "name": "supervise",
+          "description": "Start walking an umbrella's task DAG unattended: the cockpit daemon dispatches each child as its dependencies clear, up to a WIP limit, with no further operator input. The supervisor dispatches only — it never merges, answers asks, or changes scope.",
+          "options": [
+            {
+              "flags": ["--status"],
+              "description": "Child statuses the supervisor treats as dispatchable (comma-separated). Default: TODO,READY. Stated explicitly rather than inherited from tasks_orchestrate's TODO-only default, which would silently skip every already-planned child.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--wip-limit"],
+              "description": "Maximum concurrently-dispatched children. Default 4, which is the observed maximum per-umbrella concurrency over the 60 days to 2026-08-25 (median 1, p90 1, p95 2, max 4).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--model"],
+              "description": "Dispatch model alias for the children (e.g. sonnet). Omitted -> the claude binary's own default.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Umbrella task ID to supervise (e.g. mt#4553)"
+            }
+          ],
+          "commandId": "tasks.supervise"
+        },
+        {
+          "name": "supervision-status",
+          "description": "Report an umbrella's supervision: what is dispatched right now, what the supervisor is waiting on, every child it has started and how each finished, and whether it has stalled.",
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Umbrella task ID"
+            }
+          ],
+          "commandId": "tasks.supervision-status"
+        },
+        {
+          "name": "supervise-stop",
+          "description": "Stop supervising an umbrella. Children already dispatched keep running — they are ordinary driven sessions doing real work, and killing them would discard uncommitted output. Stopping means the supervisor dispatches nothing further.",
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Umbrella task ID"
+            }
+          ],
+          "commandId": "tasks.supervise-stop"
+        },
+        {
           "name": "decompose",
           "description": "Gather task context and generate a decomposition prompt for creating subtasks",
           "options": [
@@ -6150,7 +6203,12 @@
                 },
                 {
                   "flags": ["--not-before"],
-                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
+                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890). NECESSARY BUT NOT SUFFICIENT (mt#4583): this bounds TIME, and time does not identify WHICH change deployed — a neighbouring merge's deployment lands inside the window and passes. Pass expectCommitSha too.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--expect-commit-sha"],
+                  "description": "The merge commit you are verifying deployed (mt#4583). When set, the result carries a `buildIdentity` verdict — 'confirmed' (the deployment names this commit), 'mismatch' (it names a different one, so a deploy happened but not yours), or 'indeterminate' (the record cannot answer; image-source services carry no commit hash at all). Read it: 'indeterminate' is NOT 'confirmed', and treating a bare SUCCESS as proof your change shipped is the defect this parameter exists to remove.",
                   "takesValue": true
                 }
               ],
@@ -6253,6 +6311,27 @@
               "commandId": "guard-events.ingest"
             }
           ]
+        },
+        {
+          "name": "reviewer-cost",
+          "description": "Report reviewer LLM spend from `review_timing`: total and per-day cost, the R1 vs R>=2 split, median input and uncached-input tokens, cache-hit ratio, and how many calls terminated at the tool-loop round cap. Reads through the daemon's existing database connection — no credential is passed by the caller and none appears in the output. Rows with iteration_index = 0 (pre-model skip paths) are excluded from every statistic and counted separately; rows with a null cached_tokens are counted separately because their cost is mis-priced (mt#3665) and a window containing them is not comparable.",
+          "options": [
+            {
+              "flags": ["--since"],
+              "description": "Only include calls created on/after this timestamp (ISO 8601, e.g. '2026-08-04T08:07:36Z'). Omit for no lower bound.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include calls created before this timestamp (ISO 8601). Omit for no upper bound.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Return the full structured report instead of the human-readable summary. mt#3654 needs to paste actual output into a findings section, so both shapes are supported."
+            }
+          ],
+          "commandId": "observability.reviewer-cost"
         },
         {
           "name": "smoke-test",

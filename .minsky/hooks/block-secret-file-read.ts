@@ -62,6 +62,8 @@
 //
 // @see mt#3282 — this guard
 // @see mt#4017 — the script-invocation (command-OUTPUT) extension
+// @see mt#3850 — the process-listing (argv-column) extension
+// @see mt#4570 — the vendor-CLI env-var-dump extension (R5)
 // @see mt#2763 — the prose rule + ingest scrubber this is the missing tier of
 // @see .minsky/hooks/check-guessed-session-path.ts — PreToolUse deny template
 // @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1/D2
@@ -168,6 +170,71 @@ function hasSourceCodeExtension(token: string): boolean {
 }
 
 /**
+ * Directory names that root this repo's PROGRAM SOURCE.
+ *
+ * The carve-out above keys on the FILE's extension, and a directory argument has
+ * none — so `packages/domain/src/credentials/` fell through to the generic name
+ * match and denied, while `packages/domain/src/credentials/lifecycle.ts` did not
+ * (mt#4581). The extension test that rescues a source file cannot rescue the
+ * directory that holds it.
+ */
+export const SOURCE_ROOT_SEGMENTS: readonly string[] = ["src", "packages", "scripts", "services"];
+
+/**
+ * Extensions that mark a token as a DATA store rather than program source.
+ *
+ * Mirrors the optional extension group in {@link GENERIC_SECRET_NAME_PATTERN} —
+ * these are the extensions that pattern itself treats as credential-store-shaped.
+ * A token under a source root is rescued only when it carries NONE of them,
+ * which is what keeps `packages/domain/src/secrets/prod.yaml` denying while
+ * `packages/domain/src/credentials/` is allowed.
+ */
+export const DATA_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".yaml",
+  ".yml",
+  ".json",
+  ".env",
+  ".txt",
+  ".conf",
+]);
+
+function hasDataExtension(token: string): boolean {
+  const base = token.slice(token.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return DATA_EXTENSIONS.has(base.slice(dot).toLowerCase());
+}
+
+/**
+ * Is this token a REPO-RELATIVE path rooted at one of this repo's source roots?
+ *
+ * Anchored at the string start, NOT matched at any interior path-segment
+ * boundary. The first version of this used `(^|/)<root>/` so that an absolute
+ * session-workspace path would qualify; PR #3364 R1 caught that it also matches
+ * a source-root name appearing ANYWHERE, so `/var/secrets/services/credentials`
+ * and `~/.config/app/src/credentials` would have escaped the generic pattern —
+ * real secret paths, carved out by a rule meant for repo source. The carve-out
+ * belongs to THIS repo's top-level roots, which is what the spec's "under a
+ * source root" says and what anchoring implements literally.
+ *
+ * The absolute-path case that motivated the interior match was speculative and
+ * is not restored: the originating incident's command was repo-relative, run
+ * from inside a session, which is how agents address session files. An absolute
+ * path bearing a `credentials`/`secrets` directory still denies — an accepted
+ * residual alongside `docs/credentials/`, and a narrower one than permitting
+ * every interior `/services/`.
+ *
+ * Leading `./` is tolerated; a directory merely PREFIXED with a root's name
+ * (`services-archive/`, `srcfoo/`) is not, because the trailing `/` is required.
+ * Note this asks about one path ARGUMENT, never about the command string —
+ * SC3's "names a source TREE, not mentions a source root somewhere".
+ */
+export function isUnderSourceRoot(token: string): boolean {
+  const normalized = token.replace(/^(\.\/)+/, "");
+  return SOURCE_ROOT_SEGMENTS.some((seg) => normalized.startsWith(`${seg}/`));
+}
+
+/**
  * Commands that EMIT file content to stdout. `grep`/`rg` are conditional —
  * see `isEmittingInvocation` — because their count/quiet forms are exactly the
  * safe presence-check this guard steers callers toward.
@@ -252,9 +319,12 @@ export interface SecretReadHit {
    * credential by design (R4) — there is no separate reader/emitting-flag
    * distinction to make, the invocation itself IS the hit;
    * `"process-listing"` is an invocation that prints another process's ARGV,
-   * where a secret rides along in a row the caller never asked for.
+   * where a secret rides along in a row the caller never asked for;
+   * `"cli-env-dump"` is a vendor CLI whose ordinary output is every environment
+   * variable WITH its value (R5) — the command names no path and invokes no
+   * script, so the three shapes above cannot see it.
    */
-  kind: "file-read" | "script-invocation" | "process-listing";
+  kind: "file-read" | "script-invocation" | "process-listing" | "cli-env-dump";
 }
 
 /**
@@ -328,6 +398,13 @@ export function isSecretPath(token: string): boolean {
   if (EXPLICIT_SECRET_PATH_PATTERNS.some((re) => re.test(token))) return true;
   // The generic name-resemblance pattern alone must not condemn program source.
   if (hasSourceCodeExtension(token)) return false;
+  // ...nor the DIRECTORY that holds it (mt#4581). Conditioned on the extension
+  // as well as the root: a prefix-only test would newly permit
+  // `packages/domain/src/secrets/prod.yaml`, a real credential store sitting
+  // under source. Both checks sit BELOW the explicit list on purpose — the
+  // carve-out narrows GENERIC_SECRET_NAME_PATTERN alone, exactly as mt#3703's
+  // does, so `src/foo/.env` and `packages/.../key.pem` still deny above.
+  if (isUnderSourceRoot(token) && !hasDataExtension(token)) return false;
   return GENERIC_SECRET_NAME_PATTERN.test(token);
 }
 
@@ -794,6 +871,296 @@ export function findProcessListingReads(command: string): SecretReadHit[] {
   return hits;
 }
 
+// ---------------------------------------------------------------------------
+// Vendor CLI env-var dumps (mt#4570, R5)
+// ---------------------------------------------------------------------------
+//
+// A deployment CLI's variable-listing command prints every environment variable
+// WITH its value. None of the three checks above can see it: the command names
+// no secret-bearing PATH, invokes no script on the fixed list, and requests no
+// argv column. It is a fourth channel, and the same matcher CLASS — a
+// structured command string against a fixed list, no paraphrase axis — so it
+// ships denying rather than calibration-first, like its three siblings.
+//
+// Keyed on the value-dumping SUBCOMMAND, not on the binary: `railway status`,
+// `railway whoami` and `railway logs` are ordinary diagnostics and stay allowed.
+//
+// The vendor agrees this is hazardous. `railway variable --help` carries an
+// "Automation notes" section (read 2026-08-25) stating verbatim: "JSON and KV
+// output include raw variable values. Avoid sharing command output from
+// secret-bearing variable commands." There is NO keys-only flag — `--json` and
+// `-k`/`--kv` both document that they render raw values — so the safe form is a
+// key-projecting `jq` stage, carved out below.
+//
+// Originating incident (2026-08-25): `railway variables --json` printed the
+// minsky-reviewer production BRAINTRUST_API_KEY into a persisted, ingested
+// transcript. The agent's FIRST attempt was the safe keys-only form; it failed
+// on a wrong `--service` name with stderr discarded, and the diagnostic re-run
+// dropped the `jq` filter along with the `2>/dev/null`. Both read as one act of
+// unmuting the probe; only one of them was intended.
+
+/**
+ * A vendor CLI subcommand that renders environment variables with their values.
+ *
+ * `nouns` are the subcommand spellings that name the variable collection —
+ * vendors alias singular and plural freely (`railway variable` /
+ * `railway variables` are the same command).
+ *
+ * `safeVerbs` is an ALLOW-list, so an absent or unrecognised verb is treated as
+ * value-dumping. That is deliberate: a bare `railway variables` lists, and a
+ * verb this table has never heard of is more likely a new read than a new
+ * write.
+ */
+interface SecretDumpingCliSpec {
+  readonly program: string;
+  readonly nouns: ReadonlySet<string>;
+  readonly safeVerbs: ReadonlySet<string>;
+  /** Human-readable name for the denial message. */
+  readonly label: string;
+  /**
+   * Flags that consume the NEXT token as their value.
+   *
+   * Without these, a flag's value is misread as a positional and shifts the
+   * noun out of position — `railway -s api variable list` parses as
+   * noun=`api`, which matches nothing and silently ALLOWS the dump. Enumerate
+   * from the CLI's own `--help`; a flag missing here is a bypass, not a
+   * cosmetic gap. (PR #3336 R1, BLOCKING.)
+   */
+  readonly valueFlags: ReadonlySet<string>;
+  /** Vendor-specific lines for the denial message, so it is not Railway-hardcoded. */
+  readonly denialNotes: readonly string[];
+  /** The safe, value-suppressing form to recommend for this CLI. */
+  readonly safeForms: readonly string[];
+}
+
+/**
+ * Sibling CLIs evaluated for this list (2026-08-25). Adding one is a one-line
+ * entry above; each exclusion below carries its reason so the next reader does
+ * not re-derive it.
+ *
+ * VERIFIED against the installed CLI's own `--help`, and EXCLUDED:
+ *
+ * - `fly secrets list` — does NOT render values. Its help states: "It shows
+ *   each secret's name, a digest of its value ... The actual value of the
+ *   secret is only available to the application." Including it would deny a
+ *   command that cannot leak. (This one reversed an assumption — it was on the
+ *   candidate list precisely because it looks like it dumps.)
+ * - `gh secret list` — names only. Its `--json` field set is
+ *   `name, numSelectedRepos, selectedReposURL, updatedAt, visibility`; there is
+ *   no `value` field, because GitHub secrets are write-only through the API.
+ * - `gh variable list` — the closest call, and still excluded. Its `--json`
+ *   field set DOES include `value`, so it renders values. But GitHub enforces a
+ *   split: a secret cannot be stored as a variable, and `gh secret` is the
+ *   surface that holds them. Denying this would block a command whose entire
+ *   purpose is non-secret Actions config. Residual risk is a user storing a
+ *   credential in a variable, which the platform already treats as misuse.
+ *
+ * NOT VERIFIED — CLI not installed here, so their behaviour is unknown rather
+ * than known-safe. Do NOT add one on recollection; run its `--help` first:
+ *
+ * - `vercel env pull` / `vercel env ls`, `heroku config`, `doppler secrets`,
+ *   `wrangler secret list`.
+ *
+ * Note `vercel env pull` writes a `.env` FILE rather than stdout, so a later
+ * read of that file is already caught by the file-read check (`.env*` is on
+ * EXPLICIT_SECRET_PATH_PATTERNS) — worth confirming before adding it here,
+ * since it may need no entry at all.
+ */
+export const SECRET_DUMPING_CLI_SPECS: readonly SecretDumpingCliSpec[] = [
+  {
+    program: "railway",
+    nouns: new Set(["variable", "variables"]),
+    safeVerbs: new Set(["set", "delete", "rm", "remove", "help"]),
+    label: "Railway service variables",
+    // Enumerated from `railway variable --help`, 2026-08-25.
+    valueFlags: new Set([
+      "-s",
+      "--service",
+      "-e",
+      "--environment",
+      "-p",
+      "--project",
+      "--set",
+      "--set-from-stdin",
+    ]),
+    denialNotes: [
+      "The vendor says so itself. `railway variable --help` carries an Automation",
+      'notes section: "JSON and KV output include raw variable values. Avoid',
+      'sharing command output from secret-bearing variable commands." There is no',
+      "keys-only flag — `--json` and `-k`/`--kv` both render raw values.",
+    ],
+    safeForms: [
+      "railway variable list --json | jq -r 'keys[]'",
+      "railway variable list --json | jq -r 'keys | length'",
+    ],
+  },
+];
+
+/**
+ * `jq` tokens that are PERMITTED inside a key-projecting filter.
+ *
+ * Whitelist of whole tokens rather than a shape regex: an unrecognised token
+ * (`.[]`, `to_entries`, a field name) means the filter may render a value, so
+ * it is NOT a carve-out and the command denies. Fail-closed by construction.
+ *
+ * Permitted is NOT sufficient on its own — see {@link VALUE_REDUCING_JQ_TOKENS}.
+ */
+const KEY_ONLY_JQ_TOKENS: ReadonlySet<string> = new Set([
+  ".",
+  "|",
+  "keys",
+  "keys[]",
+  "keys_unsorted",
+  "keys_unsorted[]",
+  "length",
+  "sort",
+  "[]",
+]);
+
+/**
+ * The tokens that actually DISCARD values. At least one must be present.
+ *
+ * The allow-list alone is not enough, and the gap is not hypothetical: this
+ * check's own test caught it. `.` is legitimately permitted as a pass-through
+ * inside `. | keys`, but `jq '.'` — every token permitted — renders the entire
+ * object, values and all. A filter made only of pass-through tokens reduces
+ * nothing, so a positive requirement is needed alongside the negative one.
+ */
+const VALUE_REDUCING_JQ_TOKENS: ReadonlySet<string> = new Set([
+  "keys",
+  "keys[]",
+  "keys_unsorted",
+  "keys_unsorted[]",
+  "length",
+]);
+
+/** Strip one layer of surrounding quotes left by {@link tokenize}. */
+function unquote(token: string): string {
+  const first = token[0];
+  if ((first === '"' || first === "'") && token.length >= 2 && token.endsWith(first)) {
+    return token.slice(1, -1);
+  }
+  return token;
+}
+
+/**
+ * Does this `jq` stage render only key NAMES?
+ *
+ * `railway variable list --json | jq -r 'keys[]'` is the safe recipe this
+ * guard steers callers toward, so it must not be denied — the same reasoning
+ * that carves counting sinks out of the process-listing check.
+ */
+export function isKeyOnlyJqStage(program: string, tokens: string[]): boolean {
+  if (program !== "jq") return false;
+  const filters = tokens
+    .slice(1)
+    .filter((t) => !t.startsWith("-"))
+    .map(unquote);
+  if (filters.length === 0) return false;
+  return filters.every((filter) => {
+    const parts = filter
+      .replace(/\|/g, " | ")
+      .split(/\s+/)
+      .filter((p) => p.length > 0);
+    if (parts.length === 0) return false;
+    if (!parts.every((p) => KEY_ONLY_JQ_TOKENS.has(p))) return false;
+    // Every token permitted is not enough — the filter must actually reduce.
+    return parts.some((p) => VALUE_REDUCING_JQ_TOKENS.has(p));
+  });
+}
+
+/** Does this stage consume its input without rendering any variable VALUE? */
+export function isValueSuppressingStage(program: string, tokens: string[]): boolean {
+  return isNonEmittingSink(program, tokens) || isKeyOnlyJqStage(program, tokens);
+}
+
+/**
+ * The POSITIONAL arguments of a command, skipping flags AND their values.
+ *
+ * A naive `filter(t => !t.startsWith("-"))` treats a flag's value as a
+ * positional, which shifts every later positional left by one. That is a
+ * silent BYPASS rather than a parsing nicety: `railway -s api variable list`
+ * yields noun=`api`, matches no spec, and the dump is allowed.
+ *
+ * `--flag=value` needs no skip — the value rides on the flag token. A bare
+ * `--` terminator ends flag parsing entirely.
+ */
+export function positionalArgs(tokens: string[], valueFlags: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  const args = tokens.slice(1);
+  let flagsDone = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const t = args[i];
+    if (t === undefined) continue;
+    if (!flagsDone && t === "--") {
+      flagsDone = true;
+      continue;
+    }
+    if (!flagsDone && t.startsWith("-") && t !== "-") {
+      if (t.includes("=")) continue; // `--service=api` carries its own value
+      if (valueFlags.has(t)) i++; // consume the flag's VALUE
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
+}
+
+/** Would this invocation print environment-variable values? */
+export function isSecretDumpingCliInvocation(
+  program: string,
+  tokens: string[]
+): SecretDumpingCliSpec | null {
+  const spec = SECRET_DUMPING_CLI_SPECS.find((s) => s.program === program);
+  if (!spec) return null;
+
+  const positionals = positionalArgs(tokens, spec.valueFlags);
+  const noun = positionals[0];
+  if (noun === undefined || !spec.nouns.has(noun)) return null;
+
+  const verb = positionals[1];
+  if (verb !== undefined && spec.safeVerbs.has(verb)) return null;
+
+  return spec;
+}
+
+/**
+ * Find vendor-CLI invocations whose env-var VALUES would reach the transcript.
+ *
+ * Pipeline-scoped for the same reason {@link findProcessListingReads} is: the
+ * documented safe form is a key-projecting `jq` stage, and a guard that denied
+ * its own recommended remedy would push callers back to the unsafe form. The
+ * suppressing stage is looked for ANYWHERE downstream — once keys have been
+ * projected, no later stage can resurrect the values.
+ */
+export function findSecretDumpingCliReads(command: string): SecretReadHit[] {
+  const hits: SecretReadHit[] = [];
+  if (!command) return hits;
+
+  for (const stages of splitPipelines(command)) {
+    for (const [index, stage] of stages.entries()) {
+      const tokens = tokenize(stage);
+      if (tokens.length === 0) continue;
+      const program = programOf(tokens);
+      if (!program) continue;
+
+      const spec = isSecretDumpingCliInvocation(program, tokens);
+      if (!spec) continue;
+
+      const suppressedDownstream = stages.slice(index + 1).some((later) => {
+        const laterTokens = tokenize(later);
+        const laterProgram = programOf(laterTokens);
+        return laterProgram !== null && isValueSuppressingStage(laterProgram, laterTokens);
+      });
+      if (suppressedDownstream) continue;
+
+      hits.push({ segment: stage, reader: program, path: spec.label, kind: "cli-env-dump" });
+    }
+  }
+  return hits;
+}
+
 /** Collect all string values from a tool_input object (command + any string args). */
 export function collectStrings(toolInput: Record<string, unknown>): string[] {
   const out: string[] = [];
@@ -812,6 +1179,7 @@ export function findInToolInput(toolInput: Record<string, unknown>): SecretReadH
       ...findSecretReads(s),
       ...findSecretScriptInvocations(s),
       ...findProcessListingReads(s),
+      ...findSecretDumpingCliReads(s),
     ]) {
       const key = `${hit.kind}::${hit.reader}::${hit.path}`;
       if (seen.has(key)) continue;
@@ -837,6 +1205,7 @@ export function buildDenialReason(hits: SecretReadHit[]): string {
   const fileHits = hits.filter((h) => h.kind === "file-read");
   const scriptHits = hits.filter((h) => h.kind === "script-invocation");
   const processHits = hits.filter((h) => h.kind === "process-listing");
+  const cliDumpHits = hits.filter((h) => h.kind === "cli-env-dump");
 
   const lines: string[] = [
     "This command would print credentials into the persisted, ingested transcript.",
@@ -899,6 +1268,27 @@ export function buildDenialReason(hits: SecretReadHit[]): string {
     );
   }
 
+  if (cliDumpHits.length > 0) {
+    lines.push(
+      "Blocked command(s) — this CLI prints every variable WITH its value:",
+      cliDumpHits.map((h) => `  - ${h.reader} (${h.path})`).join("\n"),
+      "",
+      // Vendor-specific lines come from the matched spec(s), so adding a CLI
+      // does not leave the denial talking about Railway (PR #3336 R1).
+      ...cliDumpSpecsFor(cliDumpHits).flatMap((s) => [...s.denialNotes, ""]),
+      "Project the keys, which is ALLOWED and is the recommended form:",
+      ...cliDumpSpecsFor(cliDumpHits).flatMap((s) => s.safeForms.map((f) => `  ${f}`)),
+      "",
+      "If a keys-only run came back empty, do NOT re-run it without the filter to",
+      "see the error — that is how this channel leaked on 2026-08-25. Show stderr",
+      "and KEEP the filter, then read the error above the key list.",
+      "",
+      "To read ONE value without rendering it, assign it instead of printing:",
+      "  V=$(<list-cmd> --json | jq -r '.SOME_KEY'); [ -n \"$V\" ] && echo present",
+      ""
+    );
+  }
+
   lines.push(
     "If you need the value itself, read it into a variable without printing it,",
     "or route through a masked surface (the cockpit credentials widget,",
@@ -908,6 +1298,17 @@ export function buildDenialReason(hits: SecretReadHit[]): string {
   );
 
   return lines.join("\n");
+}
+
+/**
+ * The distinct specs behind a set of cli-env-dump hits, in list order.
+ *
+ * Lets the denial render each matched vendor's own guidance instead of
+ * hardcoding Railway's (PR #3336 R1, non-blocking).
+ */
+function cliDumpSpecsFor(hits: SecretReadHit[]): SecretDumpingCliSpec[] {
+  const programs = new Set(hits.map((h) => h.reader));
+  return SECRET_DUMPING_CLI_SPECS.filter((s) => programs.has(s.program));
 }
 
 /** True when the override env var is set to an affirmative value. */

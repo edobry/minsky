@@ -77,6 +77,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **Duplicate-check search provenance** (mt#4004) — a duplicate-check record CLAIMING a past-tense search, in a session with no `tasks_search`/`tasks_similar`/`refs_status` call. Third of four tiers on that record (present / true / searched / read). Calibration-first. `MINSKY_SKIP_SEARCH_PROVENANCE`.
 - **Duplicate-check candidate read** (mt#4167) — the fourth tier: the record distinguishes candidates whose specs were never opened this session. NAMED candidates only. Calibration-first. `MINSKY_SKIP_CANDIDATE_READ_PROVENANCE`. Detail: `duplicate-check-candidate-read.md`.
 - **Claim provenance** (mt#4168) — THREE classes at the spec-WRITE seam, each with no discharging call: a file-level COLLISION, a NEGATIVE OWNERSHIP claim, and (mt#4299) a REMAINING-WORK assertion about a task, discharged by a status read on that id. RECORD-ONLY. `MINSKY_SKIP_CLAIM_PROVENANCE`. Detail: `claim-provenance-scan.md`.
+- **Unwired task relationship** (mt#2264) — a spec STATES a relationship naming another task ("hard prerequisite for mt#N", "feeds mt#N", "is part of mt#N") while the matching edge is absent. Whole spec-authoring seam; discharge is exact — the payload's `dependsOn`/`parent` at create, the live `task_relationships` graph at the edit seams. Names which AXIS to wire (dependency vs parent/child, mem#530). RECORD-ONLY. Override is the unified `MINSKY_HOOK_OVERRIDE=warn-unwired-task-relationship` — no bespoke var, per ADR-028 D3. Detail: `warn-unwired-task-relationship.md`.
 - **Evidence-record provenance** (mt#4044) — a `Negative control:` / `Execution evidence:` record claiming a run, written into a commit message or PR body with no matching run in the session. Per-CLAIM since mt#4236: an evidence block asserting a typecheck/lint/format result is judged against a run of THAT kind, and a run predating a later write to a file it reads records `stale-evidence`. RECORD-ONLY (tune: mt#4067). `MINSKY_SKIP_EVIDENCE_PROVENANCE`. Detail: `evidence-record-provenance.md`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens already in an active task's spec that its duplicate-check record does not concede. Exact substring, no similarity metric (mem#819). Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`. Detail: `duplicate-signature-scan.md`.
 - **Stale-signal sweep** (mt#3959) — `session_pr_create` on a branch that STOPPED emitting an operator-facing `<label>=` while active specs, memories or ADRs still quote it. Calibration-first. `MINSKY_SKIP_STALE_SIGNAL_SWEEP`. Detail: `stale-signal-sweep.md`.
@@ -91,6 +92,19 @@ Detail: `guard-dispatcher-framework.md`.
   replayed over 1,124 windows the two together decide 29.7% against row 1's 1.2%. At `pr`, not
   ADR-042's READY seam (mt#4293). Calibration-first.
   `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
+- **Spec-scope execution** (mt#4544) — `session_pr_create` where the bound task's spec enumerates
+  in-scope file paths the session never edited. The sibling above asks whether the SWEEP THE AUTHOR
+  RAN reached gate (h)'s prescribed directories; this asks whether the LIST THE SPEC NAMED was
+  touched — the author's own enumeration is the cheapest available oracle and was write-only until
+  now. Originating instance mt#4531 / PR #3310: the spec named a doc explicitly, the implementation
+  never touched it, and the reviewer caught it BLOCKING a round late by re-deriving the impact.
+  Parses STRICTLY (`extractInScopeFiles(spec, { strict: true })`) — the shared extractor's
+  `## Context` / whole-document fallback is right for collision detection and would here collect
+  every path a spec merely MENTIONS, reporting each as an unkept promise. A spec with no parseable
+  in-scope paths records `skipped` ("nothing to compare"), never `clean`. Record-only,
+  calibration-first; the dominant false positive is a CONDITIONAL enumeration line whose condition
+  did not fire, which is why the record carries the spec's own line beside each path.
+  `MINSKY_SKIP_SPEC_SCOPE_EXECUTION`.
 - **Gate-walk provenance** (mt#1880) — `session_pr_merge` on a task with no `task.status_changed`
   → READY row: was it gated at ALL? The existence half of the pair above, at the only seam
   mem#416's four bypass paths share. `skipped` (pre-horizon, unreadable) is kept strictly apart
@@ -98,6 +112,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **New-surface design pass** (mt#4124) — `session_pr_create` on a branch that ADDS a render-path file, or (mt#4356) MODIFIES one when the bound spec declares the change visually judged, with no design skill invoked in the authoring conversation. The judgment half of mt#2421. The second trigger exists because file-add proxied for "this is a design decision" and missed the largest class of design work — changing how an existing surface looks; the whole cockpit redesign sequence is modify-only and was invisible to it. Calibration-first. `MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS`. Detail: `new-surface-design-pass.md`.
 - **Flakiness-control detector** (mt#3658) — `tasks_create` whose spec claims a failure MODE with no isolation control recorded. Fires on the ATTRIBUTION and equally on the DENIAL (mt#4166). Calibration-first. `MINSKY_SKIP_FLAKINESS_CONTROL`. Detail: `flakiness-control-detector.md`.
 - **Unowned-finding scan** (mt#4246) — a `tasks_status_set` → DONE whose spec's findings section holds an item declaring neither `[owner: mt#N]` nor `[no-owner: reason]`. Calibration-first. `MINSKY_SKIP_UNOWNED_FINDING_SCAN`. Detail: `unowned-finding-scan.md`.
+- **Consumer-account** (mt#4493) — a merge whose branch diff REMOVES, or newly GUARDS, a signal-producing call (`process.exit(`, `.emit(`, `.close(`, a state-file write) under `src`/`packages`/`cockpit-tray`, with no `Consumer account:` section in the PR body naming what consumed it. The finding is the missing account, never the removal. Calibration-first. **No `MINSKY_SKIP_*` of its own** — a log-only surface has no decision to bypass, and ADR-028 D3 retires per-guard names; `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge` covers it. Rides the execution-evidence gate as its fifth calibration surface, so the mechanics sit with its four siblings in `hook-files.mdc §Execution-evidence`.
 - **Spec-criterion-claim** (mt#4153) — a `## Success Criteria` / `## Acceptance Tests` bullet asserting unverified corpus state (Class A) or imposing a precondition absent from the authorizing ask (Class B, edit surfaces only). Calibration-first. `MINSKY_SKIP_SPEC_CRITERION_CLAIM`. Detail: `spec-criterion-claim-detector.md`.
 - **Display linkifier** (mt#2565) — MessageDisplay: rewrites bare `mt#NNNN`/`PR #N`/`ask#N`/`mem#N`/`ws#N` into deeplinks as a message streams; the stored transcript keeps the bare ref. OFF the dispatcher. `MINSKY_SKIP_TERMINAL_LINKIFY`. Detail: `linkify-message-display.md`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.

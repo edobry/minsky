@@ -226,6 +226,11 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   const { createTasksDispatchRecoverCommand } = require("./dispatch-recover-command");
   const { createTasksOrchestrateCommand } = require("./orchestrate-command");
   const {
+    createTasksSuperviseCommand,
+    createTasksSupervisionStatusCommand,
+    createTasksSuperviseStopCommand,
+  } = require("./supervision-commands");
+  const {
     createTasksDecomposeCommand,
     createTasksEstimateCommand,
     createTasksAnalyzeCommand,
@@ -294,6 +299,13 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     ),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
+    // Supervision (mt#4571): start/read/stop an unattended DAG walk. These
+    // write and read the supervision record only — the tick that acts on it
+    // runs in the cockpit daemon, because a command exits and cannot be the
+    // thing that outlives the operator's tab.
+    createTasksSuperviseCommand(getPersistenceProvider),
+    createTasksSupervisionStatusCommand(getPersistenceProvider),
+    createTasksSuperviseStopCommand(getPersistenceProvider),
     // Context commands (decompose, estimate, analyze)
     createTasksDecomposeCommand(getTaskGraphService, getTaskService),
     createTasksEstimateCommand(getTaskGraphService, getTaskService),

@@ -50,10 +50,32 @@ export const CONFIG_FINGERPRINT_VERSION = "v1";
  *
  * All six are default-OFF and share one parse (`parseRecoveryFlag`). Adding a
  * flag to the reviewer without adding it here is a silent regression — the
- * fingerprint would report two genuinely different arms as the same one — so
- * this list is the single place the flag set is written down.
+ * fingerprint would report two genuinely different arms as the same one.
+ *
+ * This list is the single place the flag set is written down, and as of mt#4578
+ * that is enforced rather than asserted. Before mt#4578 it was half true:
+ * mt#4556 routed all six gates through one PARSE, but each gate still spelled
+ * its own `process.env.REVIEWER_*` literal, so a rename could update one site
+ * and leave the other compiling.
+ *
+ * The two drift directions are closed by two different mechanisms, because only
+ * one of them is expressible as a type:
+ *
+ *  - **A gate naming a flag this list does not have** cannot compile. The gates
+ *    call `readRecoveryFlag(key)` below and never name an env var, and
+ *    `RecoveryFlagKey` is derived from this array — so there is no second
+ *    spelling of the name anywhere, and a typo'd key is a type error.
+ *  - **An entry here that no gate reads** is invisible to the compiler: nothing
+ *    can require a call site to EXIST. That direction is covered by
+ *    `recovery-flag-wiring.test.ts`, which checks each key is consumed.
+ *
+ * NOTE: the type annotation is deliberately omitted. Annotating this
+ * `ReadonlyArray<readonly [string, string]>` widens the literals back to
+ * `string`, `RecoveryFlagKey` silently becomes `string`, and the compile-time
+ * half above is lost with no visible symptom — a gate could then pass any
+ * string. Keep `as const` and keep the annotation off.
  */
-export const RECOVERY_FLAG_ENV_VARS: ReadonlyArray<readonly [string, string]> = [
+export const RECOVERY_FLAG_ENV_VARS = [
   ["composition_convergence", "REVIEWER_COMPOSITION_CONVERGENCE_ENABLED"],
   ["diff_scope_bounded", "REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED"],
   ["incremental_diff", "REVIEWER_INCREMENTAL_DIFF_ENABLED"],
@@ -63,15 +85,54 @@ export const RECOVERY_FLAG_ENV_VARS: ReadonlyArray<readonly [string, string]> = 
 ] as const;
 
 /**
+ * A fingerprint key naming one behavioural flag.
+ *
+ * Derived from `RECOVERY_FLAG_ENV_VARS`, never hand-written — that derivation is
+ * what makes a gate unable to name a flag the list does not carry.
+ */
+export type RecoveryFlagKey = (typeof RECOVERY_FLAG_ENV_VARS)[number][0];
+
+/**
+ * Key → env var. Total by construction: both sides come from the same array, so
+ * the cast asserts only what `RecoveryFlagKey`'s own derivation already
+ * guarantees (`Object.fromEntries` cannot express that on its own).
+ */
+const RECOVERY_FLAG_ENV_VAR_BY_KEY = Object.fromEntries(RECOVERY_FLAG_ENV_VARS) as Record<
+  RecoveryFlagKey,
+  string
+>;
+
+/**
  * Parse a default-OFF behavioural flag.
  *
- * This is the single definition of that parse: `review-worker.ts` calls it at
- * each of the six gates rather than repeating the pattern, so the fingerprint
- * cannot report a flag differently from the code that acts on it. Accepts
+ * This is the single definition of that parse. Prefer `readRecoveryFlag` at a
+ * gate — this stays exported because `buildConfigFingerprint` below applies it
+ * across the whole list at once, where there is no single key to read. Accepts
  * `true` / `1` / `yes` / `on`, case-insensitively, after trimming.
  */
 export function parseRecoveryFlag(raw: string | undefined): boolean {
   return /^(true|1|yes|on)$/i.test((raw ?? "").trim());
+}
+
+/**
+ * Read one behavioural flag by its fingerprint key (mt#4578).
+ *
+ * The form the six gates in `review-worker.ts` call. They pass a key and never
+ * an env var, so the name exists in exactly one place — `RECOVERY_FLAG_ENV_VARS`
+ * — and the fingerprint cannot report a flag under a name the gate does not
+ * actually read.
+ *
+ * A reader at a gate can still recover the env var without opening this file:
+ * every key maps to `REVIEWER_${KEY.toUpperCase()}_ENABLED`. That is a
+ * convention the current six happen to follow, NOT a derivation — the pairs
+ * above stay explicit so a future flag may take a non-conforming name, and so
+ * that renaming a key can never silently rename an operator-facing env var.
+ */
+export function readRecoveryFlag(
+  key: RecoveryFlagKey,
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  return parseRecoveryFlag(env[RECOVERY_FLAG_ENV_VAR_BY_KEY[key]]);
 }
 
 function onOff(value: boolean): string {

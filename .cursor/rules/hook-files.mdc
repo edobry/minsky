@@ -28,7 +28,7 @@ which is the growth the consolidation exists to stop.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
-- **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
+- **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Five log-only calibration surfaces ride along. Four have their own override; the fifth, consumer-account (mt#4493), deliberately has NONE — a log-only surface has no decision to bypass, and minting a 100th `MINSKY_*` name is what ADR-028 D3 exists to stop, so `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge` covers it. It fires when a diff REMOVES a signal-producing call (`process.exit(`, `.emit(`, `.close(`, a state-file write) under `src`/`packages`/`cockpit-tray` and the body carries no `Consumer account:` section naming what consumed it and what replaces it; the finding is the missing account, never the removal, which is often right. The only surface reading diff HUNKS rather than the file list, so it alone makes a second `gh api` call — prefiltered to PRs touching a scanned root. `scripts/` is out: a one-shot script's exit is its own status code, supervised by nobody. The four with overrides: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
 - **Pre-commit steps** — NUL/conflict-marker/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
@@ -56,7 +56,14 @@ which is the growth the consolidation exists to stop.
   is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  name match no longer fires on a source file (`.ts`/`.js`). Narrowed again mt#4581 — nor on the
+  DIRECTORY holding it, since that rescue keys on the FILE's extension and a directory argument has
+  none. A token now escapes when it is a REPO-RELATIVE path rooted at
+  `src`/`packages`/`scripts`/`services` (anchored at the start, `./` tolerated) AND carries no data
+  extension; the second half is load-bearing — a root-prefix test alone would newly permit
+  `packages/domain/src/secrets/prod.yaml`. Anchoring is deliberate: matching such a segment
+  ANYWHERE would carve out `/var/secrets/services/credentials`. Residuals, both denying:
+  `docs/credentials/` and an ABSOLUTE path into repo source. Widened mt#4159 — `.mcp.json` joined
   the explicit list, and its admission criterion is now "reading the file EMITS a credential",
   not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
   `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
@@ -71,7 +78,13 @@ which is the growth the consolidation exists to stop.
   process passed as an argument lands in the output even though the command names no secret and
   no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
   sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
-  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
+  the safe form the rule teaches. Extended mt#4570 with a FOURTH check: a vendor CLI whose
+  ordinary output is every env var WITH its value (`railway variable`/`variables`, bare or
+  `list`/`ls`, in every flag form — `--json` and `-k`/`--kv` both document that they render raw
+  values, and there is no keys-only flag). Keyed on the value-dumping SUBCOMMAND, so `railway
+  status`/`whoami`/`logs` stay allowed, and PIPELINE-scoped like the third: a key-projecting
+  stage (`| jq -r 'keys[]'`) or a counting sink permits it. Same matcher class again, so no new
+  guard and no calibration ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers all four checks.
 - **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
   (`--execute`/`--apply`) while another process is already running that same script. Denies with
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous

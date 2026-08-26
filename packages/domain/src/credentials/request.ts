@@ -61,6 +61,15 @@ export interface BuildCredentialRequestInput {
   readonly reason: string;
   /** Task this request blocks, when there is one. */
   readonly parentTaskId?: string;
+  /**
+   * The parent's status at the moment it was blocked (mt#4486).
+   *
+   * The CALLER decides this and passes it in — this builder is pure and cannot
+   * read a task. Omitted when there is no parent, or when the parent could not
+   * be blocked, and its absence is what tells the resolver there is nothing to
+   * release.
+   */
+  readonly parentEntryStatus?: string;
 }
 
 /** The ask-shaped result: exactly the fields a caller passes to ask creation. */
@@ -92,8 +101,13 @@ export interface CredentialRequestAskDraft {
 export function buildCredentialRequestAsk(
   input: BuildCredentialRequestInput
 ): CredentialRequestAskDraft {
-  const { provider, reason, parentTaskId } = input;
-  const payload: CredentialRequestPayload = { provider: provider.id };
+  const { provider, reason, parentTaskId, parentEntryStatus } = input;
+  const payload: CredentialRequestPayload = {
+    provider: provider.id,
+    // Only when there is actually a parent to release — a stray entry status
+    // with no `parentTaskId` would give the resolver a task id it does not have.
+    ...(parentTaskId && parentEntryStatus ? { parentEntryStatus } : {}),
+  };
 
   const question = [
     `**Enter the ${provider.displayName} credential below — the value goes straight to the credential store and never through this conversation.**`,

@@ -47,20 +47,63 @@ import {
 /**
  * What the operator is told about whether a thing is working.
  *
- * Three states, not the six `InterceptorStateKind` carries: the lifecycle
+ * Four states, not the six `InterceptorStateKind` carries: the lifecycle
  * distinctions the maintainer needs (deterrent vs dormant vs active) are the
  * machinery, and mem#802 puts the machinery on the vendor's side. What survives
  * the translation is the part the operator can act on.
  *
- * `unknown` is deliberately NOT folded into `working`. An interceptor whose
+ * Neither indeterminate state is folded into `working`. An interceptor whose
  * status could not be determined has not been shown to work, and rendering it
  * as working is the failure mode mt#3754 AT2 and the mt#2076 five-week blind
  * spot are both about.
+ *
+ * THE TWO INDETERMINATE STATES ARE SEPARATE, AND THAT SEPARATION IS THE POINT
+ * (mt#4605). They were one `unknown` kind until 2026-08-25, which meant the
+ * surface had exactly one sentence for two facts with opposite remedies:
+ *
+ * - `source-unavailable` — the verdict could not be READ this refresh. Transient.
+ *   The next refresh may well clear it, and nothing about the checks changed.
+ * - `never-verified` — the check has no verdict to read, because nothing has ever
+ *   tested it. PERMANENT until someone writes that test; no refresh will ever
+ *   change it.
+ *
+ * Both were rendered with the transient sentence, so on 2026-08-25 the page told
+ * the operator its history "wasn't available on the last refresh" while 81 of 149
+ * checks simply had no history to be unavailable — and an amber banner that never
+ * clears is one the operator learns to stop reading, which is the same blind spot
+ * from the other direction.
  */
-export type ProtectionHealth = "working" | "degraded" | "unknown";
+export type ProtectionHealth = "working" | "degraded" | "never-verified" | "source-unavailable";
 
 /** Per-interceptor status, before it is folded up to the class. */
 type CheckStatus = "working" | "not-working" | "unconfirmed" | "source-unavailable";
+
+/**
+ * A fold of many `CheckStatus` values into what a banner can say.
+ *
+ * The COUNTS, not `kind`, are what a renderer should branch on when a set can
+ * hold both indeterminate states at once: `kind` names one state, and a mix is
+ * two facts. `kind` exists for the one-line case (ordering, a single label);
+ * anything rendering prose reads the counts and may print both sentences.
+ */
+export interface ProtectionHealthCounts {
+  /**
+   * The single state a one-line summary would name.
+   *
+   * Precedence: `degraded` (something is known broken) → `source-unavailable`
+   * (a live read failed — actionable NOW) → `never-verified` (a standing gap) →
+   * `working`. Transient-over-permanent is deliberate: a source failure is
+   * today's news and may be an incident, while the standing gap was there
+   * yesterday and will be there tomorrow.
+   */
+  kind: ProtectionHealth;
+  /** Checks the canary says are BROKEN. */
+  degradedCount: number;
+  /** Checks with no verdict ever — nothing has tested them. Permanent until one is written. */
+  neverVerifiedCount: number;
+  /** Checks whose verdict could not be read this refresh. Transient. */
+  sourceUnavailableCount: number;
+}
 
 function checkStatus(row: InterceptorAggregateRow): CheckStatus {
   const state = deriveInterceptorState(row);
@@ -80,15 +123,24 @@ function checkStatus(row: InterceptorAggregateRow): CheckStatus {
   }
 }
 
-function foldHealth(statuses: readonly CheckStatus[]): {
-  kind: ProtectionHealth;
-  degradedCount: number;
-} {
+/**
+ * Fold per-check statuses into a banner-shaped verdict.
+ *
+ * Every count is reported on EVERY return, including the ones the chosen `kind`
+ * does not name — that is what lets a caller render a mix as two facts instead
+ * of picking one and dropping the other (mt#4605). The old shape returned
+ * `degradedCount` only, so the two indeterminate states arrived at the renderer
+ * indistinguishable and uncountable.
+ */
+function foldHealth(statuses: readonly CheckStatus[]): ProtectionHealthCounts {
   const degradedCount = statuses.filter((s) => s === "not-working").length;
-  if (degradedCount > 0) return { kind: "degraded", degradedCount };
-  const anyIndeterminate = statuses.some((s) => s === "unconfirmed" || s === "source-unavailable");
-  if (anyIndeterminate) return { kind: "unknown", degradedCount: 0 };
-  return { kind: "working", degradedCount: 0 };
+  const neverVerifiedCount = statuses.filter((s) => s === "unconfirmed").length;
+  const sourceUnavailableCount = statuses.filter((s) => s === "source-unavailable").length;
+  const counts = { degradedCount, neverVerifiedCount, sourceUnavailableCount };
+  if (degradedCount > 0) return { kind: "degraded", ...counts };
+  if (sourceUnavailableCount > 0) return { kind: "source-unavailable", ...counts };
+  if (neverVerifiedCount > 0) return { kind: "never-verified", ...counts };
+  return { kind: "working", ...counts };
 }
 
 /**
@@ -131,6 +183,10 @@ export interface ProtectionClassSummary {
   health: ProtectionHealth;
   /** How many of this class's checks are not working. Zero unless `degraded`. */
   degradedCount: number;
+  /** How many have never been verified. Independent of `kind` — see `ProtectionHealthCounts`. */
+  neverVerifiedCount: number;
+  /** How many could not be read this refresh. Independent of `kind`. */
+  sourceUnavailableCount: number;
   /**
    * The interceptor names behind this class.
    *
@@ -148,7 +204,7 @@ export interface ProtectionSummary {
   computedAt: string;
   /** Corpus-wide, deduped across classes — see the module note, property 3. */
   totals: ProtectionLedger & { checkCount: number };
-  health: { kind: ProtectionHealth; degradedCount: number; totalChecks: number };
+  health: ProtectionHealthCounts & { totalChecks: number };
   /** Degraded first, then by interruptions descending. See `compareClasses`. */
   classes: ProtectionClassSummary[];
 }
@@ -282,7 +338,8 @@ export function deriveProtectionSummary(
     const statuses = canaryFailed
       ? rows.map((): CheckStatus => "source-unavailable")
       : rows.map(checkStatus);
-    const { kind, degradedCount } = foldHealth(statuses);
+    const { kind, degradedCount, neverVerifiedCount, sourceUnavailableCount } =
+      foldHealth(statuses);
     classes.push({
       classId,
       // A class with no authored question still renders — with its key, which
@@ -293,6 +350,8 @@ export function deriveProtectionSummary(
       ledger: rows.length > 0 ? accumulate(rows) : EMPTY_LEDGER,
       health: kind,
       degradedCount,
+      neverVerifiedCount,
+      sourceUnavailableCount,
       names,
     });
   }

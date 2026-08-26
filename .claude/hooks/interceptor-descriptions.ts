@@ -350,12 +350,32 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "spec-scope-execution-check",
+    {
+      description:
+        "Records when the bound task's spec enumerates in-scope file paths that the session never edited — the author's own gate-(h) enumeration, compared against what the PR actually changed. Nothing read that list before: the execution-evidence gate reads `## Acceptance Tests`, `tasks_spec_freshness` compares ref STATES, and the sibling `enumeration-scope-check` joins sweep-call arguments. Originating instance mt#4531 / PR #3310, where the spec named `guard-calibration-stream-inventory.md` explicitly, the implementation added three fields to that record and never touched the doc, and the reviewer caught it BLOCKING one round late by re-deriving the impact rather than reading the enumeration. Parses STRICTLY — the shared extractor's `## Context` / whole-document fallback would collect every path a spec merely mentions, which for this join is a false positive by construction. A spec with no parseable in-scope paths records `skipped` (\"nothing to compare\"), never `clean`. Resolves a `path.ts:83` line reference and a directory glob against the file they actually name (mt#4591 — 12 of 32 flagged entries were this, and every one of the checked files HAD been changed). Suppresses an entry the author marked UNCONDITIONALLY exempt (`READ-ONLY`, `only insofar as`, `only to the extent of`, `no behavior change`), reading the whole bullet including its continuation lines because half of them wrap, and RECORDS the suppressed count as `qualified` rather than dropping it silently (mt#4582). Record-only; the dominant REMAINING false positive is a CONDITIONAL enumeration entry whose condition did not fire — deliberately NOT suppressed, because whether it fired is exactly what a path comparison cannot evaluate, and both entries on the founding incident are conditionals.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("spec-scope-execution-check"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "claim-provenance-scan",
     {
       description:
         'Records when a task spec asserts a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim ("unowned", "no task covers this"), and no call in the session could have established it — a `pull_request_read` for the cited PR, a path-filtered `git_log`, or a `tasks_search` preceding the write. Fires at the spec-WRITE seam, where both originating incidents wrote and where no PreToolUse guard existed before. Record-only: measured at one true positive in 16 fires (mt#4190 tunes it).',
       failureClasses: ["unfounded-claim"],
       provenance: [hook("claim-provenance-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "warn-unwired-task-relationship",
+    {
+      description:
+        'Records when a task spec STATES a relationship to another task in prose — "hard prerequisite for mt#N", "feeds mt#N", "is part of mt#N" — while the matching structural edge is absent. Fires across the whole spec-authoring seam: at `tasks_create` the discharge is exact from the payload (`dependsOn` / `parent`), at the three edit seams it reads the live `task_relationships` graph. Distinguishes the two axes mem#530 keeps apart — dependency (data-flow / blocking) vs parent/child (decomposition) — because conflating them is half the family. The failure is not that the graph goes quiet: `tasks_orchestrate` derives `blockedBy` from edges alone, so an unwired prerequisite renders as `ready: true, blockedBy: []`, and the agent this targets is the one consulting the graph instead of reading specs. Record-only at ship; graduation gated on a replay measuring the recognition half.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("warn-unwired-task-relationship"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -466,7 +486,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "block-secret-file-read",
     {
       description:
-        "Denies printing a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) through an emitting reader. Reader and path together deny; naming the path alone is fine.",
+        "Denies four command shapes that would print a credential into the transcript: a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) read through an emitting reader (reader and path together deny; naming the path alone is fine); a direct invocation of a secret-EMITTING script; a process listing requesting the argv column; and a vendor CLI that dumps env-var values (`railway variable list`). The last two are pipeline-scoped — a counting sink or a key-projecting `jq` stage is permitted, because that is the safe form the rule teaches.",
       failureClasses: ["secret-exposure"],
       provenance: [hook("block-secret-file-read"), HOOK_FILES_RULE],
       stratum: "registry",
@@ -985,6 +1005,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Validates a `tasks_status_set` transition against the canonical task state machine, denying transitions the machine does not permit.",
       failureClasses: ["corrupt-record"],
       provenance: [hook("tasks-status-set-guard"), HOOK_FILES_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
+    "warn-main-workspace-mutation",
+    {
+      description:
+        "After every `Bash` call, reads the MAIN workspace's `git status` and injects an advisory naming tracked files that became modified DURING that call — the mutation style is irrelevant, because it observes git STATE rather than the command string. That is the point: the recurrence it was built for used `sed -i`, `cat >>` and a `python3` heredoc, none of which any destructive-verb list contains, and a heredoc that writes is not statically distinguishable from one that prints. The channel is uncovered because `require-session-for-main-workspace-edits` matches only Edit/Write/NotebookEdit while the harness's auto mode routes file changes to Bash. Fires at most once per file: the reported set is a diff against the last observation, so the tree's pre-existing modifications never flag. Untracked files are exempt — legitimate main-workspace scratch writes exist. Advisory and log-only; a deliberate main-workspace edit is the residual false-positive class and the advisory text says so.",
+      failureClasses: ["wrong-workspace"],
+      provenance: [hook("warn-main-workspace-mutation"), HOOK_OBSERVERS_RULE],
       stratum: "standalone",
     },
   ],

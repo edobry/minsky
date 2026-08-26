@@ -30,6 +30,8 @@ import {
   listServicesWithDeployConfig,
   resolveAdapter,
   resolveDeploymentConfig,
+  assessBuildIdentity,
+  type BuildIdentity,
   type DeploymentRecord,
 } from "../../deployment/index";
 
@@ -59,6 +61,19 @@ export interface SessionPrDrivePostMergeParams {
    * rather than silent.
    */
   mergedAt?: string;
+  /**
+   * The merge COMMIT this watch is verifying — `mergeInfo.commitHash` from the
+   * same `session.pr.merge` that supplied `mergedAt` (mt#4583).
+   *
+   * `mergedAt` bounds the deployment's TIME; this names its IDENTITY. They are
+   * different questions and the first does not answer the second: on a busy
+   * branch a NEIGHBOURING merge's deployment lands inside the window and
+   * satisfies the bound. Each per-service result therefore carries a
+   * `buildIdentity` verdict; `deployBoundApplied` reports only that the TIME
+   * bound was applied, which is exactly as reassuring — and exactly as
+   * uninformative about identity — as the SUCCESS it accompanies.
+   */
+  mergedCommitSha?: string;
 }
 
 export interface SessionPrDrivePostMergeDependencies {
@@ -84,8 +99,25 @@ export interface SessionPrDrivePostMergeDependencies {
 export interface SessionPrDrivePostMergeResult {
   /** Services actually watched (post detection/override). */
   watchedServices: string[];
-  /** Per-service terminal deployment record, in `watchedServices` order. */
-  results: Array<{ service: string; deployment: DeploymentRecord }>;
+  /**
+   * Per-service terminal deployment record, in `watchedServices` order.
+   *
+   * `buildIdentity` (mt#4583) answers whether THAT service's deployment carries
+   * the merge named by `mergedCommitSha` — a different question from
+   * `deployBoundApplied` below, which reports only that the TIME bound was
+   * applied. Per-service because services deploy independently: one can carry
+   * this merge while another still serves a neighbour's build, and a single
+   * aggregate verdict would hide that.
+   *
+   * `indeterminate` is NOT a pass. It is the expected verdict for an
+   * image-source service, whose deployment record carries no commit at all.
+   */
+  results: Array<{
+    service: string;
+    deployment: DeploymentRecord;
+    buildIdentity: BuildIdentity;
+    buildIdentityReason: string;
+  }>;
   /** True when there was nothing to watch (no deploy-surface changes / empty override). */
   skipped: boolean;
   skipReason?: string;
@@ -191,14 +223,28 @@ export async function sessionPrDrivePostMerge(
       };
     }
 
-    const results: Array<{ service: string; deployment: DeploymentRecord }> = [];
+    const results: Array<{
+      service: string;
+      deployment: DeploymentRecord;
+      buildIdentity: BuildIdentity;
+      buildIdentityReason: string;
+    }> = [];
     for (const service of services) {
       const deployment = await waitForDeployment(service, {
         timeoutSeconds: params.deployTimeoutSeconds,
         pollIntervalSeconds: params.deployIntervalSeconds,
         notBefore: params.mergedAt,
       });
-      results.push({ service, deployment });
+      // mt#4583: per-service, because services deploy independently — one can
+      // carry this merge while another is still serving a neighbour's build,
+      // and a single aggregate verdict would hide that.
+      const identity = assessBuildIdentity(deployment, params.mergedCommitSha);
+      results.push({
+        service,
+        deployment,
+        buildIdentity: identity.identity,
+        buildIdentityReason: identity.reason,
+      });
     }
 
     return {

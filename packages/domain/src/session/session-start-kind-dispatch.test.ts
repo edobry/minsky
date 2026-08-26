@@ -39,7 +39,7 @@ function createDeps(opts: { kind: string; initialStatus: string }): StartSession
     branch: "task/mt-9999",
   }));
 
-  const setStatusSpy = vi.fn(async () => {});
+  const setStatusSpy = vi.fn(async () => ({ recordsAffected: 1 }));
   const taskService = new FakeTaskService();
   taskService.getTask = vi.fn(async () => ({
     id: "mt#9999",
@@ -120,7 +120,7 @@ describe("startSessionImpl kind-aware status gate (mt#1870)", () => {
     const taskService = new FakeTaskService();
     taskService.getTask = vi.fn(async () => ({ id: "mt#9999", title: "No-kind task" })) as any;
     taskService.getTaskStatus = vi.fn(async () => "PLANNING");
-    taskService.setTaskStatus = vi.fn(async () => {});
+    taskService.setTaskStatus = vi.fn(async () => ({ recordsAffected: 1 }));
     taskService.getTaskSpecContent = vi.fn(async () => null) as any;
     const workspaceUtils = new FakeWorkspaceUtils();
     const getRepositoryBackend = vi.fn(async () => ({

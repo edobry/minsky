@@ -92,7 +92,14 @@ function deploymentUrl(node: RailwayDeploymentNode): string | null {
   return node.staticUrl ?? null;
 }
 
-function toRecord(node: RailwayDeploymentNode): DeploymentRecord {
+/**
+ * Map a Railway node to the platform-neutral record.
+ *
+ * Exported for tests (mt#4583): this mapping is where `meta.imageDigest` was
+ * being dropped, and a mapping with no test seam is a mapping whose omissions
+ * are unobservable. Pure — no I/O — so testing it needs no patching.
+ */
+export function toRecord(node: RailwayDeploymentNode): DeploymentRecord {
   const status = normalizeStatus(node.status);
   const createdAt = node.createdAt;
   // Railway does not currently expose a finishedAt on the node; durationMs is
@@ -102,6 +109,12 @@ function toRecord(node: RailwayDeploymentNode): DeploymentRecord {
     status,
     commitHash: node.meta?.commitHash ?? null,
     commitMessage: node.meta?.commitMessage ?? null,
+    // mt#4583: already on the wire — the deployments query selects `meta` as a
+    // whole JSON scalar, so the digest arrived and was discarded here. Typed
+    // through the meta index signature; `unknown` is narrowed rather than cast
+    // blind, because a platform that changes the field's shape should read as
+    // absent rather than surface a non-string as an identity.
+    imageDigest: typeof node.meta?.imageDigest === "string" ? node.meta.imageDigest : null,
     createdAt,
     finishedAt: null,
     durationMs: null,

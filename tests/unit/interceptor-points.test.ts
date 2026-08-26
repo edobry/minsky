@@ -23,6 +23,9 @@ import {
   readPointsGate,
   readValidPoints,
   readDocPoints,
+  readFacetPoints,
+  readSpinePoints,
+  parseFacetPoints,
 } from "../../scripts/interception-point-sources";
 
 /** The six mt#4129 added; named so deleting them from all three still fails. */
@@ -78,6 +81,75 @@ describe("InterceptionPoint stays identical across its three declarations", () =
     // — the reviewer caught it, nothing else could have. Fenced in
     // `axis-1-points` markers so it is parsed rather than trusted.
     expect(readDocPoints()).toEqual(reference);
+  });
+
+  test("the /interceptors point facet's option domain matches the union (mt#4603)", () => {
+    // The seventh surface, and the one this census did not cover until mt#4603.
+    // The facet built its options from INTERCEPTION_POINT_ORDER — a DELIBERATE
+    // nine-member subset that is correct for the spine and wrong as a domain —
+    // while `matchesFacets` compared against `entry.point` over the full union.
+    // Six points were unselectable; `session-start` (SessionStart) and
+    // `record-conversation-run-state` (PostCompact) have live catalog entries
+    // and could not be filtered to by any choice a reader could make.
+    //
+    // Compared as SETS, like every sibling assertion here: the facet's render
+    // order is a UX choice (trajectory points first, then the six with no
+    // trajectory position), while its MEMBERSHIP is the contract. Asserting
+    // order would forbid reordering the dropdown, which is not what this
+    // protects.
+    expect(readFacetPoints()).toEqual(reference);
+  });
+
+  test("the spine's subset stays a subset, and stays nine (mt#4603)", () => {
+    // The other half of the split: the facet must be complete, and
+    // INTERCEPTION_POINT_ORDER must NOT be "fixed" to match it. Its docblock
+    // says so, and mt#4129 decided it deliberately — ordering `Notification`
+    // against a turn's phases is a spine-design question nobody has answered.
+    // Without this, a future reader reconciling the two lists could widen the
+    // wrong one and silently invent trajectory placements.
+    const spine = readSpinePoints();
+    expect(spine.length).toBe(9);
+    for (const point of spine) {
+      expect(reference, `spine point ${point} is not a union member`).toContain(point);
+    }
+    for (const point of ADDED_BY_MT4129) {
+      expect(spine, `${point} must NOT have a spine station (mt#4129)`).not.toContain(point);
+    }
+  });
+
+  test("parseFacetPoints survives benign formatting changes (PR #3361 R1)", () => {
+    // The reviewer's finding, turned into an assertion. The first version of
+    // this parser required a trailing comma on the last key and a newline
+    // before the closing brace. Under a formatter that drops the final comma it
+    // would have parsed 14 of 15 keys and the census would have reported a
+    // mismatch that is an artifact of formatting — a FALSE NEGATIVE in the one
+    // assertion whose job is catching a genuinely missing point. Worse than a
+    // plain bug: it would look exactly like the defect mt#4603 fixed.
+    const canonical = [
+      "const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = {",
+      "  UserPromptSubmit: true,",
+      '  "pre-commit": true,',
+      "  PostCompact: true,",
+      "};",
+    ].join("\n");
+    const expected = ["PostCompact", "UserPromptSubmit", "pre-commit"];
+    expect(parseFacetPoints(canonical)).toEqual(expected);
+
+    // No trailing comma on the last entry.
+    expect(
+      parseFacetPoints(canonical.replace("  PostCompact: true,", "  PostCompact: true"))
+    ).toEqual(expected);
+
+    // Closing brace on the same line as the last entry — no preceding newline.
+    expect(
+      parseFacetPoints(
+        "const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = {" +
+          ' UserPromptSubmit: true, "pre-commit": true, PostCompact: true };'
+      )
+    ).toEqual(expected);
+
+    // A shape change it SHOULD still reject rather than silently return [].
+    expect(() => parseFacetPoints("const SOMETHING_ELSE = { a: true };")).toThrow();
   });
 
   test("the runtime VALID_POINTS validator matches the union", () => {

@@ -18,6 +18,7 @@
     "dbCheck": "object",
     "dbHealth": "object",
     "dbRecycle": "object",
+    "dbRetry": "object",
     "dispatchWatchdogSweep": "object",
     "pid": "number",
     "principalChannel": "object",
@@ -70,9 +71,16 @@
       "closesAbandoned": 0,
       "closesFailed": 0
     },
+    "dbRetry": {
+      "saturationRetries": 0,
+      "staleConnectionRetries": 0,
+      "retriesExhausted": 0,
+      "lastRetryAt": null
+    },
     "dbHealth": {
       "mode": "connected",
-      "lastAttemptAt": "2026-08-08T17:20:10.881Z"
+      "lastAttemptAt": "2026-08-08T17:20:10.881Z",
+      "lastSuccessAt": "2026-08-08T19:04:55.312Z"
     },
     "survivedExceptions": {
       "lastAt": null,
@@ -114,7 +122,38 @@
       ]
     },
     "transcriptSweep": {
-      "totalRuns": 0
+      "sweepsRun": 3,
+      "sessionsIngested": 41,
+      "sessionsErrored": 0,
+      "sessionsQuarantined": 0,
+      "embedRuns": 3,
+      "lastSweepAt": "2026-08-25T22:00:00.000Z",
+      "sweepsAborted": 0,
+      "lastAbortAt": null,
+      "lastProductiveSweepAt": "2026-08-25T22:00:00.000Z",
+      "lastErrorAt": null,
+      "embedFailures": 0,
+      "embedPhase": "succeeded",
+      "embedInFlightAgeMs": null,
+      "embedOverdueBoundMs": 1800000,
+      "lastEmbedAttemptAt": "2026-08-25T22:00:00.000Z",
+      "embedNeverSucceeded": false,
+      "acrossRestarts": {
+        "totals": {
+          "started": 47,
+          "completed": 6,
+          "embedFailed": 1,
+          "aborted": 12,
+          "failed": 4,
+          "skipped": 2,
+          "interrupted": 22,
+          "reachedPhase2": 7
+        },
+        "phase2ReachRate": 0.149,
+        "inFlight": null,
+        "lastOutcome": "interrupted",
+        "lastEndedAt": "2026-08-25T22:00:00.000Z"
+      }
     },
     "dispatchWatchdogSweep": {
       "ticksRun": 0,
@@ -161,16 +200,18 @@
     }
   },
   "$dbRecycleFieldNote": "mt#3638: `dbRecycle` reports the wedge-triggered pool recycle (the recovery half of mt#3563's detection). Always an object; `lastRecycleAt` (ISO string | null) is null until the first recycle this process, `recycleCount` (number) counts recycles since process start. A non-zero count means the daemon detected sustained DB degradation and rebuilt its connection pool in place instead of waiting for a restart; a count that keeps rising while `db` stays degraded means recycling is not helping — the DB itself (or the network path) is down, which is the case the recycle deliberately does not try to fix. mt#4549 adds four per-outcome counters recording how each recycle's close ENDED, because before them the outcome existed only as a log line — which is how the mt#4515 connection leak ran for months (88 abandoned closes, zero clean, across every retained rotation) before anyone noticed. `closesDrained`: the pool emptied inside the drain budget. `closesForceTerminated`: the close took at least CLOSE_TIMEOUT_SECONDS, so postgres-js's own destroy timer fired and terminated the connections — this is the mt#4515 fix WORKING, not a fault, and a wedged pool is supposed to land here. `closesAbandoned`: the close never returned at all and the outer deadline gave up; post-mt#4515 this means the driver's destroy path failed too, which is a worse and unhandled condition — **a rise here is the alarm**. `closesFailed`: close() REJECTED before the deadline, i.e. teardown errored and said so; kept separate from `closesAbandoned` (PR #3319 R1) so the alarm counter is not inflated by a different fault. **Read `closesAbandoned` against `recycleCount`, never alone**: zero-with-`recycleCount: 0` means nothing has been tested, while zero-with-a-nonzero count means every recycle released. Same number, different claims. All four are plain numbers with no state/mode/status discriminator, deliberately — `health-liveness-invariant.ts` scopes by SHAPE, and a discriminator-shaped field here would pull `dbRecycle` into that check and demand a dating field it does not need (`lastRecycleAt` already dates these). Additive numeric fields only, so consumers pinning the old minimal shape keep parsing.",
-  "$dbHealthFieldNote": "mt#3826: `dbHealth` says WHY the database is unusable; `db` above only says THAT it is. The two are deliberately not merged — `db` is the tray's long-standing degraded signal and its three values are a consumed contract, so the explanation is additive beside it rather than a widening of it. Shape is ADR-035 rule 4's: `mode` ('connected' | 'unavailable' — this subsystem never reports 'unconfigured', since it is only reached once the cockpit has decided to use Postgres, and rule 3's configured-vs-unconfigured distinction is made upstream by assessPersistenceHealth), `reason` (operator-facing prose, present only when a failure has been classified) and `lastAttemptAt` (ISO string, ABSENT until the first init attempt — absence means 'nothing tried since boot', which is what distinguishes a wedged process from one actively working a real outage). The addition beyond rule 4 is `failure`: the DISCRIMINATED form of `reason`, so a consumer branches on `failure.kind` instead of parsing prose. `kind` is one of connect-timeout / refused / dns / auth / connection-lost / circuit-breaker / unknown, derived from the Postgres driver's structured `code` (postgres-js attaches `{code, errno, address, port}` to every connection error) and NEVER from message text, which varies by Postgres driver version. `failure` carries `kind` and `code` ONLY — the Postgres driver's raw message is deliberately NOT forwarded (PR #2732 R1), because a postgres-js connection error embeds `host:port` and a server-side PostgresError message is arbitrary server-controlled text; this endpoint is polled by the tray and three webview query keys, so it should not relay text the daemon did not author. The full message is still logged. Three consumer rules: (1) treat `unknown` as 'no information', never as a synonym for transient — it means the error carried no code this classifier recognizes; (2) `failure` is ABSENT while healthy and is cleared on any recovery, so its presence is itself the fault signal; (3) do not expect `message` here, and do not add it — `reason` is the human-readable field and it is written by this daemon. Why this exists: before mt#3826 a half-open pool wedge and a network refusing the port produced the identical `degraded`, so the pool-recycle remedy was applied to both and helped only one — on 2026-08-07 an operator on an outbound-80/443-only network took ~500 futile recycles over ~9h. The classification is also what bounds that churn: `connect-timeout`/`refused`/`dns`/`auth` back the recycle cadence off once recycling has demonstrably not helped, while `connection-lost`/`circuit-breaker`/`unknown` — the kinds a fresh pool DOES fix — keep the flat 60s floor.",
+  "$dbHealthFieldNote": "mt#3826: `dbHealth` says WHY the database is unusable; `db` above only says THAT it is. The two are deliberately not merged — `db` is the tray's long-standing degraded signal and its three values are a consumed contract, so the explanation is additive beside it rather than a widening of it. Shape is ADR-035 rule 4's: `mode` ('connected' | 'unavailable' — this subsystem never reports 'unconfigured', since it is only reached once the cockpit has decided to use Postgres, and rule 3's configured-vs-unconfigured distinction is made upstream by assessPersistenceHealth), `reason` (operator-facing prose, present only when a failure has been classified) and `lastAttemptAt` (ISO string, ABSENT until the first init attempt — absence means 'nothing tried since boot', which is what distinguishes a wedged process from one actively working a real outage). READ `lastAttemptAt` NARROWLY (mt#4538): it dates an INIT ATTEMPT and nothing else, and init runs only at boot and after something clears the singleton (markDbDegraded / recycleSharedPersistence). On a daemon whose boot init succeeded and which has not since degraded it therefore HOLDS at the boot instant indefinitely — correctly, because nothing has been attempted — and a growing gap here is NOT evidence the daemon has stopped checking the database. mt#4472's watchdog read it as a duration, was misled, and had to derive the duration from its own poll count instead. mt#4538 added `lastSuccessAt` (ISO string, ABSENT until the first success) as the field that dates `mode: connected`: it is stamped only where the database is CONFIRMED reachable — the reachability probe and a successful init, which are the two sites that set the status — and deliberately HOLDS across a failed probe, which is what makes 'unreachable for how long' derivable from this object. Do not substitute `dbCheck.checkedAt` for it: that field is stamped on probe FAILURE too, so it dates the look rather than the outcome. Why the two were conflated for ~two months: `health-liveness-invariant.ts` (mt#4186) requires every affirmative liveness assertion to carry a dating field in its own sub-object, and it is keyed on SHAPE — `lastAttemptAt` matched `/At(Ms)?$/`, so the rule passed while nothing actually dated the assertion. That limit is pinned by a characterization test in `health-contract.test.ts`; widening the invariant is not the remedy, because whether a field dates the assertion beside it is a question about two runtime cadences and is not statically decidable. The addition beyond rule 4 is `failure`: the DISCRIMINATED form of `reason`, so a consumer branches on `failure.kind` instead of parsing prose. `kind` is one of connect-timeout / refused / dns / auth / connection-lost / circuit-breaker / unknown, derived from the Postgres driver's structured `code` (postgres-js attaches `{code, errno, address, port}` to every connection error) and NEVER from message text, which varies by Postgres driver version. `failure` carries `kind` and `code` ONLY — the Postgres driver's raw message is deliberately NOT forwarded (PR #2732 R1), because a postgres-js connection error embeds `host:port` and a server-side PostgresError message is arbitrary server-controlled text; this endpoint is polled by the tray and three webview query keys, so it should not relay text the daemon did not author. The full message is still logged. Three consumer rules: (1) treat `unknown` as 'no information', never as a synonym for transient — it means the error carried no code this classifier recognizes; (2) `failure` is ABSENT while healthy and is cleared on any recovery, so its presence is itself the fault signal; (3) do not expect `message` here, and do not add it — `reason` is the human-readable field and it is written by this daemon. Why this exists: before mt#3826 a half-open pool wedge and a network refusing the port produced the identical `degraded`, so the pool-recycle remedy was applied to both and helped only one — on 2026-08-07 an operator on an outbound-80/443-only network took ~500 futile recycles over ~9h. The classification is also what bounds that churn: `connect-timeout`/`refused`/`dns`/`auth` back the recycle cadence off once recycling has demonstrably not helped, while `connection-lost`/`circuit-breaker`/`unknown` — the kinds a fresh pool DOES fix — keep the flat 60s floor.",
   "$dbHealthFieldVariants": {
     "healthy": {
       "mode": "connected",
-      "lastAttemptAt": "2026-08-08T17:20:10.881Z"
+      "lastAttemptAt": "2026-08-08T17:20:10.881Z",
+      "lastSuccessAt": "2026-08-08T19:04:55.312Z"
     },
     "blockedPort": {
       "mode": "unavailable",
       "reason": "Nothing answered on the database port before the connect deadline. This is what an outbound-port block on the current network looks like; it is also what a saturated server looks like.",
       "lastAttemptAt": "2026-08-08T17:29:41.204Z",
+      "lastSuccessAt": "2026-08-08T17:20:11.004Z",
       "failure": {
         "kind": "connect-timeout",
         "code": "CONNECT_TIMEOUT"
@@ -180,6 +221,7 @@
       "mode": "unavailable",
       "reason": "An established connection went away. A pool recycle is the remedy for this one.",
       "lastAttemptAt": "2026-08-08T17:29:41.204Z",
+      "lastSuccessAt": "2026-08-08T17:20:11.004Z",
       "failure": {
         "kind": "connection-lost",
         "code": "CONNECTION_CLOSED"
@@ -260,6 +302,7 @@
       "reason": "session driver construction threw: ECONNREFUSED"
     }
   },
+  "$transcriptSweepFieldNote": "mt#4532: every field in this block EXCEPT `acrossRestarts` is PROCESS-scoped and resets to zero on restart — and the tray restarts the cockpit daemon on every merge touching src/cockpit/** or packages/** (mem#1227). Measured 2026-08-25: 23 daemon boots in one working day, a median 13.4 minutes apart, against a 30-minute sweep cadence whose Phase 1 alone takes ~12 minutes. So on a working day these counters routinely describe minutes of history rather than the sweep's behaviour, and a post-restart payload is byte-identical to a daemon that never swept at all — which is the ambiguity `acrossRestarts` exists to remove. It is read from ~/.local/state/minsky/transcript-sweep-journal.json and outlives the process. `phase2ReachRate` is the load-bearing number: the share of all ticks ever STARTED that reached the embedding backfill, null before any tick has started. Read it BEFORE the process-scoped counters beside it, never instead of them — and note this block is nested here rather than made a top-level sibling deliberately, because a reader asking 'is the sweep working' must not be able to reach the process-scoped counters without it. That is exactly the misread `$sweepLivenessFieldNote` below has to warn about in prose, having been separated into its own top-level field. Five outcomes are tracked and must not be conflated: `interrupted` (process replaced mid-tick — reconstructed at boot, since a killed process cannot write its own terminal record), `aborted` (Phase 1 abandoned on a dead DB connection per mt#4480, never reaches Phase 2 because it needs the same connection), `embed-failed` (Phase 2 was ENTERED and threw — it got there and broke, unlike `aborted` which never arrived), `failed` (errored before Phase 1 concluded), `skipped` (declined to run: schema behind, or no SQL-capable provider — correct behaviour, and still not work done). `inFlight` is `{startedAt, pid, phase}` or null; a non-null entry whose pid is DEAD is what boot reconcile folds, and one whose pid is ALIVE is left alone because a second daemon (mt#4243) still owns it. Nested per-field types are deliberately NOT pinned in .fields, unlike transcriptWatcherFields and sweepLivenessFields: this block's shape is documented here and asserted by src/cockpit/transcript-sweep-journal.test.ts against the producer, so a change is caught at the producer rather than by a second hand-maintained copy of its field list. Redaction convention per ADR-017 holds: counts, ISO timestamps, a pid and an outcome enum — no paths, no raw error strings.",
   "$sweepLivenessFieldNote": "mt#4384: the AGGREGATE sweep-liveness projection. The sibling prodStateSweep / transcriptSweep / dispatchWatchdogSweep blocks are DOMAIN trackers, and a domain tracker records the outcome of WORK — an ABANDONED tick never completes, so it produces no outcome ever and those three blocks read clean straight through a wedge. Until mt#4384 this endpoint never read the liveness registry at all, so abandonment could not appear here BY CONSTRUCTION. abandonedTicksOutstanding > 0 means at least one sweep is wedged RIGHT NOW; do NOT read a zero domain-failure count beside it as reassurance. reportingDomainOutcome legitimately trails declaringDomainOutcome shortly after a restart (the runtime flag flips on the first tick that completes), so a low value is not by itself a fault — read it beside abandonedTicksOutstanding. Per-sweep detail stays on /api/sweeps, which authoritativeSurface names. The top-level status deliberately does NOT flip on abandonment: the tray restarts on an unhealthy status, and a restart is not a reliable remedy for this class (mem#1178 records an occurrence that self-cleared, and mt#4335 recovery can take 15 minutes). Nested per-field types are pinned in sweepLivenessFields and asserted by health-contract.test.ts (PR #3240 R1) — a top-level \"object\" entry in .fields cannot catch drift INSIDE the block, which is the same cannot-see-it failure class this field exists to close.",
   "sweepLivenessFields": {
     "checkedAt": "string",

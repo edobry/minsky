@@ -854,6 +854,8 @@ export const asksCreateParams = {
     // hand-passable flag (mirrors observability.calibration-review and
     // tasks.dispatch-recover).
     cliHidden: true,
+    // Server-injected on the MCP path too (mt#4579).
+    mcpHidden: true,
   },
   // Service-window fields (mt#1411 spine — mt#1488)
   serviceStrategy: {
