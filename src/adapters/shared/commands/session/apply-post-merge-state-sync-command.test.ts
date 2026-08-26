@@ -18,6 +18,8 @@ import {
   createApplyPostMergeStateSyncCommand,
   resolveSessionIdFromParams,
   buildPostMergeStateSyncParams,
+  repairStrandedTask,
+  type StrandedTaskRepairDeps,
 } from "./apply-post-merge-state-sync-command";
 
 // ---------------------------------------------------------------------------
@@ -107,6 +109,137 @@ describe("resolveSessionIdFromParams", () => {
     await expect(
       resolveSessionIdFromParams({ task: "mt#999" }, { sessionProvider: provider as any })
     ).rejects.toThrow(/No session found for task mt#999/);
+  });
+
+  // mt#4403 AT1. The two cases below differ by ONE parameter, and that is the
+  // point: `mergeSha` is the repair signal. The throwing case immediately above
+  // is this test's negative control — same missing session, no `mergeSha`, and
+  // the pre-fix behaviour is preserved rather than reverted, so both branches
+  // are live and a regression in either is visible.
+  it("returns null — not a throw — for the repair case: task + mergeSha, no session row", async () => {
+    const provider = makeSessionProvider([{ sessionId: "s1", taskId: "mt#1" }]);
+    const resolved = await resolveSessionIdFromParams(
+      { task: "mt#4299", mergeSha: "dc0f331c6" },
+      { sessionProvider: provider as any }
+    );
+    expect(resolved).toBeNull();
+  });
+
+  it("the no-mergeSha throw names the repair affordance, so the caller knows one exists", async () => {
+    const provider = makeSessionProvider([]);
+    await expect(
+      resolveSessionIdFromParams({ task: "mt#4299" }, { sessionProvider: provider as any })
+    ).rejects.toThrow(/pass mergeSha/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// repairStrandedTask — mt#4403 AT2 / AT3
+// ---------------------------------------------------------------------------
+
+function makeRepairDeps(overrides: Partial<StrandedTaskRepairDeps> & { status?: string } = {}): {
+  deps: StrandedTaskRepairDeps;
+  writes: Array<{ taskId: string; status: string }>;
+  audit: Array<{ outcome: string; previousStatus?: string }>;
+} {
+  const writes: Array<{ taskId: string; status: string }> = [];
+  const audit: Array<{ outcome: string; previousStatus?: string }> = [];
+  const deps: StrandedTaskRepairDeps = {
+    getTaskStatus: async () => overrides.status ?? "IN-REVIEW",
+    setTaskStatus: async (taskId, status) => {
+      writes.push({ taskId, status });
+    },
+    isMergedCommit: async () => true,
+    recordReconcile: async (entry) => {
+      audit.push({ outcome: entry.outcome, previousStatus: entry.previousStatus });
+    },
+    ...(overrides.isMergedCommit ? { isMergedCommit: overrides.isMergedCommit } : {}),
+  };
+  return { deps, writes, audit };
+}
+
+const REPAIR_ARGS = { taskId: "mt#4299", mergeSha: "dc0f331c6", trigger: "repair_pass" };
+
+describe("repairStrandedTask (mt#4403)", () => {
+  it("AT2 — repairs an IN-REVIEW task when the commit belongs to a merged PR", async () => {
+    const { deps, writes, audit } = makeRepairDeps();
+
+    const result = await repairStrandedTask(REPAIR_ARGS, deps);
+
+    expect(result.repaired).toBe(true);
+    expect(result.previousStatus).toBe("IN-REVIEW");
+    expect(writes).toEqual([{ taskId: "mt#4299", status: "DONE" }]);
+    expect(audit).toEqual([{ outcome: "repaired", previousStatus: "IN-REVIEW" }]);
+  });
+
+  it("AT3 — REFUSES when the commit belongs to no merged PR, and writes nothing", async () => {
+    const { deps, writes, audit } = makeRepairDeps({ isMergedCommit: async () => false });
+
+    const result = await repairStrandedTask(REPAIR_ARGS, deps);
+
+    expect(result.repaired).toBe(false);
+    expect(result.refusedReason).toMatch(/does not belong to a merged/);
+    // The load-bearing assertion: the task is untouched. A refusal that still
+    // wrote would be indistinguishable from a repair in the task's own record.
+    expect(writes).toEqual([]);
+    expect(audit).toEqual([{ outcome: "refused-not-merged", previousStatus: undefined }]);
+  });
+
+  it("AT3 — verifies the merge BEFORE reading the task, so a bogus SHA costs no task read", async () => {
+    let statusReads = 0;
+    const { deps } = makeRepairDeps({ isMergedCommit: async () => false });
+    const counting: StrandedTaskRepairDeps = {
+      ...deps,
+      getTaskStatus: async () => {
+        statusReads += 1;
+        return "IN-REVIEW";
+      },
+    };
+
+    await repairStrandedTask(REPAIR_ARGS, counting);
+
+    expect(statusReads).toBe(0);
+  });
+
+  it("refuses to force DONE from a status that is not IN-REVIEW", async () => {
+    const { deps, writes, audit } = makeRepairDeps({ status: "BLOCKED" });
+
+    const result = await repairStrandedTask(REPAIR_ARGS, deps);
+
+    expect(result.repaired).toBe(false);
+    expect(result.refusedReason).toMatch(/expected status IN-REVIEW but found BLOCKED/);
+    expect(writes).toEqual([]);
+    expect(audit).toEqual([{ outcome: "refused-wrong-status", previousStatus: "BLOCKED" }]);
+  });
+
+  it("is idempotent on an already-DONE task: no write, no refusal", async () => {
+    const { deps, writes, audit } = makeRepairDeps({ status: "DONE" });
+
+    const result = await repairStrandedTask(REPAIR_ARGS, deps);
+
+    // Neither repaired nor refused — the tool's own description promises it is
+    // "safe to call multiple times for the same merge event", so a second call
+    // must not read as an error.
+    expect(result.repaired).toBe(false);
+    expect(result.refusedReason).toBeUndefined();
+    expect(writes).toEqual([]);
+    expect(audit).toEqual([{ outcome: "already-done", previousStatus: "DONE" }]);
+  });
+
+  it("records an audit entry on EVERY path, including the refusals", async () => {
+    // RFC Rule 3's use-rate counter is only a health signal if it counts the
+    // failures too — a reconcile path that logged only its successes would go
+    // quietest exactly when it is misbehaving.
+    for (const setup of [
+      {},
+      { isMergedCommit: async () => false },
+      { status: "BLOCKED" },
+      { status: "DONE" },
+    ]) {
+      const { deps, audit } = makeRepairDeps(setup as any);
+      await repairStrandedTask(REPAIR_ARGS, deps);
+      expect(audit).toHaveLength(1);
+    }
   });
 });
 
