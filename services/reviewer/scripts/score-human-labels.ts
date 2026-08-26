@@ -39,7 +39,7 @@
  * @see mt#4616 — the failed-judge-returns-a-valid-verdict defect
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { cohensKappa, type CohensKappaResult } from "../src/eval-metrics";
@@ -250,17 +250,39 @@ export function scoreLabels(
 
 const DEFAULT_ARTIFACT = "services/reviewer/eval/results/disagreement-subset-v1.json";
 
+/**
+ * Shape written by `--out` — the calibration snapshot `reviewer-benchmark-gate.ts`
+ * (mt#2991) reads to decide the judge's trust mode. A SEPARATE artifact from
+ * the console report above: the gate needs a stable, parseable record of
+ * "what was the kappa, over how many rows, as of when" that does not depend
+ * on scraping stdout.
+ */
+export interface KappaCalibrationSnapshot {
+  computedAt: string;
+  kappa: number | null;
+  degenerate?: "single-category";
+  observedAgreement: number;
+  expectedAgreement: number;
+  n: number;
+  excluded: ScoreResult["excluded"];
+  labelsPath: string;
+  artifactPath: string;
+}
+
 function main(): void {
   const argv = process.argv.slice(2);
   let labelsPath: string | undefined;
   let artifactPath = DEFAULT_ARTIFACT;
+  let outPath: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--labels") labelsPath = argv[++i];
     else if (argv[i] === "--artifact") artifactPath = argv[++i] ?? artifactPath;
+    else if (argv[i] === "--out") outPath = argv[++i];
   }
   if (!labelsPath) {
     throw new Error(
-      "usage: bun services/reviewer/scripts/score-human-labels.ts --labels <export.jsonl> [--artifact <judge-pass.json>]"
+      "usage: bun services/reviewer/scripts/score-human-labels.ts --labels <export.jsonl> " +
+        "[--artifact <judge-pass.json>] [--out <calibration-snapshot.json>]"
     );
   }
 
@@ -330,6 +352,22 @@ function main(): void {
         `call FAILED and its fallback verdict entered the aggregate (mt#4616). Re-run the ` +
         `judge pass with a healthy panel before treating this kappa as complete.`
     );
+  }
+
+  if (outPath) {
+    const snapshot: KappaCalibrationSnapshot = {
+      computedAt: new Date().toISOString(),
+      kappa: k.kappa,
+      ...(k.degenerate ? { degenerate: k.degenerate } : {}),
+      observedAgreement: k.observedAgreement,
+      expectedAgreement: k.expectedAgreement,
+      n: k.n,
+      excluded: result.excluded,
+      labelsPath: resolve(labelsPath),
+      artifactPath: resolve(artifactPath),
+    };
+    writeFileSync(resolve(outPath), `${JSON.stringify(snapshot, null, 2)}\n`, "utf-8");
+    console.log(`\nCalibration snapshot written: ${resolve(outPath)}`);
   }
 }
 
