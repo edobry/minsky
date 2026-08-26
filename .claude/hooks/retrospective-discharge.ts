@@ -242,7 +242,12 @@ export function analyzeDischarge(
   lines: TranscriptLine[],
   flagged: Set<string>,
   lookbackTurns: number
-): { findings: DischargeFinding[]; reportedKeys: string[]; unresolved: string[] } {
+): {
+  findings: DischargeFinding[];
+  reportedKeys: string[];
+  unresolved: string[];
+  degraded?: string;
+} {
   const findings: DischargeFinding[] = [];
   const reportedKeys: string[] = [];
   /**
@@ -263,7 +268,20 @@ export function analyzeDischarge(
 
   const promptIndices = findRealPromptIndices(lines);
   if (promptIndices.length === 0) {
-    return { findings, reportedKeys, unresolved: [...byTurn.keys()] };
+    // THIS is the ADR-024 `degraded` case, and it is the only one here (PR #3382
+    // R1, BLOCKING). Flags exist but the transcript yielded no real prompt at
+    // all, so the scan cannot run — not "ran and found nothing to say."
+    // Distinguishing it from the per-turn `unresolved` count below is the whole
+    // point: a turn that rolled out of a long transcript is the EXPECTED
+    // outcome, and degrading on it would fire constantly and train the reader
+    // to ignore the field (mem#719), which is how a real degradation gets
+    // missed.
+    return {
+      findings,
+      reportedKeys,
+      unresolved: [...byTurn.keys()],
+      degraded: "no real user prompt in the transcript — discharge window is unresolvable",
+    };
   }
 
   for (const [turnKey, families] of byTurn) {

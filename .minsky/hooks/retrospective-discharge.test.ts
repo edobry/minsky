@@ -327,9 +327,16 @@ describe("analyzeDischarge", () => {
    */
   test("AT5: a turn key absent from the transcript is skipped AND counted, not guessed", () => {
     const lines: TranscriptLine[] = [prompt("p-other"), assistantText("hi"), prompt("p-now")];
-    const { findings, unresolved } = analyzeDischarge(lines, new Set([FLAGGED_KEY]), LOOKBACK);
+    const { findings, unresolved, degraded } = analyzeDischarge(
+      lines,
+      new Set([FLAGGED_KEY]),
+      LOOKBACK
+    );
     expect(findings).toEqual([]);
     expect(unresolved).toEqual(["p-flagged"]);
+    // NOT degraded: the scan ran fine and this turn simply rolled out of the
+    // visible transcript, which is the expected outcome on a long session.
+    expect(degraded).toBeUndefined();
   });
 
   test("AT5 control: a resolvable turn contributes nothing to unresolved", () => {
@@ -345,14 +352,34 @@ describe("analyzeDischarge", () => {
     expect(unresolved).toEqual([]);
   });
 
-  test("AT5: a transcript with no real prompts at all reports every flagged turn unresolved", () => {
-    const { findings, unresolved } = analyzeDischarge(
+  /**
+   * AT5, the ADR-024 half — the ONLY genuinely degraded case here.
+   *
+   * Flags exist and the transcript yields no real prompt at all, so the scan
+   * cannot run. Paired with the test above, which asserts the ordinary
+   * rolled-out turn does NOT degrade: without the pair, `degraded` could be
+   * emitted unconditionally and both tests would still pass individually.
+   */
+  test("AT5: no real prompts at all → degraded marker naming why, not a silent pass", () => {
+    const { findings, unresolved, degraded } = analyzeDischarge(
       [assistantText("no prompts here")],
       new Set([FLAGGED_KEY]),
       LOOKBACK
     );
     expect(findings).toEqual([]);
     expect(unresolved).toEqual(["p-flagged"]);
+    expect(degraded).toContain("no real user prompt");
+  });
+
+  test("AT5: a healthy scan carries no degraded marker", () => {
+    const lines: TranscriptLine[] = [
+      prompt("p-flagged"),
+      assistantText(FLAGGED_PHRASE),
+      SKILL_CALL,
+      prompt("p-now"),
+    ];
+    const { degraded } = analyzeDischarge(lines, new Set([FLAGGED_KEY]), LOOKBACK);
+    expect(degraded).toBeUndefined();
   });
 
   test("an empty flag set does no transcript work", () => {

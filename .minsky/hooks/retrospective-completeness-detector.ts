@@ -264,14 +264,28 @@ export function analyze(text: string, turnLines: TranscriptLine[]): Completeness
  * non-fatal — the cost is a repeated finding, never a missed one.
  */
 function collectDischargeFindings(
-  sessionId: string,
+  sessionId: string | undefined,
   lines: TranscriptLine[],
   storeDir?: string
-): { findings: DischargeFinding[]; unresolved: string[] } {
+): { findings: DischargeFinding[]; unresolved: string[]; degraded?: string } {
+  // No session id, no discharge check (PR #3382 R1, BLOCKING).
+  //
+  // An earlier revision passed `input.session_id ?? "unknown"`, which is fine
+  // for a per-turn guard and wrong here. This store is keyed BY SESSION and
+  // read ACROSS turns: every session lacking an id would share one `unknown`
+  // file, pooling turn keys from unrelated conversations and — worse — sharing
+  // the reported-marker namespace, so one session could silently suppress
+  // another's finding. Turn keys are uuids, so a cross-session collision would
+  // not even look wrong; it would look like an already-reported turn.
+  //
+  // The Stop guard's own `?? "unknown"` is not precedent for this: it dedups
+  // within a turn, where a pooled key costs at most one suppressed advisory.
+  if (!sessionId) return { findings: [], unresolved: [] };
+
   const flagged = readFlagged(sessionId, storeDir);
   if (flagged.size === 0) return { findings: [], unresolved: [] };
 
-  const { findings, reportedKeys, unresolved } = analyzeDischarge(
+  const { findings, reportedKeys, unresolved, degraded } = analyzeDischarge(
     lines,
     flagged,
     RETRO_INVOCATION_LOOKBACK_TURNS
@@ -280,7 +294,7 @@ function collectDischargeFindings(
     for (const key of reportedKeys) flagged.add(key);
     writeFlagged(sessionId, flagged, storeDir);
   }
-  return { findings, unresolved };
+  return { findings, unresolved, ...(degraded !== undefined ? { degraded } : {}) };
 }
 
 export async function run(
@@ -318,13 +332,17 @@ export async function run(
     // have already closed, so it must run ahead of every early return here,
     // including the ones taken when THIS turn is not retrospective-shaped —
     // which is precisely the case a prose-only response produces.
-    const { findings: dischargeFindings, unresolved: dischargeUnresolved } =
-      collectDischargeFindings(input.session_id ?? "unknown", lines, storeDir);
+    const {
+      findings: dischargeFindings,
+      unresolved: dischargeUnresolved,
+      degraded: dischargeDegraded,
+    } = collectDischargeFindings(input.session_id, lines, storeDir);
     const dischargeFields = {
       ...(dischargeFindings.length > 0 ? { discharge: dischargeFindings } : {}),
       ...(dischargeUnresolved.length > 0
         ? { discharge_unresolved: dischargeUnresolved.length }
         : {}),
+      ...(dischargeDegraded !== undefined ? { discharge_degraded: dischargeDegraded } : {}),
     };
     const hasDischargeSignal = Object.keys(dischargeFields).length > 0;
     const dischargeOnly = (): GuardOutcome | null =>
