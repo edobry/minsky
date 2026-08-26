@@ -351,7 +351,7 @@ export interface ToolLoopDiagnostics {
  * output and usually succeeds.
  */
 export interface CallReviewerOptions {
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -818,7 +818,7 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
 interface ChatCreateBaseParams {
   model: string;
   max_completion_tokens: number;
-  reasoning_effort?: "low" | "medium" | "high";
+  reasoning_effort?: ReasoningEffort;
   // mt#2722 — OpenAI prompt-cache controls. Neither field is typed by the
   // installed openai@4.104.0 (both postdate it); the OpenAI Node SDK forwards
   // unknown body fields verbatim, so we carry them as a typed passthrough on
