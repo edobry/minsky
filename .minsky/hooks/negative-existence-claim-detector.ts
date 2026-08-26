@@ -43,6 +43,7 @@ import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
 import {
   countSearchHits,
+  type SearchScope,
   detectNegativeExistenceClaim,
   isSearchCall,
 } from "../../packages/domain/src/detectors/negative-existence-claim";
@@ -53,6 +54,13 @@ import type {
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+// The SHARED search-argument grammar (mt#4362 SC2). `pathArgs` resolves
+// `PATTERN [PATH...]` against `command-shape`'s `suppliesPattern` +
+// `nonFlagOperands`, which is precisely the parse this needs and which mt#4328
+// consolidated into one definition. Imported rather than re-derived on that
+// module's own invitation — its re-export docblock names "any future consumer"
+// as the reason the definition lives in one place.
+import { pathArgs, tokenize } from "./nonexistent-search-path-detector";
 
 /**
  * When false (calibration mode) the hook records and injects NOTHING. Flip only
@@ -132,18 +140,117 @@ export async function resolveDoneTaskIds(
   }
 }
 
-/** Search-class calls in `turnLines`, each with the hit count its result carried. */
+/**
+ * Operands that name the repo root rather than a subtree.
+ *
+ * `*` is included because a bare glob expands within cwd — it narrows nothing.
+ */
+const REPO_ROOT_OPERANDS = new Set([".", "./", "*", "./*"]);
+
+/**
+ * Tools whose scope arrives as a structured `path` input, not a command string.
+ *
+ * The whole reason SC3 enumerates buckets: `command-shape`'s grammar parses a
+ * COMMAND, and four of the covered tools never produce one. A shell-only
+ * implementation would leave `Grep(path: ...)` — now at least as common a
+ * subtree-scoped shape as a shell `grep` — permanently unclassified.
+ */
+const STRUCTURED_PATH_TOOLS: readonly string[] = [
+  "Grep",
+  "Glob",
+  "mcp__minsky__repo_search",
+  "mcp__minsky__git_search",
+];
+
+/**
+ * Tools with no path PREFIX dimension at all.
+ *
+ * `tasks_search` and `transcripts_search-text` search a corpus, not a tree.
+ * `session_grep_search` is the interesting one: it takes `include_pattern` /
+ * `exclude_pattern`, which are glob FILTERS over the whole workspace rather
+ * than a path prefix — a different narrowing axis this leg deliberately does
+ * not model. Classified `unscopable` EXPLICITLY so it can never be mistaken for
+ * repo-wide coverage (SC3).
+ */
+const UNSCOPABLE_SEARCH_TOOLS: readonly string[] = [
+  "mcp__minsky__tasks_search",
+  "mcp__minsky__transcripts_search-text",
+  "mcp__minsky__session_grep_search",
+];
+
+/** Reduce a search's path operands to a scope classification. */
+function classifyPaths(paths: readonly string[]): { scope: SearchScope; scopePath?: string } {
+  const named = paths.map((p) => p.trim()).filter((p) => p.length > 0);
+
+  // SC4 — a search naming NO path defaults to cwd, and the hook runs with the
+  // repo root as cwd, so this is REPO scope. Recorded as a decision rather than
+  // left to fall through. Its failure mode, stated: an agent that had cd'd into
+  // a subdirectory would have a genuinely subtree-scoped search classified
+  // `repo` and go unflagged. That direction is a MISS, not a false fire, which
+  // is the right way to be wrong for a calibration-first widening.
+  if (named.length === 0) return { scope: "repo" };
+
+  // ANY root operand makes the whole search repo-wide — the operands union.
+  if (named.some((p) => REPO_ROOT_OPERANDS.has(p))) return { scope: "repo" };
+
+  // Multiple subtrees are still subtrees (AT7). `src/ packages/` reaches
+  // neither `.minsky/` nor `scripts/` nor `docs/`, so a repo-wide claim resting
+  // on it outruns its evidence exactly as a single-operand search would.
+  return { scope: "subtree", scopePath: named[0] as string };
+}
+
+/**
+ * Which territory a search covered — the three buckets of SC3.
+ *
+ * Shell first, because a `Bash`/`session_exec` search carries its paths in the
+ * command string and that is the only bucket needing the grammar.
+ */
+export function classifySearchScope(
+  toolName: string,
+  input: Record<string, unknown>,
+  command: string | undefined
+): { scope: SearchScope; scopePath?: string } {
+  if (typeof command === "string" && command.trim().length > 0) {
+    const tokens = tokenize(command);
+    const leader = tokens[0] ?? "";
+    const binary = leader.split("/").pop() ?? leader;
+    return classifyPaths(pathArgs(binary, tokens));
+  }
+
+  if (STRUCTURED_PATH_TOOLS.includes(toolName)) {
+    const raw = input["path"];
+    return classifyPaths(typeof raw === "string" ? [raw] : []);
+  }
+
+  if (UNSCOPABLE_SEARCH_TOOLS.includes(toolName)) return { scope: "unscopable" };
+
+  // An UNRECOGNIZED tool lands here. It resolves to the same value as the
+  // enumerated bucket above and the branches are kept apart anyway: "we know
+  // this tool has no path dimension" and "we have never seen this tool" are
+  // different facts that happen to warrant the same default today. Collapsing
+  // them would make a newly-added search tool indistinguishable from a
+  // deliberately-classified one the next time someone reads this.
+  //
+  // Either way `unscopable` never satisfies the scope leg, so a new search tool
+  // fails QUIET — a miss, not a false fire — until someone classifies it.
+  return { scope: "unscopable" };
+}
+
+/** Search-class calls in `turnLines`, each with the hit count and scope its result carried. */
 export function collectSearchObservations(turnLines: TranscriptLine[]): SearchObservation[] {
   const observations: SearchObservation[] = [];
   for (const call of findToolCallsWithResults(turnLines)) {
     const command =
       typeof call.input["command"] === "string" ? (call.input["command"] as string) : undefined;
     if (!isSearchCall(call.toolName, command)) continue;
+    const { scope, scopePath } = classifySearchScope(call.toolName, call.input, command);
     observations.push({
       toolName: call.toolName,
       // A call with no correlated result has an UNKNOWN count, not zero — a
       // search still in flight must not read as "found nothing".
       hitCount: call.hasResult ? countSearchHits(call.resultText) : null,
+      scope,
+      ...(scopePath === undefined ? {} : { scopePath }),
     });
   }
   return observations;
@@ -175,7 +282,15 @@ export function buildInjectionReminder(result: NegativeExistenceClaimResult): st
   const claimLines = result.claims.map((c) => `  - "${c.phrase}"`).join("\n");
   const tasks = result.doneTaskIds.join(", ");
   const hitCounts = result.thinSearches
-    .map((s) => `${s.toolName} -> ${s.hitCount ?? "?"} hit(s)`)
+    // Scope is rendered beside the count so a calibration reviewer can tell
+    // WHICH leg admitted the search. Without it a subtree search returning 8
+    // hits reads as "8 hit(s)" — i.e. as evidence AGAINST the fire it caused.
+    .map(
+      (s) =>
+        `${s.toolName} -> ${s.hitCount ?? "?"} hit(s)${
+          s.scope === "subtree" ? `, scoped to ${s.scopePath ?? "a subtree"}` : ""
+        }`
+    )
     .join("; ");
 
   return [
