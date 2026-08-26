@@ -65,6 +65,44 @@ const MAX_DEPTH = 4;
 
 export type EchoOmissionReason = "echoed-caller-input";
 
+/**
+ * The commands whose wire contract this bound is allowed to change (PR #3390 R1).
+ *
+ * **Why an enrollment list rather than every tool.** The first version of this
+ * module applied to all ~200 MCP commands. That is a breaking schema change to
+ * the entire tool surface — fields removed, `*Omitted` / `*Truncation` fields
+ * injected — shipped with no contract, no version and no way for a client to
+ * opt out. The reviewer was right to block it, and the miss was mine: this
+ * task's gate-(h) consumer enumeration was done for a per-command fix, and was
+ * not re-run when the design changed to a universal one. An MCP result is a
+ * published surface; "the change is loud and low-risk" is not the same as
+ * "the change is contracted."
+ *
+ * So the mechanism stays central — one implementation, one place, on the path
+ * every result already takes — while the contract change is explicit and
+ * enumerable. Each entry is a command the corpus MEASURED as oversized, with
+ * its number; adding one is a deliberate, reviewable line rather than a silent
+ * consequence of registering a command.
+ *
+ * | command | max chars | avg | why |
+ * | --- | --- | --- | --- |
+ * | `session.pr.wait-for-review` | 34,668 | 2,232 | unbounded `review.findings[]` + `lastSeenReviews` |
+ * | `session.pr.create` | 12,063 | 6,297 | echoes the caller's PR `body` |
+ * | `session.pr.checks` | 4,860 | 3,157 | full `checks[]`, every record with a URL |
+ * | `session.commit` | 22,162 | 2,406 | already trimmed per-command by mt#4417; enrolled so the central bound also covers its `files[]` |
+ *
+ * A new command does NOT inherit the bound. That is the cost of the contract,
+ * and it is the right trade: the alternative is changing a surface nobody
+ * examined. When a fifth tool shows up in the corpus measurement, it earns a
+ * row here with its number.
+ */
+export const BOUNDED_COMMANDS: ReadonlySet<string> = new Set([
+  "session.pr.wait-for-review",
+  "session.pr.create",
+  "session.pr.checks",
+  "session.commit",
+]);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -106,7 +144,12 @@ function elidableCallerStrings(params: Record<string, unknown>): Set<string> {
  * Returns `result` unchanged — same reference — when neither pass has anything
  * to do, which is the overwhelmingly common case.
  */
-export function boundWireResult(result: unknown, params: Record<string, unknown>): unknown {
+export function boundWireResult(
+  result: unknown,
+  params: Record<string, unknown>,
+  commandId: string
+): unknown {
+  if (!BOUNDED_COMMANDS.has(commandId)) return result;
   if (!isPlainObject(result)) return result;
 
   const elidable = elidableCallerStrings(params);
@@ -158,28 +201,38 @@ function elideEchoes(
 }
 
 /**
- * Has this object already bounded itself?
+ * Is THIS array the one its node's own truncation metadata describes?
  *
- * mt#2817's list tools apply their OWN cap (`DEFAULT_LIST_CAP`, 500) and report
- * it with a `truncated` flag, because for them the array IS the answer the
- * caller asked for. Capping such a result to {@link MAX_WIRE_ARRAY} here would
- * defeat the tool — a `tasks_list` of 500 rows is over budget by size and is
- * exactly what the caller requested. The convention's own marker is the
- * discriminator: a node carrying `truncated` has already made this decision,
- * and is left alone.
+ * mt#2817's list tools apply their own cap (`DEFAULT_LIST_CAP`, 500) and report
+ * it as `{returned, total, truncated}` beside the array, because for them the
+ * array IS the answer the caller asked for. Re-capping it to
+ * {@link MAX_WIRE_ARRAY} would defeat the tool — a `tasks_list` of 500 rows is
+ * over the byte budget and is exactly what was requested.
+ *
+ * **Matched per ARRAY, not per node (PR #3390 R1).** The first version returned
+ * early from the whole node when it saw a `truncated` key, which let any other
+ * array on that node — or anywhere beneath it — escape the bound entirely, and
+ * stopped the walk dead. The convention places `returned` alongside the array it
+ * describes, so `returned === array.length` is what identifies the described
+ * one. Every other array on the node is still capped, and the walk continues
+ * into children either way.
  */
-function isSelfBounded(node: Record<string, unknown>): boolean {
-  return "truncated" in node;
+function isDescribedByOwnTruncation(node: Record<string, unknown>, array: unknown[]): boolean {
+  return node.truncated !== undefined && node.returned === array.length;
 }
 
 function capArrays(node: Record<string, unknown>, depth: number): Record<string, unknown> {
-  if (depth >= MAX_DEPTH || isSelfBounded(node)) return node;
+  if (depth >= MAX_DEPTH) return node;
 
   let changed = false;
   const out: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(node)) {
-    if (Array.isArray(value) && value.length > MAX_WIRE_ARRAY) {
+    if (
+      Array.isArray(value) &&
+      value.length > MAX_WIRE_ARRAY &&
+      !isDescribedByOwnTruncation(node, value)
+    ) {
       const kept = value.slice(0, MAX_WIRE_ARRAY);
       out[key] = kept;
       out[`${key}Truncation`] = computeListTruncation(value.length, kept.length);

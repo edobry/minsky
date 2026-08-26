@@ -710,7 +710,9 @@ export function registerSharedCommandsWithMcp(
             // when the payload is genuinely large, caps arrays with mt#2817's
             // loud `{returned, total, truncated}` triple. A small result is
             // returned by the same reference, untouched.
-            return boundWireResult(result, parameters) as string | Record<string, unknown>;
+            return boundWireResult(result, parameters, command.id) as
+              | string
+              | Record<string, unknown>;
           } catch (error) {
             const duration = Date.now() - startTime;
 
