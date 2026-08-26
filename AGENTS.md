@@ -1615,10 +1615,12 @@ which is the growth the consolidation exists to stop.
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
   name match no longer fires on a source file (`.ts`/`.js`). Narrowed again mt#4581 — nor on the
   DIRECTORY holding it, since that rescue keys on the FILE's extension and a directory argument has
-  none. A token now escapes when it traverses a source root (`src`/`packages`/`scripts`/`services`,
-  at a segment boundary, so an ABSOLUTE session path qualifies) AND carries no data extension; the
-  second half is load-bearing — a root-prefix test alone would newly permit
-  `packages/domain/src/secrets/prod.yaml`. Residual: `docs/credentials/` still denies. Widened mt#4159 — `.mcp.json` joined
+  none. A token now escapes when it is a REPO-RELATIVE path rooted at
+  `src`/`packages`/`scripts`/`services` (anchored at the start, `./` tolerated) AND carries no data
+  extension; the second half is load-bearing — a root-prefix test alone would newly permit
+  `packages/domain/src/secrets/prod.yaml`. Anchoring is deliberate: matching such a segment
+  ANYWHERE would carve out `/var/secrets/services/credentials`. Residuals, both denying:
+  `docs/credentials/` and an ABSOLUTE path into repo source. Widened mt#4159 — `.mcp.json` joined
   the explicit list, and its admission criterion is now "reading the file EMITS a credential",
   not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
   `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.

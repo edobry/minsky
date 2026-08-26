@@ -209,22 +209,32 @@ function hasDataExtension(token: string): boolean {
 }
 
 /**
- * Does this token TRAVERSE one of this repo's source roots?
+ * Is this token a REPO-RELATIVE path rooted at one of this repo's source roots?
  *
- * Matched at a path-segment boundary rather than anchored at the string start,
- * because a session workspace is addressed by an ABSOLUTE path
- * (`/Users/…/sessions/<uuid>/packages/domain/src/credentials/`) and a
- * start-anchored test would leave the guard denying there — the very context
- * mt#4581 was filed from.
+ * Anchored at the string start, NOT matched at any interior path-segment
+ * boundary. The first version of this used `(^|/)<root>/` so that an absolute
+ * session-workspace path would qualify; PR #3364 R1 caught that it also matches
+ * a source-root name appearing ANYWHERE, so `/var/secrets/services/credentials`
+ * and `~/.config/app/src/credentials` would have escaped the generic pattern —
+ * real secret paths, carved out by a rule meant for repo source. The carve-out
+ * belongs to THIS repo's top-level roots, which is what the spec's "under a
+ * source root" says and what anchoring implements literally.
  *
- * Segment-bounded on BOTH sides so a directory merely PREFIXED with a root's
- * name (`services-archive/`, `srcfoo/`) does not qualify. Note this asks about
- * one path ARGUMENT, never about the command string: SC3's "names a source
- * TREE, not mentions a source root somewhere" is the distinction, and scanning
- * the whole command is what it forbids.
+ * The absolute-path case that motivated the interior match was speculative and
+ * is not restored: the originating incident's command was repo-relative, run
+ * from inside a session, which is how agents address session files. An absolute
+ * path bearing a `credentials`/`secrets` directory still denies — an accepted
+ * residual alongside `docs/credentials/`, and a narrower one than permitting
+ * every interior `/services/`.
+ *
+ * Leading `./` is tolerated; a directory merely PREFIXED with a root's name
+ * (`services-archive/`, `srcfoo/`) is not, because the trailing `/` is required.
+ * Note this asks about one path ARGUMENT, never about the command string —
+ * SC3's "names a source TREE, not mentions a source root somewhere".
  */
 export function isUnderSourceRoot(token: string): boolean {
-  return SOURCE_ROOT_SEGMENTS.some((seg) => new RegExp(`(^|/)${seg}/`).test(token));
+  const normalized = token.replace(/^(\.\/)+/, "");
+  return SOURCE_ROOT_SEGMENTS.some((seg) => normalized.startsWith(`${seg}/`));
 }
 
 /**

@@ -933,15 +933,8 @@ describe("mt#4581 — a SOURCE directory argument is not a secret path", () => {
       expect(findSecretReads("grep -rn 'x' packages/domain/src/credentials/")).toEqual([]);
     });
 
-    test("an ABSOLUTE session-workspace path is permitted", () => {
-      // Why isUnderSourceRoot matches at a segment boundary rather than at the
-      // string start: session workspaces are addressed absolutely, and that is
-      // the context this task was filed from.
-      expect(
-        findSecretReads(
-          "grep -rn 'x' /Users/e/.local/state/minsky/sessions/abc/packages/domain/src/credentials/"
-        )
-      ).toEqual([]);
+    test("a leading ./ is tolerated", () => {
+      expect(findSecretReads("grep -rn 'x' ./packages/domain/src/credentials/")).toEqual([]);
     });
   });
 
@@ -988,11 +981,11 @@ describe("mt#4581 — a SOURCE directory argument is not a secret path", () => {
   });
 
   describe("isUnderSourceRoot — the discriminator in isolation", () => {
-    test("matches a source root at a path-segment boundary", () => {
+    test("matches a repo-relative path rooted at a source root", () => {
       expect(isUnderSourceRoot("packages/domain/src/credentials/")).toBe(true);
       expect(isUnderSourceRoot("src/credentials/")).toBe(true);
-      expect(isUnderSourceRoot("/abs/path/services/reviewer/src/")).toBe(true);
       expect(isUnderSourceRoot("scripts/foo/")).toBe(true);
+      expect(isUnderSourceRoot("./services/reviewer/src/")).toBe(true);
     });
 
     test("a directory merely PREFIXED with a root's name does not qualify", () => {
@@ -1004,6 +997,15 @@ describe("mt#4581 — a SOURCE directory argument is not a secret path", () => {
       expect(isUnderSourceRoot("docs/credentials/")).toBe(false);
       expect(isUnderSourceRoot("~/.config/minsky/")).toBe(false);
     });
+
+    test("PR #3364 R1 — an INTERIOR source-root segment does not qualify", () => {
+      // The carve-out belongs to this repo's top-level roots. Matching
+      // `(^|/)<root>/` anywhere would have carved out real secret paths that
+      // merely happen to contain such a segment.
+      expect(isUnderSourceRoot("/var/secrets/services/credentials")).toBe(false);
+      expect(isUnderSourceRoot("~/.config/app/src/credentials")).toBe(false);
+      expect(isUnderSourceRoot("/etc/secrets/packages/credential-store")).toBe(false);
+    });
   });
 
   describe("isSecretPath — the discriminator in isolation", () => {
@@ -1014,10 +1016,21 @@ describe("mt#4581 — a SOURCE directory argument is not a secret path", () => {
       expect(isSecretPath("packages/domain/src/secrets/prod.yaml")).toBe(true);
     });
 
-    test("the accepted residual: a source-root-less directory still matches", () => {
+    test("the accepted residuals still match", () => {
       // Named in the spec's "Known residual, accepted" — widening the root list
       // is a separate change with its own false-positive surface.
       expect(isSecretPath("docs/credentials/")).toBe(true);
+      // ...and, since PR #3364 R1, an ABSOLUTE path into repo source. Denying a
+      // legitimate read is the safe direction; carving out every interior
+      // `/services/` was not.
+      expect(isSecretPath("/Users/e/sessions/abc/packages/domain/src/credentials/")).toBe(true);
+    });
+
+    test("PR #3364 R1 — a real secret path with an interior source-root name still denies", () => {
+      // End-to-end through the guard, not just the helper: these are the paths
+      // the over-broad first version would have permitted outright.
+      expect(findSecretReads("cat /var/secrets/services/credentials").length).toBe(1);
+      expect(findSecretReads("cat ~/.config/app/src/credentials").length).toBe(1);
     });
   });
 
