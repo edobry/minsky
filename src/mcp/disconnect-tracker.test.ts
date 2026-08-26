@@ -74,17 +74,29 @@ function setTrackerEvents(tracker: DisconnectTracker, events: McpDisconnectEvent
  * structurally rather than by naming. Callers remove the whole directory (see
  * `removeTempDirOf`), so a segment cannot outlive the test that created it.
  */
+/** Shared by the minting site and the teardown guard, so the two cannot drift. */
+const TEMP_DIR_PREFIX = "disconnect-tracker-test-";
+
 function makeTempPath(name: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `disconnect-tracker-test-${name}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${TEMP_DIR_PREFIX}${name}-`));
   return path.join(dir, `${name}.json`);
 }
 
 /**
  * Tear down the whole directory `makeTempPath` created, not just the active
  * file. Unlinking the active path alone is what leaked the segment siblings.
+ *
+ * The prefix check guards the RECURSIVE delete (PR #3386 R1): this only ever
+ * removes a directory `makeTempPath` minted. A `tmpPath` arriving from anywhere
+ * else would otherwise take its whole parent directory with it, and `force:
+ * true` would not even report the mistake.
  */
 function removeTempDirOf(tmpPath: string): void {
-  fs.rmSync(path.dirname(tmpPath), { recursive: true, force: true });
+  const dir = path.dirname(tmpPath);
+  if (!path.basename(dir).startsWith(TEMP_DIR_PREFIX)) {
+    throw new Error(`refusing to recursively remove an unexpected directory: ${dir}`);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 describe("DisconnectTracker", () => {
@@ -916,13 +928,19 @@ describe("DisconnectTracker persistence", () => {
       expect(listSegmentPaths(first)).toHaveLength(1);
       expect(listSegmentPaths(second)).toHaveLength(0);
 
-      fs.writeFileSync(
-        second,
-        `${JSON.stringify({ ...stray, timestamp: "2026-05-09T10:00:00.000Z" })}\n`,
-        "utf-8"
-      );
-      const t = DisconnectTracker.resetForTest("srv", second);
-      expect(t.getEvents().length).toBe(1);
+      const own = { ...stray, timestamp: "2026-05-09T10:00:00.000Z" };
+      fs.writeFileSync(first, `${JSON.stringify(own)}\n`, "utf-8");
+      fs.writeFileSync(second, `${JSON.stringify(own)}\n`, "utf-8");
+
+      // The COLLISION side, exercised rather than assumed (PR #3386 R1). A
+      // tracker sharing the stray's directory loads it — 2 events, not 1. This
+      // is the pre-fix behaviour reproduced on purpose: it proves the hazard is
+      // real, so the assertion below is a genuine contrast rather than a
+      // property that would hold for any two paths.
+      expect(DisconnectTracker.resetForTest("srv", first).getEvents()).toHaveLength(2);
+
+      // The ISOLATION side: a fixture in its own directory sees only its own.
+      expect(DisconnectTracker.resetForTest("srv", second).getEvents()).toHaveLength(1);
     } finally {
       removeTempDirOf(first);
       removeTempDirOf(second);
