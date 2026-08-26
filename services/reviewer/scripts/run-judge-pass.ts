@@ -145,9 +145,34 @@ interface JudgePanelMember {
   model: string;
 }
 
+// Google is deliberately ABSENT (mt#2746, 2026-08-25), and this is a
+// measurement decision rather than a convenience one.
+//
+// `gemini-2.5-pro` had been in this panel since mt#2726 and had never worked
+// on this account: `generateContent` returns 404 "This model ... is no longer
+// available to new users." It failed SILENTLY, because a failed judge returns
+// the fallback `verdict: "VALID"` — so every prior run's agreement numbers
+// include a constant VALID vote from a judge that never ran, which inflates
+// non-unanimity on every row where the working judges did not say VALID.
+//
+// Probed the alternatives before dropping the provider rather than assuming
+// the whole vendor was out:
+//   gemini-2.5-pro        404 — retired for new users
+//   gemini-pro-latest     429 — resolves to gemini-3.1-pro; free-tier quota
+//                               "limit: 0", i.e. no paid Gemini billing here
+//   gemini-flash-latest   503 — transient, so flash quota may exist
+//
+// Flash is reachable-in-principle, but a panel member that intermittently
+// drops out makes the panel's COMPOSITION vary between runs, and disagreement
+// is defined over composition — two runs would not be comparable. A stable
+// 2-model panel is worth more here than an intermittent 3rd, and the mt#2726
+// spec asks for "2-3 diverse provider/model configs", so 2 is in-spec.
+//
+// Re-add Google if Gemini billing is enabled: put a specific model here (not
+// a `-latest` alias, which silently re-points and would change what the
+// benchmark measures), and re-run the corpus so the numbers share a panel.
 const JUDGE_PANEL_MODELS: readonly JudgePanelMember[] = [
   { provider: "openai", model: "gpt-5" },
-  { provider: "google", model: "gemini-2.5-pro" },
   { provider: "anthropic", model: "claude-sonnet-4-6" },
 ];
 
@@ -194,7 +219,14 @@ interface JudgePassArtifact {
     {
       aggregate: FindingVerdict;
       agreement: boolean;
-      perJudge: { provider: string; model: string; verdict: FindingVerdict; rationale: string }[];
+      perJudge: {
+        provider: string;
+        model: string;
+        verdict: FindingVerdict;
+        rationale: string;
+        /** Present when the judge call FAILED and `verdict` is the fallback, not a judgment. */
+        parseError?: string;
+      }[];
     }
   >;
   errors: string[];
@@ -317,6 +349,13 @@ async function main() {
         model: j.model,
         verdict: j.verdict,
         rationale: j.rationale,
+        // Carry parseError THROUGH. `judgeFinding`'s catch already records the
+        // real failure message here, and a first cut of this map dropped it —
+        // which left a fully-degraded panel looking like a clean run, since a
+        // failed judge's fallback `verdict: "VALID"` is a legitimate verdict
+        // value. The field that distinguishes "judged VALID" from "never ran"
+        // is this one; without it the artifact cannot answer which happened.
+        ...(j.parseError ? { parseError: j.parseError } : {}),
       })),
     };
   }
@@ -341,8 +380,67 @@ async function main() {
 
   console.log("\n=== Summary ===");
   console.log(`Candidates judged: ${judgeResults.length}/${candidates.length}`);
+
+  // Per-JUDGE liveness, not just per-ROW completion (mt#2746).
+  //
+  // "Candidates judged: 114/114" is a true denominator at the row level and a
+  // silent one at the judge level: a panel member that fails every call still
+  // returns a well-formed PerJudgeVerdict, because `judgeFinding`'s catch
+  // yields `verdict: "VALID"` — a legitimate verdict value — with the real
+  // cause tucked into `parseError`. So a 3-model panel silently degrading to 1
+  // produces a summary, an artifact, and an exit code identical to a healthy
+  // run, and every number computed downstream (agreement, the
+  // disagreement-weighted subset) is derived from defaults.
+  //
+  // Measured 2026-08-25: a run reported 114/114 and exit 0 while gpt-5 (no
+  // API credits) and gemini-2.5-pro (model retired: 404 "no longer available
+  // to new users") failed on all 114 rows. Only claude-sonnet-4-6 judged. The
+  // resulting subset was 84 rows of one model's opinion.
+  //
+  // This is mem#1079's "assert your own denominator" on a second axis: not how
+  // many ITEMS were inspected, but how many CHANNELS actually contributed to
+  // each item.
+  const liveness = new Map<string, { ok: number; failed: number }>();
+  for (const config of configs) {
+    liveness.set(`${config.provider}:${config.model}`, { ok: 0, failed: 0 });
+  }
+  for (const result of judgeResults) {
+    for (const j of result.perJudge) {
+      const key = `${String(j.provider)}:${j.model}`;
+      const entry = liveness.get(key) ?? { ok: 0, failed: 0 };
+      if (j.parseError) entry.failed += 1;
+      else entry.ok += 1;
+      liveness.set(key, entry);
+    }
+  }
+
+  console.log("Judge liveness (contributed / attempted):");
+  const deadJudges: string[] = [];
+  for (const [key, { ok, failed }] of liveness) {
+    const attempted = ok + failed;
+    console.log(`  ${key}: ${ok}/${attempted}`);
+    // A judge contributing nothing is dead; a mostly-failing one is degraded
+    // enough that its verdicts are dominated by the fallback.
+    if (attempted > 0 && ok * 2 <= attempted) deadJudges.push(`${key} (${ok}/${attempted})`);
+  }
+
   console.log(`Disagreement-weighted subset: ${disagreementSubset.length}`);
   console.log(`Results written to: ${outputPath}`);
+
+  if (deadJudges.length > 0) {
+    const deadList = deadJudges.map((d) => `  - ${d}`).join("\n");
+    console.error(
+      `\nFAILED: ${deadJudges.length} of ${configs.length} panel member(s) contributed on half their calls or fewer:
+${deadList}
+
+The artifact was still written (the per-judge detail is the evidence), but its
+agreement and disagreement numbers are NOT a panel result — a failed judge's
+fallback verdict is indistinguishable from a real one in the aggregate.
+Read judgeVerdicts[*].perJudge[].parseError for the cause, fix it, and re-run
+before consuming these numbers.`
+    );
+    process.exit(1);
+  }
 
   process.exit(0);
 }
