@@ -424,8 +424,11 @@ describe("candidate-load bound (mt#4212)", () => {
       maxCandidatesPerRun: 10,
     });
 
-    // Progress without an ORDER BY: each embedded turn leaves the candidate set
-    // permanently, so the backlog drains regardless of which rows a run draws.
+    // Progress across runs: each embedded turn leaves the candidate set
+    // permanently, so successive bounded runs drain the backlog. Since mt#4623
+    // the draw is ORDERED, which makes that drain a deterministic front-to-back
+    // sweep rather than an arbitrary one — the guarantee is unchanged, only its
+    // shape.
     for (let i = 0; i < 3; i++) await pipeline.run();
 
     const remaining = [...store.values()].filter((r) => r.embedding === null);
