@@ -96,5 +96,39 @@ export const agentTranscriptTurnsTable = pgTable(
       "hnsw",
       table.embedding.asc().nullsLast().op("vector_l2_ops")
     ),
+
+    /**
+     * The embedding backfill's candidate lookup (mt#4623).
+     *
+     * `PerTurnEmbeddingPipeline.run()` selects on exactly this predicate, and
+     * without an index it is a full sequential scan: measured against
+     * production 2026-08-26, `Rows Removed by Filter: 367098` and ~37,500
+     * buffers to return 59 rows.
+     *
+     * PARTIAL on purpose, and the reason is the shape of the data rather than
+     * a general preference. Two populations make the full-index version a bad
+     * trade: 211,300 of 367,159 rows (57.6%) carry no text at all and can
+     * never be candidates, and the real backlog sits near zero — 62 rows when
+     * measured. So this index covers tens of rows where a plain
+     * `embedding IS NULL` index would cover hundreds of thousands, and it
+     * SHRINKS as the backfill drains rather than growing with the table. That
+     * matters because this table is written on every transcript ingest.
+     *
+     * Columns are the primary key, so the optional `agent_session_id`
+     * equality the pipeline adds for a single-session run is served by the
+     * same index.
+     *
+     * NOT `.concurrently()`. drizzle's `migrate()` applies each migration
+     * inside a transaction (`drizzle-orm/pg-core/dialect.js` —
+     * `session.transaction(...)`), and Postgres forbids
+     * `CREATE INDEX CONCURRENTLY` there. The build therefore takes ACCESS
+     * EXCLUSIVE for its duration; see migration 0111's lock note for the
+     * measured window and the row count it was measured at.
+     */
+    index("idx_agent_transcript_turns_embedding_backlog")
+      .on(table.agentSessionId, table.turnIndex)
+      .where(
+        sql`${table.embedding} IS NULL AND (${table.userText} IS NOT NULL OR ${table.assistantText} IS NOT NULL)`
+      ),
   ]
 );
