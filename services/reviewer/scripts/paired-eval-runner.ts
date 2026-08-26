@@ -24,10 +24,25 @@
  *
  * Flags:
  *   --corpus <path>    Corpus JSONL path. Default: the committed v1 corpus.
- *   --model <p:m>      Repeatable. "<provider>:<model>", e.g. "openai:gpt-5".
+ *   --model <p:m[:e]>  Repeatable. "<provider>:<model>" or
+ *                      "<provider>:<model>:<effort>", e.g. "openai:gpt-5" or
+ *                      "openai:gpt-5:high". Effort is one of low|medium|high
+ *                      and is OPTIONAL.
  *                      Default: [openai:gpt-5, openai:gpt-5-mini] — the
  *                      exact mt#2718 comparison this benchmark exists to
  *                      answer (spec Acceptance Test #4).
+ *
+ *                      Effort is an ARM dimension rather than a run-wide flag
+ *                      (mt#4554) so a factorial lands in ONE artifact:
+ *                        --model openai:gpt-5:low --model openai:gpt-5:high
+ *                      compares effort with everything else held fixed. A
+ *                      run-wide flag would put those two in separate runs.
+ *
+ *                      OMITTING the effort is not a neutral baseline: this
+ *                      runner always passes a tools object, so
+ *                      providers.ts derives "low" for an unpinned OpenAI arm.
+ *                      Both the pinned and the resolved value are written to
+ *                      the results artifact; GROUP BY the resolved one.
  *   --sample N         Number of corpus PRs to replay. Default 8.
  *   --attempts K       Attempts per PR per config. Default 1.
  *   --out <path>       Output artifact path. Default: a non-clobbering,
@@ -68,7 +83,12 @@ import {
   type FindingVerdict,
 } from "../src/eval-metrics";
 import { parseFindingsFromBody, type FlatFinding } from "../src/replay-summary";
-import { callReviewer, type ReviewOutput } from "../src/providers";
+import {
+  callReviewer,
+  resolveReasoningEffort,
+  type ReasoningEffort,
+  type ReviewOutput,
+} from "../src/providers";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewerConfig } from "../src/config";
 import { fetchIterationContext, type IterationContext } from "./measure-calibration";
@@ -94,7 +114,37 @@ type Provider = ReviewerConfig["provider"];
 interface ModelConfigArg {
   provider: Provider;
   model: string;
+  /**
+   * Reasoning effort to send for this arm (mt#4554). `undefined` means "let
+   * `providers.ts` derive it", which is NOT the same as a neutral baseline —
+   * see `ARM_EFFORT_NOTE` below.
+   */
+  reasoningEffort?: ReasoningEffort;
 }
+
+/**
+ * Why effort is an ARM dimension rather than a run-wide flag (mt#4554).
+ *
+ * mt#4554's `## Context` names "a `--reasoning-effort` flag". A run-wide flag
+ * cannot express the factorial that task's `## Scope` asks for: comparing
+ * (gpt-5, low) against (gpt-5, high) requires both in ONE artifact, and a
+ * single global setting puts them in two runs whose only difference is also
+ * every other thing that changed between them. Making effort part of the arm
+ * keeps the comparison paired, which is the whole point of this runner.
+ *
+ * It is also why the arm LABEL carries the effort: mt#4554's `## Context`
+ * requires each arm's actual effort be recorded rather than assumed, and a
+ * label that omits it would make two different arms indistinguishable in the
+ * results artifact.
+ *
+ * The deviation from the spec's wording is recorded in mt#4554's
+ * `## Implementation` section.
+ */
+const ARM_EFFORT_NOTE =
+  "Effort is per-arm (third segment of --model), not run-wide, so a factorial lands in one artifact.";
+
+/** The values `CallReviewerOptions.reasoningEffort` accepts (`providers.ts:376`). */
+const VALID_REASONING_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"] as const;
 
 /** The exact gpt-5-vs-gpt-5-mini comparison mt#2718 needs (spec Acceptance
  * Test #4) — the default so a bare `--dry-run` invocation (no --model flags)
@@ -117,21 +167,80 @@ interface ParsedArgs {
   dryRun: boolean;
 }
 
-function parseModelArg(raw: string): ModelConfigArg {
+export type ModelSpecResult = { ok: true; value: ModelConfigArg } | { ok: false; error: string };
+
+/**
+ * Parse one `--model` value into an arm, returning the outcome rather than
+ * exiting.
+ *
+ * Split out from `parseModelArg` so every branch — including the rejections —
+ * is observable without patching `process.exit`. `parseModelArg` keeps the
+ * process-exiting behaviour the CLI needs; this holds the decision.
+ */
+export function splitModelSpec(raw: string): ModelSpecResult {
   const sep = raw.indexOf(":");
   if (sep <= 0 || sep === raw.length - 1) {
-    console.error(`ERROR: --model must be "<provider>:<model>", got "${raw}"`);
-    process.exit(2);
+    return { ok: false, error: `--model must be "<provider>:<model>[:<effort>]", got "${raw}"` };
   }
   const provider = raw.slice(0, sep);
-  const model = raw.slice(sep + 1);
   if (provider !== "openai" && provider !== "google" && provider !== "anthropic") {
-    console.error(
-      `ERROR: --model provider must be one of openai|google|anthropic, got "${provider}"`
-    );
+    return {
+      ok: false,
+      error: `--model provider must be one of openai|google|anthropic, got "${provider}"`,
+    };
+  }
+
+  // Split the remainder on the LAST colon, not the first: a model id may
+  // contain dots and dashes but the effort suffix is always the final segment.
+  // `openai:gpt-5` (no suffix) and `openai:gpt-5:high` must both parse, so the
+  // suffix is only treated as an effort when it IS one — otherwise a typo'd
+  // effort would be silently swallowed into the model name, where it surfaces
+  // as an opaque 404 from the provider rather than as an argument error.
+  const remainder = raw.slice(sep + 1);
+  const lastSep = remainder.lastIndexOf(":");
+  if (lastSep === -1) {
+    return { ok: true, value: { provider, model: remainder } };
+  }
+
+  const suffix = remainder.slice(lastSep + 1);
+  const modelPart = remainder.slice(0, lastSep);
+  if (!VALID_REASONING_EFFORTS.includes(suffix as ReasoningEffort)) {
+    return {
+      ok: false,
+      error:
+        `--model effort suffix must be one of ${VALID_REASONING_EFFORTS.join("|")}, got "${suffix}".\n` +
+        `       ${ARM_EFFORT_NOTE}\n` +
+        `       If "${suffix}" is part of the model id, the id cannot contain a colon.`,
+    };
+  }
+  if (modelPart.length === 0) {
+    return { ok: false, error: `--model has an effort suffix but no model id, got "${raw}"` };
+  }
+  return {
+    ok: true,
+    value: { provider, model: modelPart, reasoningEffort: suffix as ReasoningEffort },
+  };
+}
+
+function parseModelArg(raw: string): ModelConfigArg {
+  const result = splitModelSpec(raw);
+  if (!result.ok) {
+    console.error(`ERROR: ${result.error}`);
     process.exit(2);
   }
-  return { provider, model };
+  return result.value;
+}
+
+/**
+ * The arm's display key, used as the results artifact's `modelConfig` and in
+ * every console line. Carries the effort ONLY when one was pinned, so an
+ * unpinned arm's label stays byte-identical to what pre-mt#4554 runs produced
+ * and old artifacts remain comparable.
+ */
+export function armLabel(m: ModelConfigArg): string {
+  return m.reasoningEffort === undefined
+    ? `${m.provider}:${m.model}`
+    : `${m.provider}:${m.model}:${m.reasoningEffort}`;
 }
 
 function parseArgs(): ParsedArgs {
@@ -550,10 +659,27 @@ async function runSingleAttempt(
   });
 
   const config = buildEvalReviewerConfig(modelConfig, apiKey);
-  const output = await callReviewer(config, systemPrompt, userPrompt, {
-    readFile: async () => null,
-    listDirectory: async () => null,
-  });
+  const output = await callReviewer(
+    config,
+    systemPrompt,
+    userPrompt,
+    {
+      readFile: async () => null,
+      listDirectory: async () => null,
+    },
+    // mt#4554: the fifth argument this call previously omitted. Passing the
+    // options object only when an effort is pinned keeps the unpinned path
+    // byte-identical to the pre-mt#4554 call, so an arm without a suffix is
+    // still exactly the run this corpus was calibrated against.
+    //
+    // Worth knowing when reading results: the tools object above is always
+    // non-null, so `resolveReasoningEffort` sees toolsActive=true and derives
+    // "low" for an unpinned OpenAI arm (providers.ts:1073). "Unpinned" is
+    // therefore a LOW-effort baseline, not a neutral one.
+    modelConfig.reasoningEffort === undefined
+      ? undefined
+      : { reasoningEffort: modelConfig.reasoningEffort }
+  );
 
   return extractProducedFindings(output);
 }
@@ -576,6 +702,23 @@ function buildDefaultOutputPath(corpusVersion: string, sample: number, attempts:
 
 interface PerConfigResult extends AggregateMetrics {
   modelConfig: string;
+  /**
+   * The effort explicitly pinned on this arm, or `null` when none was.
+   * mt#4554's `## Context` asks that each arm's effort be RECORDED rather than
+   * assumed — and the two fields answer different questions, which is why both
+   * are here rather than one.
+   */
+  pinnedReasoningEffort: ReasoningEffort | null;
+  /**
+   * What `providers.ts` actually resolved and sent, derived the same way the
+   * live call derives it. `null` means the model takes no `reasoning_effort`
+   * parameter at all (every non-OpenAI arm, and OpenAI non-reasoning models).
+   *
+   * This is the field to GROUP BY. An unpinned OpenAI arm records `"low"` here
+   * and `null` above, and reading only the pinned column would score it as an
+   * effort-free baseline it never was.
+   */
+  resolvedReasoningEffort: ReasoningEffort | null;
   sampledPrCount: number;
   positiveGroundTruthCount: number;
   attemptsPerPr: number;
@@ -641,7 +784,19 @@ async function main() {
   }
 
   console.log(`Model configs (${args.models.length}):`);
-  for (const m of args.models) console.log(`  ${m.provider}:${m.model}`);
+  for (const m of args.models) {
+    // Print the RESOLVED effort, not the pinned one — an unpinned OpenAI arm
+    // is a low-effort arm, and a summary that showed it blank would invite
+    // exactly the "default effort baseline" reading mt#4554 warns against.
+    const resolved = resolveReasoningEffort(m.provider, m.model, true, m.reasoningEffort);
+    const effortNote =
+      resolved === null
+        ? " (model takes no reasoning_effort)"
+        : m.reasoningEffort === undefined
+          ? ` (effort ${resolved}, derived)`
+          : ` (effort ${resolved}, pinned)`;
+    console.log(`  ${armLabel(m)}${effortNote}`);
+  }
   console.log(`Attempts per PR per config: ${args.attempts}`);
 
   const outputPath =
@@ -683,7 +838,7 @@ async function main() {
   const perConfigResults: PerConfigResult[] = [];
 
   for (const modelConfig of args.models) {
-    const configLabel = `${modelConfig.provider}:${modelConfig.model}`;
+    const configLabel = armLabel(modelConfig);
     const apiKey = resolveProviderApiKey(modelConfig.provider);
     const errors: string[] = [];
 
@@ -763,6 +918,16 @@ async function main() {
 
     perConfigResults.push({
       modelConfig: configLabel,
+      pinnedReasoningEffort: modelConfig.reasoningEffort ?? null,
+      // Derived through the SAME function the live call uses, rather than
+      // re-implementing its rules here: `toolsActive` is true because
+      // runSingleAttempt always passes a tools object.
+      resolvedReasoningEffort: resolveReasoningEffort(
+        modelConfig.provider,
+        modelConfig.model,
+        true,
+        modelConfig.reasoningEffort
+      ),
       sampledPrCount,
       positiveGroundTruthCount,
       attemptsPerPr: args.attempts,
