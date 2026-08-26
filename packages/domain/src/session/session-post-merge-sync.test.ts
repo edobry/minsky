@@ -744,3 +744,42 @@ describe("applyPostMergeStateSync — missing session record (mt#1941)", () => {
     expect(result.sessionCleanup).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#4403 AT4 — the no-session-record branch is deliberately side-effect-free
+// on the task, and the repair lives in the command layer.
+// ---------------------------------------------------------------------------
+
+describe("applyPostMergeStateSync — no-record branch does not touch the task (mt#4403)", () => {
+  it("never reads or writes task status when the session record is absent", async () => {
+    // mt#4403 SC3 offered an explicit either/or: perform the task write here
+    // when a task id is derivable, OR stay side-effect-free with the repair in
+    // the command layer — "an unstated choice is the failure mode." This test
+    // pins the choice that was made, so a future change of mind has to break an
+    // assertion rather than quietly flip the behaviour.
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const calls: string[] = [];
+    const taskService = {
+      getTaskStatus: async () => {
+        calls.push("getTaskStatus");
+        return "IN-REVIEW";
+      },
+      setTaskStatus: async () => {
+        calls.push("setTaskStatus");
+        return { recordsAffected: 1 };
+      },
+    } as unknown as PostMergeStateSyncDeps["taskService"];
+
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: false, trigger: MT1941_TRIGGER },
+      { sessionDB, taskService }
+    );
+
+    // The load-bearing assertion: the task service is untouched. Asserting the
+    // reported flag alone would pass even if the branch wrote and then reported
+    // false, which is the failure this is meant to exclude.
+    expect(calls).toEqual([]);
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.taskId).toBeUndefined();
+  });
+});

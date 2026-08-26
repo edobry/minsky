@@ -39,6 +39,20 @@
  * - PR merged while the reviewer service was restarting (webhook missed entirely).
  *
  * ### Does NOT cover
+ * - **A task whose SESSION RECORD HAS BEEN DELETED (mt#4403).** This is an
+ *   enumeration blind spot, not a predicate one, and it is the reason it was
+ *   silent rather than acknowledged: this sweep starts from
+ *   `listSessions()` filtered to `PR_OPEN`, so a task whose session row is gone
+ *   is invisible TWICE OVER — there is no row to list, and no `PR_OPEN` status
+ *   to match. Cleanup is part of the very state set the post-merge sync
+ *   applies, so any ordering where cleanup lands and the task-status write does
+ *   not produces exactly that shape. mt#1752 made the PR-STATE signal
+ *   trustworthy (live GitHub instead of stored state) and left the ENUMERATION
+ *   SOURCE untouched; a backstop that cannot enumerate the population it
+ *   protects reports "nothing to sync" whether or not anything is stranded.
+ *   Owner: the task-keyed reconciler (mt#4403) — keyed on tasks at IN-REVIEW
+ *   with a merged PR, because the task id is the only identifier that survives
+ *   cleanup.
  * - Sessions stuck in PR_OPEN where the PR number was never recorded in Minsky
  *   (session.pullRequest is null). Owner: mt#1614 repair-pass script handles
  *   the historical case; future sessions will have the PR number via pr-create.

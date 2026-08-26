@@ -168,6 +168,29 @@ export async function applyPostMergeStateSync(
     // (path = getSessionsDir()/<uuid>) and remove it if it still exists.
     // This prevents the workspace from being orphaned on disk when the DB
     // record is already gone.
+    //
+    // mt#4403 — THIS BRANCH IS DELIBERATELY SIDE-EFFECT-FREE ON THE TASK, and
+    // the repair lives in the command layer (`repairStrandedTask` in
+    // `apply-post-merge-state-sync-command.ts`). The choice is stated here
+    // because an UNSTATED one is the actual failure mode: a later reader
+    // cannot tell "decided not to" from "never considered it".
+    //
+    // Two reasons, both structural rather than stylistic:
+    //
+    //  1. This branch is reached BY DESIGN in the mt#1941 concurrent case,
+    //     where the webhook has already run the full sync — task write
+    //     included — before `mergeSessionPr` arrives. Writing the task here
+    //     would redo that write in the COMMON case, and could put DONE over a
+    //     status the other call legitimately set in between.
+    //  2. Repairing safely requires verifying the PR actually merged, and this
+    //     function's deps are exactly `{sessionDB, taskService}` — no forge
+    //     channel. Widening them so one branch can reach GitHub is a worse
+    //     shape than putting the repair where a forge client already belongs.
+    //     A repair that skipped that verification would set DONE on the
+    //     caller's word, which is worse than the stranding it fixes.
+    //
+    // So: `taskStatusUpdated: false` below is a REPORT, not a gap. Callers
+    // needing the repair pass `task` + `mergeSha` to the command.
     const workspaceDir = `${getSessionsDir()}/${sessionId}`;
     const cleanupPerformed = existsSync(workspaceDir);
     let cleanupError: string | undefined;
