@@ -67,9 +67,10 @@ MTok — read 2026-08-25 from `developers.openai.com/api/docs/pricing`).
 
 ## Limitations
 
-1. **Generic bug-finding only.** These 50 PRs carry no Minsky task spec, so
-   `submit_spec_verification` has nothing to verify — this benchmark measures only the half of
-   the reviewer's job a vendor could in principle replace, not spec-adherence checking.
+1. **Generic bug-finding only.** These 50 PRs carry no Minsky task spec, so no spec verification
+   happens here — `submit_spec_verification` has nothing to check. This benchmark measures only
+   the half of the reviewer's job a vendor could in principle replace, not spec-adherence
+   checking.
 
 2. **36% of reviews were genuinely truncated by the production round cap, not merely
    budget-consuming.** 46 of 50 reviews hit `MAX_TOOL_ROUNDS = 10`. Of those, only 28 called
