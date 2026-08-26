@@ -397,6 +397,41 @@ describe("checkSpecFreshness — the floor is the authoring timestamp (mt#4420)"
     expect(result.specUpdatedAt).toBeNull();
   });
 
+  test("exact-instant ties resolve the same way at BOTH boundaries (PR #3389 R1)", async () => {
+    // A ref stamped at the SAME millisecond as the last edit did not precede
+    // it — and the command renders this count as "BEFORE the spec was last
+    // edited", so `<=` would make that sentence false. Batched writes make the
+    // collision reachable rather than theoretical.
+    const atLastEdit = makeDeps({
+      getTaskInfo: async () => ({ status: "DONE", updatedAt: EDITED }),
+    });
+    const tieOnEdit = await checkSpecFreshness(
+      "mt#4232",
+      SPEC_CITING_ONE_REF,
+      { updatedAt: EDITED, createdAt: AUTHORED },
+      atLastEdit
+    );
+
+    expect(tieOnEdit.drift).toHaveLength(1);
+    expect(tieOnEdit.drift[0]?.precedesLastSpecEdit).toBe(false);
+    expect(tieOnEdit.drift[0]?.daysSinceSpecEdit).toBe(0);
+
+    // The floor uses the same convention: a ref exactly AT the authoring
+    // timestamp is not drift. Pinned here so the two cannot diverge.
+    const atFloor = makeDeps({
+      getTaskInfo: async () => ({ status: "DONE", updatedAt: AUTHORED }),
+    });
+    const tieOnFloor = await checkSpecFreshness(
+      "mt#4232",
+      SPEC_CITING_ONE_REF,
+      { updatedAt: EDITED, createdAt: AUTHORED },
+      atFloor
+    );
+
+    expect(tieOnFloor.hasDrift).toBe(false);
+    expect(tieOnFloor.drift).toHaveLength(0);
+  });
+
   test("both timestamps are echoed back so a caller can see the window it was given", async () => {
     const deps = makeDeps();
 

@@ -132,7 +132,11 @@ export interface SpecFreshnessDriftEntry {
    */
   daysSinceSpecEdit: number;
   /**
-   * Whether this ref changed at or before the spec's last edit (mt#4420).
+   * Whether this ref changed STRICTLY before the spec's last edit (mt#4420).
+   *
+   * A ref stamped at the exact same instant as the last edit reports `false`:
+   * it did not precede anything, and the same tie convention governs the floor
+   * comparison, where a ref exactly at the floor is not drift.
    *
    * `true` is the class that was INVISIBLE before mt#4420 and is the reason
    * this check was reporting false clean passes: the drift is real, it happened
@@ -287,7 +291,13 @@ export async function checkSpecFreshness(
     currentStatus: status,
     refUpdatedAt: refUpdatedAt.toISOString(),
     daysSinceSpecEdit: daysBetween(lastEdit, refUpdatedAt),
-    precedesLastSpecEdit: refUpdatedAt.getTime() <= lastEdit.getTime(),
+    // STRICTLY before. A ref stamped at the exact same instant as the last edit
+    // is not "before" it, and the command renders this count as "BEFORE the
+    // spec was last edited" — so `<=` would make that sentence false for the
+    // equality case. Ties resolving to `false` also matches the floor
+    // comparison above, which is likewise strict: a ref exactly AT the floor is
+    // not drift. One convention, both boundaries.
+    precedesLastSpecEdit: refUpdatedAt.getTime() < lastEdit.getTime(),
   });
 
   for (const ref of taskRefs) {
