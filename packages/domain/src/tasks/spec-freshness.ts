@@ -9,11 +9,17 @@
  * task; the agent had to re-derive the dependency landscape manually
  * mid-flight (see mt#2826 spec, evidence conversation eceb6092).
  *
- * This module is the pure detection core: given a spec's content + its
- * `updatedAt` timestamp, extract cited refs and compare each ref's current
- * state timestamp against the spec's `updatedAt`. A ref that changed AFTER
- * the spec was last edited is "drift" — the spec's picture of that ref may be
- * out of date.
+ * This module is the pure detection core: given a spec's content plus its two
+ * spec-side timestamps — `created_at` (when it was authored) and `updated_at`
+ * (when it was last written) — extract cited refs and compare each ref's
+ * current state timestamp against the AUTHORING one. A ref that changed after
+ * the spec was authored is "drift": the spec's picture of that ref may be out
+ * of date. Each drift row also records whether it predates the spec's last
+ * edit, since an edit to one section does not mean its author reviewed the
+ * whole document.
+ *
+ * It baselined on `updated_at` alone until mt#4420, which is the defect the
+ * baseline-side note below records.
  *
  * v1 is deliberately status-mechanical (per the task's Scope): it detects
  * "something about this ref changed since the spec was written," not
