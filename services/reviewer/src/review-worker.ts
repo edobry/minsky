@@ -63,7 +63,7 @@ import {
   recordReviewTiming,
   recordUnrecoveredReviewTiming,
 } from "./review-timing";
-import { fingerprintForReview, parseRecoveryFlag } from "./config-fingerprint";
+import { fingerprintForReview, readRecoveryFlag } from "./config-fingerprint";
 import { emitReviewPostedEvent, type ReviewPostedEvent } from "./review-events";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
@@ -693,9 +693,7 @@ async function runReviewBody(
   // We read the env var here (outside the outputToolsActive block) so the prompt
   // diff routing and the post-hoc downgrade both use the same flag and the same
   // extracted diff. On R1 (no prior reviews), promptDiff falls back to pr.diff.
-  const diffScopeBoundedEnabledForPrompt = parseRecoveryFlag(
-    process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED
-  );
+  const diffScopeBoundedEnabledForPrompt = readRecoveryFlag("diff_scope_bounded");
   const priorReviewsPresentForPrompt = priorReviewsMarkdown.trim().length > 0;
 
   // The diff (and matching file list) this round actually shows the model.
@@ -713,13 +711,18 @@ async function runReviewBody(
   // anything outside the delta remains reachable on demand rather than resent
   // wholesale.
   //
-  // Deliberately a SEPARATE flag from REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED: that
-  // one also arms mt#1875's severity-downgrade pass, which changes what the
-  // reviewer BLOCKS on. This flag changes only how much context the round is
-  // given, so the cost lever can ship without the quality-affecting one.
+  // Deliberately a SEPARATE flag from `diff_scope_bounded`: that one also arms
+  // mt#1875's severity-downgrade pass, which changes what the reviewer BLOCKS
+  // on. This flag changes only how much context the round is given, so the cost
+  // lever can ship without the quality-affecting one.
+  //
+  // Named by KEY, not by env var (mt#4578). This file names no
+  // REVIEWER_*_ENABLED literal anywhere — including in prose — so that renaming
+  // a flag cannot leave a stale second spelling behind. The env var for any key
+  // is in RECOVERY_FLAG_ENV_VARS in config-fingerprint.ts.
   const incrementalDiffFetcher = deps.incrementalDiffFetcher ?? fetchIncrementalDiffSince;
   const diffScope = await resolveDiffScope({
-    enabled: parseRecoveryFlag(process.env.REVIEWER_INCREMENTAL_DIFF_ENABLED),
+    enabled: readRecoveryFlag("incremental_diff"),
     priorReviewCommitId: latestPriorReviewCommitId,
     headSha: pr.headSha,
     fullDiff: pr.diff,
@@ -1031,17 +1034,13 @@ async function runReviewBody(
     // unchanged until a deliberate enablement. Accepts common truthy
     // values: "true", "1", "yes", "on" (case-insensitive) — PR #922 R20#5
     // expanding R18#3.
-    const monotonicityRecoveryEnabled = parseRecoveryFlag(
-      process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED
-    );
+    const monotonicityRecoveryEnabled = readRecoveryFlag("monotonicity_recovery");
 
     // mt#1867 composition-side convergence detection (Fix 2 from mt#1640 paper):
     // when enabled, downgrade ALL BLOCKINGs when R(N+1) shows neither strictly-
     // decreasing BLOCKING count nor new evidence per finding. Default-off until
     // empirical verification (same pattern as monotonicityRecovery above).
-    const compositionConvergenceEnabled = parseRecoveryFlag(
-      process.env.REVIEWER_COMPOSITION_CONVERGENCE_ENABLED
-    );
+    const compositionConvergenceEnabled = readRecoveryFlag("composition_convergence");
 
     // mt#1875 diff-scope-bounded downgrade (Fix 3 from mt#1640 paper):
     // when enabled AND priorReviewsMarkdown is non-empty (R≥2), restrict
@@ -1050,8 +1049,9 @@ async function runReviewBody(
     // Default-off until empirical verification (same convention as above).
     //
     // NOTE: diffScopeBoundedEnabledForPrompt (computed before buildReviewPrompt
-    // above) reads the same env var; using the same value here ensures the
+    // above) reads the same flag; using the same value here ensures the
     // prompt-context routing and the post-hoc downgrade are always in sync.
+    // Deliberately NOT a second readRecoveryFlag call — one read, one value.
     const diffScopeBoundedEnabled = diffScopeBoundedEnabledForPrompt;
 
     // mt#2836 refutation-aware re-assertion recovery: downgrade a BLOCKING
@@ -1059,18 +1059,14 @@ async function runReviewBody(
     // author's refutation (a commit pushed since the last review) and this
     // round's finding text does not engage it. Default-off, same convention
     // as the sibling recovery passes above.
-    const refutationRecoveryEnabled = parseRecoveryFlag(
-      process.env.REVIEWER_REFUTATION_RECOVERY_ENABLED
-    );
+    const refutationRecoveryEnabled = readRecoveryFlag("refutation_recovery");
 
     // mt#3245 structural-claim verification: before a BLOCKING finding asserting a
     // duplicate identifier / duplicate declaration is posted, deterministically count
     // declaration FORMS (not identifier occurrences) for the named identifier against the
     // file's actual current content and drop/demote the claim if it does not reproduce.
     // Default-off, same convention as the sibling recovery passes above.
-    const structuralClaimVerificationEnabled = parseRecoveryFlag(
-      process.env.REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED
-    );
+    const structuralClaimVerificationEnabled = readRecoveryFlag("structural_claim_verification");
 
     // Compute iteration index (1-based) for the convergence threshold gate.
     // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
