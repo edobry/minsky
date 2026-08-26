@@ -74,6 +74,32 @@ export async function getOpenAIKeySource(): Promise<"OPENAI_API_KEY" | "minsky-c
 }
 
 /**
+ * Config-backed key resolution for the non-OpenAI providers (mt#4620).
+ *
+ * `resolveOpenAIKey` above already does this for OpenAI (mt#3547); the same
+ * env-first-then-config fallback is needed for google/anthropic wherever a
+ * harness script gates a provider on an env var alone — reading env only is
+ * what makes a session with no raw `GOOGLE_AI_API_KEY`/`ANTHROPIC_API_KEY` in
+ * its shell conclude "no credential exists" while Minsky's own config (and
+ * therefore `ai_complete`/`ai_validate`) has one. Same two traps
+ * `resolveOpenAIKey` documents: `minsky config credentials list` is not a
+ * presence test, and `getConfiguration()` throws until `setupConfiguration()`
+ * has run — swallow neither.
+ */
+export async function resolveProviderApiKeyWithConfig(
+  provider: "openai" | "google" | "anthropic",
+  envVarName: string
+): Promise<string | undefined> {
+  const fromEnv = process.env[envVarName];
+  if (fromEnv) return fromEnv;
+
+  if (!isConfigurationInitialized()) {
+    await setupConfiguration();
+  }
+  return getConfiguration().ai?.providers?.[provider]?.apiKey || undefined;
+}
+
+/**
  * GitHub token with the same config fallback (`github.token`).
  *
  * `harness-auth.ts`'s `resolveGitHubToken` checks `OCTOKIT_AUTH` then

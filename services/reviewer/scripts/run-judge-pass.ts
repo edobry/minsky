@@ -213,9 +213,14 @@ async function main() {
   // Per-provider gating (mirrors paired-eval-runner.ts): a missing key for
   // one panel member skips just that member; the whole run only SKIPs when
   // NONE of the panel is runnable.
-  const runnablePanel = JUDGE_PANEL_MODELS.filter(
-    (c) => resolveProviderApiKey(c.provider) !== undefined
+  //
+  // resolveProviderApiKey is async as of mt#4620 (config-backed fallback),
+  // so the filter runs as an explicit map-then-filter rather than a bare
+  // `.filter()`.
+  const runnableFlags = await Promise.all(
+    JUDGE_PANEL_MODELS.map(async (c) => (await resolveProviderApiKey(c.provider)) !== undefined)
   );
+  const runnablePanel = JUDGE_PANEL_MODELS.filter((_c, i) => runnableFlags[i]);
   if (runnablePanel.length === 0) {
     const requestedProviders = [...new Set(JUDGE_PANEL_MODELS.map((c) => c.provider))];
     console.log(
@@ -237,7 +242,7 @@ async function main() {
 
   const configs: JudgeModelConfig[] = [];
   for (const c of runnablePanel) {
-    const apiKey = resolveProviderApiKey(c.provider);
+    const apiKey = await resolveProviderApiKey(c.provider);
     if (apiKey === undefined) continue; // already filtered above; guard for noUncheckedIndexedAccess-style safety
     configs.push({ provider: c.provider, model: c.model, apiKey });
   }
