@@ -228,7 +228,16 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-});
+// Guarded, like every sibling script here. Unguarded, `main()` runs on IMPORT —
+// so the test file that imports `buildScorePayload` also fired a live Braintrust
+// API call, and on a machine without a key that throws and `process.exit(1)`
+// takes the whole test runner down with it, mid-suite and with no failing
+// assertion to point at. A configured local key hides this completely: main()
+// simply succeeds, the suite continues, and the only symptom is a network call
+// nobody asked for.
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  });
+}
