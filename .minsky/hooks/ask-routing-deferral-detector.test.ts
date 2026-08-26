@@ -32,6 +32,7 @@ import {
   SUPPRESSION_SETTLED_DECISION_RUNG2,
   SETTLED_DECISION_RUNG2_THRESHOLD,
   SETTLED_DECISION_EXEMPLARS,
+  SETTLED_DECISION_EXEMPLAR_SET,
   SETTLED_DECISION_PATTERNS,
   isRung2NominationEnabled,
   RUNG2_NOMINATION_ENV_VAR,
@@ -39,6 +40,8 @@ import {
   type SettledDecisionNominator,
 } from "./ask-routing-deferral-detector";
 import { run as runUntakenAction } from "./turn-end-untaken-action-scan";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type { NominationDeps } from "../../packages/domain/src/detectors/embedding-nomination";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -56,6 +59,9 @@ const UNSETTLED_TURN = "**Next.** Say the word and I'll plan any of the three.";
 
 /** The degraded reason `resolveNominationDeps` produces when nothing is configured. */
 const PROVIDER_UNCONFIGURED = "provider-unconfigured";
+
+/** The degraded reason a `local`-hash-stub (non-semantic) provider produces. */
+const NON_SEMANTIC_PROVIDER = "non-semantic-provider";
 
 // ---------------------------------------------------------------------------
 // PRINCIPAL-RESERVED sub-class
@@ -1582,6 +1588,59 @@ describe("mt#4404 — Rung 2 reaches the renderings the patterns cannot", () => 
     const result = await resolveSettledDecisionRung2(matches, undefined);
     expect(result.remaining).toEqual(matches);
     expect(result.degradedReason).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #3395 R1 — the non-semantic-provider property, asserted rather than argued
+  // -------------------------------------------------------------------------
+
+  test("a non-semantic provider never produces a score, so nothing can cross the threshold", async () => {
+    // The reviewer's stated failure was hash-stub cosines crossing
+    // `SETTLED_DECISION_RUNG2_THRESHOLD` and silencing a genuine deferral. It
+    // cannot happen, and this is the proof rather than the assertion: the
+    // embedding service THROWS if called at all. `nominate` refuses on
+    // `!deps.semantic` before it reaches the service, so the throw is never
+    // triggered and the result is a clean degraded verdict.
+    const exploding = {
+      generateEmbeddings: async () => {
+        throw new Error("the provider must not be reached for a non-semantic dep");
+      },
+    } as unknown as NominationDeps["embeddingService"];
+
+    const result = await nominate(RECORD_7, [SETTLED_DECISION_EXEMPLAR_SET], {
+      embeddingService: exploding,
+      semantic: false,
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(result.degradedReason).toBe(NON_SEMANTIC_PROVIDER);
+    expect(result.nominations).toEqual([]);
+  });
+
+  test("that degraded verdict suppresses nothing end-to-end", async () => {
+    const nonSemantic: SettledDecisionNominator = async () => ({
+      kind: "degraded",
+      reason: NON_SEMANTIC_PROVIDER,
+    });
+    const matches = detectDeferralPhrases(RECORD_7);
+    const result = await resolveSettledDecisionRung2(matches, nonSemantic);
+    expect(result.remaining).toEqual(matches);
+    expect(result.suppressedAll).toBe(false);
+    expect(result.degradedReason).toBe(NON_SEMANTIC_PROVIDER);
+  });
+
+  test("run() returns a Promise — the async contract the dispatcher awaits", () => {
+    // PR #3395 R1 asked for an audit of `run`'s consumers; the result is in
+    // `run`'s docblock (nothing imports it but the dispatcher, which awaits).
+    // This pins the half an audit cannot: a future change that makes `run`
+    // synchronous again, or a new caller that forgets to await, fails HERE
+    // rather than becoming a silent no-op at prompt time.
+    const returned = run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(UNSETTLED_TURN), makeRunUserLine()])
+    );
+    expect(returned).toBeInstanceOf(Promise);
+    return returned.then(() => undefined);
   });
 });
 

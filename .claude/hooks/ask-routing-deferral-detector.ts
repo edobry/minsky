@@ -357,6 +357,25 @@ export function createSettledDecisionNominator(): SettledDecisionNominator {
       return { kind: "degraded", reason: latchedFailure };
     }
 
+    // PR #3395 R1. `nominate` ALREADY refuses a non-semantic provider before it
+    // computes any vector (`embedding-nomination.ts`: `if (!deps.semantic)
+    // return { degraded: true, degradedReason: "non-semantic-provider" }`), so
+    // the reviewer's stated failure — hash-stub cosines crossing the threshold
+    // and silencing a genuine deferral — cannot occur: no scores are produced
+    // at all. This guard is therefore defense-in-depth, not a bug fix, and it
+    // is worth the four lines for two reasons.
+    //
+    // It LATCHES. Without it a non-semantic provider re-enters `nominate` on
+    // every turn for the life of the process, each time to be refused; with it
+    // the refusal is remembered like every other failure here. And it puts the
+    // safety property in the function a reader audits, rather than one layer
+    // down in a shared primitive — which is where the reviewer looked for it
+    // and reasonably expected to find it.
+    if (!deps.semantic) {
+      latchedFailure = "non-semantic-provider";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
     const result = await nominate(context, [SETTLED_DECISION_EXEMPLAR_SET], deps, {
       threshold: SETTLED_DECISION_RUNG2_THRESHOLD,
     });
@@ -1368,7 +1387,32 @@ export function resolveSettledDecision(matches: DeferralMatch[]): {
   return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
-/** `storeDir` is a test seam; the dispatcher never passes it. */
+/**
+ * `storeDir` and `nominator` are test seams; the dispatcher passes neither.
+ *
+ * **This is `async` as of mt#4404, and the consumer audit is recorded here
+ * rather than left to the next reader (PR #3395 R1).** The reviewer asked for
+ * it and said it could not complete one; this is the result, from a repo-wide
+ * grep for imports of this module:
+ *
+ * - **Nothing imports `run` from this module.** The four in-repo importers take
+ *   `findOfferShape` (`operator-deferral-detector`, and its test),
+ *   `detectDeferralPhrases` (`turn-end-untaken-action-scan`,
+ *   `judged-input-capture.test`), and `SUPPRESSION_ASKS_CREATE_THIS_TURN`
+ *   (`suppression-contract.test`). The two `scripts/replay-*.ts` harnesses take
+ *   the resolvers and the exemplar set. None of them touches `run`.
+ * - **The only production caller is the dispatcher**, through the registry's
+ *   dynamic import (`registry-prompt-scan-guards.ts` →
+ *   `import("./ask-routing-deferral-detector").then((m) => ({ run: m.run }))`),
+ *   and it awaits: `dispatcher.ts` → `return await mod.run(input, ctx)`.
+ * - **The registry's own type already permits it** —
+ *   `run(...): GuardRunResult | Promise<GuardRunResult>` (`registry.ts`).
+ *
+ * So there is no non-dispatcher path that could receive an unawaited Promise.
+ * `run-returns-a-promise` in the test file pins this: if a future change makes
+ * `run` synchronous again, or a new caller forgets to await, that test is the
+ * thing that notices rather than a silent no-op at prompt time.
+ */
 export async function run(
   input: ClaudeHookInput,
   ctx: DispatchContext,
