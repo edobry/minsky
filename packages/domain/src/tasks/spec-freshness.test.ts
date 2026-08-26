@@ -177,6 +177,10 @@ describe("checkSpecFreshness", () => {
     expect(result.specCreatedAt).toBeNull();
     expect(result.hasDrift).toBe(false);
     expect(result.drift).toHaveLength(0);
+    // No comparison ran, so no baseline was used. Naming one here would
+    // manufacture a plausible value out of nothing — the same failure `checked`
+    // exists to prevent (PR #3389 R2).
+    expect(result.baselineUsed).toBeNull();
   });
 
   test("no baseline reports checked: false, so it is distinguishable from a clean pass (mt#4415)", async () => {

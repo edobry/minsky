@@ -144,6 +144,9 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
     // comparison and false about the world in 43% of the clean passes it
     // rendered, because the reader has no way to know the baseline moved when
     // they themselves edited an unrelated section.
+    // Consumed only on the CHECKED paths below — when `checked` is false,
+    // `baselineUsed` is null (no comparison ran) and the NOT-CHECKED message
+    // names no baseline at all.
     const baselineLabel =
       result.baselineUsed === "spec-authored"
         ? `authored (${result.specCreatedAt})`

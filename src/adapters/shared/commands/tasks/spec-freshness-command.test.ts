@@ -93,7 +93,7 @@ async function runFreshness(opts: FakeServiceOptions) {
   return result as {
     specUpdatedAt: string | null;
     specCreatedAt: string | null;
-    baselineUsed: "spec-authored" | "spec-last-edited";
+    baselineUsed: "spec-authored" | "spec-last-edited" | null;
     checked: boolean;
     hasDrift: boolean;
     drift: Array<{ ref: string; currentStatus: string; precedesLastSpecEdit: boolean }>;

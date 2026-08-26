@@ -172,8 +172,14 @@ export interface SpecFreshnessResult {
    * edit is still invisible and a clean result is correspondingly weaker
    * evidence. Reported rather than inferred so a caller never has to guess
    * which of the two it is looking at.
+   *
+   * **`null` when `checked` is false** (PR #3389 R2): no comparison ran, so
+   * there is no baseline to name. Naming one anyway would be this module's own
+   * documented hazard turned on itself — a field that manufactures a plausible
+   * value where it has no information, indistinguishable from a real answer.
+   * Same reason `checked` exists at all (mt#4415).
    */
-  baselineUsed: "spec-authored" | "spec-last-edited";
+  baselineUsed: "spec-authored" | "spec-last-edited" | null;
   /**
    * Whether a comparison actually ran (mt#4415).
    *
@@ -257,7 +263,8 @@ export async function checkSpecFreshness(
       taskId,
       specUpdatedAt: null,
       specCreatedAt: null,
-      baselineUsed: "spec-last-edited",
+      // Nothing was compared, so no baseline was used. See the field's docblock.
+      baselineUsed: null,
       checked: false,
       drift: [],
       hasDrift: false,
