@@ -16,13 +16,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
-import {
-  tokenizeEntities,
-  tokenEntity,
-  type EntityIndex,
-  type EntityToken,
-} from "../lib/entity-linkifier";
-import { EntityRef } from "./EntityRef";
+import { tokenizeEntities, type EntityIndex, type EntityToken } from "../lib/entity-linkifier";
+import { EntityTokenLink } from "./EntityTokenLink";
 
 // Recognized task/ask status enums → subtle leaf color.
 const STATUS_COLORS: Record<string, string> = {
@@ -39,35 +34,12 @@ const STATUS_COLORS: Record<string, string> = {
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const URL_RE = /^https?:\/\/\S+$/;
 
-/**
- * Render one resolved entity token as a link. Routes through the shared
- * <EntityRef> (hover-card title + status) when the token's path resolves to
- * a known entity type; falls back to a bare <Link> otherwise (defensive —
- * every token produced by tokenizeEntities' "link" kind is built via
- * entityToPath, so this should always resolve in practice).
- *
- * Uses `tokenEntity` from entity-linkifier (exported for this, mt#3175) rather
- * than a local segment map — one inverse codec, so it cannot drift from
- * `entityToPath` independently.
- */
-function TokenLink({ token }: { token: Extract<EntityToken, { kind: "link" }> }) {
-  const entity = tokenEntity(token);
-  if (entity) {
-    return (
-      <EntityRef type={entity.type} id={entity.id}>
-        {token.text}
-      </EntityRef>
-    );
-  }
-  return (
-    <Link
-      to={token.to}
-      className={cn("text-primary underline-offset-2 hover:underline", token.mono && "font-mono")}
-    >
-      {token.text}
-    </Link>
-  );
-}
+// The local `TokenLink` that used to sit here moved to `./EntityTokenLink`
+// (mt#4630), unchanged: `<LinkifiedText>` needs the identical token → EntityRef
+// branch, and a second hand-rolled copy is the drift `tokenEntity` was exported
+// to prevent. Its `mono` prop defaults to true, which is what this file has
+// always rendered — the old local version never consulted `token.mono` — so the
+// call sites below pass no `mono` and their output is unchanged.
 
 function relativeTime(iso: string): string {
   const ms = Date.parse(iso);
@@ -107,7 +79,7 @@ function MultilineStringLeaf({
     <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border/30 bg-muted/20 px-2 py-1 text-emerald-300/90">
       {hasLinks && tokens
         ? tokens.map((t, i) =>
-            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <EntityTokenLink key={i} token={t} />
           )
         : value}
     </pre>
@@ -153,7 +125,7 @@ function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: Entit
         <span className="text-emerald-300">
           &quot;
           {tokens.map((t, i) =>
-            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <EntityTokenLink key={i} token={t} />
           )}
           &quot;
         </span>

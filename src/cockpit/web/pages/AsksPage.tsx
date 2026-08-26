@@ -43,7 +43,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { EntityRef } from "../components/EntityRef";
 import { Prose } from "../components/Prose";
-import { LinkifiedText } from "../lib/entity-linkifier";
+import { LinkifiedText } from "../components/LinkifiedText";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { formatRequestor, formatRequestorOption } from "../lib/entity-labels";
