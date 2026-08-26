@@ -118,6 +118,25 @@ export interface WaitForLatestOptions {
    */
   onStatusObserved?: (record: DeploymentRecord) => void | Promise<void>;
   /**
+   * Optional transport-liveness callback (mt#1576), distinct from
+   * {@link WaitForLatestOptions.onStatusObserved} above.
+   *
+   * `onStatusObserved` reports a DEPLOYMENT OBSERVATION and only exists once a
+   * deployment is being tracked. This reports that the WAIT IS STILL ALIVE, and
+   * is invoked from the acquire phase too — the loop that runs BEFORE any
+   * deployment has been acquired, which `onStatusObserved` cannot reach.
+   *
+   * The distinction is load-bearing rather than stylistic: the transport
+   * underneath the MCP shim applies an IDLE timeout, so a wait that emits
+   * nothing is killed at roughly three minutes regardless of its own
+   * `timeoutSeconds`. A post-merge verification passing `notBefore` spends most
+   * of its life in the acquire phase, which emitted nothing at all until this.
+   *
+   * Best-effort, exactly like its sibling: adapters must not let a throwing
+   * callback abort the wait, and the CLI path omits it entirely.
+   */
+  onProgress?: (message: string) => void;
+  /**
    * ISO8601 lower bound on the deployment's `createdAt` (mt#3890). When set,
    * a deployment created BEFORE this instant is not accepted as the one being
    * waited for — the wait keeps polling for a newer one and throws

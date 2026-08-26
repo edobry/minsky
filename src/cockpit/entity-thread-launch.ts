@@ -66,6 +66,10 @@ import {
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { pendingReplyBuffer, schedulePendingDrain } from "./entity-thread-reply-buffer";
 import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
+import {
+  writeHarnessSessionLabel,
+  type WriteHarnessSessionLabelInput,
+} from "./harness-session-label";
 
 // ---------------------------------------------------------------------------
 // Seeding (pure)
@@ -85,6 +89,20 @@ export interface EntitySeedContext {
   entityId: string;
   /** Human-readable label — what the principal sees in the page header. */
   title: string;
+  /**
+   * Short human-readable ref — `ask#9257`, `mt#4621` (mt#4621).
+   *
+   * Distinct from `entityId`, which is a uuid for an ask, and from `title`,
+   * which folds the short id in only as a FALLBACK when the entity has no
+   * title of its own. The harness session label needs the ref and the title as
+   * SEPARATE values to render `ask#9257 — <title>`, and neither existing field
+   * can supply it alone.
+   *
+   * Optional because {@link EntitySeedContext} is deliberately a narrow
+   * structural type every entity kind must satisfy; a kind with no short id
+   * omits it and the label falls back to the entity id.
+   */
+  shortRef?: string;
   /** The entity's substantive content: an ask's question, a task's summary. */
   body: string;
   /** Optional labelled references the entity already carries (contextRefs, parent task). */
@@ -248,6 +266,10 @@ export function askToEntitySeed(ask: AskSeedInput): EntitySeedContext {
     entityType: "ask",
     entityId: ask.id,
     title: ask.title?.trim() || ask.shortId || ask.id,
+    // mt#4621: the short id UNFOLDED, so the harness session label can render
+    // `ask#9257 — <title>`. `title` above already falls back to it, which is
+    // why it cannot serve as the ref on its own.
+    ...(ask.shortId ? { shortRef: ask.shortId } : {}),
     body: ask.question,
     ...(refs.length > 0 ? { refs } : {}),
     // NOT added to `refs`: the origin is a tool TARGET the prompt gives explicit
@@ -363,6 +385,10 @@ export function taskToEntitySeed(task: TaskSeedInput): EntitySeedContext {
     entityType: "task",
     entityId: task.id,
     title: task.title?.trim() || task.id,
+    // mt#4621: a task's id IS its short ref (`mt#4621`), so unlike an ask this
+    // needs no separate lookup — it is stated rather than derived so the label
+    // builder never has to know which entity kinds happen to coincide.
+    shortRef: task.id,
     body: spec && spec.length > 0 ? spec : "(This task has no spec body recorded.)",
     ...(refs.length > 0 ? { refs } : {}),
   };
@@ -397,6 +423,16 @@ export interface StartEntityThreadSessionOptions {
    * adoption WOULD be recorded without touching Postgres.
    */
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
+  /**
+   * Override the harness session-label write (mt#4621). Same seam convention.
+   *
+   * Deliberately a SEPARATE seam from `onHarnessSessionLinked` above, not a
+   * behavior folded into it: a test that injects that observer is asserting
+   * something about the conversation adoption and must not thereby start
+   * writing real files into `/tmp`, which `custom/no-real-fs-in-tests` forbids
+   * and which would make those tests order-dependent on each other's leftovers.
+   */
+  writeSessionLabel?: (input: WriteHarnessSessionLabelInput) => boolean;
   /**
    * Override the resume orchestration (mt#3550) — the same seam convention as
    * the observers above. Production omits it and gets
@@ -591,6 +627,41 @@ async function respawnThreadDriver(
  * forever. This is the same predicate the liveness report uses, so the spawn
  * guard and the panel can no longer disagree about whether an agent is there.
  */
+/**
+ * Run several init observers off one `onHarnessSessionLinked` slot (mt#4621).
+ *
+ * `startDrivenSession` takes ONE callback and an entity thread has two things
+ * to do at init, so they compose here.
+ *
+ * **Deliberately does NOT catch** (PR #3379 R1). An earlier revision wrapped
+ * each observer in its own try/catch, which the reviewer correctly flagged as a
+ * second error-handling layer for a concern the host already owns:
+ * `driven-session-host.ts:1089-1097` wraps this whole callback and logs at
+ * ERROR. Catching here too produced two logging surfaces at two levels for one
+ * failure, split across two modules — the drift risk is real and the
+ * duplication buys nothing.
+ *
+ * **The property that catch was protecting is preserved by ORDERING instead.**
+ * The host's boundary is callback-level, not observer-level, so an escaping
+ * throw from the first observer WOULD skip the rest — which is why the answer
+ * is not simply "delete it and rely on the host". Callers pass the observer
+ * that cannot throw FIRST (see the call site), so a failure in a later one
+ * cannot suppress it. Ordering is checkable by reading the call site; a catch
+ * is not.
+ *
+ * In practice neither of this file's observers throws synchronously today —
+ * `createDrivenInitObserver` detaches its async work behind its own error
+ * boundary, and `writeHarnessSessionLabel` swallows by contract — so the
+ * ordering is defense in depth against a future observer, not a live bug.
+ */
+export function composeInitObservers<T>(
+  ...observers: Array<(record: T) => void>
+): (record: T) => void {
+  return (record) => {
+    for (const observe of observers) observe(record);
+  };
+}
+
 export async function startEntityThreadSession(
   opts: StartEntityThreadSessionOptions
 ): Promise<EntityThreadSession> {
@@ -688,8 +759,29 @@ export async function startEntityThreadSession(
     // `respawn` is narrowed to `spawn-fresh` here — the `resumed` and
     // `held-elsewhere` arms both returned above — so its `reason` is exactly
     // the FreshSpawnReason this adoption should record.
-    onHarnessSessionLinked:
-      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason }),
+    // mt#4621: the adoption observer AND the harness session-label write, in
+    // that order. Both need exactly what the init event yields — the child's
+    // conversation id — and this is the only moment it exists, so they compose
+    // here rather than each re-deriving a hook into the host.
+    //
+    // ORDER IS LOAD-BEARING (PR #3379 R1). `composeInitObservers` does not
+    // catch — the host owns that boundary — so a throw from an earlier observer
+    // skips the later ones. The label write goes FIRST precisely because it is
+    // the one that cannot throw (`writeHarnessSessionLabel` swallows by
+    // contract), which means the durable ADR-044 adoption behind it can never
+    // be suppressed by a cosmetic failure. Reversing these two would put the
+    // only throw-capable observer ahead of the one that must always run.
+    onHarnessSessionLinked: composeInitObservers(
+      (record) => {
+        if (!record.harnessSessionId) return;
+        (opts.writeSessionLabel ?? writeHarnessSessionLabel)({
+          harnessSessionId: record.harnessSessionId,
+          ref: opts.seed.shortRef ?? opts.seed.entityId,
+          title: opts.seed.title,
+        });
+      },
+      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason })
+    ),
     onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
     onResultSummary: opts.onResultSummary ?? createDrivenResultObserver(),
     // mt#3550: only when this spawn is REPLACING a dead record. `register`
