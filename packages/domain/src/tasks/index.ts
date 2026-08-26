@@ -36,6 +36,7 @@ export type { ReadonlyTaskService } from "./readonly-interfaces";
 // Spec-freshness recheck (mt#2826) — pure detection core
 export { checkSpecFreshness } from "./spec-freshness";
 export type {
+  SpecFreshnessBaseline,
   SpecFreshnessDeps,
   SpecFreshnessDriftEntry,
   SpecFreshnessRefLookup,

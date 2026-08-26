@@ -421,6 +421,11 @@ export async function getTaskSpecContentFromParams(
       // per-section timestamps do not exist, and a section read is still a read
       // of a document last written at this instant.
       specUpdatedAt: result.specUpdatedAt,
+      // Spec AUTHORING timestamp, threaded the same way (mt#4420). The
+      // whole-document caveat above applies to it identically: it dates the
+      // document, not the section, which is precisely why it can serve as a
+      // drift floor that editing one section does not move.
+      specCreatedAt: result.specCreatedAt,
       section: validParams.section,
     };
   } catch (error) {

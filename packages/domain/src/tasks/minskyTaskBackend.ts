@@ -544,11 +544,18 @@ export class MinskyTaskBackend implements TaskBackend {
     // one caller that needed a spec-CONTENT baseline had to fall back to the
     // tasks-table row timestamp, which any status transition bumps. Widening
     // the cast is the whole fix: no extra query, no migration.
+    //
+    // mt#4420 widens it once more, for `created_at`. The three write paths
+    // above set `createdAt` only on INSERT — both upserts carry it in their
+    // `.values()` and omit it from `.onConflictDoUpdate`'s `set`, and
+    // `updateTaskMetadata` is a bare UPDATE of `content` + `updatedAt` — so it
+    // is the one spec-side timestamp an incidental edit cannot move. Same
+    // widening, same absence of a query or a migration.
     const specRows = (await this.db
       .select()
       .from(taskSpecsTable)
       .where(eq(taskSpecsTable.taskId, taskId))
-      .limit(1)) as Array<{ content: string; updatedAt: Date | null }>;
+      .limit(1)) as Array<{ content: string; updatedAt: Date | null; createdAt: Date | null }>;
 
     const specRow = specRows.length > 0 ? first(specRows, "task spec content query") : undefined;
 
@@ -560,6 +567,9 @@ export class MinskyTaskBackend implements TaskBackend {
       // row at all" both mean "no baseline available" and normalize to
       // undefined, which consumers must not read as a clean pass.
       specUpdatedAt: specRow?.updatedAt ?? undefined,
+      // Spec AUTHORING timestamp — the drift floor (mt#4420). Normalizes the
+      // same way and for the same reason.
+      specCreatedAt: specRow?.createdAt ?? undefined,
       section,
     };
   }
