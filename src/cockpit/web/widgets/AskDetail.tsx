@@ -16,7 +16,7 @@ import { Prose } from "../components/Prose";
 import { CopyId } from "../components/CopyId";
 import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
-import { LinkifiedText } from "../lib/entity-linkifier";
+import { LinkifiedText } from "../components/LinkifiedText";
 import { formatRequestor } from "../lib/entity-labels";
 import { Link } from "react-router-dom";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";

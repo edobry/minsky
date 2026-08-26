@@ -18,6 +18,7 @@ import { describe, test, expect, afterEach, mock } from "bun:test";
 import { render, cleanup, waitFor, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ENTITY_REF_ATTR } from "../lib/peek-dismiss";
 import { AskDetail, type AskItem, type AskActionInFlight } from "./AskDetail";
 
 const originalFetch = global.fetch;
@@ -119,6 +120,12 @@ describe("AskDetail — Shape 2: option label/description (mt#3175)", () => {
     const link = container.querySelector('a[href="/tasks/mt%23200"]');
     expect(link?.closest("span.font-medium")).not.toBeNull();
     expect(link?.closest("p")).toBeNull();
+    // ...and it carries the same affordances the question above it does
+    // (mt#4630). Until then this option ref was a bare anchor: no hover card,
+    // no peek — while the identical ref inside `ask.question`, rendered by
+    // <Prose> a few lines up this same component, had both.
+    expect(link?.hasAttribute(ENTITY_REF_ATTR)).toBe(true);
+    expect(link?.hasAttribute("data-state")).toBe(true);
   });
 
   test("an entity ref inside an option description linkifies via the inline-only path", async () => {
@@ -137,6 +144,10 @@ describe("AskDetail — Shape 2: option label/description (mt#3175)", () => {
     await waitFor(() => {
       expect(container.querySelector('a[href="/tasks/mt%23201"]')).not.toBeNull();
     });
+    // Same affordance requirement as the option-label case above (mt#4630).
+    const link = container.querySelector('a[href="/tasks/mt%23201"]');
+    expect(link?.hasAttribute(ENTITY_REF_ATTR)).toBe(true);
+    expect(link?.hasAttribute("data-state")).toBe(true);
   });
 
   test("plain option text with no entity refs renders unchanged", () => {

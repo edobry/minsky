@@ -27,7 +27,7 @@
  * @see mt#2536 — PR/changeset linkification
  * @see mt#2769 — conversation (harness agentSessionId) linkification
  */
-import { createElement, Fragment } from "react";
+import { createElement } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Root, Element, ElementContent } from "hast";
@@ -423,26 +423,12 @@ export function linkifyText(
   });
 }
 
-// ---------------------------------------------------------------------------
-// React component wrapper (optional convenience)
-// ---------------------------------------------------------------------------
-
-/**
- * Renders `text` with entity references converted to in-SPA links.
- *
- * Usage: replace `{element.text}` in a `<p>` with `<LinkifiedText text={element.text} index={entityIndex} />`.
- */
-export function LinkifiedText({
-  text,
-  index,
-}: {
-  text: string;
-  index: EntityIndex;
-}): React.ReactElement {
-  const nodes = linkifyText(text, index);
-  // Use Fragment so the caller's <p> stays as the wrapper.
-  return createElement(Fragment, null, ...nodes);
-}
+// `LinkifiedText`, the React wrapper that used to live here, moved to
+// `../components/LinkifiedText.tsx` in mt#4630. It renders through `<EntityRef>`
+// now, and `EntityRef` → `use-entity-index` → this module is an import cycle —
+// so the component belongs on the `components/` side of the layering, like
+// `<Prose>` and `<JsonView>`, which import this module rather than the reverse.
+// `linkifyText` above is unchanged and still returns bare `<Link>` elements.
 
 // ---------------------------------------------------------------------------
 // rehype plugin — entity-linkify inside a Markdown (hast) tree (mt#2550)
