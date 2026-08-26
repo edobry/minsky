@@ -125,6 +125,71 @@ describe("readProcessMemory — unsupported platform", () => {
   });
 });
 
+/**
+ * The property mt#4105 actually depends on: the reader measures the pid it was
+ * HANDED, not `self` (mt#4270).
+ *
+ * ## Why this is asserted at the seam and not against two live processes
+ *
+ * The obvious test is "read a child, read ourselves, require the numbers to
+ * differ." That is a PROXY, and it is a proxy for a property the implementation
+ * does not guarantee: nothing in `readProcessMemory` promises two distinct pids
+ * report distinct byte counts. When they legitimately coincide, a CORRECT reader
+ * fails the test — which it did in CI five times in eight days (2026-08-18 through
+ * 2026-08-25), each time blocking an otherwise-green PR. Both readings were
+ * byte-identical every time; see mt#4270 for the values.
+ *
+ * The seam answers the question directly: `readProcStatus` / `runFootprint` each
+ * take the pid, so recording what they RECEIVE tests pid-honoring itself rather
+ * than a numeric side-effect of it. Deterministic on every platform, and
+ * independent of runner state.
+ *
+ * **ADR-036 §4(ii)** is the governing rule — assert on the call where the call is
+ * the sole observable trace of the behavior. It is NOT "prefer seams to real
+ * processes": ADR-036 §1 ranks a real dependency in a sandbox ABOVE an injected
+ * double, and the live-process tests below are retained for exactly what a real
+ * child CAN attest (`ok`, `bytes > 0`). Each assertion sits at the tier that can
+ * observe it.
+ *
+ * Both platform branches run from whichever platform this executes on, because
+ * `platform` is injected — same reason the parsing tests above do.
+ */
+describe("readProcessMemory — honors its pid argument (mt#4270)", () => {
+  test("the Linux seam is handed the pid the caller passed", () => {
+    const seen: number[] = [];
+    const result = readProcessMemory(4242, {
+      platform: "linux",
+      readProcStatus: (pid) => {
+        seen.push(pid);
+        return PROC_STATUS;
+      },
+    });
+
+    expect(seen).toEqual([4242]);
+    // ...and the seam's reading is what got returned, so a reader that took the
+    // pid and then ignored the result would still fail here.
+    expect(result).toEqual({
+      ok: true,
+      bytes: (900_000 + 46_500_000) * 1024,
+      source: "vmrss+vmswap",
+    });
+  });
+
+  test("the macOS seam is handed the pid the caller passed", () => {
+    const seen: number[] = [];
+    const result = readProcessMemory(4242, {
+      platform: "darwin",
+      runFootprint: (pid) => {
+        seen.push(pid);
+        return FOOTPRINT_OUTPUT;
+      },
+    });
+
+    expect(seen).toEqual([4242]);
+    expect(result).toEqual({ ok: true, bytes: 15_517_760, source: "phys_footprint" });
+  });
+});
+
 describe("readProcessMemory — against real processes", () => {
   test("measures the CURRENT process", () => {
     const result = readProcessMemory(process.pid);
@@ -132,10 +197,16 @@ describe("readProcessMemory — against real processes", () => {
     if (result.ok) expect(result.bytes).toBeGreaterThan(0);
   });
 
-  test("measures ANOTHER process — the case an in-process-only reader would fail", () => {
+  test("measures ANOTHER process — a real child, asserting what a real child attests", () => {
     // mt#4105's supervisor has to measure the daemon it supervises, so a reader
     // that only works on `self` passes every in-process test and still cannot do
     // the job. Spawn a real child and read ITS memory, not ours.
+    //
+    // This asserts ONLY what the implementation guarantees for a live child:
+    // that the read succeeds and returns a positive quantity. The "did it honor
+    // the pid" half moved to the seam block above (mt#4270) — asserting it here
+    // required comparing two live readings, which is a property the code does
+    // not guarantee and which collided in CI five times.
     const child = Bun.spawn(["sleep", "30"], {
       stdout: "ignore",
       stderr: "ignore",
@@ -144,13 +215,7 @@ describe("readProcessMemory — against real processes", () => {
     try {
       const result = readProcessMemory(child.pid);
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.bytes).toBeGreaterThan(0);
-        // A different process than ours, so a reader that ignored the pid and
-        // always measured `self` would return our footprint instead.
-        const self = readProcessMemory(process.pid);
-        expect(self.ok && result.bytes).not.toBe(self.ok ? self.bytes : -1);
-      }
+      if (result.ok) expect(result.bytes).toBeGreaterThan(0);
     } finally {
       child.kill("SIGKILL");
     }
