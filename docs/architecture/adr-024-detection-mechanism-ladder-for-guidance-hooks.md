@@ -31,6 +31,43 @@ amendment also adds the family's **evaluation stream**
 not) — the measurement substrate a fire-only calibration log cannot provide, and the input that
 keeps both the FP rate and the false-negative rate observable post-ship.
 
+**Amended 2026-08-26 (mt#4595): where this ladder STOPS — the command-string guard family is
+outside it, not terminal within it.** `## Context` below scopes this family to `UserPromptSubmit`
+guidance hooks matching behavioral trigger phrases in the agent's own **prose**. A guard that
+decides from a **closed vocabulary** — a parsed shell command, a filesystem path, an enum value, a
+config key — has no paraphrase axis, so Rung 2's gate ("only if paraphrase misses recur") cannot be
+met, and Rung 3 nominates only on Rung 2. Neither rung applies: **this ADR does not govern such a
+guard.** Rung 1 is where it sits because the ladder's question does not arise for it — not because
+a climb gate went unmet. **The general test, so a fourth case needs no fresh investigation:** the
+matched surface is a closed vocabulary → **out of family**; the matched surface is prose → **in
+family**, climb-eligible on evidence.
+
+Named instances, all `PreToolUse` guards registered on the `Bash|mcp__minsky__session_exec`
+matcher: **`cli-mcp-substitution`** (mt#4144), **`truncated-outcome-read`** (mt#4096),
+**`nonexistent-search-path`** (mt#4215), together with their siblings enumerated in
+`.minsky/hooks/registry-command-string-guards.ts` §"The family boundary" — **the canonical
+statement of this boundary, which this amendment points at rather than copies.** Postures for
+those guards are decided per guard on the ordinary evidence, not by climbing this ladder.
+
+**Recorded here because it was recorded everywhere except here.** Two planning passes reached for
+the ladder from the ADR side and mis-placed a guard on it: mt#4096 concluded Rung 1's
+markdown-elision prescription answered a shell heredoc (it does not — a heredoc is not markdown),
+and mt#4144 recorded its guard as "extends ADR-024 at Rung 1," which, in its own words, "overstates
+the ADR's reach." Both were caught only at implementation, after the planning audit had passed.
+The reasoning existed in each guard's source the whole time; this ADR carried the ladder and no
+statement of its own edge, so nothing on **this** side said stop.
+
+**The cheapest architecture and the compliant one coincide here — and the reason is scope, not
+budget.** These are the family's highest-volume guards, so not climbing them removes the bulk of
+what a climb-everything design would cost. **mt#4565 measured that cost and is where to read it**;
+no figure is repeated here, so there is one copy to keep true. The saving is a consequence, not the
+justification: a larger budget would not make a paraphrase axis exist. Do not re-read this
+exclusion later as a cost concession that more money reverses.
+
+**Same test, sibling subject.** ADR-042 §"The discriminator, and why it is not a preference"
+applies it to the gate-battery checkers — _"A checker that reads an ARTIFACT … or joins against
+TOOL CALLS … has no paraphrase axis and is outside that family."_ One test, two subjects.
+
 ## Context
 
 Minsky runs several `UserPromptSubmit` **guidance hooks** — `retrospective-trigger-scanner`,
@@ -137,6 +174,16 @@ embedding; learned confirm) are gated by measured evidence, not dates.
   axis went five rounds of shape exclusions without a rung to belong to; ADR-034 names it and
   decides it (shape-based, allowlist rejected on measurement) — with three explicit conditions
   that reopen the question, so the rejection is bounded rather than permanent.
+- **`.minsky/hooks/registry-command-string-guards.ts`** §"The family boundary" — the canonical
+  statement of the scope boundary recorded in the 2026-08-26 amendment above, and the enumeration
+  of the guards it covers. Unlike ADR-034 (a boundary recorded in a sibling ADR), this one lives in
+  the registry the guards are declared in, so it stays adjacent to what it describes. Read it
+  before deciding any command-string guard's posture; the amendment points here rather than
+  copying it, so there is one copy to keep true.
+- **ADR-042** — `docs/architecture/adr-042-gate-battery-enforcement-shape.md` §"The discriminator,
+  and why it is not a preference" applies this ADR's paraphrase-axis test to the `/plan-task` gate
+  battery's checkers. Same test, different subject; it cites this ADR's `## Context` for the scope
+  sentence the amendment above makes explicit.
 - Reuse: `.claude/hooks/block-out-of-band-merge.ts` (`elideMarkdownNonProse` — the Rung-1
   elision pattern); shared detector framework `packages/domain/src/detectors/` (mt#1035,
   mt#1543; part of the attention-allocation subsystem).
