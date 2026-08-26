@@ -238,6 +238,20 @@ export interface AcquireDeploymentOptions {
   now: () => number;
   sleep: (ms: number) => Promise<void>;
   pollIntervalMs: number;
+  /**
+   * Called once per acquire iteration, to keep the MCP transport from seeing
+   * this phase as idle (mt#1576).
+   *
+   * This loop is SEPARATE from the status-poll loop below, and until mt#1576 it
+   * emitted nothing at all — the first `notifyStatusObserved` fires only after
+   * this function returns. A post-merge verification passes `notBefore` = the
+   * merge timestamp and then waits here for the deploy to be CREATED, so this
+   * is where such a wait spends most of its life. Hooking only the status loop
+   * would have left the commonest case silent.
+   *
+   * Optional and best-effort: the CLI path supplies nothing and is unaffected.
+   */
+  onPoll?: (message: string) => void;
 }
 
 /**
@@ -267,6 +281,13 @@ export async function acquireDeploymentAtOrAfter(
         newestSeen ? toRecord(newestSeen) : null
       );
     }
+    // mt#1576: emit BEFORE the sleep, so the transport sees activity at the
+    // start of each idle window rather than only after one has already elapsed.
+    options.onPoll?.(
+      newestSeen
+        ? `waiting for a deployment newer than ${options.notBefore} (newest seen: ${newestSeen.createdAt})`
+        : `waiting for a deployment newer than ${options.notBefore} (none seen yet)`
+    );
     await options.sleep(options.pollIntervalMs);
     node = await options.fetchNewest();
     if (node) newestSeen = node;
@@ -317,6 +338,9 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
       now: () => Date.now(),
       sleep,
       pollIntervalMs: pollIntervalSeconds * 1000,
+      // mt#1576: the acquire phase is otherwise entirely silent, and it is
+      // where a post-merge wait spends most of its life.
+      onPoll: (message) => notifyProgress(options?.onProgress, message),
     });
 
     if (!initialNode) {
@@ -334,6 +358,12 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
     }
 
     while (Date.now() < deadline) {
+      // mt#1576: before the sleep, for the same reason as the acquire loop —
+      // the transport must see activity at the START of each idle window.
+      notifyProgress(
+        options?.onProgress,
+        `deployment ${targetId}: ${lastRecord.status} (polling every ${pollIntervalSeconds}s)`
+      );
       await sleep(pollIntervalSeconds * 1000);
 
       // Fetch the targeted deployment by ID directly, so we don't depend on
@@ -425,6 +455,30 @@ export async function notifyStatusObserved(
     log.warn("railway adapter: onStatusObserved callback threw (swallowed, best-effort)", {
       error: err instanceof Error ? err.message : String(err),
       status: record.status,
+    });
+  }
+}
+
+/**
+ * Best-effort invocation of `WaitForLatestOptions.onProgress` (mt#1576).
+ *
+ * Synchronous, unlike {@link notifyStatusObserved}: this one exists purely to
+ * produce transport activity, so making the poll loop `await` it would let a
+ * slow reporter add latency to the very wait it is meant to keep alive.
+ *
+ * Swallows like its sibling — a progress reporter that throws must never abort
+ * a deploy wait.
+ */
+export function notifyProgress(
+  onProgress: WaitForLatestOptions["onProgress"],
+  message: string
+): void {
+  if (!onProgress) return;
+  try {
+    onProgress(message);
+  } catch (err) {
+    log.warn("railway adapter: onProgress callback threw (swallowed, best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }

@@ -219,4 +219,81 @@ describe("askWaitForResponse", () => {
     expect(result.elapsedMs).toBeGreaterThanOrEqual(1_800_000);
     expect(result.elapsedMs).toBeLessThan(1_900_000);
   });
+
+  describe("mt#1576 — the poll loop emits MCP transport progress", () => {
+    it("emits once per poll, so a long wait is not silent to the transport", async () => {
+      // Before mt#1576 this loop emitted only `log.debug`, which never reaches
+      // the transport — so the connection looked IDLE and was killed at
+      // roughly three minutes regardless of the 1800s ceiling below.
+      await seedAsk("suspended", { suspendedAt: new Date().toISOString() });
+      const clock = makeVirtualClock();
+      const messages: string[] = [];
+
+      const result = await askWaitForResponse(
+        { id: "fake-ask-1", timeoutSeconds: 300, intervalSeconds: 60 },
+        { repo, now: clock.now, sleep: clock.sleep, onProgress: (m) => messages.push(m) }
+      );
+
+      expect(result.resolved).toBe(false);
+      // 300s of budget at a 60s interval — one emission per idle window. The
+      // property that matters is "more than zero, one per window", not the
+      // exact count, so this asserts the shape rather than pinning arithmetic.
+      expect(messages.length).toBeGreaterThanOrEqual(4);
+      expect(messages[0]).toContain("fake-ask-1");
+      expect(messages[0]).toContain("suspended");
+    });
+
+    it("emits nothing when the ask already has a response — no poll, no window", async () => {
+      // A wait that returns immediately never opens an idle window, so there
+      // is nothing to keep alive. Emitting anyway would be noise.
+      await seedAsk("responded", {
+        response: { responder: "operator", payload: { chosen: "A" } },
+      });
+      const clock = makeVirtualClock();
+      const messages: string[] = [];
+
+      const result = await askWaitForResponse(
+        { id: "fake-ask-1", timeoutSeconds: 300, intervalSeconds: 60 },
+        { repo, now: clock.now, sleep: clock.sleep, onProgress: (m) => messages.push(m) }
+      );
+
+      expect(result.resolved).toBe(true);
+      expect(messages).toEqual([]);
+    });
+
+    it("omitting onProgress leaves the wait working — the CLI path", async () => {
+      await seedAsk("suspended", { suspendedAt: new Date().toISOString() });
+      const clock = makeVirtualClock();
+
+      const result = await askWaitForResponse(
+        { id: "fake-ask-1", timeoutSeconds: 120, intervalSeconds: 60 },
+        { repo, now: clock.now, sleep: clock.sleep }
+      );
+
+      expect(result.resolved).toBe(false);
+    });
+
+    it("a throwing reporter is swallowed rather than aborting the wait", async () => {
+      // Best-effort: the reporter exists to keep the wait alive, so it must
+      // never be the thing that kills it.
+      await seedAsk("suspended", { suspendedAt: new Date().toISOString() });
+      const clock = makeVirtualClock();
+
+      const result = await askWaitForResponse(
+        { id: "fake-ask-1", timeoutSeconds: 120, intervalSeconds: 60 },
+        {
+          repo,
+          now: clock.now,
+          sleep: clock.sleep,
+          onProgress: () => {
+            throw new Error("reporter exploded");
+          },
+        }
+      );
+
+      expect(result.resolved).toBe(false);
+      if (result.resolved) throw new Error("expected unresolved");
+      expect(result.terminal).toBe(false);
+    });
+  });
 });
