@@ -563,6 +563,9 @@ export function registerCalibrationCommands(): void {
         // Server-injected only — hide it from the CLI surface so it is not
         // advertised as a hand-passable flag (mirrors tasks.dispatch-recover).
         cliHidden: true,
+        // Server-injected on the MCP path too, so do not advertise it there
+        // either (mt#4579) — the server overwrites any supplied value.
+        mcpHidden: true,
       },
     },
     async execute(params, ctx) {

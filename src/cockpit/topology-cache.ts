@@ -24,6 +24,7 @@ import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { findRepoRoot } from "./web-dist";
 import { githubRepoWebBase } from "./session-detail";
 import { createEpochKeyedCache, getSharedPersistenceService } from "./shared-persistence";
+import { describeQueryFailure, describeSourceFailure } from "./source-failure-log";
 import {
   deriveHookRegistry,
   parseHookInstallLog,
@@ -108,7 +109,7 @@ async function runHookInstallGitLog(repoRoot: string): Promise<string | null> {
     return stdout;
   } catch (err) {
     log.debug("topology-cache: hook-install git log failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeSourceFailure(err),
     });
     return null;
   }
@@ -173,7 +174,7 @@ async function fetchRetrospectiveEvents(): Promise<RetrospectiveEventInput[]> {
     return events.map((e) => ({ id: e.id, createdAt: e.createdAt, payload: e.payload }));
   } catch (err) {
     log.debug("topology-cache: retrospective.fired fetch failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeQueryFailure(err),
     });
     return [];
   }
@@ -215,7 +216,7 @@ export async function refreshTopologyCache(
     return true;
   } catch (err) {
     log.warn("topology-cache: refresh failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeSourceFailure(err),
     });
     return false;
   }

@@ -268,6 +268,47 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["unrendered-result-field-scan", "enumeration-scope-check"],
   ["evidence-record-provenance", "enumeration-scope-check"],
   ["new-surface-design-pass", "enumeration-scope-check"],
+
+  // mt#2264 — `warn-unwired-task-relationship` beside the spec-authoring family.
+  //
+  // Every guard already on this seam interrogates what a spec CLAIMS. This one
+  // interrogates what a spec ENCODED, and that is a different question about a
+  // different substrate: not "is this assertion backed by evidence?" but "does
+  // the task GRAPH agree with this sentence?". No sibling can reach it, because
+  // none of them reads `task_relationships` or the call's `dependsOn`/`parent`
+  // at all.
+  //
+  // Stated per sibling, since a blanket "it's different" is what this allowlist
+  // exists to prevent:
+  //
+  //   - `require-duplicate-check-record` — is a duplicate-check line PRESENT?
+  //     A presence check on one paragraph; says nothing about edges.
+  //   - `duplicate-signature-scan` — do this spec's signature tokens already
+  //     appear in an active task? Finds RELATED tasks; never asks whether a
+  //     relationship the author already NAMED was encoded.
+  //   - `duplicate-check-search-provenance` — did the claimed search run?
+  //     Joins against the session transcript, not the graph.
+  //   - `duplicate-check-candidate-read` — were the named candidates READ?
+  //     Also transcript-keyed, and scoped to the duplicate-check record.
+  //   - `claim-provenance-scan` — is a COLLISION / OWNERSHIP / REMAINING-WORK
+  //     claim backed by a call? Closest sibling, and still disjoint: its
+  //     subject is a claim about the world that a tool call could verify, while
+  //     this one's subject is a structural edge the author simply did not
+  //     write. A spec can pass it completely and still leave the graph
+  //     asserting that blocked work is dispatchable.
+  //   - `spec-criterion-claim-detector` — does a criterion assert corpus state
+  //     or gate on an ask? Reads `## Success Criteria`; this reads the whole
+  //     body for relationship phrases.
+  //
+  // The overlap is therefore the TOOL, not the question — which is precisely
+  // the intentional-co-registration shape this list is for.
+  ["require-duplicate-check-record", "warn-unwired-task-relationship"],
+  ["duplicate-signature-scan", "warn-unwired-task-relationship"],
+  ["duplicate-check-search-provenance", "warn-unwired-task-relationship"],
+  ["duplicate-check-candidate-read", "warn-unwired-task-relationship"],
+  ["flakiness-control-detector", "warn-unwired-task-relationship"],
+  ["claim-provenance-scan", "warn-unwired-task-relationship"],
+  ["spec-criterion-claim-detector", "warn-unwired-task-relationship"],
   // mt#4544's `spec-scope-execution-check` is the sixth guard on this seam.
   // Deliberately co-resident with all five: each asks a DIFFERENT question of
   // the same PR-create moment, and this one's is the only join that reads the

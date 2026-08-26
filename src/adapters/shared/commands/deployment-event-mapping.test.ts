@@ -17,6 +17,7 @@ function record(status: DeploymentRecord["status"]): DeploymentRecord {
     status,
     commitHash: "abc123",
     commitMessage: "test commit",
+    imageDigest: null,
     createdAt: "2026-01-01T00:00:00Z",
     finishedAt: "2026-01-01T00:05:00Z",
     durationMs: 300_000,

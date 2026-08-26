@@ -115,6 +115,61 @@ export function readValidPoints(): string[] {
 }
 
 /**
+ * The KEYS of `INTERCEPTION_POINT_PRESENCE` — the domain the `/interceptors`
+ * point facet offers as options (mt#4603).
+ *
+ * A SEVENTH surface over the same domain, and the one the completeness net
+ * missed: the facet used to build its options from `INTERCEPTION_POINT_ORDER`,
+ * a DELIBERATE nine-member subset, while its predicate compared against
+ * `entry.point`, whose domain is the full union. Six points were therefore
+ * unselectable, two of them with live members.
+ *
+ * The keys are `Record<InterceptionPoint, true>`, so a new union member is
+ * already a compile error — this parse is the second line, catching the case
+ * where the record is widened but this file's expectations were not, and
+ * keeping the surface visible in the census the other five assertions form.
+ * Parsed textually like its siblings rather than imported: this test runs under
+ * the default suite, and `src/cockpit/web/**` is excluded from it by
+ * `bunfig.toml` (mem#1189).
+ */
+export function parseFacetPoints(source: string): string[] {
+  // Terminates on the first `}` (optionally spaced before `;`) rather than on a
+  // NEWLINE before it, and the trailing comma is OPTIONAL (PR #3361 R1). Both
+  // fragilities were real: a formatter that drops the last entry's comma would
+  // have silently parsed 14 of 15 keys, and the census would then report a
+  // MISMATCH that is an artifact of formatting — a false negative in the one
+  // assertion whose whole job is catching a missing point. Non-greedy is safe
+  // here because the declared type is `Record<InterceptionPoint, true>`, so
+  // every value is the literal `true` and the object cannot nest.
+  const block =
+    /const INTERCEPTION_POINT_PRESENCE: Record<InterceptionPoint, true> = \{([\s\S]*?)\}\s*;/.exec(
+      stripComments(source)
+    );
+  if (!block?.[1]) throw new Error("no `INTERCEPTION_POINT_PRESENCE` declaration found");
+  // Sorted, like every sibling parser here — these lists are compared as sets.
+  return [...block[1].matchAll(/"?([A-Za-z-]+)"?\s*:\s*true\s*,?/g)].map((m) => m[1] ?? "").sort();
+}
+
+export function readFacetPoints(): string[] {
+  return parseFacetPoints(readSource("src/cockpit/web/hooks/useInterceptors.ts"));
+}
+
+/**
+ * `INTERCEPTION_POINT_ORDER`'s members — the spine's DELIBERATE subset.
+ *
+ * Read so a test can assert it stays a proper subset and stays nine, which is
+ * the other half of mt#4603's split: the facet's domain must be complete, and
+ * this one must NOT be widened to match it. mt#4129 decided that deliberately.
+ */
+export function readSpinePoints(): string[] {
+  return parseNamedList(
+    readSource("src/cockpit/web/hooks/useInterceptors.ts"),
+    /export const INTERCEPTION_POINT_ORDER: InterceptionPoint\[\] = \[([\s\S]*?)\]/,
+    "INTERCEPTION_POINT_ORDER"
+  );
+}
+
+/**
  * The axis-1 point list in the ontology doc, between its `axis-1-points` markers.
  *
  * A SIXTH copy, and the only one in prose — so the only one that would rot with

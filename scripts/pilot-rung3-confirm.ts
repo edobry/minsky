@@ -26,8 +26,16 @@
  *
  * Usage:
  *   bun scripts/pilot-rung3-confirm.ts
+ *   bun scripts/pilot-rung3-confirm.ts --recovered <replay-out.json>
+ *
+ * `--recovered` takes the `--out` file of
+ * `scripts/replay-retrospective-trigger-calibration.ts` and runs each recovered
+ * turn through the same pipeline as an UNLABELED probe (mt#3931). Probes are
+ * reported per-turn and excluded from the pass/fail arithmetic; the exit code
+ * still reflects only the labeled corpus.
  */
 
+import { readFileSync } from "node:fs";
 import {
   nominate,
   type NominationDeps,
@@ -51,6 +59,27 @@ interface LabeledTurn {
   text: string;
   /** true = a genuine admission the pipeline SHOULD fire on. */
   positive: boolean;
+  provenance: string;
+}
+
+/**
+ * An UNLABELED probe set, loaded from a reconstruction (mt#3931).
+ *
+ * `scripts/replay-retrospective-trigger-calibration.ts --out <file>` recovers the
+ * turn a calibration record was written about. Feeding those turns back through
+ * the pipeline answers the question the corpus above cannot: does this harness
+ * reproduce what production DID, on the input production actually saw?
+ *
+ * Deliberately unlabeled and excluded from the pass/fail arithmetic. The reason
+ * is the finding that produced this flag: mt#3931's four records were rated as
+ * false positives from a 160-character excerpt, and every one of the recovered
+ * turns contains a first-person admission the excerpt did not show. Shipping a
+ * label here would encode that same mistake one level deeper, so the run reports
+ * what fired and a human reads the turn.
+ */
+interface ProbeTurn {
+  id: string;
+  text: string;
   provenance: string;
 }
 
@@ -149,6 +178,33 @@ async function main(): Promise<void> {
     workingDirectory: process.cwd(),
   });
 
+  const probes: ProbeTurn[] = [];
+  const recoveredIndex = process.argv.indexOf("--recovered");
+  if (recoveredIndex >= 0) {
+    const path = process.argv[recoveredIndex + 1];
+    if (path === undefined) {
+      console.log("ERROR: --recovered needs a path to a replay --out file.");
+      process.exit(2);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch (err) {
+      console.log(`ERROR: could not read ${path}: ${err instanceof Error ? err.message : err}`);
+      process.exit(2);
+    }
+    for (const entry of Array.isArray(parsed) ? parsed : []) {
+      const record = entry as { timestamp?: string; verdict?: string; judgedText?: string };
+      if (typeof record.judgedText !== "string" || record.judgedText.length === 0) continue;
+      probes.push({
+        id: `probe-${record.timestamp ?? "unknown"}`,
+        text: record.judgedText,
+        provenance: `recovered judged turn (${record.verdict ?? "unknown verdict"})`,
+      });
+    }
+    console.log(`Loaded ${probes.length} recovered turn(s) from ${path} as UNLABELED probes.`);
+  }
+
   const nominationDeps: NominationDeps | null = await resolveNominationDeps();
   if (nominationDeps === null || !nominationDeps.semantic) {
     console.log("SKIP: no semantic embedding provider configured — pilot needs live rung 2.");
@@ -199,6 +255,32 @@ async function main(): Promise<void> {
       degraded,
       confirmMs,
     });
+  }
+
+  // Probe pass: same pipeline, no labels, reported separately (mt#3931).
+  for (const probe of probes) {
+    const rung1 = detectTriggerPhrases(probe.text).map((m) => m.family as string);
+    const nomination = await nominate(probe.text, NOMINATION_EXEMPLARS, nominationDeps);
+    let confirmed: string[] = [];
+    let degraded: string | null = nomination.degraded
+      ? (nomination.degradedReason ?? "degraded")
+      : null;
+    if (!nomination.degraded && nomination.nominations.length > 0) {
+      const result = await confirmNominations(
+        probe.text,
+        nomination.nominations.map((n) => ({ family: n.family, segment: n.segment })),
+        confirmDeps
+      );
+      confirmed = result.confirmations.map((c) => c.family);
+      if (result.degraded) degraded = result.degradedReason ?? "degraded";
+    }
+    console.log(
+      `  [PROBE] ${probe.id}: rung1=[${rung1.join(",")}] nominated=[${nomination.nominations
+        .map((n) => n.family)
+        .join(",")}] confirmed=[${confirmed.join(",")}] -> ${
+        rung1.length > 0 || confirmed.length > 0 ? "FIRED" : "quiet"
+      }${degraded ? ` (degraded: ${degraded})` : ""}`
+    );
   }
 
   // ---- report ----

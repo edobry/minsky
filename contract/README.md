@@ -48,6 +48,17 @@ above and read the same fields.
   same-PR rename in `health.ts` fail the cargo test directly, without
   requiring the fixture to be regenerated first.
 
+**`$`-prefixed keys are FIXTURE-ONLY and are never part of a response.** Both
+fixtures carry `$comment`, `$<field>FieldNote` and `$<field>FieldVariants` keys
+holding prose and illustrative per-state examples. No producer emits them: the
+harnesses read `fields`, `rustConsumedFields`, and the nested `*Fields` maps, so
+a `$` key is inert to every assertion on both sides. They live here rather than
+only in `docs/` because the thing a reader needs when a field surprises them is
+the field's own semantics, and a fixture is what they already have open. Two
+rules follow — never add a `$` key to `fields` or to `sample`'s field set, and
+never read one as a shape claim. (Raised on PR #3357 R1, where the convention
+was established across seven keys and documented nowhere.)
+
 **What this catches:** renaming, removing, or changing the type of any
 top-level `/api/health` field in `health.ts` fails the bun test immediately
 (the live response no longer matches the checked-in fixture). Renaming one

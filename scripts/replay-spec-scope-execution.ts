@@ -26,6 +26,7 @@
 
 import { writeFileSync } from "node:fs";
 import { extractInScopeFiles } from "../.minsky/hooks/parallel-work-guard";
+import { untouchedEnumeratedPaths } from "../.minsky/hooks/spec-scope-execution-check";
 
 const args = process.argv.slice(2);
 const limitIdx = args.indexOf("--limit");
@@ -57,36 +58,30 @@ interface Row {
   enumerated: string[];
   changed: number;
   untouched: { path: string; line: string | null }[];
+  /** Untouched entries the spec's own wording exempted (mt#4582). */
+  qualified: number;
 }
 
-function normalize(p: string): string {
-  return p.trim().replace(/^\.\//, "").replace(/\/+$/, "");
-}
-
-function covered(enumerated: string, changed: readonly string[]): boolean {
-  const t = normalize(enumerated);
-  if (t === "") return false;
-  return changed.some((c) => {
-    const n = normalize(c);
-    return n === t || n.endsWith(`/${t}`) || n.startsWith(`${t}/`) || n.includes(`/${t}/`);
-  });
-}
-
-/**
- * The IN-SCOPE line naming `path` — the block, never the whole spec.
+/*
+ * The comparison is IMPORTED from the guard, not reimplemented here (mt#4591).
  *
- * PR #3340 R1 flagged the whole-spec form in the guard; this was the same code
- * copied here, so it carried the same defect (class-not-instance). A path also
- * cited in `## Context` or under `Out of scope` would have been quoted from
- * there, which for a measurement whose entire purpose is hand classification is
- * worse than in the guard: the quoted line IS the classification evidence.
+ * This script previously carried its own `normalize` + `covered` pair, a copy
+ * of the guard's. That is a measurement instrument that does not exercise the
+ * thing it measures: mt#4591 fixed `pathIsCovered` to resolve `path.ts:83` and
+ * directory globs, and re-running this replay would have reported ZERO change —
+ * a null result attributable to the duplicate, not to the fix. Same
+ * class-not-instance shape the guard itself exists to catch (mem#1060).
  */
-function lineFor(inScopeBlock: string | undefined, path: string): string | null {
-  if (!inScopeBlock) return null;
-  const t = normalize(path);
-  for (const l of inScopeBlock.split("\n")) if (l.includes(t)) return l.trim();
-  return null;
-}
+
+/*
+ * The ENTRY-quoting helper is imported too (mt#4582), for the same reason the
+ * comparison is. This script carried a `lineFor` copy of the guard's
+ * `enumerationLineFor` — the THIRD copy of that logic — and PR #3340 R1 had
+ * already had to fix the same defect in both places independently. mt#4582
+ * taught the guard's version to join a bullet's continuation lines; a local
+ * copy would have kept quoting truncated first lines, and the replay's quote IS
+ * the hand-classification evidence.
+ */
 
 /**
  * `owner/repo`, derived from the git remote rather than hard-coded (PR #3340
@@ -128,6 +123,7 @@ let noTask = 0;
 let noSpec = 0;
 let nothingToCompare = 0;
 let pageCapped = 0;
+let qualifiedTotal = 0;
 
 for (const pr of prs) {
   const taskId = taskIdFromTitle(pr.title);
@@ -176,11 +172,17 @@ for (const pr of prs) {
     continue;
   }
 
-  const untouched = enumerated
-    .filter((e) => !covered(e, changed))
-    .map((p) => ({ path: p, line: lineFor(inScopeBlock, p) }));
+  const { untouched, qualified } = untouchedEnumeratedPaths(inScopeBlock, enumerated, changed);
+  qualifiedTotal += qualified;
 
-  rows.push({ pr: pr.number, taskId, enumerated, changed: changed.length, untouched });
+  rows.push({
+    pr: pr.number,
+    taskId,
+    enumerated,
+    changed: changed.length,
+    untouched,
+    qualified,
+  });
 }
 
 const flagged = rows.filter((r) => r.untouched.length > 0);
@@ -192,6 +194,7 @@ console.log(`  nothing to compare (SC5):     ${nothingToCompare}`);
 console.log(`  excluded, past page cap:      ${pageCapped}`);
 console.log(`  comparable:                   ${rows.length}`);
 console.log(`  FLAGGED (>=1 untouched path): ${flagged.length}`);
+console.log(`  suppressed as QUALIFIED:      ${qualifiedTotal}`);
 if (rows.length > 0) {
   console.log(
     `  flag rate over comparable:    ${((flagged.length / rows.length) * 100).toFixed(1)}%`

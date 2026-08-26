@@ -182,7 +182,26 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
     }
   }
 
-  async *readSession(
+  /**
+   * Stream EVERY parsed line in the file, in file order, with no type filter
+   * (mt#4573).
+   *
+   * This is the unfiltered sibling of {@link readSession}, and it exists
+   * because `RETAINED_TYPES` below is not a neutral cleanup: measured
+   * 2026-08-25, the types it drops (`bridge-session`, `mode`, `custom-title`,
+   * `permission-mode`, `ai-title`, `agent-name`, `file-history-snapshot`) are
+   * ~24% of lines by count, and they are exactly the un-timestamped ones — so
+   * nothing downstream of the timestamp high-water-mark can ever see them.
+   * `transcript_lines` keys on position instead and therefore can.
+   *
+   * **Ordinal semantics.** The consumer's ordinal is the index of the yielded
+   * line among lines that were non-empty AND parsed. A line that fails to parse
+   * is skipped here exactly as it is in `readSession`, so it consumes no
+   * ordinal and cannot be reconstructed later. That is a real fidelity bound,
+   * and a narrow one: the harness writes well-formed JSON, and a line it
+   * mangled is not one we could store as `jsonb` anyway.
+   */
+  async *readSessionRaw(
     agentSessionId: AgentSessionId,
     jsonlPath?: string
   ): AsyncIterable<RawTurnLine> {
@@ -196,8 +215,26 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
       if (!trimmed) continue;
       const parsed = parseJsonlLine(trimmed);
       if (!parsed) continue;
-      if (typeof parsed.type !== "string" || !RETAINED_TYPES.has(parsed.type)) continue;
       yield parsed as RawTurnLine;
+    }
+  }
+
+  /**
+   * The harness-specific retention predicate, exposed so a caller iterating
+   * {@link readSessionRaw} can reproduce {@link readSession}'s filtering
+   * without knowing which types this source retains (mt#4573).
+   */
+  isRetainedLine(line: RawTurnLine): boolean {
+    return typeof line.type === "string" && RETAINED_TYPES.has(line.type);
+  }
+
+  async *readSession(
+    agentSessionId: AgentSessionId,
+    jsonlPath?: string
+  ): AsyncIterable<RawTurnLine> {
+    for await (const parsed of this.readSessionRaw(agentSessionId, jsonlPath)) {
+      if (!this.isRetainedLine(parsed)) continue;
+      yield parsed;
     }
   }
 

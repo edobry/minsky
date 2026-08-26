@@ -69,6 +69,7 @@ import { mountHealthRoutes } from "./routes/health";
 import { mountTaskRoutes } from "./routes/tasks";
 import { mountAgentRoutes } from "./routes/agents";
 import { mountAgentFocusRoutes } from "./routes/agent-focus";
+import { mountConversationRehydrateRoutes } from "./routes/conversation-rehydrate";
 import type { AgentFocusRouteOptions } from "./routes/agent-focus";
 import { mountConversationRoutes } from "./routes/conversations";
 import type { ConversationRoutesOptions } from "./routes/conversations";
@@ -601,6 +602,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountTaskRoutes(app);
   mountAgentRoutes(app);
   mountAgentFocusRoutes(app, opts.overrideAgentFocus ?? {});
+  // mt#4573: production passes no `fs` seam, so `rehydrateTranscript` falls
+  // through to the real filesystem — the same convention `agent-focus` uses for
+  // its executor.
+  mountConversationRehydrateRoutes(app, {});
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountConversationSearchRoutes(app, opts.overrideConversationSearch ?? {});
   mountChangesetRoutes(app);
