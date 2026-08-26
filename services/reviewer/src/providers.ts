@@ -14,7 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type * as OpenAICore from "openai/core";
-import type { ReviewerConfig } from "./config";
+import { REVIEWER_CALLTIME_ENV_VAR_NAMES, type ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import {
   OUTPUT_TOOL_DEFINITIONS,
@@ -55,7 +55,10 @@ const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
  * provider-side transient had cleared. Matching the primary timeout gives the
  * retry the same budget as the first attempt.
  *
- * Tunable via REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS at process-env load time.
+ * Tunable at process-env load time via the TOOLLOOP_RETRY_TIMEOUT_MS entry in
+ * config.ts's REVIEWER_CALLTIME_ENV_VAR_NAMES, which is where the operator-
+ * facing variable name lives (mt#4619 — naming it here too would be a second
+ * spelling that a rename leaves stale).
  */
 const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120_000;
 
@@ -76,8 +79,12 @@ export function parseToolloopRetryEnabled(raw: string | undefined): boolean {
 }
 
 function resolveToolloopRetryConfig(): { enabled: boolean; retryTimeoutMs: number } {
-  const enabled = parseToolloopRetryEnabled(process.env["REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT"]);
-  const rawMs = process.env["REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS"];
+  // Names come from config.ts's registry, never spelled here (mt#4619) — a
+  // typo'd property is a type error; a typo'd string would read no env var.
+  const enabled = parseToolloopRetryEnabled(
+    process.env[REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_ON_TIMEOUT]
+  );
+  const rawMs = process.env[REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_TIMEOUT_MS];
   const parsedMs = rawMs ? parseInt(rawMs, 10) : NaN;
   const retryTimeoutMs =
     Number.isFinite(parsedMs) && parsedMs > 0 ? parsedMs : DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS;
@@ -95,9 +102,10 @@ export interface ToolloopRetryResult<T> {
  * Behavior:
  *   - First attempt uses the caller-supplied `primaryTimeoutMs` (production
  *     default 120s from config.ts → DEFAULT_MODEL_TIMEOUT_MS).
- *   - On TimeoutError AND retry-enabled (REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT,
- *     default "true"), emits a `toolloop.timeout_retry` log line and retries
- *     once with REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS (default 90s).
+ *   - On TimeoutError AND retry-enabled (the TOOLLOOP_RETRY_ON_TIMEOUT entry
+ *     in config.ts's REVIEWER_CALLTIME_ENV_VAR_NAMES, default "true"), emits a
+ *     `toolloop.timeout_retry` log line and retries once with that registry's
+ *     TOOLLOOP_RETRY_TIMEOUT_MS entry (default 90s).
  *   - If the retry also times out OR retry is disabled, the TimeoutError
  *     propagates to the toolloop caller and surfaces in logs as the existing
  *     `sweeper.retrigger_failed` / equivalent shape.

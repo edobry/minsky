@@ -40,7 +40,7 @@
  *
  * ## Inert until configured
  *
- * With `REVIEWER_EXPERIMENT_MODEL` unset — the state this ships in — every PR
+ * With `EXPERIMENT_MODEL_ENV_VAR` unset — the state this ships in — every PR
  * resolves to the incumbent and the reviewer behaves exactly as it did before
  * this module existed. Starting an experiment is setting one env var; ending
  * one is unsetting it. Neither is a code change.
