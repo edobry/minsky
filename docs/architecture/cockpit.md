@@ -563,20 +563,73 @@ would read zero for cockpit-process state:
     "totals": {
       "started": 47,
       "completed": 6,
-      "embedFailed": 1,
       "aborted": 12,
       "failed": 4,
       "skipped": 2,
-      "interrupted": 22,
-      "reachedPhase2": 7
+      "interrupted": 22
     },
-    "phase2ReachRate": 0.149,
+    "completionRate": 0.128,
     "inFlight": null,
     "lastOutcome": "interrupted",
     "lastEndedAt": "2026-06-19T22:00:00.000Z"
+  },
+  // mt#4601 — the embedding backfill's OWN sweep, with its own journal file.
+  "backfill": {
+    "acrossRestarts": {
+      "totals": {
+        "started": 31,
+        "completed": 28,
+        "aborted": 0,
+        "failed": 1,
+        "skipped": 0,
+        "interrupted": 2
+      },
+      "completionRate": 0.903,
+      "inFlight": null,
+      "lastOutcome": "completed",
+      "lastEndedAt": "2026-06-19T22:05:00.000Z"
+    }
   }
 }
 ```
+
+**The two sweeps, and why they are separate (mt#4601).** Until mt#4601 the
+embedding backfill ran as "Phase 2" of the transcript sweep's tick. It now has
+its own `createIntervalSweeper` registration — visible as its own row on
+`GET /api/sweeps` — because three measured numbers made the sharing indefensible:
+
+| quantity                                       | value                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| one batch of 20 candidates                     | **~8 s** (measured 2026-08-26 against the live DB, one provider call) |
+| a FULL backfill run at the 2,000-candidate cap | ~100 batches ≈ **~13 min**                                            |
+| a steady-state run (554 candidates, measured)  | ~28 batches ≈ **~4 min**                                              |
+| the ingest pass it queued behind               | **~12 min** over ~1,500 sessions                                      |
+| the daemon's median lifetime on a working day  | **13.4 min**                                                          |
+
+A run that usually takes ~4 minutes sat behind a 12-minute ingest pass inside a 13.4-minute process, and every
+one of the ingest tick's early returns (abort, ingest throw, schema-behind) bails
+before reaching it. Measured on the shipped journal immediately before the split:
+**0 of 4 ticks reached Phase 2**, two of them interrupted by a restart.
+
+**What that cost, stated accurately.** Not completeness. The real backlog when
+this was measured was **919 turns**, with nine consecutive prior days fully
+drained — one successful run (2,000 candidates) covers a median day's intake
+(~2,200 embeddable turns), so the backfill was starved of opportunities and still
+finishing its work. The cost is **freshness**: semantic search over the last few
+hours going stale on days the sweep is interrupted. Do not read a low
+`completionRate` on the ingest sweep as evidence that embeddings are missing —
+read it beside the actual backlog:
+
+```sql
+SELECT count(*) FROM agent_transcript_turns
+WHERE embedding IS NULL AND (user_text IS NOT NULL OR assistant_text IS NOT NULL);
+```
+
+**That predicate is the backlog; a bare `embedding IS NULL` is not.** The pipeline
+only ever considers turns with text, so rows with neither `user_text` nor
+`assistant_text` stay null permanently by design — 206,433 of them at the time of
+measurement, against 919 real candidates. A bare null-count over-reports the
+backlog by 226x.
 
 **Reading `acrossRestarts` (mt#4532).** Every OTHER field above resets to zero
 when the process is replaced, and the tray restarts the daemon on every merge
@@ -586,17 +639,25 @@ cadence whose Phase 1 alone takes ~12 minutes — so on a working day most
 processes never conclude a tick at all, and the process-scoped counters beside
 this block are describing minutes of history, not the sweep's actual behaviour.
 
-`acrossRestarts` is read from `~/.local/state/minsky/transcript-sweep-journal.json`
-and outlives the process. Read it FIRST, and read the rest against it:
+Each sweep keeps its own journal — the ingest sweep at
+`~/.local/state/minsky/transcript-sweep-journal.json`, the backfill at
+`transcript-backfill-journal.json` — and both outlive the process. Read them
+FIRST, and read the rest against them. Same shape either side:
 
-| Field                | What it answers                                                                                                                     |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `phase2ReachRate`    | **The number.** The share of all ticks ever started that reached the embedding backfill. `null` before any tick has started.        |
-| `totals.interrupted` | Ticks whose process was replaced mid-flight. Reconstructed at boot, since a killed process cannot write its own terminal record.    |
-| `totals.aborted`     | Phase 1 abandoned because the DB connection died (mt#4480). Never reaches Phase 2 — it needs the same dead connection.              |
-| `totals.embedFailed` | Phase 2 was ENTERED and threw. Deliberately not conflated with `aborted`: one got there and broke, the other never arrived.         |
-| `totals.skipped`     | The tick declined to run — schema behind (mt#3297), or no SQL-capable provider. Correct behaviour, and still not work done.         |
-| `inFlight`           | The tick running right now (`startedAt`, `pid`, `phase`), or `null`. A non-null `inFlight` from a DEAD pid is what boot reconciles. |
+| Field                | What it answers                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `completionRate`     | **The number.** The share of THIS sweep's ticks that ran to conclusion. `null` before any tick started; `0` means ticks ran and none finished — those are different readings and must not be conflated. |
+| `totals.interrupted` | Ticks whose process was replaced mid-flight. Reconstructed at boot, since a killed process cannot write its own terminal record.                                                                        |
+| `totals.aborted`     | A pass abandoned because the DB connection died (mt#4480). Ingest-specific in practice; the backfill has no such marker.                                                                                |
+| `totals.failed`      | The tick threw — an ingest throw, a failing backfill, or a `PersistenceService.initialize()` timeout.                                                                                                   |
+| `totals.skipped`     | The tick declined to run — schema behind (mt#3297), or no SQL-capable provider. Correct behaviour, and still not work done.                                                                             |
+| `inFlight`           | The tick running right now (`startedAt`, `pid`), or `null`. A non-null `inFlight` from a DEAD pid is what boot reconciles.                                                                              |
+
+**`phase`, `reachedPhase2` and the `embed-failed` outcome were retired by
+mt#4601.** They existed to say WHERE inside a two-phase tick something happened;
+once each sweep has exactly one job, the sweep's own journal answers that and a
+phase field would be a constant. A failing backfill is now plainly `failed` in
+the backfill's block.
 
 **Why a local file rather than Postgres.** `decision-defaults.mdc §Datastores`
 makes Postgres the default for state, and this deviates on purpose: two of the

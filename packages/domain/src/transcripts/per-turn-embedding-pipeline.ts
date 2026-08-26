@@ -65,11 +65,27 @@ export interface PerTurnEmbeddingPipelineOptions {
  * because the backlog was large, which is the wrong way round.
  *
  * 2,000 is derived from the work a run should do, not chosen as a round number:
- * at `batchSize` 20 it is 100 provider calls, and the slowest batch latency
- * measured against the live endpoint is 449ms (`request-resilience.ts`), so a
- * full run is ~45s of provider time. The sweeper's cadence is minutes, so a run
- * finishes well inside its interval. Each run shrinks the candidate set, so a
- * backlog drains across runs rather than being attempted all at once.
+ * at `batchSize` 20 it is 100 provider calls. The BOUND is still right; the
+ * duration this docblock derived from it was not.
+ *
+ * **CORRECTED 2026-08-26 (mt#4601): a full run is ~13 MINUTES, not ~45 seconds.**
+ * This paragraph read *"the slowest batch latency measured against the live
+ * endpoint is 449ms (`request-resilience.ts`), so a full run is ~45s of provider
+ * time. The sweeper's cadence is minutes, so a run finishes well inside its
+ * interval."* The 449 ms is real and is scoped: `request-resilience.ts:23`
+ * records it for a *"batch of 20 (~2KB each)"*. Real transcript turns are far
+ * larger, and one batch of 20 measured against the live pipeline took
+ * **8,054 ms** — ~18x. So 100 batches is ~13 minutes, and "finishes well inside
+ * its interval" was false for any cadence under that.
+ *
+ * This mattered: mt#4601 sized a new sweep's tick timeout at 5 minutes from the
+ * ~45s figure, which would have abandoned every full run in production. Caught by
+ * running the pipeline against the live database rather than by review. **Re-measure
+ * before deriving a duration from this constant** — the number of calls is fixed,
+ * the time per call is a property of the payloads, and those grow.
+ *
+ * Each run still shrinks the candidate set, so a backlog drains across runs
+ * rather than being attempted all at once.
  */
 export const DEFAULT_MAX_CANDIDATES_PER_RUN = 2_000;
 

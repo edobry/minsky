@@ -25,9 +25,16 @@ import {
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 // mt#4480: lifted out of sweepers.ts when that file hit the max-lines ceiling.
-import { startTranscriptSweepBackstop } from "../../cockpit/transcript-sweep-backstop";
 import {
+  buildRealSweepDeps,
+  startTranscriptSweepBackstop,
+} from "../../cockpit/transcript-sweep-backstop";
+import { startTranscriptBackfillSweep } from "../../cockpit/transcript-backfill-sweep";
+import {
+  BACKFILL_SWEEP_LABEL,
   createFileJournalStore,
+  getTranscriptBackfillJournalPath,
+  INGEST_SWEEP_LABEL,
   TranscriptSweepJournalRecorder,
 } from "../../cockpit/transcript-sweep-journal";
 // mt#4537: same reason — a sweep of its own rather than more of sweepers.ts.
@@ -695,7 +702,19 @@ export function createStartCommand(): Command {
       // deliberately has no default (ADR-026 rule 3), so this is the only place
       // the real file-backed store is named.
       const stopTranscriptSweep = startTranscriptSweepBackstop(
-        new TranscriptSweepJournalRecorder(createFileJournalStore())
+        new TranscriptSweepJournalRecorder(createFileJournalStore(), INGEST_SWEEP_LABEL)
+      );
+      // Embedding backfill (mt#4601): its OWN sweep, no longer Phase 2 of the
+      // tick above. A ~45s job was queued behind a ~12-minute ingest inside a
+      // daemon whose median lifetime is 13.4 minutes, and was skipped outright
+      // by every one of that tick's early returns. Its own journal file, so each
+      // sweep's counters mean exactly one thing.
+      const stopTranscriptBackfill = startTranscriptBackfillSweep(
+        new TranscriptSweepJournalRecorder(
+          createFileJournalStore(getTranscriptBackfillJournalPath()),
+          BACKFILL_SWEEP_LABEL
+        ),
+        { resolveDeps: buildRealSweepDeps }
       );
       // Guard-events sweep backstop (mt#4035, mt#3334 phase 3): THE
       // CORRECTNESS LAYER for the guard/calibration exhaust ingest — the
@@ -791,6 +810,7 @@ export function createStartCommand(): Command {
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
+        stopTranscriptBackfill();
         stopGuardEventsSweep();
         stopInterceptorAggregatesSweeper();
         stopConversationTitleSweeper();
