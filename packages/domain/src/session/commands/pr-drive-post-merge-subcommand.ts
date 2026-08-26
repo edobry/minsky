@@ -165,13 +165,45 @@ export async function sessionPrDrivePostMerge(
       services = [...new Set(params.services)].sort();
     } else {
       const { sessionDB } = deps;
-      const resolvedContext = await resolveSessionContextWithFeedback({
-        sessionId: params.sessionId,
-        task: params.task,
-        repo: params.repo,
-        sessionProvider: sessionDB,
-        allowAutoDetection: true,
-      });
+
+      // This mode runs AFTER a merge, and a successful merge CLEANS UP the
+      // session — so `--task` / `--session-id` routinely fails to resolve here
+      // for the most ordinary reason there is, and the bare "No session found
+      // for task ID" that surfaced gave no hint that (a) this is expected and
+      // (b) two working alternatives exist. Naming them is the whole fix: the
+      // caller is mid-verification and a dead end costs a re-derivation
+      // (mt#4425).
+      let resolvedContext;
+      try {
+        resolvedContext = await resolveSessionContextWithFeedback({
+          sessionId: params.sessionId,
+          task: params.task,
+          repo: params.repo,
+          sessionProvider: sessionDB,
+          allowAutoDetection: true,
+        });
+      } catch (err) {
+        // Only a genuine not-found gets the guidance treatment. Wrapping ANY
+        // failure would collapse error semantics: `resolveSessionContextWithFeedback`
+        // also throws ValidationError when a task matches MULTIPLE sessions, and
+        // backend I/O or auth failures surface as their own classes. Those need
+        // different handling — retry vs. disambiguate vs. tell the operator — and
+        // relabelling them all "not found" would send callers and observability
+        // to the wrong cause (PR #3394 R1 BLOCKING).
+        if (!(err instanceof ResourceNotFoundError)) throw err;
+
+        const target = params.task ?? params.sessionId ?? "(auto-detect)";
+        throw new ResourceNotFoundError(
+          `Could not resolve a session for ${target} to auto-detect deploy services.\n\n` +
+            `If the merge already succeeded this is EXPECTED — merging cleans the session up, ` +
+            `so post-merge mode cannot reach it by task or session id afterwards.\n\n` +
+            `Two ways forward:\n` +
+            `  - Pass an explicit \`services\` list to skip session-based auto-detection.\n` +
+            `  - Verify the deploy directly, which needs no session at all:\n` +
+            `      bun scripts/verify-deploy.ts <service> --merged-at <iso> --commit <merge-sha>\n\n` +
+            `Underlying resolution error: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
 
       const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
       if (!sessionRecord) {

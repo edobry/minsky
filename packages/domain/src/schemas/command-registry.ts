@@ -36,6 +36,7 @@ export const commandCategorySchema = z.enum([
   "REFS",
   "PRINCIPAL",
   "SECURITY",
+  "DEPLOYMENT",
 ]);
 
 /**

@@ -265,7 +265,7 @@ export function registerDeploymentCommands(): void {
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "deployment.wait-for-latest",
-      category: CommandCategory.TOOLS,
+      category: CommandCategory.DEPLOYMENT,
       name: "wait-for-latest",
       description:
         "Block until the latest deployment for the configured service reaches a terminal state " +
@@ -325,7 +325,7 @@ export function registerDeploymentCommands(): void {
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "deployment.status",
-      category: CommandCategory.TOOLS,
+      category: CommandCategory.DEPLOYMENT,
       name: "status",
       description:
         "Read-only snapshot of the latest deployment for the configured service. " +
@@ -347,7 +347,7 @@ export function registerDeploymentCommands(): void {
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "deployment.logs",
-      category: CommandCategory.TOOLS,
+      category: CommandCategory.DEPLOYMENT,
       name: "logs",
       description:
         "Fetch build or deploy logs for a specific deployment. Block-and-return; " +
