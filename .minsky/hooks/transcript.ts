@@ -1298,6 +1298,40 @@ const BINDING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 const BINDING_SHORT_ID_RE = /^(?:ask|mem|ws)#\d+$/i;
 
 /**
+ * Pair an entity's own ids by FIELD NAME — `id` holding a UUID beside `shortId`
+ * holding a short id (mt#4463).
+ *
+ * This exists because the value-shape rule below it cannot bind the canonical
+ * record shape. A Minsky entity record carries `projectId` as well as `id`, so
+ * it names two UUIDs and the uniqueness rule yields nothing. Measured over 654
+ * transcripts, every `memory_create` / `memory_get` result whose `projectId`
+ * held a UUID — 114 of them — bound NOTHING, against 929 of 930 that bound when
+ * it was null. The population became universal on 2026-08-25, when `projectId`
+ * went from near-never populated to always.
+ *
+ * **This does not weaken PR #3018 R1's guarantee, and the distinction is the
+ * point.** That rule exists so a pairing cannot depend on key ORDER: with only
+ * value shapes to go on, `{id, supersededBy}` has no non-arbitrary answer to
+ * "which UUID is this record's own", so refusing was correct. Naming the fields
+ * removes the question rather than answering it — `id` IS the record's own id
+ * by construction, in any key order. The value-shape rule stays as the fallback
+ * for shapes that invert the names, which is why `refs_status` (where `id`
+ * holds the SHORT id and `uuid` holds the UUID) still resolves through it.
+ *
+ * Returns null unless BOTH fields are present and both match their expected
+ * shape, so a record with an `id` that is not a UUID falls through untouched.
+ */
+function bindEntityIdsByFieldName(
+  node: Record<string, unknown>
+): { shortId: string; uuid: string } | null {
+  const id = node["id"];
+  const shortId = node["shortId"];
+  if (typeof id !== "string" || typeof shortId !== "string") return null;
+  if (!BINDING_UUID_RE.test(id) || !BINDING_SHORT_ID_RE.test(shortId)) return null;
+  return { shortId: shortId.toLowerCase(), uuid: id.toLowerCase() };
+}
+
+/**
  * Harvest `<short id> -> <UUID>` bindings from the tool results in a transcript
  * (mt#4160).
  *
@@ -1328,11 +1362,20 @@ const BINDING_SHORT_ID_RE = /^(?:ask|mem|ws)#\d+$/i;
  *
  * ## Ambiguity fails OPEN, at two levels
  *
- * Within one object: a binding is recorded only when the object names EXACTLY
- * ONE entity — one distinct UUID and one distinct short id among its own string
- * values. An object carrying a second UUID (a `supersededBy`, a foreign key, a
- * nested resource id) yields NOTHING rather than a guess, which is what keeps
- * the pairing from depending on key order (PR #3018 R1).
+ * Within one object, two paths are tried in order (mt#4463):
+ *
+ * 1. **By field name** — `id` holding a UUID beside `shortId` holding a short
+ *    id. This is the canonical Minsky entity shape, and naming the fields makes
+ *    the pairing unambiguous no matter what else the record carries. See
+ *    {@link bindEntityIdsByFieldName}; it is what lets a record with a populated
+ *    `projectId` bind at all.
+ * 2. **By value shape**, when path 1 does not apply — a binding is recorded only
+ *    when the object names EXACTLY ONE entity, one distinct UUID and one
+ *    distinct short id among its own string values. An object carrying a second
+ *    UUID (a foreign key, a nested resource id) yields NOTHING rather than a
+ *    guess, which is what keeps the pairing from depending on key order
+ *    (PR #3018 R1). This path is what resolves INVERTED shapes such as
+ *    `refs_status`, where `id` holds the short id and `uuid` holds the UUID.
  *
  * Across the transcript: if one short id is nonetheless seen bound to two
  * different UUIDs, the binding is DROPPED.
@@ -1364,15 +1407,28 @@ export function collectShortIdBindings(lines: TranscriptLine[]): Map<string, str
     // Distinctness (not raw count) is what the rule needs, because a legitimate
     // record can repeat one value across fields — `refs_status` emits the same
     // short id as both `ref` and `id` on every row.
-    const uuids = new Set<string>();
-    const shortIds = new Set<string>();
-    for (const value of Object.values(node as Record<string, unknown>)) {
-      if (typeof value !== "string") continue;
-      if (BINDING_UUID_RE.test(value)) uuids.add(value.toLowerCase());
-      else if (BINDING_SHORT_ID_RE.test(value)) shortIds.add(value.toLowerCase());
+    // mt#4463: try the FIELD-NAME pairing first. It answers the question the
+    // value-shape rule below has to refuse — which UUID is this record's own —
+    // so a canonical record carrying `projectId` beside `id` binds instead of
+    // yielding nothing. Falls through to the value rule for inverted shapes.
+    const byFieldName = bindEntityIdsByFieldName(node as Record<string, unknown>);
+
+    let uuid: string | undefined;
+    let shortId: string | undefined;
+    if (byFieldName !== null) {
+      uuid = byFieldName.uuid;
+      shortId = byFieldName.shortId;
+    } else {
+      const uuids = new Set<string>();
+      const shortIds = new Set<string>();
+      for (const value of Object.values(node as Record<string, unknown>)) {
+        if (typeof value !== "string") continue;
+        if (BINDING_UUID_RE.test(value)) uuids.add(value.toLowerCase());
+        else if (BINDING_SHORT_ID_RE.test(value)) shortIds.add(value.toLowerCase());
+      }
+      uuid = uuids.size === 1 ? [...uuids][0] : undefined;
+      shortId = shortIds.size === 1 ? [...shortIds][0] : undefined;
     }
-    const uuid = uuids.size === 1 ? [...uuids][0] : undefined;
-    const shortId = shortIds.size === 1 ? [...shortIds][0] : undefined;
     if (uuid !== undefined && shortId !== undefined) {
       const existing = bindings.get(shortId);
       if (existing !== undefined && existing !== uuid) {
