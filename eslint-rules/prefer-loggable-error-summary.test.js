@@ -74,6 +74,19 @@ tester.run("prefer-loggable-error-summary", rule, {
       code: `log.warn("outer", items.map((err) => ${BARE}));`,
       filename: srcFile("cockpit", "g.ts"),
     },
+    // PR #3380 R1 (BLOCKING): outside any error-handling context. The value is
+    // merely instanceof-Error-tested in ordinary code — not a caught error — so
+    // the rule must not fire even though it reaches a log call. Before the
+    // scope check this was flagged; measured cost of adding it: 9 of 599 sites.
+    {
+      code: `const err = maybeError(); log.info("status", { detail: ${BARE} });`,
+      filename: srcFile("cockpit", "n.ts"),
+    },
+    // The success half of `.then(onOk, onErr)` is not an error handler.
+    {
+      code: `p.then((err) => { log.info("ok", { detail: ${BARE} }); }, handleFailure);`,
+      filename: srcFile("cockpit", "o.ts"),
+    },
   ],
 
   invalid: [
@@ -114,6 +127,35 @@ tester.run("prefer-loggable-error-summary", rule, {
     {
       code: `try { q(); } catch (err) { logger?.warn("failed", { error: ${BARE} }); }`,
       filename: srcFile("cockpit", "m.ts"),
+      errors: [{ messageId: MESSAGE_ID }],
+    },
+    // A promise rejection handler is the same class as a catch block. This is
+    // why the scope check is `isInErrorHandlingContext` and not a bare
+    // `CatchClause` test — scoping to the literal keyword would leave this
+    // identical defect unflagged purely because of the syntax chosen.
+    {
+      code: `q().catch((err) => log.error("failed", { error: ${BARE} }));`,
+      filename: srcFile("cockpit", "p.ts"),
+      errors: [{ messageId: MESSAGE_ID }],
+    },
+    // The rejection half of `.then(onOk, onErr)`.
+    {
+      code: `q().then(ok, (err) => log.error("failed", { error: ${BARE} }));`,
+      filename: srcFile("cockpit", "q.ts"),
+      errors: [{ messageId: MESSAGE_ID }],
+    },
+    // PR #3380 R1 (NON-BLOCKING), pinned rather than left to surprise someone:
+    // the receiver match is a SUBSTRING test inherited from no-silent-catch, so
+    // `catalog` matches on "log" and this IS flagged. For no-silent-catch that
+    // over-recognition is the safe direction; for this rule it is a false
+    // positive. Kept anyway, because forking the matcher would reintroduce the
+    // drift the shared module exists to prevent — and measured: ZERO
+    // `catalog|dialog|backlog|blog|changelog|analog`-style logger-method
+    // receivers exist in src/packages/services/scripts today. If one ever
+    // appears, this test is where the decision gets revisited.
+    {
+      code: `try { q(); } catch (err) { catalog.error("failed", { error: ${BARE} }); }`,
+      filename: srcFile("cockpit", "r.ts"),
       errors: [{ messageId: MESSAGE_ID }],
     },
   ],

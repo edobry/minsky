@@ -83,6 +83,46 @@ function isBareErrorRendering(node) {
 }
 
 /**
+ * Is this expression inside an error-handling context?
+ *
+ * Two shapes count, and the second is why this is not a bare `CatchClause`
+ * check (PR #3380 R1):
+ *   1. A `catch (err) { … }` block — the spec's literal wording.
+ *   2. A promise rejection handler — `.catch((err) => …)` and
+ *      `.then(onOk, (err) => …)`. Semantically identical to (1): a caught error
+ *      being rendered. Excluding it would leave the same defect unflagged purely
+ *      because of which syntax the author reached for.
+ *
+ * Anything else — a bare value that merely happens to be `instanceof Error`-tested
+ * outside any handler — is out of scope, which is what the reviewer's finding
+ * asked for and what the measurement below confirmed is worth having.
+ */
+function isInErrorHandlingContext(node) {
+  let parent = node.parent;
+  while (parent) {
+    if (parent.type === "CatchClause") return true;
+    if (
+      (parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression") &&
+      parent.parent &&
+      parent.parent.type === "CallExpression" &&
+      parent.parent.callee &&
+      parent.parent.callee.type === "MemberExpression" &&
+      !parent.parent.callee.computed &&
+      parent.parent.callee.property.type === "Identifier"
+    ) {
+      const method = parent.parent.callee.property.name;
+      const args = parent.parent.arguments;
+      // `.catch(fn)` — any position; `.then(onFulfilled, onRejected)` — the
+      // SECOND argument only, since the first is the success path.
+      if (method === "catch") return true;
+      if (method === "then" && args.length > 1 && args[1] === parent) return true;
+    }
+    parent = parent.parent;
+  }
+  return false;
+}
+
+/**
  * Walk up from `node` looking for an enclosing logger call it feeds.
  *
  * Ascends rather than matching a fixed shape because the value is usually nested:
@@ -140,6 +180,10 @@ export default {
   create(context) {
     function check(node) {
       if (!isBareErrorRendering(node)) return;
+      // Scope to error handling (PR #3380 R1) — the spec says "catch-block
+      // expressions", and without this the rule fired on any log-bound bare
+      // rendering anywhere.
+      if (!isInErrorHandlingContext(node)) return;
       if (!enclosingLoggerCall(node)) return;
       context.report({
         node,

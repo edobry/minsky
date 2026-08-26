@@ -583,21 +583,29 @@ export default [
       // `no-silent-catch`'s logger matcher via `eslint-rules/logger-detection.js`
       // rather than growing a second one.
       //
+      // Scoped to ERROR-HANDLING contexts (PR #3380 R1): a `catch` block, or a
+      // promise rejection handler (`.catch(fn)`, `.then(ok, fn)`). Deliberately
+      // NOT a bare CatchClause test — a `.catch` handler is the same defect in
+      // different syntax, and scoping to the keyword would leave it unflagged.
+      //
       // MEASURED before choosing this posture (2026-08-26), which is the whole
       // reason it is "off" rather than "warn":
-      //   - 599 sites flagged across src/packages/services/scripts.
-      //   - A raw grep for the expression finds 878, so the rule's log-flow
-      //     filter excludes 279 (~32%) that never reach a log — throws,
-      //     returns, plain assignments. The grep count OVERSTATES the
-      //     actionable population by a third; that is what the AST buys.
+      //   - 590 sites flagged across src/packages/services/scripts.
+      //   - A raw grep for the expression finds 878, so the rule's filters
+      //     exclude 288 (~33%). The grep count OVERSTATES the actionable
+      //     population by a third; that is what the AST buys.
+      //   - Of those 288, the log-flow filter accounts for 279 (throws,
+      //     returns, plain assignments) and the error-handling scope for 9
+      //     (599 -> 590): nearly every log-bound bare rendering already sits
+      //     inside a handler.
       //   - 30-site spread sample hand-classified: 0 false positives against
       //     the rule's definition. Every one was a caught error going into a
       //     `log.*` / `console.*` call.
       //
       // "off" for the same zero-tolerance-warning-gate reason as
-      // no-silent-catch above (mt#1097, no override): 599 violations cannot
-      // ship at "warn". Bulk cleanup + flip tracked as this rule's sibling
-      // task, on the mt#3312 / mt#3313 model.
+      // no-silent-catch above (mt#1097, no override): 590 violations cannot
+      // ship at "warn". Bulk cleanup + flip tracked at mt#4639, on the
+      // mt#3312 / mt#3313 model.
       //
       // One sub-category the cleanup should decide rather than mass-rewrite:
       // ~4 of the 30 sampled were CLI user-facing `console.error` in scripts/
