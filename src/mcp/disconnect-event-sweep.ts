@@ -7,6 +7,26 @@
  * that JSONL log into `system_events` as `mcp.disconnect` rows so the
  * cockpit activity feed and the Phase 2 attention noticer see them.
  *
+ * WHAT IT PROJECTS (mt#4617). Only `kind: "disconnect"` lines are bridged —
+ * `parseNewDisconnectEvents` drops `reconnect`, `process_start` and
+ * `transport_error`. Two consequences worth stating, because both have already
+ * been got wrong:
+ *
+ * 1. The row population is single-kind BY CONSTRUCTION, so a `cause`
+ *    distribution over these rows is already the disconnect-only distribution
+ *    mt#4511 corrected. The payload's missing `kind` field is redundant here,
+ *    not lossy.
+ * 2. The file's TOTAL record count must never be compared against this table's
+ *    row count — that compares a four-kind population against a one-kind
+ *    subpopulation. A 2026-08-25 measurement did exactly that and concluded the
+ *    bridge was a "48% partial projection"; on the same footing the numbers
+ *    invert. Compare `kind = "disconnect"` on both sides or not at all.
+ *
+ * Per the accepted Event-log RFC, this table is a cross-cutting PROJECTION and
+ * the producing subsystem stays the source of truth — the log file is the
+ * complete record, and the pre-deployment history is deliberately not
+ * backfilled ("the event log starts from the deployment date").
+ *
  * Invocation path: fire-and-forget, triggered once at MCP-server boot from
  * `src/commands/mcp/start-command.ts`, mirroring the `startup-transcript-
  * ingest.ts` (mt#2051) and `startup-embedding-sweep.ts` boot-sweep pattern.
