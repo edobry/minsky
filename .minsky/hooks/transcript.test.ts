@@ -817,6 +817,18 @@ describe("collectShortIdBindings (mt#4160)", () => {
     },
   });
 
+  // Named rather than repeated inline: each of these appears in both a fixture
+  // and its assertion, and a UUID that drifts between the two would make a test
+  // pass for the wrong reason (custom/no-magic-string-duplication).
+  const UUID_REFS_STATUS = "227d170f-0579-4603-aca0-433b5a4cb657";
+  const UUID_OWN_ID = "44444444-4444-4444-4444-444444444444";
+  const UUID_SUPERSEDED_BY = "55555555-5555-5555-5555-555555555555";
+  const UUID_RECORD = "66666666-6666-6666-6666-666666666666";
+  /** mem#1256's real UUID — the window-3 fire this task's diagnosis names. */
+  const UUID_MEM_1256 = "11336b71-4741-4ad8-ba5a-eee482f8dfff";
+  /** The scoping UUID whose presence beside `id` is the whole defect. */
+  const UUID_PROJECT_SCOPE = "3ac3d147-2b6f-4cf9-a52a-2b6e32d3c5fe";
+
   test("reads the memory_create shape: id is the UUID, shortId is the ref", () => {
     // Verbatim field order and names from a real mcp__minsky__memory_create
     // result (session 6b2b7665, 2026-08-16).
@@ -845,13 +857,13 @@ describe("collectShortIdBindings (mt#4160)", () => {
               ref: "mem#996",
               kind: "memory",
               id: "mem#996",
-              uuid: "227d170f-0579-4603-aca0-433b5a4cb657",
+              uuid: UUID_REFS_STATUS,
             },
           ],
         })
       ),
     ] as never);
-    expect(bindings.get("mem#996")).toBe("227d170f-0579-4603-aca0-433b5a4cb657");
+    expect(bindings.get("mem#996")).toBe(UUID_REFS_STATUS);
   });
 
   test("a short id bound to two different UUIDs is DROPPED, not guessed", () => {
@@ -878,42 +890,191 @@ describe("collectShortIdBindings (mt#4160)", () => {
     expect(bindings.size).toBe(0);
   });
 
-  // PR #3018 R1 — an object naming two entities cannot be paired without
-  // guessing, and guessing would have depended on key order.
-  test("an object carrying a SECOND uuid yields no binding, in either key order", () => {
+  // PR #3018 R1's invariant is KEY-ORDER INDEPENDENCE, and it still holds.
+  // mt#4463 changed the OUTCOME for this particular shape — `id` + `shortId`
+  // now pair by field name, which is the record's own id and is correct — so
+  // this test asserts the pairing is the same under either key order, rather
+  // than asserting a refusal that was only ever the conservative answer to
+  // "which UUID is this record's own" when nothing named it.
+  test("an `id` + `shortId` pair binds identically in either key order (mt#4463)", () => {
     const idFirst = collectShortIdBindings([
       resultLine(
         JSON.stringify({
-          id: "44444444-4444-4444-4444-444444444444",
+          id: UUID_OWN_ID,
           shortId: "mem#42",
-          supersededBy: "55555555-5555-5555-5555-555555555555",
+          supersededBy: UUID_SUPERSEDED_BY,
         })
       ),
     ] as never);
-    expect(idFirst.has("mem#42")).toBe(false);
 
-    // The same record with the two uuid fields swapped. Under a first-wins rule
-    // these two calls disagree; under the uniqueness rule they cannot.
     const supersededFirst = collectShortIdBindings([
       resultLine(
         JSON.stringify({
-          supersededBy: "55555555-5555-5555-5555-555555555555",
-          id: "44444444-4444-4444-4444-444444444444",
+          supersededBy: UUID_SUPERSEDED_BY,
+          id: UUID_OWN_ID,
           shortId: "mem#42",
         })
       ),
     ] as never);
-    expect(supersededFirst.has("mem#42")).toBe(false);
+
+    // The record's OWN id, never the `supersededBy` — under a first-wins value
+    // rule these two calls would disagree; naming the field means they cannot.
+    expect(idFirst.get("mem#42")).toBe(UUID_OWN_ID);
+    expect(supersededFirst.get("mem#42")).toBe(UUID_OWN_ID);
     expect([...supersededFirst.keys()]).toEqual([...idFirst.keys()]);
   });
 
-  test("an object naming two different short ids yields no binding", () => {
+  // PR #3018 R1's refusal, preserved on the shape it is actually about: two
+  // UUIDs and NO `id`+`shortId` field pair to disambiguate them. The field-name
+  // path cannot apply here (`id` is absent), so the value rule decides, and it
+  // must still refuse rather than guess — in either key order.
+  test("two uuids with no id+shortId pair still yields NO binding, either order", () => {
+    const ownerFirst = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          ownerUuid: UUID_RECORD,
+          ref: "mem#77",
+          targetUuid: "77777777-7777-7777-7777-777777777777",
+        })
+      ),
+    ] as never);
+    expect(ownerFirst.has("mem#77")).toBe(false);
+
+    const targetFirst = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          targetUuid: "77777777-7777-7777-7777-777777777777",
+          ref: "mem#77",
+          ownerUuid: UUID_RECORD,
+        })
+      ),
+    ] as never);
+    expect(targetFirst.has("mem#77")).toBe(false);
+    expect([...targetFirst.keys()]).toEqual([...ownerFirst.keys()]);
+  });
+
+  // mt#4463: the defect this task exists for. A canonical entity record carries
+  // `projectId` beside `id`, so the value-uniqueness rule saw two UUIDs and
+  // bound nothing — measured at 0 of 114 such records across 654 transcripts,
+  // and universal since 2026-08-25. Field order and names are verbatim from a
+  // real mcp__minsky__memory_create result.
+  test("a record with a populated projectId still binds its own id (mt#4463)", () => {
     const bindings = collectShortIdBindings([
       resultLine(
         JSON.stringify({
-          id: "66666666-6666-6666-6666-666666666666",
+          id: UUID_MEM_1256,
+          shortId: "mem#1256",
+          type: "project",
+          name: "handoff_pool_connection_leak_cluster",
+          scope: "project",
+          projectId: UUID_PROJECT_SCOPE,
+          supersededBy: null,
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#1256")).toBe(UUID_MEM_1256);
+  });
+
+  // The projectId must never be mistaken FOR the entity's id — that would bind
+  // every project-scoped record to the same UUID, which is worse than not
+  // binding at all.
+  test("the projectId is never bound as the entity's own uuid (mt#4463)", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          id: UUID_MEM_1256,
+          shortId: "mem#1256",
+          projectId: UUID_PROJECT_SCOPE,
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#1256")).not.toBe(UUID_PROJECT_SCOPE);
+  });
+
+  // The field-name path must not fire when `id` holds something that is not a
+  // UUID — `refs_status` puts the SHORT id there, and that shape has to keep
+  // resolving through the value rule to its `uuid` field.
+  test("field-name pairing does not hijack the inverted refs_status shape (mt#4463)", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          ref: "mem#996",
+          kind: "memory",
+          id: "mem#996",
+          uuid: UUID_REFS_STATUS,
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#996")).toBe(UUID_REFS_STATUS);
+  });
+
+  // PR #3378 R1 — cross-type consistency. A UUID carries no type, so this is
+  // checkable only where the object declares its own kind. These three pin all
+  // three branches of that.
+  test("a declared `kind` that disagrees with the short id blocks the binding", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_RECORD, shortId: "ask#123", kind: "memory" })),
+    ] as never);
+    expect(bindings.has("ask#123")).toBe(false);
+  });
+
+  test("a declared `kind` that AGREES still binds — the guard does not over-fire", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_RECORD, shortId: "ask#123", kind: "ask" })),
+    ] as never);
+    expect(bindings.get("ask#123")).toBe(UUID_RECORD);
+  });
+
+  test("an unrecognised `kind` is 'no declaration', not a mismatch", () => {
+    // A memory record's `type: "project"` is not an entity kind, and a shape
+    // that uses the word `kind` for something else must not be refused.
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_MEM_1256, shortId: "mem#1256", kind: "retrospective" })),
+    ] as never);
+    expect(bindings.get("mem#1256")).toBe(UUID_MEM_1256);
+  });
+
+  // The residual the guard CANNOT reach, pinned so it is a known property
+  // rather than a surprise: with no `kind` declared, nothing in the values can
+  // detect that `id` belongs to a different entity than `shortId` names. The
+  // binding is made, and the CONSUMER's own type gate is what makes it
+  // harmless — see bare-entity-ref-scan.test.ts, "AT2 — a link to a DIFFERENT
+  // entity does not suppress (identity, not adjacency)".
+  test("with no declared kind, a mismatched pair still binds — consumer gates it", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_RECORD, shortId: "ask#123" })),
+    ] as never);
+    expect(bindings.get("ask#123")).toBe(UUID_RECORD);
+  });
+
+  // mt#4463 changed this outcome too, and for the same reason as the
+  // `supersededBy` case above: `shortId` names the record's OWN short id, so a
+  // second short id in a REFERENCE field no longer makes the pairing ambiguous.
+  // The load-bearing assertion is the second one — the referenced entity must
+  // not pick up a binding it has no evidence for.
+  test("a record binds its own shortId and never a referenced one (mt#4463)", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          id: UUID_RECORD,
           shortId: "mem#43",
           relatedShortId: "mem#44",
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#43")).toBe(UUID_RECORD);
+    expect(bindings.has("mem#44")).toBe(false);
+  });
+
+  // The refusal this replaces, kept on the shape it is actually about: two
+  // short ids and NO `shortId` field to say which is the record's own.
+  test("two short ids with no `shortId` field still yields no binding", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          uuid: UUID_RECORD,
+          fromRef: "mem#43",
+          toRef: "mem#44",
         })
       ),
     ] as never);
