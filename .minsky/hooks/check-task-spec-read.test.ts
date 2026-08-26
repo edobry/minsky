@@ -41,7 +41,7 @@ import {
   buildAskAdvisoryReason,
   cliSpecEngagements,
 } from "./check-task-spec-read";
-import { readManifest } from "./detect-cli-mcp-substitution";
+import { readManifest, resolveCommandNode } from "./detect-cli-mcp-substitution";
 
 /** A non-spec tool name reused across fixtures. */
 const MEMORY_SEARCH_TOOL = "mcp__minsky__memory_search";
@@ -1186,6 +1186,33 @@ const TARGET = normalizeTaskId("mt#4311");
 const OTHER = normalizeTaskId("mt#9999");
 
 describe("cliSpecEngagements (mt#4380)", () => {
+  // PR #3393 R1 (non-blocking findings 1 and 2): the command IDs resolve through the generated
+  // manifest, but which flags mean "spec read" / "spec authorship" is a policy set this module
+  // holds by hand — the manifest lists a command's options without marking any of them as
+  // spec-writing, and the semantic is not derivable from it. What IS derivable, and what these
+  // assertions pin, is that each flag we name still EXISTS on its command. That converts the
+  // drift the reviewer identified from a silent regression of this very fix — a renamed
+  // `--include-spec` would just stop crediting that channel, with every test still green — into
+  // a failing test naming the flag. The MCP side carries the same policy set in
+  // `editHasSpecContent`; the two are meant to move together.
+  test("every flag this module names still exists on its command in the manifest", () => {
+    const flagsOf = (commandId: string): string[] => {
+      const argv = commandId.split(".");
+      const { node } = resolveCommandNode(MANIFEST, argv);
+      expect(node.commandId, `manifest has no leaf for ${commandId}`).toBe(commandId);
+      return (node.options ?? []).flatMap((o) => o.flags ?? []);
+    };
+
+    expect(flagsOf("tasks.get")).toContain("--include-spec");
+    for (const flag of ["--spec", "--spec-file", "--spec-content"]) {
+      expect(flagsOf("tasks.edit")).toContain(flag);
+    }
+    // `tasks.spec.get` is credited unconditionally, so it needs no flag — only the leaf itself.
+    expect(resolveCommandNode(MANIFEST, ["tasks", "spec", "get"]).node.commandId).toBe(
+      "tasks.spec.get"
+    );
+  });
+
   test("resolves a spec read to its command id and task id", () => {
     expect(cliSpecEngagements(CLI_SPEC_GET_TARGET, MANIFEST)).toEqual([
       { kind: "read", taskId: TARGET },
