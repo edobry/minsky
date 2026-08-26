@@ -117,6 +117,24 @@ export function buildBlindDatasetRow(row: CorpusRow): BlindDatasetRow {
   };
 }
 
+/**
+ * Map a Braintrust API host to the web UI host.
+ *
+ * `readBraintrustConfig` derives its `appUrl` from `apiUrl` /
+ * `BRAINTRUST_API_URL` and defaults to `https://api.braintrust.dev` — correct
+ * for SDK calls, and NOT where a browser can open a dataset. The SDK builds
+ * `datasetUrl` from that same value, so the link it reports is a dead one for
+ * a human. Verified 2026-08-26: `www.braintrust.dev/app/<org>/p/<project>/
+ * datasets/<name>` serves; the api host does not.
+ *
+ * Only the known Braintrust default is rewritten. A self-hosted install may
+ * legitimately serve both from one host, so anything else is returned as-is
+ * rather than guessed at.
+ */
+export function toBrowserUrl(url: string): string {
+  return url.replace("https://api.braintrust.dev/", "https://www.braintrust.dev/");
+}
+
 // ---------------------------------------------------------------------------
 // Artifact reading
 // ---------------------------------------------------------------------------
@@ -249,7 +267,7 @@ async function main(): Promise<void> {
 
   const summary = await dataset.summarize();
   console.log(`\nInserted ${inserted} row(s) locally.`);
-  console.log(`Dataset URL: ${summary.datasetUrl}`);
+  console.log(`Dataset URL: ${toBrowserUrl(summary.datasetUrl)}`);
 
   // Read back what Braintrust actually recorded rather than trusting the local
   // insert count: `dataset.insert` is buffered, so a local tally is a claim

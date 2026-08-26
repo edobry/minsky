@@ -17,7 +17,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { CorpusRow } from "../src/eval-corpus";
-import { buildBlindDatasetRow, parseArgs } from "./push-braintrust-gold-set";
+import { buildBlindDatasetRow, parseArgs, toBrowserUrl } from "./push-braintrust-gold-set";
 
 function makeRow(overrides: Partial<CorpusRow> = {}): CorpusRow {
   return {
@@ -146,5 +146,21 @@ describe("parseArgs", () => {
   test("rejects a non-positive --limit instead of silently pushing everything", () => {
     expect(() => parseArgs(["--limit", "0"])).toThrow(/positive integer/);
     expect(() => parseArgs(["--limit", "abc"])).toThrow(/positive integer/);
+  });
+});
+
+describe("toBrowserUrl", () => {
+  test("rewrites the Braintrust API host to the web UI host", () => {
+    // The SDK builds datasetUrl from the configured appUrl, which
+    // readBraintrustConfig derives from apiUrl — so its link points at the API
+    // host and does not open in a browser.
+    expect(
+      toBrowserUrl("https://api.braintrust.dev/app/minsky/p/minsky/datasets/reviewer-gold-set-v1")
+    ).toBe("https://www.braintrust.dev/app/minsky/p/minsky/datasets/reviewer-gold-set-v1");
+  });
+
+  test("leaves a self-hosted host alone rather than guessing", () => {
+    const selfHosted = "https://braintrust.internal.example/app/o/p/p/datasets/d";
+    expect(toBrowserUrl(selfHosted)).toBe(selfHosted);
   });
 });
