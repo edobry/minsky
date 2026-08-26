@@ -24,10 +24,19 @@ describe("resolveProviderApiKeyWithConfig", () => {
     expect(result).toBe("env-value-123");
   });
 
-  test("env var wins even when it looks falsy-adjacent (whitespace, not empty)", async () => {
-    process.env[ENV_VAR] = " ";
+  test("whitespace-only env var is treated as unset, not returned as a key (PR #3373 R1)", async () => {
+    process.env[ENV_VAR] = "   ";
+    // A whitespace-only env var must not mask a real config-stored credential: the presence
+    // check trims before deciding, so this falls through to the config lookup (undefined here,
+    // since no configuration is initialized in this test process) rather than returning "   ".
     const result = await resolveProviderApiKeyWithConfig("anthropic", ENV_VAR);
-    expect(result).toBe(" ");
+    expect(result).not.toBe("   ");
+  });
+
+  test("a real key with meaningful leading/trailing whitespace still round-trips raw", async () => {
+    process.env[ENV_VAR] = "  real-key-with-padding  ";
+    const result = await resolveProviderApiKeyWithConfig("google", ENV_VAR);
+    expect(result).toBe("  real-key-with-padding  ");
   });
 
   test("empty-string env var is treated as unset (falls through, not returned as a key)", async () => {

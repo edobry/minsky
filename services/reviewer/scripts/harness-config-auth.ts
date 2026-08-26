@@ -44,8 +44,10 @@ import { getConfiguration, isConfigurationInitialized } from "@minsky/domain/con
  *    So initialization is explicit and failures are reported, not swallowed.
  */
 export async function resolveOpenAIKey(): Promise<string | undefined> {
+  // Same whitespace-masking class as resolveProviderApiKeyWithConfig below (PR #3373 R1) —
+  // trim before the presence check, still return the raw value.
   const fromEnv = process.env.OPENAI_API_KEY;
-  if (fromEnv) return fromEnv;
+  if (fromEnv !== undefined && fromEnv.trim().length > 0) return fromEnv;
 
   if (!isConfigurationInitialized()) {
     await setupConfiguration();
@@ -90,8 +92,13 @@ export async function resolveProviderApiKeyWithConfig(
   provider: "openai" | "google" | "anthropic",
   envVarName: string
 ): Promise<string | undefined> {
+  // PR #3373 R1: a whitespace-only env var (e.g. an empty shell export left in place) is not a
+  // real key — `if (fromEnv)` alone treats " " as truthy and returns it, silently masking a
+  // valid config-stored credential behind an env var that was never meant to hold one. Trim
+  // before the presence check; still return the RAW (untrimmed) value so a key that
+  // legitimately starts/ends with whitespace round-trips unchanged.
   const fromEnv = process.env[envVarName];
-  if (fromEnv) return fromEnv;
+  if (fromEnv !== undefined && fromEnv.trim().length > 0) return fromEnv;
 
   if (!isConfigurationInitialized()) {
     await setupConfiguration();
@@ -112,8 +119,9 @@ export async function resolveProviderApiKeyWithConfig(
  * is a deliberate override of whatever the config holds.
  */
 export async function resolveGitHubTokenWithConfig(): Promise<string | undefined> {
-  const fromEnv = process.env.OCTOKIT_AUTH || process.env.GITHUB_TOKEN;
-  if (fromEnv) return fromEnv;
+  // Same whitespace-masking class as resolveProviderApiKeyWithConfig above (PR #3373 R1).
+  const fromEnvRaw = process.env.OCTOKIT_AUTH || process.env.GITHUB_TOKEN;
+  if (fromEnvRaw !== undefined && fromEnvRaw.trim().length > 0) return fromEnvRaw;
 
   if (!isConfigurationInitialized()) {
     await setupConfiguration();

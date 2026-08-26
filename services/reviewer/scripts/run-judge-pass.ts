@@ -286,7 +286,8 @@ async function main() {
     const requestedProviders = [...new Set(JUDGE_PANEL_MODELS.map((c) => c.provider))];
     console.log(
       `\nSKIP: no API key configured for any judge-panel provider (${requestedProviders.join(", ")}). ` +
-        "Live judge pass requires at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY."
+        "Live judge pass requires at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY " +
+        "(env var, OR the matching key configured in Minsky — see HARNESS.md's Config fallback section)."
     );
     console.log("HINT: re-run with --dry-run to validate wiring without API calls.");
     process.exit(0);

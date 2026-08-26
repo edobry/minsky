@@ -59,10 +59,21 @@
  *                      fetch — the live path is what exercises
  *                      fetchIterationContext.
  *
- * Live runs require OPENAI_API_KEY (gating check below — at minimum one
- * configured provider must be reachable) plus OCTOKIT_AUTH or GITHUB_TOKEN
- * (for fetchIterationContext's PR-context reconstruction). Neither is
- * required for --dry-run.
+ * Live runs require at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY /
+ * ANTHROPIC_API_KEY matching a requested --model provider (gating check
+ * below — a missing key for one requested provider SKIPs just that arm; the
+ * whole run only skips when NONE of the requested providers are runnable),
+ * plus OCTOKIT_AUTH or GITHUB_TOKEN for fetchIterationContext's PR-context
+ * reconstruction. Neither is required for --dry-run.
+ *
+ * Credential resolution is env-first, then falls back to Minsky's own
+ * configuration (mt#3547 for OpenAI/GitHub, extended to google/anthropic by
+ * mt#4620 — see harness-config-auth.ts and services/reviewer/HARNESS.md's
+ * "Config fallback" section). On a developer machine or an agent session,
+ * the key or token typically lives in Minsky's config rather than as a raw
+ * exported env var; without the fallback this script reports "no key
+ * configured" even when e.g. `ai_complete`/`ai_validate` against that same
+ * provider would succeed.
  */
 
 import { Octokit } from "@octokit/rest";
@@ -872,6 +883,7 @@ async function main() {
     console.log(
       `\nSKIP: no API key configured for any requested provider (${requestedProviders.join(", ")}). ` +
         "Live paired-eval run requires at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY " +
+        "(env var, OR the matching key configured in Minsky — see HARNESS.md's Config fallback section) " +
         "matching a --model provider."
     );
     console.log("HINT: re-run with --dry-run to validate wiring without API calls.");
