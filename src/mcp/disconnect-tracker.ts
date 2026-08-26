@@ -1145,10 +1145,12 @@ export class DisconnectTracker {
       // after a roll, when the active file cannot fill the ring by itself.
       const corpus = listCorpusPaths(this.persistPath);
       const valid: McpDisconnectEvent[] = [];
+      let segmentsRead = 0;
       for (let i = corpus.length - 1; i >= 0 && valid.length < MAX_EVENTS; i--) {
         const segment = corpus[i];
         if (!segment) continue;
         const tail = readTail(segment, TAIL_READ_BYTES);
+        segmentsRead++;
         if (tail.raw.trim() === "") continue;
         // Prepend: we are walking backwards in time, so each older file's
         // records belong BEFORE everything gathered so far.
@@ -1159,7 +1161,11 @@ export class DisconnectTracker {
       log.debug("mcp_disconnect_tracker: loaded events from disk", {
         count: this.events.length,
         path: this.persistPath,
-        segmentsRead: corpus.length,
+        // Both, because they differ and the difference is the point: the loop
+        // stops once the ring is full, so in steady state ONE segment is read
+        // out of however many exist (reviewer R1 non-blocking).
+        segmentsRead,
+        segmentsDiscovered: corpus.length,
       });
     } catch (err) {
       log.debug("mcp_disconnect_tracker: failed to load event log from disk (non-fatal)", {

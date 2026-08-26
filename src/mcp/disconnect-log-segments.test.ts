@@ -255,18 +255,68 @@ describe("rollIfNeeded (mt#4495)", () => {
     expect(deps.existsSync(SEG_2026_07)).toBe(true);
   });
 
-  test("REFUSES to overwrite an existing segment — that would delete history", () => {
-    // Two processes booting in the same window, or a manual roll. The retention
-    // decision forbids deletion outright, so the second roll must be a no-op.
+  test("REGRESSION (R1): an occupied segment name rolls to an ordinal, never refuses", () => {
+    // Reviewer R1, PR #3368 — BLOCKING, and reproduced before fixing. The old
+    // code returned null when the target existed, which left the prior month's
+    // records IN THE ACTIVE FILE. Two harms: the active file is never bounded
+    // for that month, and if the existing segment's content overlaps, every
+    // overlapping record is counted twice across `listCorpusPaths`.
     const existing = rec("2026-07-01T00:00:00.000Z");
     const deps = fakeFs({
       [ACTIVE]: rec("2026-07-31T23:59:00.000Z"),
       [SEG_2026_07]: existing,
     });
     const target = rollIfNeeded(ACTIVE, { roll: true, month: "2026-07", reason: "calendar" }, deps);
-    expect(target).toBeNull();
+
+    expect(target).toBe(segmentPath("2026-07-2"));
+    // Nothing deleted: the pre-existing segment is byte-identical.
     expect(deps.files[SEG_2026_07]).toBe(existing);
-    expect(deps.existsSync(ACTIVE)).toBe(true);
+    // And the active file is GONE, so its records cannot be read a second time
+    // alongside the segment. This is the assertion the old test was missing.
+    expect(deps.existsSync(ACTIVE)).toBe(false);
+  });
+
+  test("REGRESSION (R1): every record keeps exactly ONE home across the corpus", () => {
+    // The property the ordinal fix actually buys, asserted directly rather than
+    // inferred from the rename's return value.
+    const deps = fakeFs({
+      [ACTIVE]: rec("2026-07-02T00:00:00.000Z") + rec("2026-07-03T00:00:00.000Z"),
+      [SEG_2026_07]: rec("2026-07-01T00:00:00.000Z"),
+    });
+    rollIfNeeded(ACTIVE, { roll: true, month: "2026-07", reason: "calendar" }, deps);
+
+    const seen = new Map<string, number>();
+    for (const p of listCorpusPaths(ACTIVE, deps)) {
+      for (const line of (deps.files[p] ?? "").split("\n")) {
+        const t = line.trim();
+        if (!t) continue;
+        seen.set(t, (seen.get(t) ?? 0) + 1);
+      }
+    }
+    expect(seen.size).toBe(3);
+    expect([...seen.values()].every((n) => n === 1)).toBe(true);
+  });
+
+  test("ordinals climb past a second collision, and stop at the ceiling", () => {
+    const files: Record<string, string> = { [ACTIVE]: rec("2026-07-31T23:59:00.000Z") };
+    files[SEG_2026_07] = rec("2026-07-01T00:00:00.000Z");
+    files[segmentPath("2026-07-2")] = rec("2026-07-02T00:00:00.000Z");
+    const deps = fakeFs(files);
+    expect(rollIfNeeded(ACTIVE, { roll: true, month: "2026-07", reason: "calendar" }, deps)).toBe(
+      segmentPath("2026-07-3")
+    );
+  });
+
+  test("an ordinal segment is still recognised as belonging to its month", () => {
+    // If enumeration could not parse `-2026-07-2`, the ordinal fix would create
+    // files that the glob picks up and `listSegmentPaths` ignores — two readers
+    // disagreeing about what the corpus is.
+    expect(monthOfSegmentPath(ACTIVE, segmentPath("2026-07-2"))).toBe("2026-07");
+    const deps = fakeFs({
+      [SEG_2026_07]: rec("2026-07-01T00:00:00.000Z"),
+      [segmentPath("2026-07-2")]: rec("2026-07-02T00:00:00.000Z"),
+    });
+    expect(listSegmentPaths(ACTIVE, deps)).toHaveLength(2);
   });
 
   test("does nothing when the decision says not to roll", () => {

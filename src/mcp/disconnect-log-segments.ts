@@ -63,6 +63,16 @@ export const SEGMENT_MAX_BYTES = 20 * 1024 * 1024;
  */
 export const TAIL_READ_BYTES = 256 * 1024;
 
+/**
+ * How many same-month segments to tolerate before refusing to roll.
+ *
+ * A second segment for one month is already unusual — it needs a file already
+ * sitting at the primary name. A hundred means something is wrong that rotation
+ * should not paper over, so the roll refuses and the log keeps growing visibly
+ * rather than silently spraying files.
+ */
+export const MAX_SEGMENT_ORDINAL = 100;
+
 /** `2026-08-25T16:51:09.669Z` -> `2026-08`. Empty string if unparseable. */
 export function monthOf(timestamp: string): string {
   if (typeof timestamp !== "string" || timestamp.length < 7) return "";
@@ -111,7 +121,7 @@ export function monthOfSegmentPath(activePath: string, candidate: string): strin
   const base = path.basename(activePath, ext);
   const name = path.basename(candidate);
   const match = new RegExp(
-    `^${escapeForRegExp(base)}-(\\d{4}-\\d{2})${escapeForRegExp(ext)}$`
+    `^${escapeForRegExp(base)}-(\\d{4}-\\d{2})(?:-\\d+)?${escapeForRegExp(ext)}$`
   ).exec(name);
   return match?.[1] ?? "";
 }
@@ -236,7 +246,17 @@ export function listSegmentPaths(
     .map((name) => ({ name, month: monthOfSegmentPath(activePath, name) }))
     .filter((e) => e.month !== "")
     .filter((e) => (sinceMonth ? e.month >= sinceMonth : true))
-    .sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : 0))
+    .sort((a, b) =>
+      a.month < b.month
+        ? -1
+        : a.month > b.month
+          ? 1
+          : a.name < b.name
+            ? -1
+            : a.name > b.name
+              ? 1
+              : 0
+    )
     .map((e) => path.join(dir, e.name));
 }
 
@@ -339,8 +359,31 @@ export function rollIfNeeded(
 ): string | null {
   if (!decision.roll || decision.month === "") return null;
 
-  const target = segmentPathFor(activePath, decision.month);
   try {
+    // Find a free name. When the primary `-YYYY-MM` is taken we neither
+    // OVERWRITE (that deletes history, which the retention decision forbids) nor
+    // REFUSE (reviewer R1, PR #3368).
+    //
+    // Why refusing is wrong, stated as precisely as the reproduction supports:
+    // refusing leaves the prior month's records IN THE ACTIVE FILE. Two harms
+    // follow. The active file is then never bounded for that month, which is the
+    // growth fix defeated in the one case it was needed. And if the existing
+    // segment's content OVERLAPS the active file's — a restored backup, an
+    // operator copy, a roll interrupted between copy and unlink — every
+    // overlapping record is then counted twice by `listCorpusPaths`, which was
+    // reproduced before this fix: one record appeared TWICE across the corpus.
+    //
+    // Rolling to `-YYYY-MM-2`, `-3`, ... gives every record exactly one home and
+    // deletes nothing. Note the bound: this stops rotation from CREATING or
+    // PERPETUATING a duplicate. A duplicate already sitting on disk when we
+    // arrive is not something rotation can repair, because the only repair is
+    // deletion.
+    let target = segmentPathFor(activePath, decision.month);
+    for (let n = 2; deps.existsSync(target) && n <= MAX_SEGMENT_ORDINAL; n++) {
+      target = segmentPathFor(activePath, `${decision.month}-${n}`);
+    }
+    // Ordinals exhausted — refuse rather than overwrite. Duplication is bad;
+    // deletion is worse, and this needs a human either way.
     if (deps.existsSync(target)) return null;
     deps.renameSync(activePath, target);
     return target;
