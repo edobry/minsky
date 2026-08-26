@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect, afterEach } from "bun:test";
-import { resolveProviderApiKeyWithConfig } from "./harness-config-auth";
+import { resolveProviderApiKeyWithConfig, getGitHubTokenSource } from "./harness-config-auth";
 
 const ENV_VAR = "MT4620_TEST_PROVIDER_KEY";
 
@@ -46,5 +46,29 @@ describe("resolveProviderApiKeyWithConfig", () => {
     // itself returned as though it were a real key.
     const result = await resolveProviderApiKeyWithConfig("openai", ENV_VAR);
     expect(result).not.toBe("");
+  });
+});
+
+describe("getGitHubTokenSource — whitespace-only OCTOKIT_AUTH must not mask a real GITHUB_TOKEN (PR #3373 R2)", () => {
+  afterEach(() => {
+    delete process.env.OCTOKIT_AUTH;
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  test("whitespace-only OCTOKIT_AUTH falls through to a meaningful GITHUB_TOKEN", async () => {
+    process.env.OCTOKIT_AUTH = "   ";
+    process.env.GITHUB_TOKEN = "real-github-token";
+    const source = await getGitHubTokenSource();
+    // The regression this guards: `OCTOKIT_AUTH || GITHUB_TOKEN` combined BEFORE trimming would
+    // short-circuit on the whitespace-only OCTOKIT_AUTH (a non-empty string is truthy) and never
+    // even look at GITHUB_TOKEN. Each must be checked for meaningful content independently.
+    expect(source).toBe("GITHUB_TOKEN");
+  });
+
+  test("a meaningful OCTOKIT_AUTH still wins over GITHUB_TOKEN when both are set", async () => {
+    process.env.OCTOKIT_AUTH = "real-octokit-auth";
+    process.env.GITHUB_TOKEN = "real-github-token";
+    const source = await getGitHubTokenSource();
+    expect(source).toBe("OCTOKIT_AUTH");
   });
 });
