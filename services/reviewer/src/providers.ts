@@ -351,7 +351,7 @@ export interface ToolLoopDiagnostics {
  * output and usually succeeds.
  */
 export interface CallReviewerOptions {
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -372,8 +372,18 @@ export function isReasoningModel(model: string): boolean {
   return false;
 }
 
-/** The values OpenAI's `reasoning_effort` parameter accepts. */
-export type ReasoningEffort = "low" | "medium" | "high";
+/**
+ * The values OpenAI's `reasoning_effort` parameter accepts.
+ *
+ * The ARRAY is the source of truth and the type is derived from it, rather
+ * than the other way round: consumers that need to VALIDATE a runtime string
+ * (the eval runner's `--model` effort suffix) would otherwise hand-enumerate
+ * the same values, and a widening here — mt#3526 proposes adding `"minimal"` —
+ * would leave them silently rejecting a value this module accepts.
+ */
+export const REASONING_EFFORTS = ["low", "medium", "high"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * The `reasoning_effort` a call resolves to, or `null` when none is sent.
@@ -808,7 +818,7 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
 interface ChatCreateBaseParams {
   model: string;
   max_completion_tokens: number;
-  reasoning_effort?: "low" | "medium" | "high";
+  reasoning_effort?: ReasoningEffort;
   // mt#2722 — OpenAI prompt-cache controls. Neither field is typed by the
   // installed openai@4.104.0 (both postdate it); the OpenAI Node SDK forwards
   // unknown body fields verbatim, so we carry them as a typed passthrough on
