@@ -26,6 +26,7 @@ import {
   foldTickStarted,
   isJournalShaped,
   JOURNAL_RECENT_LIMIT,
+  normalizeJournal,
   summarizeJournal,
   TranscriptSweepJournalRecorder,
   type InFlightTick,
@@ -194,12 +195,11 @@ describe("isJournalShaped", () => {
     expect(isJournalShaped(value)).toBe(false);
   });
 
-  test("rejects mt#4532's pre-split shape, so a stale file is discarded not merged", () => {
-    // The shipped journal carried `reachedPhase2` and `embedFailed`. mt#4601
-    // removed both. A file written by the old build is missing the new totals
-    // key set only if a key was ADDED — none was — so this asserts the guard's
-    // actual behaviour rather than a hoped-for one: the old shape still passes,
-    // and the extra keys are inert. Recorded because it is the surprising answer.
+  test("accepts mt#4532's pre-split shape — nothing was added, only removed", () => {
+    // The shipped journal carried `reachedPhase2` and `embedFailed`; mt#4601
+    // removed both. The guard checks that every CURRENT key is present, so an
+    // old file passes and its extra keys are inert HERE. Dropping them is the
+    // file store's job, asserted in the sibling test below (PR #3370 R1).
     const preSplit = {
       inFlight: null,
       recent: [],
@@ -207,6 +207,28 @@ describe("isJournalShaped", () => {
     };
 
     expect(isJournalShaped(preSplit)).toBe(true);
+  });
+
+  test("a store read strips retired totals keys rather than carrying them forever", () => {
+    // PR #3370 R1: without normalisation the pre-split keys ride along in the
+    // file indefinitely and surface on every /api/health payload beside the live
+    // ones. `createMemoryJournalStore` does not normalise (it holds exactly what
+    // it was given), so this asserts the fold the FILE store applies on read.
+    const preSplit = {
+      inFlight: null,
+      recent: [],
+      totals: { ...emptyJournal().totals, reachedPhase2: 3, embedFailed: 1, aborted: 7 },
+    } as unknown as TranscriptSweepJournal;
+
+    const normalized = normalizeJournal(preSplit);
+
+    expect(Object.keys(normalized.totals).sort()).toEqual(
+      Object.keys(emptyJournal().totals).sort()
+    );
+    // Live values survive; retired ones are gone.
+    expect(normalized.totals.aborted).toBe(7);
+    expect("reachedPhase2" in normalized.totals).toBe(false);
+    expect("embedFailed" in normalized.totals).toBe(false);
   });
 });
 

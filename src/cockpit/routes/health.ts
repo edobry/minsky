@@ -320,7 +320,7 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // reader asking "is the sweep working" must not be able to read the
       // process-scoped counters WITHOUT the lifetime ones, which is exactly the
       // misread `sweepLiveness`'s own field note had to warn about after being
-      // separated. `phase2ReachRate` is the one number that answers it.
+      // separated. `completionRate` is the one number that answers it.
       //
       // The read is memoized on the journal file's `(mtimeMs, size)`, so the
       // steady-state cost here is one `stat` rather than a read plus a parse

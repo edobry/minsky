@@ -281,6 +281,29 @@ export interface SweepJournalStore {
  * that carries logic, and reaching it through `createFileJournalStore` would
  * need a real filesystem (`custom/no-real-fs-in-tests`).
  */
+/**
+ * Rebuild `totals` from the CURRENT key set, discarding any others (PR #3370 R1).
+ *
+ * A journal written by a pre-mt#4601 build carries `reachedPhase2` and
+ * `embedFailed`. `isJournalShaped` accepts it — nothing was added, only removed —
+ * so without this those keys would ride along in the file forever, and every
+ * `/api/health` payload would carry retired fields beside the live ones. Reading
+ * through this makes the first write after an upgrade drop them.
+ *
+ * Deliberately additive-safe: a key the current build expects but the file lacks
+ * takes the `emptyJournal()` zero rather than `undefined`, so a FORWARD migration
+ * (a totals key added later) reads a stale file without producing NaN downstream.
+ */
+export function normalizeJournal(journal: TranscriptSweepJournal): TranscriptSweepJournal {
+  const base = emptyJournal().totals;
+  const totals = { ...base };
+  for (const key of Object.keys(base) as (keyof SweepTickTotals)[]) {
+    const v = journal.totals[key];
+    if (typeof v === "number") totals[key] = v;
+  }
+  return { inFlight: journal.inFlight, recent: journal.recent, totals };
+}
+
 export function isJournalShaped(value: unknown): value is TranscriptSweepJournal {
   if (typeof value !== "object" || value === null) return false;
   const j = value as Partial<TranscriptSweepJournal>;
@@ -304,13 +327,11 @@ export function createFileJournalStore(
         // convention: the root tsconfig's fs typings widen every readFileSync
         // return to `string | Buffer` regardless of the encoding argument.
         const parsed: unknown = JSON.parse(String(fs.readFileSync(filePath, "utf-8")));
-        if (!isJournalShaped(parsed)) {
-          log.warn("cockpit: transcript sweep journal: unreadable shape, starting fresh", {
-            filePath,
-          });
-          return emptyJournal();
-        }
-        return parsed;
+        if (isJournalShaped(parsed)) return normalizeJournal(parsed);
+        log.warn("cockpit: transcript sweep journal: unreadable shape, starting fresh", {
+          filePath,
+        });
+        return emptyJournal();
       } catch (err) {
         const e = err as NodeJS.ErrnoException;
         // A missing file is the normal first-boot case, not a fault.

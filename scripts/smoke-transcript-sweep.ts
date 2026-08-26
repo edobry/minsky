@@ -116,14 +116,22 @@ async function main(): Promise<void> {
   // reports its outcome to the journal seam; it must not write into the
   // operator's real `~/.local/state/minsky/transcript-sweep-journal.json` and
   // pollute the very counters this change exists to make trustworthy.
-  const { createMemoryJournalStore, summarizeJournal, TranscriptSweepJournalRecorder } =
-    await import("../src/cockpit/transcript-sweep-journal");
+  const {
+    BACKFILL_SWEEP_LABEL,
+    createMemoryJournalStore,
+    INGEST_SWEEP_LABEL,
+    summarizeJournal,
+    TranscriptSweepJournalRecorder,
+  } = await import("../src/cockpit/transcript-sweep-journal");
   const journalStore = createMemoryJournalStore();
 
-  const stop = startTranscriptSweepBackstop(new TranscriptSweepJournalRecorder(journalStore), {
-    intervalMs: 24 * 60 * 60 * 1000, // 24h — effectively one tick only.
-    deps,
-  });
+  const stop = startTranscriptSweepBackstop(
+    new TranscriptSweepJournalRecorder(journalStore, INGEST_SWEEP_LABEL),
+    {
+      intervalMs: 24 * 60 * 60 * 1000, // 24h — effectively one tick only.
+      deps,
+    }
+  );
 
   // Wait for the tick to complete. A full-corpus ingestAll re-reads every
   // discoverable session (idempotent/HWM-gated, but still I/O over the whole
@@ -199,7 +207,7 @@ async function main(): Promise<void> {
   const { buildRealSweepDeps } = await import("../src/cockpit/transcript-sweep-backstop");
   const backfillStore = createMemoryJournalStore();
   const stopBackfill = startTranscriptBackfillSweep(
-    new TranscriptSweepJournalRecorder(backfillStore, "embedding backfill"),
+    new TranscriptSweepJournalRecorder(backfillStore, BACKFILL_SWEEP_LABEL),
     {
       intervalMs: 24 * 60 * 60 * 1000, // 24h — the boot tick only.
       resolveDeps: async () => {
