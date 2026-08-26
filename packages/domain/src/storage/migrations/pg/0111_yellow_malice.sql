@@ -1,0 +1,35 @@
+-- mt#4623: partial index for the embedding backfill's candidate lookup.
+--
+-- Without it `PerTurnEmbeddingPipeline.run()` sequentially scans the whole
+-- table on every run. Measured against production 2026-08-26: Seq Scan,
+-- Rows Removed by Filter 367,098, ~37,500 buffers, to return 59 rows.
+--
+-- PARTIAL because the predicate is TRUE for almost nothing and shrinks as the
+-- backfill drains: of 367,159 rows, 211,300 (57.6%) carry no text at all and
+-- can never be candidates, and the live backlog measured 62. The built index
+-- is 16 kB. A full index on `embedding IS NULL` would instead cover ~211k rows
+-- and grow with the table — a real write cost on a table every transcript
+-- ingest writes to.
+--
+-- Lock note (the 0068 convention, with this table's own numbers). Plain
+-- CREATE INDEX, not CONCURRENTLY: drizzle's migrate() applies each migration
+-- inside a transaction (drizzle-orm/pg-core/dialect.js — session.transaction),
+-- where Postgres forbids CONCURRENTLY. So this takes ACCESS EXCLUSIVE for the
+-- build, blocking reads and writes on a table transcript ingest writes to.
+--
+-- 0068 justified the plain form on "both tables are tiny" (~656 and ~225
+-- rows). THAT REASON DOES NOT TRANSFER — this table is 367,159 rows / 294 MB.
+-- The replacement reason is measured, not assumed: building this index on a
+-- 367,159-row / 313 MB local reproduction took 34 ms, 42 ms and 92 ms across
+-- three runs. A partial index still scans every heap row to evaluate its
+-- predicate, so that time tracks the full scan; production's cold scan of the
+-- same page count is 211 ms, which bounds the cold case in the same order.
+-- Sub-second either way, so the plain form is the right trade here. If this
+-- table's shape changes enough to push the build into seconds, the out-of-band
+-- CONCURRENTLY path has to be reconsidered.
+--
+-- The index is inert without the ORDER BY that mt#4623 added to the candidate
+-- query: the planner estimates 141,913 matches against an actual 62 and takes
+-- a Seq Scan unless the ordering makes the index the cheaper path. See
+-- per-turn-embedding-pipeline.ts for the measurement.
+CREATE INDEX "idx_agent_transcript_turns_embedding_backlog" ON "agent_transcript_turns" USING btree ("agent_session_id","turn_index") WHERE "agent_transcript_turns"."embedding" IS NULL AND ("agent_transcript_turns"."user_text" IS NOT NULL OR "agent_transcript_turns"."assistant_text" IS NOT NULL);
