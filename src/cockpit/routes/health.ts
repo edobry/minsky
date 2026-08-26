@@ -22,7 +22,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
-import { readJournalSummary } from "../transcript-sweep-journal";
+import { getTranscriptBackfillJournalPath, readJournalSummary } from "../transcript-sweep-journal";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import { getSweepLivenessSnapshot } from "../sweepers";
@@ -320,7 +320,7 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // reader asking "is the sweep working" must not be able to read the
       // process-scoped counters WITHOUT the lifetime ones, which is exactly the
       // misread `sweepLiveness`'s own field note had to warn about after being
-      // separated. `phase2ReachRate` is the one number that answers it.
+      // separated. `completionRate` is the one number that answers it.
       //
       // The read is memoized on the journal file's `(mtimeMs, size)`, so the
       // steady-state cost here is one `stat` rather than a read plus a parse
@@ -328,7 +328,18 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // stale by construction — including when the writer is another daemon.
       // Unlike the `db` probe above it is not out-of-band, and does not need to
       // be: that one crosses the network and can wedge, this one cannot.
-      transcriptSweep: { ...sweepTracker.getSummary(), acrossRestarts: readJournalSummary() },
+      transcriptSweep: {
+        ...sweepTracker.getSummary(),
+        acrossRestarts: readJournalSummary(),
+        // mt#4601: the embedding backfill is its OWN sweep now, with its own
+        // journal file. Nested here rather than made a top-level sibling because
+        // the two are read together — "is transcript capture healthy" spans
+        // both, and the embed* fields in the block above are still produced by
+        // the backfill even though it no longer shares this sweep's tick.
+        backfill: {
+          acrossRestarts: readJournalSummary(undefined, getTranscriptBackfillJournalPath()),
+        },
+      },
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),
       // mt#4384: the three sweep fields above are DOMAIN trackers, and a domain

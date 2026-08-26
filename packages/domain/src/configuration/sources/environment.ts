@@ -411,6 +411,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK: "operator-override", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
   MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED: "tunable", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
   MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS: "tunable", // src/cockpit/server.ts (mt#2321) — cockpit transcript sweep-backstop cadence override (positive integer ms)
+  MINSKY_TRANSCRIPT_BACKFILL_INTERVAL_MS: "tunable", // src/cockpit/transcript-backfill-sweep.ts (mt#4601) — embedding-backfill cadence override (positive integer ms); its own knob because the backfill got its own sweep, and a ~45s job wants a different cadence from a ~12min ingest
   MINSKY_SKIP_GIT_STATE_INJECTION: "operator-override", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
   MINSKY_SKIP_PROD_STATE_INJECTION: "operator-override", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
   MINSKY_SKIP_MEMORY_CAPTURE_NOTICE: "operator-override", // .claude/hooks/inject-memory-capture.ts (mt#3997) — skip resident-memory capture notice

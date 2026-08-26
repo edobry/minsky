@@ -131,10 +131,28 @@ Implemented under the mt#2234 umbrella:
   **The redaction convention holds** — counts, ISO timestamps, a pid and an
   outcome enum; no paths, no raw error strings. **And the two-mechanism
   redundancy above covers INGEST only:** the embedding backfill has no
-  watcher-side path, so the sweep is its ONLY mechanism and a starved sweep is
-  total loss for it rather than degraded coverage. That asymmetry is not a
+  watcher-side path, so the sweep is its ONLY mechanism. That asymmetry is not a
   departure from this ADR — it is a consequence of it that was not previously
   written down.
+
+  **CORRECTED by mt#4601:** this entry originally said a starved sweep was "total
+  loss" for the backfill. Measured against production a day later, that
+  overstates it — the real backlog was 919 turns with nine consecutive prior days
+  fully drained, because one bounded run (2,000 candidates) covers a
+  median day's intake. The backfill was starved of OPPORTUNITIES and still
+  finishing its work; the cost is freshness, not lost embeddings.
+
+- **The backfill became its own sweep — mt#4601:** it ran as Phase 2 of the sweep
+  tick above until a 45-second job was measured queueing behind a 12-minute
+  ingest pass inside a daemon whose median lifetime is 13.4 minutes, and being
+  skipped outright by every early return in that tick (0 of 4 ticks reached it,
+  measured). It now has its own `createIntervalSweeper` registration, its own
+  10-minute cadence and its own 20-minute tick timeout — the last derived from a
+  MEASURED ~8 s batch latency, not from mt#4212's ~45 s estimate, which was
+  sized on ~2KB payloads and is ~18x optimistic for real transcript turns. This does not change ADR-017's decision: the sweep remains
+  the BACKSTOP for ingest, and the watcher remains the primary capture path. It
+  gives the backfill a mechanism of its own rather than a slot inside someone
+  else's.
 
 Both compose with the mt#2051 MCP boot sweep and the mt#2192 SessionEnd
 fast-path; overlap is harmless (per-`turn_index` upsert + timestamp HWM). The
