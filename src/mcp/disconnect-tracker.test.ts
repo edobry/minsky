@@ -40,6 +40,7 @@ import {
   SHORT_LIVED_THRESHOLD_MS,
 } from "./disconnect-escalation";
 import { isEscalationEligible as widgetIsEscalationEligible } from "../cockpit/widgets/s3-gauges";
+import { listSegmentPaths, segmentPathFor } from "./disconnect-log-segments";
 
 const SHAPE_TEST_LABEL = "emits event with correct shape";
 
@@ -55,8 +56,35 @@ function setTrackerEvents(tracker: DisconnectTracker, events: McpDisconnectEvent
   (tracker as unknown as { events: McpDisconnectEvent[] }).events = [...events];
 }
 
+/**
+ * A fixture path inside its OWN temp directory (mt#4631).
+ *
+ * The previous form keyed uniqueness on `Date.now()` — MILLISECOND resolution,
+ * against tests that finish in well under a millisecond — so two `beforeEach`
+ * calls in one process could hand out the same path. That was harmless while a
+ * tracker owned exactly one file, and stopped being harmless when mt#4495
+ * taught the loader to discover a segment CORPUS by `readdirSync`ing the active
+ * file's directory: from then on a neighbour's leftover `<base>-YYYY-MM`
+ * sibling was in the next tracker's corpus, and the `afterEach` unlink — which
+ * removes the active file only — never touched it. Measured before this fix:
+ * 116 such siblings accumulated in `os.tmpdir()`.
+ *
+ * `mkdtempSync` is unique BY CONSTRUCTION — the OS guarantees it, not the clock
+ * — and a directory per test makes `readdirSync`-based discovery isolated
+ * structurally rather than by naming. Callers remove the whole directory (see
+ * `removeTempDirOf`), so a segment cannot outlive the test that created it.
+ */
 function makeTempPath(name: string): string {
-  return path.join(os.tmpdir(), `disconnect-tracker-test-${process.pid}-${Date.now()}-${name}`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `disconnect-tracker-test-${name}-`));
+  return path.join(dir, `${name}.json`);
+}
+
+/**
+ * Tear down the whole directory `makeTempPath` created, not just the active
+ * file. Unlinking the active path alone is what leaked the segment siblings.
+ */
+function removeTempDirOf(tmpPath: string): void {
+  fs.rmSync(path.dirname(tmpPath), { recursive: true, force: true });
 }
 
 describe("DisconnectTracker", () => {
@@ -725,7 +753,7 @@ describe("DisconnectTracker persistence", () => {
   });
 
   afterEach(() => {
-    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    removeTempDirOf(tmpPath);
   });
 
   test("appends one JSON line per event", () => {
@@ -856,6 +884,49 @@ describe("DisconnectTracker persistence", () => {
 
     const t = DisconnectTracker.resetForTest("srv", tmpPath);
     expect(t.getEvents().length).toBe(2);
+  });
+
+  test("a segment left beside one fixture is invisible to the next (mt#4631)", () => {
+    // The property under test is NOT "segments are ignored" — reading the
+    // segment corpus is mt#4495's intended design. It is that ONE TEST'S
+    // leftovers cannot reach the NEXT test, which is what `makeTempPath`
+    // returning a path inside its own fresh directory buys. Before mt#4631 the
+    // two fixtures could share a directory (`Date.now()` at millisecond
+    // resolution, tests finishing in ~0.7ms), and teardown removed only the
+    // active file.
+    const first = makeTempPath("persist");
+    const second = makeTempPath("persist");
+    expect(path.dirname(first)).not.toBe(path.dirname(second));
+
+    try {
+      const stray = {
+        timestamp: "2026-05-08T10:00:00.000Z",
+        serverName: "srv",
+        kind: "disconnect",
+        cause: "stdin_close",
+      };
+      // Built with the module's OWN naming, so this cannot pass by mis-naming
+      // the file into something the loader would never look for.
+      fs.writeFileSync(segmentPathFor(first, "2026-05"), `${JSON.stringify(stray)}\n`, "utf-8");
+
+      // Denominator (mem#1079): assert the stray IS discoverable from the first
+      // fixture's directory. Without this, "the second saw one event" is equally
+      // consistent with a segment the loader never had any way to find, and the
+      // test would pass whether or not the isolation holds.
+      expect(listSegmentPaths(first)).toHaveLength(1);
+      expect(listSegmentPaths(second)).toHaveLength(0);
+
+      fs.writeFileSync(
+        second,
+        `${JSON.stringify({ ...stray, timestamp: "2026-05-09T10:00:00.000Z" })}\n`,
+        "utf-8"
+      );
+      const t = DisconnectTracker.resetForTest("srv", second);
+      expect(t.getEvents().length).toBe(1);
+    } finally {
+      removeTempDirOf(first);
+      removeTempDirOf(second);
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -1050,7 +1121,7 @@ describe("DisconnectTracker persist-race", () => {
   });
 
   afterEach(() => {
-    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    removeTempDirOf(tmpPath);
   });
 
   test("event is durably on disk after immediate process.exit", async () => {
