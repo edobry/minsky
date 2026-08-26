@@ -77,13 +77,13 @@ export interface DisconnectSweepFsDeps {
   writeFileSync: (p: string, content: string) => void;
   mkdirSync: (p: string, options?: { recursive?: boolean }) => void;
   /**
-   * Exclusive-create + unlink, for the sweep lock (mt#4617). Same `wx`
-   * (`O_CREAT|O_EXCL`) primitive `disconnect-log-segments.ts` already uses to
-   * RESERVE a segment name rather than check-then-take — the check-then-take
-   * shape is exactly what this lock exists to avoid.
+   * Sweep-lock primitives (mt#4617). `linkSync` is what PUBLISHES the lock: it
+   * fails when the destination exists, giving the same exclusivity as the `wx`
+   * (`O_CREAT|O_EXCL`) open `disconnect-log-segments.ts` uses to reserve a
+   * segment name — but atomically WITH the payload, so a peer can never observe
+   * the lock name without its contents (PR #3396 R1).
    */
-  openSync: (p: string, flags: string) => number;
-  closeSync: (fd: number) => void;
+  linkSync: (existing: string, target: string) => void;
   unlinkSync: (p: string) => void;
 }
 
@@ -94,7 +94,30 @@ export interface DisconnectSweepFsDeps {
 export interface DisconnectSweepProcDeps {
   pid: number;
   isAlive: (pid: number) => boolean;
+  /** Injected so the pid-reuse backstop below is testable without waiting. */
+  now: () => number;
 }
+
+/**
+ * Age past which a lock is reclaimed even though its recorded pid looks alive
+ * (PR #3396 R1). This is a BACKSTOP against pid reuse only — pid-liveness stays
+ * the primary mechanism — so it is deliberately far above any legitimate hold
+ * rather than tuned to one.
+ *
+ * Sizing, per `decision-defaults.mdc §Thresholds` (CEILING case: bound the
+ * permitted extreme, not the typical). A lock is held only for the duration of
+ * one sweep, and a sweep's work is bounded by its backlog: the largest ever
+ * recorded was 865 events (mt#4131), which is seconds of inserts. Against that,
+ * one hour is ~two orders of magnitude of headroom. It is also well inside
+ * mt#4487's measured daemon lifetimes (4–8 minutes active, 10–44 hours quiet),
+ * so in the active regime the holder is long gone before this ever fires — the
+ * pid check will have reclaimed it first, which is the intent.
+ *
+ * Without this, one wedge is silent and permanent: a holder dies mid-sweep, its
+ * pid is later reused by an unrelated live process, `isAlive` says true forever,
+ * and the bridge stops with nothing reporting it.
+ */
+export const SWEEP_LOCK_MAX_AGE_MS = 60 * 60 * 1000;
 
 /**
  * `process.kill` is called as a METHOD via this cast, not destructured — the
@@ -114,6 +137,7 @@ const proc = process as typeof process & { kill: (pid: number, signal: number) =
  */
 export const defaultProcDeps: DisconnectSweepProcDeps = {
   pid: process.pid,
+  now: () => Date.now(),
   isAlive: (pid: number) => {
     if (!Number.isInteger(pid) || pid <= 0) return false;
     try {
@@ -144,8 +168,7 @@ export const defaultFsDeps: DisconnectSweepFsDeps = {
     const recursive = options?.recursive ?? true;
     fs.mkdirSync(p, { ...options, recursive });
   },
-  openSync: (p, flags) => fs.openSync(p, flags),
-  closeSync: (fd) => fs.closeSync(fd),
+  linkSync: (existing, target) => fs.linkSync(existing, target),
   unlinkSync: (p) => fs.unlinkSync(p),
 };
 
@@ -237,37 +260,74 @@ export function acquireSweepLock(
     }
   };
 
+  // CONTENT FIRST, NAME SECOND (PR #3396 R1). The obvious shape — `openSync`
+  // with `wx`, then `writeFileSync` the pid — publishes an EMPTY file and fills
+  // it a moment later. In that window a peer sees a lock it cannot parse, reads
+  // "names no holder", and reclaims a lock that is very much held. Writing the
+  // payload to a private temp name and then `linkSync`-ing it into place closes
+  // the window: `link` fails when the destination exists, so the lock name never
+  // exists without its contents.
   const take = (): boolean => {
-    let fd: number | undefined;
+    const tmpPath = `${lockPath}.${procDeps.pid}.tmp`;
     try {
-      fd = fsDeps.openSync(lockPath, "wx");
+      fsDeps.writeFileSync(
+        tmpPath,
+        JSON.stringify({ pid: procDeps.pid, writtenAtMs: procDeps.now() })
+      );
+    } catch (err) {
+      // intentional-swallow: cannot stage the lock payload -> do not sweep.
+      void err;
+      return false;
+    }
+    try {
+      fsDeps.linkSync(tmpPath, lockPath);
+      return true;
     } catch (err) {
       // intentional-swallow: EEXIST is the expected "someone else holds it"
-      // answer, and any other open failure is handled the same way — do not
-      // sweep. Distinguishing them would not change what we do.
+      // answer, and any other link failure is handled the same way.
       void err;
       return false;
     } finally {
-      if (fd !== undefined) fsDeps.closeSync(fd);
+      try {
+        fsDeps.unlinkSync(tmpPath);
+      } catch (err) {
+        // intentional-swallow: the temp name is ours alone; a failure to clean
+        // it up must not fail a best-effort boot sweep.
+        void err;
+      }
     }
-    fsDeps.writeFileSync(lockPath, JSON.stringify({ pid: procDeps.pid }));
-    return true;
   };
 
   if (take()) return release;
 
-  let holderPid: number | undefined;
+  let holder: { pid?: number; writtenAtMs?: number } = {};
   try {
-    holderPid = (JSON.parse(fsDeps.readFileSync(lockPath)) as { pid?: number }).pid;
+    holder = JSON.parse(fsDeps.readFileSync(lockPath)) as typeof holder;
   } catch (err) {
-    // intentional-swallow: an unreadable or half-written lock names no holder.
-    // Falling through to reclaim is deliberate — the alternative wedges the
-    // bridge permanently on one corrupt byte.
+    // intentional-swallow: with the link idiom above, the lock name cannot
+    // exist empty, so an unparseable body means genuine corruption rather than
+    // a peer mid-publish. Reclaiming is then the right call — the alternative
+    // wedges the bridge permanently on one corrupt byte.
     void err;
-    holderPid = undefined;
   }
 
-  if (typeof holderPid === "number" && procDeps.isAlive(holderPid)) return null;
+  const holderPid = holder.pid;
+  // A lock carrying no `writtenAtMs` is UNKNOWN-age, not infinitely old. Scoring
+  // it as ancient would let the backstop overrule a live pid, inverting the
+  // design — pid-liveness is the primary mechanism and the age check exists
+  // only to catch pid REUSE. Unknown age therefore defers to the pid entirely,
+  // and cannot wedge: every lock this code writes carries a timestamp, so the
+  // unknown case does not survive a single reclaim cycle.
+  const heldForMs =
+    typeof holder.writtenAtMs === "number" ? procDeps.now() - holder.writtenAtMs : 0;
+
+  if (
+    typeof holderPid === "number" &&
+    procDeps.isAlive(holderPid) &&
+    heldForMs < SWEEP_LOCK_MAX_AGE_MS
+  ) {
+    return null;
+  }
 
   try {
     fsDeps.unlinkSync(lockPath);
