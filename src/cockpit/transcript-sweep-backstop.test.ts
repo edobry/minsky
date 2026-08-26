@@ -31,8 +31,8 @@ import type { TranscriptSweepDeps } from "./transcript-sweep-backstop";
 import {
   createMemoryJournalStore,
   emptyJournal,
-  foldPhase2Started,
   foldTickStarted,
+  INGEST_SWEEP_LABEL,
   summarizeJournal,
   TranscriptSweepJournalRecorder,
   type SweepJournalStore,
@@ -113,13 +113,15 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       await waitFor(() => tracker.getSummary().sweepsRun >= 1);
 
       expect(ingestCalls).toHaveLength(1);
-      expect(embedCalls).toHaveLength(1);
+      // mt#4601: this sweep no longer embeds. The backfill's own tests live in
+      // `transcript-backfill-sweep.test.ts`.
+      expect(embedCalls).toHaveLength(0);
 
       const summary = tracker.getSummary();
       expect(summary.sweepsRun).toBe(1);
       expect(summary.sessionsIngested).toBe(5);
       expect(summary.sessionsErrored).toBe(0);
-      expect(summary.embedRuns).toBe(1);
+      expect(summary.embedRuns).toBe(0);
       expect(summary.lastSweepAt).not.toBeNull();
       expect(summary.lastErrorAt).toBeNull();
     } finally {
@@ -127,74 +129,12 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     }
   });
 
-  // mt#4524 — the PRODUCTION-WIRING assertion, and the one that actually covers
-  // the reported defect. The tracker unit tests below prove the tracker CAN
-  // report in-flight; only this one proves the sweep tick actually marks it,
-  // because it samples the health summary from INSIDE the awaited backfill —
-  // the exact window in which the live daemon reported a standing failure.
-  test("the health summary reads in-flight DURING the backfill, not never-succeeded", async () => {
-    let duringBackfill: ReturnType<TranscriptSweepTracker["getSummary"]> | null = null;
-
-    const deps: TranscriptSweepDeps = {
-      runIngest: async () => ({ sessionsProcessed: 1494, sessionsErrored: 0 }),
-      runEmbeddings: async () => {
-        // Phase 1 has completed by now (`recordSweepCompleted` already fired),
-        // which is precisely the state that made the old derivation misreport.
-        duringBackfill = tracker.getSummary();
-      },
-      tracker,
-    };
-
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
-
-    try {
-      await waitFor(() => tracker.getSummary().sweepsRun >= 1);
-
-      expect(duringBackfill).not.toBeNull();
-      const during = duringBackfill as unknown as ReturnType<TranscriptSweepTracker["getSummary"]>;
-      // Phase 1 done, Phase 2 running.
-      expect(during.sweepsRun).toBe(1);
-      expect(during.embedRuns).toBe(0);
-      expect(during.lastErrorAt).toBeNull();
-      // The defect, now correct on all three of its faces.
-      expect(during.embedPhase).toBe("in-flight");
-      expect(during.embedInFlightAgeMs).not.toBeNull();
-      expect(during.embedNeverSucceeded).toBe(false);
-
-      // And it concludes cleanly once the await returns.
-      const after = tracker.getSummary();
-      expect(after.embedPhase).toBe("succeeded");
-      expect(after.embedInFlightAgeMs).toBeNull();
-    } finally {
-      stop();
-    }
-  });
-
-  test("a failed backfill concludes as failed, and sets embedNeverSucceeded (mt#4524)", async () => {
-    const deps: TranscriptSweepDeps = {
-      runIngest: async () => ({ sessionsProcessed: 3, sessionsErrored: 0 }),
-      runEmbeddings: async () => {
-        throw new Error("embedding provider unreachable");
-      },
-      tracker,
-    };
-
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
-
-    try {
-      await waitFor(() => tracker.getSummary().embedFailures >= 1);
-
-      const s = tracker.getSummary();
-      expect(s.embedPhase).toBe("failed");
-      expect(s.embedInFlightAgeMs).toBeNull();
-      expect(s.embedRuns).toBe(0);
-      expect(s.embedNeverSucceeded).toBe(true);
-      // The sweep-level error timestamp is still set by the same catch block.
-      expect(s.lastErrorAt).not.toBeNull();
-    } finally {
-      stop();
-    }
-  });
+  // mt#4524's two backfill assertions — the in-flight reporting and the failure
+  // conclusion — MOVED to `transcript-backfill-sweep.test.ts` with mt#4601, along
+  // with the behaviour they cover. They are not deleted: the same properties are
+  // asserted against the sweep that now owns the backfill, plus two the split
+  // creates (it runs with no ingest involved; its failure no longer stamps this
+  // sweep's `lastErrorAt`).
 
   test("ingest is called on each tick (idempotency delegated to ingestAll)", async () => {
     // Assert: ingest runner is called at least twice when the interval fires.
@@ -338,8 +278,8 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       expect(summary.sessionsErrored).toBe(3);
       // lastErrorAt is set when sessionsErrored > 0.
       expect(summary.lastErrorAt).not.toBeNull();
-      // Embedding still ran.
-      expect(summary.embedRuns).toBe(1);
+      // mt#4601: embedding is a separate sweep now, so this tick does not run it.
+      expect(summary.embedRuns).toBe(0);
     } finally {
       stop();
     }
@@ -805,10 +745,10 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
     stop: () => void;
   } {
     const store = createMemoryJournalStore();
-    const stop = startTranscriptSweepBackstop(new TranscriptSweepJournalRecorder(store), {
-      intervalMs: 60_000,
-      deps,
-    });
+    const stop = startTranscriptSweepBackstop(
+      new TranscriptSweepJournalRecorder(store, INGEST_SWEEP_LABEL),
+      { intervalMs: 60_000, deps }
+    );
     return { store, stop };
   }
 
@@ -825,17 +765,18 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
 
       const j = store.read();
       expect(j.inFlight).toBeNull();
-      expect(j.totals).toMatchObject({ started: 1, completed: 1, reachedPhase2: 1 });
-      expect(j.recent[0]).toMatchObject({ outcome: "completed", reachedPhase2: true });
+      expect(j.totals).toMatchObject({ started: 1, completed: 1 });
+      expect(j.recent[0]).toMatchObject({ outcome: "completed" });
     } finally {
       stop();
     }
   });
 
-  test("an aborted ingest is recorded as aborted and never reaches Phase 2", async () => {
-    // The mt#4480 abort path returns BEFORE Phase 2 — it needs the same dead
-    // connection. So `reachedPhase2` must stay 0 here, and that zero beside a
-    // non-zero `started` is precisely the starvation signal.
+  test("an aborted ingest is recorded as aborted", async () => {
+    // The mt#4480 abort path returns early. Since mt#4601 that no longer skips a
+    // backfill — the backfill has its own sweep — but the ingest tick's own
+    // outcome must still be `aborted` rather than `completed`, which is what
+    // keeps a zero-ingest pass from reading as work done.
     const deps: TranscriptSweepDeps = {
       runIngest: async () => ({
         sessionsProcessed: 12,
@@ -856,33 +797,37 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
       await waitFor(() => store.read().totals.aborted >= 1);
 
       const j = store.read();
-      expect(j.totals).toMatchObject({ started: 1, aborted: 1, reachedPhase2: 0 });
-      expect(j.recent[0]).toMatchObject({ outcome: "aborted", reachedPhase2: false });
-      expect(summarizeJournal(j).phase2ReachRate).toBe(0);
+      expect(j.totals).toMatchObject({ started: 1, aborted: 1, completed: 0 });
+      expect(j.recent[0]).toMatchObject({ outcome: "aborted" });
+      expect(summarizeJournal(j).completionRate).toBe(0);
     } finally {
       stop();
     }
   });
 
-  test("a failing backfill still counts as having reached Phase 2", async () => {
-    // `embed-failed` and `aborted` both leave the backfill undone, and the
-    // journal must not conflate them: one got there and broke, the other never
-    // arrived. Only the second is starvation.
+  test("the ingest sweep no longer runs the embedding backfill at all (mt#4601)", async () => {
+    // The split, asserted directly. Before mt#4601 a throwing `runEmbeddings`
+    // produced an `embed-failed` tick here; now this sweep never calls it, so a
+    // deliberately-exploding backfill cannot affect the ingest tick's outcome.
+    let embedCalls = 0;
     const deps: TranscriptSweepDeps = {
       runIngest: async () => ({ sessionsProcessed: 1, sessionsErrored: 0, totalIngested: 1 }),
       runEmbeddings: async () => {
-        throw new Error("no embedding provider configured");
+        embedCalls++;
+        throw new Error("this sweep must not call me");
       },
       tracker,
     };
     const { store, stop } = startWithJournal(deps);
 
     try {
-      await waitFor(() => store.read().totals.embedFailed >= 1);
+      await waitFor(() => store.read().totals.completed >= 1);
 
-      const j = store.read();
-      expect(j.totals).toMatchObject({ started: 1, embedFailed: 1, reachedPhase2: 1 });
-      expect(j.recent[0]).toMatchObject({ outcome: "embed-failed", reachedPhase2: true });
+      expect(embedCalls).toBe(0);
+      expect(store.read().recent[0]).toMatchObject({ outcome: "completed" });
+      // The tracker's embed counters stay untouched by THIS sweep.
+      expect(tracker.getSummary().embedRuns).toBe(0);
+      expect(tracker.getSummary().embedFailures).toBe(0);
     } finally {
       stop();
     }
@@ -902,7 +847,7 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
       await waitFor(() => store.read().totals.failed >= 1);
 
       const j = store.read();
-      expect(j.totals).toMatchObject({ started: 1, failed: 1, reachedPhase2: 0 });
+      expect(j.totals).toMatchObject({ started: 1, failed: 1, completed: 0 });
       expect(j.inFlight).toBeNull();
     } finally {
       stop();
@@ -911,13 +856,11 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
 
   test("a tick left in flight by a dead process is folded as interrupted at boot", async () => {
     // The restart case, end to end: a journal left carrying an in-flight tick
-    // mid-Phase-2 from a process that is gone, then a fresh sweep boots and
-    // reconciles it. 4_194_303 is one past Linux's default pid_max and is the
-    // same never-assigned pid `port-recovery.test.ts` uses to exercise
+    // from a process that is gone, then a fresh sweep boots and reconciles it.
+    // 4_194_303 is one past Linux's default pid_max and is the same
+    // never-assigned pid `port-recovery.test.ts` uses to exercise
     // `isProcessAlive`'s false branch.
-    const orphaned = foldPhase2Started(
-      foldTickStarted(emptyJournal(), "2026-08-25T20:33:05.000Z", 4_194_303)
-    );
+    const orphaned = foldTickStarted(emptyJournal(), "2026-08-25T20:33:05.000Z", 4_194_303);
     const store = createMemoryJournalStore(orphaned);
     const deps: TranscriptSweepDeps = {
       runIngest: async () => ({ sessionsProcessed: 0, sessionsErrored: 0, totalIngested: 0 }),
@@ -925,10 +868,10 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(new TranscriptSweepJournalRecorder(store), {
-      intervalMs: 60_000,
-      deps,
-    });
+    const stop = startTranscriptSweepBackstop(
+      new TranscriptSweepJournalRecorder(store, INGEST_SWEEP_LABEL),
+      { intervalMs: 60_000, deps }
+    );
 
     try {
       await waitFor(() => store.read().totals.interrupted >= 1);
