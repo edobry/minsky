@@ -28,6 +28,7 @@ import path from "node:path";
 import { log } from "@minsky/shared/logger";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import { getDisconnectLogPath } from "./disconnect-tracker";
+import { listCorpusPaths, monthOf } from "./disconnect-log-segments";
 
 interface HwmState {
   lastSweptTimestamp: string;
@@ -46,6 +47,13 @@ interface DisconnectLogLine {
 export interface DisconnectSweepFsDeps {
   existsSync: (p: string) => boolean;
   readFileSync: (p: string) => string;
+  /**
+   * Enumerate the state dir, so the sweep can see ROLLED segments (mt#4495).
+   * Without this the sweep reads only the active file, and any event that was
+   * rolled before it was swept is never bridged to `system_events` — a silent
+   * data-loss path, since the HWM would then advance past it forever.
+   */
+  readdirSync: (p: string) => string[];
   writeFileSync: (p: string, content: string) => void;
   mkdirSync: (p: string, options?: { recursive?: boolean }) => void;
 }
@@ -60,6 +68,7 @@ export const defaultLogDeps: DisconnectSweepLogDeps = { warn: log.warn };
 export const defaultFsDeps: DisconnectSweepFsDeps = {
   existsSync: (p) => fs.existsSync(p),
   readFileSync: (p) => fs.readFileSync(p, { encoding: "utf-8" }) as string,
+  readdirSync: (p) => fs.readdirSync(p),
   writeFileSync: (p, content) => fs.writeFileSync(p, content, { encoding: "utf-8" }),
   mkdirSync: (p, options) => {
     const recursive = options?.recursive ?? true;
@@ -179,11 +188,19 @@ export async function triggerMcpDisconnectEventSweep(
     if (!db) return;
 
     const logPath = getDisconnectLogPath();
-    if (!fsDeps.existsSync(logPath)) return;
-
-    const raw = fsDeps.readFileSync(logPath);
     const hwm = readHwm(fsDeps);
-    const newEvents = parseNewDisconnectEvents(raw, hwm);
+
+    // Read the whole corpus, not just the active file (mt#4495). A roll renames
+    // the active file to a monthly segment; anything in it that had not been
+    // swept yet would otherwise be stranded, because the HWM advances past it
+    // and never comes back. Bounding the scan by the HWM's own month keeps this
+    // O(recent) rather than O(history) in steady state.
+    const corpus = listCorpusPaths(logPath, fsDeps, hwm ? monthOf(hwm) : undefined);
+    if (corpus.length === 0) return;
+
+    const newEvents = corpus
+      .flatMap((segment) => parseNewDisconnectEvents(fsDeps.readFileSync(segment), hwm))
+      .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
     if (newEvents.length === 0) return;
 
     const { DrizzleEventEmitter } = await import("@minsky/domain/events/emitter");

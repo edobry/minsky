@@ -32,7 +32,8 @@
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { isEscalationEligible } from "../../mcp/disconnect-escalation";
-import { promises as fsPromises, existsSync } from "fs";
+import { promises as fsPromises, existsSync, readdirSync } from "fs";
+import { listCorpusPaths, monthOf } from "../../mcp/disconnect-log-segments";
 import * as path from "path";
 import * as os from "os";
 import { getSharedPersistenceService } from "../shared-persistence";
@@ -116,7 +117,18 @@ export { isEscalationEligible };
  * many trailing lines regardless of total file size — bounding CPU work per
  * poll independent of how large the on-disk log has grown.
  */
-const MAX_LOG_LINES_SCANNED = 2000;
+/**
+ * Hard ceiling on the BACKWARD scan (mt#4495, reviewer R1 non-blocking).
+ *
+ * The normal stop is the 24h cutoff, which at this log's measured rates is
+ * reached after ~120 records on a median day and ~1,500 on the busiest day ever
+ * recorded. This ceiling exists only so a pathological corpus cannot be walked
+ * end to end; it is deliberately far above any real 24h window, because a cap
+ * that binds in practice is exactly the undercount this replaced —
+ * the previous fixed cap of 2,000 silently reported 2,000 for a window holding
+ * 2,500.
+ */
+const MAX_BACKWARD_SCAN_LINES = 50_000;
 
 /** Default on-disk location of the MCP disconnect JSONL log (CLAUDE.md). */
 export function defaultDisconnectLogPath(): string {
@@ -133,18 +145,26 @@ export interface DisconnectLogReaderDeps {
   exists: (path: string) => boolean;
   /** Reads the whole file as a UTF-8 string. */
   readFile: (path: string) => Promise<string>;
+  /**
+   * Enumerate the state dir, so a 24h window can span a monthly ROLL (mt#4495).
+   * On the first boot of a new month the active file holds only minutes of
+   * data; without this the gauge would silently report a near-zero count for
+   * the rest of the day.
+   */
+  readdir: (path: string) => string[];
 }
 
 const defaultDisconnectLogReaderDeps: DisconnectLogReaderDeps = {
   exists: existsSync,
   readFile: async (p) => (await fsPromises.readFile(p, { encoding: "utf-8" })) as string,
+  readdir: (p) => readdirSync(p),
 };
 
 /**
  * Read the MCP disconnect JSONL log and count escalation-eligible disconnects
  * in the last 24h. Returns null if the log is missing or unreadable — this is
  * a genuine "no data" state, not a zero. Async (non-blocking) file read, and
- * bounded to the trailing MAX_LOG_LINES_SCANNED lines so a long-lived,
+ * bounded by MAX_BACKWARD_SCAN_LINES so a long-lived,
  * ever-growing append-only log can't make this poll slow.
  *
  * @param logPathOverride Test seam — defaults to the real CLAUDE.md-documented path.
@@ -156,11 +176,41 @@ export async function readMcpDisconnectEligibleCount24h(
 ): Promise<number | null> {
   try {
     const logPath = logPathOverride ?? defaultDisconnectLogPath();
-    if (!deps.exists(logPath)) return null;
-    const raw = await deps.readFile(logPath);
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+
+    // Read across a monthly roll (mt#4495). Bounding by the cutoff's own month
+    // keeps this to at most two files: the active one, plus the segment it was
+    // rolled into when the 24h window straddles a month boundary.
+    const corpus = listCorpusPaths(
+      logPath,
+      { existsSync: deps.exists, readdirSync: deps.readdir },
+      monthOf(new Date(cutoff).toISOString())
+    );
+    if (corpus.length === 0) return null;
+
+    const raw = (await Promise.all(corpus.map((segment) => deps.readFile(segment)))).join("\n");
     const allLines = raw.split(/\r?\n/);
-    const lines = allLines.slice(-MAX_LOG_LINES_SCANNED);
+    // Scan BACKWARD until the cutoff is passed, rather than taking a fixed
+    // slice of the tail (reviewer R1 non-blocking). A fixed cap silently
+    // undercounts whenever a 24h window holds more than the cap — and
+    // concatenating segments made that likelier, since the corpus is now
+    // longer than the active file was. MAX_LOG_LINES_SCANNED stays as the
+    // upper bound is MAX_BACKWARD_SCAN_LINES, far above any real 24h window.
+    const lines: string[] = [];
+    for (let i = allLines.length - 1; i >= 0 && lines.length < MAX_BACKWARD_SCAN_LINES; i--) {
+      const line = allLines[i];
+      if (line === undefined) continue;
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("[") || trimmed.startsWith("]")) continue;
+      lines.push(line);
+    }
+    // Deliberately NO early break on the first out-of-window record. An earlier
+    // draft broke there on the theory that the log is append-ordered — it is
+    // not reliably: the stdio proxy writes from a SEPARATE process than the
+    // daemon, so a slightly-out-of-order pair is expected, and a break would
+    // silently drop everything behind it. Caught by a pre-existing test in this
+    // file going red, not by reasoning. The ceiling above is what bounds the
+    // work; the per-record cutoff filter below is what selects the window.
     let count = 0;
     for (const line of lines) {
       const trimmed = line.trim();

@@ -40,6 +40,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { listCorpusPaths } from "../src/mcp/disconnect-log-segments";
 import { SERVER_INITIATED_CAUSES } from "../src/mcp/disconnect-escalation";
 
 /** Mirrors `ESCALATION_THRESHOLD_24H` in `src/mcp/disconnect-tracker.ts`. */
@@ -69,7 +70,14 @@ function eligibleUnder(excluded: ReadonlySet<string>, e: LoggedEvent): boolean {
  * reason a naive `jq` over this file fails (mt#4481).
  */
 function readEvents(logPath: string): LoggedEvent[] {
-  const raw = fs.readFileSync(logPath, "utf-8") as string;
+  // Census across every monthly segment, not just the active file (mt#4495).
+  // This script measures per-DAY across the whole history, so reading only the
+  // active file would silently narrow the window to the current month — the
+  // exact "reads only the active segment when the operator meant the whole
+  // history" failure mt#4495's AT3 calls a FAILURE rather than a pass.
+  const raw = listCorpusPaths(logPath)
+    .map((segment) => fs.readFileSync(segment, "utf-8") as string)
+    .join("\n");
   const events: LoggedEvent[] = [];
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
@@ -107,7 +115,7 @@ function main(): number {
       : path.join(os.homedir(), ".local/state/minsky/mcp-disconnect-log.json");
   const addedCause = addFlag >= 0 && argv[addFlag + 1] ? String(argv[addFlag + 1]) : "signal";
 
-  if (!fs.existsSync(logPath)) {
+  if (listCorpusPaths(logPath).length === 0) {
     console.log(`SKIP: no disconnect log at ${logPath} — nothing to measure.`);
     return 0;
   }

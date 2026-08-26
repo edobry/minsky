@@ -13,7 +13,7 @@ The Minsky MCP server tracks disconnect, reconnect, and process-lifecycle
 events for both the local stdio server and the hosted HTTP server. Operators
 read the cadence via `mcp__minsky__debug_systemInfo` (under `mcpDisconnects`)
 and the persisted JSONL log at
-`~/.local/state/minsky/mcp-disconnect-log.json`.
+`~/.local/state/minsky/mcp-disconnect-log*.json`.
 
 > **Terminology (mt#2525).** Throughout this rule, **"session"** and
 > **"disconnect"** mean an **MCP transport connection** — a single MCP server
@@ -289,6 +289,46 @@ bun scripts/normalize-disconnect-log.ts --execute    # backup, convert, verify
 
 It is a no-op on an already-uniform file, so it is safe to run blind.
 
+## The log is segmented by month, and the recipes glob (mt#4495)
+
+The corpus is no longer one file. The ACTIVE file keeps its exact name and path;
+completed months sit beside it:
+
+```
+mcp-disconnect-log.json           <- active, still the path every writer appends to
+mcp-disconnect-log-2026-07.json   <- one segment per calendar month, never deleted
+mcp-disconnect-log-2026-08.json
+```
+
+**Every census recipe below therefore globs — `mcp-disconnect-log*.json`.** Three
+properties make that a one-character change rather than a rewrite, and each was
+verified rather than assumed:
+
+- The recipes already use `grep -h`, which suppresses filename prefixes. That
+  flag was there for readability and turns out to be exactly what multi-file
+  needs.
+- **Shell expansion is already chronological, with the active file LAST.** `-`
+  (0x2D) sorts before `.` (0x2E), so `…log-2026-05.json` … `…log-2026-12.json`
+  precede `…log.json`. Nothing needs sorting.
+- The glob requires a `.json` suffix, so it excludes the normalizer's backups
+  (`…log.json.backup-<iso>`) and the sweep's `mcp-disconnect-sweep-hwm.json`.
+  Both would otherwise corrupt a census — the backup by double-counting.
+
+**A recipe that reads only `mcp-disconnect-log.json` now answers a question about
+the CURRENT MONTH, not about history.** That is the failure mode worth naming: it
+returns a clean, plausible number with no error, and the narrowing is invisible
+unless you knew to look. On the first day of a month it can approach zero. If you
+mean history, glob.
+
+The seam-detection and in-place repair commands above deliberately do NOT glob:
+`perl -0pi` rewrites one file, and `grep -c` over a glob prints per-file counts
+instead of one number. Run them per-segment if a hybrid ever turns up in one.
+
+**Retention: nothing is deleted, ever.** The decision and its measurement are in
+mt#4495. The short version is that the `system_events` projection of this log is
+not a substitute for it — 48% of the records, missing the first 57 days, and
+`kind` absent from every row (mt#4617) — so a deleted segment is unrecoverable.
+
 **Check uniformity with a line-by-line parse, never `jq -s`.** Slurp SUCCEEDS
 on a hybrid — that is how mt#4481 confirmed record counts across the repair —
 so it reports a clean pass on precisely the state you are trying to detect. A
@@ -296,7 +336,7 @@ probe that cannot fail is not verification:
 
 ```bash
 # Non-parsing lines. 0 = uniform. A pretty-printed array head shows ~392.
-awk 'NF' ~/.local/state/minsky/mcp-disconnect-log.json \
+awk 'NF' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | while IFS= read -r l; do printf '%s' "$l" | jq -e . >/dev/null 2>&1 || echo BAD; done | wc -l
 ```
 
@@ -304,39 +344,39 @@ Quick consumer commands:
 
 ```bash
 # Cause distribution today
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.cause' | sort | uniq -c
 
 # Role distribution today (mt#1705)
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.processRole // "legacy"' | sort | uniq -c
 
 # Eligible-only count (main_session long-lived harness closures)
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq 'select(.uptimeMs >= 5000 and .cause == "stdin_close" and .processRole == "main_session")'
 
 # Process count today
-grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
+grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log*.json
 
 # Most recent restarts (timestamp + pid) — the "why did the daemon go down?" query.
 # Correlate the newest pid against `minsky mcp status` to confirm it is the live one.
 # NOTE: this is the recipe the seam breaks. If it exits 5 with `Unmatched ']'`,
 # the file has a seam — see "The legacy seam" above; do NOT read it as silence.
-grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '"\(.timestamp) pid=\(.pid)"' | tail -5
 
 # Restarts per day — the input to a cadence question (mt#4487). Report the
 # per-day counts, never a pooled average: this cadence is strongly bimodal
 # (quiet periods vs active src/ merging) and a mean describes neither regime.
-grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.timestamp[0:10]' | sort | uniq -c
 
 # Proxy-observed exits with full diagnostics (mt#2830) — SIGKILL/crash cases
-grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq '{timestamp, cause, exitCode, signal, stderrTail, lastTransportEvent}'
 
 # Unknown-cause share (the mt#2830 gap-analysis metric)
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.cause' | sort | uniq -c | awk '$2=="unknown"{u=$1} {t+=$1} END{printf "%d/%d (%.1f%%)\n", u+0, t, 100*(u+0)/t}'
 ```
 
