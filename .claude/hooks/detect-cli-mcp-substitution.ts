@@ -75,10 +75,17 @@ const COMMAND_TOOL_NAMES = new Set(["Bash", "mcp__minsky__session_exec"]);
 /** Any successful call to one of these means the MCP surface is live — nothing to report. */
 const MCP_TOOL_NAME_PATTERN = /^mcp__minsky__/;
 
-interface ManifestNode {
+/**
+ * A node in the generated completion manifest. `options` is read by
+ * {@link optionTakesValue} so argv can be parsed without a hand-maintained flag
+ * table — the manifest is generated from the shared command registry, so its
+ * `takesValue` cannot drift from the CLI the way a local list would (mt#4380).
+ */
+export interface ManifestNode {
   name: string;
   subcommands?: ManifestNode[];
   commandId?: string;
+  options?: Array<{ flags?: string[]; takesValue?: boolean | null }>;
 }
 
 export interface CliSubstitutionScanResult {
@@ -141,10 +148,30 @@ export function minskyArgvOf(segment: string): string[] | null {
  * (`minsky --json tasks get`).
  */
 export function resolveCommandId(root: ManifestNode, argv: string[]): string | null {
+  return resolveCommandNode(root, argv).node.commandId ?? null;
+}
+
+/**
+ * The same walk as {@link resolveCommandId}, returning the deepest node reached AND the argv tail
+ * that follows the last matched SUBCOMMAND — so a caller can go on to read the leaf's own
+ * arguments and flags (mt#4380).
+ *
+ * `rest` is sliced at the last subcommand, NOT at the point the walk stops, and the difference is
+ * load-bearing. The walk consumes a token that follows an unrecognised flag, treating it as that
+ * flag's value; for `minsky tasks spec get --json mt#4380` it therefore swallows `mt#4380`, because
+ * at THAT level nothing knows `--json` is boolean. Slicing at the last subcommand hands the caller
+ * `["--json", "mt#4380"]` and lets it re-parse against the LEAF's own option table, which does know.
+ * A caller that used the stopping point would silently see no task id on every flagged invocation.
+ */
+export function resolveCommandNode(
+  root: ManifestNode,
+  argv: string[]
+): { node: ManifestNode; rest: string[] } {
   let node: ManifestNode = root;
   let afterFlag = false;
+  let lastSubcommandIndex = -1;
 
-  for (const token of argv) {
+  for (const [index, token] of argv.entries()) {
     if (token.startsWith("-")) {
       // `--key=value` carries its own value; bare `--` ends option parsing. Neither can consume a
       // following token. Anything else MIGHT take a separated value (`--cwd /tmp`).
@@ -158,6 +185,7 @@ export function resolveCommandId(root: ManifestNode, argv: string[]): string | n
       // BOOLEAN flags working (`minsky --json tasks get`). Skipping unconditionally after any flag
       // would swallow `tasks` here, trading one false-negative shape for another.
       node = next;
+      lastSubcommandIndex = index;
       afterFlag = false;
       continue;
     }
@@ -171,7 +199,47 @@ export function resolveCommandId(root: ManifestNode, argv: string[]): string | n
 
     break; // a non-flag, non-subcommand token: the leaf's own arguments start here.
   }
-  return node.commandId ?? null;
+  return { node, rest: argv.slice(lastSubcommandIndex + 1) };
+}
+
+/**
+ * True iff `token` names an option on `node` that takes a SEPARATED value (`--spec-file <path>`).
+ *
+ * An option the manifest does not list defaults to TRUE — assume it consumes the next token. That
+ * direction is deliberate for a guard reading argv for evidence: over-consuming can only cause a
+ * positional to be MISSED (the evidence is not found, and the guard behaves exactly as it does
+ * today), while under-consuming would let a flag's VALUE be read as the task id — inventing an
+ * engagement with a task nobody named. A miss is recoverable; a fabricated id is not.
+ */
+export function optionTakesValue(node: ManifestNode, token: string): boolean {
+  const name = token.split("=")[0] ?? token;
+  for (const option of node.options ?? []) {
+    if (option.flags?.includes(name)) return option.takesValue === true;
+  }
+  return true;
+}
+
+/**
+ * The leaf's first positional argument in `rest`, skipping options and any separated values they
+ * take, or undefined when the invocation carries none. A bare `--` ends option parsing, so the
+ * token after it is positional whatever it looks like.
+ */
+export function firstPositional(node: ManifestNode, rest: string[]): string | undefined {
+  for (let i = 0; i < rest.length; i++) {
+    const token = rest[i] as string;
+    if (token === "--") return rest[i + 1];
+    if (token.startsWith("-")) {
+      if (!token.includes("=") && optionTakesValue(node, token)) i++;
+      continue;
+    }
+    return token;
+  }
+  return undefined;
+}
+
+/** True iff any of `names` appears in `rest`, in either the bare or the `--flag=value` spelling. */
+export function hasAnyFlag(rest: string[], names: readonly string[]): boolean {
+  return rest.some((token) => names.some((n) => token === n || token.startsWith(`${n}=`)));
 }
 
 /** Repo-root-relative path to the generated oracle, resolved from this file's location. */

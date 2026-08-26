@@ -128,13 +128,45 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
         },
       ];
       writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+      // mt#4380: the same transcript PLUS a CLI spec read, as the control. Without it this canary
+      // is satisfied by a guard that denies unconditionally — including one whose CLI channel has
+      // silently stopped crediting anything (mem#1237: a check that cannot distinguish the broken
+      // state from the healthy one is not evidence of coverage).
+      const cliTranscriptPath = join(dir, "transcript-cli.jsonl");
+      writeFileSync(
+        cliTranscriptPath,
+        [
+          ...lines,
+          {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  name: "Bash",
+                  input: { command: "minsky tasks spec get mt#9999" },
+                },
+              ],
+            },
+          },
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n")
+      );
       try {
         const targetId = resolveTargetTaskId("mcp__minsky__session_start", {
           task: "mt#9999",
         });
         if (!targetId) return false;
         const surfaced = specWasSurfacedInAnyTranscript(transcriptPath, undefined, targetId);
-        return !surfaced; // NOT surfaced -> the real guard would deny
+        const surfacedViaCli = specWasSurfacedInAnyTranscript(
+          cliTranscriptPath,
+          undefined,
+          targetId
+        );
+        // NOT surfaced -> the real guard would deny; surfaced via the CLI channel -> it would not.
+        return !surfaced && surfacedViaCli;
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
