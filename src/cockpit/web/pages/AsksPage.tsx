@@ -306,7 +306,10 @@ function optionTitle(ask: AskItem, a: InlineAction): string {
  * Markdown — GFM comparison tables, emphasis, entity refs — and this surface
  * showed all of it as literal syntax while `/ask/:id` rendered the same field
  * correctly through `<Prose>`. Option labels and descriptions get the same
- * entity-linkification the detail page gives them.
+ * entity-linkification the detail page gives them — and, since mt#4630, the
+ * same AFFORDANCES too. That sentence used to be true only of the linking:
+ * `<LinkifiedText>` emitted a bare anchor, so a ref in an option had no hover
+ * card and no peek while the identical ref in the question above it had both.
  *
  * `Prose` keeps the band's muted tone via `className`: the expansion is
  * secondary to the row header, and the fix is about Markdown structure, not
