@@ -15,11 +15,13 @@
 import { describe, test, expect } from "bun:test";
 import { buildSkipPathTiming } from "./review-timing";
 import { RECOVERY_FLAG_ENV_VARS } from "./config-fingerprint";
+import { REVIEWER_CALLTIME_ENV_VAR_NAMES } from "./config";
 
 function envAllOff(overrides: Record<string, string | undefined> = {}) {
   const base: Record<string, string | undefined> = {};
   for (const [, envVar] of RECOVERY_FLAG_ENV_VARS) base[envVar] = "false";
-  base.REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT = "true";
+  // Name sourced from the registry, not re-spelled (mt#4619).
+  base[REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_ON_TIMEOUT] = "true";
   return { ...base, ...overrides };
 }
 
