@@ -74,6 +74,14 @@ import { scrubText } from "@minsky/domain/transcripts/credential-scrubber";
 // (the predicate owns that), and `SERVER_INITIATED_CAUSES` is re-exported below
 // via `export … from`, which needs no local binding.
 import { isEscalationEligible as isSharedEscalationEligible } from "./disconnect-escalation";
+import {
+  decideRoll,
+  listCorpusPaths,
+  newestTimestampMonth,
+  readTail,
+  rollIfNeeded,
+  TAIL_READ_BYTES,
+} from "./disconnect-log-segments";
 
 /**
  * The kind of event recorded.
@@ -1124,56 +1132,34 @@ export class DisconnectTracker {
   private loadFromDisk(): void {
     if (!this.persistPath) return; // In-memory-only mode (tests)
     try {
-      if (!fs.existsSync(this.persistPath)) return;
-      const raw = fs.readFileSync(this.persistPath, { encoding: "utf-8" }) as string;
-      const trimmed = raw.trim();
-      if (!trimmed) return;
+      // Roll BEFORE reading (mt#4495). The roll is a rename, so the read below
+      // sees whichever file the active path now points at — a fresh empty one
+      // just after a month boundary, in which case the walk falls through into
+      // the segment that was just rolled.
+      this.maybeRollSegment();
 
+      // Bounded read (mt#4495 SC3). Walk the corpus NEWEST-first, taking a
+      // bounded tail of each file, and stop as soon as the ring is full. In
+      // steady state that is exactly one 256 KB read regardless of how much
+      // history exists; the older segments are touched only in the window right
+      // after a roll, when the active file cannot fill the ring by itself.
+      const corpus = listCorpusPaths(this.persistPath);
       const valid: McpDisconnectEvent[] = [];
-      let cursor = 0;
-
-      // Legacy single-array format detection (mt#1645). The original `persist`
-      // wrote `JSON.stringify(events, null, 2)` so the file started with `[`.
-      // Parse the array, then advance the cursor past it for any trailing
-      // JSONL content appended by post-mt#1682 writers.
-      if (trimmed.startsWith("[")) {
-        const arrayStart = raw.indexOf("[");
-        const arrayEnd = this.findMatchingBracket(raw, arrayStart);
-        if (arrayEnd >= 0) {
-          const arraySlice = raw.slice(arrayStart, arrayEnd + 1);
-          try {
-            const parsed: unknown = JSON.parse(arraySlice);
-            if (Array.isArray(parsed)) {
-              for (const item of parsed) {
-                if (isValidEvent(item)) valid.push(item);
-              }
-            }
-          } catch {
-            // Fall through — corrupted legacy block won't block JSONL load
-          }
-          cursor = arrayEnd + 1;
-        }
-      }
-
-      // JSONL parse: split remaining content on newlines, parse each non-blank line.
-      const remaining = raw.slice(cursor);
-      const lines = remaining.split("\n");
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) continue;
-        if (trimmedLine.startsWith("[") || trimmedLine.startsWith("]")) continue; // legacy bracket residue
-        try {
-          const parsed: unknown = JSON.parse(trimmedLine);
-          if (isValidEvent(parsed)) valid.push(parsed);
-        } catch {
-          // skip malformed line
-        }
+      for (let i = corpus.length - 1; i >= 0 && valid.length < MAX_EVENTS; i--) {
+        const segment = corpus[i];
+        if (!segment) continue;
+        const tail = readTail(segment, TAIL_READ_BYTES);
+        if (tail.raw.trim() === "") continue;
+        // Prepend: we are walking backwards in time, so each older file's
+        // records belong BEFORE everything gathered so far.
+        valid.unshift(...this.parseLogText(tail.raw));
       }
 
       this.events = valid.slice(-MAX_EVENTS);
       log.debug("mcp_disconnect_tracker: loaded events from disk", {
         count: this.events.length,
         path: this.persistPath,
+        segmentsRead: corpus.length,
       });
     } catch (err) {
       log.debug("mcp_disconnect_tracker: failed to load event log from disk (non-fatal)", {
@@ -1181,6 +1167,99 @@ export class DisconnectTracker {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * Roll the active file to a monthly segment when the calendar or the size
+   * valve says so (mt#4495).
+   *
+   * Runs at load time, NEVER on the append path — `appendEvent` stays a single
+   * `appendFileSync` with no read-modify-write, which is what keeps a record
+   * durable when the process is about to die (mt#4495 SC5).
+   */
+  private maybeRollSegment(): void {
+    if (!this.persistPath) return;
+    try {
+      if (!fs.existsSync(this.persistPath)) return;
+      const activeSize = fs.statSync(this.persistPath).size;
+      // A small window is enough: the decision only needs the LAST record's
+      // month, and `newestTimestampMonth` scans from the end.
+      const probe = readTail(this.persistPath, 8 * 1024);
+      const decision = decideRoll({
+        activeSize,
+        newestRecordMonth: newestTimestampMonth(probe.raw),
+        currentMonth: new Date().toISOString().slice(0, 7),
+      });
+      const rolled = rollIfNeeded(this.persistPath, decision);
+      if (rolled) {
+        log.debug("mcp_disconnect_tracker: rolled log to monthly segment", {
+          segment: rolled,
+          reason: decision.reason,
+        });
+      }
+    } catch (err) {
+      // intentional-swallow: a failed roll leaves the log exactly as it was,
+      // which is the pre-mt#4495 status quo. Never fail a boot over rotation.
+      log.debug("mcp_disconnect_tracker: segment roll skipped (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Parse log text in EITHER format into valid events.
+   *
+   * Extracted verbatim from the old `loadFromDisk` (mt#4495) so the legacy
+   * hybrid tolerance is preserved exactly — mt#4481's glued-seam fixture still
+   * exercises this path, and other hosts can still present a hybrid even though
+   * this one no longer does (mt#4558).
+   */
+  private parseLogText(raw: string): McpDisconnectEvent[] {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+
+    const valid: McpDisconnectEvent[] = [];
+    let cursor = 0;
+
+    // Legacy single-array format detection (mt#1645). The original `persist`
+    // wrote `JSON.stringify(events, null, 2)` so the file started with `[`.
+    // Parse the array, then advance the cursor past it for any trailing
+    // JSONL content appended by post-mt#1682 writers.
+    if (trimmed.startsWith("[")) {
+      const arrayStart = raw.indexOf("[");
+      const arrayEnd = this.findMatchingBracket(raw, arrayStart);
+      if (arrayEnd >= 0) {
+        const arraySlice = raw.slice(arrayStart, arrayEnd + 1);
+        try {
+          const parsed: unknown = JSON.parse(arraySlice);
+          if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+              if (isValidEvent(item)) valid.push(item);
+            }
+          }
+        } catch {
+          // Fall through — corrupted legacy block won't block JSONL load
+        }
+        cursor = arrayEnd + 1;
+      }
+    }
+
+    // JSONL parse: split remaining content on newlines, parse each non-blank line.
+    const remaining = raw.slice(cursor);
+    const lines = remaining.split("\n");
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      if (trimmedLine.startsWith("[") || trimmedLine.startsWith("]")) continue; // legacy bracket residue
+      try {
+        const parsed: unknown = JSON.parse(trimmedLine);
+        if (isValidEvent(parsed)) valid.push(parsed);
+      } catch {
+        // skip malformed line
+      }
+    }
+
+    return valid;
   }
 
   /**

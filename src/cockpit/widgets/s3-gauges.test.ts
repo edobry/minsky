@@ -42,6 +42,9 @@ function depsFromContent(content: string | null): DisconnectLogReaderDeps {
   return {
     exists: (p) => Boolean(mockFs.existsSync(p)),
     readFile: async (p) => String(mockFs.readFileSync(p, "utf8")),
+    // mt#4495: no rolled segments in this fixture, so enumeration sees only the
+    // active file — which is what every pre-segmentation case here assumes.
+    readdir: () => [MOCK_LOG_PATH.slice(MOCK_LOG_PATH.lastIndexOf("/") + 1)],
   };
 }
 

@@ -32,7 +32,8 @@
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { isEscalationEligible } from "../../mcp/disconnect-escalation";
-import { promises as fsPromises, existsSync } from "fs";
+import { promises as fsPromises, existsSync, readdirSync } from "fs";
+import { listCorpusPaths, monthOf } from "../../mcp/disconnect-log-segments";
 import * as path from "path";
 import * as os from "os";
 import { getSharedPersistenceService } from "../shared-persistence";
@@ -133,11 +134,19 @@ export interface DisconnectLogReaderDeps {
   exists: (path: string) => boolean;
   /** Reads the whole file as a UTF-8 string. */
   readFile: (path: string) => Promise<string>;
+  /**
+   * Enumerate the state dir, so a 24h window can span a monthly ROLL (mt#4495).
+   * On the first boot of a new month the active file holds only minutes of
+   * data; without this the gauge would silently report a near-zero count for
+   * the rest of the day.
+   */
+  readdir: (path: string) => string[];
 }
 
 const defaultDisconnectLogReaderDeps: DisconnectLogReaderDeps = {
   exists: existsSync,
   readFile: async (p) => (await fsPromises.readFile(p, { encoding: "utf-8" })) as string,
+  readdir: (p) => readdirSync(p),
 };
 
 /**
@@ -156,9 +165,19 @@ export async function readMcpDisconnectEligibleCount24h(
 ): Promise<number | null> {
   try {
     const logPath = logPathOverride ?? defaultDisconnectLogPath();
-    if (!deps.exists(logPath)) return null;
-    const raw = await deps.readFile(logPath);
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+
+    // Read across a monthly roll (mt#4495). Bounding by the cutoff's own month
+    // keeps this to at most two files: the active one, plus the segment it was
+    // rolled into when the 24h window straddles a month boundary.
+    const corpus = listCorpusPaths(
+      logPath,
+      { existsSync: deps.exists, readdirSync: deps.readdir },
+      monthOf(new Date(cutoff).toISOString())
+    );
+    if (corpus.length === 0) return null;
+
+    const raw = (await Promise.all(corpus.map((segment) => deps.readFile(segment)))).join("\n");
     const allLines = raw.split(/\r?\n/);
     const lines = allLines.slice(-MAX_LOG_LINES_SCANNED);
     let count = 0;

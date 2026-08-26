@@ -22,6 +22,13 @@ function createFakeFs(initialFiles: Record<string, string> = {}): DisconnectSwee
       if (content === undefined) throw new Error(`ENOENT: ${p}`);
       return content;
     },
+    // mt#4495: report the real basenames so segment enumeration behaves the way
+    // it would on disk. A fixture with no segments enumerates none, which keeps
+    // every pre-segmentation case in this file reading the active file alone.
+    readdirSync: (dir: string) =>
+      [...files.keys()]
+        .filter((p) => p.slice(0, p.lastIndexOf("/")) === dir)
+        .map((p) => p.slice(p.lastIndexOf("/") + 1)),
     writeFileSync: (p: string, content: string) => {
       files.set(p, content);
     },
@@ -139,6 +146,7 @@ describe("ensureDirSync (mt#2633 — TOCTOU fix)", () => {
       readFileSync: () => {
         throw new Error("not used by this test");
       },
+      readdirSync: () => [],
       writeFileSync: () => {
         // not used by this test
       },
