@@ -8,6 +8,18 @@
 
 import { log } from "./logger";
 
+/**
+ * The model providers the reviewer can be configured to use.
+ *
+ * Array first, type derived — same reason as `REASONING_EFFORTS` in
+ * `providers.ts`: `loadConfig` and the eval runner both VALIDATE a runtime
+ * string against this set, and a hand-enumerated copy in either place drifts
+ * silently the day a provider is added or removed.
+ */
+export const REVIEWER_PROVIDERS = ["openai", "google", "anthropic"] as const;
+
+export type ReviewerProvider = (typeof REVIEWER_PROVIDERS)[number];
+
 export interface ReviewerConfig {
   appId: number;
   privateKey: string;
@@ -17,7 +29,7 @@ export interface ReviewerConfig {
   // Reviewer model provider — MUST be different from the implementer's model
   // family for real architectural independence. See the Structural Review
   // position paper, section "Nine levers — lever 2: Model diversity."
-  provider: "openai" | "google" | "anthropic";
+  provider: ReviewerProvider;
   providerApiKey: string;
   providerModel: string;
 
@@ -118,9 +130,9 @@ function optionalEnv(name: string, fallback: string): string {
 
 export function loadConfig(): ReviewerConfig {
   const provider = requireEnv("REVIEWER_PROVIDER") as ReviewerConfig["provider"];
-  if (!["openai", "google", "anthropic"].includes(provider)) {
+  if (!REVIEWER_PROVIDERS.includes(provider)) {
     throw new Error(
-      `minsky-reviewer: REVIEWER_PROVIDER must be one of openai|google|anthropic, got "${provider}"`
+      `minsky-reviewer: REVIEWER_PROVIDER must be one of ${REVIEWER_PROVIDERS.join("|")}, got "${provider}"`
     );
   }
 

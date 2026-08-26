@@ -14,6 +14,7 @@ import type { CorpusRow } from "../src/eval-corpus";
 import type { FlatFinding } from "../src/replay-summary";
 import {
   armLabel,
+  formatArmEffort,
   groupCorpusRowsByPr,
   isPositiveGroundTruth,
   samplePrNumbers,
@@ -346,6 +347,61 @@ describe("armLabel", () => {
       const result = splitModelSpec(raw);
       if (!result.ok) throw new Error(`expected ${raw} to parse`);
       expect(armLabel(result.value)).toBe(raw);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-run summary effort clause (PR #3366 R1)
+// ---------------------------------------------------------------------------
+
+describe("formatArmEffort", () => {
+  test("marks a derived effort as derived, not as absent", () => {
+    // The blocking finding: an unpinned OpenAI arm ran at "low", and a summary
+    // that showed nothing let it read as an effort-free baseline.
+    expect(formatArmEffort({ resolvedReasoningEffort: "low", pinnedReasoningEffort: null })).toBe(
+      "effort=low(derived)"
+    );
+  });
+
+  test("marks a pinned effort as pinned", () => {
+    expect(
+      formatArmEffort({ resolvedReasoningEffort: "high", pinnedReasoningEffort: "high" })
+    ).toBe("effort=high(pinned)");
+  });
+
+  test("distinguishes a derived low from a pinned low", () => {
+    // Same resolved value, different provenance — the whole reason both
+    // fields are carried rather than one.
+    const derived = formatArmEffort({
+      resolvedReasoningEffort: "low",
+      pinnedReasoningEffort: null,
+    });
+    const pinned = formatArmEffort({
+      resolvedReasoningEffort: "low",
+      pinnedReasoningEffort: "low",
+    });
+    expect(derived).not.toBe(pinned);
+  });
+
+  test("says none when the model takes no reasoning_effort", () => {
+    expect(formatArmEffort({ resolvedReasoningEffort: null, pinnedReasoningEffort: null })).toBe(
+      "effort=none"
+    );
+  });
+
+  test("never returns an empty clause, so no summary line can omit effort", () => {
+    // The regression guard for the finding itself: whatever the combination,
+    // the summary always states something about effort.
+    const combos = [
+      { resolvedReasoningEffort: null, pinnedReasoningEffort: null },
+      { resolvedReasoningEffort: "low" as const, pinnedReasoningEffort: null },
+      { resolvedReasoningEffort: "medium" as const, pinnedReasoningEffort: "medium" as const },
+      { resolvedReasoningEffort: "high" as const, pinnedReasoningEffort: "high" as const },
+    ];
+    for (const c of combos) {
+      expect(formatArmEffort(c)).toContain("effort=");
+      expect(formatArmEffort(c).length).toBeGreaterThan("effort=".length);
     }
   });
 });

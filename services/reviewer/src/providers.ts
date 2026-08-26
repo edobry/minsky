@@ -372,8 +372,18 @@ export function isReasoningModel(model: string): boolean {
   return false;
 }
 
-/** The values OpenAI's `reasoning_effort` parameter accepts. */
-export type ReasoningEffort = "low" | "medium" | "high";
+/**
+ * The values OpenAI's `reasoning_effort` parameter accepts.
+ *
+ * The ARRAY is the source of truth and the type is derived from it, rather
+ * than the other way round: consumers that need to VALIDATE a runtime string
+ * (the eval runner's `--model` effort suffix) would otherwise hand-enumerate
+ * the same values, and a widening here — mt#3526 proposes adding `"minimal"` —
+ * would leave them silently rejecting a value this module accepts.
+ */
+export const REASONING_EFFORTS = ["low", "medium", "high"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * The `reasoning_effort` a call resolves to, or `null` when none is sent.

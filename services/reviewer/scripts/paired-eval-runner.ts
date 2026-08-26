@@ -85,10 +85,12 @@ import {
 import { parseFindingsFromBody, type FlatFinding } from "../src/replay-summary";
 import {
   callReviewer,
+  REASONING_EFFORTS,
   resolveReasoningEffort,
   type ReasoningEffort,
   type ReviewOutput,
 } from "../src/providers";
+import { REVIEWER_PROVIDERS } from "../src/config";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewerConfig } from "../src/config";
 import { fetchIterationContext, type IterationContext } from "./measure-calibration";
@@ -143,8 +145,16 @@ interface ModelConfigArg {
 const ARM_EFFORT_NOTE =
   "Effort is per-arm (third segment of --model), not run-wide, so a factorial lands in one artifact.";
 
-/** The values `CallReviewerOptions.reasoningEffort` accepts (`providers.ts:376`). */
-const VALID_REASONING_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"] as const;
+/**
+ * The allowed efforts and providers are IMPORTED, not re-listed (PR #3366 R1).
+ *
+ * Both were hand-enumerated here, duplicating unions that live in
+ * `providers.ts` and `config.ts`. The drift is not hypothetical: mt#3526
+ * proposes widening the effort union with `"minimal"`, and a stale copy here
+ * would reject a value the rest of the service accepts — as an argument error
+ * that looks like a user typo.
+ */
+const VALID_REASONING_EFFORTS = REASONING_EFFORTS;
 
 /** The exact gpt-5-vs-gpt-5-mini comparison mt#2718 needs (spec Acceptance
  * Test #4) — the default so a bare `--dry-run` invocation (no --model flags)
@@ -182,13 +192,14 @@ export function splitModelSpec(raw: string): ModelSpecResult {
   if (sep <= 0 || sep === raw.length - 1) {
     return { ok: false, error: `--model must be "<provider>:<model>[:<effort>]", got "${raw}"` };
   }
-  const provider = raw.slice(0, sep);
-  if (provider !== "openai" && provider !== "google" && provider !== "anthropic") {
+  const rawProvider = raw.slice(0, sep);
+  if (!REVIEWER_PROVIDERS.includes(rawProvider as Provider)) {
     return {
       ok: false,
-      error: `--model provider must be one of openai|google|anthropic, got "${provider}"`,
+      error: `--model provider must be one of ${REVIEWER_PROVIDERS.join("|")}, got "${rawProvider}"`,
     };
   }
+  const provider = rawProvider as Provider;
 
   // Split the remainder on the LAST colon, not the first: a model id may
   // contain dots and dashes but the effort suffix is always the final segment.
@@ -727,6 +738,33 @@ interface PerConfigResult extends AggregateMetrics {
   errors: string[];
 }
 
+/**
+ * The effort clause on a post-run summary line (PR #3366 R1).
+ *
+ * The reviewer's blocking finding: the per-arm effort fields were added to the
+ * artifact and shown in the DRY-RUN config block, but the summary printed after
+ * a real run showed neither. A reader comparing `openai:gpt-5` against
+ * `openai:gpt-5:high` there had nothing telling them the first ran at "low", so
+ * it read as an effort-free baseline — the exact mis-scoring those fields exist
+ * to prevent.
+ *
+ * Reports the RESOLVED effort, since that is what was sent. `(derived)` vs
+ * `(pinned)` is kept alongside because it answers a different question: whether
+ * the operator CHOSE that effort or inherited it.
+ *
+ * Pure and exported so the fix is testable without a live arm run — the
+ * reporting path is the thing under test, and spending API budget to observe a
+ * format string would be the wrong trade.
+ */
+export function formatArmEffort(config: {
+  resolvedReasoningEffort: ReasoningEffort | null;
+  pinnedReasoningEffort: ReasoningEffort | null;
+}): string {
+  if (config.resolvedReasoningEffort === null) return "effort=none";
+  const origin = config.pinnedReasoningEffort === null ? "(derived)" : "(pinned)";
+  return `effort=${config.resolvedReasoningEffort}${origin}`;
+}
+
 interface PairedEvalArtifact {
   runStartedAt: string;
   corpusPath: string;
@@ -955,8 +993,9 @@ async function main() {
 
   console.log("\n=== Summary ===");
   for (const config of perConfigResults) {
+    const effort = formatArmEffort(config);
     console.log(
-      `${config.modelConfig}: precision=${config.precision.toFixed(3)} recall=${config.recall.toFixed(3)} ` +
+      `${config.modelConfig}: ${effort} precision=${config.precision.toFixed(3)} recall=${config.recall.toFixed(3)} ` +
         `f1=${config.f1.toFixed(3)} fpRate=${config.falsePositiveRate.toFixed(3)} mcc=${config.verdictMcc.toFixed(3)} ` +
         `passAt1=${config.meanPassAt1.toFixed(3)}`
     );
