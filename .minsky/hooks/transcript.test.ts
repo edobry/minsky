@@ -1008,6 +1008,45 @@ describe("collectShortIdBindings (mt#4160)", () => {
     expect(bindings.get("mem#996")).toBe(UUID_REFS_STATUS);
   });
 
+  // PR #3378 R1 — cross-type consistency. A UUID carries no type, so this is
+  // checkable only where the object declares its own kind. These three pin all
+  // three branches of that.
+  test("a declared `kind` that disagrees with the short id blocks the binding", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_RECORD, shortId: "ask#123", kind: "memory" })),
+    ] as never);
+    expect(bindings.has("ask#123")).toBe(false);
+  });
+
+  test("a declared `kind` that AGREES still binds — the guard does not over-fire", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_RECORD, shortId: "ask#123", kind: "ask" })),
+    ] as never);
+    expect(bindings.get("ask#123")).toBe(UUID_RECORD);
+  });
+
+  test("an unrecognised `kind` is 'no declaration', not a mismatch", () => {
+    // A memory record's `type: "project"` is not an entity kind, and a shape
+    // that uses the word `kind` for something else must not be refused.
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_MEM_1256, shortId: "mem#1256", kind: "retrospective" })),
+    ] as never);
+    expect(bindings.get("mem#1256")).toBe(UUID_MEM_1256);
+  });
+
+  // The residual the guard CANNOT reach, pinned so it is a known property
+  // rather than a surprise: with no `kind` declared, nothing in the values can
+  // detect that `id` belongs to a different entity than `shortId` names. The
+  // binding is made, and the CONSUMER's own type gate is what makes it
+  // harmless — see bare-entity-ref-scan.test.ts, "AT2 — a link to a DIFFERENT
+  // entity does not suppress (identity, not adjacency)".
+  test("with no declared kind, a mismatched pair still binds — consumer gates it", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: UUID_RECORD, shortId: "ask#123" })),
+    ] as never);
+    expect(bindings.get("ask#123")).toBe(UUID_RECORD);
+  });
+
   // mt#4463 changed this outcome too, and for the same reason as the
   // `supersededBy` case above: `shortId` names the record's OWN short id, so a
   // second short id in a REFERENCE field no longer makes the pairing ambiguous.

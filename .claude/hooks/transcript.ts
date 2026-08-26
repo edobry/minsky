@@ -1324,15 +1324,69 @@ const BINDING_SHORT_ID_RE = /^(?:ask|mem|ws)#\d+$/i;
  *
  * Returns null unless BOTH fields are present and both match their expected
  * shape, so a record with an `id` that is not a UUID falls through untouched.
+ *
+ * **Cross-type consistency (PR #3378 R1).** A UUID carries no type, so nothing
+ * in the VALUES can prove that `id` belongs to the entity `shortId` names. Two
+ * layers bound that:
+ *
+ * 1. Here, when the object declares its own kind: a `kind` field holding a
+ *    recognised entity kind must AGREE with the short id's prefix, or this
+ *    returns null. `refs_status` rows carry `kind: "memory"`, so this is a real
+ *    check on a real shape rather than a hypothetical one.
+ * 2. In the CONSUMER, for every other shape: `partitionAuthorLinkedShortIds`
+ *    suppresses only when a link of the short id's OWN type targets the
+ *    resolved UUID (`targetsByType.get(parsed.kind)?.has(uuid)`). So a binding
+ *    that paired `mem#5` with an ask's UUID cannot cause a suppression unless
+ *    the message also links that UUID *as a memory*.
+ *
+ * A record that declares no kind and pairs mismatched ids is therefore still
+ * bound here — that is unavoidable without type information, and layer 2 is
+ * what makes it harmless. It is also not a regression: the value-shape rule
+ * below binds that same object today.
  */
-function bindEntityIdsByFieldName(
-  node: Record<string, unknown>
-): { shortId: string; uuid: string } | null {
+const BINDING_KIND_BY_PREFIX: Record<string, string> = {
+  ask: "ask",
+  mem: "memory",
+  ws: "session",
+};
+
+/**
+ * Three outcomes, and the third is why this is not a nullable pair.
+ *
+ * `"not-applicable"` falls through to the value-shape rule; `"mismatch"` REFUSES
+ * the object outright. Collapsing the two would make the cross-type check inert:
+ * a `{id, shortId, kind}` that disagrees names exactly one UUID and one short id,
+ * so the value rule would bind the very pairing the check just rejected. Caught
+ * by PR #3378 R1's requested test, which failed against the first version of
+ * this guard for precisely that reason.
+ */
+type FieldNameBinding =
+  | { outcome: "bound"; shortId: string; uuid: string }
+  | { outcome: "mismatch" }
+  | { outcome: "not-applicable" };
+
+function bindEntityIdsByFieldName(node: Record<string, unknown>): FieldNameBinding {
   const id = node["id"];
   const shortId = node["shortId"];
-  if (typeof id !== "string" || typeof shortId !== "string") return null;
-  if (!BINDING_UUID_RE.test(id) || !BINDING_SHORT_ID_RE.test(shortId)) return null;
-  return { shortId: shortId.toLowerCase(), uuid: id.toLowerCase() };
+  if (typeof id !== "string" || typeof shortId !== "string") return { outcome: "not-applicable" };
+  if (!BINDING_UUID_RE.test(id) || !BINDING_SHORT_ID_RE.test(shortId)) {
+    return { outcome: "not-applicable" };
+  }
+
+  // When the object names its own kind, it must agree with the short id's
+  // prefix. An unrecognised `kind` (a memory record's `type: "project"` lives
+  // in a different field, and other values are not entity kinds) is treated as
+  // "no declaration" rather than a mismatch, so this cannot refuse a shape that
+  // simply uses the word differently.
+  const declaredKind = node["kind"];
+  if (typeof declaredKind === "string") {
+    const declared = declaredKind.toLowerCase();
+    const known = Object.values(BINDING_KIND_BY_PREFIX).includes(declared);
+    const expected = BINDING_KIND_BY_PREFIX[shortId.slice(0, shortId.indexOf("#")).toLowerCase()];
+    if (known && declared !== expected) return { outcome: "mismatch" };
+  }
+
+  return { outcome: "bound", shortId: shortId.toLowerCase(), uuid: id.toLowerCase() };
 }
 
 /**
@@ -1417,9 +1471,17 @@ export function collectShortIdBindings(lines: TranscriptLine[]): Map<string, str
     // yielding nothing. Falls through to the value rule for inverted shapes.
     const byFieldName = bindEntityIdsByFieldName(node as Record<string, unknown>);
 
+    // A declared-kind mismatch refuses the OBJECT, not just the field-name path
+    // — falling through would let the value rule re-bind the rejected pairing.
+    // Recursion continues, so a nested object can still contribute.
+    if (byFieldName.outcome === "mismatch") {
+      for (const value of Object.values(node as Record<string, unknown>)) visit(value);
+      return;
+    }
+
     let uuid: string | undefined;
     let shortId: string | undefined;
-    if (byFieldName !== null) {
+    if (byFieldName.outcome === "bound") {
       uuid = byFieldName.uuid;
       shortId = byFieldName.shortId;
     } else {
