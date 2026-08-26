@@ -39,57 +39,14 @@
  * Tracking task: mt#3299.
  */
 
-const LOG_METHOD_RE = /^(error|warn|info|debug|log|fatal|trace)$/;
-// Substring match (not anchored to the whole name) — see the fileoverview
-// doc comment above for why: a locally-aliased logger variable (`myLogger`,
-// `appLog`, `reqLogger`) must still be recognized as a real logging call.
-const LOG_RECEIVER_RE = /log|console/i;
-const INTENTIONAL_SWALLOW_RE = /intentional-swallow:/;
+// Logger detection moved to `./logger-detection.js` (mt#4632) so
+// `prefer-loggable-error-summary` shares this matcher rather than growing a
+// second one that could drift. Behaviour here is unchanged — including the
+// substring receiver match and its rationale, which travelled with the code.
+// eslint-disable-next-line no-restricted-imports -- ESLint loads rule modules through Node's ESM loader, which requires the explicit .js extension; extensionless resolves under Bun but breaks `eslint` itself (verified mt#4632)
+import { containsLoggerCall } from "./logger-detection.js";
 
-/**
- * Extract a "name" to test against `LOG_RECEIVER_RE` from the receiver
- * expression of a `<receiver>.<method>(...)` call — the `callee.object` of
- * the CallExpression's MemberExpression callee. Handles:
- *   - a bare identifier (`logger`, `myLogger`, `console`)
- *   - a member-expression chain of any depth, taking the LAST property name
- *     (`this.logger`, `this.services.logger`, `req.log`)
- *   - a computed member expression with a static string-literal key
- *     (`obj["logger"]`)
- *   - a factory-call receiver (`getLogger()`, `createLogger()`) — uses the
- *     called function's own name
- *   - a `ChainExpression`-wrapped form of any of the above (optional
- *     chaining, e.g. `logger?.error(e)`)
- * Returns `null` for `ThisExpression` alone (`this.error()` is not a logger
- * call) and for any other shape this can't resolve to a name.
- */
-function extractReceiverName(node) {
-  if (!node) return null;
-  switch (node.type) {
-    case "Identifier":
-      return node.name;
-    case "MemberExpression":
-      if (!node.computed && node.property.type === "Identifier") {
-        return node.property.name;
-      }
-      if (
-        node.computed &&
-        node.property.type === "Literal" &&
-        typeof node.property.value === "string"
-      ) {
-        return node.property.value;
-      }
-      // Computed with a non-literal key, or a non-identifier property —
-      // fall back to the object side (rare shapes; best-effort).
-      return extractReceiverName(node.object);
-    case "CallExpression":
-      // e.g. getLogger().error(e) — check the called function's own name.
-      return extractReceiverName(node.callee);
-    case "ChainExpression":
-      return extractReceiverName(node.expression);
-    default:
-      return null;
-  }
-}
+const INTENTIONAL_SWALLOW_RE = /intentional-swallow:/;
 
 /** Recursively check whether any node in the subtree is a ThrowStatement. */
 function containsThrow(node) {
@@ -104,47 +61,6 @@ function containsThrow(node) {
       }
     } else if (value && typeof value.type === "string") {
       if (containsThrow(value)) return true;
-    }
-  }
-  return false;
-}
-
-/** Recursively check whether any node in the subtree is a qualifying logger call. */
-function containsLoggerCall(node) {
-  if (!node || typeof node !== "object") return false;
-  // Unwrap a ChainExpression-wrapped call (optional chaining, e.g.
-  // `logger?.error(e)`) to the CallExpression it wraps before the shape
-  // check below, so the callee-inspection logic doesn't need its own
-  // ChainExpression branch.
-  const candidate = node.type === "ChainExpression" && node.expression ? node.expression : node;
-  if (
-    candidate.type === "CallExpression" &&
-    candidate.callee &&
-    candidate.callee.type === "MemberExpression"
-  ) {
-    const callee = candidate.callee;
-    const methodName =
-      callee.property && !callee.computed && callee.property.type === "Identifier"
-        ? callee.property.name
-        : callee.computed &&
-            callee.property.type === "Literal" &&
-            typeof callee.property.value === "string"
-          ? callee.property.value
-          : null;
-    if (methodName && LOG_METHOD_RE.test(methodName)) {
-      const receiverName = extractReceiverName(callee.object);
-      if (receiverName && LOG_RECEIVER_RE.test(receiverName)) return true;
-    }
-  }
-  for (const key of Object.keys(node)) {
-    if (key === "parent") continue;
-    const value = node[key];
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        if (child && typeof child.type === "string" && containsLoggerCall(child)) return true;
-      }
-    } else if (value && typeof value.type === "string") {
-      if (containsLoggerCall(value)) return true;
     }
   }
   return false;
