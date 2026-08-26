@@ -318,6 +318,9 @@ Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
     `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
     zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462
     pre-existing violations across 560 files; bulk cleanup + flip to `error` tracked at mt#3312.
+  - `custom/prefer-loggable-error-summary` (mt#4632) — a caught error logged as `err.message`
+    should use `getLoggableErrorSummary`, keeping `.cause`. Scoped to catch/rejection handlers;
+    a `throw` re-wrap is not flagged. `off`: 590 sites; flip at mt#4639.
   - `custom/require-subprocess-network-timeout` (mt#3299) — `execSync`/`spawnSync`/`fetch` calls
     need a `timeout`/`signal` option. Registered `off` for the same reason (542 pre-existing
     violations across 137 files; bulk cleanup + flip to `error` tracked at mt#3313).
