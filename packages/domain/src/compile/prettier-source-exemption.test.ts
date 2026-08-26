@@ -33,7 +33,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { getFileInfo } from "prettier";
 import { makeClaudeSkillsTarget } from "./targets/claude-skills";
 import { checkStaleness } from "./staleness";
@@ -56,7 +56,37 @@ const GITIGNORE = join(REPO_ROOT, "./.gitignore");
 const SKILLS_SOURCE_DIR = join(REPO_ROOT, ".minsky", "skills");
 const AGENTS_SOURCE_DIR = join(REPO_ROOT, ".minsky", "agents");
 
-/** Ask Prettier itself whether it would format this path, using the repo's own ignore files. */
+/**
+ * The markdown filenames the compile targets read VERBATIM, and therefore the exact set
+ * `.prettierignore` exempts. Must stay in sync with the patterns there — the census below
+ * is what enforces that, in both directions:
+ *
+ *   - a source filename here that is NOT exempted fails `every markdown source ... ignored`
+ *   - a new source filename added to the trees but not to this list fails
+ *     `no unrecognised markdown ...`, which is what tells you to update both places
+ *
+ * NOT reusing `SKILL_SOURCE_FILENAMES` from ./skill-listing-budget: that constant answers
+ * "does this repo OWN the skill" for the budget cap and is `["SKILL.md", "skill.ts"]` — it
+ * includes TypeScript, which must stay formatted, and omits `content.md`, which must not.
+ * Same-shaped list, different question; sharing it would couple two things that genuinely
+ * disagree.
+ */
+const MARKDOWN_SOURCE_FILENAMES = ["SKILL.md", "content.md", "prompt.md"];
+
+/**
+ * Ask Prettier itself whether it would format this path, using the repo's own ignore files.
+ *
+ * `ignorePath` takes an ARRAY here, and that is supported rather than a misuse — prettier
+ * 3.5.3's own declaration is `ignorePath?: string | URL | (string | URL)[]`
+ * (node_modules/prettier/index.d.ts:802). Flagged BLOCKING in PR #3381's first review; the
+ * discriminating probe is that `[GITIGNORE]` ALONE returns `ignored: false` for an exempted
+ * source while `[GITIGNORE, PRETTIERIGNORE]` returns `true` — if the array form were
+ * ignored, both would be false. Both files are passed because that is what `prettier
+ * --check` consults, so the test answers the question the operator actually has.
+ *
+ * The path need not exist: this is pattern resolution, which is what lets the census below
+ * ask about markdown nobody has written yet.
+ */
 async function prettierIgnores(absPath: string): Promise<boolean> {
   const info = await getFileInfo(absPath, { ignorePath: [GITIGNORE, PRETTIERIGNORE] });
   return info.ignored;
@@ -227,6 +257,40 @@ describe("mt#4622 Part 2: markdown compile sources are exempt from Prettier", ()
     // Naming the offenders matters: the fix is a pattern, and a pattern that covers
     // most of a tree fails in a way a bare count cannot describe.
     expect(formatted).toEqual([]);
+  });
+
+  test("no unrecognised markdown has appeared in the source trees", async () => {
+    // The other direction of the sync requirement. The census above only proves the
+    // KNOWN filenames are exempt; a new source filename (`body.md`, say) would be
+    // formatted, re-opening this defect, and no assertion above would notice. This one
+    // fails and names it — the signal to update both this list and `.prettierignore`.
+    const unrecognised = [
+      ...markdownSourcesUnder(SKILLS_SOURCE_DIR),
+      ...markdownSourcesUnder(AGENTS_SOURCE_DIR),
+    ].filter((p) => !MARKDOWN_SOURCE_FILENAMES.includes(basename(p)));
+
+    expect(unrecognised).toEqual([]);
+  });
+
+  test("a NON-source .md in those trees would still be formatted", async () => {
+    // PR #3381 review, non-blocking — and it was right about the original `**/*.md`
+    // patterns, which exempted markdown nobody has written yet. `getFileInfo` resolves
+    // patterns without touching disk, so this asks about files that do not exist rather
+    // than creating and deleting them.
+    const hypothetical = [
+      join(SKILLS_SOURCE_DIR, "some-skill", "README.md"),
+      join(SKILLS_SOURCE_DIR, "some-skill", "NOTES.md"),
+      join(AGENTS_SOURCE_DIR, "some-agent", "README.md"),
+    ];
+
+    for (const path of hypothetical) {
+      expect(await prettierIgnores(path)).toBe(false);
+    }
+
+    // Control, so this cannot pass by resolving nothing at all: the sibling SOURCE file
+    // at the same non-existent depth IS exempt. Without it, a typo'd root directory would
+    // make every assertion above trivially true.
+    expect(await prettierIgnores(join(SKILLS_SOURCE_DIR, "some-skill", "SKILL.md"))).toBe(true);
   });
 
   test("the exemption is markdown-only — TypeScript definitions stay formatted", async () => {
