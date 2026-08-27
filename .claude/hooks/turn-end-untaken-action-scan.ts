@@ -373,16 +373,17 @@ export const SUPPRESSION_ARMED_WATCHER_EVIDENCE = "armed-watcher-evidence";
  * consumer of this guard -- including the test that pins ARMED_WAIT_TOOLS to
  * an exact set -- keeps its import site unchanged.
  *
- * Imported as well as re-exported: `export { X } from` re-publishes the name
- * without binding it locally, and `run()` below calls the predicate directly.
+ * One import, one export (PR #3402 R1). `run()` below calls the predicate, so
+ * the name has to be bound locally; re-exporting that same binding avoids
+ * naming the module twice, which the first revision did.
  */
-import { detectArmedWatcherEvidence } from "./armed-watcher";
-
-export {
+import {
   ARMED_WAIT_TOOLS,
   CONDITIONAL_WAIT_TOOL,
   detectArmedWatcherEvidence,
 } from "./armed-watcher";
+
+export { ARMED_WAIT_TOOLS, CONDITIONAL_WAIT_TOOL, detectArmedWatcherEvidence };
 /**
  * Suppression reason for a halt whose named-but-untaken step is DESTRUCTIVE (mt#4116).
  */

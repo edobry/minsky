@@ -127,5 +127,12 @@ export function detectArmedWatcherEvidence(
     }
   }
 
-  return [...evidence];
+  // SORTED, and that matters downstream (PR #3402 R1): `stop-at-decision-scan`
+  // renders this into a `armed-watcher:<a,b>` suppression reason, and calibration
+  // review GROUPS records by that string. Insertion order here follows the turn's
+  // tool order, so two turns arming the same pair in opposite orders would produce
+  // two distinct reason strings for one phenomenon and split the group. Sorting at
+  // the source rather than at the one call site that noticed keeps every consumer
+  // deterministic — the sibling writes this array into its calibration record too.
+  return [...evidence].sort();
 }

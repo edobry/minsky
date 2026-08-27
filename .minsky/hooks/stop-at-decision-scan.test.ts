@@ -39,6 +39,10 @@ function userPrompt(text: string, timestamp?: string): TranscriptLine {
   return { type: "user", message: { role: "user", content: text }, timestamp };
 }
 
+/** Watcher tool names used by the mt#4327 fixtures. */
+const WAIT_REVIEW_TOOL = "mcp__minsky__session_pr_wait-for-review";
+const BASH_BG_EVIDENCE = "Bash(run_in_background)";
+
 /** Field read off an evaluation record. */
 const SUPPRESSION_REASONS_FIELD = "suppressionReasons";
 
@@ -501,14 +505,12 @@ describe("armed-watcher suppression (mt#4327)", () => {
       // one BINDS the conversation to it, which empties candidateTaskIds and
       // raises `bound-task-target` instead — a different suppression confounding
       // the one under test.
-      toolUse("toolu_wait", "mcp__minsky__session_pr_wait-for-review", {
+      toolUse("toolu_wait", WAIT_REVIEW_TOOL, {
         reviewer: "minsky-reviewer[bot]",
       }),
     ]);
-    expect(detection?.armedWatcherEvidence).toEqual(["mcp__minsky__session_pr_wait-for-review"]);
-    expect(detection?.suppressionReasons).toContain(
-      "armed-watcher:mcp__minsky__session_pr_wait-for-review"
-    );
+    expect(detection?.armedWatcherEvidence).toEqual([WAIT_REVIEW_TOOL]);
+    expect(detection?.suppressionReasons).toContain(`armed-watcher:${WAIT_REVIEW_TOOL}`);
   });
 
   test("AT1: session_pr_checks asked to wait suppresses", () => {
@@ -520,7 +522,7 @@ describe("armed-watcher suppression (mt#4327)", () => {
     const detection = detectWith([
       toolUse("toolu_bg", "Bash", { command: "sleep 30", run_in_background: true }),
     ]);
-    expect(detection?.armedWatcherEvidence).toEqual(["Bash(run_in_background)"]);
+    expect(detection?.armedWatcherEvidence).toEqual([BASH_BG_EVIDENCE]);
   });
 
   test("the same tool WITHOUT its wait flag does not suppress — the gate is the flag, not the name", () => {
@@ -537,6 +539,23 @@ describe("armed-watcher suppression (mt#4327)", () => {
     const detection = detectWith([]);
     expect(detection?.suppressionReasons).toEqual([]);
     expect(detection?.armedWatcherEvidence).toEqual([]);
+  });
+
+  test("multiple armed waits render in a stable order, whatever order the turn used", () => {
+    // PR #3402 R1: the reason string is what calibration review GROUPS by, so a
+    // pair armed in one order and the same pair armed in the other must produce
+    // ONE string, not two. The fixture arms them in reverse of the expected
+    // output on purpose — insertion order would fail this, sorting passes it.
+    const detection = detectWith([
+      toolUse("toolu_wait", WAIT_REVIEW_TOOL, {
+        reviewer: "minsky-reviewer[bot]",
+      }),
+      toolUse("toolu_bg", "Bash", { command: "sleep 30", run_in_background: true }),
+    ]);
+    expect(detection?.armedWatcherEvidence).toEqual([BASH_BG_EVIDENCE, WAIT_REVIEW_TOOL]);
+    expect(detection?.suppressionReasons).toContain(
+      `armed-watcher:${BASH_BG_EVIDENCE},${WAIT_REVIEW_TOOL}`
+    );
   });
 
   describe("AT3 — the evidence reaches the record, suppressed or not", () => {
