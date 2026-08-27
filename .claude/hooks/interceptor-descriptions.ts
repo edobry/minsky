@@ -909,6 +909,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "coverage-claim-path-detector",
+    {
+      description:
+        "Records, at write time, a comment that CLAIMS coverage (or a convention, or a precedent) at a path which does not resolve — the class three tasks fixed one instance at a time (mt#4202, mt#3994, mt#4413). The cost is not the broken artifact: a confident pointer stops the next reader from looking. Two conjuncts, each removing a measured false-positive class and neither redundant — comment-scoping (removes fixture paths in test string literals) and a governing claim phrase within 160 chars (removes the illustrative names that live in comments, which is three of five sampled). The path pattern's leading lookbehind removes the largest class: `transcripts/` contains `scripts/`. Resolves against the CITING file's package root before the repo root, so a service-local `scripts/` is not a manufactured miss. Deliberately does NOT elide inline code spans, unlike ADR-024 Rung 1's prose-oriented prefilter: in a source comment a backticked path is the normal way to cite a real one, and one of the two known true positives is backticked. Measured corpus-wide: 22 fires, 21 real (95.5%), against ~1.8% for the naive path-existence form. Record-only — never denies, never injects.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("coverage-claim-path-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
     "block-out-of-band-merge",
     {
       description:
