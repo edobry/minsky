@@ -55,6 +55,9 @@ controllable:
   is a 50x tail, not a 50x one-off.
 - **Read late rather than early** where the choice exists — a result added at request 200 of 234
   pays a 34x tail instead of 233x.
+- **Treat an image as the expensive read it is.** At ~364 KB apiece they are the densest payload
+  measured here — one screenshot early in a median session costs ~84 MB after its tail, four times
+  a 100 KB text read. Read one late, read it once, and never re-read it to "check".
 - **Delegate the search** when it is exploratory. See the subagent lever below; it is the largest
   measured effect in this document.
 
@@ -129,23 +132,41 @@ detail-attention in the parent as well as its bandwidth.
 
 ## Where context actually comes from
 
-Tool results entering context across the corpus — 273.8 MB total:
+Tool results entering context across the corpus — **384.6 MB total**:
 
-| tool                     | MB   | calls  | share |
-| ------------------------ | ---- | ------ | ----- |
-| `Bash`                   | 41.2 | 36,753 | 15.0% |
-| `session_search_replace` | 23.2 | 17,240 | 8.5%  |
-| `tasks_spec_get`         | 22.9 | 3,274  | 8.3%  |
-| `memory_search`          | 22.0 | 902    | 8.0%  |
-| `session_exec`           | 20.4 | 23,123 | 7.5%  |
-| `session_read_file`      | 16.0 | 5,109  | 5.8%  |
-| `Read`                   | 14.1 | 2,880  | 5.2%  |
+| tool                               | MB   | calls  | share | per call |
+| ---------------------------------- | ---- | ------ | ----- | -------- |
+| `Read`                             | 92.1 | 2,881  | 23.9% | 32 KB    |
+| `Bash`                             | 41.2 | 36,764 | 10.7% | 1.1 KB   |
+| `chrome-devtools__take_screenshot` | 31.1 | 144    | 8.1%  | 216 KB   |
+| `session_search_replace`           | 23.3 | 17,284 | 6.0%  | 1.3 KB   |
+| `tasks_spec_get`                   | 22.9 | 3,275  | 5.9%  | 7.0 KB   |
+| `memory_search`                    | 22.0 | 902    | 5.7%  | 24.4 KB  |
+| `session_exec`                     | 20.5 | 23,179 | 5.3%  | 0.9 KB   |
+| `session_read_file`                | 16.0 | 5,111  | 4.2%  | 3.1 KB   |
 
-**`memory_search` is the outlier per call: 24.4 KB average, an order of magnitude above every other
-Minsky tool here.** It is also a tool mt#4418's bounding sweep never saw, and its spec says why —
-that sweep measured only calls the harness BACKGROUNDED past 120s, which over-represents slow tools
-and cannot see fast ones. `memory_search` is fast and enormous. This is a concrete instance of the
-blind spot mt#4418 recorded as a bound on its own measurement, and it is worth its own pass.
+**Images are the densest thing you can put in a context, by a wide margin.** 299 image blocks carry
+**109 MB — 28% of all tool-result bytes, from 0.2% of the blocks** — at ~364 KB each. They arrive
+mostly through `Read` on an image file, which is why `Read` leads the table on modest call volume,
+and through screenshot tools.
+
+Put that through the tail formula: one screenshot read early in a median 234-request session is
+0.36 MB × 233 = **84 MB**, nearly four times the 100 KB text-read example above, from a single call.
+Read images late, and never re-read one.
+
+**`memory_search` is the outlier among text-returning Minsky tools: 24.4 KB per call**, an order of
+magnitude above its siblings, on only 902 calls. It is also a tool mt#4418's bounding sweep never
+saw, and its spec says why — that sweep measured only calls the harness BACKGROUNDED past 120s,
+which over-represents slow tools and cannot see fast ones. `memory_search` is fast and enormous. A
+concrete instance of the blind spot mt#4418 recorded as a bound on its own measurement, and worth
+its own pass.
+
+> **This table was wrong in the first version of this document, and the correction is instructive.**
+> The measurement summed only `text` blocks, so every image counted as zero: the total read 273.8 MB
+> instead of 384.6 MB, and `Read` ranked seventh at 5.2% rather than first at 23.9%. A measurement
+> that silently drops its densest payload class understates its own denominator and every share
+> computed from it — including, in the first draft, the share the RTK verdict below rests on. Caught
+> by `minsky-reviewer[bot]` on PR #3397, not by me.
 
 ## Verdicts on the two external mitigations
 
@@ -157,12 +178,18 @@ RTK is a PreToolUse interceptor that filters CLI output before it reaches the mo
 actively maintained; note the install-path collision recorded in the spec — the bare `rtk` crate
 name belongs to an unrelated project).
 
-The basis is the table above rather than the vendor's compression ratio. **Shell output is 22.5% of
-tool-result bytes** (`Bash` 15.0% + `session_exec` 7.5%) — that is the ceiling on what a
+The basis is the table above rather than the vendor's compression ratio. **Shell output is 16.0% of
+tool-result bytes** (`Bash` 10.7% + `session_exec` 5.3%) — that is the ceiling on what a
 shell-scoped filter can reach, before any question of how well it filters. Even RTK's headline
-60–90% reduction on its own scope is therefore at most a ~13–20% cut in tool-result bytes, against
+60–90% reduction on its own scope is therefore at most a ~10–14% cut in tool-result bytes, against
 an ongoing per-task verification cost that RTK's own guidance discloses ("a tunable filter, not a
 firewall"; "verify impact on every significant task").
+
+That share is **lower** than the 22.5% this document first reported, and the reason is the
+image-counting defect noted above: fixing it enlarged the denominator without touching the shell
+numerator. The verdict does not turn on the correction — it was reject at 22.5% and is reject by a
+wider margin at 16.0% — but the direction is worth stating plainly, because a measurement error
+that happens to strengthen your own conclusion is exactly the kind you stop looking for.
 
 The two levers measured in this document — the ~150-request compaction threshold and subagent
 containment — act on the whole context rather than on 22.5% of one component, cost nothing, and

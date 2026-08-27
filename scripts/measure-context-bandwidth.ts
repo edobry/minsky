@@ -39,10 +39,18 @@ import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** Claude Code's per-project transcript directory, derived rather than hardcoded. */
+/**
+ * Claude Code's per-project transcript directory, derived rather than hardcoded.
+ *
+ * The harness encodes the project path by replacing every separator with `-`.
+ * Both separators are normalized (PR #3397 R1) so a Windows path does not fall
+ * through unencoded — **but that this is the encoding Claude Code uses on
+ * Windows is UNVERIFIED**; it was checked only against macOS transcripts. On any
+ * platform where the guess is wrong the directory simply will not exist, and the
+ * caller gets the `SKIP` below plus `--project` as the explicit escape.
+ */
 function projectTranscriptDir(cwd: string): string {
-  // The harness encodes the project path by replacing every separator with `-`.
-  return join(homedir(), ".claude", "projects", cwd.replace(/\//g, "-"));
+  return join(homedir(), ".claude", "projects", cwd.replace(/[/\\]/g, "-"));
 }
 
 interface RequestUsage {
@@ -259,8 +267,21 @@ function measureToolResultBytes(filePath: string): Map<string, { bytes: number; 
         bytes = Buffer.byteLength(payload);
       } else if (Array.isArray(payload)) {
         for (const part of payload) {
-          const p = part as { text?: unknown };
-          if (typeof p.text === "string") bytes += Buffer.byteLength(p.text);
+          // EVERY block shape counts, not just `text` (PR #3397 R1). The first
+          // version summed `text` only, which silently valued an image block at
+          // zero — and images turned out to be 109 MB across 299 blocks, 28% of
+          // all tool-result bytes in this corpus. A measurement that drops the
+          // single densest payload class understates its own denominator and
+          // every share computed from it.
+          const p = part as { type?: unknown; text?: unknown };
+          if (p.type === "text" && typeof p.text === "string") {
+            bytes += Buffer.byteLength(p.text);
+          } else {
+            // Serialized length is the honest proxy for a non-text block: for an
+            // image the base64 `source.data` dominates it, and the envelope is
+            // itself real wire cost.
+            bytes += Buffer.byteLength(JSON.stringify(part));
+          }
         }
       }
       const prev = byTool.get(name) ?? { bytes: 0, count: 0 };
@@ -361,6 +382,14 @@ function main(): void {
   const want = (flag: string): boolean => wantAll || args.includes(flag);
   const jsonIdx = args.indexOf("--json");
   const jsonOut = jsonIdx >= 0 ? args[jsonIdx + 1] : undefined;
+  // Fail loudly rather than silently writing nothing (PR #3397 R1). `--json`
+  // with no path, or followed by the next flag, used to leave `jsonOut`
+  // undefined and skip the write — the run still exited 0, so a caller who
+  // wanted a file got a clean pass and no file.
+  if (jsonIdx >= 0 && (jsonOut === undefined || jsonOut.startsWith("--"))) {
+    console.error("--json requires a path, e.g. --json /tmp/bandwidth.json");
+    process.exit(2);
+  }
 
   const projectIdx = args.indexOf("--project");
   const dir = projectIdx >= 0 ? args[projectIdx + 1] : projectTranscriptDir(process.cwd());
@@ -469,12 +498,16 @@ function main(): void {
       payload.subagentLever = lever;
       console.log("## Subagent lever — internal upload vs what the parent pays");
       console.log(`subagents ${lever.subagents}, ${lever.totalRequests} requests`);
-      console.log(`internal upload      ${lever.internalUploadedMTokens.toFixed(1)} Mtok`);
+      // Raw units lead and the ratio follows (PR #3397 R1): the ratio crosses a
+      // token↔byte boundary on a ~4 B/token approximation, so quoting it alone
+      // lends it a precision the conversion does not support. The raw figures
+      // carry no such assumption.
+      console.log(`internal upload      ${lever.internalUploadedMTokens.toFixed(1)} Mtok (raw)`);
+      console.log(`returned to parent   ${lever.returnedSummaryMBytes.toFixed(2)} MB (raw)`);
+      console.log(`median return        ${lever.medianReturnedBytes} bytes (raw)`);
       console.log(
-        `returned to parent   ${lever.returnedSummaryMBytes.toFixed(2)} MB (~${(returnedTokens / 1e6).toFixed(2)} Mtok)`
+        `containment ratio    ~${lever.containmentRatio.toFixed(0)}x  [derived via ~4 B/token; order of magnitude, not a precise figure]\n`
       );
-      console.log(`containment ratio    ${lever.containmentRatio.toFixed(0)}x`);
-      console.log(`median return        ${lever.medianReturnedBytes} bytes\n`);
     }
   }
 
