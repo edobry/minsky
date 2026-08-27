@@ -1085,3 +1085,55 @@ describe("memory.update associations PARAMETER SCHEMA — removal must stay poss
     expect(updateAssociationsSchema().safeParse({ tasks: [] }).success).toBe(true);
   });
 });
+
+// ─── projectId PARAMETER SCHEMA (mt#4668, SC5) ────────────────────────────────
+//
+// `memories.project_id` moved from `text` to a `uuid` FK against `projects.id` (mt#4668).
+// A malformed value must be rejected HERE — at the schema the MCP/CLI dispatch layer parses
+// BEFORE `execute()` runs (`convertMcpArgsToParameters` / `normalizeCliParameters`) — with a
+// message naming the parameter, rather than reaching the driver as a raw `22P02 invalid input
+// syntax for type uuid`. Mirrors the associations-schema tests above: `cmd.execute(...)` in
+// every other describe block in this file calls the handler body directly and bypasses that
+// dispatch-layer parse, so only a direct `schema.safeParse(...)` on the registered parameter
+// actually exercises the boundary SC5 requires.
+describe("memory commands projectId PARAMETER SCHEMA (mt#4668, SC5)", () => {
+  const VALID_UUID = "3ac3d147-2b6f-4cf9-a52a-2b6e32d3c5fe";
+  const MALFORMED = "not-a-uuid";
+
+  function projectIdSchema(commandId: string) {
+    const registry = createSharedCommandRegistry();
+    registerMemoryCommands(registry, makeDeps());
+    const cmd = registry.getCommand(commandId);
+    const schema = cmd?.parameters["projectId"]?.schema;
+    if (!schema) throw new Error(`${commandId} has no projectId parameter schema`);
+    return schema;
+  }
+
+  // memory.search / memory.list: plain `z.string().uuid()`, no `.nullable()` — projectId is a
+  // read-side FILTER, never a value being written, so there's no "clear it" case to support.
+  for (const commandId of [SEARCH_CMD, LIST_CMD]) {
+    test(`${commandId}: a malformed projectId is rejected`, () => {
+      expect(projectIdSchema(commandId).safeParse(MALFORMED).success).toBe(false);
+    });
+
+    test(`${commandId}: a well-formed uuid is accepted`, () => {
+      expect(projectIdSchema(commandId).safeParse(VALID_UUID).success).toBe(true);
+    });
+  }
+
+  // memory.create / memory.update / memory.supersede: `.nullable()` too — a write path, where
+  // an explicit `null` clears the field (see each command's execute() body above).
+  for (const commandId of [CREATE_CMD, UPDATE_CMD, SUPERSEDE_CMD]) {
+    test(`${commandId}: a malformed projectId is rejected`, () => {
+      expect(projectIdSchema(commandId).safeParse(MALFORMED).success).toBe(false);
+    });
+
+    test(`${commandId}: a well-formed uuid is accepted`, () => {
+      expect(projectIdSchema(commandId).safeParse(VALID_UUID).success).toBe(true);
+    });
+
+    test(`${commandId}: null is accepted (clears the field)`, () => {
+      expect(projectIdSchema(commandId).safeParse(null).success).toBe(true);
+    });
+  }
+});

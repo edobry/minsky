@@ -6367,7 +6367,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Filter by project identifier",
+              "description": "Filter by project identifier (uuid)",
               "takesValue": true
             },
             {
@@ -6418,7 +6418,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Filter by project identifier",
+              "description": "Filter by project identifier (uuid)",
               "takesValue": true
             },
             {
@@ -6497,7 +6497,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Project identifier (required when scope=project)",
+              "description": "Project identifier (uuid; required when scope=project)",
               "takesValue": true
             },
             {
@@ -6572,7 +6572,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "New project identifier",
+              "description": "New project identifier (uuid)",
               "takesValue": true
             },
             {
@@ -6713,7 +6713,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Project identifier for the replacement",
+              "description": "Project identifier for the replacement (uuid)",
               "takesValue": true
             },
             {
