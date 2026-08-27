@@ -87,8 +87,12 @@ const memorySearchParams = {
     required: false as const,
   },
   projectId: {
-    schema: z.string(),
-    description: "Filter by project identifier",
+    // uuid FK to projects.id (mt#4668) — validated here, at the command boundary, so a
+    // malformed value is rejected with a message naming the parameter (mt#3155's MCP
+    // parse-on-provided-value path; normalizeCliParameters mirrors it on the CLI side)
+    // rather than reaching the driver as a raw 22P02 cast error.
+    schema: z.string().uuid(),
+    description: "Filter by project identifier (uuid)",
     required: false as const,
   },
   excludeSuperseded: {
@@ -127,8 +131,9 @@ const memoryListParams = {
     required: false as const,
   },
   projectId: {
-    schema: z.string(),
-    description: "Filter by project identifier",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid(),
+    description: "Filter by project identifier (uuid)",
     required: false as const,
   },
   excludeSuperseded: {
@@ -236,8 +241,9 @@ const memoryCreateParams = {
     defaultValue: MEMORY_SCOPES.project,
   },
   projectId: {
-    schema: z.string().nullable(),
-    description: "Project identifier (required when scope=project)",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid().nullable(),
+    description: "Project identifier (uuid; required when scope=project)",
     required: false as const,
   },
   tags: {
@@ -314,8 +320,9 @@ const memoryUpdateParams = {
     required: false as const,
   },
   projectId: {
-    schema: z.string().nullable(),
-    description: "New project identifier",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid().nullable(),
+    description: "New project identifier (uuid)",
     required: false as const,
   },
   tags: {
@@ -451,8 +458,9 @@ const memorySupersededParams = {
     required: true as const,
   },
   projectId: {
-    schema: z.string().nullable(),
-    description: "Project identifier for the replacement",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid().nullable(),
+    description: "Project identifier for the replacement (uuid)",
     required: false as const,
   },
   tags: {
