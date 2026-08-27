@@ -51,6 +51,40 @@ import { recordGuardDenial } from "./two-strikes-record";
 /** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
 const GUARD_NAME = "block-git-gh-cli";
 
+/**
+ * Appended to every agent-facing denial (mt#4257).
+ *
+ * Every redirect in this file names an `mcp__*` tool, and the module header
+ * above already records one availability lesson: `session_exec` is carved out
+ * so the hook does not "deny the very fallback its own denial text offers."
+ * That reasoning covers a fallback this GUARD blocks. It does not cover a
+ * fallback that does not EXIST.
+ *
+ * When an MCP server is disconnected its tools do not load at all — and because
+ * `session_exec` is itself `mcp__minsky__session_exec`, the Minsky server going
+ * down takes the redirect targets AND the documented escape hatch together. The
+ * agent is then denied the CLI and handed ~34 tool names it cannot call, with
+ * nothing left to do. Observed twice while auditing this guard (mt#4257): a
+ * denied `git log` during a Minsky-MCP outage left reading `.git/HEAD` by hand
+ * as the only way to see git state. A guard cannot be more available than the
+ * mechanism its instruction names, so the denial has to say what to do when
+ * that mechanism is gone.
+ *
+ * This states the CAPABILITY boundary — what the named tools cannot do — which
+ * is the discipline mem#1078 draws from the mt#4226 fix, applied to
+ * availability rather than to workspace.
+ *
+ * The github-MCP half of the same class (six `mcp__github__*` redirects that go
+ * dark when the Docker daemon is down) is owned by mt#3779.
+ */
+export const REDIRECT_UNAVAILABLE_ESCAPE =
+  `\n\nIf the tool named above will not load — an MCP server is disconnected, so ` +
+  `\`mcp__*\` tools are absent — then this redirect names no reachable path, and ` +
+  `neither does \`session_exec\` (itself an MCP tool on the same server). Reconnect ` +
+  `first (\`/mcp\`). If it is still unreachable and the command is genuinely needed, ` +
+  `set \`MINSKY_HOOK_OVERRIDE=${GUARD_NAME}\` for that one invocation — audit-logged, ` +
+  `and the honest option rather than hand-reading \`.git\` plumbing around the guard.`;
+
 // ---------------------------------------------------------------------------
 // Tool context
 // ---------------------------------------------------------------------------
@@ -1088,6 +1122,9 @@ if (import.meta.main) {
       // byte-identical `Bash` calls were denied in a row and nothing recorded
       // it. The call lives here until this guard migrates, at which point the
       // dispatcher covers it and this line comes out.
+      // mt#4257: the calibration record keeps the BASE reason so records stay
+      // groupable by redirect; only the agent-facing text carries the
+      // availability escape appended below.
       recordGuardDenial({
         sessionId: input.session_id,
         toolName: input.tool_name,
@@ -1099,7 +1136,7 @@ if (import.meta.main) {
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
-          permissionDecisionReason: reason,
+          permissionDecisionReason: `${reason}${REDIRECT_UNAVAILABLE_ESCAPE}`,
         },
       });
       recordAndExit("deny");

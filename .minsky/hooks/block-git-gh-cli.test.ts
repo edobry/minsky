@@ -18,6 +18,7 @@ import {
   isMinskySessionPath,
   stripEnvVarAssignments,
   toolContextFromName,
+  REDIRECT_UNAVAILABLE_ESCAPE,
   classifyAgentTypeObservation,
   findGhApiMethod,
   findGhApiEndpoint,
@@ -1902,5 +1903,45 @@ describe("isCwdScopedInvocation — what the external carve-out may cover (PR #2
     expect(
       isCwdScopedInvocation({ binary: "git", args: ["--work-tree", "/elsewhere", "add", "-A"] })
     ).toBe(false);
+  });
+});
+
+describe("REDIRECT_UNAVAILABLE_ESCAPE (mt#4257)", () => {
+  // Every redirect in this guard names an `mcp__*` tool. When that server is
+  // disconnected the tools do not load — and `session_exec`, the documented
+  // fallback, is itself an MCP tool on the same server, so it goes with them.
+  // The denial then names ~34 unreachable tools and no reachable path. These
+  // pin the escape that closes that gap.
+
+  it("names the guard's own override, derived from GUARD_NAME rather than retyped", () => {
+    // Retyping the name is how an override string drifts from the guard it
+    // unlocks; asserting the composed value catches that.
+    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain("MINSKY_HOOK_OVERRIDE=block-git-gh-cli");
+  });
+
+  it("names the availability condition, not just the override", () => {
+    // An override with no stated trigger reads as a general-purpose bypass.
+    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain("MCP server is disconnected");
+    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain("/mcp");
+  });
+
+  it("says the documented fallback shares the failure mode", () => {
+    // This is the non-obvious half: an agent that knows session_exec is the
+    // carve-out will reach for it first, and it is gone too.
+    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain("session_exec");
+    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain("same server");
+  });
+
+  it("starts with a blank-line separator so it cannot run into the redirect text", () => {
+    expect(REDIRECT_UNAVAILABLE_ESCAPE.startsWith("\n\n")).toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: the base redirect strings do NOT carry the escape", () => {
+    // The escape is appended once at the denial site, not baked into each
+    // rule — so the calibration record (which stores the base `reason`) stays
+    // groupable by redirect. If a rule string ever embeds it, this fails.
+    for (const rule of [...gitDenials, ...ghDenials]) {
+      expect(rule.reason).not.toContain("MINSKY_HOOK_OVERRIDE");
+    }
   });
 });
