@@ -24,6 +24,7 @@ import {
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { shortIdColumn, shortIdUniqueIndex } from "./short-id-column";
+import { projectsTable } from "./projects-schema";
 
 // Postgres enums for memory type and scope
 // MEMORY_TYPE_VALUES is the single source of truth — adding a value there
@@ -90,7 +91,11 @@ export const memoriesTable = pgTable(
     description: text("description").notNull(),
     content: text("content").notNull(),
     scope: memoryScopeEnum("scope").notNull(),
-    projectId: text("project_id"),
+    // uuid FK to projects.id, matching every sibling project-scoped table (mt#4668).
+    // Nullable: `user`/`cross_project` scoped memories deliberately carry NULL here
+    // (see PROJECT_AGNOSTIC_MEMORY_SCOPES above) — NOT NULL hardening is out of scope
+    // (ADR-021 defers it to Phase-1.3b, tracked at mt#2391).
+    projectId: uuid("project_id").references(() => projectsTable.id),
     tags: text("tags").array().notNull().default([]),
     sourceAgentId: text("source_agent_id"),
     sourceSessionId: text("source_session_id"),
