@@ -453,7 +453,17 @@ export function mountConversationRoutes(
       const enrichmentPromise = timing.time("enrichment", async () => {
         try {
           const { fetchEnrichment } = await import("../conversation-label-enrichment");
-          return await fetchEnrichment(db, [agentSessionId], await getOverviewTitleCache());
+          // Pass the generated title this handler ALREADY read off the
+          // transcript row (mt#4655). When it is present the label resolves at
+          // tier 2 and the user-text read is skipped entirely — 98.2% of
+          // conversations carry one, and that read cost 557 kB on the
+          // conversation this task was filed against.
+          return await fetchEnrichment(
+            db,
+            [agentSessionId],
+            await getOverviewTitleCache(),
+            new Map([[agentSessionId, transcript.title ?? null]])
+          );
         } catch (enrichErr) {
           // Resolve to null rather than reject: a label is chrome, not data,
           // and the caller below falls back exactly as it did when the whole
