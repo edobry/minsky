@@ -12,6 +12,7 @@ import { log } from "@minsky/shared/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { getErrorMessage } from "../errors/index";
 import { isInsideGitWorkTree } from "../utils/git-exec";
+import { parseGitHubOwnerRepo } from "../uri-utils";
 import { getConfiguration } from "../configuration/index";
 import { processCwd } from "@minsky/shared/process";
 
@@ -76,18 +77,10 @@ export function extractGitHubRepoFromRemote(
       .toString()
       .trim();
 
-    // Parse GitHub repository from various URL formats
-    // SSH: git@github.com:owner/repo.git
-    // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
-    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^.]+)/);
-
-    const match = sshMatch || httpsMatch;
-    if (match && match[1] && match[2]) {
-      return {
-        owner: match[1] || "",
-        repo: (match[2] || "").replace(/\.git$/, ""), // Remove .git suffix
-      };
+    // Parse GitHub repository from various URL formats (mt#4671: shared parser).
+    const parsed = parseGitHubOwnerRepo(remoteUrl);
+    if (parsed) {
+      return parsed;
     }
 
     // Handle local paths (for development/session workspaces)
@@ -115,16 +108,10 @@ export function extractGitHubRepoFromRemote(
           .toString()
           .trim();
 
-        // Recursively parse the upstream remote
-        const upstreamSshMatch = upstreamUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
-        const upstreamHttpsMatch = upstreamUrl.match(/https:\/\/github\.com\/([^/]+)\/([^.]+)/);
-
-        const upstreamMatch = upstreamSshMatch || upstreamHttpsMatch;
-        if (upstreamMatch && upstreamMatch[1] && upstreamMatch[2]) {
-          return {
-            owner: upstreamMatch[1] || "",
-            repo: (upstreamMatch[2] || "").replace(/\.git$/, ""),
-          };
+        // Recursively parse the upstream remote (mt#4671: shared parser).
+        const upstreamParsed = parseGitHubOwnerRepo(upstreamUrl);
+        if (upstreamParsed) {
+          return upstreamParsed;
         }
       } catch (error) {
         // Upstream lookup failed — there is no trustworthy owner/repo to
