@@ -34,6 +34,27 @@ export interface WorkspaceOverview {
 }
 
 /**
+ * Per-step costs of one `buildWorkspaceOverview` call (mt#4663).
+ *
+ * The two enrichments run CONCURRENTLY, so `totalMs` is roughly the max of the
+ * other two rather than their sum — the point of reporting all three is to say
+ * WHICH one sets that max. Added because mt#4663 collapsed the link→session
+ * chain from three database round trips to one, and this call then became the
+ * dominant remaining term for a conversation whose link still resolves; the
+ * planning estimate for it (~150ms) turned out to be well under the measured
+ * cost, and there was no instrumentation to say whether git subprocesses or the
+ * task-title lookup was responsible.
+ */
+export interface WorkspaceOverviewTimings {
+  /** `git merge-base` + `git log`, or 0 when there is no git workspace on disk. */
+  commitsMs: number;
+  /** The task-service title lookup, or 0 when the record carries no `taskId`. */
+  taskTitleMs: number;
+  /** Wall-clock for the whole call. */
+  totalMs: number;
+}
+
+/**
  * Candidate base refs to compute a merge-base against, in preference order.
  * The first ref that resolves wins; none resolving falls back to plain
  * `HEAD` (pre-mt#2768 behavior — traverses full ancestor history).
@@ -94,9 +115,13 @@ async function resolveCommitRange(
  */
 export async function buildWorkspaceOverview(
   record: SessionRecord,
-  workdir: string | null
+  workdir: string | null,
+  onTiming?: (marks: WorkspaceOverviewTimings) => void
 ): Promise<WorkspaceOverview> {
   const repoWebBase = githubRepoWebBase(record.repoUrl);
+  const startedAt = performance.now();
+  let commitsMs = 0;
+  let taskTitleMs = 0;
 
   const commitsPromise: Promise<SessionCommitRef[]> = (async () => {
     if (!workdir) return [];
@@ -138,7 +163,22 @@ export async function buildWorkspaceOverview(
     }
   })();
 
-  const [commits, taskTitle] = await Promise.all([commitsPromise, taskTitlePromise]);
+  // mt#4663 — both marks are taken from the START of the call, not from each
+  // promise's own creation, so they read as "how long until this enrichment was
+  // available". The two run concurrently, so the larger one is what sets the
+  // call's wall-clock; reporting both is what makes that attributable.
+  const [commits, taskTitle] = await Promise.all([
+    commitsPromise.then((value) => {
+      commitsMs = performance.now() - startedAt;
+      return value;
+    }),
+    taskTitlePromise.then((value) => {
+      taskTitleMs = performance.now() - startedAt;
+      return value;
+    }),
+  ]);
+
+  onTiming?.({ commitsMs, taskTitleMs, totalMs: performance.now() - startedAt });
 
   return {
     session: buildSessionMeta(record, taskTitle),
