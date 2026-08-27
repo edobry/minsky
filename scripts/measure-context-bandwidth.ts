@@ -225,13 +225,36 @@ function percentile(sorted: number[], p: number): number {
  *
  * Sizes only; the content is measured and discarded, never retained or emitted.
  */
-function measureToolResultBytes(filePath: string): Map<string, { bytes: number; count: number }> {
+function measureToolResultBytes(filePath: string): {
+  byTool: Map<string, { bytes: number; count: number }>;
+  /**
+   * Census of the BLOCK SHAPES encountered, so the partition can be audited.
+   *
+   * This exists because of how the first version failed (PR #3397 R1): it summed
+   * `text` and silently contributed nothing for every other shape, and the
+   * resulting total — 273.8 MB against a true 384.6 MB — looked entirely
+   * plausible. There was no null to notice and no error to catch; a sum that
+   * omits a variant is wrong-low and well-formed.
+   *
+   * A measurement that partitions a corpus should therefore report its own
+   * residual. With this census in the output, an unmodelled shape shows up as a
+   * named row with real bytes beside it on the FIRST run, instead of being
+   * absorbed into silence. That is the structural form of the lesson; the prose
+   * form is already in `claim-confidence.mdc` and did not stop this.
+   */
+  byBlockKind: Map<string, { bytes: number; count: number }>;
+} {
   const byTool = new Map<string, { bytes: number; count: number }>();
+  const byBlockKind = new Map<string, { bytes: number; count: number }>();
+  const note = (m: Map<string, { bytes: number; count: number }>, k: string, b: number): void => {
+    const prev = m.get(k) ?? { bytes: 0, count: 0 };
+    m.set(k, { bytes: prev.bytes + b, count: prev.count + 1 });
+  };
   let raw: string;
   try {
     raw = readFileSync(filePath, "utf-8");
   } catch {
-    return byTool;
+    return { byTool, byBlockKind };
   }
 
   // A tool_result names the call it answers by id, and the NAME lives on the
@@ -265,6 +288,7 @@ function measureToolResultBytes(filePath: string): Map<string, { bytes: number; 
       let bytes = 0;
       if (typeof payload === "string") {
         bytes = Buffer.byteLength(payload);
+        note(byBlockKind, "<string payload>", bytes);
       } else if (Array.isArray(payload)) {
         for (const part of payload) {
           // EVERY block shape counts, not just `text` (PR #3397 R1). The first
@@ -274,21 +298,25 @@ function measureToolResultBytes(filePath: string): Map<string, { bytes: number; 
           // single densest payload class understates its own denominator and
           // every share computed from it.
           const p = part as { type?: unknown; text?: unknown };
+          const kind = typeof p.type === "string" ? p.type : "<untyped block>";
+          let partBytes: number;
           if (p.type === "text" && typeof p.text === "string") {
-            bytes += Buffer.byteLength(p.text);
+            partBytes = Buffer.byteLength(p.text);
           } else {
             // Serialized length is the honest proxy for a non-text block: for an
             // image the base64 `source.data` dominates it, and the envelope is
             // itself real wire cost.
-            bytes += Buffer.byteLength(JSON.stringify(part));
+            partBytes = Buffer.byteLength(JSON.stringify(part));
           }
+          bytes += partBytes;
+          note(byBlockKind, kind, partBytes);
         }
       }
       const prev = byTool.get(name) ?? { bytes: 0, count: 0 };
       byTool.set(name, { bytes: prev.bytes + bytes, count: prev.count + 1 });
     }
   }
-  return byTool;
+  return { byTool, byBlockKind };
 }
 
 function measureSessions(dir: string): SessionMeasurement[] {
@@ -513,11 +541,17 @@ function main(): void {
 
   if (want("--tools")) {
     const totals = new Map<string, { bytes: number; count: number }>();
+    const kinds = new Map<string, { bytes: number; count: number }>();
     for (const name of readdirSync(dir)) {
       if (!name.endsWith(".jsonl")) continue;
-      for (const [tool, m] of measureToolResultBytes(join(dir, name))) {
+      const measured = measureToolResultBytes(join(dir, name));
+      for (const [tool, m] of measured.byTool) {
         const prev = totals.get(tool) ?? { bytes: 0, count: 0 };
         totals.set(tool, { bytes: prev.bytes + m.bytes, count: prev.count + m.count });
+      }
+      for (const [kind, m] of measured.byBlockKind) {
+        const prev = kinds.get(kind) ?? { bytes: 0, count: 0 };
+        kinds.set(kind, { bytes: prev.bytes + m.bytes, count: prev.count + m.count });
       }
     }
     const grand = [...totals.values()].reduce((a, m) => a + m.bytes, 0);
@@ -538,7 +572,28 @@ function main(): void {
         `${t.tool.slice(0, 36).padEnd(38)}${t.megabytes.toFixed(1).padStart(6)}${String(t.calls).padStart(10)}${`${t.sharePct.toFixed(1)}%`.padStart(9)}`
       );
     }
-    console.log("");
+    // The partition audit (PR #3397 R1). Every byte counted above is attributed
+    // to a named block shape here, and the shapes sum back to the same total —
+    // so an unmodelled shape appears as its own row rather than as silence.
+    const kindTotal = [...kinds.values()].reduce((a, m) => a + m.bytes, 0);
+    payload.blockKinds = {
+      totalMegabytes: kindTotal / 1e6,
+      reconciles: Math.abs(kindTotal - grand) < 1,
+      kinds: [...kinds.entries()]
+        .map(([kind, m]) => ({ kind, megabytes: m.bytes / 1e6, blocks: m.count }))
+        .sort((a, b) => b.megabytes - a.megabytes),
+    };
+    console.log("## Partition audit — every counted byte, by block shape");
+    for (const [kind, m] of [...kinds.entries()].sort((a, b) => b[1].bytes - a[1].bytes)) {
+      console.log(
+        `${kind.slice(0, 24).padEnd(26)}${(m.bytes / 1e6).toFixed(1).padStart(7)} MB ${String(m.count).padStart(9)} blocks`
+      );
+    }
+    console.log(
+      `${"reconciles with total".padEnd(26)}${(kindTotal / 1e6).toFixed(1).padStart(7)} MB  ${
+        Math.abs(kindTotal - grand) < 1 ? "OK" : "MISMATCH"
+      }\n`
+    );
   }
 
   if (jsonOut !== undefined) {
