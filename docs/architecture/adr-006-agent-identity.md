@@ -87,10 +87,43 @@ module — the shim's v1 scope names only the `CLAUDE_CODE_SESSION_ID` env-var p
 would pull a `ps`-shelling dependency into a footprint the spec bounds — so spawn-pinning remains
 exactly as described above on the shim — the local-daemon transport, which is the path in
 use for this repo's own MCP access (verified 2026-08-24: a daemon serving port 48765). ADR-038
-Question 6 still frames a default-flip as pending, so do not read this as a repo-wide default. Consumers that read
-the env var directly rather than going through either writer are pinned regardless of transport;
-mt#4440 tracks the presence-claim writer as one such case, where a claim can therefore carry
-another conversation's id.
+Question 6 still frames a default-flip as pending, so do not read this as a repo-wide default.
+
+**Superseded in part by the 2026-08-27 amendment below** — the shim's exclusion described here is
+now closed, and this paragraph's closing claim about WHY presence claims were affected was wrong.
+
+**Amendment (2026-08-27, mt#4440): the shim gap is closed, and the earlier attribution was wrong.**
+
+Two corrections, one of which matters more than the fix itself:
+
+1. **The exclusion is gone.** Both writers — `src/mcp/stdio-proxy/conversation-identity.ts` and
+   `src/mcp/shim/identity.ts` — now resolve through one shared implementation,
+   `packages/domain/src/agent-identity/live-conversation.ts`, so an in-process `/clear` or resume
+   is picked up on BOTH transports. The `ps`-shelling footprint concern that motivated the original
+   exclusion was measured rather than assumed: the shim's bundle went 10,760 → 13,504 bytes
+   against `rss-budget.test.ts`'s 51,200-byte gate, and its RSS 29 MB → 31 MB against that test's
+   60 MB bound.
+2. **The previous paragraph's closing sentence was FALSE, and the false version is the more useful
+   record.** It read: _"Consumers that read the env var directly rather than going through either
+   writer are pinned regardless of transport; mt#4440 tracks the presence-claim writer as one such
+   case."_ The presence-claim writer does **not** read the env var. `src/mcp/server.ts`'s
+   `resolveCallerIdentity` delegates to `resolveAgentIdWithLayer`, whose inputs are entirely
+   caller-supplied, and `packages/domain/src/agent-identity/resolve.ts` contains zero `process.env`
+   reads. It went **through** a writer — the shim — and propagated the shim's stale stamp
+   faithfully.
+
+   Why that mattered: the sentence named a real failure class (direct env readers ARE pinned) and
+   attached the wrong instance to it, which sent mt#4440's own investigation to
+   `src/mcp/server.ts`, then to `src/mcp/stdio-proxy/`, before a single `grep -c 'proxy' .mcp.json`
+   — returning **0** across every MCP config — showed the proxy was not in the path at all. A
+   correctly-stated general rule with a misattached example reads as diagnosis and costs the next
+   reader the same detour.
+
+Note the direct-env-reader class the sentence named does still exist and is unrelated to this fix:
+`resolveCallerActorId` (`packages/domain/src/agent-identity/caller.ts`) reads `CLAUDE_AGENT_ID` and
+`CLAUDE_CODE_SESSION_ID` as its CLI-path fallback (mt#4408, mt#4568). That path is correct where it
+is used — the CLI runs as a child of the harness, so its environment names the current conversation
+— and it is not on the presence-claim path.
 
 ### Layer 2 — Declared
 

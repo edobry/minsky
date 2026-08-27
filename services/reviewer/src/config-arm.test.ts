@@ -247,8 +247,8 @@ describe("applyArmToConfig", () => {
   });
 
   test("returns the same object reference when the candidate equals the incumbent", () => {
-    // A degenerate but reachable configuration: REVIEWER_EXPERIMENT_MODEL set
-    // to the model already running. Both arms are then the same model, so
+    // A degenerate but reachable configuration: the experiment-model env var
+    // set to the model already running. Both arms are then the same model, so
     // there is nothing to substitute.
     const applied = applyArmToConfig(baseConfig, 3342, {
       [EXPERIMENT_MODEL_ENV_VAR]: INCUMBENT_MODEL,

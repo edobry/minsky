@@ -28,15 +28,40 @@ import {
   SUPPRESSION_STOP_GUARD_ALREADY_INJECTED,
   resolveStopOverlap,
   run,
+  resolveSettledDecisionRung2,
+  SUPPRESSION_SETTLED_DECISION_RUNG2,
+  SETTLED_DECISION_RUNG2_THRESHOLD,
+  SETTLED_DECISION_EXEMPLARS,
+  SETTLED_DECISION_EXEMPLAR_SET,
+  SETTLED_DECISION_PATTERNS,
+  isRung2NominationEnabled,
+  RUNG2_NOMINATION_ENV_VAR,
   type DeferralMatch,
+  type SettledDecisionNominator,
 } from "./ask-routing-deferral-detector";
 import { run as runUntakenAction } from "./turn-end-untaken-action-scan";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type { NominationDeps } from "../../packages/domain/src/detectors/embedding-nomination";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 
 const PRINCIPAL_RESERVED = "principal-reserved" as const;
 const DEFERRAL_MENU = "deferral-menu" as const;
+
+/**
+ * The canonical AT2 regression-floor turn: a genuine deferral, no decision
+ * taken. Shared by the mt#4175 (Rung 1) and mt#4404 (Rung 2) blocks so the two
+ * rungs are measured against the SAME floor case rather than two copies of it
+ * that could drift apart.
+ */
+const UNSETTLED_TURN = "**Next.** Say the word and I'll plan any of the three.";
+
+/** The degraded reason `resolveNominationDeps` produces when nothing is configured. */
+const PROVIDER_UNCONFIGURED = "provider-unconfigured";
+
+/** The degraded reason a `local`-hash-stub (non-semantic) provider produces. */
+const NON_SEMANTIC_PROVIDER = "non-semantic-provider";
 
 // ---------------------------------------------------------------------------
 // PRINCIPAL-RESERVED sub-class
@@ -362,7 +387,7 @@ describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
     expect(outcome?.additionalContext).toBeDefined();
   });
 
-  test("this guard then stays quiet about the same sentence — one injection, not two", () => {
+  test("this guard then stays quiet about the same sentence — one injection, not two", async () => {
     runUntakenAction(
       { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
       { event: "Stop" } as never,
@@ -374,7 +399,7 @@ describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
       makeRunAssistantLine(INCIDENT_CLOSING_SENTENCE),
       makeRunUserLine(),
     ];
-    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    const outcome = await run(promptInput(), makeCtx(lines), storeDir);
 
     // Still RECORDED — the overlap has to stay measurable — but not injected.
     expect(outcome?.calibration).toBeDefined();
@@ -384,13 +409,13 @@ describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
     expect(outcome?.additionalContext).toBeUndefined();
   });
 
-  test("without a prior Stop fire, this guard injects as before", () => {
+  test("without a prior Stop fire, this guard injects as before", async () => {
     const lines = [
       makeRunUserLine(),
       makeRunAssistantLine(INCIDENT_CLOSING_SENTENCE),
       makeRunUserLine(),
     ];
-    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    const outcome = await run(promptInput(), makeCtx(lines), storeDir);
     expect(outcome?.additionalContext).toBeDefined();
   });
 
@@ -452,7 +477,7 @@ describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
     });
   });
 
-  test("a DIFFERENT turn's deferral is unaffected by the flag", () => {
+  test("a DIFFERENT turn's deferral is unaffected by the flag", async () => {
     runUntakenAction(
       { session_id: SESSION, last_assistant_message: INCIDENT_CLOSING_SENTENCE } as never,
       { event: "Stop" } as never,
@@ -463,13 +488,13 @@ describe("mt#3620 — Stop guard speaks first, this guard defers to it", () => {
       makeRunAssistantLine("The rail-axis question needs your call before anything gets encoded."),
       makeRunUserLine(),
     ];
-    const outcome = run(promptInput(), makeCtx(lines), storeDir);
+    const outcome = await run(promptInput(), makeCtx(lines), storeDir);
     expect(outcome?.additionalContext).toBeDefined();
   });
 });
 
 describe("run() (dispatcher-compatible)", () => {
-  test("deferral match -> calibration record AND additionalContext (live injection, mt#2694)", () => {
+  test("deferral match -> calibration record AND additionalContext (live injection, mt#2694)", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(
@@ -477,7 +502,7 @@ describe("run() (dispatcher-compatible)", () => {
       ),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.calibration).toBeDefined();
     expect(outcome?.additionalContext).toBeDefined();
     expect(outcome?.additionalContext).toContain("asks_create");
@@ -490,64 +515,64 @@ describe("run() (dispatcher-compatible)", () => {
   /** A turn that defers a principal-reserved decision. */
   const PRINCIPAL_RESERVED_TURN = "The rail-axis question needs your call.";
 
-  test("no match -> null (silent allow)", () => {
+  test("no match -> null (silent allow)", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(NO_DEFERRAL_TURN),
       makeRunUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
   // mt#3207: this used to assert `null`. The gate returned BEFORE detection
   // ran, so a suppressed deferral was indistinguishable from a clean turn and
   // the gate looked costless to the sweep. It now records and stays silent.
-  test("suppressed when the turn already routed via asks_create -> records, no injection", () => {
+  test("suppressed when the turn already routed via asks_create -> records, no injection", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine(),
       makeRunAssistantLine(PRINCIPAL_RESERVED_TURN),
       { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toBeUndefined();
     const cal = outcome?.calibration as { suppressionReasons: string[] };
     expect(cal.suppressionReasons).toEqual([SUPPRESSION_ASKS_CREATE_THIS_TURN]);
   });
 
-  test("mt#3207: an INJECTED fire records an empty suppressionReasons, not an absent one", () => {
+  test("mt#3207: an INJECTED fire records an empty suppressionReasons, not an absent one", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(PRINCIPAL_RESERVED_TURN),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toBeDefined();
     const cal = outcome?.calibration as { suppressionReasons: string[] };
     expect(cal.suppressionReasons).toEqual([]);
   });
 
-  test("mt#3207: a turn that routed an ask and deferred NOTHING still records nothing", () => {
+  test("mt#3207: a turn that routed an ask and deferred NOTHING still records nothing", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine(),
       makeRunAssistantLine(NO_DEFERRAL_TURN),
       { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
       makeRunUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("no transcript_path -> null", () => {
+  test("no transcript_path -> null", async () => {
     const input: ClaudeHookInput = {
       session_id: "test",
       cwd: "/test",
       hook_event_name: RUN_HOOK_EVENT_NAME,
     };
     const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
-    expect(run(input, ctx)).toBeNull();
+    expect(await run(input, ctx)).toBeNull();
   });
 
-  test("legacy override env var suppresses detection and returns an audit line", () => {
+  test("legacy override env var suppresses detection and returns an audit line", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine("What's your call?"),
@@ -555,7 +580,7 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
       expect(outcome?.calibration).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
@@ -1226,13 +1251,13 @@ describe("PR #3205 R1 — run() wires the suppression, not just the helper", () 
     "Still open and unchanged: [ask#8752](minsky://ask/7f206ca7) needs your call on the detector.";
   const UNCITED_DEFERRAL_TURN = "The rail-axis question needs your call.";
 
-  test("a reported-ask turn records the detection and injects NOTHING", () => {
+  test("a reported-ask turn records the detection and injects NOTHING", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(REPORTED_ASK_TURN),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
 
     expect(outcome?.calibration).toBeDefined();
     // Detected — the record still carries it (mt#3207 detect-first).
@@ -1245,13 +1270,13 @@ describe("PR #3205 R1 — run() wires the suppression, not just the helper", () 
     expect(outcome?.additionalContext).toBeUndefined();
   });
 
-  test("the same phrase WITHOUT a citation still injects — the wiring discriminates", () => {
+  test("the same phrase WITHOUT a citation still injects — the wiring discriminates", async () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(UNCITED_DEFERRAL_TURN),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
 
     const cal = outcome?.calibration as { suppressionReasons: string[] };
     expect(cal.suppressionReasons).not.toContain(SUPPRESSION_CITES_FILED_ASK);
@@ -1414,10 +1439,8 @@ describe("mt#4175 — run() wires the suppression, not just the helper", () => {
 
   const SETTLED_TURN =
     "I filed mt#4243 as tracking rather than walking it to implementation. Say the word if you want it built now.";
-  const UNSETTLED_TURN = "**Next.** Say the word and I'll plan any of the three.";
-
-  test("a settled-decision turn records the detection and injects NOTHING", () => {
-    const outcome = run(
+  test("a settled-decision turn records the detection and injects NOTHING", async () => {
+    const outcome = await run(
       RUN_HOOK_INPUT,
       makeCtx([makeRunUserLine(), makeRunAssistantLine(SETTLED_TURN), makeRunUserLine()])
     );
@@ -1428,14 +1451,316 @@ describe("mt#4175 — run() wires the suppression, not just the helper", () => {
     expect(outcome?.additionalContext).toBeUndefined();
   });
 
-  test("the same phrase WITHOUT a settled decision still injects — the wiring discriminates", () => {
-    const outcome = run(
+  test("the same phrase WITHOUT a settled decision still injects — the wiring discriminates", async () => {
+    const outcome = await run(
       RUN_HOOK_INPUT,
       makeCtx([makeRunUserLine(), makeRunAssistantLine(UNSETTLED_TURN), makeRunUserLine()])
     );
 
     const cal = outcome?.calibration as { suppressionReasons: string[] };
     expect(cal.suppressionReasons).not.toContain(SUPPRESSION_SETTLED_DECISION);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4404 — Rung 2 (embedding nomination) for the settled-decision suppressor
+// ---------------------------------------------------------------------------
+
+/**
+ * The nominator is INJECTED throughout, never patched.
+ *
+ * That is the testable-design shape rather than a convenience: the decision
+ * under test is "given a verdict about this window, which matches survive," and
+ * the embedding call is a collaborator the function is HANDED. Reaching for a
+ * `spyOn` here would be testing the wiring of a module import instead. The real
+ * provider is exercised separately by
+ * `bun scripts/replay-settled-decision.ts --rung2`, which is where the threshold
+ * itself was measured — a network call has no place in a unit test.
+ */
+const settledAlways: SettledDecisionNominator = async () => ({ kind: "settled", score: 0.9 });
+const settledNever: SettledDecisionNominator = async () => ({ kind: "none" });
+const settledDegraded: SettledDecisionNominator = async () => ({
+  kind: "degraded",
+  reason: PROVIDER_UNCONFIGURED,
+});
+
+describe("mt#4404 — Rung 2 reaches the renderings the patterns cannot", () => {
+  // Verbatim from `.minsky/ask-routing-deferral-calibration.jsonl`, the record
+  // this task was filed on (ts 2026-08-21T20:22:05.670Z).
+  const RECORD_7 =
+    "Picking mt#4391 over mt#4385 because bare-prohibition is quieted, so its inert basis recognizer affects no agent today, whereas the ack path is live and self-compounding. That ordering is mine and cheap to reverse if you'd rather I start elsewhere.";
+
+  test("AT6 — record 7 is suppressed once Rung 2 is consulted", async () => {
+    const matches = detectDeferralPhrases(RECORD_7);
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+
+    // Rung 1 alone leaves it firing — the premise this whole task rests on,
+    // asserted here rather than assumed.
+    expect(resolveSettledDecision(matches).remaining.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = await resolveSettledDecisionRung2(matches, settledAlways);
+    expect(remaining).toEqual([]);
+    expect(suppressedAll).toBe(true);
+  });
+
+  test("AT2 floor — a genuine deferral the nominator does not claim is left alone", async () => {
+    const matches = detectDeferralPhrases(UNSETTLED_TURN);
+    const { remaining, suppressedAll } = await resolveSettledDecisionRung2(matches, settledNever);
+    expect(remaining).toEqual(matches);
+    expect(suppressedAll).toBe(false);
+  });
+
+  test("the cls guard is inherited — principal-reserved survives a `settled` verdict", async () => {
+    // Same contract as Rung 1's: a settled decision does not make "rotating
+    // that token is your call" any less the principal's. A nominator that says
+    // `settled` for EVERY window is the strongest form of this test.
+    const matches = detectDeferralPhrases(
+      "Picking the cheaper option here. Rotating that token needs your call."
+    );
+    const reserved = matches.filter((m) => m.cls === PRINCIPAL_RESERVED);
+    expect(reserved.length).toBeGreaterThan(0);
+
+    const { remaining } = await resolveSettledDecisionRung2(matches, settledAlways);
+    expect(remaining.filter((m) => m.cls === PRINCIPAL_RESERVED).length).toBe(reserved.length);
+  });
+
+  test("AT5 — a degraded nomination suppresses NOTHING and records the reason", async () => {
+    // ADR-024's fail-to-Rung-1 invariant. On a suppressor this is the safe
+    // direction: the false positive returns, rather than a real deferral being
+    // silenced by a provider outage.
+    const matches = detectDeferralPhrases(RECORD_7);
+    const result = await resolveSettledDecisionRung2(matches, settledDegraded);
+    expect(result.remaining).toEqual(matches);
+    expect(result.suppressedAll).toBe(false);
+    expect(result.degradedReason).toBe(PROVIDER_UNCONFIGURED);
+  });
+
+  test("a nominator that throws degrades rather than escaping", async () => {
+    const thrower: SettledDecisionNominator = async () => {
+      throw new Error("socket hang up");
+    };
+    const matches = detectDeferralPhrases(RECORD_7);
+    const result = await resolveSettledDecisionRung2(matches, thrower);
+    expect(result.remaining).toEqual(matches);
+    expect(result.degradedReason).toContain("socket hang up");
+  });
+
+  test("a mid-loop degradation discards the partial verdict, not just the failed context", async () => {
+    // Otherwise the outcome would depend on match ORDER: whichever contexts
+    // happened to be scored before the provider wedged would be suppressed and
+    // the rest would not, which is a verdict nobody chose.
+    let call = 0;
+    const flaky: SettledDecisionNominator = async () => {
+      call++;
+      return call === 1 ? { kind: "settled", score: 0.9 } : { kind: "degraded", reason: "timeout" };
+    };
+    // Constructed rather than detected: `detectDeferralPhrases` reports one
+    // match per class per turn, so two DISTINCT contexts in one `deferral-menu`
+    // array cannot be produced from prose. The resolver's input type is
+    // `DeferralMatch[]`, and two contexts is exactly the state this ordering
+    // property is about — building it directly tests the property instead of
+    // testing the detector's dedup.
+    const matches: DeferralMatch[] = [
+      {
+        cls: DEFERRAL_MENU,
+        matchedPhrase: "Say the word",
+        context:
+          "Picking the first one because it is cheap to reverse. Say the word if you would rather I switch.",
+        sentence: "Say the word if you would rather I switch.",
+      },
+      {
+        cls: DEFERRAL_MENU,
+        matchedPhrase: "want me to",
+        context: "Separately: want me to take the second, or would you rather I stop here?",
+        sentence: "Separately: want me to take the second, or would you rather I stop here?",
+      },
+    ];
+    expect(new Set(matches.map((m) => m.context)).size).toBe(2);
+
+    const result = await resolveSettledDecisionRung2(matches, flaky);
+    expect(result.remaining).toEqual(matches);
+    expect(result.degradedReason).toBe("timeout");
+  });
+
+  test("no nominator (the shipped default) leaves everything unchanged and degrades nothing", async () => {
+    const matches = detectDeferralPhrases(RECORD_7);
+    const result = await resolveSettledDecisionRung2(matches, undefined);
+    expect(result.remaining).toEqual(matches);
+    expect(result.degradedReason).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #3395 R1 — the non-semantic-provider property, asserted rather than argued
+  // -------------------------------------------------------------------------
+
+  test("a non-semantic provider never produces a score, so nothing can cross the threshold", async () => {
+    // The reviewer's stated failure was hash-stub cosines crossing
+    // `SETTLED_DECISION_RUNG2_THRESHOLD` and silencing a genuine deferral. It
+    // cannot happen, and this is the proof rather than the assertion: the
+    // embedding service THROWS if called at all. `nominate` refuses on
+    // `!deps.semantic` before it reaches the service, so the throw is never
+    // triggered and the result is a clean degraded verdict.
+    const exploding = {
+      generateEmbeddings: async () => {
+        throw new Error("the provider must not be reached for a non-semantic dep");
+      },
+    } as unknown as NominationDeps["embeddingService"];
+
+    const result = await nominate(RECORD_7, [SETTLED_DECISION_EXEMPLAR_SET], {
+      embeddingService: exploding,
+      semantic: false,
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(result.degradedReason).toBe(NON_SEMANTIC_PROVIDER);
+    expect(result.nominations).toEqual([]);
+  });
+
+  test("that degraded verdict suppresses nothing end-to-end", async () => {
+    const nonSemantic: SettledDecisionNominator = async () => ({
+      kind: "degraded",
+      reason: NON_SEMANTIC_PROVIDER,
+    });
+    const matches = detectDeferralPhrases(RECORD_7);
+    const result = await resolveSettledDecisionRung2(matches, nonSemantic);
+    expect(result.remaining).toEqual(matches);
+    expect(result.suppressedAll).toBe(false);
+    expect(result.degradedReason).toBe(NON_SEMANTIC_PROVIDER);
+  });
+
+  test("run() returns a Promise — the async contract the dispatcher awaits", () => {
+    // PR #3395 R1 asked for an audit of `run`'s consumers; the result is in
+    // `run`'s docblock (nothing imports it but the dispatcher, which awaits).
+    // This pins the half an audit cannot: a future change that makes `run`
+    // synchronous again, or a new caller that forgets to await, fails HERE
+    // rather than becoming a silent no-op at prompt time.
+    const returned = run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(UNSETTLED_TURN), makeRunUserLine()])
+    );
+    expect(returned).toBeInstanceOf(Promise);
+    return returned.then(() => undefined);
+  });
+});
+
+describe("mt#4404 — Rung 1 is retained, not replaced", () => {
+  test("SC4 — the first-person-subject contract is untouched", () => {
+    // PR #3224 R1 removed every subject-less pattern from this array. Rung 2
+    // adds a SECOND rung rather than widening this one, so the contract holds
+    // by construction — this asserts the array still says so.
+    for (const pattern of SETTLED_DECISION_PATTERNS) {
+      expect(pattern.source).toContain("I");
+    }
+  });
+
+  test("Rung 2 is never consulted for a match Rung 1 already suppressed", async () => {
+    // The ordering is the cost argument: patterns are free, a nomination is a
+    // provider round-trip. A turn Rung 1 handles must not reach the network.
+    let calls = 0;
+    const counting: SettledDecisionNominator = async () => {
+      calls++;
+      return { kind: "none" };
+    };
+    const matches = detectDeferralPhrases(
+      "I filed mt#4243 as tracking. Say the word if you want it built now."
+    );
+    const settled = resolveSettledDecision(matches);
+    expect(settled.suppressedAll).toBe(true);
+
+    await resolveSettledDecisionRung2(settled.remaining, counting);
+    expect(calls).toBe(0);
+  });
+
+  test("the threshold is NOT the inherited shared default", () => {
+    // mt#4280 records `DEFAULT_SIMILARITY_THRESHOLD` (0.455) under-scoring
+    // ground-truth fixtures on a corpus it was not measured on. This value was
+    // measured on THIS corpus (band 0.4387..0.5901, midpoint). A future
+    // "simplification" back to the shared constant should fail here.
+    expect(SETTLED_DECISION_RUNG2_THRESHOLD).not.toBe(0.455);
+    expect(SETTLED_DECISION_RUNG2_THRESHOLD).toBeGreaterThan(0.4387);
+    expect(SETTLED_DECISION_RUNG2_THRESHOLD).toBeLessThan(0.5901);
+  });
+
+  test("the exemplar set covers every rendering the three windows measured", () => {
+    // One exemplar per observed grammatical form, not one per recorded fire.
+    // If a future edit prunes the set, this says which shape went missing.
+    const joined = SETTLED_DECISION_EXEMPLARS.join(" | ");
+    expect(joined).toContain("Picking"); // participial lead
+    expect(joined).toContain("Proceeding"); // participial, present
+    expect(joined).toContain("I'm proceeding"); // present progressive
+    expect(joined).toContain("I'd go with"); // conditional mood
+    expect(joined).toContain("I'll keep going"); // default-plus-escape continuation
+    expect(joined).toContain("I chose"); // finite past (Rung 1's own shape)
+  });
+
+  test("the Rung-2 path ships opt-in, off by default", () => {
+    // mt#3408's precedent: the mechanism lands, the threshold is measured, and
+    // a human flips it on after reading the calibration record.
+    const prior = process.env[RUNG2_NOMINATION_ENV_VAR];
+    delete process.env[RUNG2_NOMINATION_ENV_VAR];
+    try {
+      expect(isRung2NominationEnabled()).toBe(false);
+      process.env[RUNG2_NOMINATION_ENV_VAR] = "1";
+      expect(isRung2NominationEnabled()).toBe(true);
+    } finally {
+      if (prior === undefined) delete process.env[RUNG2_NOMINATION_ENV_VAR];
+      else process.env[RUNG2_NOMINATION_ENV_VAR] = prior;
+    }
+  });
+});
+
+describe("mt#4404 — run() wires Rung 2, not just the helper", () => {
+  // The caller direction of the mt#2508 production-wiring check, mirroring the
+  // mt#4175 block above: unit-testing the resolver proves the resolver.
+  const RECORD_7_TURN =
+    "Picking mt#4391 over mt#4385 because the ack path is live and self-compounding. That ordering is mine and cheap to reverse if you'd rather I start elsewhere.";
+
+  test("a Rung-2 suppression reaches the calibration record and withholds the injection", async () => {
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(RECORD_7_TURN), makeRunUserLine()]),
+      undefined,
+      settledAlways
+    );
+
+    const cal = outcome?.calibration as { matches: unknown[]; suppressionReasons: string[] };
+    expect(cal.matches.length).toBeGreaterThan(0);
+    expect(cal.suppressionReasons).toContain(SUPPRESSION_SETTLED_DECISION_RUNG2);
+    // The two rungs stay distinguishable in the log — Rung 1 did NOT catch this.
+    expect(cal.suppressionReasons).not.toContain(SUPPRESSION_SETTLED_DECISION);
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("the same turn with Rung 2 off still injects — the wiring discriminates", async () => {
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(RECORD_7_TURN), makeRunUserLine()]),
+      undefined,
+      undefined
+    );
+
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).not.toContain(SUPPRESSION_SETTLED_DECISION_RUNG2);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+
+  test("a degraded nomination records the ADR-024 marker and still injects", async () => {
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(RECORD_7_TURN), makeRunUserLine()]),
+      undefined,
+      settledDegraded
+    );
+
+    const cal = outcome?.calibration as {
+      suppressionReasons: string[];
+      rung2DegradedReason?: string;
+    };
+    // The marker is what separates "Rung 2 found nothing" from "Rung 2 never
+    // ran" — the same empty verdict without it.
+    expect(cal.rung2DegradedReason).toBe(PROVIDER_UNCONFIGURED);
+    expect(cal.suppressionReasons).not.toContain(SUPPRESSION_SETTLED_DECISION_RUNG2);
     expect(outcome?.additionalContext).toBeDefined();
   });
 });

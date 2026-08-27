@@ -128,13 +128,45 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
         },
       ];
       writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+      // mt#4380: the same transcript PLUS a CLI spec read, as the control. Without it this canary
+      // is satisfied by a guard that denies unconditionally — including one whose CLI channel has
+      // silently stopped crediting anything (mem#1237: a check that cannot distinguish the broken
+      // state from the healthy one is not evidence of coverage).
+      const cliTranscriptPath = join(dir, "transcript-cli.jsonl");
+      writeFileSync(
+        cliTranscriptPath,
+        [
+          ...lines,
+          {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  name: "Bash",
+                  input: { command: "minsky tasks spec get mt#9999" },
+                },
+              ],
+            },
+          },
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n")
+      );
       try {
         const targetId = resolveTargetTaskId("mcp__minsky__session_start", {
           task: "mt#9999",
         });
         if (!targetId) return false;
         const surfaced = specWasSurfacedInAnyTranscript(transcriptPath, undefined, targetId);
-        return !surfaced; // NOT surfaced -> the real guard would deny
+        const surfacedViaCli = specWasSurfacedInAnyTranscript(
+          cliTranscriptPath,
+          undefined,
+          targetId
+        );
+        // NOT surfaced -> the real guard would deny; surfaced via the CLI channel -> it would not.
+        return !surfaced && surfacedViaCli;
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -309,6 +341,43 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       return (
         gated.outcome === "gated" && ungated.outcome === "ungated" && skipped.outcome === "skipped"
       );
+    },
+  },
+  {
+    guardName: "coverage-claim-path-detector",
+    // Log-only (mt#4426): it writes a calibration record and returns null on
+    // every path, so the record IS the effect — same shape as
+    // `gate-walk-provenance` above.
+    effects: [recorderEffect()],
+    expects: "calibration",
+    // Declared HERE and not only in `.claude/settings.json`, which is mt#4390's
+    // whole lesson: a standalone guard wired only in settings.json declares no
+    // log, so its records are unsweepable and `check-coverage-receipts.ts` can
+    // only ever report it FLAGGED.
+    calibrationLog: "coverage-claim-path",
+    check: async () => {
+      const { findUnresolvedCoverageClaims } = await import(
+        "../../.minsky/hooks/coverage-claim-path"
+      );
+
+      // A DISCRIMINATING pair. A canary that only exercised the firing branch
+      // would pass against a matcher that fires on every cited path — which is
+      // precisely the naive form this detector exists to NOT be (measured 1.8%
+      // precision). So the negative half is the load-bearing half here.
+      const fires = findUnresolvedCoverageClaims(
+        "// Coverage is exercised in scripts/verify-nonexistent.ts.",
+        "src/thing.test.ts",
+        () => false
+      );
+      // The substring trap: `transcripts/` contains `scripts/`. Largest measured
+      // false-positive class, and invisible on inspection.
+      const substringTrap = findUnresolvedCoverageClaims(
+        "// Coverage is exercised in packages/domain/src/transcripts/turns.ts.",
+        "src/other.ts",
+        (p) => p === "packages/domain/src/transcripts/turns.ts"
+      );
+
+      return fires.length === 1 && substringTrap.length === 0;
     },
   },
 ];

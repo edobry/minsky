@@ -645,7 +645,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "negative-existence-claim-detector",
     {
       description:
-        "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it returned at most one hit and the prose cites a task that already shipped the thing. Log-only.",
+        "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it was thin (at most one hit) OR narrow (scoped to a proper subtree of the repo) and the prose cites a task that already shipped the thing. A claim that carries the searched subtree as a qualifier is correct authoring and is suppressed. Log-only.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("negative-existence-claim-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
@@ -901,6 +901,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         'Records, at the merge seam, whether the bound task was ever gated at all — a `task.status_changed` row with `newStatus: "READY"`, which only `/plan-task`\'s `tasks.status.set` call produces. The existence half of the gate-(h) pair; `enumeration-scope-check` asks the scope question at `pr` and presupposes the gate was walked, whereas this presupposes nothing and so is the only one that fires on a task that skipped PLANNING (mem#416 enumerates four such paths). Keeps `skipped` strictly apart from `ungated`: emission began ~2026-06 and the emitter swallows its own failures, so a missing row is bounded evidence about the stream, not about the gate. Record-only — never denies, never injects.',
       failureClasses: ["unreviewed-merge"],
       provenance: [hook("gate-walk-provenance"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
+    "coverage-claim-path-detector",
+    {
+      description:
+        "Records, at write time, a comment that CLAIMS coverage (or a convention, or a precedent) at a path which does not resolve — the class three tasks fixed one instance at a time (mt#4202, mt#3994, mt#4413). The cost is not the broken artifact: a confident pointer stops the next reader from looking. Two conjuncts, each removing a measured false-positive class and neither redundant — comment-scoping (removes fixture paths in test string literals) and a governing claim phrase within 160 chars (removes the illustrative names that live in comments, which is three of five sampled). The path pattern's leading lookbehind removes the largest class: `transcripts/` contains `scripts/`. Resolves against the CITING file's package root before the repo root, so a service-local `scripts/` is not a manufactured miss. Deliberately does NOT elide inline code spans, unlike ADR-024 Rung 1's prose-oriented prefilter: in a source comment a backticked path is the normal way to cite a real one, and one of the two known true positives is backticked. Measured corpus-wide: 22 fires, 21 real (95.5%), against ~1.8% for the naive path-existence form. Record-only — never denies, never injects.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("coverage-claim-path-detector"), HOOK_OBSERVERS_RULE],
       stratum: "standalone",
     },
   ],

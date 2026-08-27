@@ -9,7 +9,8 @@ A `UserPromptSubmit` observer for one narrow, mechanizable slice of the
 
 > A **negative existence claim** — "X is never called", "nothing implements Y", "zero call
 > sites", "no consumer reads Z" — written into a **durable artifact**, justified by a search
-> that returned **zero or one** hits, about a capability a task in **DONE** status claims to
+> that was **thin** (zero or one hits) or **narrow** (scoped to a proper subtree of the repo),
+> about a capability a task in **DONE** status claims to
 > have delivered.
 
 It does not judge whether the claim is TRUE — an intractable question. It says: _you are
@@ -58,11 +59,11 @@ the falsifier is deterministic — `git log`/diff on the cited DONE task shows w
 
 ## The three conjuncts
 
-| #   | Conjunct                                             | Where the evidence comes from                                            |
-| --- | ---------------------------------------------------- | ------------------------------------------------------------------------ |
-| 1   | A negative-existence claim in durable-artifact prose | `buildArtifactProseCorpus` (mt#3642), markdown-elided                    |
-| 2   | A same-turn search returned <=1 hit                  | search-class `tool_use` joined to its `tool_result` by `tool_use_id`     |
-| 3   | The prose cites an `mt#N` that is DONE               | one bounded `select id from tasks where id in (...) and status = 'DONE'` |
+| #   | Conjunct                                                                         | Where the evidence comes from                                                                                          |
+| --- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 1   | A negative-existence claim in durable-artifact prose                             | `buildArtifactProseCorpus` (mt#3642), markdown-elided                                                                  |
+| 2   | A same-turn search was THIN (<=1 hit) **or** NARROW (scoped to a proper subtree) | search-class `tool_use` joined to its `tool_result` by `tool_use_id`; scope classified from the search's path argument |
+| 3   | The prose cites an `mt#N` that is DONE                                           | one bounded `select id from tasks where id in (...) and status = 'DONE'`                                               |
 
 **Conjunct 1 reuses mt#3642's extraction rather than adding a second reader.** That task
 extended `code-mechanism-assertion` to scan PR bodies, spec patches, memory bodies and ask
@@ -90,6 +91,69 @@ explicitly.
 
 The asymmetry is the point: in one case the dependency is unavailable, in the other the input
 is unrecognized. They warrant opposite defaults.
+
+## The scope leg (mt#4362)
+
+Conjunct 2 originally tested hit COUNT alone. That models thin evidence by **volume**, and the
+family's oldest axis is **territory**: a search can be narrow in scope and rich in hits. A
+subtree-scoped grep returning eight hits reads as thorough by exactly the signal the detector
+measured, while warranting nothing about the ground outside that subtree.
+
+The originating instance is this repo's own: implementing mt#4359, an agent wrote
+_"truncateToCodePoints currently has NO call sites"_ into a durable docblock on the strength of
+`grep -rn "truncateToCodePoints" .minsky/hooks/` — one directory, **8 hits**. Repo-wide the
+symbol appears 16 times. Re-checked, the claim was TRUE, which is what makes the class nasty:
+the WARRANT was defective and the CONCLUSION was fine, so no outcome-based check could ever
+surface it. `minsky-reviewer[bot]` caught it as NON-BLOCKING on PR #3192; no gate did.
+
+### Scope is classified in the ADAPTER, not the matcher
+
+The matcher reads a `scope` field; it never parses a command string. The grammar that extracts a
+path from one (`command-shape.ts`'s `suppliesPattern` + `nonFlagOperands`, consolidated by
+mt#4328 and consumed here via `nonexistent-search-path-detector`'s `tokenize`/`pathArgs`) lives
+in the hooks tree, and `packages/domain` does not import from there. Classifying in the adapter
+consumes the shared grammar exactly once and forks no second parser.
+
+### Three buckets, because the covered tools do not agree on where scope lives
+
+| Bucket          | Tools                                                              | Where the scope comes from                    |
+| --------------- | ------------------------------------------------------------------ | --------------------------------------------- |
+| Shell           | `grep` / `rg` / `ag` / `ack` / `ugrep` via `Bash` / `session_exec` | path operands, parsed by the shared grammar   |
+| Structured path | `Grep`, `Glob`, `repo_search`, `git_search`                        | the call's `path` input — no grammar involved |
+| Unscopable      | `tasks_search`, `transcripts_search-text`, `session_grep_search`   | no path PREFIX dimension exists               |
+
+Shell-only was considered and rejected: four of the seven covered tool names carry a structured
+path, and a `Grep` with `path:` is now at least as common a subtree-scoped shape as a shell
+`grep`. Covering only the shell case would leave the larger hole open.
+
+`session_grep_search` is the interesting member of the third bucket — it narrows by
+`include_pattern`, a glob FILTER over the whole workspace rather than a path prefix. That is a
+real narrowing axis this leg deliberately does not model, so it is classified `unscopable`
+**explicitly** rather than allowed to fall through, because "we cannot tell" must never be
+silently read as "repo-wide".
+
+### A search naming no path is REPO scope
+
+`grep -rn PATTERN` with no operand defaults to cwd, and the hook runs with the repo root as cwd.
+Stated failure mode: an agent that had `cd`'d into a subdirectory would have a genuinely
+subtree-scoped search classified `repo` and go unflagged. That direction is a MISS rather than a
+false fire — the right way to be wrong for a calibration-first widening.
+
+### A claim carrying the qualifier is the CORRECT case and must not fire
+
+The defect is an unqualified claim resting on a qualified search. "No call sites under
+`.minsky/hooks/`" after grepping `.minsky/hooks/` is exactly the authoring this guard exists to
+teach, so it is suppressed — compared against the ACTUAL searched path, not against "a qualifier
+is present", since a claim scoped to a DIFFERENT subtree is still unqualified about the
+territory the evidence came from.
+
+The suppression uses `every`, not `some`: one unqualified claim in a turn is still an
+unqualified claim, and silencing a turn because a sibling sentence was careful is the
+over-suppression this family keeps re-learning.
+
+**The qualifier test gates only the scope leg.** A repo-wide search returning one hit is thin
+however the sentence is worded, so count-thin searches are admitted exactly as before — which is
+also what keeps the post-change replay delta attributable to this widening alone.
 
 ## Rung placement (ADR-024)
 

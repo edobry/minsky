@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
-import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
+import { boundedUserTurnsExecute } from "../testing/bounded-user-turns-double";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 import { createCachedRunMerge, mergeConversationRows } from "./run-merge";
@@ -79,13 +79,14 @@ function mockDb(fixture: Fixture, onQuery?: () => void): PostgresJsDatabase {
           if (table === agentSpawnsTable) {
             return { where: () => Promise.resolve(fixture.spawns ?? []) };
           }
-          if (table === agentTranscriptTurnsTable) {
-            return { where: () => Promise.resolve(fixture.turns ?? []) };
-          }
           throw new Error("mockDb: unexpected table in .from()");
         },
       };
     },
+    // mt#4655 — the user-turn read is a raw `db.execute` with a per-session
+    // bound, not a `.select().from()` chain, so it cannot be answered by table
+    // identity above.
+    execute: boundedUserTurnsExecute(fixture.turns),
   } as unknown as PostgresJsDatabase;
 }
 

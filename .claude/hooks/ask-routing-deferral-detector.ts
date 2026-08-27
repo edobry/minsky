@@ -58,6 +58,13 @@ import {
 import { createHash } from "node:crypto";
 import { cappedEvidenceLines, truncateToRenderedLength } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type {
+  ExemplarSet,
+  NominationDeps,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -133,6 +140,321 @@ export const SUPPRESSION_CITES_FILED_ASK = "cites-filed-ask";
  * (2026-08-21).
  */
 export const SUPPRESSION_SETTLED_DECISION = "settled-decision";
+
+/**
+ * Reason string for the Rung-2 half of the same suppression (mt#4404).
+ *
+ * Deliberately DISTINCT from {@link SUPPRESSION_SETTLED_DECISION} rather than
+ * reusing it. The two rungs answer the same question by different means, and a
+ * calibration sweep needs to tell them apart: "Rung 1 caught it" and "the
+ * embedding caught what the patterns could not" are the two numbers that decide
+ * whether the climb was worth making, and a shared reason string would erase
+ * exactly that difference.
+ */
+export const SUPPRESSION_SETTLED_DECISION_RUNG2 = "settled-decision-rung2";
+
+// ---------------------------------------------------------------------------
+// Rung 2 — embedding nomination for the settled-decision suppressor (mt#4404)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why this detector climbed instead of widening its regex a fourth time.
+ *
+ * `SETTLED_DECISION_PATTERNS` reaches one grammatical rendering of a settled
+ * decision: a finite-past first-person declarative (`I picked`, `I filed`,
+ * `I'm taking`). Three consecutive calibration windows each measured a DIFFERENT
+ * rendering of the same behaviour still firing, and each proposed adding another
+ * pattern family for it:
+ *
+ * - 2026-08-21 — participial lead: *"Picking X over Y … cheap to reverse if
+ *   you'd rather I start elsewhere."*
+ * - 2026-08-25 — conditional mood (*"I'd go with the backfill … if you'd rather
+ *   stop the bleeding first"*) and default-plus-escape continuation (*"I'll keep
+ *   going on the backlog diagnosis unless you'd rather I stop"*).
+ * - 2026-08-26 — the participial form again, plus present progressive (*"so I'm
+ *   proceeding rather than stopping to ask — say the word if you'd rather…"*).
+ *
+ * ADR-024 §Context names that trajectory by name: *"Each miss has historically
+ * been answered by adding another regex family (R1 → R5) — an arms race."* It
+ * assigns the recall/paraphrase axis to **Rung 2 — embedding recall-widening,
+ * "only if paraphrase misses recur"**. Three windows is that gate, met.
+ *
+ * **This is the SUPPRESSOR side of the ladder, and the fail-open direction
+ * inverts safely.** Every shipped Rung-2 consumer nominates to widen recall of a
+ * TRIGGER; this one widens recall of a suppressor. ADR-024's cross-cutting
+ * invariant — *"the hook degrades to the deterministic Rung-1 result and still
+ * injects (lower precision, no missed trigger)"* — therefore needs no
+ * adaptation: a degraded nomination suppresses nothing, so the false positive
+ * returns rather than a genuine deferral being silenced. Injecting is the safe
+ * failure for both directions, which is why the same invariant covers both.
+ */
+const SETTLED_DECISION_FAMILY = "settled-decision";
+
+/**
+ * Curated exemplars for the settled-decision family.
+ *
+ * Drawn from the measured corpus — the three calibration windows recorded on
+ * mt#4404 plus `scripts/replay-settled-decision.ts`'s AT1 list — with one
+ * entry per observed grammatical rendering rather than one per recorded fire.
+ *
+ * **Phrased WITHOUT task ids or concrete identifiers, deliberately.** The
+ * embedding scores the sentence's GRAMMAR — an agent stating a choice it has
+ * made and why — and seeding `mt#4391` into an exemplar would bias every score
+ * toward turns that happen to cite task ids, which is most of this corpus. Same
+ * reasoning as `IDENTITY_CLAIM_EXEMPLARS` in the sibling detector.
+ *
+ * **Each exemplar states a decision AND its reason, and none carries an
+ * offer.** That asymmetry is the whole discrimination: the fires this
+ * suppresses contain both a decision clause and an offer clause, and the
+ * genuine deferrals in the AT2 regression floor contain only the offer. Because
+ * `splitCandidateSegments` scores sentence-level segments, the decision clause
+ * is scored on its own — an exemplar that included an offer would score against
+ * the offer clause too and start reaching the floor.
+ */
+export const SETTLED_DECISION_EXEMPLARS: readonly string[] = [
+  // Participial / gerund lead — no subject at all (2026-08-21, 2026-08-26).
+  "Picking the first task over the second because its blocker is already cleared",
+  "Proceeding on the revised shape, since it is directionally right and contained",
+  "Starting the next item now; the ordering is mine and cheap to reverse",
+  "Going with the smaller change first, because the larger one needs its own measurement",
+  // Present progressive — subject present, tense outside the pattern list (2026-08-26).
+  "I'm proceeding rather than stopping to ask, since the call is a contained one",
+  "I'm stopping the watcher cycle here rather than re-arming it overnight",
+  // Conditional mood — the position stated without claiming the act is done (2026-08-25).
+  "I'd go with the backfill; it is quick, reversible, and moves the work forward",
+  "I'd leave the merged document alone, because it reads correctly either way",
+  // Default-plus-escape continuation — future tense by construction (2026-08-25).
+  "I'll keep going on the diagnosis rather than stopping here",
+  "I'll fix the next one after this lands, since picking the next task is mine to do",
+  // Finite past — already covered by Rung 1, included so the band is measured
+  // against the shape the patterns DO reach rather than only against the misses.
+  "I chose the cheaper option because the expensive one needs a decision I do not have",
+  "I filed the remainder separately rather than putting untested work behind an urgent fix",
+];
+
+/** The exemplar set handed to `nominate`. */
+export const SETTLED_DECISION_EXEMPLAR_SET: ExemplarSet = {
+  family: SETTLED_DECISION_FAMILY,
+  exemplars: [...SETTLED_DECISION_EXEMPLARS],
+};
+
+/**
+ * At most this many distinct match contexts are scored per turn.
+ *
+ * Each one costs its own `nominate` round-trip, because the suppression is
+ * per-MATCH and `nominate` reports only its single best segment per family —
+ * so a batched call could not say WHICH match was nominated. Measured over the
+ * three windows recorded on mt#4404: every record carries one or two matches,
+ * so this cap is headroom rather than a live constraint.
+ */
+const RUNG2_MAX_CONTEXTS = 4;
+
+/**
+ * Similarity threshold for the settled-decision family.
+ *
+ * **Measured on THIS corpus, not inherited.** `DEFAULT_SIMILARITY_THRESHOLD`
+ * (0.455) was derived from the retrospective-trigger exemplar band, and mt#4280
+ * records it under-scoring 1 of 4 ground-truth fixtures on a second corpus
+ * already — a constant that has now mis-fit two corpora it was not measured on.
+ * `decision-defaults.mdc §Thresholds` asks for observed cadence rather than an
+ * inherited round number; `scripts/replay-settled-decision.ts --rung2` is the
+ * measurement, and its output is recorded in mt#4404's spec.
+ *
+ * The value must separate two populations that SHARE most of their vocabulary:
+ * AT1 (a decision taken, with an offer attached — must suppress) and AT2 (an
+ * offer with no decision — must keep firing). Both talk about tasks, choices and
+ * next steps, so the band between them is narrower than a trigger-family band
+ * and the measurement matters more, not less.
+ *
+ * **Measured 2026-08-26** (`bun scripts/replay-settled-decision.ts --rung2`,
+ * openai provider, full output in mt#4404's spec):
+ *
+ * - AT2 ceiling — the highest-scoring GENUINE deferral: **0.4387** (AT2.1).
+ * - AT1 floor among what a floor-safe threshold reaches: **0.5901** (AT1.11).
+ * - Floor-safe band therefore `0.4387 .. 0.5901`; this value is its **midpoint**,
+ *   which is where the margin is equal on both sides (~0.076 each way).
+ *
+ * The margin is what makes the midpoint the right pick rather than a value near
+ * either edge: re-running the measurement moves individual scores by ~0.006
+ * (embedding nondeterminism — AT1.11 read 0.5964 then 0.5901 minutes apart), so
+ * a threshold hugging either bound would flip verdicts between runs. 0.076 is an
+ * order of magnitude clear of that jitter.
+ *
+ * **What it does NOT reach, reported rather than designed away:** four AT1 cases
+ * score below the AT2 ceiling — AT1.1 (0.3072, the PASSIVE marker PR #3224 R1
+ * deliberately refused to reach), AT1.5 (0.3374), AT1.6 (0.3250), and AT1.12
+ * (0.4141, a subject-less past participle one word from a neutral status line).
+ * Lowering the threshold to reach them would cross the AT2 floor and silence a
+ * real deferral, which is the failure this detector exists to prevent. Three of
+ * the four were already mt#4175's documented residual; the mechanism did not
+ * make them worse.
+ */
+export const SETTLED_DECISION_RUNG2_THRESHOLD = 0.5144;
+
+/**
+ * Opt-in for the Rung-2 nomination path.
+ *
+ * Ships DISABLED, matching mt#3408's precedent for the sibling families: the
+ * mechanism lands, and the threshold that decides it is measured against the
+ * calibration corpus before it is allowed to change a verdict. Registered in
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES`.
+ */
+export const RUNG2_NOMINATION_ENV_VAR = "MINSKY_ARD_RUNG2_NOMINATION";
+
+/** True when the operator has opted into the Rung-2 nomination path. */
+export function isRung2NominationEnabled(): boolean {
+  const raw = process.env[RUNG2_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+/** Outcome of scoring ONE match context against the settled-decision exemplars. */
+export type SettledNominationOutcome =
+  | { kind: "settled"; score: number }
+  | { kind: "none" }
+  | { kind: "degraded"; reason: string };
+
+/**
+ * Scores one match context. Injected in tests; built by
+ * {@link createSettledDecisionNominator} in both production entrypoints.
+ */
+export type SettledDecisionNominator = (context: string) => Promise<SettledNominationOutcome>;
+
+/**
+ * Build the real-wired nominator.
+ *
+ * Deps resolve lazily and a failure LATCHES: once degraded, later calls return
+ * degraded without re-attempting, so one wedged provider costs one round-trip
+ * per process rather than one per turn.
+ *
+ * The try/catch is load-bearing rather than defensive habit. A hook is its own
+ * entry point: it inherits neither the reflect polyfill nor the process-global
+ * configuration, and `resolveNominationDeps` reaches the embedding factory,
+ * which needs both. An escaping throw would take out the whole detector verdict
+ * — the silent skip ADR-024 forbids — instead of degrading visibly.
+ */
+export function createSettledDecisionNominator(): SettledDecisionNominator {
+  let deps: NominationDeps | null | undefined;
+  let latchedFailure: string | undefined;
+
+  return async (context: string): Promise<SettledNominationOutcome> => {
+    if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
+
+    if (deps === undefined) {
+      try {
+        const bootstrap = await ensureHookDomainBootstrap();
+        if (!bootstrap.ok) {
+          latchedFailure = "bootstrap-failed";
+          return { kind: "degraded", reason: latchedFailure };
+        }
+        deps = await resolveNominationDeps();
+      } catch (err) {
+        latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+    }
+    if (deps === null) {
+      latchedFailure = "provider-unconfigured";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    // PR #3395 R1. `nominate` ALREADY refuses a non-semantic provider before it
+    // computes any vector (`embedding-nomination.ts`: `if (!deps.semantic)
+    // return { degraded: true, degradedReason: "non-semantic-provider" }`), so
+    // the reviewer's stated failure — hash-stub cosines crossing the threshold
+    // and silencing a genuine deferral — cannot occur: no scores are produced
+    // at all. This guard is therefore defense-in-depth, not a bug fix, and it
+    // is worth the four lines for two reasons.
+    //
+    // It LATCHES. Without it a non-semantic provider re-enters `nominate` on
+    // every turn for the life of the process, each time to be refused; with it
+    // the refusal is remembered like every other failure here. And it puts the
+    // safety property in the function a reader audits, rather than one layer
+    // down in a shared primitive — which is where the reviewer looked for it
+    // and reasonably expected to find it.
+    if (!deps.semantic) {
+      latchedFailure = "non-semantic-provider";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    const result = await nominate(context, [SETTLED_DECISION_EXEMPLAR_SET], deps, {
+      threshold: SETTLED_DECISION_RUNG2_THRESHOLD,
+    });
+    if (result.degraded) {
+      latchedFailure = result.degradedReason ?? "unknown";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+    const best = result.nominations[0];
+    if (best === undefined) return { kind: "none" };
+    return { kind: "settled", score: best.score };
+  };
+}
+
+/**
+ * Drop `deferral-menu` matches whose window an embedding reads as a settled
+ * decision (mt#4404) — the Rung-2 half of {@link resolveSettledDecision}.
+ *
+ * Runs over what Rung 1 LEFT, never instead of it: the patterns are cheaper,
+ * deterministic, and already measured, so anything they catch never reaches a
+ * provider round-trip. That ordering is also what makes PR #3224 R1's
+ * first-person-subject contract hold by construction — this function does not
+ * touch `SETTLED_DECISION_PATTERNS`, so nothing that review removed can return
+ * through it.
+ *
+ * The `cls` guard is inherited from Rung 1 for the same load-bearing reason: a
+ * settled decision does not make *"rotating that token is your call"* any less
+ * the principal's, and mt#4175's `## Scope` cedes the `principal-reserved` class
+ * to mt#4201.
+ *
+ * Never throws. A degraded nomination returns `matches` UNCHANGED with the
+ * reason recorded — ADR-024's fail-to-Rung-1 invariant, which on this surface
+ * means the false positive returns rather than a genuine deferral being
+ * silenced.
+ */
+export async function resolveSettledDecisionRung2(
+  matches: DeferralMatch[],
+  nominator: SettledDecisionNominator | undefined
+): Promise<{ remaining: DeferralMatch[]; suppressedAll: boolean; degradedReason?: string }> {
+  const unchanged = { remaining: matches, suppressedAll: false };
+  if (nominator === undefined || matches.length === 0) return unchanged;
+
+  const eligible = matches.filter((m) => m.cls === "deferral-menu");
+  if (eligible.length === 0) return unchanged;
+
+  // Distinct contexts only: two phrases matched in the same sentence share a
+  // window, and scoring it twice would buy nothing for a second round-trip.
+  const contexts = [...new Set(eligible.map((m) => m.context))].slice(0, RUNG2_MAX_CONTEXTS);
+  const settledContexts = new Set<string>();
+  let degradedReason: string | undefined;
+
+  for (const context of contexts) {
+    let outcome: SettledNominationOutcome;
+    try {
+      outcome = await nominator(context);
+    } catch (err) {
+      degradedReason = `nominator-threw: ${err instanceof Error ? err.message : String(err)}`;
+      break;
+    }
+    if (outcome.kind === "degraded") {
+      degradedReason = outcome.reason;
+      // The nominator latches, so every later context would return the same
+      // reason. Stop rather than paying for that.
+      break;
+    }
+    if (outcome.kind === "settled") settledContexts.add(context);
+  }
+
+  // A degradation mid-loop leaves a partial verdict. Discard it: suppressing
+  // the contexts that happened to be scored before the provider failed would
+  // make the outcome depend on match ordering, and this surface's safe failure
+  // is to suppress nothing.
+  if (degradedReason !== undefined) return { ...unchanged, degradedReason };
+  if (settledContexts.size === 0) return unchanged;
+
+  const remaining = matches.filter(
+    (m) => !(m.cls === "deferral-menu" && settledContexts.has(m.context))
+  );
+  return { remaining, suppressedAll: remaining.length === 0 };
+}
 
 /** Short sha1, matching the Stop guard's key derivation. */
 function sha1Short(input: string): string {
@@ -1065,12 +1387,40 @@ export function resolveSettledDecision(matches: DeferralMatch[]): {
   return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
-/** `storeDir` is a test seam; the dispatcher never passes it. */
-export function run(
+/**
+ * `storeDir` and `nominator` are test seams; the dispatcher passes neither.
+ *
+ * **This is `async` as of mt#4404, and the consumer audit is recorded here
+ * rather than left to the next reader (PR #3395 R1).** The reviewer asked for
+ * it and said it could not complete one; this is the result, from a repo-wide
+ * grep for imports of this module:
+ *
+ * - **Nothing imports `run` from this module.** The four in-repo importers take
+ *   `findOfferShape` (`operator-deferral-detector`, and its test),
+ *   `detectDeferralPhrases` (`turn-end-untaken-action-scan`,
+ *   `judged-input-capture.test`), and `SUPPRESSION_ASKS_CREATE_THIS_TURN`
+ *   (`suppression-contract.test`). The two `scripts/replay-*.ts` harnesses take
+ *   the resolvers and the exemplar set. None of them touches `run`.
+ * - **The only production caller is the dispatcher**, through the registry's
+ *   dynamic import (`registry-prompt-scan-guards.ts` →
+ *   `import("./ask-routing-deferral-detector").then((m) => ({ run: m.run }))`),
+ *   and it awaits: `dispatcher.ts` → `return await mod.run(input, ctx)`.
+ * - **The registry's own type already permits it** —
+ *   `run(...): GuardRunResult | Promise<GuardRunResult>` (`registry.ts`).
+ *
+ * So there is no non-dispatcher path that could receive an unawaited Promise.
+ * `run-returns-a-promise` in the test file pins this: if a future change makes
+ * `run` synchronous again, or a new caller forgets to await, that test is the
+ * thing that notices rather than a silent no-op at prompt time.
+ */
+export async function run(
   input: ClaudeHookInput,
   ctx: DispatchContext,
-  storeDir?: string
-): GuardOutcome | null {
+  storeDir?: string,
+  nominator: SettledDecisionNominator | undefined = isRung2NominationEnabled()
+    ? createSettledDecisionNominator()
+    : undefined
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -1144,7 +1494,15 @@ export function run(
     suppressionReasons.push(SUPPRESSION_SETTLED_DECISION);
   }
 
-  const askCited = resolveAskCitation(settled.remaining);
+  // mt#4404: Rung 2 runs over what Rung 1 LEFT, and only when the operator has
+  // opted in. Chained by `remaining` like every sibling below it; its own reason
+  // string keeps the two rungs separable in the calibration log.
+  const settledRung2 = await resolveSettledDecisionRung2(settled.remaining, nominator);
+  if (settledRung2.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_SETTLED_DECISION_RUNG2);
+  }
+
+  const askCited = resolveAskCitation(settledRung2.remaining);
   if (askCited.suppressedAll) {
     suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
   }
@@ -1167,6 +1525,12 @@ export function run(
       [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
       matches: calibrationMatches(matches),
       suppressionReasons,
+      // ADR-024's degraded MARKER. Present only when a nomination was attempted
+      // and could not complete, so a sweep can tell "Rung 2 found nothing" from
+      // "Rung 2 never ran" — which are the same empty verdict without it.
+      ...(settledRung2.degradedReason !== undefined
+        ? { rung2DegradedReason: settledRung2.degradedReason }
+        : {}),
     },
   };
 
@@ -1264,7 +1628,18 @@ export async function main(): Promise<void> {
     suppressionReasons.push(SUPPRESSION_SETTLED_DECISION);
   }
 
-  const askCited = resolveAskCitation(settled.remaining);
+  // mt#4404 — the SAME Rung-2 decision function `run()` uses, for the same
+  // reason the three suppressions above are shared: a fix wired into only one of
+  // this file's two write paths is the mt#3270 R1 shape.
+  const settledRung2 = await resolveSettledDecisionRung2(
+    settled.remaining,
+    isRung2NominationEnabled() ? createSettledDecisionNominator() : undefined
+  );
+  if (settledRung2.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_SETTLED_DECISION_RUNG2);
+  }
+
+  const askCited = resolveAskCitation(settledRung2.remaining);
   if (askCited.suppressedAll) {
     suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
   }
@@ -1287,6 +1662,9 @@ export async function main(): Promise<void> {
     [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
     matches: calibrationMatches(matches),
     suppressionReasons,
+    ...(settledRung2.degradedReason !== undefined
+      ? { rung2DegradedReason: settledRung2.degradedReason }
+      : {}),
   });
 
   // Calibration-first: inject only when the gate is flipped on, and never for

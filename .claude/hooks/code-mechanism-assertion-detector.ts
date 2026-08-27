@@ -579,6 +579,54 @@ function isPlausibleSymbol(tok: string): boolean {
  * `cfg.maxBuffer`) are still captured independently by CAMEL_CASE_RE/SNAKE_CASE_RE
  * scanning the slice, so no real symbol is lost.
  */
+/**
+ * True when a (symbol, predicate) pair is an extraction ARTIFACT rather than an assertion:
+ * the symbol IS its own predicate (mt#4387).
+ *
+ * A token cannot assert a mechanism about itself. Measured at 3 of 523 injected claims lifetime
+ * (`raise`, `noop`, `DROP`) — rare, and cheap enough that leaving it costs more in reader trust
+ * than the check costs to run. The live instance: `raise/raise`, extracted from a sentence
+ * REPORTING one of this detector's own false positives (record 2026-08-26T22:58).
+ *
+ * A relational test over a pair — deliberately NOT another `SYMBOL_STOPLIST` entry, and it names
+ * no token. ADR-034 accepted the exclusion-list arms race as the status quo and set a reopen
+ * condition that has since fired (measured 73-77% FP against its 10% bar); that re-decision is
+ * mt#4650's, and a seventh token round here would pre-empt it.
+ *
+ * **Checked BEFORE the backing lookup at every call site (PR #3392 R1).** Filtering the finished
+ * `claims` array leaves `backedSeen` still holding the artifact's key, so `hadSameTurnRead` and
+ * `backedClaimCount` would report backing for a claim the record no longer contains — a record
+ * inconsistent with itself. An artifact is not a claim in either state, backed or not.
+ */
+export function isArtifactPair(symbol: string, predicate: string): boolean {
+  return symbol.toLowerCase() === predicate.trim().toLowerCase();
+}
+
+/**
+ * Drop the claim shape that is an extraction ARTIFACT rather than an assertion (mt#4387).
+ *
+ * Retained as the pure, testable form of {@link isArtifactPair}; the call sites reject the pair
+ * earlier, before backing, so in practice this is a belt-and-braces filter over an already-clean
+ * set.
+ * **The sub-identifier collapse mt#4387 also asked for is NOT here, deliberately.** Its criterion
+ * ("`Object.defineProperty` and `defineProperty` count as one claim, not two") would revert a
+ * decision mt#2673 made on a BLOCKING reviewer finding (PR #1835 R1): dedup targets truncation
+ * residues — same-class strict range containment — and explicitly not cross-class containment,
+ * because `maxBuffer` inside `cfg.maxBuffer` is captured independently ON PURPOSE.
+ * `Object.defineProperty` is structurally identical to `cfg.maxBuffer`, so the criterion was
+ * filed without that context and the existing test caught the revert.
+ *
+ * There is also a mechanism reason, not just a precedent one: backing is
+ * `corpusLower.includes(sym)`, so BOTH forms are looked up. Keeping the sub-identifier makes a
+ * claim MORE likely to be found backed and suppressed — collapsing it would have quietly
+ * increased fires while appearing to reduce a count.
+ */
+export function dropArtifactClaims<T extends { symbol: string; predicate: string }>(
+  claims: readonly T[]
+): T[] {
+  return claims.filter((c) => !isArtifactPair(c.symbol, c.predicate));
+}
+
 export function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
   let start = Math.max(0, anchorIndex - window);
   let end = Math.min(text.length, anchorIndex + window);
@@ -1785,6 +1833,9 @@ export function detectCodeMechanismAssertion(
       const idx = m.index ?? 0;
       const symbols = symbolsNear(prose, idx, SYMBOL_PROXIMITY_CHARS);
       for (const sym of symbols) {
+        // PR #3392 R1: reject the artifact BEFORE the backing lookup, so `backedSeen`
+        // never records a pair that will not appear in `claims`.
+        if (isArtifactPair(sym, m[0].slice(0, 40))) continue;
         const key = `${sym}::${m[0].toLowerCase()}`;
         if (symbolBacked(sym)) {
           backedSeen.add(key);
@@ -1800,9 +1851,13 @@ export function detectCodeMechanismAssertion(
     }
   }
 
+  // mt#4387: strip extraction artifacts before `matched` is computed, so a record whose ONLY
+  // claim was an artifact does not inject at all rather than injecting an empty-looking reminder.
+  const realClaims = dropArtifactClaims(claims);
+
   return {
-    matched: claims.length > 0,
-    claims,
+    matched: realClaims.length > 0,
+    claims: realClaims,
     hadSameTurnRead: backedSeen.size > 0,
     backedClaimCount: backedSeen.size,
     hadWriteEchoBacking: writeEchoedSeen.size > 0,
@@ -2098,6 +2153,8 @@ export function identityClaimsFromSegments(
     // routinely carries em dashes and can carry astral characters.
     const predicate = safeTruncate(segment.trim(), IDENTITY_PREDICATE_MAX_CHARS, "head");
     for (const sym of symbols) {
+      // Same pre-backing rejection as the lexical path (PR #3392 R1).
+      if (isArtifactPair(sym, predicate)) continue;
       const key = `${sym}::${predicate.toLowerCase()}`;
       if (corpusLower.includes(sym.toLowerCase())) {
         backedSeen.add(key);
@@ -2112,7 +2169,11 @@ export function identityClaimsFromSegments(
     }
   }
 
-  return { claims, backedCount: backedSeen.size, hadWriteEcho };
+  // Same artifact filter as the lexical path (mt#4387, class-not-instance). The identity
+  // path's predicate is a prose SEGMENT rather than a verb, so `symbol === predicate` is
+  // reachable only for a one-token segment — rare, and the sub-identifier double-count is
+  // not rare here at all, since `symbolsNear` runs over the whole segment.
+  return { claims: dropArtifactClaims(claims), backedCount: backedSeen.size, hadWriteEcho };
 }
 
 /**

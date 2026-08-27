@@ -15,6 +15,7 @@ import {
   READ_ONLY_SESSION_PR_TOOLS,
 } from "./stop-at-decision-scan";
 import type { RunDeps } from "./stop-at-decision-scan";
+import { CONDITIONAL_WAIT_TOOL } from "./armed-watcher";
 import type { TranscriptLine } from "./transcript";
 import type { DispatchContext } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
@@ -37,6 +38,23 @@ const R5_FINAL_MESSAGE =
 function userPrompt(text: string, timestamp?: string): TranscriptLine {
   return { type: "user", message: { role: "user", content: text }, timestamp };
 }
+
+/** Watcher tool names used by the mt#4327 fixtures. */
+const WAIT_REVIEW_TOOL = "mcp__minsky__session_pr_wait-for-review";
+const BASH_BG_EVIDENCE = "Bash(run_in_background)";
+
+/** Field read off an evaluation record. */
+const SUPPRESSION_REASONS_FIELD = "suppressionReasons";
+
+/**
+ * The conditional watcher: a wait only when `wait: true` is passed (mt#4327).
+ *
+ * Taken from the module rather than re-spelled here. The literal itself is
+ * pinned by `turn-end-untaken-action-scan.test.ts`, which asserts
+ * `ARMED_WAIT_TOOLS`'s exact contents — so spelling it again here would add a
+ * second place to update without adding a second check.
+ */
+const CHECKS_TOOL = CONDITIONAL_WAIT_TOOL;
 
 function toolUse(id: string, name: string, input: Record<string, unknown> = {}): TranscriptLine {
   return {
@@ -274,7 +292,7 @@ describe("run — status filter, dedup, evaluation stream (AT1-AT3 end-to-end)",
     ];
     const outcome = run(inputWith(R5_FINAL_MESSAGE), ctxFor(full), depsWith({}));
     expect(outcome).toBeNull();
-    expect(evaluations[0]?.["suppressionReasons"]).toContain(BOUND_TARGET_REASON);
+    expect(evaluations[0]?.[SUPPRESSION_REASONS_FIELD]).toContain(BOUND_TARGET_REASON);
   });
 
   test("a closed target suppresses (target-not-open); an unknown status fails open", () => {
@@ -284,7 +302,7 @@ describe("run — status filter, dedup, evaluation stream (AT1-AT3 end-to-end)",
       depsWith({ [TARGET_TASK]: "DONE" })
     );
     expect(closed).toBeNull();
-    expect(evaluations[0]?.["suppressionReasons"]).toContain("target-not-open");
+    expect(evaluations[0]?.[SUPPRESSION_REASONS_FIELD]).toContain("target-not-open");
 
     const unknown = run(
       inputWith(R5_FINAL_MESSAGE),
@@ -466,6 +484,123 @@ describe("mt#4085 — the natural-prose decision handoff", () => {
       "Two corrections recorded: the rewrite trigger I'd captured was wrong, and the Rust " +
       "spike isn't a drop-in reference. I've recorded that and withdrawn the gap.";
     expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(narratesTheWrite))).toBe(false);
+  });
+});
+
+describe("armed-watcher suppression (mt#4327)", () => {
+  // A turn that armed a wait is MID-FLIGHT: it has nothing to mint YET, so it is
+  // not at a decision, ripe or otherwise. Every fixture below closes with prose
+  // that says nothing about waiting, so a phrase-matching suppressor could not
+  // separate them from the regression floor — which is the point of SC2.
+  const SILENT_ABOUT_WAITING = "Patched the finding into the spec.";
+
+  function detectWith(extra: TranscriptLine[]) {
+    const full = incidentTranscript(extra);
+    return detectDecisionStop(finalTurnOf(full), full, SILENT_ABOUT_WAITING);
+  }
+
+  test("AT1: a tool that IS an armed wait suppresses, and names itself as the evidence", () => {
+    const detection = detectWith([
+      // No `task` argument on any watcher fixture below: a session tool carrying
+      // one BINDS the conversation to it, which empties candidateTaskIds and
+      // raises `bound-task-target` instead — a different suppression confounding
+      // the one under test.
+      toolUse("toolu_wait", WAIT_REVIEW_TOOL, {
+        reviewer: "minsky-reviewer[bot]",
+      }),
+    ]);
+    expect(detection?.armedWatcherEvidence).toEqual([WAIT_REVIEW_TOOL]);
+    expect(detection?.suppressionReasons).toContain(`armed-watcher:${WAIT_REVIEW_TOOL}`);
+  });
+
+  test("AT1: session_pr_checks asked to wait suppresses", () => {
+    const detection = detectWith([toolUse("toolu_checks", CHECKS_TOOL, { wait: true })]);
+    expect(detection?.armedWatcherEvidence).toEqual([CHECKS_TOOL]);
+  });
+
+  test("AT1: a backgrounded Bash call suppresses", () => {
+    const detection = detectWith([
+      toolUse("toolu_bg", "Bash", { command: "sleep 30", run_in_background: true }),
+    ]);
+    expect(detection?.armedWatcherEvidence).toEqual([BASH_BG_EVIDENCE]);
+  });
+
+  test("the same tool WITHOUT its wait flag does not suppress — the gate is the flag, not the name", () => {
+    // Discriminating control. Without `wait: true` the call is a one-shot
+    // snapshot read and no watcher survives it, so this turn really did stop. A
+    // suppressor keyed on the tool NAME passes all three tests above and is
+    // still wrong here; only this case separates the two implementations.
+    const detection = detectWith([toolUse("toolu_checks", CHECKS_TOOL, {})]);
+    expect(detection?.armedWatcherEvidence).toEqual([]);
+    expect(detection?.suppressionReasons).toEqual([]);
+  });
+
+  test("AT2 regression floor: a turn that armed nothing still fires, field written empty", () => {
+    const detection = detectWith([]);
+    expect(detection?.suppressionReasons).toEqual([]);
+    expect(detection?.armedWatcherEvidence).toEqual([]);
+  });
+
+  test("multiple armed waits render in a stable order, whatever order the turn used", () => {
+    // PR #3402 R1: the reason string is what calibration review GROUPS by, so a
+    // pair armed in one order and the same pair armed in the other must produce
+    // ONE string, not two. The fixture arms them in reverse of the expected
+    // output on purpose — insertion order would fail this, sorting passes it.
+    const detection = detectWith([
+      toolUse("toolu_wait", WAIT_REVIEW_TOOL, {
+        reviewer: "minsky-reviewer[bot]",
+      }),
+      toolUse("toolu_bg", "Bash", { command: "sleep 30", run_in_background: true }),
+    ]);
+    expect(detection?.armedWatcherEvidence).toEqual([BASH_BG_EVIDENCE, WAIT_REVIEW_TOOL]);
+    expect(detection?.suppressionReasons).toContain(
+      `armed-watcher:${BASH_BG_EVIDENCE},${WAIT_REVIEW_TOOL}`
+    );
+  });
+
+  describe("AT3 — the evidence reaches the record, suppressed or not", () => {
+    let storeDir: string;
+    let evaluations: Array<Record<string, unknown>>;
+
+    beforeEach(() => {
+      storeDir = mkdtempSync(join(tmpdir(), "mt4327-"));
+      evaluations = [];
+    });
+    afterEach(() => {
+      rmSync(storeDir, { recursive: true, force: true });
+    });
+
+    test("a suppressed turn records armedWatcherEvidence naming what suppressed it", () => {
+      const outcome = run(
+        inputWith(SILENT_ABOUT_WAITING),
+        ctxFor(
+          incidentTranscript([
+            toolUse("toolu_wait", "mcp__minsky__deployment_wait-for-latest", {
+              service: "minsky-mcp",
+            }),
+          ])
+        ),
+        {
+          readTaskStatusFn: () => "TODO",
+          appendEvaluationRecordFn: (_cwd, record) => {
+            evaluations.push(record);
+          },
+          storeDir,
+        }
+      );
+
+      expect(outcome).toBeNull();
+      expect(evaluations).toHaveLength(1);
+      expect(evaluations[0]?.["fired"]).toBe(false);
+      // The whole point of SC3: "not a stop" is now distinguishable from "no gap
+      // found" without re-deriving it from the turn.
+      expect(evaluations[0]?.["armedWatcherEvidence"]).toEqual([
+        "mcp__minsky__deployment_wait-for-latest",
+      ]);
+      expect(evaluations[0]?.[SUPPRESSION_REASONS_FIELD]).toContain(
+        "armed-watcher:mcp__minsky__deployment_wait-for-latest"
+      );
+    });
   });
 });
 

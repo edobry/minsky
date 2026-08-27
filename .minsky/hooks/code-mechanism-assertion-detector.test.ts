@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   detectCodeMechanismAssertion,
+  dropArtifactClaims,
   buildVerificationCorpus,
   buildWriteEchoCorpus,
   buildAddedCommentCorpus,
@@ -1839,5 +1840,58 @@ describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", (
     expect(ctx).toContain("cue (g)");
     // The base reminder is still present — relay copy AUGMENTS, not replaces.
     expect(ctx).toContain("code-mechanism-assertion-detector");
+  });
+});
+
+describe("mt#4387 — extraction artifacts are not claims", () => {
+  test("a symbol identical to its own predicate produces no claim", () => {
+    // Verbatim from live calibration record 2026-08-26T22:58 (mem#1020: sample the
+    // fixture, do not paraphrase it). The sentence is itself a REPORT of one of this
+    // detector's own false positives, and the detector fired on it — extracting
+    // `raise` as both the symbol and the predicate.
+    const text =
+      'The detector fired on `"inferred"` and `raise` — a confidence label and a ' +
+      "timeout value, not code symbols; no action needed.";
+
+    const result = detectCodeMechanismAssertion(text, "", "");
+    expect(result.claims.filter((c) => c.symbol === c.predicate)).toEqual([]);
+    // The whole record's only claim was the artifact, so nothing should inject.
+    expect(result.matched).toBe(false);
+  });
+
+  test("a dotted symbol and its sub-identifier are BOTH kept — mt#2673's decision stands", () => {
+    // mt#4387's criterion 5 asked for these to collapse to one claim. They must not:
+    // mt#2673 / PR #1835 R1 decided cross-class containment is kept on purpose
+    // (`maxBuffer` inside `cfg.maxBuffer`), and both forms are looked up against the
+    // backing corpus, so collapsing would quietly INCREASE fires. This test pins the
+    // retraction so the criterion is not re-implemented from the spec text alone.
+    const kept = dropArtifactClaims([
+      { symbol: "Object.defineProperty", predicate: "yield" },
+      { symbol: "defineProperty", predicate: "yield" },
+    ]);
+    expect(kept.map((c) => c.symbol).sort()).toEqual(["Object.defineProperty", "defineProperty"]);
+  });
+
+  test("PR #3392 R1 — a BACKED artifact does not inflate the backing counters", () => {
+    // Filtering the finished `claims` array left `backedSeen` holding the artifact's key, so a
+    // record could report `backedClaimCount: 1` with zero claims — inconsistent with itself.
+    // The pair is now rejected before the backing lookup, so it counts in neither direction.
+    const text =
+      'The detector fired on `"inferred"` and `raise` — a confidence label and a ' +
+      "timeout value, not code symbols; no action needed.";
+
+    // A corpus that DOES contain the artifact symbol: without the pre-backing rejection this
+    // is exactly the input that produces the inconsistent record.
+    const result = detectCodeMechanismAssertion(text, "raise raise raise", "");
+
+    expect(result.claims).toEqual([]);
+    expect(result.matched).toBe(false);
+    expect(result.backedClaimCount).toBe(0);
+    expect(result.hadSameTurnRead).toBe(false);
+  });
+
+  test("an ordinary claim is untouched — the filter is not a general narrowing", () => {
+    const kept = dropArtifactClaims([{ symbol: "isHostedMcpServer", predicate: "returns" }]);
+    expect(kept).toEqual([{ symbol: "isHostedMcpServer", predicate: "returns" }]);
   });
 });

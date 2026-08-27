@@ -812,10 +812,11 @@ and generalized by mt#2445 (which subsumed the recommendation-time-only mt#2494)
 
 When the spec (or amendment) **cites a memory ID, rule section, or doc passage** AND that
 citation is used to justify a **structural choice** (substrate, capability, abstraction
-boundary, "new vs extended pattern"), the agent MUST produce a three-step citation-and-mapping
-protocol BEFORE the structural choice is encoded. This is the factual-content sibling of gate
-(j): gate (j) verifies a categorization _label_ against its defining rule; gate (m) verifies a
-_factual claim_ against its cited source.
+boundary, "new vs extended pattern"), the agent MUST produce the four-step citation-and-mapping
+protocol below — **quote → map → scope-check → verdict** — BEFORE the structural choice is
+encoded. This is the factual-content sibling of gate (j): gate (j) verifies a categorization
+_label_ against its defining rule; gate (m) verifies a _factual claim_ against its cited source.
+Both protocols run four steps and they are NOT the same four, so name the gate when citing one.
 
 Rationale: the memory-snippet-conflation pattern. The agent retrieves a source correctly, then
 a salient phrase in it becomes the anchor for the rendering while adjacent qualifying sentences
@@ -828,17 +829,42 @@ and an explicit mapping the agent cannot fluently rationalize past.
 doc passage. If no cited claim drives a structural choice, the criterion passes automatically:
 "(m) No cited factual claim drives a structural choice — criterion passes."
 
-**Required three-step protocol (when triggered):**
+**Required four-step protocol — quote → map → scope-check → verdict (when triggered):**
 
 1. **Verbatim quote** of the cited text — copied exactly from the source (`memory_get`, the
    rule file, the doc), not paraphrased. Paraphrase is where conflation re-enters.
 2. **Explicit mapping** of how the structural choice follows from the quote — one-to-one: what
    the quote actually says vs. what the spec asserts it supports. Name any gap.
-3. **Verdict:** "claim supported" / "claim not supported" / "claim ambiguous". If ambiguous or
+3. **Scope conditions — ENUMERATE them from the quote, then state whether each HOLDS.** Re-read
+   the text you transcribed in step 1 and LIST every condition it attaches to the figure or
+   fact: a payload size, a sample population, a version, a date, an environment, a hardware or
+   plan tier, a unit. Then, for each, say whether that condition obtains in the case at hand.
+   **"Does not hold" and "unknown" are BOTH `claim not supported`** — an unchecked condition is
+   not a satisfied one. If the quote carries none, write "no scope conditions in the quote";
+   that sentence is the discharge and it costs one line.
+
+   **This is an enumeration over text you already have, not a judgment about which parts of the
+   quote look unusual.** That distinction is the entire step. The originating failure was a
+   conscientious agent transcribing `(~2KB each)` into its own audit and reading straight past
+   it, so any wording that depends on the qualifier STANDING OUT reproduces the failure it is
+   meant to prevent. Listing is mechanical; noticing is not, and noticing is what failed.
+
+   **Expect the arithmetic to feel like the hard part — it is not.** A figure that survives
+   careful, deliberately conservative arithmetic is precisely this step's target: the number is
+   correct about the population it was measured over and silent about yours. Same root as
+   `claim-confidence.mdc`'s pooled-population and regime-boundary cases (mem#1247, mem#1105);
+   all three produce an arithmetically correct number with no error to notice.
+
+   **Corollary for a DERIVED figure.** When the quote states a rate or latency and the spec
+   derives a DURATION or a TOTAL from it, the derivation inherits every condition on the rate —
+   and ages differently from it. The call COUNT is fixed by the code; the time per call is a
+   property of the payloads, and payloads grow. Re-measure before deriving a duration from a
+   cited latency.
+4. **Verdict:** "claim supported" / "claim not supported" / "claim ambiguous". If ambiguous or
    not supported, do not encode the structural choice — surface the gap; file an Ask if the
    source itself is unclear.
 
-A spec that cites a source to justify a structural choice without producing this three-step
+A spec that cites a source to justify a structural choice without producing this four-step
 output fails gate (m) and must not proceed to READY.
 
 **Worked example — mt#1852 / ADR-010 (2026-05-15).** The spec and ADR-010 §Substrate-constraint
@@ -852,15 +878,57 @@ the `project_supabase` memory. Walking gate (m):
    "session-pool mode on the same pooler." Two distinct axes — "session vs transaction pool mode"
    and "pooled vs direct connection" — were collapsed under the salient phrase "no LISTEN/NOTIFY."
    Gap: the spec's "bypass the pooler" is not in the source.
-3. **Verdict:** claim NOT supported. The structural choice as framed does not follow from the
+3. **Scope conditions:** the quote attaches the capability to **session-pool mode**, on **port
+   5432**, on **the same Supavisor**. Does that obtain here? The spec proposes bypassing
+   Supavisor entirely — so no, on the condition that carries the whole claim.
+4. **Verdict:** claim NOT supported. The structural choice as framed does not follow from the
    citation. Gate (m) blocks; the agent surfaces the gap instead of encoding the wrong framing
    (which is what shipped in ADR-010 commit `af07a249c`, later corrected via mt#1857).
+
+**Worked example — mt#4601 (2026-08-26): the qualifier was INSIDE the quote, and step 2 passed
+anyway.** This is the case step 3 was added for, and it is the harder of the two: mt#1852 above
+fails at MAPPING (the spec asserted something the quote does not say), which a careful reader
+catches. Here the mapping is FAITHFUL and the verdict is still wrong.
+
+Sizing a new sweep's tick timeout, the audit quoted `packages/domain/src/ai/request-resilience.ts`
+verbatim:
+
+> `batch of 20 (~2KB each)  p50 368ms  p90 449ms  max 449ms`
+
+and mapped it: *"2,000 candidates ÷ batch 20 = 100 calls; 100 × 449 ms (the MAX, not the median)
+≈ 45 s. **Verdict: claim supported**, and deliberately computed on the worst-case column so the
+bound is conservative."*
+
+Read against step 2 alone that mapping is sound — the quote says 449 ms per batch, the choice
+used 449 ms per batch, and it deliberately took the worst-case column. **Step 3 is where it
+breaks.** Enumerating the quote's conditions yields one: **`(~2KB each)`**, a payload size. Does
+it hold? The items being embedded are transcript turns, which are far larger — a measured batch
+took **8,054 ms, ~18x**. Condition does not hold → **claim NOT supported**, and the 45 s figure
+must be re-derived rather than used.
+
+What shipping it would have cost: a 5-minute tick timeout that abandons every full backfill run
+— the exact starvation the task existed to remove, rebuilt through a new mechanism. Typecheck,
+lint, 713 tests, a passing negative control and two reviewer APPROVEs all passed over the wrong
+constant; nothing but a live run the author chose to extend caught it. Note also the **derived
+figure** corollary in step 3: the bad number was a DURATION derived from a cited latency, and
+the source docblock that stated it has been corrected in place
+(`packages/domain/src/transcripts/per-turn-embedding-pipeline.ts`) so the next reader cannot
+derive another one from it.
 
 Cross-reference: bridge memory `feedback_memory_snippet_conflation_at_artifact_write_time`
 (id `de54bd12-fa9a-4023-bc34-83a1832aefdb`) is the originating-pattern reference; once this gate
 ships, that memory's job becomes historical record + pointer here. Sibling gates: (j) label
 verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
 runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
+
+**Step 3 (scope conditions) provenance: mt#4626**, from the mt#4601 incident above; bridge memory
+**mem#1285**, which retires to historical record now that this step ships. Registered as R22 on
+**mt#2544**, the `family:assertion-without-verification` anchor — the family's other two surfaces
+are mem#1247 (pooled population) and mem#1105 (regime boundary, shipped as mt#4284 into gate (o)
+step 3). Gate (o) step 3 covers the case where the falsifier is a QUERY the pass runs; step 3 here
+covers a CONSTANT cited from source. The two do not overlap, and neither reaches a scope-bound
+figure whose source states no qualifier at all — that residual is unowned and named in mt#4626's
+`## Does NOT cover`.
 
 #### Gate criterion (n) — External-system integration provisioning enumeration
 
@@ -1610,7 +1678,7 @@ To re-run the gate after fixes: `/plan-task mt#XXXX`
 
 **Example (m) failure.** For a task whose spec cites the `project_supabase` memory to justify
 a "dedicated direct Postgres connection bypassing Supavisor's transaction pooler" without
-producing the three-step citation-and-mapping protocol:
+producing the four-step citation-and-mapping protocol:
 
 ```
 ## Gap Report for mt#1852 (PLANNING — not yet READY)
@@ -1624,8 +1692,9 @@ producing the three-step citation-and-mapping protocol:
   salient phrase "no LISTEN/NOTIFY." Verdict: claim NOT supported.
 
 ### Required actions before READY
-1. Produce the three-step protocol: verbatim-quote `project_supabase`, map the substrate choice
-   to the quote, state the verdict.
+1. Produce the four-step protocol: verbatim-quote `project_supabase`, map the substrate choice
+   to the quote, enumerate the quote's scope conditions and state whether each holds, then state
+   the verdict.
 2. Re-frame the substrate decision to match the source (session-pool mode on the same pooler),
    or cite a different source that actually supports the direct-connection bypass.
 

@@ -69,6 +69,19 @@ async function resolveCurrentProjectId(
  * no separate spec row). Absent means "no spec-content baseline available",
  * which consumers must distinguish from "baseline is old" — never collapse the
  * two into a clean pass.
+ *
+ * `specCreatedAt` is the spec's AUTHORING timestamp (`task_specs.created_at`),
+ * and the two are not interchangeable — that is the whole reason both are here
+ * (mt#4420). `specUpdatedAt` moves on EVERY spec write, including one that
+ * touched an unrelated section, so a drift check baselined on it goes blind to
+ * everything that changed before the reader's own edit. `specCreatedAt` is
+ * written once at insert and is never re-set by the update paths, so it is a
+ * floor an incidental edit cannot move.
+ *
+ * Measured on prod before this field existed: of 566 specs whose freshness
+ * check reported a clean pass, 244 (43%) had at least one ref that HAD drifted
+ * since authoring; on specs authored in the last 7 days — the population where
+ * the check actually runs — 29 of 41 clean passes (71%) were false.
  */
 export interface TaskSpecContentResult {
   task: Task;
@@ -76,6 +89,7 @@ export interface TaskSpecContentResult {
   content: string;
   section?: string;
   specUpdatedAt?: Date;
+  specCreatedAt?: Date;
 }
 
 // Define the base TaskService interface used across the domain

@@ -4,7 +4,11 @@ import {
   parseNewDisconnectEvents,
   triggerMcpDisconnectEventSweep,
   ensureDirSync,
+  acquireSweepLock,
+  SWEEP_LOCK_MAX_AGE_MS,
   defaultFsDeps,
+  defaultLogDeps,
+  defaultProcDeps,
   type DisconnectSweepFsDeps,
 } from "./disconnect-event-sweep";
 
@@ -34,6 +38,30 @@ function createFakeFs(initialFiles: Record<string, string> = {}): DisconnectSwee
     },
     mkdirSync: (p: string) => {
       dirs.add(p);
+    },
+    // mt#4617 sweep lock. `link` must throw EEXIST when the destination is
+    // already taken — that throw IS the mutual exclusion the lock relies on, so
+    // a fake that silently succeeds would make every concurrency test pass
+    // vacuously. It also copies the CONTENT, which is what makes the lock name
+    // and its payload appear together (PR #3396 R1).
+    linkSync: (existing: string, target: string) => {
+      if (files.has(target) || dirs.has(target)) {
+        throw Object.assign(new Error(`EEXIST: file already exists, link '${target}'`), {
+          code: "EEXIST",
+        });
+      }
+      const content = files.get(existing);
+      if (content === undefined) {
+        throw Object.assign(new Error(`ENOENT: no such file, link '${existing}'`), {
+          code: "ENOENT",
+        });
+      }
+      files.set(target, content);
+    },
+    unlinkSync: (p: string) => {
+      if (!files.delete(p)) {
+        throw Object.assign(new Error(`ENOENT: no such file, unlink '${p}'`), { code: "ENOENT" });
+      }
     },
   };
 }
@@ -157,6 +185,12 @@ describe("ensureDirSync (mt#2633 — TOCTOU fix)", () => {
           });
         }
         dirs.add(p);
+      },
+      linkSync: () => {
+        throw new Error("not used by this test");
+      },
+      unlinkSync: () => {
+        // not used by this test
       },
     };
 
@@ -395,5 +429,256 @@ describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
     } as unknown as BasePersistenceProvider;
 
     await expect(triggerMcpDisconnectEventSweep(provider, fakeFs)).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4617 — the sweep lock. `readHwm` -> emit-loop -> `writeHwm` is a
+// read-modify-write with nothing serializing it, and the sweep is dispatched
+// fire-and-forget at every MCP boot on a host recording up to 326 process
+// starts/day. Two overlapping boots both read the pre-sweep HWM and both emit
+// the same backlog.
+// ---------------------------------------------------------------------------
+describe("triggerMcpDisconnectEventSweep — concurrent boots (mt#4617)", () => {
+  process.env.MINSKY_STATE_DIR = "/fake-minsky-state-dir";
+  const LOG_PATH = "/fake-minsky-state-dir/mcp-disconnect-log.json";
+  const LOCK_PATH = "/fake-minsky-state-dir/mcp-disconnect-sweep.lock";
+  const HWM_PATH = "/fake-minsky-state-dir/mcp-disconnect-sweep-hwm.json";
+  const SERVER_NAME = "Minsky MCP Server";
+
+  function threeDisconnects(): string {
+    return `${["00:00:00", "00:01:00", "00:02:00"]
+      .map((t) =>
+        JSON.stringify({
+          timestamp: `2026-01-01T${t}Z`,
+          serverName: SERVER_NAME,
+          kind: "disconnect",
+          cause: "stdin_close",
+          uptimeMs: 41,
+          processRole: "helper",
+        })
+      )
+      .join("\n")}\n`;
+  }
+
+  function providerWith(insertValues: () => unknown): BasePersistenceProvider {
+    const fakeDb = { insert: () => ({ values: insertValues }) };
+    return {
+      capabilities: { sql: true },
+      getDatabaseConnection: () => Promise.resolve(fakeDb),
+    } as unknown as BasePersistenceProvider;
+  }
+
+  it("bridges each disconnect exactly once when two sweeps overlap", async () => {
+    // ONE shared fake fs — the same state dir both boots read and write, which
+    // is what makes this a race rather than two isolated sweeps. mem#1292
+    // records the sibling mistake on PR #3368: five SEQUENTIAL rollers never
+    // contend, so a control against un-fixed code passed clean and the test was
+    // inert.
+    const fakeFs = createFakeFs({ [LOG_PATH]: threeDisconnects() });
+
+    // Park sweep A inside its first insert until sweep B has run start to
+    // finish. That models the window deterministically instead of hoping the
+    // scheduler interleaves.
+    let releaseA!: () => void;
+    const aGate = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    let sawFirstInsert!: () => void;
+    const firstInsertSeen = new Promise<void>((resolve) => {
+      sawFirstInsert = resolve;
+    });
+
+    let emitted = 0;
+    let holdNext = true;
+    const insertValues = async () => {
+      emitted++;
+      if (holdNext) {
+        holdNext = false;
+        sawFirstInsert();
+        await aGate;
+      }
+    };
+    const provider = providerWith(insertValues);
+
+    const a = triggerMcpDisconnectEventSweep(provider, fakeFs);
+    await firstInsertSeen; // A holds the lock and has not yet written the HWM
+    await triggerMcpDisconnectEventSweep(provider, fakeFs); // B must find the lock held
+    releaseA();
+    await a;
+
+    expect(emitted).toBe(3);
+    // PR #3396 R1 (NON-BLOCKING): assert the surrounding state too, not just
+    // the emit count — the HWM must have advanced to the newest event, and the
+    // lock must not survive either sweep.
+    expect(JSON.parse(fakeFs.readFileSync(HWM_PATH)).lastSweptTimestamp).toBe(
+      "2026-01-01T00:02:00Z"
+    );
+    expect(fakeFs.existsSync(LOCK_PATH)).toBe(false);
+  });
+
+  it("releases the lock when the sweep finishes, so the next boot can sweep", async () => {
+    const fakeFs = createFakeFs({ [LOG_PATH]: threeDisconnects() });
+    const provider = providerWith(() => Promise.resolve());
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs);
+
+    expect(fakeFs.existsSync(LOCK_PATH)).toBe(false);
+  });
+
+  it("reclaims a lock whose holder process is gone", async () => {
+    // The holder dying mid-sweep is the COMMON case here, not the edge case:
+    // this process exits constantly (staleness_exit, SIGTERM, stdin close). A
+    // lock that only cleared on graceful release would wedge the bridge.
+    const fakeFs = createFakeFs({
+      [LOG_PATH]: threeDisconnects(),
+      [LOCK_PATH]: JSON.stringify({ pid: 999999 }),
+    });
+    let emitted = 0;
+    const provider = providerWith(() => {
+      emitted++;
+      return Promise.resolve();
+    });
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs, defaultLogDeps, {
+      pid: 1234,
+      now: () => 0,
+      isAlive: () => false,
+    });
+
+    expect(emitted).toBe(3);
+  });
+
+  it("does NOT reclaim a lock whose holder is still alive", async () => {
+    const fakeFs = createFakeFs({
+      [LOG_PATH]: threeDisconnects(),
+      [LOCK_PATH]: JSON.stringify({ pid: 999999 }),
+    });
+    let emitted = 0;
+    const provider = providerWith(() => {
+      emitted++;
+      return Promise.resolve();
+    });
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs, defaultLogDeps, {
+      pid: 1234,
+      now: () => 0,
+      isAlive: () => true,
+    });
+
+    expect(emitted).toBe(0);
+    // The live holder's lock must survive our attempt untouched.
+    expect(fakeFs.existsSync(LOCK_PATH)).toBe(true);
+  });
+
+  it("treats an EPERM liveness probe as ALIVE, not as a corpse", () => {
+    // `process.kill(pid, 0)` throws EPERM for a process that exists but is
+    // owned by another user. Reading that as dead would reclaim a lock held by
+    // a live peer — the failure mode this assertion pins.
+    const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    const proc = process as unknown as { kill: unknown };
+    const originalKill = proc.kill;
+    try {
+      proc.kill = () => {
+        throw eperm;
+      };
+      expect(defaultProcDeps.isAlive(999999)).toBe(true);
+    } finally {
+      proc.kill = originalKill;
+    }
+  });
+
+  it("treats a non-pid as NOT alive, so a garbage lock is reclaimable", () => {
+    expect(defaultProcDeps.isAlive(0)).toBe(false);
+    expect(defaultProcDeps.isAlive(-1)).toBe(false);
+    expect(defaultProcDeps.isAlive(1.5)).toBe(false);
+  });
+
+  // PR #3396 R1 (BLOCKING): the lock name must never be observable without its
+  // payload. The original shape created an empty file with `wx` and wrote the
+  // pid a moment later; a peer landing in that window read "names no holder"
+  // and reclaimed a lock that was very much held.
+  //
+  // Worth stating why the concurrency test above did NOT catch this: the fake
+  // fs is single-threaded and there is no await between create and write, so
+  // the empty state was never observable IN THE FAKE. The race is real between
+  // two OS processes and invisible to a test that models them as coroutines —
+  // which is why this asserts the invariant directly instead of trying to
+  // schedule the window.
+  it("publishes the lock atomically with its payload, never as a bare name", () => {
+    const fakeFs = createFakeFs();
+    const release = acquireSweepLock(fakeFs, { pid: 4321, now: () => 1000, isAlive: () => false });
+    expect(release).not.toBeNull();
+
+    const body = JSON.parse(fakeFs.readFileSync(LOCK_PATH)) as {
+      pid?: number;
+      writtenAtMs?: number;
+    };
+    expect(body.pid).toBe(4321);
+    expect(body.writtenAtMs).toBe(1000);
+  });
+
+  it("leaves no temp file behind after taking the lock", () => {
+    const fakeFs = createFakeFs();
+    acquireSweepLock(fakeFs, { pid: 4321, now: () => 1000, isAlive: () => false });
+    expect(fakeFs.existsSync(`${LOCK_PATH}.4321.tmp`)).toBe(false);
+  });
+
+  // PR #3396 R1 (NON-BLOCKING): pid reuse. Without an age backstop a lock whose
+  // holder died and whose pid was later recycled by an unrelated live process is
+  // never reclaimed, and the bridge stops silently and permanently.
+  it("reclaims a lock older than the max age even when its pid looks alive", () => {
+    const fakeFs = createFakeFs({
+      [LOCK_PATH]: JSON.stringify({ pid: 999999, writtenAtMs: 0 }),
+    });
+    const release = acquireSweepLock(fakeFs, {
+      pid: 4321,
+      now: () => SWEEP_LOCK_MAX_AGE_MS + 1,
+      isAlive: () => true, // the pid resolves — to a DIFFERENT, unrelated process
+    });
+    expect(release).not.toBeNull();
+  });
+
+  it("does NOT reclaim a lock inside the max age whose pid is alive", () => {
+    const fakeFs = createFakeFs({
+      [LOCK_PATH]: JSON.stringify({ pid: 999999, writtenAtMs: 0 }),
+    });
+    const release = acquireSweepLock(fakeFs, {
+      pid: 4321,
+      now: () => SWEEP_LOCK_MAX_AGE_MS - 1,
+      isAlive: () => true,
+    });
+    expect(release).toBeNull();
+  });
+
+  // PR #3396 R1 flagged the early returns inside the locked region as leaking
+  // the lock. They do not — they sit inside a `try`, and `finally` runs on
+  // return — but the previous test only covered the path where the sweep had
+  // work to do. These pin both no-work exits, which is cheaper than arguing the
+  // control flow and leaves the property enforced rather than asserted.
+  it("releases the lock when the corpus is empty (early return)", async () => {
+    const fakeFs = createFakeFs(); // no log file at all -> corpus is empty
+    const provider = providerWith(() => Promise.resolve());
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs);
+
+    expect(fakeFs.existsSync(LOCK_PATH)).toBe(false);
+  });
+
+  it("releases the lock when the HWM already covers the log (early return)", async () => {
+    const fakeFs = createFakeFs({
+      [LOG_PATH]: threeDisconnects(),
+      [HWM_PATH]: JSON.stringify({ lastSweptTimestamp: "2026-01-02T00:00:00Z" }),
+    });
+    let emitted = 0;
+    const provider = providerWith(() => {
+      emitted++;
+      return Promise.resolve();
+    });
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs);
+
+    expect(emitted).toBe(0); // nothing new to sweep — the early return we mean
+    expect(fakeFs.existsSync(LOCK_PATH)).toBe(false);
   });
 });

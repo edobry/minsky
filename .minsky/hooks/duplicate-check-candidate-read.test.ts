@@ -164,6 +164,42 @@ describe("run — what does NOT count as having read the candidate", () => {
 
     expect(outcome?.calibration?.["outcome"]).toBe("matched");
   });
+
+  test("a CLI spec read of a DIFFERENT task does not discharge this candidate either", () => {
+    const outcome = run(
+      inputWith(INCIDENT_SPEC),
+      ctxWith([toolCallLine("Bash", { command: "minsky tasks spec get mt#9999" })])
+    );
+
+    expect(outcome?.calibration?.["outcome"]).toBe("matched");
+  });
+});
+
+// This detector COMPOSES `specWasSurfaced` from check-task-spec-read rather than duplicating it,
+// so mt#4380's CLI widening reaches it by construction. That propagation is deliberate, not
+// incidental: it filters candidates by `!specWasSurfaced(...)`, so before mt#4380 a candidate whose
+// spec was read on the CLI was reported UNREAD — the same false negative, one guard over. These
+// tests pin the intended behavior so a later change cannot silently un-widen it.
+describe("run — the CLI read channel reaches this detector too (mt#4380)", () => {
+  test("a CLI `tasks spec get` for the candidate discharges it, like the MCP spelling", () => {
+    const outcome = run(
+      inputWith(INCIDENT_SPEC),
+      ctxWith([toolCallLine("Bash", { command: "minsky tasks spec get mt#3053" })])
+    );
+
+    expect(outcome?.calibration?.["outcome"]).toBe("clean");
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("a bare CLI `tasks get` for the candidate does NOT discharge it", () => {
+    // Mirrors AT3's MCP case: no spec body is surfaced without --include-spec.
+    const outcome = run(
+      inputWith(INCIDENT_SPEC),
+      ctxWith([toolCallLine("Bash", { command: "minsky tasks get mt#3053" })])
+    );
+
+    expect(outcome?.calibration?.["outcome"]).toBe("matched");
+  });
 });
 
 describe("run — silence where silence is correct", () => {
