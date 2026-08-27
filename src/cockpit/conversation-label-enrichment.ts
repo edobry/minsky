@@ -188,8 +188,32 @@ export async function fetchEnrichment(
 ): Promise<Map<string, RowEnrichment>> {
   if (ids.length === 0) return new Map();
 
+  // Keyed on the GENERATED TITLE ONLY — deliberately NOT on tier 1 as well
+  // (PR #3400 R2 BLOCKING).
+  //
+  // The obvious predicate also skips ids with a resolved link, since tier 1
+  // outranks tier 3. It is wrong. Tier 1 resolves on the linked task TITLE, and
+  // that title comes from `titleCache.getTitles(...)` — a lookup that can
+  // legitimately return nothing when the task backend is unavailable, or when
+  // the id resolves to no task. A found task id is not a title. So on a
+  // title-cache miss `computeConversationLabel` falls past tier 1 to tier 3 and
+  // finds the user text absent, degrading the label to the timestamp·cwd·id
+  // fallback exactly when the backend is already degraded — the worst moment
+  // for the surface to also lose its labels.
+  //
+  // The generated title has no such gap: it is a value already in hand, and it
+  // is the SAME value `computeConversationLabel` reads for tier 2. Nothing can
+  // fail between this check and its use, so the skip cannot diverge from the
+  // decision it predicts.
+  //
+  // Cost of the narrower predicate: a conversation with a resolvable linked
+  // task title AND no generated title still reads its user text unnecessarily.
+  // That is a subset of the 1.8% lacking a generated title — a rounding error
+  // against shipping a label regression.
+  const needsUserText = ids.filter((id) => !generatedTitleById?.get(id)?.trim());
+
   try {
-    const [links, spawns, invocations] = await Promise.all([
+    const [links, turns, spawns, invocations] = await Promise.all([
       db
         .select({
           agentSessionId: minskySessionLinksTable.agentSessionId,
@@ -199,6 +223,10 @@ export async function fetchEnrichment(
         })
         .from(minskySessionLinksTable)
         .where(inArray(minskySessionLinksTable.agentSessionId, ids)),
+      // Runs in THIS wave, not a later one: the predicate depends only on `ids`
+      // and the caller-supplied titles, both known before any query, so the
+      // conditional read costs no additional round trip.
+      fetchBoundedFirstUserTurns(db, needsUserText),
       db
         .select({
           childAgentSessionId: agentSpawnsTable.childAgentSessionId,
@@ -240,31 +268,6 @@ export async function fetchEnrichment(
       const taskId = taskIdByMinskySessionId.get(minskySessionId);
       if (taskId) linkedTaskIdBySession.set(agentSessionId, taskId);
     }
-
-    // Tier 3 (user text) is fetched LAZILY and BOUNDED (mt#4655).
-    //
-    // `computeConversationLabel` returns at the first tier that resolves —
-    // linked task title, then generated title, THEN this text
-    // (`conversation-label.ts:160-186`, `if (generated) return generated;`). So
-    // for any id whose higher tier already resolved, the text is fetched and
-    // discarded. Measured: 2,977 of 3,032 conversations (98.2%) carry a
-    // generated title, and the eager read cost 557 kB on one 984-turn
-    // conversation — 0.649 ms of server-side execution against a 146 ms RTT, so
-    // the cost was entirely transfer.
-    //
-    // The bound is `MAX_USER_TURN_CANDIDATES`, not a chosen threshold:
-    // `pickSubstantiveUserText` does `candidates.slice(0, MAX_USER_TURN_CANDIDATES)`,
-    // so rows beyond it are discarded by the consumer anyway. Dropping them is
-    // label-identical by construction rather than by measurement.
-    //
-    // `row_number()` PARTITIONED by session, never a global `LIMIT`: the ids
-    // array is batch-shaped, and an unordered global limit would return an
-    // arbitrary N rows across conversations — omitting the early turns the
-    // label depends on and silently changing or blanking labels (mt#3591).
-    const needsUserText = ids.filter(
-      (id) => !linkedTaskIdBySession.has(id) && !generatedTitleById?.get(id)?.trim()
-    );
-    const turns = await fetchBoundedFirstUserTurns(db, needsUserText);
 
     // Tier 3: first-SUBSTANTIVE user-turn text per session. Sort ascending by
     // turnIndex — pickSubstantiveUserText (mt#2784) scans only the earliest
