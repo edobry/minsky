@@ -197,6 +197,21 @@ turn, which the record does not expose to this script. At least one is known by 
 turn, which **mt#4241** owns. So the residue is an upper bound on "unexplained", never a count of
 true positives.
 
+**The denominator is every INJECTED claim, not the classified-false subset** (PR #3406 R1). The
+classified-false labels live in `/calibration-review` pass output, not in the JSONL, so no filter can
+reach them. The numbers remain usable because of a structural property: **a true positive lands in
+the residue by construction** — for a claim to be a genuine unverified-mechanism assertion its symbol
+must be a real repo identifier (so not in the admission bucket) and its predicate must actually
+belong to that symbol (so not in the pairing bucket). The structural buckets are therefore populated
+almost entirely by false positives, and measuring them against the larger injected denominator
+UNDERSTATES each bucket's share of the false population. Every share below is a floor.
+
+One further correction from the same review, worth recording because its direction is the dangerous
+one: the membership search initially included this measurement's own script, whose docblocks quote
+the symbols it reports. The admission bucket read 8 instead of 9 until the script excluded itself.
+Contamination can only move a symbol toward "in repo", so it can only SHRINK the admission bucket —
+biasing the measurement toward this amendment's own conclusion.
+
 Two readings follow, and both cut against a symbol-admission fix:
 
 - **Admission is a minority contributor, and its bucket is not all error.**
@@ -235,8 +250,23 @@ direction. **Do not re-propose the allowlist without engaging this measurement.*
 Per the accepted RFC _The evaluation loop — auditing the regulators_
 (Notion `392937f0-3cb4-8188-aad6-d7d041de814b`, Accepted 2026-07-08 via ask `54334d49`), a guard
 exceeding its false-positive budget across consecutive reviews **requires a disposition decision**
-from {retire, consolidate, tune, affirm}, with _"affirm-by-default not among the allowed
-responses"_, packaged as an outlier in a principal-facing review. That is the record routing this
+from {retire, consolidate, tune, affirm}. Quoted verbatim below so this ADR stands on its own if
+that page is ever unreachable (PR #3406 R1) — the RFC's Position 1, its override-budget rule, and
+its packaging rule:
+
+> **Enforcement needs a budget.** A guard that mostly gets overridden, has never caught a real
+> instance, or costs more attention than the incidents it prevents should surface for a disposition
+> decision — **retire, consolidate, tune, or affirm**. … each guard carries a false-positive budget
+> expressed as an override-rate threshold; exceeding it across consecutive reviews _requires_ a
+> disposition decision.
+
+> …the override-budget rule (exceeding the budget _requires_ a disposition, **affirm-by-default not
+> among the allowed responses**).
+
+> Guards meeting an auto-affirm threshold … are affirmed automatically and listed in one summary
+> line; the ask presents **only the outliers** for decision.
+
+That is the record routing this
 decision, not any ADR-ratification convention.
 
 Open at **ask#10657**, with five options and a measurement behind each. The agent recommendation is
