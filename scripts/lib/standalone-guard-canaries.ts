@@ -343,4 +343,41 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       );
     },
   },
+  {
+    guardName: "coverage-claim-path-detector",
+    // Log-only (mt#4426): it writes a calibration record and returns null on
+    // every path, so the record IS the effect — same shape as
+    // `gate-walk-provenance` above.
+    effects: [recorderEffect()],
+    expects: "calibration",
+    // Declared HERE and not only in `.claude/settings.json`, which is mt#4390's
+    // whole lesson: a standalone guard wired only in settings.json declares no
+    // log, so its records are unsweepable and `check-coverage-receipts.ts` can
+    // only ever report it FLAGGED.
+    calibrationLog: "coverage-claim-path",
+    check: async () => {
+      const { findUnresolvedCoverageClaims } = await import(
+        "../../.minsky/hooks/coverage-claim-path"
+      );
+
+      // A DISCRIMINATING pair. A canary that only exercised the firing branch
+      // would pass against a matcher that fires on every cited path — which is
+      // precisely the naive form this detector exists to NOT be (measured 1.8%
+      // precision). So the negative half is the load-bearing half here.
+      const fires = findUnresolvedCoverageClaims(
+        "// Coverage is exercised in scripts/verify-nonexistent.ts.",
+        "src/thing.test.ts",
+        () => false
+      );
+      // The substring trap: `transcripts/` contains `scripts/`. Largest measured
+      // false-positive class, and invisible on inspection.
+      const substringTrap = findUnresolvedCoverageClaims(
+        "// Coverage is exercised in packages/domain/src/transcripts/turns.ts.",
+        "src/other.ts",
+        (p) => p === "packages/domain/src/transcripts/turns.ts"
+      );
+
+      return fires.length === 1 && substringTrap.length === 0;
+    },
+  },
 ];
