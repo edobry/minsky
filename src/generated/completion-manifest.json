@@ -1310,7 +1310,7 @@
             },
             {
               "name": "freshness",
-              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited",
+              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was authored, flagging which changed before its last edit",
               "options": [
                 {
                   "flags": ["--repo"],
@@ -6177,86 +6177,6 @@
               "commandId": "window.service"
             }
           ]
-        },
-        {
-          "name": "deployment",
-          "description": "deployment commands",
-          "subcommands": [
-            {
-              "name": "wait-for-latest",
-              "description": "Block until the latest deployment for the configured service reaches a terminal state (SUCCESS/FAILED/CANCELLED/CRASHED). Returns the final deployment record. Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
-              "options": [
-                {
-                  "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--timeout-seconds"],
-                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes). Reachable over MCP as of mt#1576: this command emits progress from both its acquire and status-poll phases, so the transport's idle timeout no longer ends the call before this budget elapses.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--poll-interval-seconds"],
-                  "description": "Poll cadence. Default: 10 seconds.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--not-before"],
-                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890). NECESSARY BUT NOT SUFFICIENT (mt#4583): this bounds TIME, and time does not identify WHICH change deployed — a neighbouring merge's deployment lands inside the window and passes. Pass expectCommitSha too.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--expect-commit-sha"],
-                  "description": "The merge commit you are verifying deployed (mt#4583). When set, the result carries a `buildIdentity` verdict — 'confirmed' (the deployment names this commit), 'mismatch' (it names a different one, so a deploy happened but not yours), or 'indeterminate' (the record cannot answer; image-source services carry no commit hash at all). Read it: 'indeterminate' is NOT 'confirmed', and treating a bare SUCCESS as proof your change shipped is the defect this parameter exists to remove.",
-                  "takesValue": true
-                }
-              ],
-              "commandId": "deployment.wait-for-latest"
-            },
-            {
-              "name": "status",
-              "description": "Read-only snapshot of the latest deployment for the configured service. Does not block. Platform-neutral.",
-              "options": [
-                {
-                  "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
-                  "takesValue": true
-                }
-              ],
-              "commandId": "deployment.status"
-            },
-            {
-              "name": "logs",
-              "description": "Fetch build or deploy logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725 for the notification path).",
-              "options": [
-                {
-                  "flags": ["--type"],
-                  "description": "Log channel: 'build' (build-phase) or 'deploy' (runtime). Default: 'build'.",
-                  "takesValue": true,
-                  "values": ["build", "deploy"]
-                },
-                {
-                  "flags": ["--lines"],
-                  "description": "Maximum number of log lines to return. Default: 100.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
-                  "takesValue": true
-                }
-              ],
-              "arguments": [
-                {
-                  "name": "deploymentId",
-                  "required": true,
-                  "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
-                }
-              ],
-              "commandId": "deployment.logs"
-            }
-          ]
         }
       ]
     },
@@ -7313,6 +7233,86 @@
               "commandId": "epic-decomposition.audit"
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "deployment",
+      "description": "DEPLOYMENT commands",
+      "subcommands": [
+        {
+          "name": "wait-for-latest",
+          "description": "Block until the latest deployment for the configured service reaches a terminal state (SUCCESS/FAILED/CANCELLED/CRASHED). Returns the final deployment record. Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
+          "options": [
+            {
+              "flags": ["--service"],
+              "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--timeout-seconds"],
+              "description": "Maximum time to block before timing out. Default: 600 (10 minutes). Reachable over MCP as of mt#1576: this command emits progress from both its acquire and status-poll phases, so the transport's idle timeout no longer ends the call before this budget elapses.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--poll-interval-seconds"],
+              "description": "Poll cadence. Default: 10 seconds.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--not-before"],
+              "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890). NECESSARY BUT NOT SUFFICIENT (mt#4583): this bounds TIME, and time does not identify WHICH change deployed — a neighbouring merge's deployment lands inside the window and passes. Pass expectCommitSha too.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--expect-commit-sha"],
+              "description": "The merge commit you are verifying deployed (mt#4583). When set, the result carries a `buildIdentity` verdict — 'confirmed' (the deployment names this commit), 'mismatch' (it names a different one, so a deploy happened but not yours), or 'indeterminate' (the record cannot answer; image-source services carry no commit hash at all). Read it: 'indeterminate' is NOT 'confirmed', and treating a bare SUCCESS as proof your change shipped is the defect this parameter exists to remove.",
+              "takesValue": true
+            }
+          ],
+          "commandId": "deployment.wait-for-latest"
+        },
+        {
+          "name": "status",
+          "description": "Read-only snapshot of the latest deployment for the configured service. Does not block. Platform-neutral.",
+          "options": [
+            {
+              "flags": ["--service"],
+              "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
+              "takesValue": true
+            }
+          ],
+          "commandId": "deployment.status"
+        },
+        {
+          "name": "logs",
+          "description": "Fetch build or deploy logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725 for the notification path).",
+          "options": [
+            {
+              "flags": ["--type"],
+              "description": "Log channel: 'build' (build-phase) or 'deploy' (runtime). Default: 'build'.",
+              "takesValue": true,
+              "values": ["build", "deploy"]
+            },
+            {
+              "flags": ["--lines"],
+              "description": "Maximum number of log lines to return. Default: 100.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--service"],
+              "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "deploymentId",
+              "required": true,
+              "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
+            }
+          ],
+          "commandId": "deployment.logs"
         }
       ]
     },

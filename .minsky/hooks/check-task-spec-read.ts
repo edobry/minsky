@@ -105,6 +105,15 @@ import {
   type TranscriptLine,
 } from "./transcript";
 import { recordFireLogEntry } from "./fire-log";
+import { splitPipeline, splitTopLevel } from "./command-shape";
+import {
+  firstPositional,
+  hasAnyFlag,
+  minskyArgvOf,
+  readManifest,
+  resolveCommandNode,
+  type ManifestNode,
+} from "./detect-cli-mcp-substitution";
 
 /** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
 const GUARD_NAME = "check-task-spec-read";
@@ -209,6 +218,151 @@ export function specWasSurfaced(lines: TranscriptLine[], targetId: string): bool
       return true;
     }
   }
+  // The CLI spelling of the same two reads (mt#4380), checked last so the MCP path stays free.
+  return cliEngagementInTranscript(lines, targetId, "read");
+}
+
+// ---------------------------------------------------------------------------
+// The CLI evidence channel (mt#4380)
+// ---------------------------------------------------------------------------
+//
+// Minsky exposes the same commands through two surfaces, and every predicate above names MCP tools
+// only — so a session that read and amended a spec through `minsky tasks spec get` / `minsky tasks
+// edit --spec-file` looked identical to one that never opened the task, and was DENIED at
+// `session_start`. That is the class mt#4536 calls "blocks WRONGLY", and this guard was its sole
+// confirmed member: it is the only CLI-blind guard whose discharge evidence comes from prior
+// tool-call records rather than from the call being guarded.
+//
+// The fix is on the EVIDENCE side, not the enforcement side. This guard already FIRES correctly —
+// it runs on `session_start`, sees the call, and reaches its decision. Widening its
+// `.claude/settings.json` matcher onto `Bash` (mt#4536's prescription for the REGISTRATION-blind
+// guards, which never run at all for a CLI call) would be the wrong repair here and an expensive
+// one: this module reads the transcript to decide, so it would pay a full transcript parse on every
+// bash call in the session. Nothing about the matcher changes.
+//
+// Commands are resolved through `src/generated/completion-manifest.json`'s `commandId` stamp
+// (mt#4144), the same oracle `cli-mcp-substitution` uses — never a hand-rolled command-string
+// pattern. The manifest is generated from the shared command registry, so the accepted spellings
+// and their flags cannot drift from the CLI. Reading the shared registry in-process was rejected by
+// mt#4144's audit — it would force the hook domain-bootstrap (config init plus a DB-capable
+// provider resolve) on every call. Reading the generated JSON keeps this module off the domain
+// layer entirely; do NOT reintroduce that identifier here, even in prose, because
+// hook-module-inventory.test.ts classifies a module as persistence-reaching by a bare substring
+// match on the file text and would file this guard under ADR-026 tier 1 on the strength of a
+// comment. It is a committed build artifact, NOT a sweeper-written cache — the
+// Thin-hooks RFC (Accepted 2026-08-11) is retiring those four pipelines and this must not add a
+// fifth.
+//
+// Not governed by ADR-024's ladder: its rungs scope to matching trigger PHRASES in the agent's own
+// prose, and a parsed command string resolved against a generated oracle has no paraphrase axis.
+// Same boundary `detect-cli-mcp-substitution.ts` records for itself, which mt#4595 is writing into
+// ADR-024 directly.
+
+/** Tools whose input carries a shell command string — both surfaces reach the CLI. */
+const COMMAND_TOOL_NAMES = ["Bash", "mcp__minsky__session_exec"] as const;
+
+/**
+ * CLI command ids that surface a spec body, mapped to the flags REQUIRED for them to do so (null =
+ * the command always surfaces it). `tasks.get` mirrors the MCP side's `includeSpec: true` gate: a
+ * bare `minsky tasks get <id>` prints metadata and is not a spec read, exactly as a `tasks_get`
+ * without `includeSpec` is not.
+ */
+const CLI_SPEC_READ_COMMANDS = new Map<string, readonly string[] | null>([
+  ["tasks.spec.get", null],
+  ["tasks.get", ["--include-spec"]],
+]);
+
+/**
+ * `tasks edit`'s spec-writing flags — the CLI spelling of the `specContent` / `spec` / `specFile`
+ * set `edit-commands.ts` treats as `hasSpecOperation`. `--spec` is boolean (it opens the spec for
+ * an interactive edit); the other two take a value. A metadata-only edit (`--kind`, `--title`,
+ * `--tag`) carries none of these and is NOT authorship, mirroring {@link editHasSpecContent}.
+ */
+const CLI_SPEC_EDIT_COMMAND = "tasks.edit";
+const CLI_SPEC_WRITE_FLAGS = ["--spec", "--spec-file", "--spec-content"] as const;
+
+/**
+ * Lazily-read manifest, memoised for the process. `readManifest` returns null on ANY failure, and
+ * that null is cached deliberately: a guard invocation is short-lived, and re-reading a missing or
+ * unparseable file once per candidate transcript buys nothing. A null degrades this channel to
+ * silence — the guard falls back to exactly its pre-mt#4380 MCP-only evidence, which preserves the
+ * fail-safe direction (it can under-credit, never over-credit).
+ */
+let cachedManifest: ManifestNode | null | undefined;
+function manifestOnce(): ManifestNode | null {
+  if (cachedManifest === undefined) cachedManifest = readManifest();
+  return cachedManifest;
+}
+
+/** A spec engagement recovered from one shell command string, with its task id normalised. */
+export interface CliSpecEngagement {
+  kind: "read" | "authored";
+  taskId: string;
+}
+
+/**
+ * Every spec read or spec authorship a shell command string carries, across `&&`/`;` segments and
+ * pipeline stages. Pure: takes the manifest rather than reading it, so both directions are
+ * testable — that a CLI read of the TARGET is credited, and that a CLI read of a DIFFERENT task is
+ * not (mem#812: a widened relation's inverse is where the old behaviour survives).
+ *
+ * A command with no recoverable task id yields nothing. That is the safe direction — the guard
+ * denies, exactly as it does today, rather than crediting an engagement with a task nobody named.
+ */
+export function cliSpecEngagements(command: string, manifest: ManifestNode): CliSpecEngagement[] {
+  const engagements: CliSpecEngagement[] = [];
+
+  for (const segment of splitTopLevel(command)) {
+    for (const stage of splitPipeline(segment)) {
+      const argv = minskyArgvOf(stage);
+      if (!argv) continue;
+
+      const { node, rest } = resolveCommandNode(manifest, argv);
+      const commandId = node.commandId;
+      if (!commandId) continue;
+
+      const taskId = normalizeTaskId(firstPositional(node, rest));
+      if (!taskId) continue;
+
+      if (CLI_SPEC_READ_COMMANDS.has(commandId)) {
+        const required = CLI_SPEC_READ_COMMANDS.get(commandId) ?? null;
+        if (required === null || hasAnyFlag(rest, required)) {
+          engagements.push({ kind: "read", taskId });
+        }
+        continue;
+      }
+
+      if (commandId === CLI_SPEC_EDIT_COMMAND && hasAnyFlag(rest, CLI_SPEC_WRITE_FLAGS)) {
+        engagements.push({ kind: "authored", taskId });
+      }
+    }
+  }
+
+  return engagements;
+}
+
+/**
+ * True iff the transcript carries a CLI invocation of the given `kind` for `targetId`. Scanned only
+ * after the MCP predicates miss, so the common case never touches the manifest or the disk.
+ */
+function cliEngagementInTranscript(
+  lines: TranscriptLine[],
+  targetId: string,
+  kind: CliSpecEngagement["kind"]
+): boolean {
+  if (!targetId) return false;
+  const manifest = manifestOnce();
+  if (!manifest) return false;
+
+  for (const toolName of COMMAND_TOOL_NAMES) {
+    for (const input of findToolUseInputs(lines, toolName)) {
+      const command = input["command"];
+      if (typeof command !== "string" || command.trim() === "") continue;
+      for (const engagement of cliSpecEngagements(command, manifest)) {
+        if (engagement.kind === kind && engagement.taskId === targetId) return true;
+      }
+    }
+  }
   return false;
 }
 
@@ -290,7 +444,11 @@ export function specWasAuthored(lines: TranscriptLine[], targetId: string): bool
     return true;
   }
 
-  return false;
+  // `minsky tasks edit <id> --spec-file|--spec-content|--spec` (mt#4380), checked last for the
+  // same reason as the read path. `tasks create` is deliberately NOT credited here: the MCP credit
+  // correlates the minted id out of the tool RESULT, and recovering it from CLI stdout is a
+  // different mechanism from the manifest resolver — named as a residual in the spec, not solved.
+  return cliEngagementInTranscript(lines, targetId, "authored");
 }
 
 /**

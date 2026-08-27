@@ -160,6 +160,89 @@ by fires like session `bdf8f782`'s mt#2738 (spec authored in one session,
 advanced unread in a later, separate session) — per the mt#2814 spec, this
 class should STILL block, and it does.
 
+**The CLI evidence channel (mt#4380).** Minsky exposes the same commands through
+two surfaces, and every predicate above names MCP tools only. So a session that
+read and amended a spec through `minsky tasks spec get` and `minsky tasks edit
+--spec-file` — the documented fallback when the MCP daemon is down — looked
+identical to one that never opened the task, and was DENIED at `session_start`.
+Observed 2026-08-21: roughly an hour of engagement recorded in the task, and the
+denial was discharged by calling `tasks_spec_get` once, which changed nothing
+about what the agent knew and everything about what the guard could see.
+
+**Which channels count as evidence, and why each.** A spec is credited as READ
+when the transcript carries any of these for the target task id:
+
+| Channel  | Spelling                               | Why it counts                                          |
+| -------- | -------------------------------------- | ------------------------------------------------------ |
+| MCP read | `tasks_spec_get`                       | the result surfaces the spec body                      |
+| MCP read | `tasks_get` with `includeSpec: true`   | same, gated on the flag                                |
+| CLI read | `minsky tasks spec get <id>`           | the CLI spelling of the first row                      |
+| CLI read | `minsky tasks get <id> --include-spec` | the CLI spelling of the second, gated on the same flag |
+
+and as AUTHORED when it carries any of: `tasks_spec_patch`,
+`tasks_spec_search_replace`, a `tasks_create` whose correlated result confirms
+the created id, a `tasks_edit` carrying `specContent`/`spec`/`specFile`, or the
+CLI `minsky tasks edit <id>` with `--spec`, `--spec-file`, or `--spec-content`.
+The CLI rows mirror their MCP counterparts exactly, including the negative
+cases: a bare `minsky tasks get <id>` prints metadata and is not a read, and a
+metadata-only `minsky tasks edit <id> --kind …` is not authorship.
+
+**What does NOT count, deliberately.** A CLI `minsky tasks create --spec-file`
+is not credited. The MCP credit for `tasks_create` correlates the minted task id
+out of the tool RESULT (`findCreatedResourceIds`); recovering it from CLI stdout
+text is a different mechanism from the manifest resolver this channel is built
+on. Residual: a session whose ONLY engagement is a CLI task creation still
+denies. Named, not solved.
+
+**How a command is resolved — a generated oracle, never a pattern.** Commands
+are resolved through the `commandId` stamp in
+`src/generated/completion-manifest.json` (mt#4144), the same oracle
+`cli-mcp-substitution` uses. The manifest is generated from the shared command
+registry, so the accepted spellings and their flags cannot drift from the CLI
+the way a hand-maintained list would. It also carries each leaf's positional
+`arguments` and per-option `takesValue`, which is what lets the guard recover
+the TARGET TASK ID rather than merely recognising the command — the difference
+between crediting a read and crediting _a read of the right task_. Argv is
+parsed against the LEAF's own option table rather than at the point the manifest
+walk stops, because the walk consumes a token following an unrecognised flag: in
+`minsky tasks spec get --json mt#4380` it would otherwise swallow the id.
+
+An option the manifest does not list is assumed to take a value. That direction
+is deliberate: over-consuming can only cause a positional to be MISSED, leaving
+the guard exactly as it behaves without this channel, whereas under-consuming
+would let a flag's value be read as a task id — inventing an engagement with a
+task nobody named. A miss is recoverable; a fabricated id is not.
+
+**The matcher is unchanged, and that is the point.** mt#4536 swept this family
+and split "CLI-blind" into three consequences. This guard was the sole confirmed
+member of the one that BLOCKS WRONGLY: it is the only blind guard whose
+discharge evidence comes from prior tool-call records rather than from the call
+being guarded. That makes the repair an EVIDENCE-side one. The guard already
+fires correctly — it runs on `session_start`, sees the call, and reaches its
+decision — so mt#4536's prescription for the REGISTRATION-blind guards (widen
+the matcher onto `Bash`) does not apply here and would be expensive if applied:
+this module reads the transcript to decide, so it would pay a full transcript
+parse on every bash call in the session. Nothing in `.claude/settings.json`
+changed.
+
+**Not governed by ADR-024's ladder.** ADR-024 scopes its rungs to
+`UserPromptSubmit` guidance hooks matching behavioral trigger PHRASES in the
+agent's own prose. A parsed command string resolved against a generated oracle
+has no paraphrase axis, so there is no rung to climb. Same boundary
+`detect-cli-mcp-substitution.ts` records for itself; mt#4595 is writing it into
+ADR-024 directly. Note the distinction from that guard's family: the
+command-string guards register ON `Bash` and decide from the live command, while
+this one registers elsewhere and reads command strings retrospectively. Same
+matcher class, different seam.
+
+**The widening reaches `duplicate-check-candidate-read` by construction, and
+that is intended.** That detector COMPOSES `specWasSurfaced` rather than
+duplicating it, so before mt#4380 a duplicate-check candidate whose spec was
+read on the CLI was reported UNREAD — the same false negative, one guard over.
+Letting the widening propagate corrects it in the same direction; isolating the
+guard behind a private predicate would have preserved a known-wrong behavior in
+the consumer. Its tests pin both directions.
+
 **Why full-transcript, not last-turn.** Claude Code records `tool_result` blocks
 as user-role lines, so a turn slice keyed on user-role boundaries silently drops
 tool calls from earlier turns (mt#2255 / memory `a3e60471`). The spec is

@@ -1165,15 +1165,14 @@
       ]
     },
     "pr-1957-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "NOISE",
+          "rationale": "The code intentionally provides a best-effort annotation from stored presence claims (separate from liveness) and may rely on repository TTL/cleanup; without evidence of staleness in listAllSessionAttachments, the claimed bug is speculative."
         },
         {
           "provider": "anthropic",
@@ -1184,142 +1183,128 @@
       ]
     },
     "pr-1956-r1-f1": {
-      "aggregate": "VALID",
+      "aggregate": "NOISE",
       "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "NOISE",
+          "rationale": "The guard only creates sizeBudget when at least one field is provided, so it never becomes {warnChars: undefined, failChars: undefined}, and partial undefineds are intended for downstream defaulting."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "The code explicitly handles the case where only one field is defined: the `sizeBudget` object `{ warnChars: params.warnChars, failChars: params.failChars }` is intentionally constructed with possibly-undefined fields when at least one is defined, and the comment explains this is acceptable because `resolveSizeBudget`'s merge logic handles undefined fields correctly — the downstream function treats `undefined` fields as \"not overridden.\""
         }
       ]
     },
     "pr-1955-r1-f1": {
-      "aggregate": "VALID",
+      "aggregate": "NOISE",
       "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "NOISE",
+          "rationale": "The sql tagged template binds JSON.stringify(deduped) as a parameter (not concatenated SQL), so the update is parameterized and safe; the ::jsonb cast is explicit and not an injection or JSON ambiguity risk."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "The code uses Drizzle ORM's `sql` template tag with `JSON.stringify(deduped)` as a proper parameterized placeholder (not string interpolation), which safely passes the JSON as a bound parameter before casting to jsonb — this is the correct and safe pattern, not SQL injection."
         }
       ]
     },
     "pr-1953-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "BUG_HIT",
+          "rationale": "Options for tasks children/parent only include --task while their descriptions say it’s a legacy alias and to prefer taskId, indicating the primary --task-id flag is missing from the manifest."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "The `tasks children` and `tasks parent` commands do show `--task` (the legacy alias for taskId) in the manifest; if `--task-id` is absent, it may simply not be a documented flag in this generated file, and the finding gives no evidence from the surrounding code that `--task-id` was ever present or was accidentally removed — it's speculative without a diff showing the deletion."
         }
       ]
     },
     "pr-1953-r2-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "BUG_HIT",
+          "rationale": "The manifest lists only --task for children/parent while descriptions say taskId is preferred, implying --task-id should exist; its absence indicates an unintended breaking flag removal."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "The code context shows `--task` option (described as \"Legacy alias for taskId\") is present for both `children` and `parent` commands; there is no evidence of a removed `--task-id` option, and the finding's claim about a breaking removal cannot be verified from the shown context alone — it appears to be comparing against a prior state not shown here, making this a speculative finding without solid evidence in the provided diff context."
         }
       ]
     },
     "pr-1952-r1-f0": {
-      "aggregate": "VALID",
+      "aggregate": "NOISE",
       "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "NOISE",
+          "rationale": "Under Bun tests process.execPath points to the Bun binary and \"bun run <script>\" is valid, avoiding PATH reliance, so the assumption is sound and not a real issue."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "The command `[process.execPath, \"run\", hookPath]` is exactly correct for Bun — `bun run <script>` is the standard way to invoke a TypeScript/JS file with Bun, and `process.execPath` in a Bun process points to the Bun binary itself, making this invocation entirely valid."
         }
       ]
     },
     "pr-1942-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "BUG_HIT",
+          "rationale": "In Postgres GREATEST returns NULL if any argument is NULL, so the ON CONFLICT update can leave or regress lastIngestedJsonlTimestamp to NULL (e.g., when existing or EXCLUDED is NULL, such as attachments-only updates), defeating the intended watermark advancement."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "PostgreSQL's GREATEST() does propagate NULL if any argument is NULL, but the code uses it as `GREATEST(existing_column, EXCLUDED.new_value)` — if `existing_column` is NULL (first insert would be an INSERT not UPDATE, so on UPDATE the existing value was already set), the result could be NULL. However, the `lastIngestedJsonlTimestamp` insert value is `latestTs ?? undefined` which means it could be NULL/undefined on insert, and on conflict the GREATEST could yield NULL if the existing value is NULL. This is a real edge case, but the reviewer's claim that it causes the watermark to \"silently regress to NULL\" is an actual valid concern in PostgreSQL where GREATEST(NULL, non-null) = non-null but GREATEST(non-null, NULL) also = non-null — actually PostgreSQL GREATEST() ignores NULLs and returns the non-null value, unlike COALESCE but similar — so the finding is actually wrong about GREATEST behavior with NULLs in PostgreSQL, where GREATEST returns NULL only if ALL arguments are NULL."
         }
       ]
     },
     "pr-1942-r2-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "BUG_HIT",
+          "rationale": "GREATEST returns NULL if any argument is NULL, and since existing/EXCLUDED timestamp may be NULL here the upsert can regress or fail to advance lastIngestedJsonlTimestamp to NULL."
         },
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "PostgreSQL's GREATEST() function does handle NULLs by ignoring them (unlike arithmetic operators) — it returns the non-NULL argument when one side is NULL, and only returns NULL when ALL arguments are NULL; since the existing value being NULL (first ingest) is the normal case and EXCLUDED value should never be NULL here (latestTs or undefined from the values insert), this isn't actually a bug."
         }
       ]
     },
@@ -1330,9 +1315,8 @@
         {
           "provider": "openai",
           "model": "gpt-5",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: openai.chat.completions.create.notools"
+          "verdict": "BUG_HIT",
+          "rationale": "PostgreSQL GREATEST is strict (any NULL yields NULL), so with nullable timestamps it can null/regress or fail to advance the watermark, contradicting the comment/intent."
         },
         {
           "provider": "anthropic",
@@ -1344,7 +1328,7 @@
     },
     "pr-1940-r1-f0": {
       "aggregate": "NOISE",
-      "agreement": false,
+      "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
@@ -1355,9 +1339,8 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: Operation timed out after 120000ms: anthropic.messages.create"
+          "verdict": "NOISE",
+          "rationale": "The \"pointer block exceeds 5-line limit\" finding refers to an internal style rule, but there is no such rule visible in the code context provided, and the block in question (the operational reference rules section) is a natural documentation structure, not a \"pointer block\" as defined by any visible constraint; the finding is unsubstantiated by the code shown."
         }
       ]
     },
@@ -1956,8 +1939,8 @@
       ]
     },
     "pr-1818-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
@@ -1968,15 +1951,14 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQ3n6MvPFCpr3sN742k\"}"
+          "verdict": "NOISE",
+          "rationale": "The finding claims a \"potential silent behavior change\" from ordering, but the new block is intentionally separate per its own `_comment` (ADR-028 pilot), uses a dispatcher pattern, and the original Bash|session_exec block remains intact — both blocks will still fire for matching tools; this is a deliberate architectural split, not an unintended reordering bug."
         }
       ]
     },
     "pr-1815-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
@@ -1987,14 +1969,13 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQ4cFYxWgNShdb7Ux3h\"}"
+          "verdict": "NOISE",
+          "rationale": "The fail-open behavior on `deriveRepoFromGit` failure (`if (!repo) process.exit(0)`) and on PR body fetch failure is an intentional design choice explicitly documented in the comments (\"Fail-open: emit a warning to stderr... then allow the merge\"), consistent with similar hooks like `check-branch-fresh.ts`; the finding calls this a \"behavior change\" but the surrounding comment at line ~414 area and code context confirm this is deliberate, not a bug."
         }
       ]
     },
     "pr-1815-r1-f1": {
-      "aggregate": "VALID",
+      "aggregate": "NOISE",
       "agreement": false,
       "perJudge": [
         {
@@ -2006,9 +1987,8 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQ7gjGFxEajviSCE3CK\"}"
+          "verdict": "NOISE",
+          "rationale": "The \"fail-open\" behavior on repo-derivation failure is an explicit, documented design choice (matching the pattern of `check-branch-fresh.ts`) with comments explaining the rationale; the code intentionally emits a warning to stderr before allowing, which is a recognized trade-off for a best-effort safety gate, not a silent or unintentional gap."
         }
       ]
     },
@@ -2026,14 +2006,13 @@
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
           "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQ8oW61VsEgB6woZeiY\"}"
+          "rationale": "The finding is legitimate: if `readInput()` throws (e.g., malformed JSON, closed stdin, unexpected input), the unhandled exception will crash the hook process, which depending on Claude's hook-failure behavior could block all prompt dispatches — a fail-open try/catch around the top-level await would be the safer pattern, making this a real (if not catastrophic) design concern rather than noise."
         }
       ]
     },
     "pr-1812-r1-f8": {
       "aggregate": "NOISE",
-      "agreement": false,
+      "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
@@ -2044,15 +2023,14 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQ9RPasJWrbTv2tGFs5\"}"
+          "verdict": "NOISE",
+          "rationale": "The code correctly uses `git diff --name-only before after -- src/` which scopes the diff to `src/` only; if `diffResult.stdout` is non-empty, it means files under `src/` actually changed, so the warning is not a false positive."
         }
       ]
     },
     "pr-1812-r1-f9": {
-      "aggregate": "VALID",
-      "agreement": false,
+      "aggregate": "BUG_HIT",
+      "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
@@ -2063,15 +2041,14 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQAd1NAz8tUScf1Qyq3\"}"
+          "verdict": "BUG_HIT",
+          "rationale": "This is a PostToolUse hook, which runs after the tool has already executed — it cannot block or deny task creation at this point. The comment and code claim to \"block task creation\" but the task already exists when this hook runs; `process.exit(1)` in a PostToolUse hook does not revert or prevent the tool's action, it only signals an error to the orchestrator without undoing anything."
         }
       ]
     },
     "pr-1793-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": false,
+      "aggregate": "BUG_HIT",
+      "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
@@ -2082,15 +2059,14 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQBPvqCoQ9NmZV6bi8E\"}"
+          "verdict": "BUG_HIT",
+          "rationale": "The re-export block on line 69 only exports `validateSessionApprovedForMerge` from `session-merge-conflict-detection.ts`, but omits `checkGitHubMergeApprovalBlockers`, which is imported at the top of the file and was presumably part of the public API of this module before the refactor, leaving it unreachable for consumers importing from `session-merge-operations.ts`."
         }
       ]
     },
     "pr-1788-r1-f0": {
       "aggregate": "NOISE",
-      "agreement": false,
+      "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
@@ -2101,15 +2077,14 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQCX3zMSzfK5f62vi7F\"}"
+          "verdict": "NOISE",
+          "rationale": "The finding claims \"full test suite does not pass\" but provides no concrete evidence of a test failure in the code context shown; the index file appears to be a standard command registration aggregator with no obvious defect, making this a vague meta-complaint rather than a specific actionable code issue."
         }
       ]
     },
     "pr-1786-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": false,
+      "aggregate": "BUG_HIT",
+      "agreement": true,
       "perJudge": [
         {
           "provider": "openai",
@@ -2120,14 +2095,13 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQDbRCU6oknVAghD3Tz\"}"
+          "verdict": "BUG_HIT",
+          "rationale": "`isHookSourceFile` only filters out `.test.ts` files but not `.d.ts` files — `\"foo.d.ts\".endsWith(\".ts\")` is `true` and `\"foo.d.ts\".endsWith(\".test.ts\")` is `false`, so TypeScript declaration files pass the guard and get included in the registry, producing spurious entries."
         }
       ]
     },
     "pr-1776-r1-f0": {
-      "aggregate": "VALID",
+      "aggregate": "NOISE",
       "agreement": false,
       "perJudge": [
         {
@@ -2139,15 +2113,14 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQEbs1eid9TNA1HcLox\"}"
+          "verdict": "NOISE",
+          "rationale": "The code context shown is entirely about bundle staleness checking and filesystem watching — it doesn't show the HTTP health-check path or the watchdog alert logic being critiqued, so there's no evidence in this excerpt to confirm or deny the claim, and the finding appears to be about a different part of the code not shown here."
         }
       ]
     },
     "pr-1772-r1-f0": {
-      "aggregate": "VALID",
-      "agreement": true,
+      "aggregate": "NOISE",
+      "agreement": false,
       "perJudge": [
         {
           "provider": "openai",
@@ -2158,34 +2131,11 @@
         {
           "provider": "anthropic",
           "model": "claude-sonnet-4-6",
-          "verdict": "VALID",
-          "rationale": "(judge call failed)",
-          "parseError": "judge call error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CeQQGY7qt53gPvFqUoSSu\"}"
+          "verdict": "NOISE",
+          "rationale": "The \"Alternatives considered\" section is clearly present in the ADR at the correct location — it lists five alternatives (Status quo, option D, option A, pg_largeobject, and option C) with detailed reasoning for each rejection. The finding is factually wrong."
         }
       ]
     }
   },
-  "contaminatedIds": [
-    "pr-1957-r1-f0",
-    "pr-1956-r1-f1",
-    "pr-1955-r1-f1",
-    "pr-1953-r1-f0",
-    "pr-1953-r2-f0",
-    "pr-1952-r1-f0",
-    "pr-1942-r1-f0",
-    "pr-1942-r2-f0",
-    "pr-1942-r3-f0",
-    "pr-1940-r1-f0",
-    "pr-1818-r1-f0",
-    "pr-1815-r1-f0",
-    "pr-1815-r1-f1",
-    "pr-1812-r1-f1",
-    "pr-1812-r1-f8",
-    "pr-1812-r1-f9",
-    "pr-1793-r1-f0",
-    "pr-1788-r1-f0",
-    "pr-1786-r1-f0",
-    "pr-1776-r1-f0",
-    "pr-1772-r1-f0"
-  ]
+  "contaminatedIds": []
 }

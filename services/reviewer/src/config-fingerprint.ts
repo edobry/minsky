@@ -35,7 +35,7 @@
  * as evidence that something was configured.
  */
 
-import type { ReviewerConfig } from "./config";
+import { REVIEWER_CALLTIME_ENV_VAR_NAMES, type ReviewerConfig } from "./config";
 import {
   resolveReasoningEffort,
   parseToolloopRetryEnabled,
@@ -172,7 +172,12 @@ export function buildConfigFingerprint(input: ConfigFingerprintInput): string {
     ["model", sanitize(input.model)],
     ["provider", sanitize(input.provider)],
     ["tier2", onOff(input.tier2Enabled)],
-    ["toolloop_retry", onOff(parseToolloopRetryEnabled(env["REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT"]))],
+    [
+      "toolloop_retry",
+      onOff(
+        parseToolloopRetryEnabled(env[REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_ON_TIMEOUT])
+      ),
+    ],
     ...RECOVERY_FLAG_ENV_VARS.map(([key, envVar]): [string, string] => [
       key,
       onOff(parseRecoveryFlag(env[envVar])),

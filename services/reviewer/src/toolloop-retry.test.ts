@@ -10,10 +10,16 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { callToolloopWithRetry } from "./providers";
+import { REVIEWER_CALLTIME_ENV_VAR_NAMES } from "./config";
 import { TimeoutError } from "./with-timeout";
 
-const ENV_RETRY_ENABLED = "REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT";
-const ENV_RETRY_TIMEOUT_MS = "REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS";
+// Read from config.ts's registry rather than re-spelled (mt#4619). These tests
+// already exercise the real reads inside callToolloopWithRetry, so sourcing the
+// names here makes them a behavioural drift check for free: rename an entry in
+// the registry without updating its reader and these go red, because the test
+// sets the new name while the reader looks up the old one.
+const ENV_RETRY_ENABLED = REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_ON_TIMEOUT;
+const ENV_RETRY_TIMEOUT_MS = REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_TIMEOUT_MS;
 const ENV_KEYS = [ENV_RETRY_ENABLED, ENV_RETRY_TIMEOUT_MS];
 const TEST_OP = "test.op";
 

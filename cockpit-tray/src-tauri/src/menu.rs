@@ -516,7 +516,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 match action {
                     "start" => send_cmd(app, SupervisorCmd::Start(daemon)),
                     "stop" => send_cmd(app, SupervisorCmd::Stop(daemon)),
-                    "restart" => send_cmd(app, SupervisorCmd::Restart(daemon)),
+                    // `OperatorRestart`, not `Restart` (mt#4233): this is the
+                    // one restart path with a human behind it, and the only one
+                    // that confirms itself with a notification.
+                    "restart" => send_cmd(app, SupervisorCmd::OperatorRestart(daemon)),
                     // `status:` / `uptime:` ids belong to the disabled display
                     // rows, which cannot be clicked.
                     _ => {}
@@ -743,6 +746,41 @@ mod tests {
 
     /// The port from the 2026-06-04 incident this task fixes.
     const CONFIGURED_PORT: u16 = 4317;
+
+    /// mt#4233 — the defect itself. The dropdown listed "Cockpit" and
+    /// "MCP daemon", so exactly ONE entry contained the class word and it was
+    /// the wrong one: "the tray menu → the daemon entry → Restart" therefore
+    /// resolved deterministically to the MCP daemon on 2026-08-17. The
+    /// instruction was ambiguous; the interface was not, and it resolved the
+    /// ambiguity in the wrong direction.
+    ///
+    /// Asserted as a PROPERTY over the whole registry rather than over the two
+    /// entries that exist today, so registering a third daemon without the class
+    /// word fails here too — that is the shape the asymmetry would come back in.
+    #[test]
+    fn no_lifecycle_entry_is_the_unique_bearer_of_the_class_word() {
+        let names: Vec<&str> = DaemonId::ALL.into_iter().map(display_name_for).collect();
+        assert!(
+            names.len() >= 2,
+            "the asymmetry this pins is only meaningful with 2+ entries"
+        );
+        for name in &names {
+            assert!(
+                name.to_lowercase().contains("daemon"),
+                "every lifecycle entry must carry the class word, got: {name}"
+            );
+        }
+    }
+
+    /// The exact names the operator picked — ask#9153, answered 2026-08-22:
+    /// "Cockpit daemon / MCP daemon", no role gloss. Pinned separately from the
+    /// property above, which on its own would happily accept "Daemon A" and
+    /// "Daemon B".
+    #[test]
+    fn the_lifecycle_entry_names_are_pinned() {
+        assert_eq!(display_name_for(DaemonId::Cockpit), "Cockpit daemon");
+        assert_eq!(display_name_for(DaemonId::Mcp), "MCP daemon");
+    }
 
     fn url(s: &str) -> tauri::Url {
         s.parse().expect("test URL must parse")

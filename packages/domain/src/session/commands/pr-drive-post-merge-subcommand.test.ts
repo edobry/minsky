@@ -266,3 +266,84 @@ describe("sessionPrDrivePostMerge build identity (mt#4583)", () => {
     });
   });
 });
+
+describe("sessionPrDrivePostMerge session resolution after cleanup (mt#4425)", () => {
+  /**
+   * Post-merge mode runs AFTER the merge, and a successful merge cleans the
+   * session up — so failing to resolve `--task` here is the ORDINARY state, not
+   * an exotic one. It used to surface as a bare `No session found for task ID`,
+   * which reads as a dead end at exactly the moment the caller is mid-deploy-
+   * verification and has two working alternatives available.
+   */
+  function depsWithNoSessionForTask(): SessionPrDrivePostMergeDependencies {
+    const deps = makeDeps([]);
+    // Both stubs are needed to reach the REAL failure. With `listSessions`
+    // missing the resolver dies on the mock's own shape instead, which would
+    // make these tests assert that the guard wraps any error — a weaker claim
+    // than the one under test, and one that would pass even if the genuine
+    // session-absent path stopped behaving this way.
+    Object.assign(deps.sessionDB as unknown as Record<string, unknown>, {
+      getSessionByTaskId: async () => null,
+      listSessions: async () => [],
+    });
+    return deps;
+  }
+
+  test("names the explicit-services alternative", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/services/);
+  });
+
+  test("names verify-deploy.ts, which needs no session at all", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/verify-deploy\.ts/);
+  });
+
+  test("says the failure is EXPECTED after a merge rather than implying a fault", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/EXPECTED/);
+  });
+
+  test("preserves the underlying resolution error rather than swallowing it", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/No session found for task ID/);
+  });
+
+  test("a non-not-found failure propagates unchanged rather than being relabelled", async () => {
+    // PR #3394 R1 BLOCKING: the guidance wrapper originally caught EVERY error,
+    // so a backend outage, an auth failure, or the ValidationError raised when a
+    // task matches multiple sessions all became "no session found" — sending
+    // callers that branch on error type, and observability, to the wrong cause.
+    const deps = makeDeps([]);
+    Object.assign(deps.sessionDB as unknown as Record<string, unknown>, {
+      getSessionByTaskId: async () => {
+        throw new Error("backend unavailable: connection refused");
+      },
+      listSessions: async () => [],
+    });
+
+    await expect(sessionPrDrivePostMerge({ task: "mt#4425" }, deps)).rejects.toThrow(
+      /backend unavailable/
+    );
+    // And it must NOT acquire the post-merge guidance, which would be actively
+    // misleading for a failure that has nothing to do with session cleanup.
+    await expect(sessionPrDrivePostMerge({ task: "mt#4425" }, deps)).rejects.not.toThrow(
+      /verify-deploy\.ts/
+    );
+  });
+
+  test("negative control: a resolvable session still auto-detects, no throw", async () => {
+    // Same code path, session present — so the guard above is specific to the
+    // resolution failure and is not swallowing the happy path.
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer"] },
+      makeDeps([])
+    );
+    expect(result.skipped).toBe(false);
+    expect(result.watchedServices).toEqual(["reviewer"]);
+  });
+});

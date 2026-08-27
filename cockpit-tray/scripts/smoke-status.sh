@@ -43,11 +43,17 @@ if ! pgrep -f "${APP_BIN_RE}" >/dev/null 2>&1; then
 fi
 
 # Determine expected label from a live health probe (fresh connection).
+#
+# These two strings and the STATUS_PREFIX below must track `COCKPIT_LABELS` in
+# src-tauri/src/supervisor.rs. Nothing here is reachable from `cargo test`, so
+# the coupling is pinned from the other side instead — see that file's
+# `the_cockpit_status_lines_are_pinned`, which fails if a rename lands there
+# without landing here. Renamed by mt#4233 ("Cockpit" -> "Cockpit daemon").
 if curl -s -o /dev/null --max-time 2 "${HEALTH_URL}"; then
-  expected="Cockpit: running"
+  expected="Cockpit daemon: running"
   daemon="up"
 else
-  expected="Cockpit: stopped"
+  expected="Cockpit daemon: stopped"
   daemon="down"
 fi
 
@@ -61,9 +67,12 @@ read_status_line() {
   # also resolves on some macOS versions. Try both candidate names so the check
   # is robust to how System Events exposes the process.
   #
-  # Within the matched process, search for the status item by its "Cockpit: "
-  # title prefix across the status-area menu bars (2, then 1), rather than
-  # assuming a fixed index — robust to menu-extra ordering / layout.
+  # Within the matched process, search for the status item by its
+  # "Cockpit daemon: " title prefix across the status-area menu bars (2, then
+  # 1), rather than assuming a fixed index — robust to menu-extra ordering /
+  # layout. The prefix is the cockpit entry's display name plus ": " (mt#4233;
+  # it was "Cockpit: " before that rename), which is also what distinguishes
+  # this row from the sibling "MCP daemon: ..." row.
   osascript -e 'tell application "System Events"
     repeat with pname in {"cockpit-tray", "Minsky Cockpit"}
       if exists process pname then
@@ -74,7 +83,7 @@ read_status_line() {
                 try
                   repeat with mi in menu items of menu 1 of mbi
                     set t to (title of mi)
-                    if t starts with "Cockpit: " then return t
+                    if t starts with "Cockpit daemon: " then return t
                   end repeat
                 end try
               end repeat
@@ -83,7 +92,7 @@ read_status_line() {
         end tell
       end if
     end repeat
-    return "ERROR: status menu item (Cockpit: ...) not found"
+    return "ERROR: status menu item (Cockpit daemon: ...) not found"
   end tell' 2>&1
 }
 

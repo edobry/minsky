@@ -28,6 +28,12 @@ const SPEC_CITING_REF = `## Summary\n\nSequencing depends on ${REF_TASK}, which 
 interface FakeServiceOptions {
   /** The spec-CONTENT timestamp (`task_specs.updated_at`). Omit to model a backend that tracks none. */
   specUpdatedAt?: Date;
+  /**
+   * The spec AUTHORING timestamp (`task_specs.created_at`) — the drift floor
+   * (mt#4420). Omit to model a backend that tracks none, which degrades the
+   * check to the pre-mt#4420 last-edit comparison.
+   */
+  specCreatedAt?: Date;
   /** The tasks-table row timestamp — bumped by any status transition. */
   taskRowUpdatedAt: Date;
   refStatus: string;
@@ -61,6 +67,7 @@ function makeTaskService(opts: FakeServiceOptions): TaskServiceInterface {
       specPath: "",
       content: opts.specContent ?? SPEC_CITING_REF,
       specUpdatedAt: opts.specUpdatedAt,
+      specCreatedAt: opts.specCreatedAt,
     }),
   } as unknown as TaskServiceInterface;
 }
@@ -85,9 +92,11 @@ async function runFreshness(opts: FakeServiceOptions) {
 
   return result as {
     specUpdatedAt: string | null;
+    specCreatedAt: string | null;
+    baselineUsed: "spec-authored" | "spec-last-edited" | null;
     checked: boolean;
     hasDrift: boolean;
-    drift: Array<{ ref: string; currentStatus: string }>;
+    drift: Array<{ ref: string; currentStatus: string; precedesLastSpecEdit: boolean }>;
     skipped: Array<{ ref: string; reason: string }>;
     message: string;
   };
@@ -202,5 +211,102 @@ describe("tasks.spec.freshness baseline selection (mt#4415)", () => {
 
     expect(result.checked).toBe(false);
     expect(result.drift).toHaveLength(0);
+  });
+});
+
+/**
+ * mt#4420 — the command must hand the core the AUTHORING timestamp too.
+ *
+ * These live at the command seam for the same reason the mt#4415 block above
+ * does: the core compares whatever floor it is handed, so a test that injects
+ * one directly cannot fail against the un-fixed tree. What was wrong is WHICH
+ * timestamps the command reads off the spec row, and that is only observable
+ * here.
+ *
+ * Timeline shared by this block:
+ *
+ *   AUTHORED 08-20 ──── ref goes DONE 08-22 ──── spec EDITED 08-26
+ */
+describe("tasks.spec.freshness reports drift predating the caller's own edit (mt#4420)", () => {
+  const AUTHORED = new Date("2026-08-20T00:00:00.000Z");
+  const REF_WENT_DONE = new Date("2026-08-22T00:00:00.000Z");
+  const SPEC_EDITED = new Date("2026-08-26T00:00:00.000Z");
+
+  test("AT1: drift that predates the last spec edit is reported, and marked as predating it", async () => {
+    // Guard the control itself, as the mt#4415 block does above: the ref must
+    // have changed BEFORE the last edit and AFTER authoring. If that ordering
+    // ever stops holding, this test would pass against the un-fixed tree and
+    // silently stop being a control.
+    expect(REF_WENT_DONE.getTime()).toBeGreaterThan(AUTHORED.getTime());
+    expect(SPEC_EDITED.getTime()).toBeGreaterThan(REF_WENT_DONE.getTime());
+
+    const result = await runFreshness({
+      specUpdatedAt: SPEC_EDITED,
+      specCreatedAt: AUTHORED,
+      taskRowUpdatedAt: SPEC_EDITED,
+      refStatus: "DONE",
+      refUpdatedAt: REF_WENT_DONE,
+    });
+
+    expect(result.checked).toBe(true);
+    expect(result.hasDrift).toBe(true);
+    expect(result.drift).toHaveLength(1);
+    expect(result.drift[0]).toMatchObject({
+      ref: REF_TASK,
+      currentStatus: "DONE",
+      precedesLastSpecEdit: true,
+    });
+    expect(result.baselineUsed).toBe("spec-authored");
+    expect(result.specCreatedAt).toBe(AUTHORED.toISOString());
+  });
+
+  test("the message names the baseline and calls out the drift the last editor may not have seen", async () => {
+    const result = await runFreshness({
+      specUpdatedAt: SPEC_EDITED,
+      specCreatedAt: AUTHORED,
+      taskRowUpdatedAt: SPEC_EDITED,
+      refStatus: "DONE",
+      refUpdatedAt: REF_WENT_DONE,
+    });
+
+    // The old message said "changed state after the spec content was last
+    // edited", which for this row is simply false — it changed before.
+    expect(result.message).toContain("since the spec was authored");
+    expect(result.message).toContain("1 of them BEFORE the spec was last edited");
+    expect(result.message).not.toContain("No drift");
+  });
+
+  test("AT3: a ref last changed before authoring is still not reported (no new false positives)", async () => {
+    const result = await runFreshness({
+      specUpdatedAt: SPEC_EDITED,
+      specCreatedAt: AUTHORED,
+      taskRowUpdatedAt: SPEC_EDITED,
+      refStatus: "IN-REVIEW",
+      refUpdatedAt: new Date("2026-08-19T00:00:00.000Z"), // before AUTHORED
+    });
+
+    expect(result.checked).toBe(true);
+    expect(result.hasDrift).toBe(false);
+    expect(result.drift).toHaveLength(0);
+    expect(result.baselineUsed).toBe("spec-authored");
+  });
+
+  test("a clean pass on the degraded baseline says so rather than reading as the full check", async () => {
+    // No authoring timestamp: the 08-22 drift sits below the 08-26 baseline and
+    // is invisible, exactly as before mt#4420. The result must not render that
+    // as an unqualified clean pass — this is the reporting half of the defect.
+    const result = await runFreshness({
+      specUpdatedAt: SPEC_EDITED,
+      specCreatedAt: undefined,
+      taskRowUpdatedAt: SPEC_EDITED,
+      refStatus: "DONE",
+      refUpdatedAt: REF_WENT_DONE,
+    });
+
+    expect(result.checked).toBe(true);
+    expect(result.hasDrift).toBe(false);
+    expect(result.baselineUsed).toBe("spec-last-edited");
+    expect(result.message).toContain("NO authoring timestamp");
+    expect(result.message).toContain("Weaker than a clean pass");
   });
 });

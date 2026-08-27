@@ -39,7 +39,9 @@ import {
   extractAskTaskIds,
   unreadAskTaskIds,
   buildAskAdvisoryReason,
+  cliSpecEngagements,
 } from "./check-task-spec-read";
+import { readManifest, resolveCommandNode } from "./detect-cli-mcp-substitution";
 
 /** A non-spec tool name reused across fixtures. */
 const MEMORY_SEARCH_TOOL = "mcp__minsky__memory_search";
@@ -1144,5 +1146,203 @@ describe("buildAskAdvisoryReason", () => {
     const message = buildAskAdvisoryReason(ASKS_EDIT_TOOL, ["mt#3473"]);
     expect(message).toContain("editing an ask");
     expect(message).not.toContain("filing an ask");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The CLI evidence channel (mt#4380)
+// ---------------------------------------------------------------------------
+//
+// Tested against the REAL generated manifest rather than a synthetic one: the whole point of
+// resolving through `src/generated/completion-manifest.json` is that the accepted spellings track
+// the shipped CLI, so a fixture manifest would assert only that the parser works on a fixture. If
+// `tasks spec get` is ever renamed, these fail — which is the coupling we want.
+
+const MANIFEST = readManifest();
+// Fail loudly at import rather than letting every case below pass vacuously against a null: the
+// CLI channel is inert without the manifest, so a missing one would make these tests agree with a
+// guard that credits nothing at all (mem#1237 — a check that cannot tell the broken state from the
+// healthy one is not evidence of coverage).
+if (!MANIFEST) {
+  throw new Error(
+    "src/generated/completion-manifest.json is unreadable — the mt#4380 CLI-channel tests cannot run"
+  );
+}
+
+/** The canonical CLI spec read for the target task, reused across cases. */
+const CLI_SPEC_GET_TARGET = "minsky tasks spec get mt#4311";
+
+/** A `Bash` tool_use carrying a shell command — the shape the harness records. */
+function bashCommand(command: string): TranscriptLine {
+  return assistantToolUse("Bash", { command });
+}
+
+/** The same, on the in-session shell surface. */
+function sessionExecCommand(command: string): TranscriptLine {
+  return assistantToolUse("mcp__minsky__session_exec", { command });
+}
+
+const TARGET = normalizeTaskId("mt#4311");
+const OTHER = normalizeTaskId("mt#9999");
+
+describe("cliSpecEngagements (mt#4380)", () => {
+  // PR #3393 R1 (non-blocking findings 1 and 2): the command IDs resolve through the generated
+  // manifest, but which flags mean "spec read" / "spec authorship" is a policy set this module
+  // holds by hand — the manifest lists a command's options without marking any of them as
+  // spec-writing, and the semantic is not derivable from it. What IS derivable, and what these
+  // assertions pin, is that each flag we name still EXISTS on its command. That converts the
+  // drift the reviewer identified from a silent regression of this very fix — a renamed
+  // `--include-spec` would just stop crediting that channel, with every test still green — into
+  // a failing test naming the flag. The MCP side carries the same policy set in
+  // `editHasSpecContent`; the two are meant to move together.
+  test("every flag this module names still exists on its command in the manifest", () => {
+    const flagsOf = (commandId: string): string[] => {
+      const argv = commandId.split(".");
+      const { node } = resolveCommandNode(MANIFEST, argv);
+      expect(node.commandId, `manifest has no leaf for ${commandId}`).toBe(commandId);
+      return (node.options ?? []).flatMap((o) => o.flags ?? []);
+    };
+
+    expect(flagsOf("tasks.get")).toContain("--include-spec");
+    for (const flag of ["--spec", "--spec-file", "--spec-content"]) {
+      expect(flagsOf("tasks.edit")).toContain(flag);
+    }
+    // `tasks.spec.get` is credited unconditionally, so it needs no flag — only the leaf itself.
+    expect(resolveCommandNode(MANIFEST, ["tasks", "spec", "get"]).node.commandId).toBe(
+      "tasks.spec.get"
+    );
+  });
+
+  test("resolves a spec read to its command id and task id", () => {
+    expect(cliSpecEngagements(CLI_SPEC_GET_TARGET, MANIFEST)).toEqual([
+      { kind: "read", taskId: TARGET },
+    ]);
+  });
+
+  test("recovers the task id when a boolean flag PRECEDES it", () => {
+    // The manifest walk consumes a token after an unrecognised flag; parsing `rest` against the
+    // LEAF's option table is what keeps `--json` from swallowing the id.
+    expect(cliSpecEngagements("minsky tasks spec get --json mt#4311", MANIFEST)).toEqual([
+      { kind: "read", taskId: TARGET },
+    ]);
+  });
+
+  test("recovers the task id when a value-taking flag follows it", () => {
+    expect(cliSpecEngagements("minsky tasks spec get mt#4311 --section Summary", MANIFEST)).toEqual(
+      [{ kind: "read", taskId: TARGET }]
+    );
+  });
+
+  test("a global flag before the subcommand does not break the walk", () => {
+    expect(cliSpecEngagements("minsky --json tasks spec get mt#4311", MANIFEST)).toEqual([
+      { kind: "read", taskId: TARGET },
+    ]);
+  });
+
+  test("finds an invocation inside a chained, piped command", () => {
+    expect(
+      cliSpecEngagements("cd /tmp && minsky tasks spec get mt#4311 | head -5", MANIFEST)
+    ).toEqual([{ kind: "read", taskId: TARGET }]);
+  });
+
+  test("all three tasks-edit spec flags are authorship, in both spellings", () => {
+    for (const command of [
+      "minsky tasks edit mt#4311 --spec-file /tmp/s.md",
+      "minsky tasks edit mt#4311 --spec-file=/tmp/s.md",
+      "minsky tasks edit mt#4311 --spec-content 'body'",
+      "minsky tasks edit mt#4311 --spec",
+    ]) {
+      expect(cliSpecEngagements(command, MANIFEST)).toEqual([{ kind: "authored", taskId: TARGET }]);
+    }
+  });
+
+  test("a metadata-only tasks edit is NOT authorship", () => {
+    // Mirrors editHasSpecContent: --kind / --title / --tag carry no spec body.
+    expect(cliSpecEngagements("minsky tasks edit mt#4311 --kind implementation", MANIFEST)).toEqual(
+      []
+    );
+    expect(cliSpecEngagements("minsky tasks edit mt#4311 --title Renamed", MANIFEST)).toEqual([]);
+  });
+
+  test("tasks get counts only with --include-spec", () => {
+    expect(cliSpecEngagements("minsky tasks get mt#4311 --include-spec", MANIFEST)).toEqual([
+      { kind: "read", taskId: TARGET },
+    ]);
+    expect(cliSpecEngagements("minsky tasks get mt#4311", MANIFEST)).toEqual([]);
+  });
+
+  test("a non-Minsky command that merely looks like one yields nothing", () => {
+    expect(cliSpecEngagements("othertool tasks spec get mt#4311", MANIFEST)).toEqual([]);
+    expect(cliSpecEngagements("ls -la /tmp", MANIFEST)).toEqual([]);
+  });
+
+  test("an invocation with no task id yields nothing rather than a fabricated one", () => {
+    expect(cliSpecEngagements("minsky tasks spec get", MANIFEST)).toEqual([]);
+    expect(cliSpecEngagements("minsky tasks spec get --json", MANIFEST)).toEqual([]);
+  });
+});
+
+describe("specWasSurfaced / specWasAuthored — CLI channel (mt#4380)", () => {
+  test("AT1 — a transcript whose only engagement is a CLI spec read counts as read", () => {
+    for (const command of [
+      CLI_SPEC_GET_TARGET,
+      "bun run src/cli.ts tasks spec get mt#4311",
+      "/Users/someone/.bun/bin/minsky tasks spec get mt#4311",
+    ]) {
+      expect(specWasSurfaced([bashCommand(command)], TARGET)).toBe(true);
+    }
+  });
+
+  test("AT2 — a transcript whose only engagement is a CLI spec edit counts as authored", () => {
+    const lines = [bashCommand("minsky tasks edit mt#4311 --spec-file /tmp/s.md")];
+    expect(specWasAuthored(lines, TARGET)).toBe(true);
+    // It is authorship, not a read — the same split the MCP predicates draw.
+    expect(specWasSurfaced(lines, TARGET)).toBe(false);
+  });
+
+  test("the in-session shell surface counts too, not just Bash", () => {
+    expect(specWasSurfaced([sessionExecCommand(CLI_SPEC_GET_TARGET)], TARGET)).toBe(true);
+  });
+
+  test("AT3 — a transcript with no spec engagement through ANY channel still fails both", () => {
+    const lines = [
+      userPrompt("let's start on something"),
+      bashCommand("ls -la"),
+      assistantToolUse(MEMORY_SEARCH_TOOL, { query: "anything" }),
+    ];
+    expect(specWasSurfaced(lines, TARGET)).toBe(false);
+    expect(specWasAuthored(lines, TARGET)).toBe(false);
+  });
+
+  test("AT5 — a CLI spec read of a DIFFERENT task does not discharge the target", () => {
+    // The negative control against widening into a pass-through. Its inverse is asserted in the
+    // same test so the `false` cannot be satisfied by a channel that credits nothing at all
+    // (mem#812: a widened relation's inverse is where the old behaviour survives).
+    const lines = [bashCommand("minsky tasks spec get mt#9999")];
+    expect(specWasSurfaced(lines, TARGET)).toBe(false);
+    expect(specWasSurfaced(lines, OTHER)).toBe(true);
+  });
+
+  test("AT5 — a CLI spec EDIT of a different task does not discharge the target either", () => {
+    const lines = [bashCommand("minsky tasks edit mt#9999 --spec-file /tmp/s.md")];
+    expect(specWasAuthored(lines, TARGET)).toBe(false);
+    expect(specWasAuthored(lines, OTHER)).toBe(true);
+  });
+
+  test("id spellings collapse the same way they do on the MCP side", () => {
+    for (const spelling of ["mt#4311", "mt-4311", "MT#4311"]) {
+      expect(specWasSurfaced([bashCommand(`minsky tasks spec get ${spelling}`)], TARGET)).toBe(
+        true
+      );
+    }
+  });
+
+  test("a Bash record with no command string is skipped, not crashed on", () => {
+    const lines = [assistantToolUse("Bash", { description: "no command key" })];
+    expect(specWasSurfaced(lines, TARGET)).toBe(false);
+  });
+
+  test("an empty target id is never discharged by a CLI read", () => {
+    expect(specWasSurfaced([bashCommand(CLI_SPEC_GET_TARGET)], "")).toBe(false);
   });
 });
