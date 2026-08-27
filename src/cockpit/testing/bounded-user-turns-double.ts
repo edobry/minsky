@@ -22,6 +22,7 @@
  * passing here exercises the shape production actually receives.
  */
 import { MAX_USER_TURN_CANDIDATES } from "@minsky/domain/transcripts/conversation-label";
+import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
 
 export interface DoubleUserTurn {
   agentSessionId: string;
@@ -29,11 +30,8 @@ export interface DoubleUserTurn {
   userText: string | null;
 }
 
-interface RawTurnRow {
-  agent_session_id: string;
-  turn_index: number;
-  user_text: string;
-}
+/** Driver-shaped row: real DB column names, not drizzle's camelCase aliases. */
+type RawTurnRow = Record<string, unknown>;
 
 /**
  * Extract the id set from the statement's embedded params.
@@ -90,11 +88,14 @@ export function boundedUserTurnsExecute(
         return nth <= MAX_USER_TURN_CANDIDATES;
       });
 
+    // Keys derived from the schema, matching what the real statement selects —
+    // a hardcoded set here would drift from production on a column rename and
+    // the double would start returning rows nothing reads.
     return Promise.resolve(
       bounded.map((turn) => ({
-        agent_session_id: turn.agentSessionId,
-        turn_index: turn.turnIndex,
-        user_text: turn.userText,
+        [agentTranscriptTurnsTable.agentSessionId.name]: turn.agentSessionId,
+        [agentTranscriptTurnsTable.turnIndex.name]: turn.turnIndex,
+        [agentTranscriptTurnsTable.userText.name]: turn.userText,
       }))
     );
   };

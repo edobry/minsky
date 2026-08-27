@@ -136,32 +136,50 @@ export async function fetchBoundedFirstUserTurns(
   ids: string[]
 ): Promise<BoundedUserTurn[]> {
   if (ids.length === 0) return [];
-  const rows = await db.execute<{
-    agent_session_id: string;
-    turn_index: number;
-    user_text: string;
-  }>(sql`
-    select agent_session_id, turn_index, user_text
+
+  // Column names taken from the schema, never spelled out (PR #3400 R3).
+  //
+  // The INNER query interpolates the drizzle column objects directly, which
+  // render as table-qualified identifiers. The OUTER select cannot: it reads
+  // from the derived table `ranked`, so a qualified name would reference a
+  // table that is not in scope there. These are the bare names for that side —
+  // still schema-derived, so a rename flows through both halves and the
+  // response mapping below.
+  //
+  // Worth the indirection because NOTHING would catch the drift: every test
+  // double replaces `execute` wholesale, so no test executes this statement.
+  // A renamed column would leave the suite green and fail in production.
+  const sessionIdName = agentTranscriptTurnsTable.agentSessionId.name;
+  const turnIndexName = agentTranscriptTurnsTable.turnIndex.name;
+  const userTextName = agentTranscriptTurnsTable.userText.name;
+  const sessionIdCol = sql.identifier(sessionIdName);
+  const turnIndexCol = sql.identifier(turnIndexName);
+  const userTextCol = sql.identifier(userTextName);
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    select ${sessionIdCol}, ${turnIndexCol}, ${userTextCol}
     from (
       select
-        agent_session_id,
-        turn_index,
-        user_text,
+        ${agentTranscriptTurnsTable.agentSessionId},
+        ${agentTranscriptTurnsTable.turnIndex},
+        ${agentTranscriptTurnsTable.userText},
         row_number() over (
-          partition by agent_session_id order by turn_index asc
+          partition by ${agentTranscriptTurnsTable.agentSessionId}
+          order by ${agentTranscriptTurnsTable.turnIndex} asc
         ) as rn
-      from agent_transcript_turns
+      from ${agentTranscriptTurnsTable}
       where ${inArray(agentTranscriptTurnsTable.agentSessionId, ids)}
-        and user_text is not null
+        and ${agentTranscriptTurnsTable.userText} is not null
     ) ranked
     where rn <= ${MAX_USER_TURN_CANDIDATES}
   `);
-  // snake_case, not camelCase: `db.execute` with a raw statement returns the
-  // driver's column names verbatim rather than drizzle's select aliases.
+  // Keyed by the SAME schema-derived names the statement selected — `db.execute`
+  // with a raw statement returns the driver's column names verbatim rather than
+  // drizzle's camelCase select aliases, so a rename has to flow through here
+  // too or the mapping silently yields undefined.
   return rows.map((row) => ({
-    agentSessionId: row.agent_session_id,
-    turnIndex: row.turn_index,
-    userText: row.user_text,
+    agentSessionId: row[sessionIdName] as string,
+    turnIndex: row[turnIndexName] as number,
+    userText: row[userTextName] as string,
   }));
 }
 
