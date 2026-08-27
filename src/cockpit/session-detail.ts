@@ -394,6 +394,33 @@ export function pickBestWorkspaceLink(
   return { minskySessionId: best.minskySessionId };
 }
 
+/**
+ * Pick the joined session row the conversation Overview should build from
+ * (mt#4663) — the ranking above, applied to rows that already carry their
+ * `sessions` row from a LEFT JOIN.
+ *
+ * Extracted as a pure function because the ordering it encodes is subtle and
+ * is the one thing a round-trip optimization could quietly change: **rank over
+ * ALL link rows first, THEN look at whether the winner's session survives.**
+ * Ranking only the rows whose session still exists would silently promote a
+ * live runner-up whenever the best link is dangling — and since 98% of link
+ * rows name a deleted session (mt#4682), that inversion would be the common
+ * path, not a corner case. It would also be invisible in a latency
+ * measurement and invisible in a `workspace: null` response, because the page
+ * would simply name a DIFFERENT workspace and look fine doing it.
+ *
+ * @returns the winning row's session, or null when there are no link rows at
+ *   all, or when the winning link names a session that no longer exists.
+ */
+export function selectLinkedSessionRow<TSession>(
+  rows: Array<WorkspaceLinkCandidate & { session: TSession | null }>
+): TSession | null {
+  const best = pickBestWorkspaceLink(rows);
+  if (!best) return null;
+  const winner = rows.find((row) => row.minskySessionId === best.minskySessionId);
+  return winner?.session ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Record → payload mapping
 // ---------------------------------------------------------------------------

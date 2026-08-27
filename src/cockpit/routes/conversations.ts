@@ -384,6 +384,11 @@ export function mountConversationRoutes(
       const { minskySessionLinksTable } = await import(
         "@minsky/domain/storage/schemas/minsky-session-links-schema"
       );
+      // mt#4663 — the workspace leg joins the sessions table directly instead
+      // of routing through the session provider; see `workspacePromise` below.
+      const { postgresSessions, fromPostgresSelect } = await import(
+        "@minsky/domain/storage/schemas/session-schema"
+      );
       const { eq, count } = await import("drizzle-orm");
 
       // mt#3131 (D3): bound the lookup — a DB pool under contention (e.g. a
@@ -458,11 +463,19 @@ export function mountConversationRoutes(
           // tier 2 and the user-text read is skipped entirely — 98.2% of
           // conversations carry one, and that read cost 557 kB on the
           // conversation this task was filed against.
-          return await fetchEnrichment(
-            db,
-            [agentSessionId],
-            await getOverviewTitleCache(),
-            new Map([[agentSessionId, transcript.title ?? null]])
+          // Bounded like its siblings (PR #3411 R1, class-not-instance). This
+          // is the largest phase of the handler (298–465ms measured), so an
+          // unbounded hang here outlasts every other leg; the catch below
+          // already degrades a failure to a null label, and a timeout is just
+          // another failure by that reckoning.
+          return await withBoundedTimeout(
+            fetchEnrichment(
+              db,
+              [agentSessionId],
+              await getOverviewTitleCache(),
+              new Map([[agentSessionId, transcript.title ?? null]])
+            ),
+            OVERVIEW_QUERY_TIMEOUT_MS
           );
         } catch (enrichErr) {
           // Resolve to null rather than reject: a label is chrome, not data,
@@ -476,10 +489,17 @@ export function mountConversationRoutes(
 
       const turnCountPromise: Promise<number> = (async () => {
         try {
-          const rows = await db
-            .select({ n: count() })
-            .from(agentTranscriptTurnsTable)
-            .where(eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId));
+          // Bounded like its siblings (PR #3411 R1, class-not-instance): this
+          // leg was unbounded for the same reason the join was, and it shares
+          // the `turns+workspace` phase with it, so leaving it open would keep
+          // exactly the hang the blocking finding is about.
+          const rows = await withBoundedTimeout(
+            db
+              .select({ n: count() })
+              .from(agentTranscriptTurnsTable)
+              .where(eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId)),
+            OVERVIEW_QUERY_TIMEOUT_MS
+          );
           return rows[0]?.n ?? 0;
         } catch (turnErr) {
           const msg = turnErr instanceof Error ? turnErr.message : String(turnErr);
@@ -492,35 +512,97 @@ export function mountConversationRoutes(
         ReturnType<typeof import("../workspace-overview").buildWorkspaceOverview>
       > | null> = (async () => {
         try {
-          const { pickBestWorkspaceLink } = await import("../session-detail");
-          const linkRows = await db
-            .select({
-              minskySessionId: minskySessionLinksTable.minskySessionId,
-              confidence: minskySessionLinksTable.confidence,
-              detectedAt: minskySessionLinksTable.detectedAt,
-            })
-            .from(minskySessionLinksTable)
-            .where(eq(minskySessionLinksTable.agentSessionId, agentSessionId));
+          const { selectLinkedSessionRow } = await import("../session-detail");
+          // mt#4663 — ONE round trip, not three.
+          //
+          // The link lookup and the session fetch ask about the same row, so
+          // they join. This previously ran a link SELECT and then
+          // `provider.getSession()`, which itself issues TWO sequential
+          // queries on the same predicate (its id resolver runs an exact-match
+          // SELECT, then the caller re-runs it — mt#4683 owns that, repo-wide).
+          // Three sequential trips at the ~150ms RTT this database runs at is
+          // ~450ms; the queries themselves cost 1.8ms, so the latency was
+          // entirely round trips.
+          //
+          // Bypassing `getSession` is safe on THIS path specifically: all 1,735
+          // `minsky_session_id` values in the link table are full uuids, so the
+          // resolver's `ws#N`/hex-prefix capability is dead weight here. A
+          // non-uuid would simply miss the join — the same `workspace: null`
+          // the old code produced for it.
+          const joinStartedAt = performance.now();
+          // Bounded for symmetry with the `transcript` leg (mt#3131 D3): a DB
+          // pool under contention must not leave this response pending. It
+          // matters more here than it did before — this one query now carries
+          // work that used to be spread across three, so hanging it hangs the
+          // whole workspace leg. The catch below degrades to `workspace: null`,
+          // which is the same shape a genuinely link-less conversation returns,
+          // so a timeout costs the section rather than the response. (PR #3411
+          // R1 BLOCKING — the pre-change link SELECT was unbounded too, so this
+          // closes a pre-existing gap rather than one this task opened.)
+          const linkRows = await withBoundedTimeout(
+            db
+              .select({
+                minskySessionId: minskySessionLinksTable.minskySessionId,
+                confidence: minskySessionLinksTable.confidence,
+                detectedAt: minskySessionLinksTable.detectedAt,
+                session: postgresSessions,
+              })
+              .from(minskySessionLinksTable)
+              .leftJoin(
+                postgresSessions,
+                eq(postgresSessions.sessionId, minskySessionLinksTable.minskySessionId)
+              )
+              .where(eq(minskySessionLinksTable.agentSessionId, agentSessionId)),
+            OVERVIEW_QUERY_TIMEOUT_MS
+          );
+          // Recorded rather than `timing.time`-wrapped because this runs inside
+          // a promise the route races against the turn count — the phase name
+          // has to describe THIS leg, not the `Promise.all` that awaits both.
+          timing.record("ws-join", performance.now() - joinStartedAt);
 
-          const best = pickBestWorkspaceLink(linkRows);
-          if (!best) return null;
-
-          const provider = await getServerSessionProvider();
-          if (!provider) return null;
-          const record = await provider.getSession(best.minskySessionId);
-          if (!record) return null;
+          // Ranks over ALL link rows and only then checks whether the winner's
+          // session survives — see `selectLinkedSessionRow`, which owns that
+          // ordering and is unit-tested for it. Null here is the DOMINANT case:
+          // the link names a session that has since been deleted (98% of link
+          // rows as of 2026-08-27). mt#4682 owns what that should RENDER; for
+          // this handler it is simply the old `!record` branch.
+          const sessionRow = selectLinkedSessionRow(linkRows);
+          if (!sessionRow) return null;
+          const record = fromPostgresSelect(sessionRow);
 
           let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
           if (!workdir) {
+            // `getRepoPath(record)`, NOT `getSessionWorkdir(id)` — mt#4663.
+            // The latter is `getSession(id)` followed by `getRepoPath` on the
+            // result, so calling it here re-fetches the record we are already
+            // holding and pays getSession's two round trips a second time
+            // (~300ms measured). `getRepoPath` is a pure derivation over the
+            // record and is on the provider interface, so the id-keyed variant
+            // buys nothing on a path that already has the row.
+            //
+            // The provider is still needed for that derivation, but it is
+            // process-cached, so it costs no round trip. Note the deliberate
+            // change: an unavailable provider used to discard the whole
+            // workspace section, because the provider was how the record was
+            // fetched. It no longer is, so provider trouble now degrades just
+            // the workdir — which only empties `commits`, rather than blanking
+            // the branch, task and PR the record already carries.
             try {
-              workdir = await provider.getSessionWorkdir(best.minskySessionId);
+              const provider = await getServerSessionProvider();
+              workdir = provider ? await provider.getRepoPath(record) : null;
             } catch {
               workdir = null;
             }
           }
 
           const { buildWorkspaceOverview } = await import("../workspace-overview");
-          return await buildWorkspaceOverview(record, workdir);
+          return await buildWorkspaceOverview(record, workdir, (marks) => {
+            // The two enrichments race, so `ws-build` is roughly the larger of
+            // the two — which is the point: it names WHICH one is the floor.
+            timing.record("ws-commits", marks.commitsMs);
+            timing.record("ws-title", marks.taskTitleMs);
+            timing.record("ws-build", marks.totalMs);
+          });
         } catch (wsErr) {
           const msg = wsErr instanceof Error ? wsErr.message : String(wsErr);
           log.debug(`[conversation] reverse-join workspace resolution degraded: ${msg}`);
