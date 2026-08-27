@@ -13,9 +13,15 @@ import {
   resolveLiveConversationAgentId as proxyResolveLiveConversationAgentId,
   injectAgentIdMeta as proxyInjectAgentIdMeta,
   redactAgentId as proxyRedactAgentId,
+} from "../stdio-proxy/conversation-identity";
+// From the SHARED module, not via the proxy file (PR #3403 R1). Reaching these
+// through a sibling writer's re-exports is the same coupling this task removed
+// from the production code, and it would break the moment that writer stopped
+// re-exporting them — which is a change with nothing to do with these tests.
+import {
   CONVERSATION_MAPPING_TTL_MS,
   resetConversationMappingCache,
-} from "../stdio-proxy/conversation-identity";
+} from "@minsky/domain/agent-identity/live-conversation";
 import {
   GEN_AI_CONVERSATION_ID_KEY,
   MAX_BAGGAGE_MEMBERS,

@@ -319,19 +319,36 @@ describe("runShim — per-frame identity resolution (mt#4440)", () => {
       }
     );
 
+    // Wait on the OBSERVABLE (a frame reaching the client), not on a fixed
+    // number of microtask ticks (PR #3403 R1). `runShim` dispatches each line
+    // with `void handleLine(...)`, so there is nothing to await directly — and a
+    // tick count is a guess about the callee's internals that silently passes
+    // with zero frames if it is ever wrong. This fails loudly instead.
+    // Bounded by ITERATIONS rather than a wall-clock deadline: `custom/no-real-
+    // fs-in-tests` reads a `Date.now()` in a test as unique-path creation, and
+    // this repo's lint gate admits no warnings. A fixed cap is the better shape
+    // here anyway — it cannot be made flaky by a slow machine's clock.
+    async function waitForFrames(n: number): Promise<void> {
+      for (let i = 0; i < 500 && sent.length < n; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      if (sent.length < n) {
+        throw new Error(`expected ${n} forwarded frame(s), saw ${sent.length}`);
+      }
+    }
+
     stdin.emitData(
       `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "tasks_get" } })}\n`
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForFrames(1);
 
+    // Only NOW switch, so the first frame provably resolved against FIRST.
     current = SECOND;
 
     stdin.emitData(
       `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tasks_get" } })}\n`
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForFrames(2);
 
     expect(sent.length).toBe(2);
     const first = sent[0]?.params as { _meta?: Record<string, unknown> } | undefined;
