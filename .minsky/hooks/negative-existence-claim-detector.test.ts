@@ -473,4 +473,36 @@ describe("classifySearchScope (mt#4362)", () => {
       );
     });
   });
+
+  describe("SC7 — the rendered scope path is bounded", () => {
+    const withScopePath = (scopePath: string) =>
+      buildInjectionReminder({
+        matched: true,
+        claims: [{ phrase: "has no callers", excerpt: "the helper has no callers" }],
+        citedTaskIds: [DONE_TASK],
+        doneTaskIds: [DONE_TASK],
+        thinSearches: [{ toolName: "Bash", hitCount: 40, scope: "subtree", scopePath }],
+        doneLookupUnavailable: false,
+      });
+
+    it("truncates a pathological path instead of interpolating it whole", () => {
+      const rendered = withScopePath("y".repeat(5000));
+      expect(rendered).toContain("scoped to");
+      // The advisory feeds a ceiling enforced in UTF-16 units, so the bound has
+      // to hold in units — the mt#4234/mt#4359 unit mismatch.
+      expect(rendered.length).toBeLessThan(2000);
+      expect(rendered).not.toContain("y".repeat(200));
+    });
+
+    it("leaves a real-world path intact", () => {
+      expect(withScopePath("packages/domain/src/detectors")).toContain(
+        "scoped to packages/domain/src/detectors"
+      );
+    });
+
+    it("the worst case POSES the scope leg, so the canary is not understated", () => {
+      const worst = renderWorstCase();
+      expect(worst).toContain("scoped to");
+    });
+  });
 });

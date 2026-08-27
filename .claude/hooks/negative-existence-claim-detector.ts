@@ -64,6 +64,20 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 // module's own invitation — its re-export docblock names "any future consumer"
 // as the reason the definition lives in one place.
 import { pathArgs, tokenize } from "./nonexistent-search-path-detector";
+// A scope path is unbounded text lifted out of a command string, and it now
+// lands in ceiling-enforced advisory text — so it is bounded in UTF-16 UNITS,
+// not code points (mt#4234/mt#4359: a cap in code points under a ceiling
+// enforced in units is not a ceiling).
+import { truncateToRenderedLength } from "./guard-feedback-format";
+
+/**
+ * Longest scope path rendered into the advisory.
+ *
+ * Long enough for the paths that actually occur (`packages/domain/src/detectors`
+ * is 33), short enough that seven claims plus their searches cannot push
+ * `renderWorstCase()` past the declared attention cost.
+ */
+const MAX_SCOPE_PATH_UNITS = 60;
 
 /**
  * When false (calibration mode) the hook records and injects NOTHING. Flip only
@@ -291,7 +305,9 @@ export function buildInjectionReminder(result: NegativeExistenceClaimResult): st
     .map(
       (s) =>
         `${s.toolName} -> ${s.hitCount ?? "?"} hit(s)${
-          s.scope === "subtree" ? `, scoped to ${s.scopePath ?? "a subtree"}` : ""
+          s.scope === "subtree"
+            ? `, scoped to ${truncateToRenderedLength(s.scopePath ?? "a subtree", MAX_SCOPE_PATH_UNITS)}`
+            : ""
         }`
     )
     .join("; ");
@@ -334,6 +350,16 @@ export function renderWorstCase(): string {
     citedTaskIds: [],
     doneTaskIds: ["mt#2677", "mt#3642", "mt#3918", "mt#2544"],
     thinSearches: [
+      // Re-posed for the scope leg (mt#4362): the worst case now includes a
+      // SUBTREE search rendering a path at the cap, because that is the widest
+      // this advisory can get. Leaving the old count-only pair here would pose
+      // a ceiling the real render can exceed.
+      {
+        toolName: "Bash",
+        hitCount: 99,
+        scope: "subtree",
+        scopePath: "x".repeat(MAX_SCOPE_PATH_UNITS),
+      },
       { toolName: "mcp__minsky__session_grep_search", hitCount: 1 },
       { toolName: "mcp__minsky__tasks_search", hitCount: 0 },
     ],
