@@ -227,9 +227,19 @@ from {retire, consolidate, tune, affirm}, with _"affirm-by-default not among the
 responses"_, packaged as an outlier in a principal-facing review. That is the record routing this
 decision, not any ADR-ratification convention.
 
-Open at **ask#10657**, with four options and a measurement behind each. The agent recommendation is
+Open at **ask#10657**, with five options and a measurement behind each. The agent recommendation is
 (a) consolidate — leave admission as decided and spend the effort on pairing and the residue —
-on the attribution above.
+on the attribution above. **mt#4684** applies whichever option is chosen; it exists so the answer
+has a consumer once this task closes.
+
+The fifth option is worth flagging here because it bears directly on the Decision above. **mt#3678**
+(Phase 1 of ADR-037) argues for judging each unfamiliar term ONCE against a reasonable-reader rubric
+and memoizing the verdict, and states that this _"retires ADR-034's convergence objection (a list
+broad enough to cover the space stops discriminating)"_ — the objection that is this ADR's own
+consequence 1 and the reason both the allowlist and a seventh stoplist round fail. That framing is
+mt#3678's, not this amendment's. It is the one candidate mechanism that reads a token's SENSE rather
+than its spelling, which is what the bare-word class requires, and it is closer to ADR-024's Rung 2/3
+than to another shape predicate. It was not in this ADR's 2026-08-01 alternatives list.
 
 **Match / extend / deviate:**
 
