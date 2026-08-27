@@ -46,11 +46,23 @@ export interface WorkspaceOverview {
  * task-title lookup was responsible.
  */
 export interface WorkspaceOverviewTimings {
-  /** `git merge-base` + `git log`, or 0 when there is no git workspace on disk. */
+  /**
+   * Isolated wall-clock for `git merge-base` + `git log`, measured from that
+   * enrichment's own start — NOT an offset from function entry. Near-zero when
+   * there is no git workspace on disk (the `existsSync` short-circuit).
+   */
   commitsMs: number;
-  /** The task-service title lookup, or 0 when the record carries no `taskId`. */
+  /**
+   * Isolated wall-clock for the task-service title lookup, measured from its
+   * own start. Near-zero when the record carries no `taskId`.
+   */
   taskTitleMs: number;
-  /** Wall-clock for the whole call. */
+  /**
+   * Wall-clock for the whole call. Because the two enrichments run
+   * CONCURRENTLY this is roughly the larger of the two above, not their sum —
+   * so the two fields are read to find WHICH one sets this floor, and adding
+   * them up is meaningless.
+   */
   totalMs: number;
 }
 
@@ -123,6 +135,13 @@ export async function buildWorkspaceOverview(
   let commitsMs = 0;
   let taskTitleMs = 0;
 
+  // Each enrichment is timed from ITS OWN start, so the marks are isolated
+  // durations rather than offsets from function entry (PR #3411 R1). The
+  // earlier version measured both from `startedAt`, which reads identically in
+  // the common case and diverges exactly when it matters: a slow-starting
+  // branch would inflate the OTHER metric's reading even if that one finished
+  // promptly, which is the misattribution this instrumentation exists to avoid.
+  const commitsStartedAt = performance.now();
   const commitsPromise: Promise<SessionCommitRef[]> = (async () => {
     if (!workdir) return [];
     const { existsSync } = await import("node:fs");
@@ -149,6 +168,7 @@ export async function buildWorkspaceOverview(
     }
   })();
 
+  const taskTitleStartedAt = performance.now();
   const taskTitlePromise: Promise<string | null> = (async () => {
     if (!record.taskId) return null;
     try {
@@ -163,17 +183,16 @@ export async function buildWorkspaceOverview(
     }
   })();
 
-  // mt#4663 — both marks are taken from the START of the call, not from each
-  // promise's own creation, so they read as "how long until this enrichment was
-  // available". The two run concurrently, so the larger one is what sets the
-  // call's wall-clock; reporting both is what makes that attributable.
+  // mt#4663 — the two run concurrently, so `totalMs` is roughly the LARGER of
+  // these rather than their sum; reporting both is what makes the floor
+  // attributable to one of them.
   const [commits, taskTitle] = await Promise.all([
     commitsPromise.then((value) => {
-      commitsMs = performance.now() - startedAt;
+      commitsMs = performance.now() - commitsStartedAt;
       return value;
     }),
     taskTitlePromise.then((value) => {
-      taskTitleMs = performance.now() - startedAt;
+      taskTitleMs = performance.now() - taskTitleStartedAt;
       return value;
     }),
   ]);

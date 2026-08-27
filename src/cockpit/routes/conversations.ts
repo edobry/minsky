@@ -463,11 +463,19 @@ export function mountConversationRoutes(
           // tier 2 and the user-text read is skipped entirely — 98.2% of
           // conversations carry one, and that read cost 557 kB on the
           // conversation this task was filed against.
-          return await fetchEnrichment(
-            db,
-            [agentSessionId],
-            await getOverviewTitleCache(),
-            new Map([[agentSessionId, transcript.title ?? null]])
+          // Bounded like its siblings (PR #3411 R1, class-not-instance). This
+          // is the largest phase of the handler (298–465ms measured), so an
+          // unbounded hang here outlasts every other leg; the catch below
+          // already degrades a failure to a null label, and a timeout is just
+          // another failure by that reckoning.
+          return await withBoundedTimeout(
+            fetchEnrichment(
+              db,
+              [agentSessionId],
+              await getOverviewTitleCache(),
+              new Map([[agentSessionId, transcript.title ?? null]])
+            ),
+            OVERVIEW_QUERY_TIMEOUT_MS
           );
         } catch (enrichErr) {
           // Resolve to null rather than reject: a label is chrome, not data,
@@ -481,10 +489,17 @@ export function mountConversationRoutes(
 
       const turnCountPromise: Promise<number> = (async () => {
         try {
-          const rows = await db
-            .select({ n: count() })
-            .from(agentTranscriptTurnsTable)
-            .where(eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId));
+          // Bounded like its siblings (PR #3411 R1, class-not-instance): this
+          // leg was unbounded for the same reason the join was, and it shares
+          // the `turns+workspace` phase with it, so leaving it open would keep
+          // exactly the hang the blocking finding is about.
+          const rows = await withBoundedTimeout(
+            db
+              .select({ n: count() })
+              .from(agentTranscriptTurnsTable)
+              .where(eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId)),
+            OVERVIEW_QUERY_TIMEOUT_MS
+          );
           return rows[0]?.n ?? 0;
         } catch (turnErr) {
           const msg = turnErr instanceof Error ? turnErr.message : String(turnErr);
@@ -515,19 +530,31 @@ export function mountConversationRoutes(
           // non-uuid would simply miss the join — the same `workspace: null`
           // the old code produced for it.
           const joinStartedAt = performance.now();
-          const linkRows = await db
-            .select({
-              minskySessionId: minskySessionLinksTable.minskySessionId,
-              confidence: minskySessionLinksTable.confidence,
-              detectedAt: minskySessionLinksTable.detectedAt,
-              session: postgresSessions,
-            })
-            .from(minskySessionLinksTable)
-            .leftJoin(
-              postgresSessions,
-              eq(postgresSessions.sessionId, minskySessionLinksTable.minskySessionId)
-            )
-            .where(eq(minskySessionLinksTable.agentSessionId, agentSessionId));
+          // Bounded for symmetry with the `transcript` leg (mt#3131 D3): a DB
+          // pool under contention must not leave this response pending. It
+          // matters more here than it did before — this one query now carries
+          // work that used to be spread across three, so hanging it hangs the
+          // whole workspace leg. The catch below degrades to `workspace: null`,
+          // which is the same shape a genuinely link-less conversation returns,
+          // so a timeout costs the section rather than the response. (PR #3411
+          // R1 BLOCKING — the pre-change link SELECT was unbounded too, so this
+          // closes a pre-existing gap rather than one this task opened.)
+          const linkRows = await withBoundedTimeout(
+            db
+              .select({
+                minskySessionId: minskySessionLinksTable.minskySessionId,
+                confidence: minskySessionLinksTable.confidence,
+                detectedAt: minskySessionLinksTable.detectedAt,
+                session: postgresSessions,
+              })
+              .from(minskySessionLinksTable)
+              .leftJoin(
+                postgresSessions,
+                eq(postgresSessions.sessionId, minskySessionLinksTable.minskySessionId)
+              )
+              .where(eq(minskySessionLinksTable.agentSessionId, agentSessionId)),
+            OVERVIEW_QUERY_TIMEOUT_MS
+          );
           // Recorded rather than `timing.time`-wrapped because this runs inside
           // a promise the route races against the turn count — the phase name
           // has to describe THIS leg, not the `Promise.all` that awaits both.
