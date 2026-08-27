@@ -89,35 +89,21 @@ export const REDIRECT_UNAVAILABLE_ESCAPE =
   `and the honest option rather than hand-reading \`.git\` plumbing around the guard.`;
 
 /**
- * Ceiling on {@link REDIRECT_UNAVAILABLE_ESCAPE}, enforced by test rather than
- * by runtime truncation (PR #3405 R1).
+ * Compose the agent-facing denial: the matched rule's own redirect, then the
+ * availability escape (mt#4257).
  *
- * R1 asked for a truncation guard on the emitted denial. Truncating this at
- * runtime would be meaningless — it is a fixed constant whose length is known at
- * authoring time, not interpolated input. The corpus bounds variable-length
- * INPUT (a matched phrase, a command line); it truncates no deny reason
- * anywhere, and 32 rules here already emit reasons up to 503 chars unbounded.
+ * This is the ONE place the two denial audiences diverge, which is why it is a
+ * named function rather than an inline template at the `writeOutput` call. The
+ * agent gets `buildDenialReason(reason)`; `recordGuardDenial` gets the bare
+ * `reason`, so calibration records stay groupable by redirect instead of every
+ * record carrying an identical 475-char tail.
  *
- * Measured worst case with the escape: 503 + 475 = **978 chars**, against the
- * nearest documented budget in the corpus (`MERGED_CONTEXT_BUDGET_CHARS` =
- * 6627, and that governs merged `additionalContext`, a different channel).
- *
- * What IS a real risk is this constant growing without anyone noticing, so the
- * bound lives where it can actually bind: a test that fails if it does.
- */
-export const MAX_ESCAPE_CHARS = 600;
-
-/**
- * The agent-facing denial text: the rule's own redirect plus the availability
- * escape (mt#4257).
- *
- * Extracted so the EMITTED string is observable to a test (PR #3405 R1
- * non-blocking). Previously the append happened inline at the `writeOutput`
- * call, which has no injectable seam, so only the constant could be asserted
- * and the wiring rested on a grep.
- *
- * The base `reason` is what `recordGuardDenial` stores — deliberately without
- * the escape, so calibration records stay groupable by redirect.
+ * On why the escape is not truncated at emit time: it is a fixed constant, so
+ * its length is settled at authoring time and a runtime bound would compute the
+ * same answer on every call. The corpus bounds variable-length INPUT (a matched
+ * phrase, a command line) and truncates no deny reason anywhere. Worst case here
+ * is 978 chars against a 6627-char budget that governs a different channel.
+ * Full measurements: `docs/rules-rationale/guard-feedback-authoring.md`.
  */
 export function buildDenialReason(baseReason: string): string {
   return `${baseReason}${REDIRECT_UNAVAILABLE_ESCAPE}`;

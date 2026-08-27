@@ -20,7 +20,6 @@ import {
   toolContextFromName,
   REDIRECT_UNAVAILABLE_ESCAPE,
   buildDenialReason,
-  MAX_ESCAPE_CHARS,
   classifyAgentTypeObservation,
   findGhApiMethod,
   findGhApiEndpoint,
@@ -1910,6 +1909,14 @@ describe("isCwdScopedInvocation — what the external carve-out may cover (PR #2
 
 /** The override the escape must name — asserted in several places below. */
 const OVERRIDE_DIRECTIVE = "MINSKY_HOOK_OVERRIDE=block-git-gh-cli";
+
+/**
+ * Ceiling on the escape's length. Test-local on purpose: nothing at runtime
+ * reads it, so it has no business being exported from the guard (PR #3405 R2).
+ * The risk it guards is the constant GROWING unnoticed — which a test catches
+ * and a runtime bound on a fixed string cannot.
+ */
+const MAX_ESCAPE_CHARS = 600;
 
 /** A representative shipped redirect, used as the sample base reason. */
 const SAMPLE_REDIRECT = "Use `mcp__minsky__git_log` instead of `git log`.";
