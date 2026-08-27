@@ -63,6 +63,11 @@ import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/pe
 // — path resolution and declaration emit see it, and it breaks if the symbol
 // moves or is renamed.)
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import {
+  nominate,
+  type ExemplarSet,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN";
 
@@ -85,6 +90,91 @@ export const CALIBRATION_TAIL_CHARS = 600;
  * an unrelated sign-off does not capture a ref from another paragraph.
  */
 export const PROXIMITY_CHARS = 200;
+
+// ---------------------------------------------------------------------------
+// Rung 2: embedding nomination for the two shapes Rung 1 cannot reach (mt#4580)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why this guard climbs, and why widening the regex would have been wrong.
+ *
+ * mt#4199 shipped Rung 1 for ONE assertion shape: "this entity awaits you",
+ * checked against terminality. Two adjacent shapes in the same family reached
+ * the principal through this same interception point and were not covered.
+ * Both occurred in a single turn on 2026-08-25 and are recorded as R19/R20 on
+ * the `assertion-without-verification` family (mem#1269):
+ *
+ *   R19 — recommending work a peer already holds. A closing message said to
+ *         START a task another session had picked up twelve minutes earlier.
+ *   R20 — a past-tense completion claim. "I've recorded this on the task", in
+ *         a turn that made zero tool calls.
+ *
+ * MEASURED against this file's own prose gate, with a known-positive control:
+ *
+ *   R19 verbatim   -> findPendingClaims: 0 claims
+ *   R20 verbatim   -> findPendingClaims: 0 claims
+ *   CONTROL        -> findPendingClaims: 1 claim (ask#8467)
+ *
+ * The control firing is what makes the two zeros evidence rather than a
+ * mis-invocation. It also locates the miss precisely: `findPendingClaims`
+ * returns early when no assertion phrase matches, so the substrate read never
+ * ran. `collectEntityRefs` would have found both refs. The gap is at
+ * RECOGNITION, not at the state check.
+ *
+ * That is a recurring paraphrase miss, which ADR-024 assigns to Rung 2 —
+ * "embedding recall-widening (only if paraphrase misses recur)" — and which its
+ * §Context names the anti-pattern for answering with another regex family:
+ * "each miss has historically been answered by adding another regex family
+ * (R1 -> R5) — an arms race". mt#4565's adopted option B' (principal-decided
+ * 2026-08-25) prescribes the same shape: "build per-detector Rung-2 nominators
+ * as each detector's evidence gate is met." This guard's gate is met.
+ *
+ * The sibling `turn-end-untaken-action-scan` has three further recorded escapes
+ * across three more grammatical forms (mt#3560, mt#3831) — five in the family
+ * altogether, which is why the answer is a semantic stage rather than a sixth
+ * pattern.
+ */
+export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
+  {
+    // A recommendation that the principal PICK UP work. The defect this
+    // catches is not the recommendation — it is that the recommendation went
+    // stale, because a peer took the task while the read aged.
+    family: "recommend-start",
+    exemplars: [
+      "The next thing to pick up is that task.",
+      "That one is unblocked now and worth starting.",
+      "You could take that task next; nothing is blocking it.",
+      "The natural follow-on is to begin that piece of work.",
+      "That is the one I would start on next.",
+    ],
+  },
+  {
+    // A claim that an action ALREADY happened. Distinct from the sibling
+    // untaken-action guard, which keys on the opposite tense — a commitment to
+    // act NEXT. A false completion claim is worse than an unmet commitment: it
+    // asserts the work is done, so nothing downstream looks for it.
+    family: "past-tense-claim",
+    exemplars: [
+      "That change is already written into the task.",
+      "I updated the spec with those findings.",
+      "The correction has been saved to the record.",
+      "That has been filed and noted on the task.",
+      "I went ahead and wrote that down.",
+    ],
+  },
+];
+
+/**
+ * Operator kill switch for this guard's Rung-2 stage.
+ *
+ * Named to match the shipped sibling's convention
+ * (`MINSKY_DISABLE_RUNG2_NOMINATION` on `retrospective-trigger-scanner`) but
+ * scoped to this guard, so one detector's stage can be silenced without
+ * silencing the other's. NOT a new operator-override var in the
+ * `hook-files.mdc` sense — `MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN` still
+ * disables the whole guard, and this only reaches the semantic stage.
+ */
+export const NOMINATION_DISABLE_ENV_VAR = "MINSKY_DISABLE_STALE_STATE_RUNG2";
 
 /**
  * Bound on the substrate read. Past this the scan reports a skip, never a fire.
@@ -370,6 +460,101 @@ export function findPendingClaims(finalMessage: string): PendingClaim[] {
     if (nearest) claims.push({ entity, assertion: nearest });
   }
   return claims;
+}
+
+/**
+ * Rung 2. Nominate claims Rung 1's phrase set could not recognise.
+ *
+ * Runs ONLY when Rung 1 found nothing and the tail carries a resolvable ref.
+ * That ordering is the cost discipline: `collectEntityRefs` is pure string work,
+ * so a turn mentioning no task or ask still reaches no IO at all.
+ *
+ * **This does change the guard's cost profile, deliberately.** mt#4199's gate
+ * was "phrase AND ref"; a turn carrying a ref with no pending-assertion phrase
+ * did zero IO. It now reaches one batched embedding call. That is what climbing
+ * to Rung 2 costs, and it is the trade ADR-024 authorises once paraphrase misses
+ * recur — which they did, measured, twice in one turn. The call is bounded by
+ * {@link NOMINATION_TIMEOUT_MS} and degrades rather than throwing, so the
+ * worst case is a slower Stop, never a failed one.
+ *
+ * Returns synthesized {@link PendingClaim}s so the downstream state check sees
+ * one shape regardless of which rung produced the claim. The synthesized
+ * `assertion.family` carries the nominated family, which is what routes the
+ * claim to its state check — peer-activity for `recommend-start`, tool-call
+ * inspection for `past-tense-claim`.
+ */
+export interface NominationOutcome {
+  claims: PendingClaim[];
+  /** Present when the stage could not run; the reason is carried to calibration. */
+  degradedReason?: string;
+  /** Highest score per nominated family, for the calibration record. */
+  scores: { family: string; score: number }[];
+}
+
+/** Nomination is bounded well under the Stop hook's own budget. */
+export const NOMINATION_TIMEOUT_MS = 2000;
+
+export async function nominatePendingClaims(
+  finalMessage: string,
+  deps?: { resolve: typeof resolveNominationDeps; run: typeof nominate }
+): Promise<NominationOutcome> {
+  const disabled = process.env[NOMINATION_DISABLE_ENV_VAR];
+  if (disabled === "1" || disabled?.toLowerCase() === "true") {
+    return { claims: [], degradedReason: "rung2-disabled", scores: [] };
+  }
+
+  const tail = finalMessage.slice(-TAIL_WINDOW_CHARS);
+  const prose = elideQuotedAndCodeContexts(tail);
+
+  // The cheap gate, unchanged in spirit: no ref, nothing to be wrong about.
+  const refs = collectEntityRefs(prose);
+  if (refs.length === 0) return { claims: [], scores: [] };
+
+  const resolve = deps?.resolve ?? resolveNominationDeps;
+  const run = deps?.run ?? nominate;
+
+  const nominationDeps = await resolve();
+  if (nominationDeps === null) {
+    return { claims: [], degradedReason: "nomination-deps-unavailable", scores: [] };
+  }
+
+  const result = await run(prose, NOMINATION_EXEMPLARS, nominationDeps, {
+    timeoutMs: NOMINATION_TIMEOUT_MS,
+  });
+  if (result.degraded) {
+    return {
+      claims: [],
+      degradedReason: result.degradedReason
+        ? `nomination-degraded: ${result.degradedReason}${result.degradedDetail ? ` (${result.degradedDetail})` : ""}`
+        : "nomination-degraded",
+      scores: [],
+    };
+  }
+  if (result.nominations.length === 0) return { claims: [], scores: [] };
+
+  // Pair every nominated family with every ref in the tail. Unlike Rung 1 there
+  // is no proximity filter: a nominated SEGMENT is a sentence, and the ref it
+  // concerns is routinely in an adjacent sentence ("2. Start mt#4556 — its arms
+  // are unmeasurable without it"). Proximity is what Rung 1 uses to bound a
+  // phrase's reach; the semantic stage already bounds itself by meaning.
+  const claims: PendingClaim[] = [];
+  for (const nomination of result.nominations) {
+    for (const entity of refs) {
+      claims.push({
+        entity,
+        assertion: {
+          family: nomination.family,
+          phrase: nomination.segment,
+          at: entity.at,
+        },
+      });
+    }
+  }
+
+  return {
+    claims,
+    scores: result.nominations.map((n) => ({ family: n.family, score: n.score })),
+  };
 }
 
 /** What the substrate returned for one ref, plus the key that identifies the ENTITY. */
