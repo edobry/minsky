@@ -1530,6 +1530,35 @@ Step 2 item 6. If you are appending a LATER list, that is fine and expected; do 
 this one.)
 \`\`\`
 
+   **If gate (o) is one of the failing criteria, ALSO write the falsified banner (mt#4561).**
+   A gate-(o) failure means the spec's asserted cause did NOT reproduce — the premise under the
+   whole task is dead. Recorded only as gap-report prose, nothing downstream can read it: a
+   repo-wide grep for a consumer of \`## Gap Report\` returns zero. The task keeps whatever active
+   status it had, and a later agent reads the status as availability while the body says the
+   premise is gone. That is the mt#3473 / ask#10163 failure, where a measured-and-killed pilot led
+   a principal-facing ask as its top option.
+
+   So EMIT the verdict rather than leaving it to be inferred. Prepend to the spec, **above
+   \`## Summary\`** — the position is what the reader lands on and what the check keys off:
+
+\`\`\`
+> **PROBLEM STATEMENT FALSIFIED — YYYY-MM-DD.** Gate (o) did not reproduce the cause this spec
+> asserts. Evidence: \`## Gap Report (PLANNING — not yet READY)\`. Do not implement or recommend
+> this task until the problem statement is re-established.
+\`\`\`
+
+   \`PROBLEM STATEMENT FALSIFIED\` is a literal token, defined once in
+   \`.minsky/hooks/check-task-spec-read.ts\` as \`FALSIFIED_BANNER_TOKEN\` and matched from there —
+   do not paraphrase it, and do not move it below a heading. Its position is load-bearing: the
+   check honours the banner ONLY in the top block, which is what keeps a spec that DISCUSSES
+   another task's falsification from firing. That leg advises (never denies) when an ask names a
+   task whose spec you have read and which carries this banner.
+
+   **Do NOT try to write this banner by inferring a verdict from prose later.** Reading the
+   verdict back out was measured over 897 active specs and rejected — a fixed phrase set fires on
+   94 with roughly one true positive, and 32 of those name a DIFFERENT task. The banner works
+   only because the step that already KNOWS the verdict writes it.
+
 4. **If any blocking gap requires a principal-owned decision** (a scope choice, a naming
    call, a framework selection, an architectural fork the user reserves) — route it through
    \`AskUserQuestion\` (options inline) or \`mcp__minsky__asks_create\`, per

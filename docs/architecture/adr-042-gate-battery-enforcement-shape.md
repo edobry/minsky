@@ -117,26 +117,43 @@ the battery's own seam, and wiring the dispatcher onto `tasks_status_set` to hos
 where the target status is READY · `pr` = `mcp__minsky__session_pr_create` · `merge` =
 `mcp__minsky__session_pr_merge`.
 
-| Gate                         | Discharge leaves                                                    | Class                                   | Event                                                         | ADR-031                                              |
-| ---------------------------- | ------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------- |
-| (a) spec sections            | the five headings, in the spec                                      | **mechanize**                           | `create` — widen `validate-task-spec.ts` from 2 headings to 5 | deviate: artifact read, no transcript                |
-| (b) criteria testable        | a judgment                                                          | discipline                              | —                                                             | n/a                                                  |
-| (c) scope bounded            | In-scope / Out-of-scope lists, in the spec                          | **mechanize**                           | `create` — same guard as (a)                                  | deviate: as (a)                                      |
-| (d) no blocking questions    | cited task ids + their statuses                                     | **mechanize** (dep half only)           | `ready` — statuses at READY are the question                  | deviate: status read, no transcript                  |
-| (e) refs fresh               | `path:N` pairs the checker can stat                                 | **mechanize**                           | `ready` — refs age between create and READY                   | deviate: filesystem read                             |
-| (f) subtasks filed           | a judgment (does this decompose?)                                   | discipline                              | —                                                             | n/a                                                  |
-| (g) parallel work            | the three probe calls, in the transcript                            | **mechanize**                           | `ready` (scope) + `merge` (existence, mt#1880)                | **match** — transcript join; latest moment available |
-| (h) contract propagation     | the sweep call's directory arguments                                | **mechanize**                           | `pr` (mt#4171) + `merge` (mt#1880) — **re-scoped, see below** | **match** — as (g), but read mid-turn; see below     |
-| (j) premise label            | prose applying a label                                              | discipline — paraphrase axis, ADR-024   | —                                                             | n/a                                                  |
-| (k) third-party verification | four probe calls                                                    | mechanize, **not worth it** — see below | —                                                             | n/a                                                  |
-| (l) authoritative source     | a judgment trigger; a search on discharge                           | discipline (trigger is judgment)        | —                                                             | n/a                                                  |
-| (m) citation verification    | a judgment trigger; a read on discharge                             | mechanize, **not worth it** — see below | —                                                             | n/a                                                  |
-| (n) external integration     | new `octokit.rest.*` / outbound host / webhook route, **in a diff** | **mechanize**                           | `pr` — **not `ready`; no diff exists at plan time**           | deviate: diff read                                   |
-| (o) problem statement        | a causal claim in prose                                             | discipline — paraphrase axis, ADR-024   | —                                                             | n/a                                                  |
-| (p) decision record          | in-scope paths ∩ ADR corpus (**one of two corpora** — see below)    | **mechanize** (partial)                 | `ready` (mt#4172)                                             | deviate: corpus grep                                 |
+| Gate                         | Discharge leaves                                                            | Class                                                         | Event                                                         | ADR-031                                              |
+| ---------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------- |
+| (a) spec sections            | the five headings, in the spec                                              | **mechanize**                                                 | `create` — widen `validate-task-spec.ts` from 2 headings to 5 | deviate: artifact read, no transcript                |
+| (b) criteria testable        | a judgment                                                                  | discipline                                                    | —                                                             | n/a                                                  |
+| (c) scope bounded            | In-scope / Out-of-scope lists, in the spec                                  | **mechanize**                                                 | `create` — same guard as (a)                                  | deviate: as (a)                                      |
+| (d) no blocking questions    | cited task ids + their statuses                                             | **mechanize** (dep half only)                                 | `ready` — statuses at READY are the question                  | deviate: status read, no transcript                  |
+| (e) refs fresh               | `path:N` pairs the checker can stat                                         | **mechanize**                                                 | `ready` — refs age between create and READY                   | deviate: filesystem read                             |
+| (f) subtasks filed           | a judgment (does this decompose?)                                           | discipline                                                    | —                                                             | n/a                                                  |
+| (g) parallel work            | the three probe calls, in the transcript                                    | **mechanize**                                                 | `ready` (scope) + `merge` (existence, mt#1880)                | **match** — transcript join; latest moment available |
+| (h) contract propagation     | the sweep call's directory arguments                                        | **mechanize**                                                 | `pr` (mt#4171) + `merge` (mt#1880) — **re-scoped, see below** | **match** — as (g), but read mid-turn; see below     |
+| (j) premise label            | prose applying a label                                                      | discipline — paraphrase axis, ADR-024                         | —                                                             | n/a                                                  |
+| (k) third-party verification | four probe calls                                                            | mechanize, **not worth it** — see below                       | —                                                             | n/a                                                  |
+| (l) authoritative source     | a judgment trigger; a search on discharge                                   | discipline (trigger is judgment)                              | —                                                             | n/a                                                  |
+| (m) citation verification    | a judgment trigger; a read on discharge                                     | mechanize, **not worth it** — see below                       | —                                                             | n/a                                                  |
+| (n) external integration     | new `octokit.rest.*` / outbound host / webhook route, **in a diff**         | **mechanize**                                                 | `pr` — **not `ready`; no diff exists at plan time**           | deviate: diff read                                   |
+| (o) problem statement        | a causal claim in prose — **plus, on FAILURE, an emitted banner (mt#4561)** | **mechanize (partial)** — the FAILURE verdict only; see below | `asks_create` / `asks_edit` (mt#4561)                         | deviate: transcript join on a read spec              |
+| (p) decision record          | in-scope paths ∩ ADR corpus (**one of two corpora** — see below)            | **mechanize** (partial)                                       | `ready` (mt#4172)                                             | deviate: corpus grep                                 |
 
-Eight rows get a backstop. Of the seven that do not, five are discipline-tier by construction and
-two are mechanizable but priced out below. Every "deviate" is the same deviation and it is the ADR-031
+**Nine** rows get a backstop. Of the six that do not, **four** are discipline-tier by construction
+and two are mechanizable but priced out below.
+
+**Amended 2026-08-27 (mt#4561): the `(o)` row moved from `discipline` to partial mechanization,
+and the counts above moved with it (was eight / seven / five / two).** The row's classification was
+correct given its stated input — _"Discharge leaves: a causal claim in prose"_ — and that input
+CHANGED rather than the verdict being wrong. This ADR's own discriminator asks whether discharging
+a gate leaves a structured trace; the discharge is ours to shape, so `/plan-task` Step 4 now EMITS
+a literal banner (`PROBLEM STATEMENT FALSIFIED`, defined once as `FALSIFIED_BANNER_TOKEN` in
+`.minsky/hooks/check-task-spec-read.ts`) at the moment a gate-(o) FAILURE is recorded. A presence
+check reads that banner — a literal form with no similarity metric, so ADR-024's ladder does not
+govern it.
+
+**The mechanization is deliberately PARTIAL, and the boundary is the point.** Only the FAILURE
+verdict is mechanized. Whether a pass discharged gate (o) CORRECTLY remains a judgment no marker
+can carry, so the row's original reasoning stands for everything except the one fact the emitter
+already knows. Reading the verdict back out of prose instead was measured over 897 active specs and
+rejected: a fixed phrase set fires on 94 with roughly one true positive, and 32 of those sit on a
+line naming a different task. Every "deviate" is the same deviation and it is the ADR-031
 scoping correction above, not a departure from its reasoning: the read is not a transcript read, so
 flush time is silent and the seam follows the evidence. The two "match" rows are transcript joins.
 Gate (g)'s takes ADR-031's rule as written. **Gate (h)'s cannot, and the reason is worth stating
