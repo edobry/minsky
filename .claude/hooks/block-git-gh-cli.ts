@@ -88,6 +88,41 @@ export const REDIRECT_UNAVAILABLE_ESCAPE =
   `set \`MINSKY_HOOK_OVERRIDE=${GUARD_NAME}\` for that one invocation — audit-logged, ` +
   `and the honest option rather than hand-reading \`.git\` plumbing around the guard.`;
 
+/**
+ * Ceiling on {@link REDIRECT_UNAVAILABLE_ESCAPE}, enforced by test rather than
+ * by runtime truncation (PR #3405 R1).
+ *
+ * R1 asked for a truncation guard on the emitted denial. Truncating this at
+ * runtime would be meaningless — it is a fixed constant whose length is known at
+ * authoring time, not interpolated input. The corpus bounds variable-length
+ * INPUT (a matched phrase, a command line); it truncates no deny reason
+ * anywhere, and 32 rules here already emit reasons up to 503 chars unbounded.
+ *
+ * Measured worst case with the escape: 503 + 475 = **978 chars**, against the
+ * nearest documented budget in the corpus (`MERGED_CONTEXT_BUDGET_CHARS` =
+ * 6627, and that governs merged `additionalContext`, a different channel).
+ *
+ * What IS a real risk is this constant growing without anyone noticing, so the
+ * bound lives where it can actually bind: a test that fails if it does.
+ */
+export const MAX_ESCAPE_CHARS = 600;
+
+/**
+ * The agent-facing denial text: the rule's own redirect plus the availability
+ * escape (mt#4257).
+ *
+ * Extracted so the EMITTED string is observable to a test (PR #3405 R1
+ * non-blocking). Previously the append happened inline at the `writeOutput`
+ * call, which has no injectable seam, so only the constant could be asserted
+ * and the wiring rested on a grep.
+ *
+ * The base `reason` is what `recordGuardDenial` stores — deliberately without
+ * the escape, so calibration records stay groupable by redirect.
+ */
+export function buildDenialReason(baseReason: string): string {
+  return `${baseReason}${REDIRECT_UNAVAILABLE_ESCAPE}`;
+}
+
 // ---------------------------------------------------------------------------
 // Tool context
 // ---------------------------------------------------------------------------
@@ -1139,7 +1174,7 @@ if (import.meta.main) {
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
-          permissionDecisionReason: `${reason}${REDIRECT_UNAVAILABLE_ESCAPE}`,
+          permissionDecisionReason: buildDenialReason(reason),
         },
       });
       recordAndExit("deny");

@@ -19,6 +19,8 @@ import {
   stripEnvVarAssignments,
   toolContextFromName,
   REDIRECT_UNAVAILABLE_ESCAPE,
+  buildDenialReason,
+  MAX_ESCAPE_CHARS,
   classifyAgentTypeObservation,
   findGhApiMethod,
   findGhApiEndpoint,
@@ -1906,6 +1908,12 @@ describe("isCwdScopedInvocation — what the external carve-out may cover (PR #2
   });
 });
 
+/** The override the escape must name — asserted in several places below. */
+const OVERRIDE_DIRECTIVE = "MINSKY_HOOK_OVERRIDE=block-git-gh-cli";
+
+/** A representative shipped redirect, used as the sample base reason. */
+const SAMPLE_REDIRECT = "Use `mcp__minsky__git_log` instead of `git log`.";
+
 describe("REDIRECT_UNAVAILABLE_ESCAPE (mt#4257)", () => {
   // Every redirect in this guard names an `mcp__*` tool. When that server is
   // disconnected the tools do not load — and `session_exec`, the documented
@@ -1916,7 +1924,7 @@ describe("REDIRECT_UNAVAILABLE_ESCAPE (mt#4257)", () => {
   it("names the guard's own override, derived from GUARD_NAME rather than retyped", () => {
     // Retyping the name is how an override string drifts from the guard it
     // unlocks; asserting the composed value catches that.
-    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain("MINSKY_HOOK_OVERRIDE=block-git-gh-cli");
+    expect(REDIRECT_UNAVAILABLE_ESCAPE).toContain(OVERRIDE_DIRECTIVE);
   });
 
   it("names the availability condition, not just the override", () => {
@@ -1943,5 +1951,48 @@ describe("REDIRECT_UNAVAILABLE_ESCAPE (mt#4257)", () => {
     for (const rule of [...gitDenials, ...ghDenials]) {
       expect(rule.reason).not.toContain("MINSKY_HOOK_OVERRIDE");
     }
+  });
+});
+
+describe("buildDenialReason (mt#4257, PR #3405 R1)", () => {
+  // R1 non-blocking: only the constant was asserted; the EMITTED text rested on
+  // a grep. The append is extracted so the emitted string is observable.
+
+  it("emits the rule's redirect followed by the escape", () => {
+    const emitted = buildDenialReason(SAMPLE_REDIRECT);
+    expect(emitted).toContain(SAMPLE_REDIRECT);
+    expect(emitted).toContain(OVERRIDE_DIRECTIVE);
+    expect(emitted.startsWith(SAMPLE_REDIRECT)).toBe(true);
+  });
+
+  it("emits a reachable path for EVERY shipped rule, not just the one sampled", () => {
+    // The defect this closes is per-redirect, so assert across the whole rule
+    // set rather than trusting one example to stand in for 32.
+    for (const rule of [...gitDenials, ...ghDenials]) {
+      const emitted = buildDenialReason(rule.reason ?? "");
+      expect(emitted).toContain(OVERRIDE_DIRECTIVE);
+    }
+  });
+
+  it("NEGATIVE CONTROL: the base reason handed to the calibration record is unchanged", () => {
+    // Calibration groups by redirect, so the escape must NOT reach the record.
+    const base = SAMPLE_REDIRECT;
+    expect(base).not.toContain("MINSKY_HOOK_OVERRIDE");
+    expect(buildDenialReason(base)).not.toBe(base);
+  });
+
+  it("R1 blocking: the escape stays under its authored ceiling", () => {
+    // Runtime truncation of a fixed constant is meaningless; unbounded GROWTH
+    // of it is the real risk, and this is where that binds.
+    expect(REDIRECT_UNAVAILABLE_ESCAPE.length).toBeLessThanOrEqual(MAX_ESCAPE_CHARS);
+  });
+
+  it("R1 blocking: worst-case emitted denial stays well inside the nearest budget", () => {
+    // MERGED_CONTEXT_BUDGET_CHARS is 6627 and governs a different channel; this
+    // pins that the deny channel's worst case does not drift toward it.
+    const worst = Math.max(
+      ...[...gitDenials, ...ghDenials].map((r) => buildDenialReason(r.reason ?? "").length)
+    );
+    expect(worst).toBeLessThan(2000);
   });
 });
