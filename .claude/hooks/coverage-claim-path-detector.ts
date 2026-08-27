@@ -55,7 +55,7 @@
  */
 
 import { existsSync, appendFileSync, mkdirSync } from "node:fs";
-import { resolve, dirname, isAbsolute, relative, join } from "node:path";
+import { resolve, dirname, isAbsolute, relative } from "node:path";
 import { findUnresolvedCoverageClaims } from "./coverage-claim-path";
 import { findRepoRoot, deriveHookRepoRoot, readInput } from "./types";
 import { deriveSessionWorkspaceRoot } from "./require-session-for-main-workspace-edits";
@@ -132,11 +132,73 @@ export function resolveTargetWorkspaceRoot(
       : undefined;
 
   if (typeof sessionId === "string" && sessionId.length > 0) {
-    const sessionRoot = join(sessionsRoot, sessionId);
+    // A sessionId is a single directory NAME, so anything that could make it a
+    // path is out (PR #3409 R1). Unvalidated, `../../etc` would turn this
+    // function into a cross-tree existence oracle — the same "ask the wrong
+    // tree" defect this module exists to fix, pointed at an attacker-chosen
+    // root instead of merely the wrong one. Log-only does not help: the
+    // findings are written to a file, so the layout still leaks.
+    //
+    // Checked two ways deliberately. The segment test states the intent
+    // ("this is a name, not a path") and is not format-bound: the observed ids
+    // are UUIDs, but `sessionId` is documented as accepting a task id too, so
+    // pinning a UUID shape would silently drop coverage rather than attacks.
+    // The containment test is the one that actually holds if the first is ever
+    // loosened.
+    if (!isSingleSegment(sessionId)) return null;
+
+    const base = resolve(sessionsRoot);
+    const sessionRoot = resolve(base, sessionId);
+    if (!isContainedIn(sessionRoot, base)) return null;
+
     return exists(sessionRoot) ? sessionRoot : null;
   }
 
   return findRepoRoot(cwd);
+}
+
+/** A single path NAME — no separators, no `.`/`..` traversal segments. */
+export function isSingleSegment(value: string): boolean {
+  return !/[/\\]/.test(value) && value !== "." && value !== "..";
+}
+
+/**
+ * `child` is `parent` itself, or strictly beneath it.
+ *
+ * Used at every point where a caller-supplied string becomes part of a path this
+ * module then probes — the session root, the write target, and each cited
+ * candidate. The third is not hypothetical, and was verified rather than
+ * assumed: `PATH_PATTERN` admits `.` and `-`, so a comment citing
+ * `src/../../etc/shadow.ts` matches and reaches the existence probe. The
+ * extension is what makes it reachable — the matcher trims a cited path at its
+ * extension, so an extensionless `.../etc/passwd` matches nothing.
+ */
+export function isContainedIn(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * The existence probe the matcher is handed: resolve a cited candidate against
+ * `root`, and answer NO for anything that escapes it (PR #3409 R1).
+ *
+ * Treating an escaping candidate as non-existent is the right answer on both
+ * axes — nothing outside the tree can satisfy a claim about this tree, and the
+ * probe never leaves it, so the detector cannot be used as a cross-tree
+ * existence oracle.
+ *
+ * Exported as its own unit rather than inlined in `run()` so a test exercises
+ * THIS implementation instead of a hand-mirrored copy of it. The first version
+ * of the containment test did mirror it, and passed against an unguarded probe.
+ */
+export function containedExistenceCheck(
+  root: string,
+  exists: (p: string) => boolean = existsSync
+): (candidate: string) => boolean {
+  return (candidate) => {
+    const absolute = resolve(root, candidate);
+    return isContainedIn(absolute, root) && exists(absolute);
+  };
 }
 
 /**
@@ -147,7 +209,6 @@ export function resolveTargetWorkspaceRoot(
  */
 export function extractWriteTarget(
   toolInput: unknown,
-  cwd: string,
   root: string
 ): { repoRelativePath: string; text: string } | null {
   if (!toolInput || typeof toolInput !== "object") return null;
@@ -168,12 +229,11 @@ export function extractWriteTarget(
   // is already anchored. Resolving a relative path against `root` rather than
   // `cwd` is what keeps a session write addressed to the tree it lands in.
   const absolute = isAbsolute(rawPath) ? rawPath : resolve(root, rawPath);
-  const repoRelativePath = relative(root, absolute);
 
   // A path outside the workspace has no package root to resolve claims against.
-  if (repoRelativePath.startsWith("..")) return null;
+  if (!isContainedIn(absolute, root)) return null;
 
-  return { repoRelativePath, text };
+  return { repoRelativePath: relative(root, absolute), text };
 }
 
 function appendCalibrationRecord(record: Record<string, unknown>): void {
@@ -218,7 +278,7 @@ export async function run(
   const root = resolveTargetWorkspaceRoot(toolInput, cwd);
   if (root === null) return null;
 
-  const target = extractWriteTarget(toolInput, cwd, root);
+  const target = extractWriteTarget(toolInput, root);
   if (!target) return null;
 
   // Only TypeScript-ish sources carry the comment syntax the matcher scans.
@@ -233,8 +293,10 @@ export async function run(
   // recorder, since a missed record costs nothing a later sweep cannot recover.
   if (target.text.length > MAX_SCANNED_CHARS) return null;
 
-  const findings = findUnresolvedCoverageClaims(target.text, target.repoRelativePath, (p) =>
-    existsSync(resolve(root, p))
+  const findings = findUnresolvedCoverageClaims(
+    target.text,
+    target.repoRelativePath,
+    containedExistenceCheck(root)
   );
 
   if (findings.length > 0) {

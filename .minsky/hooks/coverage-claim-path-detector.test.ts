@@ -19,8 +19,13 @@
  * @see .minsky/hooks/coverage-claim-path-detector.ts
  */
 import { describe, test, expect } from "bun:test";
-import { resolve } from "node:path";
-import { resolveTargetWorkspaceRoot, extractWriteTarget } from "./coverage-claim-path-detector";
+import {
+  resolveTargetWorkspaceRoot,
+  extractWriteTarget,
+  isSingleSegment,
+  isContainedIn,
+  containedExistenceCheck,
+} from "./coverage-claim-path-detector";
 import { findUnresolvedCoverageClaims } from "./coverage-claim-path";
 
 const SESSIONS_ROOT = "/state/minsky/sessions";
@@ -54,10 +59,16 @@ const AT_FIRE_TIME = fsWith([`${SESSION_ROOT}/${CITED}`]);
  * vary only the tree being interrogated.
  */
 function findingsUnderRoot(root: string, treeHas: (p: string) => boolean, toolInput: unknown) {
-  const target = extractWriteTarget(toolInput, MAIN_ROOT, root);
+  const target = extractWriteTarget(toolInput, root);
   if (!target) return null;
-  return findUnresolvedCoverageClaims(target.text, target.repoRelativePath, (candidate) =>
-    treeHas(resolve(root, candidate))
+  // `containedExistenceCheck` is the PRODUCTION probe, injected with the test's
+  // filesystem — not a hand-mirrored copy of run()'s pipeline. The first version
+  // of this helper did mirror it, and consequently passed the containment case
+  // against an unguarded probe.
+  return findUnresolvedCoverageClaims(
+    target.text,
+    target.repoRelativePath,
+    containedExistenceCheck(root, treeHas)
   );
 }
 
@@ -115,7 +126,7 @@ describe("resolveTargetWorkspaceRoot", () => {
 
 describe("extractWriteTarget — a session path is relative to the session workspace", () => {
   test("a session-relative path stays repo-relative when resolved against the session root", () => {
-    const target = extractWriteTarget(SESSION_WRITE, MAIN_ROOT, SESSION_ROOT);
+    const target = extractWriteTarget(SESSION_WRITE, SESSION_ROOT);
 
     expect(target?.repoRelativePath).toBe(CITING);
   });
@@ -123,7 +134,6 @@ describe("extractWriteTarget — a session path is relative to the session works
   test("an absolute path inside the session workspace is relativised against it", () => {
     const target = extractWriteTarget(
       { sessionId: SESSION_ID, path: `${SESSION_ROOT}/${CITING}`, content: CITING_COMMENT },
-      MAIN_ROOT,
       SESSION_ROOT
     );
 
@@ -133,7 +143,6 @@ describe("extractWriteTarget — a session path is relative to the session works
   test("a path outside the target workspace is refused", () => {
     const target = extractWriteTarget(
       { sessionId: SESSION_ID, path: "/somewhere/else/thing.ts", content: CITING_COMMENT },
-      MAIN_ROOT,
       SESSION_ROOT
     );
 
@@ -205,5 +214,65 @@ describe("AT3 — the false-NEGATIVE direction is closed", () => {
 
   test("AT3 negative control: against the MAIN root the same dead pointer is silently missed", () => {
     expect(findingsUnderRoot(MAIN_ROOT, DELETED_IN_SESSION, SESSION_WRITE)).toEqual([]);
+  });
+});
+
+describe("containment — a caller-supplied string never becomes an escaping path (PR #3409 R1)", () => {
+  test("isSingleSegment rejects separators and traversal segments", () => {
+    expect(isSingleSegment(SESSION_ID)).toBe(true);
+    expect(isSingleSegment("../../etc")).toBe(false);
+    expect(isSingleSegment("a/b")).toBe(false);
+    expect(isSingleSegment("a\\b")).toBe(false);
+    expect(isSingleSegment("..")).toBe(false);
+    expect(isSingleSegment(".")).toBe(false);
+  });
+
+  test("isContainedIn accepts the root itself and anything beneath, rejects escapes", () => {
+    expect(isContainedIn(SESSION_ROOT, SESSION_ROOT)).toBe(true);
+    expect(isContainedIn(`${SESSION_ROOT}/src/a.ts`, SESSION_ROOT)).toBe(true);
+    expect(isContainedIn("/etc/passwd", SESSION_ROOT)).toBe(false);
+    expect(isContainedIn(SESSIONS_ROOT, SESSION_ROOT)).toBe(false);
+  });
+
+  test("a traversing sessionId is unlocatable, even when the escaped path EXISTS", () => {
+    // The `exists` seam says yes to everything, so a passing result here would
+    // mean the traversal was actually followed rather than merely absent.
+    const anythingExists = () => true;
+
+    for (const hostile of ["../../etc", "..", ".", "a/b", "..%2f..", "\\..\\.."]) {
+      expect(
+        resolveTargetWorkspaceRoot(
+          { sessionId: hostile, path: CITING, content: CITING_COMMENT },
+          MAIN_ROOT,
+          SESSIONS_ROOT,
+          anythingExists
+        )
+      ).toBeNull();
+    }
+  });
+
+  test("a cited path that escapes the workspace is never probed outside it", () => {
+    // `PATH_PATTERN` admits `.` and `-`, so this matches and reaches the seam.
+    // The extension is load-bearing: the matcher trims a cited path at its
+    // extension, so an extensionless `.../etc/passwd` never matches at all
+    // (verified — it probes nothing). `.ts` is what makes this case real.
+    const escaping = `/**\n * @see src/../../etc/shadow.ts — the convention\n */`;
+    const probed: string[] = [];
+    const recordingTree = (p: string) => {
+      probed.push(p);
+      return true; // say YES, so an unguarded probe would resolve and hide the escape
+    };
+
+    const findings = findingsUnderRoot(SESSION_ROOT, recordingTree, {
+      sessionId: SESSION_ID,
+      path: CITING,
+      content: escaping,
+    });
+
+    // Every path actually handed to the filesystem stayed inside the workspace.
+    for (const p of probed) expect(isContainedIn(p, SESSION_ROOT)).toBe(true);
+
+    // And the escaping citation is reported rather than silently satisfied.
+    expect(findings?.some((f) => f.citedPath.includes(".."))).toBe(true);
   });
 });
