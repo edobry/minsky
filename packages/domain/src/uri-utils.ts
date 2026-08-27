@@ -321,14 +321,30 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
  *
  * Returns `null` for non-GitHub URLs; callers depend on that to fall through to
  * their own handling (local paths, other hosts).
+ *
+ * Two properties are inherited DELIBERATELY from the eight sites this replaces,
+ * and are not oversights (reviewer findings on PR #3408, both NON-BLOCKING):
+ *
+ * - **Unanchored.** A GitHub URL embedded in a longer string still parses. Every
+ *   original site was unanchored, so anchoring here would narrow what callers
+ *   accept — a behavior change beyond fixing the dot, in a parser reached by the
+ *   session PR path. Inputs are `git remote get-url origin` output, not arbitrary
+ *   text.
+ * - **`https:` only, not `http:`.** All eight originals matched `https:` alone.
+ *   github.com redirects http to https and git remotes to it are not realistic,
+ *   so widening would be an unforced behavior change.
+ *
+ * The repo capture excludes `?` and `#` so a URL carrying a query or fragment
+ * still has its `.git` suffix stripped (`.../r.git?x` previously yielded
+ * `r.git?x`).
  */
 export function parseGitHubOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
   if (!remoteUrl) return null;
 
   // SSH: git@github.com:owner/repo[.git]
   // HTTPS: https://github.com/owner/repo[.git]
-  const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^/]+)/);
-  const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^/]+)/);
+  const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^/?#]+)/);
+  const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^/?#]+)/);
 
   const match = sshMatch || httpsMatch;
   if (!match || !match[1] || !match[2]) return null;

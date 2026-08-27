@@ -69,6 +69,22 @@ describe("parseGitHubOwnerRepo (mt#4671)", () => {
     }
   });
 
+  describe("query strings and fragments — reviewer finding, PR #3408", () => {
+    // Before this, `([^/]+)` swallowed the query so `.git$` never matched and
+    // the suffix survived into the repo name.
+    test("query string does not defeat .git stripping", () => {
+      expect(parseGitHubOwnerRepo("https://github.com/o/r.git?foo=1")?.repo).toBe("r");
+    });
+    test("fragment does not defeat .git stripping", () => {
+      expect(parseGitHubOwnerRepo("https://github.com/o/r.git#frag")?.repo).toBe("r");
+    });
+    test("a dotted name with a query keeps its dots", () => {
+      expect(parseGitHubOwnerRepo("https://github.com/edobry/peezombie.me.git?x=1")?.repo).toBe(
+        "peezombie.me"
+      );
+    });
+  });
+
   test("extra path segments still yield the repo (permissive, as before the fix)", () => {
     expect(parseGitHubOwnerRepo("https://github.com/edobry/peezombie.me/pull/1")?.repo).toBe(
       "peezombie.me"
