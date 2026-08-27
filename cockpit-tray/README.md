@@ -120,8 +120,8 @@ The tray app is the **canonical owner/supervisor** of the cockpit daemon:
   from the launchd plist's `WorkingDirectory` (`minsky cockpit install`) or, failing
   that, by canonicalizing the `minsky` bin symlink (`<repo>/scripts/cli-entry.ts`
   → `<repo>`), requiring `src/cli.ts` to be present. If no repo root (or `bun`) can
-  be resolved, the app refuses to spawn and the menu shows "Cockpit: repo not
-  found" / "Cockpit: bun not found" rather than crash-looping.
+  be resolved, the app refuses to spawn and the menu shows "Cockpit daemon: repo not
+  found" / "Cockpit daemon: bun not found" rather than crash-looping.
 - **Adopt** — on launch, if `:3737` is already served by our daemon (e.g. a manual
   `bun --watch ... cockpit start --dev` dev run), the app monitors that daemon via
   the health endpoint instead of double-spawning. Start/Stop/Restart then act on the
@@ -163,7 +163,7 @@ UI. The tray keeps it fresh:
   confirmed or ruled out at a glance.
 - **Build failures.** A runtime rebuild failure keeps the daemon serving the prior
   bundle and shows `Build FAILED (...) - serving prior bundle`. A startup failure
-  with **no** prior bundle to serve refuses to spawn (`Cockpit: start failed`) and
+  with **no** prior bundle to serve refuses to spawn (`Cockpit daemon: start failed`) and
   shows `Build FAILED (...) - nothing to serve`. Full build output is appended to
   `~/.local/state/minsky/logs/cockpit-build.log`. A failure also fires a macOS
   **notification** (OS toast) with the error summary (mt#2306), in addition to the
@@ -204,7 +204,14 @@ keeps the daemon current:
   `ps -p <pid> -o lstart`.
 - **Restart-failure surface.** If a restarted daemon crash-loops (e.g. a syntax error
   in `server.ts` makes the new process fail to bind), the status line shows
-  `Cockpit: start failed: <stderr tail> (see logs)` rather than a silent "stopped".
+  `Cockpit daemon: start failed: <stderr tail> (see logs)` rather than a silent "stopped".
+- **Restart confirmation (mt#4233).** Clicking **Restart** on a daemon's submenu
+  fires a macOS notification naming what was restarted — `Restarted MCP daemon`,
+  or `Could not restart MCP daemon` with the reason when the spawn was refused or
+  failed. Only the menu click notifies: a source-change auto-restart would toast
+  on every save, and the not-ready watchdog already raises its own alert. Before
+  this, every tray notification fired on FAILURE only, so a restart that hit the
+  wrong daemon looked exactly like one that worked.
 
 Operators running through the tray never need to manually `kill <pid>` or know that
 backend changes require a process restart — with one caveat: restart/stop of an
@@ -215,19 +222,26 @@ killing a foreign listener, and manual intervention may be needed in that edge c
 
 ### Status-line labels
 
-The dropdown status line shows one of:
+There is one status line **per supervised daemon** (mt#3815), each prefixed with
+that daemon's own name — `Cockpit daemon: …` and `MCP daemon: …`. Both names
+carry the class word since mt#4233: before it the cockpit's line read plain
+`Cockpit: …` and its lifecycle submenu was titled just "Cockpit", so of the two
+entries only the MCP one said "daemon" — which is how "the daemon entry →
+Restart" sent an operator to the wrong process on 2026-08-17.
 
-| Label                                                  | Meaning                                                                                                                                                    | Remediation                                                                                                                                              |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Cockpit: running`                                     | A daemon is serving `:3737` (spawned or adopted).                                                                                                          | —                                                                                                                                                        |
-| `Cockpit: stopped`                                     | Nothing is serving `:3737`.                                                                                                                                | Use **Start Daemon**.                                                                                                                                    |
-| `Cockpit: starting...`                                 | A spawned daemon is booting (not yet healthy).                                                                                                             | Wait a few seconds.                                                                                                                                      |
-| `Cockpit: rebuilding bundle...`                        | A startup pre-flight `cockpit:build` is running before spawn (mt#2297).                                                                                    | Wait for the build to finish; progress/outcome shows on the **Last build** line.                                                                         |
-| `Cockpit: :3737 held by pid <N> (not started by tray)` | Some other process holds `:3737` (mt#2299 names the holder pid; falls back to `:3737 in use (not cockpit)` if the pid can't be read).                      | Free the port; Stop/Restart won't kill a foreign listener.                                                                                               |
-| `Cockpit: repo not found`                              | No Minsky repo root with `src/cli.ts` could be resolved, so the app refused to spawn.                                                                      | Run `minsky cockpit install` (records the repo in the launchd plist), or ensure the `minsky` bin symlinks into the repo (`<repo>/scripts/cli-entry.ts`). |
-| `Cockpit: bun not found`                               | `bun` is not resolvable on PATH.                                                                                                                           | Install Bun (`curl -fsSL https://bun.sh/install \| bash`) so it lands on `~/.bun/bin`.                                                                   |
-| `Cockpit: start failed (see logs)`                     | The spawn was attempted but errored (including a startup rebuild with no servable bundle).                                                                 | Check `~/.local/state/minsky/logs/cockpit-stderr.log` and `cockpit-build.log`.                                                                           |
-| `Cockpit: start failed: <tail> (see logs)`             | A spawned daemon crash-looped (exited within the respawn-throttle window — e.g. a syntax error in `server.ts`); the stderr tail is shown inline (mt#2299). | Check `~/.local/state/minsky/logs/cockpit-stderr.log`; fix the backend error (the runtime watcher restarts on the next save).                            |
+The cockpit daemon's line shows one of:
+
+| Label                                                         | Meaning                                                                                                                                                    | Remediation                                                                                                                                              |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cockpit daemon: running`                                     | A daemon is serving `:3737` (spawned or adopted).                                                                                                          | —                                                                                                                                                        |
+| `Cockpit daemon: stopped`                                     | Nothing is serving `:3737`.                                                                                                                                | Use **Cockpit daemon → Start**.                                                                                                                          |
+| `Cockpit daemon: starting...`                                 | A spawned daemon is booting (not yet healthy).                                                                                                             | Wait a few seconds.                                                                                                                                      |
+| `Cockpit daemon: rebuilding bundle...`                        | A startup pre-flight `cockpit:build` is running before spawn (mt#2297).                                                                                    | Wait for the build to finish; progress/outcome shows on the **Last build** line.                                                                         |
+| `Cockpit daemon: :3737 held by pid <N> (not started by tray)` | Some other process holds `:3737` (mt#2299 names the holder pid; falls back to `:3737 in use (not cockpit)` if the pid can't be read).                      | Free the port; Stop/Restart won't kill a foreign listener.                                                                                               |
+| `Cockpit daemon: repo not found`                              | No Minsky repo root with `src/cli.ts` could be resolved, so the app refused to spawn.                                                                      | Run `minsky cockpit install` (records the repo in the launchd plist), or ensure the `minsky` bin symlinks into the repo (`<repo>/scripts/cli-entry.ts`). |
+| `Cockpit daemon: bun not found`                               | `bun` is not resolvable on PATH.                                                                                                                           | Install Bun (`curl -fsSL https://bun.sh/install \| bash`) so it lands on `~/.bun/bin`.                                                                   |
+| `Cockpit daemon: start failed (see logs)`                     | The spawn was attempted but errored (including a startup rebuild with no servable bundle).                                                                 | Check `~/.local/state/minsky/logs/cockpit-stderr.log` and `cockpit-build.log`.                                                                           |
+| `Cockpit daemon: start failed: <tail> (see logs)`             | A spawned daemon crash-looped (exited within the respawn-throttle window — e.g. a syntax error in `server.ts`); the stderr tail is shown inline (mt#2299). | Check `~/.local/state/minsky/logs/cockpit-stderr.log`; fix the backend error (the runtime watcher restarts on the next save).                            |
 
 A separate **Last build** dropdown line shows the bundle's last rebuild outcome
 (`Last build: HH:MM:SS UTC`, `Rebuilding bundle...`, or `Build FAILED (...)`). A

@@ -102,7 +102,14 @@ pub(crate) const ALERT_COOLDOWN: Duration = Duration::from_secs(900); // 15 min
 /// compiler judge whether the surface is sufficient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DaemonLabels {
-    /// Human name used in alert prose, e.g. `"Cockpit"`.
+    /// Human name used in alert prose and as the tray's lifecycle-menu entry,
+    /// e.g. `"Cockpit daemon"`.
+    ///
+    /// **Carries the class word (mt#4233).** It was the bare product name until
+    /// then, which made exactly one of the two menu entries say "daemon" — the
+    /// MCP one — so "the daemon entry → Restart" deterministically steered the
+    /// operator to the wrong process on 2026-08-17. Callers must therefore NOT
+    /// append " daemon" themselves; doing so renders it twice.
     pub(crate) display_name: &'static str,
     /// Status line while the daemon is healthy.
     pub(crate) running: &'static str,
@@ -114,6 +121,34 @@ pub(crate) struct DaemonLabels {
     /// the sustained-outage alert so the toast is actionable.
     pub(crate) stderr_log_hint: &'static str,
 }
+
+/// Build a daemon's whole label set from ONE name literal (mt#4233).
+///
+/// Every status line is the display name plus a fixed suffix, so before this the
+/// name was written once per line — five literals for the cockpit, four for the
+/// MCP entry — and a rename had to find every one of them. That is not a
+/// hypothetical cost: it is why the two entries drifted into disagreeing about
+/// whether the class word belongs in the name at all.
+///
+/// A macro rather than a helper `const fn` because neither of the two obvious
+/// alternatives compiles: a `const` cannot call `format!` (no allocation in
+/// const context), and `concat!` takes literal TOKENS, not `const` idents — so
+/// `concat!(COCKPIT_NAME, ": running")` is rejected even though the ident names
+/// a `&'static str`. `$name:literal` supplies the literal `concat!` needs, which
+/// makes "define the name once" expressible without giving up `&'static str`.
+macro_rules! daemon_labels {
+    ($name:literal, $log:literal) => {
+        $crate::supervisor::daemon_core::DaemonLabels {
+            display_name: $name,
+            running: concat!($name, ": running"),
+            stopped: concat!($name, ": stopped"),
+            starting: concat!($name, ": starting..."),
+            stderr_log_hint: $log,
+        }
+    };
+}
+
+pub(crate) use daemon_labels;
 
 // ---------------------------------------------------------------------------
 // Pure logic (unit-tested without the Tauri runtime — mt#2226).
