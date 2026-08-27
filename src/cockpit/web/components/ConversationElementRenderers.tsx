@@ -725,10 +725,16 @@ export function DispatchBriefBlock({
       className="rounded border border-violet-400/30 bg-violet-400/[0.04]"
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-violet-400/20 px-2 py-1 text-[11px] text-muted-foreground">
-        <span className="font-medium uppercase tracking-wide text-violet-300">dispatch brief</span>
+        {/*
+          No label here. The RUN header one level up already renders "dispatch
+          brief" from `classifyTurnOrigin`, and printing it again inside the
+          block is the duplicated-origin-noun defect mt#3728 criterion 4 names
+          for skill bodies — caught here by looking at the render rather than by
+          review. The violet border and rail carry the block's identity; this row
+          carries only what the run header cannot: where the brief came from.
+        */}
         {stamp ? (
           <>
-            <span aria-hidden>·</span>
             <Link
               to={`/conversation/${stamp.parentAgentSessionId}?${TOOL_USE_PARAM}=${encodeURIComponent(stamp.parentToolUseId)}`}
               title={`Open the Agent call that dispatched this (${stamp.parentToolUseId})`}
