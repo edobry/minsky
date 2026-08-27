@@ -804,6 +804,7 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
   // independence is what makes the membership pin below a real check rather
   // than a tautology.
   const WAIT_FOR_REVIEW_TOOL = "mcp__minsky__session_pr_wait-for-review";
+  const PR_WATCH_CREATE_TOOL = "mcp__minsky__pr_watch_create";
 
   const WINDOW_PHRASINGS = [
     "That watch is armed in the background — I'll merge when it concludes.",
@@ -851,6 +852,21 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       expect(detectArmedWatcherEvidence(lines)).toEqual([]);
     });
 
+    // mt#3560: `pr_watch_create` is the call `/plan-task` Step 4's self-resolving
+    // branch instructs an agent to arm — "register the wait on the specific
+    // unblocking event ... `pr_watch_create` with `event: 'merged'` for a PR" —
+    // and it was absent from the set, so a turn that followed that prescription
+    // exactly was scored as having armed nothing. Both consumers fired on it:
+    // this guard's suppression and `stop-at-decision-scan`'s.
+    //
+    // `pr_watch_run` (present since mt#4063) is a DIFFERENT call — it executes a
+    // watch cycle; `pr_watch_create` is what registers one. Having only the
+    // former is why the miss reads as an oversight rather than a judgment.
+    test("pr_watch_create counts — it is the call /plan-task prescribes", () => {
+      const lines = [toolUse("t1", PR_WATCH_CREATE_TOOL, { event: "merged", session: "s1" })];
+      expect(detectArmedWatcherEvidence(lines)).toEqual([PR_WATCH_CREATE_TOOL]);
+    });
+
     // PR #2972 R1: the set is hand-maintained and cannot be derived — blocking-
     // ness is a property of each tool's semantics, not of anything declared. So
     // pin its exact contents instead: a member added or removed fails here,
@@ -862,6 +878,7 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
         "ScheduleWakeup",
         "mcp__minsky__asks_wait-for-response",
         "mcp__minsky__deployment_wait-for-latest",
+        PR_WATCH_CREATE_TOOL,
         "mcp__minsky__pr_watch_run",
         "mcp__minsky__reviewer_watch_run",
         WAIT_FOR_REVIEW_TOOL,
