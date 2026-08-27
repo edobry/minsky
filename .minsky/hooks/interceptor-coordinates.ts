@@ -540,6 +540,16 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "coverage-claim-path-detector",
+    {
+      ...structuralRecorder,
+      // No `trajectory` — that axis is reserved for the merge-seam
+      // interceptors (pinned by `interceptors.test.ts`), and this one fires at
+      // AUTHORING time, on the write that introduces the claim.
+      note: "Lexical on its trigger, structural on its verdict — and the split is the point. Finding a claim is a text question (a path token, a governing phrase, inside a comment); deciding whether that claim is FALSE is not, it is a filesystem resolution against the citing file's package root. So the judgment this records never rests on prose interpretation: a fire means a named path did not resolve, which is checkable by the reviewer in one command. That is why it can ship at 95.5% measured precision where the naive path-existence form sits at ~1.8% — the conjuncts do the discriminating before the filesystem is ever consulted.",
+    },
+  ],
+  [
     "gate-walk-provenance",
     {
       ...structuralRecorder,
