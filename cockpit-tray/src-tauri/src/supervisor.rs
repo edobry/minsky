@@ -380,6 +380,15 @@ pub(crate) struct Sup {
     /// What this daemon needs beyond generic supervision. The cockpit has a
     /// lot; the MCP daemon has none, which is the whole reason the split exists.
     pub(crate) policy: DaemonPolicy,
+    /// Polls remaining before an operator-clicked restart is reported as failed
+    /// (mt#4233); `None` when no restart is awaiting its outcome.
+    ///
+    /// Supervision state rather than cockpit policy — an operator can click
+    /// Restart on any entry — so it sits on `Sup` beside `daemon`, not in
+    /// `CockpitPolicy`. It stays HERE rather than on `SupervisedDaemon` because
+    /// it is a tray-UI concern: the daemon-agnostic core has no notion of an
+    /// operator, and mt#3990's split is what keeps it from acquiring one.
+    pub(crate) pending_operator_restart: Option<u32>,
 }
 
 /// The per-daemon policy layer (mt#3815).
@@ -415,7 +424,12 @@ impl Sup {
     /// A registry entry for `id`, with every piece of supervision state at its
     /// "nothing has happened" value.
     fn new(id: DaemonId, daemon: SupervisedDaemon, policy: DaemonPolicy) -> Self {
-        Self { id, daemon, policy }
+        Self {
+            id,
+            daemon,
+            policy,
+            pending_operator_restart: None,
+        }
     }
 
     /// The cockpit policy state, or `None` for any other entry.
@@ -539,9 +553,13 @@ fn spawn_plan(
     }
 }
 
-/// A failure label for this entry, in its own name. The cockpit's renderings
-/// are byte-identical to the constants these replaced (`display_name` is
-/// `"Cockpit"`), so nothing an operator sees for the cockpit changed.
+/// A failure label for this entry, in its own name — `"Cockpit daemon: bun not
+/// found"`, `"MCP daemon: start failed (see logs)"`.
+///
+/// This doc claimed the cockpit's renderings were byte-identical to the
+/// constants mt#3815 replaced, on the grounds that `display_name` was
+/// `"Cockpit"`. mt#4233 renamed it to `"Cockpit daemon"`, so that is no longer
+/// true and the parenthetical is gone rather than merely dated.
 fn failure_label(sup: &Sup, what: &str) -> String {
     format!("{}: {what}", sup.daemon.labels.display_name)
 }
@@ -1467,6 +1485,11 @@ fn run_supervisor(
                     }
                     Some(SupervisorCmd::Stop(id)) => {
                         if let Some(sup) = entry_mut(&mut entries, id) {
+                            // An operator who restarts and then immediately
+                            // stops has answered the question themselves;
+                            // without this they would get "Could not restart"
+                            // for a daemon they deliberately stopped.
+                            sup.pending_operator_restart = None;
                             stop_entry(&app, sup, &spawned, &path, &client).await;
                         }
                     }
@@ -1484,7 +1507,20 @@ fn run_supervisor(
                     Some(SupervisorCmd::OperatorRestart(id)) => {
                         if let Some(sup) = entry_mut(&mut entries, id) {
                             restart_entry(&app, sup, &spawned, &path, &client).await;
-                            notify_operator_restart(&app, sup);
+                            if sup.daemon.child.is_some() {
+                                // Spawned — which is NOT the same as serving
+                                // (PR #3398 R1). Hand the verdict to the poll
+                                // loop, which already asks the only question
+                                // that settles it.
+                                sup.pending_operator_restart =
+                                    Some(OPERATOR_RESTART_CONFIRM_POLLS);
+                            } else {
+                                // Refused over a foreign listener, or the spawn
+                                // never started. Already settled — do not make
+                                // the operator wait out the confirm window for
+                                // an answer we have.
+                                notify_operator_restart(&app, sup, false);
+                            }
                         }
                     }
                     Some(SupervisorCmd::AutoRestart(id)) => {
@@ -1587,6 +1623,12 @@ fn run_supervisor(
                     // the concurrency would be worth.
                     for sup in entries.iter_mut() {
                         poll_entry(&app, sup, &spawned, &path, &client).await;
+                        // Settle any operator-clicked restart against the label
+                        // that poll just produced (mt#4233, PR #3398 R1). Hung
+                        // HERE rather than inside `poll_entry` because that
+                        // function returns early on several paths, and a
+                        // pending restart must be resolved on every one of them.
+                        resolve_pending_operator_restart(&app, sup);
                     }
                 }
             }
@@ -1654,27 +1696,101 @@ fn notify_daemon_unhealthy(app: &AppHandle, display_name: &str, reason: &str) {
         .show();
 }
 
+/// How many polls an operator-clicked restart waits for its outcome before it is
+/// reported failed (mt#4233, PR #3398 R1).
+///
+/// Deliberately not a new number: `HTTP_FAILURE_POLL_THRESHOLD` is already this
+/// supervisor's bound for "the daemon is not answering", so a restart that has
+/// produced no healthy poll within it has not produced a working daemon by the
+/// definition the file already uses. It bounds only the FAILURE case — success
+/// fires on the first healthy poll, normally one or two ticks.
+const OPERATOR_RESTART_CONFIRM_POLLS: u32 = HTTP_FAILURE_POLL_THRESHOLD;
+
+/// What a pending operator-restart should do on this poll (mt#4233, PR #3398 R1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestartOutcome {
+    /// The daemon is serving — report success.
+    Confirmed,
+    /// The supervisor's own label says it is not up, or the wait ran out.
+    Failed,
+    /// Still booting; keep waiting, with this many polls left.
+    Pending(u32),
+}
+
+/// Decide a pending restart's fate from the label the poll loop just set.
+///
+/// Pure, and split from the notification for exactly that reason — the
+/// alternative is a decision observable only by watching for a macOS toast.
+/// It reads the supervisor's OWN verdict rather than re-deriving one: `running`
+/// is set only after a health probe answered *from the right service*
+/// (mt#3148/mt#3142), which is the confirming signal a spawned-process check
+/// does not have.
+fn classify_restart_outcome(
+    status: Option<&str>,
+    labels: &DaemonLabels,
+    polls_left: u32,
+) -> RestartOutcome {
+    if status == Some(labels.running) {
+        return RestartOutcome::Confirmed;
+    }
+    if status != Some(labels.starting) {
+        // Any other label is the supervisor saying the daemon is not up:
+        // `stopped`, a `start failed: <tail>` from a crash-loop, a port
+        // conflict. No reason to hold the operator until the deadline.
+        return RestartOutcome::Failed;
+    }
+    match polls_left.checked_sub(1) {
+        Some(0) | None => RestartOutcome::Failed,
+        Some(left) => RestartOutcome::Pending(left),
+    }
+}
+
+/// Resolve a pending operator restart against this tick's status label.
+fn resolve_pending_operator_restart(app: &AppHandle, sup: &mut Sup) {
+    let Some(polls_left) = sup.pending_operator_restart else {
+        return;
+    };
+    match classify_restart_outcome(
+        sup.daemon.last_status.as_deref(),
+        &sup.daemon.labels,
+        polls_left,
+    ) {
+        RestartOutcome::Pending(left) => sup.pending_operator_restart = Some(left),
+        RestartOutcome::Confirmed => {
+            sup.pending_operator_restart = None;
+            notify_operator_restart(app, sup, true);
+        }
+        RestartOutcome::Failed => {
+            sup.pending_operator_restart = None;
+            notify_operator_restart(app, sup, false);
+        }
+    }
+}
+
 /// Confirm an operator-triggered restart — success OR failure (mt#4233).
 ///
-/// Reports the OUTCOME, not the action: `child` is `Some` only once `do_spawn`
-/// actually holds a process, so a refused restart (a foreign listener owns the
-/// port) and a failed spawn (no bun, no repo root, a refused pre-flight rebuild)
-/// both report as failures instead of a cheerful "Restarted" over a daemon that
-/// is not running. The failure body is the status line those same paths just
-/// set, which already distinguishes which of them it was.
+/// Reports the OUTCOME, and "outcome" means SERVING, not SPAWNED. The first cut
+/// fired this the instant `do_spawn` held a process, which reviewer R1 caught: a
+/// daemon that crash-loops on bind — the case README.md's "Restart-failure
+/// surface" bullet is about — is spawned and dead milliseconds later, and would
+/// have produced a cheerful "Restarted". Success now waits for a healthy poll
+/// via `resolve_pending_operator_restart`; only the two outcomes already settled
+/// before any poll notify immediately — a restart refused over a foreign
+/// listener, and a spawn that never started (no bun, no repo root, a refused
+/// pre-flight rebuild).
 ///
 /// Only `OperatorRestart` reaches here, and that matters in both directions: the
 /// source-change watcher re-sends plain `Restart` and must stay silent (it fires
 /// on every save now that mt#4230 widened the watcher root), while the not-ready
 /// watchdog calls `restart_entry` directly and already raises its own
 /// `"Restarting: {reason}"` alert — so neither double-notifies.
-fn notify_operator_restart(app: &AppHandle, sup: &Sup) {
+fn notify_operator_restart(app: &AppHandle, sup: &Sup, ok: bool) {
     let name = sup.daemon.labels.display_name;
     let builder = app.notification().builder();
-    let builder = if sup.daemon.child.is_some() {
+    let builder = if ok {
         builder
             .title(format!("Restarted {name}"))
-            .body(format!("Starting on :{}.", sup.daemon.port))
+            .body(format!("Serving :{}.", sup.daemon.port))
     } else {
         builder.title(format!("Could not restart {name}")).body(
             sup.daemon
@@ -2207,6 +2323,82 @@ mod tests {
         assert_eq!(COCKPIT_LABELS.stopped, "Cockpit daemon: stopped");
         assert_eq!(COCKPIT_LABELS.starting, "Cockpit daemon: starting...");
         assert_eq!(LABEL_BUILDING, "Cockpit daemon: rebuilding bundle...");
+    }
+
+    // --- mt#4233 / PR #3398 R1: operator-restart outcome, not action ---
+
+    /// The reviewer's blocking finding, as a test. A spawned process is not a
+    /// serving daemon: the first cut toasted "Restarted" as soon as `do_spawn`
+    /// held a child, so a daemon that crash-loops on bind — spawned, then dead
+    /// milliseconds later — reported success. Success must require the
+    /// supervisor's own `running` label, which is set only after a health probe
+    /// answered from the right service.
+    #[test]
+    fn a_restart_is_confirmed_only_by_a_healthy_poll() {
+        let l = COCKPIT_LABELS;
+        assert_eq!(
+            classify_restart_outcome(Some(l.running), &l, 12),
+            RestartOutcome::Confirmed
+        );
+        // Still booting — keep waiting rather than guessing either way.
+        assert_eq!(
+            classify_restart_outcome(Some(l.starting), &l, 12),
+            RestartOutcome::Pending(11)
+        );
+    }
+
+    /// The crash-loop case the finding named. `start failed: <tail>` is the
+    /// label a daemon that exited within the respawn-throttle window gets, and
+    /// it must report failure immediately — not wait out the confirm window,
+    /// since the supervisor has already reached a verdict.
+    #[test]
+    fn a_crash_loop_reports_failure_without_waiting_out_the_window() {
+        let l = COCKPIT_LABELS;
+        for label in [
+            "Cockpit daemon: start failed: TypeError (see logs)",
+            "Cockpit daemon: bun not found",
+            "Cockpit daemon: :3737 held by pid 4242 (not started by tray)",
+            l.stopped,
+        ] {
+            assert_eq!(
+                classify_restart_outcome(Some(label), &l, 12),
+                RestartOutcome::Failed,
+                "a non-running label is the supervisor's own verdict: {label}"
+            );
+        }
+    }
+
+    /// A daemon stuck on "starting..." forever must not leave the operator with
+    /// no answer at all. The window is a backstop, not the normal path.
+    #[test]
+    fn a_daemon_that_never_becomes_healthy_reports_failure_at_the_deadline() {
+        let l = COCKPIT_LABELS;
+        assert_eq!(
+            classify_restart_outcome(Some(l.starting), &l, 1),
+            RestartOutcome::Failed
+        );
+        assert_eq!(
+            classify_restart_outcome(Some(l.starting), &l, 0),
+            RestartOutcome::Failed
+        );
+    }
+
+    /// Per-entry, so a healthy COCKPIT cannot confirm a restart of the MCP
+    /// daemon. Both label sets flow through the same function, and matching the
+    /// wrong one is how a two-entry registry silently reports on the wrong
+    /// process — which is this task's whole subject.
+    #[test]
+    fn one_daemons_running_label_does_not_confirm_the_others_restart() {
+        let mcp = registry::MCP_LABELS;
+        assert_eq!(
+            classify_restart_outcome(Some(COCKPIT_LABELS.running), &mcp, 12),
+            RestartOutcome::Failed,
+            "the cockpit's label must not confirm an MCP restart"
+        );
+        assert_eq!(
+            classify_restart_outcome(Some(mcp.running), &mcp, 12),
+            RestartOutcome::Confirmed
+        );
     }
 
     // --- mt#2299: adopt-decision + uptime + conflict + error-tail helpers ---

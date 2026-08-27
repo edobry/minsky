@@ -303,8 +303,11 @@ pub(crate) enum NoChildEffect {
 /// uptime line visible for one more poll cycle.
 ///
 /// mt#3990 made the user-visible strings arrive via `labels` instead of
-/// reading cockpit `LABEL_*` constants directly. For the cockpit daemon the
-/// emitted text is byte-identical to what the constants produced.
+/// reading cockpit `LABEL_*` constants directly — which is what let mt#4233
+/// rename the cockpit entry without touching this function. (This doc said the
+/// emitted text was byte-identical to what the constants produced; true of
+/// mt#3990's extraction, false since that rename. The seam is the point, not
+/// the byte-equality.)
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_health_down_no_child(
     counters: &mut NoChildCounters,

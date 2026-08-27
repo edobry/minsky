@@ -206,12 +206,21 @@ keeps the daemon current:
   in `server.ts` makes the new process fail to bind), the status line shows
   `Cockpit daemon: start failed: <stderr tail> (see logs)` rather than a silent "stopped".
 - **Restart confirmation (mt#4233).** Clicking **Restart** on a daemon's submenu
-  fires a macOS notification naming what was restarted — `Restarted MCP daemon`,
-  or `Could not restart MCP daemon` with the reason when the spawn was refused or
-  failed. Only the menu click notifies: a source-change auto-restart would toast
-  on every save, and the not-ready watchdog already raises its own alert. Before
-  this, every tray notification fired on FAILURE only, so a restart that hit the
-  wrong daemon looked exactly like one that worked.
+  fires a macOS notification naming what was restarted — `Restarted MCP daemon`
+  ("Serving :\<port\>."), or `Could not restart MCP daemon` carrying the status
+  line's reason. Before this, every tray notification fired on FAILURE only, so a
+  restart that hit the wrong daemon looked exactly like one that worked.
+
+  The success toast waits for a **healthy poll**, not for the spawn: a daemon
+  that crash-loops on bind is spawned and dead moments later, so reporting at
+  spawn time would call that a success. Typically one or two 5s ticks. The two
+  outcomes already settled before any poll — a restart refused over a foreign
+  listener, and a spawn that never started — report immediately instead of
+  waiting. A daemon stuck `starting...` reports failure once the confirm window
+  elapses, so a click always gets an answer.
+
+  Only the menu click notifies: a source-change auto-restart would toast on every
+  save, and the not-ready watchdog already raises its own alert.
 
 Operators running through the tray never need to manually `kill <pid>` or know that
 backend changes require a process restart — with one caveat: restart/stop of an
