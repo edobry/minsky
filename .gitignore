@@ -180,3 +180,12 @@ supabase/
 # run and invite reading one machine's numbers as a project-wide baseline.
 /scripts/cockpit-navigation-latency-results.json
 /scripts/peek-drag-frames-results.json
+
+# Per-run measurement output from scripts/verify-supavisor-slot-reclaim.ts
+# (mt#4547). Each run records a point-in-time reading of a SHARED tenant gauge
+# whose value depends on what the rest of the fleet happens to be doing, so a
+# committed copy would go stale immediately and invite being read as a baseline.
+# The durable finding lives on the task and in the PR body instead.
+/scripts/supavisor-slot-reclaim-baseline.json
+/scripts/supavisor-slot-reclaim-arm-a.json
+/scripts/supavisor-slot-reclaim-arm-b.json
