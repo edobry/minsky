@@ -11,6 +11,8 @@ import { describe, test, expect } from "bun:test";
 import {
   extractCommentRegions,
   candidatePathsFor,
+  packageRootOf,
+  lastBoundedIndexOf,
   findUnresolvedCoverageClaims,
 } from "./coverage-claim-path";
 
@@ -53,12 +55,53 @@ describe("candidatePathsFor", () => {
     // first manufactures the miss.
     const candidates = candidatePathsFor(SERVICE_LOCAL_SCRIPT, "services/reviewer/src/thing.ts");
 
-    expect(candidates[0]).toBe(`services/reviewer/src/${SERVICE_LOCAL_SCRIPT}`);
-    expect(candidates).toContain(SERVICE_LOCAL_SCRIPT_RESOLVED);
-    expect(candidates[candidates.length - 1]).toBe(SERVICE_LOCAL_SCRIPT);
-    expect(candidates.indexOf(SERVICE_LOCAL_SCRIPT_RESOLVED)).toBeLessThan(
-      candidates.indexOf(SERVICE_LOCAL_SCRIPT)
+    expect(candidates).toEqual([SERVICE_LOCAL_SCRIPT_RESOLVED, SERVICE_LOCAL_SCRIPT]);
+  });
+
+  test("EXACTLY two candidates — not every ancestor (PR #3399 R1)", () => {
+    // The first implementation walked all ancestors, so an unrelated file at a
+    // matching sub-path could resolve a genuinely dead pointer and mask it. A
+    // false negative here is silent, which is the direction that matters.
+    const candidates = candidatePathsFor(
+      "scripts/dead.ts",
+      "src/adapters/shared/commands/memory/derivation-validator.ts"
     );
+
+    expect(candidates).toEqual(["scripts/dead.ts"]);
+    expect(candidates).not.toContain("src/adapters/shared/commands/memory/scripts/dead.ts");
+    expect(candidates).not.toContain("src/scripts/dead.ts");
+  });
+
+  test("a package root is recognised, a bare src/ path has none", () => {
+    expect(packageRootOf("packages/domain/src/tasks/x.ts")).toBe("packages/domain");
+    expect(packageRootOf("services/reviewer/src/y.ts")).toBe("services/reviewer");
+    expect(packageRootOf("src/adapters/z.ts")).toBeNull();
+    expect(packageRootOf("scripts/w.ts")).toBeNull();
+  });
+});
+
+describe("lastBoundedIndexOf — claim phrases must not match inside a longer word (PR #3399 R1)", () => {
+  test("'covered by' does not match inside 'uncovered by'", () => {
+    expect(lastBoundedIndexOf("this is uncovered by anything", "covered by")).toBe(-1);
+    expect(lastBoundedIndexOf("this is covered by that", "covered by")).toBe(8);
+  });
+
+  test("'covers' does not match inside 'discovers' or 'recovers'", () => {
+    expect(lastBoundedIndexOf("the sweep discovers rows", "covers")).toBe(-1);
+    expect(lastBoundedIndexOf("the retry recovers cleanly", "covers")).toBe(-1);
+    expect(lastBoundedIndexOf("this covers the case", "covers")).toBe(5);
+  });
+
+  test("a phrase opening on a non-word char still matches at a string start", () => {
+    // `@see` cannot use \b on its left, which is why the boundary is tested
+    // against neighbouring characters rather than with a regex word boundary.
+    expect(lastBoundedIndexOf("@see scripts/x.ts", "@see")).toBe(0);
+  });
+
+  test("the whole matcher does not fire on 'uncovered by'", () => {
+    const source = "// This case is uncovered by scripts/nonexistent.ts.";
+
+    expect(findUnresolvedCoverageClaims(source, "a.ts", NOTHING_EXISTS)).toEqual([]);
   });
 });
 

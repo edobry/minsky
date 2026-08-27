@@ -145,6 +145,37 @@ const CLAIM_PHRASES = [
 /** How far before a path a claim phrase may sit and still be read as governing it. */
 const CLAIM_WINDOW_CHARS = 160;
 
+/**
+ * Last index of `phrase` in `haystack` that starts and ends on a word boundary.
+ *
+ * A raw `includes` finds "covered by" inside "**un**covered by" and "covers"
+ * inside "dis**covers**" / "re**covers**" — both of which invert or destroy the
+ * claim the phrase is supposed to signal (PR #3399 R1). `\b` is not usable
+ * directly because `@see` opens on a non-word character, so the boundary is
+ * tested against the neighbouring characters instead: the phrase must not be
+ * glued to an identifier character on either side.
+ *
+ * Returns -1 when there is no bounded occurrence.
+ */
+export function lastBoundedIndexOf(haystack: string, phrase: string): number {
+  const isWordChar = (c: string | undefined): boolean => c !== undefined && /[A-Za-z0-9]/.test(c);
+  const phraseStartsWithWord = isWordChar(phrase[0]);
+  const phraseEndsWithWord = isWordChar(phrase[phrase.length - 1]);
+
+  let from = haystack.length;
+  for (;;) {
+    const at = haystack.lastIndexOf(phrase, from);
+    if (at === -1) return -1;
+
+    const leftOk = !phraseStartsWithWord || !isWordChar(haystack[at - 1]);
+    const rightOk = !phraseEndsWithWord || !isWordChar(haystack[at + phrase.length]);
+    if (leftOk && rightOk) return at;
+
+    if (at === 0) return -1;
+    from = at - 1;
+  }
+}
+
 /** A comment region lifted out of source, with the line it starts on. */
 export interface CommentRegion {
   text: string;
@@ -232,18 +263,32 @@ export function extractCommentRegions(source: string): CommentRegion[] {
  * case of a top-level script cited from anywhere.
  */
 export function candidatePathsFor(citedPath: string, citingFilePath: string): string[] {
-  const candidates: string[] = [];
+  const packageRoot = packageRootOf(citingFilePath);
+  return packageRoot ? [`${packageRoot}/${citedPath}`, citedPath] : [citedPath];
+}
+
+/**
+ * The citing file's package root, or `null` when it sits at the repo root.
+ *
+ * **Exactly two candidates, not every ancestor (PR #3399 R1).** The first
+ * implementation walked all ancestors nearest-first, which is a far wider net
+ * than the contract this module states and than false-positive class 2 needs:
+ * a file at `src/adapters/shared/commands/memory/x.ts` would try
+ * `src/adapters/shared/commands/memory/<cited>`, `src/adapters/shared/commands/<cited>`,
+ * and so on down to `src/<cited>`. Any one of those resolving marks the claim
+ * satisfied — so a genuinely dead pointer could be masked by an unrelated file
+ * that happens to sit at a matching sub-path. That direction of error is the
+ * dangerous one for this detector: a false NEGATIVE is silent, while its false
+ * positives cost one `ls` to dismiss.
+ *
+ * Class 2 only ever needed the PACKAGE root — `services/reviewer/scripts/…`
+ * cited from inside `services/reviewer` — so the roots are derived structurally
+ * from this repo's layout rather than probed, keeping the module free of fs.
+ */
+export function packageRootOf(citingFilePath: string): string | null {
   const normalized = citingFilePath.replace(/^\.\//, "");
-
-  // Walk the citing file's ancestors, nearest first, so a service-local or
-  // package-local directory is preferred over the repo root.
-  const segments = normalized.split("/").slice(0, -1);
-  for (let depth = segments.length; depth > 0; depth--) {
-    candidates.push(`${segments.slice(0, depth).join("/")}/${citedPath}`);
-  }
-  candidates.push(citedPath);
-
-  return candidates;
+  const match = /^((?:packages|services)\/[^/]+)\//.exec(normalized);
+  return match?.[1] ?? null;
 }
 
 /** One unresolved coverage/authority claim. */
@@ -298,7 +343,7 @@ export function findUnresolvedCoverageClaims(
       let claimPhrase: string | undefined;
       let claimAt = -1;
       for (const phrase of CLAIM_PHRASES) {
-        const at = before.lastIndexOf(phrase);
+        const at = lastBoundedIndexOf(before, phrase);
         if (at > claimAt) {
           claimAt = at;
           claimPhrase = phrase;

@@ -57,6 +57,9 @@ const CALIBRATION_LOG = ".minsky/coverage-claim-path-calibration.jsonl";
  */
 const CAPTURE_SCHEMA = 1;
 
+/** Upper bound on a scanned payload — see the skip in `run` for why it exists. */
+const MAX_SCANNED_CHARS = 2_000_000;
+
 /** Tool inputs that carry a file path plus the content about to be written. */
 interface WriteLikeInput {
   path?: unknown;
@@ -123,6 +126,15 @@ export async function run(
 
   // Only TypeScript-ish sources carry the comment syntax the matcher scans.
   if (!/\.(ts|tsx|js|jsx)$/.test(target.repoRelativePath)) return null;
+
+  // Bound the worst case rather than trusting the 10s host timeout (PR #3399
+  // R1, non-blocking). The scan is a single char-by-char pass plus a couple of
+  // `existsSync` calls per finding, so it is fast on anything hand-written —
+  // but a machine-generated payload has no natural ceiling, and a log-only
+  // detector must never be the reason a write is slow. The largest source file
+  // in this repo is comfortably under this; skipping is the right failure for a
+  // recorder, since a missed record costs nothing a later sweep cannot recover.
+  if (target.text.length > MAX_SCANNED_CHARS) return null;
 
   const root = findRepoRoot(cwd);
   const findings = findUnresolvedCoverageClaims(target.text, target.repoRelativePath, (p) =>
