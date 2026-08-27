@@ -207,10 +207,25 @@ if (claims.length === 0) {
  */
 const BARE_WORD_RE = /^[a-z]+$/;
 
+/**
+ * PROXY for a predicate-EXTRACTION defect: the extracted predicate spans more
+ * than one token. Every entry in `PREDICATE_PATTERNS` is documented as a BEHAVIOR
+ * verb (`clamps`, `returns`, `drops`), so a single token is the healthy shape and
+ * a multi-token capture is usually a noun phrase the matcher swept up --
+ * `the 120s timeout`, `buffer of`, `come from`.
+ *
+ * Deliberately labelled a proxy rather than a count: a legitimate multi-word verb
+ * phrase would land here too, so this OVER-counts. It is reported to size the
+ * class, not to convict individual claims -- which is why the residue figure
+ * below does not subtract it.
+ */
+const MULTI_TOKEN_PREDICATE_RE = /\s/;
+
 const distinctSymbols = new Set(claims.map((c) => c.symbol));
 const notInRepo = claims.filter((c) => !c.inRepo);
 const bareWord = claims.filter((c) => BARE_WORD_RE.test(c.symbol));
 const bareWordInRepo = bareWord.filter((c) => c.inRepo);
+const multiTokenPredicate = claims.filter((c) => MULTI_TOKEN_PREDICATE_RE.test(c.predicate.trim()));
 const crossSentence = claims.filter((c) => c.symbolLocated && !c.sameSentence);
 const artifacts = claims.filter((c) => c.isArtifact);
 const unlocated = claims.filter((c) => !c.symbolLocated);
@@ -236,6 +251,7 @@ const report = {
     unlocated_symbolNotFoundInExcerpt: unlocated.length,
     shapeAmbiguous_bareLowercaseWord: bareWord.length,
     shapeAmbiguous_bareWordScoringInRepo: bareWordInRepo.length,
+    extraction_multiTokenPredicateProxy: multiTokenPredicate.length,
   },
   explainedByAStructuralBucket: explained.length,
   residueRequiringJudgment: residue.length,
@@ -261,6 +277,11 @@ console.log(`  (3) admission  -- symbol not in repo:        ${notInRepo.length}`
 console.log(`  (2/4) pairing  -- predicate crosses sentence: ${crossSentence.length}`);
 console.log(`  (4) artifact   -- symbol == predicate:        ${artifacts.length}`);
 console.log(`      unlocated  -- symbol absent from excerpt: ${unlocated.length}`);
+console.log(
+  `  (1) extraction -- multi-token predicate (proxy): ${multiTokenPredicate.length}   [${[
+    ...new Set(multiTokenPredicate.map((c) => c.predicate.trim())),
+  ].join(" | ")}]`
+);
 console.log(``);
 console.log(`explained by >=1 structural bucket: ${explained.length} / ${claims.length}`);
 console.log(`residue (in-repo, same-sentence):   ${residue.length} / ${claims.length}`);

@@ -181,9 +181,21 @@ sum):
 | -------------------------------------- | ------------------------ | ----------- |
 | symbol not in repo                     | (3) admission            | 9           |
 | predicate crosses a sentence boundary  | (2)/(4) pairing          | 9           |
+| multi-token predicate (**proxy**)      | (1) extraction, unowned  | 3           |
 | symbol == predicate                    | (4) artifact, shipped    | 1           |
 | **explained by ≥1 structural bucket**  |                          | **17 / 45** |
 | **residue: in-repo AND same-sentence** | (1)/(5) or true positive | **28 / 45** |
+
+Two of those rows carry a caveat that must travel with them. The **extraction** row is a PROXY —
+every `PREDICATE_PATTERNS` entry is documented as a behavior verb, so a multi-token capture is
+usually a noun phrase the matcher swept up (`the 120s timeout`, `buffer of`, `come from`, which is
+the complete set in this window) — but a legitimate verb phrase would land there too, so it
+over-counts and is deliberately NOT subtracted from the residue. The **suppression** sub-operation
+is not separately countable at all: a suppression miss depends on what the agent actually read that
+turn, which the record does not expose to this script. At least one is known by inspection —
+`timedOut / the 120s timeout`, where the agent was quoting a field from a payload read in that same
+turn, which **mt#4241** owns. So the residue is an upper bound on "unexplained", never a count of
+true positives.
 
 Two readings follow, and both cut against a symbol-admission fix:
 
