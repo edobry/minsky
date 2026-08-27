@@ -43,6 +43,14 @@
  *     bun test --preload ./tests/setup.ts --timeout=120000 \
  *       tests/integration/memories-project-id-uuid-migration.testcontainer.integration.test.ts
  *
+ * CI wiring: `bun run test:integration:docker` (package.json) invokes bun test against the glob
+ * `tests/integration/*.testcontainer.integration.test.ts`, which already matches this file — no
+ * workflow change was needed to add it. That script is the sole step of the `docker-suite` job
+ * in `.github/workflows/integration-tests.yml`, which runs on the nightly schedule or an explicit
+ * `workflow_dispatch` with `run_docker_suite: true`, never on `pull_request`. So as of this PR
+ * this test has not yet executed anywhere (Docker was also unavailable in the authoring session's
+ * sandbox) — its first real run will be the next nightly `docker-suite` firing after merge.
+ *
  * If the container fails to start with a "Log message ... Started ... not received" error,
  * that is testcontainers' own Ryuk reaper sidecar failing to come up in time — see the sibling
  * short-id-conflict-inference test's header comment for the workaround
@@ -92,6 +100,19 @@ const POSTGRES_IMAGE = "pgvector/pgvector:pg16";
 
 const MIGRATION_FILE = "0112_marvelous_expediter.sql";
 const ORPHAN_PROJECT_ID = "00000000-0000-0000-0000-000000000000";
+
+// Literal fixture ids (mt#4668, PR #3414 R2) — this test needs no UUID GENERATION at all,
+// only uuid VALUES, so every id below is a plain literal rather than a `DEFAULT
+// gen_random_uuid()` column default. This is deliberate test hygiene (explicit fixture data
+// reads more clearly against known ids) independent of any extension question: Postgres has
+// carried `gen_random_uuid()` in core since PG13 with no `pgcrypto` dependency, but the
+// function was never load-bearing for what this test asserts, so there is no reason to keep it.
+const FIXTURE_PROJECT_ID = "11111111-1111-1111-1111-111111111111";
+const FIXTURE_MEMORY_ID_BOUND = "22222222-2222-2222-2222-222222222222";
+const FIXTURE_MEMORY_ID_NULL = "33333333-3333-3333-3333-333333333333";
+// Never actually persisted — the FK-violation insert (AT3) is expected to be rejected — but
+// still a literal for the same consistency reason as the others.
+const FIXTURE_MEMORY_ID_REJECTED = "44444444-4444-4444-4444-444444444444";
 
 /**
  * Narrow `rows[0]` to a defined row without a `!` non-null assertion (project convention:
@@ -176,19 +197,19 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
         // Minimal PRE-migration shape: exactly the two columns this migration touches, on a
         // `memories` table with a plain-text `project_id` and no FK — the real BEFORE state,
         // not a paraphrase of it. The real table's other columns (type, scope, etc.) are
-        // irrelevant to this migration's own SQL, which names only `project_id`.
-        await sql`CREATE TABLE projects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), slug text)`;
-        await sql`CREATE TABLE memories (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), project_id text)`;
+        // irrelevant to this migration's own SQL, which names only `project_id`. No column
+        // default generates a uuid (see the FIXTURE_* comment above) — every id is an explicit
+        // literal supplied by the inserts below.
+        await sql`CREATE TABLE projects (id uuid PRIMARY KEY, slug text)`;
+        await sql`CREATE TABLE memories (id uuid PRIMARY KEY, project_id text)`;
 
-        const projRows =
-          await sql`INSERT INTO projects (slug) VALUES ('edobry/minsky') RETURNING id`;
-        const projectId = firstRow(projRows)["id"] as string;
+        await sql`INSERT INTO projects (id, slug) VALUES (${FIXTURE_PROJECT_ID}, 'edobry/minsky')`;
 
         // Seed matching the verified prod shape from planning (2026-08-27): a row bound to a
         // real project (well-formed uuid-shaped TEXT) and a NULL row (the by-design
         // user/cross_project shape — ADR-021 explicitly keeps these unbackfilled).
-        await sql`INSERT INTO memories (project_id) VALUES (${projectId})`;
-        await sql`INSERT INTO memories (project_id) VALUES (NULL)`;
+        await sql`INSERT INTO memories (id, project_id) VALUES (${FIXTURE_MEMORY_ID_BOUND}, ${FIXTURE_PROJECT_ID})`;
+        await sql`INSERT INTO memories (id, project_id) VALUES (${FIXTURE_MEMORY_ID_NULL}, NULL)`;
 
         const preCount = await sql`SELECT COUNT(*)::int AS n FROM memories`;
         expect(firstRow(preCount)["n"]).toBe(2);
@@ -256,7 +277,7 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
         // AT3: inserting a memory whose project_id names no row in `projects` is rejected.
         let caught: unknown;
         try {
-          await sql`INSERT INTO memories (project_id) VALUES (${ORPHAN_PROJECT_ID})`;
+          await sql`INSERT INTO memories (id, project_id) VALUES (${FIXTURE_MEMORY_ID_REJECTED}, ${ORPHAN_PROJECT_ID})`;
         } catch (err) {
           caught = err;
         }
