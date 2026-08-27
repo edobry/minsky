@@ -12,6 +12,7 @@ import path from "path";
 import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb } from "../db-providers";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Mount the /api/embeddings/* routes on `app`. */
 export function mountEmbeddingsRoutes(app: express.Express): void {
@@ -34,7 +35,7 @@ export function mountEmbeddingsRoutes(app: express.Express): void {
     } catch (err) {
       if (await respondIfDatabaseUnavailable(res, err, "embeddings")) return;
       log.error("[embeddings] GET /api/embeddings/overview error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       res.status(500).json({ error: "Failed to fetch embeddings overview" });
     }
@@ -55,7 +56,7 @@ export function mountEmbeddingsRoutes(app: express.Express): void {
     } catch (err) {
       if (await respondIfDatabaseUnavailable(res, err, "embeddings")) return;
       log.error("[embeddings] GET /api/embeddings/errors error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       res.status(500).json({ error: "Failed to fetch embeddings errors" });
     }
@@ -107,7 +108,7 @@ export function mountEmbeddingsRoutes(app: express.Express): void {
     } catch (err) {
       if (await respondIfDatabaseUnavailable(res, err, "embeddings")) return;
       log.error("[embeddings] POST /api/embeddings/reindex error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       res.status(500).json({ error: "Failed to start reindex" });
     }

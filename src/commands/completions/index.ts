@@ -16,7 +16,7 @@
  * `isCompletionInvocation` in `src/cli-discriminators.ts`.
  */
 import { Command } from "commander";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The user-facing `completions` command (install/uninstall/emit verbs).
@@ -32,7 +32,7 @@ export function createCompletionsCommand(): Command {
         const { installCompletion } = await import("./install");
         await installCompletion();
       } catch (error) {
-        console.error(`Error: ${getErrorMessage(error)}`);
+        console.error(`Error: ${getLoggableErrorSummary(error)}`);
         process.exit(1);
       }
     });
@@ -45,7 +45,7 @@ export function createCompletionsCommand(): Command {
         const { uninstallCompletion } = await import("./uninstall");
         await uninstallCompletion();
       } catch (error) {
-        console.error(`Error: ${getErrorMessage(error)}`);
+        console.error(`Error: ${getLoggableErrorSummary(error)}`);
         process.exit(1);
       }
     });
@@ -59,7 +59,7 @@ export function createCompletionsCommand(): Command {
           const { emitCompletionScript } = await import("./emit");
           await emitCompletionScript(shell);
         } catch (error) {
-          console.error(`Error: ${getErrorMessage(error)}`);
+          console.error(`Error: ${getLoggableErrorSummary(error)}`);
           process.exit(1);
         }
       });
@@ -87,7 +87,7 @@ export function createCompletionServerCommand(): Command {
         // shell. The shell's completion mechanism interprets stderr as
         // user-visible output, so we log the error but exit 0.
 
-        console.error(`completion handler error: ${getErrorMessage(error)}`);
+        console.error(`completion handler error: ${getLoggableErrorSummary(error)}`);
         process.exit(0);
       }
     });

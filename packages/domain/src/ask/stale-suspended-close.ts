@@ -56,6 +56,7 @@ import type { Ask } from "./types";
 import type { AskRepository } from "./repository";
 import { closeAskAsResolved } from "./close-as-resolved";
 import { isTerminal } from "../tasks/workflows";
+import { getLoggableErrorSummary } from "../errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -244,7 +245,7 @@ export async function runStaleSuspendedAskCloseSweep(
     suspended = await repo.listByState("suspended");
   } catch (err) {
     log.warn("stale-ask close sweep: could not list suspended asks", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return outcome;
   }
@@ -306,7 +307,7 @@ export async function runStaleSuspendedAskCloseSweep(
       outcome.errors += 1;
       log.debug("stale-ask close sweep: could not retire ask (best-effort)", {
         askId: ask.id,
-        message: err instanceof Error ? err.message : String(err),
+        message: getLoggableErrorSummary(err),
       });
     }
   }

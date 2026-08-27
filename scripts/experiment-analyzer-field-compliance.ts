@@ -96,6 +96,7 @@ import type { ConversationId } from "../packages/domain/src/ids";
 import type { DefaultAICompletionService } from "../packages/domain/src/ai/completion-service";
 import { extractSchemaIssuePaths } from "./lib/generate-object-failure";
 import { safeTruncate } from "../src/utils/safe-truncate";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const {
   analyzerOutputSchema,
@@ -374,9 +375,7 @@ async function buildCompletionService(): Promise<DefaultAICompletionService | nu
     requireAIProviders(resolved);
     return createCompletionService(resolved) as DefaultAICompletionService;
   } catch (err) {
-    console.log(
-      `note: completion service unavailable (${err instanceof Error ? err.message : String(err)})`
-    );
+    console.log(`note: completion service unavailable (${getLoggableErrorSummary(err)})`);
     return null;
   }
 }

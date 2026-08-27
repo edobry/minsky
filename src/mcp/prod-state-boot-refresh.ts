@@ -54,6 +54,7 @@ import {
 } from "../cockpit/sweepers";
 import { getProdStateCachePath, refreshProdStateCache } from "../cockpit/prod-state-cache";
 import type { UnsafeSql } from "../cockpit/prod-state-cache";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * How stale the cache must be before a boot refreshes it.
@@ -252,7 +253,7 @@ export async function triggerProdStateBootRefresh(
     });
   } catch (err) {
     log.warn("mcp: prod-state boot refresh failed (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

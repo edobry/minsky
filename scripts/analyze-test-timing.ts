@@ -28,6 +28,7 @@ import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTextFileSync } from "@minsky/shared/fs";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // Exported (mt#2990): the sharded runner (scripts/run-tests-main-sharded.ts)
 // reuses this parser to derive per-file durations from each shard's own
@@ -206,9 +207,7 @@ function main(): void {
     try {
       xml = readTextFileSync(xmlPath);
     } catch (err) {
-      console.error(
-        `Failed to read ${xmlPath}: ${err instanceof Error ? err.message : String(err)}`
-      );
+      console.error(`Failed to read ${xmlPath}: ${getLoggableErrorSummary(err)}`);
       process.exit(1);
     }
     const cases = parseTestcases(xml);

@@ -27,6 +27,7 @@ import {
   transcriptLinesTable,
   type NewTranscriptLineRecord,
 } from "../storage/schemas/transcript-lines-schema";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Rows per `transcript_lines` INSERT. A session's first capture is the whole
@@ -61,7 +62,7 @@ export async function readCapturedOrdinalHighWater(
   } catch (err) {
     log.warn(
       `transcript_lines high-water read FAILED for session ${agentSessionId} — skipping full-fidelity capture this pass`,
-      { agentSessionId, error: err instanceof Error ? err.message : String(err) }
+      { agentSessionId, error: getLoggableErrorSummary(err) }
     );
     return null;
   }

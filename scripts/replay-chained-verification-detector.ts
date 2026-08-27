@@ -21,6 +21,7 @@
  */
 import "reflect-metadata";
 import { scanCommand } from "../.minsky/hooks/chained-verification-commands-detector";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const DEFAULT_LIMIT = 20000;
 
@@ -112,6 +113,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(error)}`);
   process.exit(1);
 });

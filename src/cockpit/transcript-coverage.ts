@@ -13,6 +13,7 @@
  */
 import { log } from "@minsky/shared/logger";
 import { isSqlCapable } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Populated-field counts for `agent_transcripts`, plus derived percentages. */
 export interface TranscriptCoverage {
@@ -100,7 +101,7 @@ export async function getTranscriptCoverage(
     // Logged, not swallowed: a coverage surface that silently returns null is
     // the same "looks fine, reports nothing" shape this task exists to remove.
     log.debug("cockpit: transcript coverage unavailable", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return null;
   }

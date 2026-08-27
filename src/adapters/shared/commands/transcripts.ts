@@ -26,7 +26,7 @@ import {
   deprecatedConversationAlias,
   resolveConversationId,
 } from "./transcripts/conversation-id-param";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
 import { registerTranscriptSearchCommand } from "./transcripts/search-command";
@@ -156,7 +156,7 @@ export function registerTranscriptCommands(
           log.info("transcripts.ingest --all complete", { ...result });
           return { ...result, harness };
         } catch (err) {
-          log.error("transcripts.ingest --all failed", { error: getErrorMessage(err) });
+          log.error("transcripts.ingest --all failed", { error: getLoggableErrorSummary(err) });
           throw err;
         }
       }
@@ -198,7 +198,7 @@ export function registerTranscriptCommands(
         };
       } catch (err) {
         log.error(`transcripts.ingest --session=${sessionId} failed`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
         throw err;
       }

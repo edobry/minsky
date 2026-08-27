@@ -19,6 +19,7 @@ import {
 } from "@minsky/domain/presence/index";
 import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Parameter map
@@ -106,7 +107,7 @@ export function createTasksClaimsListCommand(getPersistenceProvider: () => unkno
       } catch (err: unknown) {
         log.warn("[tasks.claims.list] Presence claim list failed", {
           taskId: subjectId,
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
         return { claims: [], taskId: subjectId, error: String(err) };
       }
@@ -280,7 +281,7 @@ export function createTasksClaimsReleaseCommand(getPersistenceProvider: () => un
       } catch (err: unknown) {
         log.warn("[tasks.claims.release] Presence claim release failed", {
           taskId: subjectId,
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
         return { released: 0, claims: [], taskId: subjectId, actorId, error: String(err) };
       }

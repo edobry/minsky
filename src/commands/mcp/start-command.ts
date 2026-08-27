@@ -14,7 +14,7 @@ import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
 import { log, setProcessRole } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
 import { exit } from "@minsky/shared/process";
 import { CommandCategory } from "../../adapters/shared/command-registry";
@@ -165,7 +165,9 @@ export async function validateOAuthBearer(
   try {
     result = await oauthProvider.validateToken(bearer);
   } catch (err) {
-    log.error("[mt#1666] validateToken threw unexpectedly", { error: getErrorMessage(err) });
+    log.error("[mt#1666] validateToken threw unexpectedly", {
+      error: getLoggableErrorSummary(err),
+    });
     return { ok: false, reason: "malformed" };
   }
 
@@ -597,7 +599,7 @@ async function startHttpServer(
       await server.handleHttpRequest(req, res);
     } catch (error) {
       log.error("HTTP request handling failed", {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
       });
       if (!res.headersSent) {
         res.status(500).json({
@@ -793,7 +795,7 @@ async function startHttpServer(
       const metadata = await oauthProvider.discoveryMetadata(req);
       res.json(metadata);
     } catch (err) {
-      log.error("OAuth discovery metadata error", { error: getErrorMessage(err) });
+      log.error("OAuth discovery metadata error", { error: getLoggableErrorSummary(err) });
       res.status(500).json({
         error: "server_error",
         error_description: "Failed to build OAuth authorization server metadata",
@@ -813,7 +815,7 @@ async function startHttpServer(
       const metadata = await oauthProvider.protectedResourceMetadata(req);
       res.json(metadata);
     } catch (err) {
-      log.error("OAuth protected-resource metadata error", { error: getErrorMessage(err) });
+      log.error("OAuth protected-resource metadata error", { error: getLoggableErrorSummary(err) });
       res.status(500).json({
         error: "server_error",
         error_description: "Failed to build OAuth protected resource metadata",
@@ -861,7 +863,7 @@ async function startHttpServer(
     try {
       await oauthProvider.authorize(req, res);
     } catch (err) {
-      log.error("OAuth authorize error", { error: getErrorMessage(err) });
+      log.error("OAuth authorize error", { error: getLoggableErrorSummary(err) });
       if (!res.headersSent) {
         res.status(500).json({
           error: "server_error",
@@ -882,7 +884,7 @@ async function startHttpServer(
     try {
       await oauthProvider.token(req, res);
     } catch (err) {
-      log.error("OAuth token error", { error: getErrorMessage(err) });
+      log.error("OAuth token error", { error: getLoggableErrorSummary(err) });
       if (!res.headersSent) {
         res.status(500).json({
           error: "server_error",
@@ -907,7 +909,7 @@ async function startHttpServer(
     try {
       await oauthProvider.forwardInteraction(req, res);
     } catch (err) {
-      log.error("OAuth interaction error", { error: getErrorMessage(err) });
+      log.error("OAuth interaction error", { error: getLoggableErrorSummary(err) });
       if (!res.headersSent) {
         res.status(500).json({
           error: "server_error",
@@ -937,7 +939,7 @@ async function startHttpServer(
     try {
       await oauthProvider.forwardInteraction(req, res);
     } catch (err) {
-      log.error("OAuth /auth/<uid> error", { error: getErrorMessage(err) });
+      log.error("OAuth /auth/<uid> error", { error: getLoggableErrorSummary(err) });
       if (!res.headersSent) {
         res.status(500).json({
           error: "server_error",
@@ -993,7 +995,7 @@ async function startHttpServer(
         // Non-fatal: a daemon nobody can discover still serves every client
         // that has the static URL, which is all of them today.
         log.warn("Failed to write the local MCP daemon discovery file (non-fatal)", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     }
@@ -1133,7 +1135,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     return { service: wakeRepo, resolver };
   } catch (err) {
     log.debug("[mt#1661] buildWakeServiceForBridge threw", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -1177,7 +1179,7 @@ async function buildMemoryServiceForSpike(
     });
   } catch (err) {
     log.debug("[mt#1588] buildMemoryServiceForSpike threw", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -1245,7 +1247,7 @@ export async function buildSubagentDispatchTracker(
     return true;
   } catch (err) {
     log.debug("[mt#1738] buildSubagentDispatchTracker threw", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return false;
   }
@@ -1329,7 +1331,7 @@ export function wireSubagentDispatchTrackerWithRetry(
       return result === TIMEOUT_SENTINEL ? false : result;
     } catch (err) {
       log.debug("[mt#3044] SubagentDispatchTracker wire-retry attempt threw", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return false;
     } finally {
@@ -1374,7 +1376,7 @@ async function buildEmbeddingsEventEmitter(
     return await buildEventEmitterFromProvider(await resolveContainerPersistence(container));
   } catch (err) {
     log.debug("[mt#2568] buildEmbeddingsEventEmitter threw", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -1402,7 +1404,7 @@ async function wireEmbeddingsHealthTracker(container: AppContainerInterface): Pr
     return true;
   } catch (err) {
     log.debug("[mt#2147] wireEmbeddingsHealthTracker threw", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return false;
   }
@@ -1589,7 +1591,7 @@ export function createStartCommand(
               }
             } catch (err) {
               log.debug("[mt#1625] Instructions bundle composition failed; proceeding without it", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             }
           } else {
@@ -1771,7 +1773,7 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#1588] Memory enrichment middleware unavailable", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             });
         }
@@ -1793,7 +1795,7 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#1661] Wake-enrichment middleware unavailable", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             });
         }
@@ -1833,7 +1835,7 @@ export function createStartCommand(
             );
           } catch (err) {
             log.debug("[mt#3044] Could not register SubagentDispatchTracker wire-retry callback", {
-              error: getErrorMessage(err),
+              error: getLoggableErrorSummary(err),
             });
           }
 
@@ -1845,7 +1847,7 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#1738] SubagentDispatchTracker unavailable", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             });
         }
@@ -1878,7 +1880,7 @@ export function createStartCommand(
             });
           } catch (err) {
             log.debug("[mt#2568] Could not register Ask state-counts builder", {
-              error: getErrorMessage(err),
+              error: getLoggableErrorSummary(err),
             });
           }
 
@@ -1897,7 +1899,7 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#2265] Ask state-counts provider unavailable", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             });
         }
@@ -1930,7 +1932,7 @@ export function createStartCommand(
             log.debug(
               "[mt#2568] Could not register EmbeddingsHealthTracker event-emitter builder",
               {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               }
             );
           }
@@ -1945,7 +1947,7 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#2147] EmbeddingsHealthTracker unavailable", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             });
         }
@@ -1977,7 +1979,7 @@ export function createStartCommand(
               }
             } catch (err) {
               log.debug("[mt#2562] PresenceClaimRepository pre-warm unavailable", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
               });
             }
           })();
@@ -2033,7 +2035,7 @@ export function createStartCommand(
             }
           } catch (err) {
             log.warn("[mt#1664] OAuth provider construction failed; proceeding without it", {
-              error: getErrorMessage(err),
+              error: getLoggableErrorSummary(err),
             });
           }
         }
@@ -2132,7 +2134,7 @@ export function createStartCommand(
           // be invisible when it breaks.
           .catch((err) => {
             log.warn("Startup embedding sweep failed (best-effort)", {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           });
 
@@ -2146,7 +2148,7 @@ export function createStartCommand(
           // must leave an operator-findable signal, not vanish into .catch(()=>{}).
           .catch((err) => {
             log.warn("Startup transcript ingest failed (best-effort)", {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           });
 
@@ -2162,7 +2164,7 @@ export function createStartCommand(
           })
           .catch((err) => {
             log.warn("mcp.disconnect event sweep failed (best-effort)", {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           });
 
@@ -2178,7 +2180,7 @@ export function createStartCommand(
           })
           .catch((err) => {
             log.warn("Prod-state boot refresh failed (best-effort)", {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           });
 
@@ -2234,7 +2236,7 @@ export function createStartCommand(
                 removeDiscoveryRecord(process.pid);
               } catch (error) {
                 log.warn("Failed to remove the local MCP daemon discovery file (non-fatal)", {
-                  error: getErrorMessage(error),
+                  error: getLoggableErrorSummary(error),
                 });
               }
             }
@@ -2247,7 +2249,7 @@ export function createStartCommand(
               await server.drain();
             } catch (error) {
               log.warn("Error during server cleanup", {
-                error: getErrorMessage(error),
+                error: getLoggableErrorSummary(error),
               });
             }
             // Release DB sockets promptly so another MCP instance (e.g. Railway
@@ -2266,7 +2268,7 @@ export function createStartCommand(
               }
             } catch (error) {
               log.warn("Error closing persistence during shutdown", {
-                error: getErrorMessage(error),
+                error: getLoggableErrorSummary(error),
               });
             }
           };
@@ -2424,7 +2426,7 @@ export function createStartCommand(
           // of the same one.
           transportType: resolveMcpTransport(options).transport,
           withInspector: options.withInspector || false,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
 

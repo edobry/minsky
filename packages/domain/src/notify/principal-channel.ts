@@ -44,6 +44,7 @@ import {
   type FetchFn,
   type ThreadFallbackSendResult,
 } from "./telegram-transport";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Pulumi stack-config key holding the principal's chat id (plain, not secret). */
 export const TELEGRAM_CHAT_ID_PULUMI_KEY = "reviewer-telegram-chat-id";
@@ -646,7 +647,7 @@ export async function findTelegramTopicForTask(
     log.debug("principal-channel: task-topic lookup failed", {
       taskId,
       chatId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -692,7 +693,7 @@ export async function markTelegramChannelTopicDead(
     log.warn("principal-channel: failed to mark a topic mapping dead", {
       chatId,
       messageThreadId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

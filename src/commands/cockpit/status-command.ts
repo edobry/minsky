@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { getDaemonStatus } from "../../cockpit/launchd";
 import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createStatusCommand(): Command {
   const cmd = new Command("status");
@@ -17,7 +18,7 @@ export function createStatusCommand(): Command {
       try {
         port = resolveCockpitPort(options.port);
       } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getLoggableErrorSummary(error));
         process.exit(1);
       }
 

@@ -13,8 +13,7 @@
 
 import { Octokit } from "@octokit/rest";
 import { createTimeoutFetch } from "../github/octokit-timeout";
-import { MinskyError } from "../errors/index";
-import { getErrorMessage } from "../errors/index";
+import { MinskyError, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { parseUnifiedDiff } from "../utils/parse-diff";
 import type { TokenRole } from "../auth/token-provider";
@@ -426,7 +425,7 @@ export async function submitReview(
     } catch (labelError) {
       log.warn(
         `Failed to apply review-state label for PR #${prNumber} ` +
-          `(event=${options.event}): ${getErrorMessage(labelError)}`
+          `(event=${options.event}): ${getLoggableErrorSummary(labelError)}`
       );
     }
 

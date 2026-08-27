@@ -28,6 +28,7 @@ import type { SystemEventInput } from "../storage/schemas/system-events-schema";
 // Type-only: erased at runtime, so this does NOT make the emitter module a
 // static dependency — the value import below stays dynamic, as it was.
 import type { EventEmitterWithTryEmit } from "./emitter";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Build an emitter from a directly-held provider, or `null` when persistence is
@@ -77,7 +78,7 @@ export async function emitSystemEventFromProvider(
     return await emitter.tryEmit(event);
   } catch (err: unknown) {
     log.warn(`${event.eventType}: system-event emission failed (best-effort, swallowed)`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return false;
   }

@@ -53,6 +53,7 @@ import {
   CAPTURE_SCHEMA_FIELD,
   CAPTURE_SCHEMA_VERSION,
 } from "./judged-input-capture";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -764,9 +765,7 @@ export async function main(): Promise<void> {
     result = detectCausalPremise(assistantText, toolUseNames);
     elidedText = elideMarkdownContexts(assistantText);
   } catch (err) {
-    console.error(
-      `[causal-premise-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`[causal-premise-detector] Detection error: ${getLoggableErrorSummary(err)}`);
     process.exit(0);
   }
 

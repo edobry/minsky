@@ -27,7 +27,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry, CommandExecutionContext } from "../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { ARTIFACT_TYPES } from "@minsky/domain/provenance/types";
 import type { ArtifactType } from "@minsky/domain/provenance/types";
@@ -105,7 +105,7 @@ export function registerProvenanceCommands(
 
         return record;
       } catch (error) {
-        log.error("provenance.get failed", { error: getErrorMessage(error) });
+        log.error("provenance.get failed", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },

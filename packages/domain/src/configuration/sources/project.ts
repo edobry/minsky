@@ -11,6 +11,7 @@ import { parse } from "yaml";
 import type { PartialConfiguration } from "../schemas";
 import { log } from "@minsky/shared/logger";
 import { deepMergeConfigs } from "../deep-merge";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 /**
  * Canonical project configuration location.
@@ -74,7 +75,7 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
         }
       } catch (error) {
         log.warn(
-          `Warning: Failed to load project config from ${configPath}: ${error instanceof Error ? error.message : String(error)}`
+          `Warning: Failed to load project config from ${configPath}: ${getLoggableErrorSummary(error)}`
         );
       }
     }
@@ -104,9 +105,7 @@ function loadConfigFile(filePath: string): Record<string, unknown> | null {
         return null;
     }
   } catch (error) {
-    log.warn(
-      `Warning: Failed to parse config file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.warn(`Warning: Failed to parse config file ${filePath}: ${getLoggableErrorSummary(error)}`);
     return null;
   }
 }

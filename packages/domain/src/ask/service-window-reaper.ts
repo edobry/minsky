@@ -46,6 +46,7 @@ import { pendingAsksForWindow } from "./pending-asks-for-window";
 import { PAGE_THRESHOLD_MS } from "./router";
 import type { ForceImmediateCounterStore } from "./force-immediate-counters";
 import { InMemoryForceImmediateCounterStore } from "./force-immediate-counters";
+import { getLoggableErrorSummary } from "../errors/index";
 
 // ---------------------------------------------------------------------------
 // Dispatch callback interface
@@ -179,7 +180,7 @@ export class ServiceWindowReaper {
         log.warn("reaper: failed to dispatch ask on window open", {
           askId: ask.id,
           windowKey,
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
@@ -248,7 +249,7 @@ export class ServiceWindowReaper {
           log.warn("reaper: failed to escalate ask", {
             askId: ask.id,
             windowKey,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       } else {
@@ -265,7 +266,7 @@ export class ServiceWindowReaper {
           log.warn("reaper: failed to increment miss count", {
             askId: ask.id,
             windowKey,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }
@@ -320,7 +321,7 @@ export class ServiceWindowReaper {
         log.warn("reaper: deadline poll dispatch failed", {
           askId: ask.id,
           deadline: ask.deadline,
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
@@ -361,7 +362,7 @@ export class ServiceWindowReaper {
     this.pollTimer = setInterval(() => {
       this.pollDeadlineBoundAsks().catch((err) => {
         log.warn("reaper: deadline poll error", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       });
     }, this.pollIntervalMs);

@@ -12,7 +12,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { ValidationError, ResourceNotFoundError } from "../errors/index";
+import { ValidationError, ResourceNotFoundError, getLoggableErrorSummary } from "../errors/index";
 import { type SessionProviderInterface } from "./types";
 import {
   detectRepositoryBackendTypeFromUrl,
@@ -379,7 +379,9 @@ export async function mergeSessionPr(
       });
     } catch (askError) {
       // Non-fatal: log at debug and continue so the merge always proceeds.
-      log.debug(`Failed to emit quality.review Ask before merge: ${getErrorMessage(askError)}`);
+      log.debug(
+        `Failed to emit quality.review Ask before merge: ${getLoggableErrorSummary(askError)}`
+      );
     }
   }
 
@@ -505,7 +507,7 @@ export async function mergeSessionPr(
     }
   } catch (tierError) {
     log.warn(
-      `Tier-aware merge setup failed (falling back to default): ${getErrorMessage(tierError)}`
+      `Tier-aware merge setup failed (falling back to default): ${getLoggableErrorSummary(tierError)}`
     );
   }
 
@@ -646,7 +648,7 @@ export async function mergeSessionPr(
   } catch (err) {
     // Never rethrow: the merge is done and this is bookkeeping.
     log.debug("merge-deploy-surface: record failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -681,7 +683,9 @@ export async function mergeSessionPr(
         );
       }
     } catch (labelError) {
-      log.warn(`Failed to update authorship label at merge time: ${getErrorMessage(labelError)}`);
+      log.warn(
+        `Failed to update authorship label at merge time: ${getLoggableErrorSummary(labelError)}`
+      );
     }
   }
 
@@ -752,7 +756,7 @@ export async function mergeSessionPr(
         }
       }
     } catch (judgeError) {
-      log.warn(`Post-merge AI tier judging failed: ${getErrorMessage(judgeError)}`);
+      log.warn(`Post-merge AI tier judging failed: ${getLoggableErrorSummary(judgeError)}`);
     }
   }
 
@@ -841,7 +845,7 @@ export async function mergeSessionPr(
   } catch (err: unknown) {
     log.warn("pr.merged: event emission failed (best-effort, swallowed)", {
       session: sessionIdToUse,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -869,7 +873,7 @@ export async function mergeSessionPr(
     } catch (err: unknown) {
       log.warn("session_pr_merge: failed to close quality.review Asks (best-effort, swallowed)", {
         session: sessionIdToUse,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

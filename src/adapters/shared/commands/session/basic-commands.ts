@@ -26,6 +26,7 @@ import {
   annotateSessionWithAttachment,
 } from "./attachment-annotation";
 import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createSessionListCommand(
   getDeps: LazySessionDeps,
@@ -95,7 +96,7 @@ export function createSessionListCommand(
             log.debug(
               "[session.list] Project scope resolution failed; defaulting to all projects",
               {
-                error: err instanceof Error ? err.message : String(err),
+                error: getLoggableErrorSummary(err),
               }
             );
           }
@@ -223,7 +224,7 @@ async function emitSessionStartedEvent(
   } catch (err: unknown) {
     log.warn("session.started: event emission failed (best-effort, swallowed)", {
       sessionId: payload.sessionId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }
@@ -263,7 +264,7 @@ export function createSessionStartCommand(
           }
         } catch (err: unknown) {
           log.debug("[session.start] Failed to obtain DB for project-scope stamping", {
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }

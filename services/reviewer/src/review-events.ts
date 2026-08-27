@@ -13,6 +13,7 @@
 import type { ReviewerConfig } from "./config";
 import { callMcp } from "./mcp-client";
 import { log } from "./logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** The GitHub review submit-event, as computed by the review paths. */
 export type ReviewSubmitEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
@@ -110,7 +111,7 @@ export async function emitReviewPostedEvent(
     log.warn("reviewer.review_posted_event_error", {
       event: "reviewer.review_posted_event_error",
       prUrl,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

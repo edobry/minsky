@@ -15,6 +15,7 @@ import type { ReviewerConfig } from "./config";
 import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
 import { withTimeout } from "./with-timeout";
 import { log } from "./logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Default GitHub-API timeout used when these helpers are called without an
@@ -457,7 +458,7 @@ export async function submitReview(
       log.warn("reviewer.inline_reply_failed", {
         pr: prNumber,
         inReplyTo: c.inReplyTo,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

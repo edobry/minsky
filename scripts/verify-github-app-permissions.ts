@@ -38,6 +38,7 @@ import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const GITHUB_API_BASE = "https://api.github.com";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -63,7 +64,7 @@ async function main(): Promise<number> {
   try {
     privateKey = resolvePrivateKey(serviceAccount);
   } catch (err) {
-    console.error(`COULD NOT CHECK: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`COULD NOT CHECK: ${getLoggableErrorSummary(err)}`);
     return 2;
   }
 
@@ -77,7 +78,7 @@ async function main(): Promise<number> {
   } catch (err) {
     // Exit 2, never 1: a failed read is "could not check", which must not be
     // reported as either a clean pass or a real drift.
-    console.error(`FAILED TO CHECK: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`FAILED TO CHECK: ${getLoggableErrorSummary(err)}`);
     return 2;
   }
 

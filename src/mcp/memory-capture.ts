@@ -48,6 +48,7 @@ import * as path from "path";
 
 import { log } from "@minsky/shared/logger";
 import { parsePositiveIntEnv, type StoppableWatcher } from "./orphan-exit";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export type { StoppableWatcher };
 
@@ -459,7 +460,7 @@ export function wireMemoryCaptureWatcher(
         // diagnostic that failed. Logged, never rethrown.
         log.error("[mt#3973] Resident-memory capture failed; the kill ceiling is unaffected", {
           processRole: options.processRole,
-          error: error instanceof Error ? error.message : String(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     },

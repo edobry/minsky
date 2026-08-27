@@ -40,6 +40,7 @@ import {
   type CommitSelection,
   type DiffGuardAdapter,
 } from "./lib/diff-guard-backtest";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const DEFAULT_DAYS = 60;
 const DEFAULT_LIMIT = 400;
@@ -249,7 +250,7 @@ if (import.meta.main) {
   try {
     await main();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(getLoggableErrorSummary(error));
     process.exit(2);
   }
 }

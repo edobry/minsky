@@ -48,6 +48,7 @@
  * `scripts/verify-cockpit-shell-scroll.ts`.
  */
 import { preflightCockpit, skip } from "./lib/verify-preflight";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
 const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
@@ -435,7 +436,7 @@ try {
   });
 } catch (err) {
   await teardownAll();
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 }
 

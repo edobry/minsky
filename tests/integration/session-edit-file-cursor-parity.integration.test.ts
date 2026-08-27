@@ -8,6 +8,7 @@ import {
   getConfiguration,
   CustomConfigFactory,
 } from "@minsky/domain/configuration/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // Mock file system for testing
 export const mockFiles = new Map<string, string>();
@@ -320,7 +321,7 @@ async function loggingApplyEditPattern(
     console.log("\n❌ MORPH API ERROR:");
     console.log("   Duration:", duration, "ms");
     console.log("   Error type:", error instanceof Error ? error.constructor.name : "unknown");
-    console.log("   Error message:", error instanceof Error ? error.message : String(error));
+    console.log("   Error message:", getLoggableErrorSummary(error));
     console.log("   Error stack:", error instanceof Error ? error.stack : undefined);
     console.log("=".repeat(80));
     console.log("🔚 END MORPH API ANALYSIS (ERROR)");

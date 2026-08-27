@@ -29,6 +29,7 @@
 
 import type postgres from "postgres";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 type Sql = ReturnType<typeof postgres>;
 
@@ -199,9 +200,9 @@ export class PostgresChannelListener implements ChannelListener {
         await handle.unlisten();
       } catch (err) {
         log.warn(
-          `PostgresChannelListener: post-establish unlisten on ${channel} failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`
+          `PostgresChannelListener: post-establish unlisten on ${channel} failed: ${getLoggableErrorSummary(
+            err
+          )}`
         );
       }
       if (state && state.subscriptions.length === 0) {
@@ -232,9 +233,9 @@ export class PostgresChannelListener implements ChannelListener {
           await state.unlisten();
         } catch (err) {
           log.warn(
-            `PostgresChannelListener: error during unlisten on ${channel}: ${
-              err instanceof Error ? err.message : String(err)
-            }`
+            `PostgresChannelListener: error during unlisten on ${channel}: ${getLoggableErrorSummary(
+              err
+            )}`
           );
         }
       }
@@ -251,9 +252,9 @@ export class PostgresChannelListener implements ChannelListener {
           await state.unlisten();
         } catch (err) {
           log.warn(
-            `PostgresChannelListener: error during close() unlisten on ${channel}: ${
-              err instanceof Error ? err.message : String(err)
-            }`
+            `PostgresChannelListener: error during close() unlisten on ${channel}: ${getLoggableErrorSummary(
+              err
+            )}`
           );
         }
       }
@@ -291,9 +292,9 @@ export class PostgresChannelListener implements ChannelListener {
           break;
         }
         log.warn(
-          `PostgresChannelListener: LISTEN ${channel} attempt ${attempt} failed (${
-            err instanceof Error ? err.message : String(err)
-          }); retrying in ${backoff}ms`
+          `PostgresChannelListener: LISTEN ${channel} attempt ${attempt} failed (${getLoggableErrorSummary(
+            err
+          )}); retrying in ${backoff}ms`
         );
         await sleep(backoff);
         backoff = Math.min(backoff * backoffMultiplier, maxBackoffMs);
@@ -327,9 +328,9 @@ export class PostgresChannelListener implements ChannelListener {
         parsed = sub.parse ? sub.parse(raw) : JSON.parse(raw);
       } catch (err) {
         log.warn(
-          `PostgresChannelListener: parse error on ${channel} (skipping listener): ${
-            err instanceof Error ? err.message : String(err)
-          }`
+          `PostgresChannelListener: parse error on ${channel} (skipping listener): ${getLoggableErrorSummary(
+            err
+          )}`
         );
         continue;
       }
@@ -338,17 +339,17 @@ export class PostgresChannelListener implements ChannelListener {
         if (result instanceof Promise) {
           result.catch((err) => {
             log.warn(
-              `PostgresChannelListener: async listener error on ${channel}: ${
-                err instanceof Error ? err.message : String(err)
-              }`
+              `PostgresChannelListener: async listener error on ${channel}: ${getLoggableErrorSummary(
+                err
+              )}`
             );
           });
         }
       } catch (err) {
         log.warn(
-          `PostgresChannelListener: sync listener error on ${channel}: ${
-            err instanceof Error ? err.message : String(err)
-          }`
+          `PostgresChannelListener: sync listener error on ${channel}: ${getLoggableErrorSummary(
+            err
+          )}`
         );
       }
     }
@@ -430,9 +431,9 @@ export function createRecordingChannelListener(): RecordingChannelListener {
         parsed = sub.parse ? sub.parse(raw) : JSON.parse(raw);
       } catch (err) {
         log.warn(
-          `RecordingChannelListener: parse error on ${channel} (skipping listener): ${
-            err instanceof Error ? err.message : String(err)
-          }`
+          `RecordingChannelListener: parse error on ${channel} (skipping listener): ${getLoggableErrorSummary(
+            err
+          )}`
         );
         continue;
       }

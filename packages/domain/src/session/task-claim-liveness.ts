@@ -75,6 +75,7 @@
 import { log } from "@minsky/shared/logger";
 import { PRESENCE_CLAIM_TTL_MS } from "../presence/types";
 import type { AnnotatedPresenceClaim } from "../presence/types";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Structured outcome of the task-grain claim read. `cause` is the load-bearing
@@ -188,7 +189,7 @@ export async function resolveTaskClaimLiveness(
     log.warn(
       `[${logContext.source}] resolveTaskClaimLiveness: getDatabaseConnection() threw ` +
         "(failing closed to contested)",
-      { taskId, error: err instanceof Error ? err.message : String(err) }
+      { taskId, error: getLoggableErrorSummary(err) }
     );
     return { cause: "read-failure" };
   }
@@ -233,7 +234,7 @@ export async function resolveTaskClaimLiveness(
     log.warn(
       `[${logContext.source}] resolveTaskClaimLiveness read failed unexpectedly ` +
         "(failing closed to contested)",
-      { taskId, error: err instanceof Error ? err.message : String(err) }
+      { taskId, error: getLoggableErrorSummary(err) }
     );
     return { cause: "read-failure" };
   }

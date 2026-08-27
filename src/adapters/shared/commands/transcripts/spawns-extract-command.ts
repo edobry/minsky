@@ -40,7 +40,7 @@ import {
   resolveConversationId,
 } from "./conversation-id-param";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SpawnsPipelineRunResult } from "@minsky/domain/transcripts/agent-spawns-pipeline";
 
@@ -146,7 +146,7 @@ export function registerTranscriptSpawnsExtractCommand(
           log.info("transcripts.spawns-extract --all: pipeline complete", { ...pipelineResult });
         } catch (err) {
           log.error("transcripts.spawns-extract --all: pipeline failed", {
-            error: getErrorMessage(err),
+            error: getLoggableErrorSummary(err),
           });
           throw err;
         }
@@ -180,7 +180,7 @@ export function registerTranscriptSpawnsExtractCommand(
         });
       } catch (err) {
         log.error(`transcripts.spawns-extract --session=${sessionId}: pipeline failed`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
         throw err;
       }

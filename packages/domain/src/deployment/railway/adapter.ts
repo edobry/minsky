@@ -39,6 +39,7 @@ import {
   type RailwayMetricSeries,
   SERVICE_METRIC_MEASUREMENTS,
 } from "./graphql-client";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const DEFAULT_POLL_INTERVAL_SECONDS = 10;
@@ -462,7 +463,7 @@ export async function notifyStatusObserved(
     await onStatusObserved(record);
   } catch (err) {
     log.warn("railway adapter: onStatusObserved callback threw (swallowed, best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
       status: record.status,
     });
   }
@@ -487,7 +488,7 @@ export function notifyProgress(
     onProgress(message);
   } catch (err) {
     log.warn("railway adapter: onProgress callback threw (swallowed, best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

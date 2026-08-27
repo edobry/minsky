@@ -9,7 +9,7 @@ import type { SessionProviderInterface, SessionRecord, SessionLiveness } from ".
 import { deriveSessionLiveness, SessionStatus } from "./types";
 import { getSessionsDir } from "@minsky/shared/paths";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors";
+import { getLoggableErrorSummary } from "../errors";
 import type { GitServiceInterface } from "../git/types";
 
 export interface CleanupCandidate {
@@ -76,7 +76,9 @@ export async function sessionHasUncommittedChanges(
     return output.trim().length > 0;
   } catch (error) {
     // If we can't determine status (e.g., not a git repo), assume safe
-    log.debug(`Could not check git status for session '${sessionId}': ${getErrorMessage(error)}`);
+    log.debug(
+      `Could not check git status for session '${sessionId}': ${getLoggableErrorSummary(error)}`
+    );
     return false;
   }
 }
@@ -194,7 +196,7 @@ export async function identifyFilesystemOrphanDirs(
     entries = readdirSync(sessionsDir);
   } catch (err) {
     log.debug(
-      `identifyFilesystemOrphanDirs: could not read sessions dir ${sessionsDir}: ${getErrorMessage(err)}`
+      `identifyFilesystemOrphanDirs: could not read sessions dir ${sessionsDir}: ${getLoggableErrorSummary(err)}`
     );
     return [];
   }

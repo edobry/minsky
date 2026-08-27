@@ -21,6 +21,7 @@
 
 import { createDrivenSessionDriver } from "../../src/cockpit/principal-channel-driver";
 import { DrivenSessionRegistry } from "../../src/cockpit/driven-session-host";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const PROMPT = "Reply with exactly the word PONG and nothing else. Do not use any tools.";
 
@@ -75,9 +76,7 @@ async function main(): Promise<void> {
       },
     });
   } catch (err) {
-    console.error(
-      `FAIL after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`FAIL after ${Date.now() - startedAt}ms: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   }
 
@@ -159,6 +158,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

@@ -29,7 +29,7 @@ import {
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 import { patchSection } from "./section-patch";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
 import type { VectorStorage } from "@minsky/domain/storage/vector/types";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
@@ -662,7 +662,7 @@ async function resolveMemoryProjectScope(
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug("[memory] Project scope resolution failed; defaulting to all projects", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return undefined;
   }
@@ -695,7 +695,7 @@ async function resolveMemoryDbForPrefix(
     return connection ? (connection as MemoryServiceDb) : null;
   } catch (err: unknown) {
     log.debug("[memory] DB resolution for id-prefix lookup failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -774,7 +774,7 @@ export function registerMemoryCommands(
 
         return response;
       } catch (error) {
-        log.error("[memory.search] Search failed", { error: getErrorMessage(error) });
+        log.error("[memory.search] Search failed", { error: getLoggableErrorSummary(error) });
         return { results: [], backend: "none" as const, degraded: true };
       }
     },

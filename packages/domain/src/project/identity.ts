@@ -42,6 +42,7 @@ import { execSync as defaultExecSync } from "child_process";
 import { parse as yamlParse } from "yaml";
 import { log } from "@minsky/shared/logger";
 import { deriveSlugFromGitRemote } from "./slug";
+import { getLoggableErrorSummary } from "../errors/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -232,7 +233,7 @@ export function readConfigSlug(
   } catch (err) {
     log.debug("[project-identity] Failed to read config slug", {
       configPath,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

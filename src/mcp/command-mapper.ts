@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { MinskyMCPServer, ToolDefinition, ToolProgressReporter } from "./server";
 import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 
@@ -285,7 +285,7 @@ export class CommandMapper {
       return jsonSchema;
     } catch (error) {
       log.warn("Failed to convert Zod schema to JSON Schema, using fallback", {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
       });
 
       // Return a permissive fallback schema
@@ -436,7 +436,7 @@ export class CommandMapper {
           } catch (error) {
             log.error("MCP command execution failed", {
               methodName: normalizedName,
-              error: getErrorMessage(error),
+              error: getLoggableErrorSummary(error),
               args: args || {},
             });
             throw error;
@@ -490,7 +490,7 @@ export class CommandMapper {
             } catch (error) {
               log.error("MCP command execution failed (lazy-resolved)", {
                 methodName: normalizedName,
-                error: getErrorMessage(error),
+                error: getLoggableErrorSummary(error),
                 args: args || {},
               });
               throw error;

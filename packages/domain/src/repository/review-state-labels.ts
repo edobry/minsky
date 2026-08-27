@@ -10,7 +10,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 // ── Label name constants ────────────────────────────────────────────────────
 
@@ -152,7 +152,9 @@ export async function ensureReviewStateLabelsExist(
       });
       log.debug(`Created review-state label: ${labelName}`);
     } catch (error) {
-      log.warn(`Failed to ensure review-state label "${labelName}": ${getErrorMessage(error)}`);
+      log.warn(
+        `Failed to ensure review-state label "${labelName}": ${getLoggableErrorSummary(error)}`
+      );
     }
   }
 }
@@ -198,7 +200,7 @@ export async function applyReviewStateLabel(
     currentLabelNames = new Set(allLabels.map((l) => l.name));
   } catch (error) {
     log.warn(
-      `Failed to list labels on PR #${prNumber}: ${getErrorMessage(error)}. ` +
+      `Failed to list labels on PR #${prNumber}: ${getLoggableErrorSummary(error)}. ` +
         `Proceeding without idempotency check; removals will be attempted unconditionally.`
     );
     currentLabelNames = null;
@@ -220,7 +222,7 @@ export async function applyReviewStateLabel(
     } catch (error) {
       log.warn(
         `Failed to add review-state label "${targetLabel}" to PR #${prNumber}: ` +
-          `${getErrorMessage(error)}`
+          `${getLoggableErrorSummary(error)}`
       );
     }
   } else {
@@ -248,7 +250,7 @@ export async function applyReviewStateLabel(
     } catch (error) {
       log.warn(
         `Failed to remove conflicting label "${labelName}" from PR #${prNumber}: ` +
-          `${getErrorMessage(error)}`
+          `${getLoggableErrorSummary(error)}`
       );
     }
   }

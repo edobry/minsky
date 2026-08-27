@@ -29,6 +29,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Default deadline for the one-time PersistenceService init sequence
@@ -467,7 +468,7 @@ export async function refreshDbReachability(
     noteFailure(err);
     noteDegradedObservation();
     log.warn("[shared-persistence] DB reachability probe failed to start", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
       failureKind: _lastFailure?.kind,
     });
     return _dbStatus;
@@ -499,7 +500,7 @@ export async function refreshDbReachability(
     // `unknown` overwrite it.
     noteFailure(err);
     log.warn("[shared-persistence] DB reachability probe rejected after its deadline", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
       cause: err instanceof Error && err.cause !== undefined ? String(err.cause) : undefined,
       failureKind: _lastFailure?.kind,
     });
@@ -524,7 +525,7 @@ export async function refreshDbReachability(
     noteFailure(err);
     noteDegradedObservation();
     log.warn("[shared-persistence] DB unreachable from this daemon", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
       status: _dbStatus,
       failureKind: _lastFailure?.kind,
     });

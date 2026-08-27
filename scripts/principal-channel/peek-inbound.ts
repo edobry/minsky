@@ -27,6 +27,7 @@ import {
 } from "@minsky/domain/notify/principal-channel";
 import { getTelegramUpdates } from "@minsky/domain/notify/telegram-transport";
 import { routeInboundMessage } from "@minsky/domain/notify/principal-inbound";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function main(): Promise<void> {
   const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
@@ -67,6 +68,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

@@ -50,6 +50,7 @@ import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { conversationIdFromAgentId } from "@minsky/domain/agent-identity/format";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface SqlCapablePersistence {
   getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
@@ -279,6 +280,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err: unknown) => {
-    console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });

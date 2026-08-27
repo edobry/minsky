@@ -29,6 +29,7 @@ import {
   selectSatisfiedCredentialRequests,
   type ProviderPresence,
 } from "./request";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Re-exported for existing importers; defined in `./request` beside the classifier that reads it. */
 export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
@@ -136,7 +137,7 @@ export async function resolveSatisfiedCredentialRequests(
       log.warn("credential-request resolver: could not close a satisfied request", {
         askId: entry.ask.id,
         provider: entry.provider,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

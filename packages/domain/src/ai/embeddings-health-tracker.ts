@@ -37,6 +37,7 @@
 
 import { log } from "@minsky/shared/logger";
 import type { EventEmitterWithTryEmit, SystemEventInput } from "../events/emitter";
+import { getLoggableErrorSummary } from "../errors/index";
 
 export type EmbeddingsHealthStatus = "healthy" | "degraded" | "exhausted";
 
@@ -243,7 +244,7 @@ export class EmbeddingsHealthTracker {
       return await EmbeddingsHealthTracker.eventEmitterBuilder();
     } catch (err) {
       log.debug("embeddings-health-tracker: per-call event emitter build failed", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }
@@ -297,7 +298,7 @@ export class EmbeddingsHealthTracker {
       return persisted;
     } catch (err) {
       log.debug("Failed to emit embeddings.provider_degraded event", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return false;
     }

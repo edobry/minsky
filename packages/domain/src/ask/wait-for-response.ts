@@ -30,7 +30,12 @@
  * in production. Before mt#2265, asks never advanced past `detected`.
  */
 
-import { ResourceNotFoundError, MinskyError, getErrorMessage } from "../errors/index";
+import {
+  ResourceNotFoundError,
+  MinskyError,
+  getErrorMessage,
+  getLoggableErrorSummary,
+} from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { Ask, AskState } from "./types";
 import { isTerminal } from "./state-machine";
@@ -59,7 +64,7 @@ export function notifyAskWaitProgress(
     onProgress(message);
   } catch (error) {
     log.warn("asks.wait-for-response: onProgress callback threw (swallowed, best-effort)", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
   }
 }

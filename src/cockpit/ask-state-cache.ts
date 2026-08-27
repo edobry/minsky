@@ -53,6 +53,7 @@ import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#4014: type-only, erased at build — see OPEN_ASK_STATES below.
 import type { AskState } from "@minsky/domain/ask/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Cache filename under the Minsky state dir. The CONSUMER hook hard-codes this
@@ -240,7 +241,7 @@ export function readAttributedAskIds(mapPath: string = getAskConversationMapPath
   } catch (err) {
     log.warn("ask-state-cache: ask-conversation map unreadable", {
       path: mapPath,
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return [];
   }
@@ -311,7 +312,7 @@ export function readWatermarkAskIds(repoRoot: string): string[] {
   } catch (err) {
     log.warn("ask-state-cache: watermark store unreadable", {
       path: watermarkPath,
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return [];
   }
@@ -404,7 +405,7 @@ export async function buildAskStateSnapshot(
   } catch (err) {
     log.warn("ask-state-cache: ask query failed", {
       askCount: askIds.length,
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -428,7 +429,7 @@ export function writeAskStateCache(
     return true;
   } catch (err) {
     log.warn("ask-state-cache: failed to write cache", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return false;
   }

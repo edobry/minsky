@@ -24,6 +24,7 @@
 import "reflect-metadata";
 
 import type { AskRepository } from "@minsky/domain/ask/repository";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Build the repo via the SAME canonical path the MCP tool uses
@@ -72,6 +73,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`smoke-asks-wait failed: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`smoke-asks-wait failed: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

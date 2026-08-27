@@ -6,7 +6,7 @@
 
 import type { TaskData, TaskSpecData } from "../../../../src/types/tasks/taskData";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { validateGitHubIssues, type GitHubIssue } from "../schemas/storage";
 
@@ -37,7 +37,7 @@ export function parseGitHubIssues(
     return minskyIssues.map((issue) => convertIssueToTaskData(issue, statusLabels));
   } catch (error) {
     log.error("Failed to parse GitHub issues data", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
     });
     return [];
   }

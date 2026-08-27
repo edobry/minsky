@@ -53,6 +53,7 @@ import { spawnSync } from "child_process";
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Dependency-spec prefixes that resolve locally and cannot resolve from a registry. */
 const LOCAL_ONLY_PROTOCOLS = ["workspace:", "file:", "link:"];
@@ -274,11 +275,7 @@ try {
   }
 } catch (error) {
   console.log(
-    JSON.stringify(
-      { ok: false, error: error instanceof Error ? error.message : String(error), results },
-      null,
-      2
-    )
+    JSON.stringify({ ok: false, error: getLoggableErrorSummary(error), results }, null, 2)
   );
   rmSync(workDir, { recursive: true, force: true });
   process.exit(1);

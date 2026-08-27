@@ -1,7 +1,7 @@
 /**
  * Shared types and helpers for session command factories.
  */
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import type { CommandDefinition, CommandExecutionContext } from "../../command-registry";
 import type { SessionDeps } from "@minsky/domain/session/session-service";
@@ -55,7 +55,7 @@ export function withErrorLogging<T extends Record<string, unknown>, R>(
         session: base.sessionId,
         task: base.task,
         repo: base.repo,
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
         stack: error instanceof Error ? error.stack : undefined,
         command: commandId,
       });

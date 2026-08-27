@@ -43,6 +43,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 /** Raw shape of one entry in LiteLLM's catalog. Only the fields this module reads. */
 interface CatalogEntry {
@@ -201,7 +202,7 @@ export async function fetchModelLimitsCatalog(
     log.warn("Model-limits catalog fetch failed; catalog unavailable", {
       provider,
       url,
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     return null;
   } finally {

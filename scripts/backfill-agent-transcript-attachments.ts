@@ -42,7 +42,7 @@ import {
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "@minsky/domain/storage/schemas/agent-transcript-attachments-schema";
 import { log } from "../src/utils/logger";
-import { getErrorMessage } from "@minsky/domain/errors";
+import { getLoggableErrorSummary } from "@minsky/domain/errors";
 
 async function backfillSession(
   db: import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -91,7 +91,7 @@ async function backfillSession(
     return { inserted: rows.length, scanned };
   } catch (err) {
     log.warn(`Backfill insert failed for session ${agentSessionId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return { inserted: 0, scanned };
   }
@@ -143,7 +143,7 @@ async function main() {
     console.error(
       "SKIP: failed to initialize DB connection — Postgres not available in this environment."
     );
-    console.error(getErrorMessage(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(0);
   }
 
@@ -163,7 +163,7 @@ async function main() {
     } catch (err) {
       sessionsErrored++;
       log.warn(`Backfill failed for session ${discovered.agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }
@@ -178,7 +178,7 @@ async function main() {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error("Backfill crashed:", getErrorMessage(err));
+    console.error("Backfill crashed:", getLoggableErrorSummary(err));
     process.exit(1);
   });
 }

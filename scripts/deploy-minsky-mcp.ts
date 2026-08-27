@@ -169,6 +169,7 @@ import {
   readRailwayToken,
   railwayGraphQLAuthed,
 } from "@minsky/domain/deployment/railway/graphql-client";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   return railwayGraphQLAuthed<T>(query, variables);
@@ -1266,7 +1267,7 @@ async function main(): Promise<void> {
 // only when this file is the actual entry point (`bun scripts/deploy-minsky-mcp.ts ...`).
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(`deploy-minsky-mcp: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`deploy-minsky-mcp: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });
 }

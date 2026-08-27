@@ -48,7 +48,7 @@ import {
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { EventEmitter } from "@minsky/domain/events/emitter";
 
 // ---------------------------------------------------------------------------
@@ -490,7 +490,7 @@ export class SubagentDispatchTracker {
         taskId: input.taskId,
         agentType: input.agentType,
         outcome: input.outcome,
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }
@@ -631,7 +631,7 @@ export class SubagentDispatchTracker {
       return await this._queryCadence(now);
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getCadence failed", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return emptyCADENCE();
     }
@@ -661,7 +661,7 @@ export class SubagentDispatchTracker {
       return await this._queryEscalation(now);
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getEscalation failed", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return "none";
     }
@@ -687,7 +687,7 @@ export class SubagentDispatchTracker {
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getLatestInvocationForTask failed", {
         taskId,
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }
@@ -726,7 +726,7 @@ export class SubagentDispatchTracker {
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getInvocationChainForTask failed", {
         taskId,
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return [];
     }
@@ -758,7 +758,7 @@ export class SubagentDispatchTracker {
         taskId: input.taskId,
         resumedFromInvocationId: input.resumedFromInvocationId,
         attemptNumber: input.attemptNumber,
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }

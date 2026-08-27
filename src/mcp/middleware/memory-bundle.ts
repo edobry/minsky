@@ -54,6 +54,7 @@ import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service"
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -216,7 +217,7 @@ export async function composeMemoryBundle(
     return bundleText;
   } catch (error) {
     log.debug("[mt#1625] composeMemoryBundle failed; skipping bundle", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     return null;
   }

@@ -32,6 +32,7 @@ import path from "path";
 import fs from "fs";
 import { log } from "@minsky/shared/logger";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Journal filename for the INGEST sweep, under the Minsky state dir. */
 export const TRANSCRIPT_SWEEP_JOURNAL_FILENAME = "transcript-sweep-journal.json";
@@ -407,7 +408,7 @@ export class TranscriptSweepJournalRecorder {
     } catch (err) {
       log.warn(`cockpit: ${this.label} journal: write failed (non-fatal)`, {
         op,
-        message: err instanceof Error ? err.message : String(err),
+        message: getLoggableErrorSummary(err),
       });
     }
   }
@@ -441,7 +442,7 @@ export class TranscriptSweepJournalRecorder {
       });
     } catch (err) {
       log.warn("cockpit: transcript sweep journal: boot reconcile failed (non-fatal)", {
-        message: err instanceof Error ? err.message : String(err),
+        message: getLoggableErrorSummary(err),
       });
     }
   }
@@ -552,7 +553,7 @@ export function readJournalSummary(
   } catch (err) {
     log.warn("cockpit: transcript sweep journal: summary read failed", {
       filePath,
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return summarizeJournal(emptyJournal());
   }

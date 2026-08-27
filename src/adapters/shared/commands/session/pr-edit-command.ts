@@ -13,6 +13,7 @@ import {
   SessionConflictError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
@@ -197,7 +198,7 @@ export async function executeSessionPrEdit(
           }
           log.debug("session.pr.edit: session resolution failed; falling back to caller task", {
             task: params.task,
-            error: getErrorMessage(err),
+            error: getLoggableErrorSummary(err),
           });
         }
 
@@ -304,7 +305,7 @@ export function createSessionPrEditCommand(
       } catch (error) {
         log.debug(`Error in session.pr.edit`, {
           params,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
         throw error;

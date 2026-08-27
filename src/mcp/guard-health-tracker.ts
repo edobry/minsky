@@ -45,6 +45,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Persisted event shape (must match .minsky/hooks/guard-health.ts's GuardHealthEvent)
@@ -370,7 +371,7 @@ function readCleanGuardInvocations(): GuardInvocation[] {
     return invocations;
   } catch (err) {
     log.debug("guard_health_tracker: failed to read fire-log (non-fatal)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return [];
   }
@@ -444,7 +445,7 @@ export class GuardHealthTracker {
     } catch (err) {
       log.debug("guard_health_tracker: failed to read guard-health log (non-fatal)", {
         path: logPath,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return [];
     }
@@ -464,7 +465,7 @@ export class GuardHealthTracker {
       return computeGuardHealthSummary(events, now, readCleanGuardInvocations());
     } catch (err) {
       log.warn("guard_health_tracker: getSummary failed, returning zero-filled default", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return { byGuard: {}, criticalGuards: [], attentionGuards: [], escalation: "none" };
     }

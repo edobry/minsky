@@ -41,6 +41,7 @@ import { dirname, resolve } from "node:path";
 import { log } from "@minsky/shared/logger";
 import type { AskKind } from "@minsky/domain/ask/types";
 import type { FormLintMatch } from "@minsky/domain/ask/form-lint";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Repo-relative path to the calibration JSONL log (per the task spec). */
 export const ASK_FORM_LINT_CALIBRATION_LOG = ".minsky/ask-form-lint-calibration.jsonl";
@@ -125,7 +126,7 @@ export function appendAskFormLintCalibrationRecord(
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
   } catch (err: unknown) {
     log.warn("asks.create: failed to write form-lint calibration log (best-effort, swallowed)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

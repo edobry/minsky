@@ -31,6 +31,7 @@ import type {
   ElicitInputParams,
   ElicitInputResult,
 } from "../../client-capabilities";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -172,7 +173,7 @@ export async function dispatchToElicitation(
     // return object intentionally has no `response` field).
     log.warn("elicitation transport: dispatch failed; leaving Ask suspended", {
       askId: routedAsk.id,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return buildSuspendedClose(routedAsk, err);
   }

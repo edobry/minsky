@@ -36,7 +36,7 @@ import {
   defineCommand,
   type CommandExecutionContext,
 } from "../command-registry";
-import { ValidationError } from "@minsky/domain/errors/index";
+import { ValidationError, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import { APPROVAL_TOKEN_EXAMPLES, isApproveShapedToken } from "@minsky/shared/ask-approval";
 import { emitAnsweredAskWakeBestEffort } from "./asks-answered-wake";
@@ -176,7 +176,7 @@ async function buildCompositeWakeSink(
       }
     } catch (err: unknown) {
       log.warn("asks.reconcile: could not initialize PersistentWakeSignalSink", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }
@@ -204,7 +204,7 @@ async function getAskDb(
     return db ?? null;
   } catch (err: unknown) {
     log.warn("asks: could not resolve database connection", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -1644,7 +1644,7 @@ function makeProductionPageDeps(): PrincipalPageDeps {
         });
       } catch (err: unknown) {
         log.warn("ask.page_failed: event emission also failed (already logged above)", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     },
@@ -1682,7 +1682,7 @@ async function dispatchPrincipalPage(
   } catch (err: unknown) {
     log.error("ask page dispatch threw; ask creation is unaffected", {
       askId: ask.id,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }
@@ -2015,7 +2015,7 @@ export async function validateEditOptionsAgainstExistingAsk(
       "asks.edit: could not fetch existing Ask to check authorization.approve options guard (fail-open)",
       {
         askId: resolvedId,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       }
     );
     return;
@@ -2143,7 +2143,7 @@ export async function validateEditFormLintAgainstExistingAsk(
   } catch (err: unknown) {
     log.warn("asks.edit: could not fetch existing Ask to run form-lint (fail-open)", {
       askId: resolvedId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return;
   }
@@ -2211,7 +2211,7 @@ async function resolveCurrentProjectScope(
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return undefined;
   }
@@ -2582,7 +2582,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           } catch (err: unknown) {
             // Best-effort: swallow any errors resolving the DB or building the emitter.
             log.warn("asks.create: failed to emit ask.created event (best-effort, swallowed)", {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           }
         }

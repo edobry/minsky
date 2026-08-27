@@ -20,6 +20,7 @@ import { log } from "@minsky/shared/logger";
 import { wakePendingTable } from "../storage/schemas/wake-pending-schema";
 import type { WakePendingRecord, WakePendingInsert } from "../storage/schemas/wake-pending-schema";
 import type { WakeSignalPayload } from "./wake-on-respond";
+import { getLoggableErrorSummary } from "../errors/index";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -175,7 +176,7 @@ export class DrizzleWakePendingRepository implements WakePendingRepository {
     } catch (err: unknown) {
       log.error("wake_pending: failed to release undeliverable rows; they remain marked", {
         count: ids.length,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

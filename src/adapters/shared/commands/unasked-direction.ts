@@ -19,7 +19,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   listFindingsSessions,
   readFindings,
@@ -140,7 +140,7 @@ export function registerUnaskedDirectionCommands(
         rows.sort((a, b) => a.analyzedAt.localeCompare(b.analyzedAt));
         return { rows };
       } catch (error) {
-        log.error("unasked-direction.list failed", { error: getErrorMessage(error) });
+        log.error("unasked-direction.list failed", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },
@@ -200,7 +200,7 @@ export function registerUnaskedDirectionCommands(
 
         return { applied: true, signatureSeeded: seed };
       } catch (error) {
-        log.error("unasked-direction.mark-real failed", { error: getErrorMessage(error) });
+        log.error("unasked-direction.mark-real failed", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },
@@ -248,7 +248,7 @@ export function registerUnaskedDirectionCommands(
         return { applied: true };
       } catch (error) {
         log.error("unasked-direction.mark-false-positive failed", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         throw error;
       }

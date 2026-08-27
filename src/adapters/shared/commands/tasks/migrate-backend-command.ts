@@ -20,6 +20,7 @@ import {
 } from "@minsky/domain/configuration/backend-detection";
 import { updateSessionTaskAssociation } from "@minsky/domain/session/session-task-association";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // Supported backends for migration (subset of TaskBackend)
 const MIGRATION_BACKENDS = [TaskBackend.MINSKY, TaskBackend.GITHUB] as const;
@@ -379,7 +380,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBa
               log.warn("Failed to update session associations", {
                 taskId,
                 newTaskId,
-                error: error instanceof Error ? error.message : String(error),
+                error: getLoggableErrorSummary(error),
               });
             }
           }
@@ -404,7 +405,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBa
             log.debug("Failed to check session associations in dry-run", {
               taskId,
               newTaskId,
-              error: error instanceof Error ? error.message : String(error),
+              error: getLoggableErrorSummary(error),
             });
           }
         }

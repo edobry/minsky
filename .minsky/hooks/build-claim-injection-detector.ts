@@ -103,6 +103,7 @@ import {
   readStore,
   type MergeDeploySurfaceStore,
 } from "../../packages/domain/src/deployment/merge-deploy-surface-record";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -634,7 +635,7 @@ export async function main(): Promise<void> {
     result = detectBuildClaimInjection(assistantText, lines);
   } catch (err) {
     console.error(
-      `[build-claim-injection-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[build-claim-injection-detector] detection error: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }

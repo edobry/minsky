@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import { join, resolve, relative, dirname } from "path";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import {
   WorkspaceBackend,
   FileInfo,
@@ -260,7 +260,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           // Log but don't fail on individual file errors
           log.warn("Failed to get info for directory entry", {
             entry,
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
       }

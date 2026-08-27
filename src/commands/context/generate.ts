@@ -25,6 +25,7 @@ import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayAnalysisResults, outputCSV } from "./generate-display";
 import { generateVisualizationData, displayContextVisualization } from "./generate-visualization";
 import { displayModelComparison } from "./generate-comparison";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createGenerateCommand(): Command {
   // Register default components
@@ -88,12 +89,10 @@ Examples:
           await executeGenerate(options);
         } catch (error) {
           log.error("Failed to generate context", {
-            error: error instanceof Error ? error.message : String(error),
+            error: getLoggableErrorSummary(error),
             stack: error instanceof Error ? error.stack : undefined,
           });
-          log.error(
-            `Failed to generate context: ${error instanceof Error ? error.message : String(error)}`
-          );
+          log.error(`Failed to generate context: ${getLoggableErrorSummary(error)}`);
           process.exit(1);
         }
       })

@@ -25,6 +25,7 @@ import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
 import type { DeliverableFilter } from "@minsky/domain/ask/wake-pending-repository";
 import { POOL_ADMISSION_DEADLINE_MS } from "@minsky/domain/persistence/raw-sql-pooler-guard";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Surface the middleware uses against the wake-pending store. Subset of
@@ -338,7 +339,7 @@ export async function enrichWakeResponse(
     } catch (err: unknown) {
       log.debug("[wake-enrichment] session resolver failed; skipping", {
         tool: toolName,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
 

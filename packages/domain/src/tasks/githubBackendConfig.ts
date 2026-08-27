@@ -10,7 +10,7 @@ import { existsSync, statSync } from "fs";
 import { isAbsolute, join } from "path";
 import { log } from "@minsky/shared/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { isInsideGitWorkTree } from "../utils/git-exec";
 import { getConfiguration } from "../configuration/index";
 import { processCwd } from "@minsky/shared/process";
@@ -133,7 +133,7 @@ export function extractGitHubRepoFromRemote(
         // (A hardcoded edobry/minsky fallback lived here until mt#1428.)
         log.debug("Failed to resolve upstream remote for local-path origin", {
           remoteUrl,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     }
@@ -142,7 +142,7 @@ export function extractGitHubRepoFromRemote(
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
     });
     return null;
   }
@@ -250,7 +250,7 @@ export async function createGitHubLabels(
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
       });
     }
   }

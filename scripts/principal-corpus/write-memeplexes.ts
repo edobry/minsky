@@ -16,6 +16,7 @@ import "reflect-metadata";
 import { readFileSync, existsSync } from "fs";
 import { setupConfiguration } from "@minsky/domain/config-setup";
 import type { MemeplexEntry } from "@minsky/domain/principal-corpus/memeplex-synthesizer";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const MEMEPLEX_IN = "tmp/principal-corpus-memeplexes.json";
 
@@ -107,7 +108,7 @@ async function main() {
       }
     } catch (err) {
       console.warn(
-        `[memwrite] could not check for existing principal-thinking memories: ${err instanceof Error ? err.message : String(err)}; proceeding.`
+        `[memwrite] could not check for existing principal-thinking memories: ${getLoggableErrorSummary(err)}; proceeding.`
       );
     }
   }
@@ -130,9 +131,7 @@ async function main() {
       written++;
       console.log(`[memwrite] wrote ${record.id} (${m.theme}): ${m.name}`);
     } catch (err) {
-      console.error(
-        `[memwrite] FAILED to write "${m.name}": ${err instanceof Error ? err.message : String(err)}`
-      );
+      console.error(`[memwrite] FAILED to write "${m.name}": ${getLoggableErrorSummary(err)}`);
     }
   }
   console.log(`[memwrite] done. ${written}/${memeplexes.length} memeplex memories written.`);

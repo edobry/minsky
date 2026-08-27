@@ -1,4 +1,4 @@
-import { MinskyError } from "../errors/index";
+import { MinskyError, getLoggableErrorSummary } from "../errors/index";
 import { getErrorMessage } from "../errors/index";
 import { ValidationError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
@@ -231,7 +231,7 @@ export async function fetchDefaultBranchImpl(
     return result;
   } catch (error) {
     log.error("Could not determine default branch, falling back to 'main'", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       repoPath,
     });
     return "main";
@@ -251,7 +251,7 @@ export async function execInRepositoryImpl(
     return stdout;
   } catch (error) {
     log.debug("Command execution failed", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       command,
       workdir,
     });

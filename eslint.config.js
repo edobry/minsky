@@ -602,18 +602,22 @@ export default [
       //     the rule's definition. Every one was a caught error going into a
       //     `log.*` / `console.*` call.
       //
-      // "off" for the same zero-tolerance-warning-gate reason as
-      // no-silent-catch above (mt#1097, no override): 590 violations cannot
-      // ship at "warn". Bulk cleanup + flip tracked at mt#4639, on the
-      // mt#3312 / mt#3313 model.
+      // "error" as of mt#4639, which converted the population this rule was
+      // registered "off" for. The figure above (590) was measured over
+      // src/packages/services/scripts only; the gate that has to pass is
+      // `lint:strict` (`eslint .`), which saw 642 — the extra 49 being
+      // .minsky/hooks (18) plus its generated .claude/hooks mirror (18),
+      // tests/ (12), and one site in eslint-rules/ itself.
       //
-      // One sub-category the cleanup should decide rather than mass-rewrite:
-      // ~4 of the 30 sampled were CLI user-facing `console.error` in scripts/
-      // (e.g. status-command.ts:20), where the terse message is arguably the
-      // right output for a human at a terminal, not a diagnostic log. Those
-      // are correctly flagged by the definition and may still want to stay as
-      // they are.
-      "custom/prefer-loggable-error-summary": "off",
+      // The CLI-facing `console.*` sub-category the "off" comment flagged for
+      // a decision was CONVERTED, not exempted, on a measurement rather than a
+      // preference: getLoggableErrorSummary returns a byte-identical string to
+      // `err.message` for a plain Error and to `String(err)` for a non-Error.
+      // It differs only when the error carries a `.cause` (which the human at
+      // the terminal wants) or when the message exceeds 2000 chars (where
+      // truncating helps a terminal). So "terse for a human" was not a real
+      // cost at those 85 sites. Two carve-outs remain, both below.
+      "custom/prefer-loggable-error-summary": "error",
 
       // mt#3299 — flag execSync/spawnSync/fetch call sites lacking a
       // timeout/AbortSignal argument (mechanizable slice of the
@@ -1274,6 +1278,39 @@ export default [
         { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
       ],
       "custom/no-node-import-in-cockpit-web": ["error", COCKPIT_NODE_IMPORT_GUARD_OPTIONS],
+    },
+  },
+  // === prefer-loggable-error-summary CARVE-OUTS (mt#4639) ===
+  //
+  // Both use ESLint's own documented mechanism for scoping a rule's severity to
+  // a subset — "To disable rules inside of a configuration file for a group of
+  // files, use a subsequent config object with a `files` key"
+  // (https://eslint.org/docs/latest/use/configure/rules). A bespoke exemption
+  // OPTION on the rule was considered and rejected: the vendor documents this,
+  // and ADR-036 records the same convention for this repo.
+  //
+  // (1) Test fixtures are filler by construction. `tests/fixtures/typescript/
+  // large-service.ts` exists to be a LARGE FILE for the edit-operation
+  // integration tests (`tests/integration/helpers/edit-test-helpers.ts:380`
+  // names it); its 9 flagged sites are not log sites and there is no error
+  // whose cause could survive. Converting them would also make a fixture
+  // depend on @minsky/domain, which nothing else under tests/fixtures does.
+  {
+    files: ["tests/fixtures/**"],
+    rules: {
+      "custom/prefer-loggable-error-summary": "off",
+    },
+  },
+  // (2) A lint rule module must not import the application it lints. ESLint
+  // loads these through Node's ESM loader (see the extension-suffix comment in
+  // prefer-loggable-error-summary.js, verified mt#4632), and they must resolve
+  // standalone — `eslint-rules/no-unregistered-minsky-env-var.js:107` warns
+  // when it cannot read the env-var registry, which is exactly the path that
+  // must not itself depend on a package resolving.
+  {
+    files: ["eslint-rules/**"],
+    rules: {
+      "custom/prefer-loggable-error-summary": "off",
     },
   },
 ];

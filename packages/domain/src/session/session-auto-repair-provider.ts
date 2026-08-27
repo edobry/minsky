@@ -6,6 +6,7 @@ import { createGitService } from "../git";
 import { getMinskyStateDir } from "@minsky/shared/paths";
 import { join } from "path";
 import { isUuidSessionId } from "../tasks/task-id";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Auto-repair wrapper for SessionProviderInterface
@@ -90,7 +91,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
       } catch (error) {
         log.debug("Auto-repair failed for session lookup", {
           session,
-          error: error instanceof Error ? error.message : String(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     }
@@ -135,7 +136,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
       } catch (error) {
         log.warn("Auto-repair failed with error", {
           taskId,
-          error: error instanceof Error ? error.message : String(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     } else if (this.autoRepairAttempted.has(`task:${taskId}`)) {

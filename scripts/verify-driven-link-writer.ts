@@ -31,6 +31,7 @@
 import "reflect-metadata";
 import { randomUUID } from "crypto";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function getDb(): Promise<PostgresJsDatabase> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
     console.error(
       "SKIP: failed to initialize DB connection — Postgres not available in this environment."
     );
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(0);
   }
 
@@ -167,7 +168,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error("Verification crashed:", err instanceof Error ? err.message : String(err));
+    console.error("Verification crashed:", getLoggableErrorSummary(err));
     process.exit(1);
   });
 }

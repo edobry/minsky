@@ -28,7 +28,12 @@
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors/index";
+import {
+  MinskyError,
+  ResourceNotFoundError,
+  ValidationError,
+  getLoggableErrorSummary,
+} from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { SessionProviderInterface, SessionRecord } from "../types";
 import type { RepositoryBackend } from "../../repository/index";
@@ -161,7 +166,7 @@ export async function sessionPrClose(
         // Non-fatal: the PR is already closed on GitHub. Surface as warn so
         // operators can investigate session-DB drift if it recurs.
         log.warn(
-          `Failed to persist closed PR state to session DB for ${resolvedSessionId}: ${dbError instanceof Error ? dbError.message : String(dbError)}`
+          `Failed to persist closed PR state to session DB for ${resolvedSessionId}: ${getLoggableErrorSummary(dbError)}`
         );
       }
     } else {

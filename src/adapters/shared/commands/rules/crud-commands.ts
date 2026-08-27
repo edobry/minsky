@@ -1,7 +1,7 @@
 /**
  * Rules CRUD commands: get, create, update, generate
  */
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
@@ -62,7 +62,7 @@ export function registerCrudCommands(
           debug: params.debug,
         });
       } catch (error) {
-        log.error("Failed to get rule", { error: getErrorMessage(error), id: params.id });
+        log.error("Failed to get rule", { error: getLoggableErrorSummary(error), id: params.id });
         throw error;
       }
     },
@@ -91,7 +91,7 @@ export function registerCrudCommands(
         });
       } catch (error) {
         log.error("Failed to generate rules", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           interface: params.interface,
           selectedRules: params.rules,
           dryRun: params.dryRun,
@@ -124,7 +124,10 @@ export function registerCrudCommands(
           overwrite: params.overwrite,
         });
       } catch (error) {
-        log.error("Failed to create rule", { error: getErrorMessage(error), id: params.id });
+        log.error("Failed to create rule", {
+          error: getLoggableErrorSummary(error),
+          id: params.id,
+        });
         throw error;
       }
     },
@@ -152,7 +155,10 @@ export function registerCrudCommands(
           debug: params.debug,
         });
       } catch (error) {
-        log.error("Failed to update rule", { error: getErrorMessage(error), id: params.id });
+        log.error("Failed to update rule", {
+          error: getLoggableErrorSummary(error),
+          id: params.id,
+        });
         throw error;
       }
     },

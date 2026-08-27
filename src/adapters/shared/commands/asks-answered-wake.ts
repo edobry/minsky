@@ -17,6 +17,7 @@ import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import type { Ask } from "@minsky/domain/ask/types";
 import type { WakeSignalSink } from "@minsky/domain/ask/wake-on-respond";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Cap on the answer text carried in a wake payload.
@@ -97,7 +98,7 @@ export async function emitAnsweredAskWakeBestEffort(
   } catch (err: unknown) {
     log.warn("asks.respond: answered-ask wake write failed (non-blocking)", {
       askId: ask.id,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

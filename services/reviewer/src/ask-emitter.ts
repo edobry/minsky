@@ -39,6 +39,7 @@ import { log } from "./logger";
 import type { AskRepository, CreateAskInput } from "@minsky/domain/ask/repository";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Provenance tags for the directly-emitted Ask. These are NOT produced by a
@@ -184,7 +185,7 @@ export class DomainAskEmitter implements AskEmitter {
         pr: ctx.prNumber,
         headSha: ctx.headSha,
         circuitId: ctx.circuitId,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return "failed";
     }

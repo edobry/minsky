@@ -64,6 +64,7 @@ import {
   type DegradedDedupeSnapshot,
 } from "./principal-channel-degraded-dedupe";
 import type { PermissionMode } from "./driven-session-host";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The channel's four event types.
@@ -152,7 +153,7 @@ function readPrincipalChannelSection(): Partial<PrincipalChannelConfig> {
     return getConfiguration().principalChannel ?? {};
   } catch (err: unknown) {
     log.warn("[principal-channel] could not read configuration; channel stays disabled", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return {};
   }
@@ -330,7 +331,7 @@ export async function ensureTelegramChannelTopic(
     log.warn("[principal-channel] failed to record a topic mapping", {
       chatId,
       messageThreadId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
   return localId;
@@ -410,7 +411,7 @@ export async function bindTelegramChannelTopicToTask(
       chatId,
       messageThreadId,
       taskId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return {
       kind: "invalid-task",
@@ -1108,7 +1109,7 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
       // makes safe: Telegram replays at most 24h and every replayed update
       // carries a token that already exists in the log.
       log.warn("[principal-channel] could not read the poll cursor; starting cold", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return undefined;
     }

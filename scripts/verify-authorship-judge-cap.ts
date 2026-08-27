@@ -38,6 +38,7 @@ import { AgentTranscriptService } from "../packages/domain/src/provenance/transc
 import type { TranscriptMessage } from "../packages/domain/src/provenance/transcript-service";
 import { AuthorshipJudge } from "../packages/domain/src/provenance/authorship-judge";
 import type { ConversationId } from "../packages/domain/src/ids";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface JudgeRow {
   conversationId: string;
@@ -104,9 +105,7 @@ async function buildCompletionService(): Promise<unknown | null> {
     requireAIProviders(resolved);
     return createCompletionService(resolved);
   } catch (err) {
-    console.log(
-      `note: completion service unavailable (${err instanceof Error ? err.message : String(err)})`
-    );
+    console.log(`note: completion service unavailable (${getLoggableErrorSummary(err)})`);
     return null;
   }
 }

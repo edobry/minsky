@@ -47,7 +47,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { ListTruncationMetadata } from "@minsky/domain/utils/list-pagination";
 import type { TranscriptListRow } from "@minsky/domain/transcripts/transcript-list-service";
@@ -334,7 +334,7 @@ async function resolveTaskTitles(
     const tasks = await taskService.getTasks(Array.from(ids));
     return { titles: new Map(tasks.map((t) => [t.id, t.title])), degradedNoTaskService: false };
   } catch (err) {
-    log.warn(`transcripts.list: task title resolution failed: ${getErrorMessage(err)}`);
+    log.warn(`transcripts.list: task title resolution failed: ${getLoggableErrorSummary(err)}`);
     return { titles: new Map(), degradedNoTaskService: false };
   }
 }
@@ -390,7 +390,7 @@ async function buildDiskCoverage(allKnownIds: string[]): Promise<TranscriptListC
     };
   } catch (err) {
     // Coverage is informational — never fail the whole list on a disk-scan error.
-    log.warn(`transcripts.list: disk-coverage sweep failed: ${getErrorMessage(err)}`);
+    log.warn(`transcripts.list: disk-coverage sweep failed: ${getLoggableErrorSummary(err)}`);
     return {
       diskCoverageChecked: false,
       note: `Disk-discovery sweep failed and was skipped: ${getErrorMessage(err)}`,

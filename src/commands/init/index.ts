@@ -7,7 +7,7 @@
  */
 import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createInitCommand(): Command {
   const cmd = new Command("init");
@@ -55,7 +55,7 @@ export function createInitCommand(): Command {
       if (typed.message) console.log(typed.message);
       if (!typed.success) process.exit(1);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });

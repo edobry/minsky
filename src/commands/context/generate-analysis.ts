@@ -16,6 +16,7 @@ import type {
   OptimizationSuggestion,
   TokenizerInfo,
 } from "./generate-types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The subset of the model cache this module reads.
@@ -184,7 +185,7 @@ export async function getModelContextWindow(
     // failed — the rest of the report is still worth producing.
     log.debug("Model cache unreadable; reporting context window as unknown", {
       model,
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     return null;
   }

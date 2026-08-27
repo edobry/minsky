@@ -19,7 +19,7 @@ import {
 import { CommonParameters } from "../common-parameters";
 import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import { parseShortId, formatShortId } from "@minsky/domain/utils/short-id";
@@ -360,7 +360,7 @@ async function getDb(
     return (await provider.getDatabaseConnection()) ?? null;
   } catch (err: unknown) {
     log.warn("refs: could not resolve DB connection", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

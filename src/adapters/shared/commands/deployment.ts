@@ -35,6 +35,7 @@ import {
 } from "../command-registry";
 import { log } from "@minsky/shared/logger";
 import { emitSystemEventBestEffort } from "./system-event-emit";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Configured default service (mt#2821)
@@ -64,7 +65,7 @@ export async function readConfiguredDefaultDeploymentService(): Promise<string |
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
   } catch (error) {
     log.debug("Failed to read deployment.defaultService config key", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     return undefined;
   }

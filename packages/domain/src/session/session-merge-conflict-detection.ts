@@ -16,8 +16,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { ValidationError } from "../errors/index";
-import { getErrorMessage } from "../errors";
+import { ValidationError, getLoggableErrorSummary } from "../errors/index";
 import type { SessionRecord } from "./types";
 import type { RepositoryBackend } from "../repository/index";
 import { resolveBotIdentities } from "../configuration/bot-identity";
@@ -277,7 +276,7 @@ export async function checkGitHubMergeApprovalBlockers(
             // COMMENT-event reviews cannot be dismissed (GitHub 422); merge can still proceed.
             log.warn(
               `forceBypass: could not dismiss review ${review.reviewId} on PR ` +
-                `#${sessionRecord.pullRequest.number}: ${getErrorMessage(dismissError)}`
+                `#${sessionRecord.pullRequest.number}: ${getLoggableErrorSummary(dismissError)}`
             );
           }
         }

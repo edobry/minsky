@@ -10,6 +10,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { first } from "@minsky/shared/array-safety";
@@ -224,7 +225,7 @@ export async function sessionPrGet(
           finalPullRequest = repairedPrData;
         }
       } catch (repairError) {
-        log.debug(`GitHub API repair failed: ${getErrorMessage(repairError)}`);
+        log.debug(`GitHub API repair failed: ${getLoggableErrorSummary(repairError)}`);
         // Continue with original no-PR-found logic below
       }
     }
@@ -283,7 +284,7 @@ export async function sessionPrGet(
           finalPullRequest = enriched;
         }
       } catch (enrichError) {
-        log.debug(`GitHub PR enrichment skipped: ${getErrorMessage(enrichError)}`);
+        log.debug(`GitHub PR enrichment skipped: ${getLoggableErrorSummary(enrichError)}`);
       }
     }
 
@@ -305,7 +306,7 @@ export async function sessionPrGet(
           await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
         ).trim();
       } catch (error) {
-        log.debug(`Could not get current branch: ${getErrorMessage(error)}`);
+        log.debug(`Could not get current branch: ${getLoggableErrorSummary(error)}`);
       }
     }
 
@@ -341,7 +342,7 @@ export async function sessionPrGet(
         }
       } catch (error) {
         log.debug(
-          `Failed to fetch live PR data, falling back to cached: ${getErrorMessage(error)}`
+          `Failed to fetch live PR data, falling back to cached: ${getLoggableErrorSummary(error)}`
         );
       }
     }

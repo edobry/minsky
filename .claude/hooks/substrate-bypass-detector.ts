@@ -50,6 +50,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants and detection result type
@@ -935,7 +936,7 @@ export async function main(): Promise<void> {
     lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch (err) {
     console.error(
-      `[substrate-bypass-detector] Failed to read transcript: ${err instanceof Error ? err.message : String(err)}`
+      `[substrate-bypass-detector] Failed to read transcript: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }
@@ -949,7 +950,7 @@ export async function main(): Promise<void> {
     turnLines = extractLastAssistantTurn(lines);
   } catch (err) {
     console.error(
-      `[substrate-bypass-detector] Failed to extract assistant turn: ${err instanceof Error ? err.message : String(err)}`
+      `[substrate-bypass-detector] Failed to extract assistant turn: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }
@@ -973,7 +974,7 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(
-      `[substrate-bypass-detector] Verbal commitment detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[substrate-bypass-detector] Verbal commitment detection error: ${getLoggableErrorSummary(err)}`
     );
   }
 
@@ -988,7 +989,7 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(
-      `[substrate-bypass-detector] Skill bypass detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[substrate-bypass-detector] Skill bypass detection error: ${getLoggableErrorSummary(err)}`
     );
   }
 
@@ -1003,7 +1004,7 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(
-      `[substrate-bypass-detector] DB substrate bypass detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[substrate-bypass-detector] DB substrate bypass detection error: ${getLoggableErrorSummary(err)}`
     );
   }
 
@@ -1019,7 +1020,7 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(
-      `[substrate-bypass-detector] Passive outcome detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[substrate-bypass-detector] Passive outcome detection error: ${getLoggableErrorSummary(err)}`
     );
   }
 

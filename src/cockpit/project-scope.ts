@@ -31,6 +31,7 @@
 import { ALL_PROJECTS, type ProjectScope } from "@minsky/domain/project/scope";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Sentinel value the frontend sends to explicitly request the "All projects" view. */
 export const ALL_PROJECTS_PARAM = "all";
@@ -90,7 +91,7 @@ export async function resolveCockpitProjectScope(
     log.warn(
       `[cockpit] project-scope resolution failed for slug "${projectParam}"; ` +
         `falling back to ALL_PROJECTS (a scoping failure must never take a widget down)`,
-      { error: err instanceof Error ? err.message : String(err) }
+      { error: getLoggableErrorSummary(err) }
     );
     return ALL_PROJECTS;
   }

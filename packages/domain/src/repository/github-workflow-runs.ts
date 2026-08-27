@@ -17,7 +17,7 @@
  *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-failed-jobs-from-a-workflow-run
  */
 
-import { MinskyError } from "../errors/index";
+import { MinskyError, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { handleOctokitError, classifyOctokitError } from "./github-error-handler";
 import { type GitHubContext, createOctokit } from "./github-pr-operations";
@@ -258,7 +258,7 @@ export async function viewWorkflowRunLogs(
     } catch (unzipErr) {
       log.debug("ZIP extraction failed — returning base64 fallback", {
         runId,
-        error: unzipErr instanceof Error ? unzipErr.message : String(unzipErr),
+        error: getLoggableErrorSummary(unzipErr),
       });
       // Consumer-side decode: return as base64 so the content isn't lost.
       // Use Buffer.from(uint8Array).toString("base64") rather than
@@ -393,7 +393,7 @@ export async function rerunWorkflowRun(
   } catch (refetchError) {
     log.debug("rerunWorkflowRun: post-rerun refetch failed (non-fatal)", {
       runId,
-      error: refetchError instanceof Error ? refetchError.message : String(refetchError),
+      error: getLoggableErrorSummary(refetchError),
     });
   }
 

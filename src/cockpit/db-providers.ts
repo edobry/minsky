@@ -58,6 +58,7 @@ import {
   PersistenceInitTimeoutError,
   type DbStatus,
 } from "./shared-persistence";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -112,7 +113,7 @@ export async function describeServerPersistenceUnavailability(): Promise<string>
     return describePersistenceUnavailability(await getCachedPersistenceProvider());
   } catch (err: unknown) {
     log.warn("cockpit: persistence unavailable", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return describeFailedPersistenceInit(err);
   }
@@ -808,11 +809,7 @@ export async function getServerChangesetService(): Promise<ChangesetService | nu
     // Never swallow silently: a dead credential path is indistinguishable from
     // "no live data" at the endpoint, which is exactly how a degraded page
     // looks healthy. Log the real reason.
-    log.debug(
-      `[cockpit] changeset service construction failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    log.debug(`[cockpit] changeset service construction failed: ${getLoggableErrorSummary(err)}`);
     return null;
   }
 }
@@ -850,11 +847,7 @@ export async function getServerChecksReader(): Promise<
     return (headSha: string) =>
       getCheckRunsForRef({ owner: gh.owner, repo: gh.repo }, headSha, octokit);
   } catch (err) {
-    log.debug(
-      `[cockpit] checks reader construction failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    log.debug(`[cockpit] checks reader construction failed: ${getLoggableErrorSummary(err)}`);
     return null;
   }
 }

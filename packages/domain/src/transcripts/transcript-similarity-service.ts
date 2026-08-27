@@ -81,7 +81,7 @@ import type { EmbeddingService } from "../ai/embeddings/types";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
 import type { AgentSessionId } from "./transcript-source";
 
@@ -671,7 +671,7 @@ export class TranscriptSimilarityService {
       return new Map(countRows.map((r) => [r.agentSessionId, r.count]));
     } catch (err) {
       log.warn(
-        `TranscriptSimilarityService.getMessageCounts: failed to fetch counts: ${getErrorMessage(err)}`
+        `TranscriptSimilarityService.getMessageCounts: failed to fetch counts: ${getLoggableErrorSummary(err)}`
       );
       return new Map();
     }

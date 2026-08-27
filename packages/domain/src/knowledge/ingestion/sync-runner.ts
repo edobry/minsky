@@ -12,6 +12,7 @@ import type { KnowledgeSourceProvider, SyncReport } from "../types";
 import { chunkContent } from "./chunker";
 import { log } from "@minsky/shared/logger";
 import { reconcileAfterSync } from "../reconciliation/sync-reconciler";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 export interface SyncRunnerDeps {
   embeddingService: EmbeddingService;
@@ -149,9 +150,9 @@ export async function runSync(
             }`,
           });
           log.warn(
-            `[sync-runner] error processing chunk ${chunkIndex} of ${document.id}: ${
-              err instanceof Error ? err.message : String(err)
-            }`
+            `[sync-runner] error processing chunk ${chunkIndex} of ${document.id}: ${getLoggableErrorSummary(
+              err
+            )}`
           );
           // Continue with remaining chunks
         }
@@ -175,9 +176,7 @@ export async function runSync(
         }`,
       });
       log.warn(
-        `[sync-runner] error processing document ${document.id}: ${
-          err instanceof Error ? err.message : String(err)
-        }`
+        `[sync-runner] error processing document ${document.id}: ${getLoggableErrorSummary(err)}`
       );
     }
   }
@@ -204,11 +203,7 @@ export async function runSync(
       await reconcileAfterSync(clusteredChunks, vectorStorage, deps.reconciliation);
     } catch (err) {
       // Non-fatal: clustering failures don't block the sync report
-      log.warn(
-        `[sync-runner] post-sync reconciliation failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
+      log.warn(`[sync-runner] post-sync reconciliation failed: ${getLoggableErrorSummary(err)}`);
     }
   }
 

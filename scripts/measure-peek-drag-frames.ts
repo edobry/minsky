@@ -74,6 +74,7 @@
  * `scripts/verify-peek-resize.ts`.
  */
 import { preflightCockpit } from "./lib/verify-preflight";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
 const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
@@ -845,7 +846,7 @@ try {
   await closeTab(targetId);
   process.exit(0);
 } catch (err) {
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
   if (targetId) await closeTab(targetId);
   process.exit(1);
 }

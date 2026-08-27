@@ -5,6 +5,7 @@ import { LocalEmbeddingService } from "./embedding-service-local";
 import { GeminiEmbeddingService } from "./embedding-service-gemini";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 function isQuotaExhausted(error: unknown): boolean {
   const msg = String((error as Error)?.message || "");
@@ -77,7 +78,7 @@ export async function createEmbeddingServiceFromConfig(): Promise<EmbeddingServi
     return new FallbackEmbeddingService(primary, fallback, primaryName, fallbackName);
   } catch (err) {
     log.warn(
-      `Failed to initialize fallback embedding provider ${fallbackName}: ${err instanceof Error ? err.message : String(err)}. Continuing with ${primaryName} only.`
+      `Failed to initialize fallback embedding provider ${fallbackName}: ${getLoggableErrorSummary(err)}. Continuing with ${primaryName} only.`
     );
     return primary;
   }

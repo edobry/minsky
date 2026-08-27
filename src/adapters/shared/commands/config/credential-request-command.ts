@@ -40,6 +40,7 @@ import { blockParentTask } from "@minsky/domain/credentials/parent-task-gate";
 import type { ParentTaskGateDeps } from "@minsky/domain/credentials/parent-task-gate";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { createAskWithFormLint, requireAskRepository } from "../asks";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The narrowest slice of the task service the parent-task gate needs (mt#4486).
@@ -249,7 +250,7 @@ export function createCredentialRequestRegistration(container?: AppContainerInte
             taskId: params.parentTaskId,
             recorded: plannedEntryStatus,
             authoritative: correction,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }

@@ -22,6 +22,7 @@
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { DefaultTokenizerService, type TokenizerService } from "../tokenizer-service";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 /**
  * Documented maximum input tokens per embedding model.
@@ -123,7 +124,7 @@ export async function truncateEmbeddingInput(
       model,
       maxChars,
       originalChars: text.length,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     // safeTruncate, not `.slice`: a raw slice can cut a UTF-16 surrogate pair in
     // half and emit a lone surrogate.

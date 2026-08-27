@@ -682,7 +682,7 @@ export function mountEntityThreadRoutes(
         session = await startSession({ seed });
       } catch (err) {
         log.error(`entity-thread: failed to start session for ${thread.localId}`, {
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
         // The turn is stored; the agent is not reachable. Say so rather than
         // returning 200 for a message no agent will ever see.
@@ -765,7 +765,7 @@ async function buildSeedForEntity(
       } catch (err) {
         // Not fatal: log it rather than swallowing, then seed without the body.
         log.warn(`entity-thread: no spec content for task ${entityId}`, {
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }

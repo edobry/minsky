@@ -21,6 +21,7 @@ import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevan
 import { resolvePersistenceFromCtx } from "../principal-corpus";
 import type { TweetRecord } from "@minsky/domain/principal-corpus/types";
 import { readFileSync, existsSync, writeFileSync } from "fs";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export const principalCorpusIndexEmbeddingsParams = composeParams(
   {
@@ -190,7 +191,7 @@ export class PrincipalCorpusIndexEmbeddingsCommand {
         } catch (err) {
           failed++;
           log.warn(
-            `[principal-corpus] embed failed for ${tweet.id}: ${err instanceof Error ? err.message : String(err)}`
+            `[principal-corpus] embed failed for ${tweet.id}: ${getLoggableErrorSummary(err)}`
           );
         }
       }

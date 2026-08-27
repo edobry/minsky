@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -54,7 +54,7 @@ export function createRegisterCommand(): Command {
         process.exit(1);
       }
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });

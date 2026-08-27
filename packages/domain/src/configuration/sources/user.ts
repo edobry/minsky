@@ -10,6 +10,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { parse } from "yaml";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 /**
  * User configuration file locations
@@ -54,7 +55,7 @@ export function loadUserConfiguration(): Record<string, unknown> {
       } catch (error) {
         // Log warning but continue to next file
         log.warn(
-          `Warning: Failed to load user config from ${configPath}: ${error instanceof Error ? error.message : String(error)}`
+          `Warning: Failed to load user config from ${configPath}: ${getLoggableErrorSummary(error)}`
         );
       }
     }
@@ -84,9 +85,7 @@ function loadConfigFile(filePath: string): Record<string, unknown> | null {
         return null;
     }
   } catch (error) {
-    log.warn(
-      `Warning: Failed to parse config file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.warn(`Warning: Failed to parse config file ${filePath}: ${getLoggableErrorSummary(error)}`);
     return null;
   }
 }
@@ -196,7 +195,7 @@ export function ensureUserConfigDir(): string {
     fs.mkdirSync(configDir, { recursive: true });
   } catch (error) {
     log.warn(
-      `Warning: Failed to create user config directory ${configDir}: ${error instanceof Error ? error.message : String(error)}`
+      `Warning: Failed to create user config directory ${configDir}: ${getLoggableErrorSummary(error)}`
     );
   }
 

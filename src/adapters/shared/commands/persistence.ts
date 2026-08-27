@@ -10,7 +10,7 @@ import { z } from "zod";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { readTextFileSync } from "@minsky/shared/fs";
 import { dirname, join } from "path";
-import { getErrorMessage, ensureError } from "@minsky/domain/errors/index";
+import { ensureError, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
 import type { SharedCommandRegistry } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "@minsky/domain/persistence/factory";
@@ -485,7 +485,7 @@ export function registerPersistenceCommands(
           validationResult,
         };
       } catch (error) {
-        log.error("Database check failed", { error: getErrorMessage(error) });
+        log.error("Database check failed", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },

@@ -61,6 +61,7 @@ import { nextShortId } from "@minsky/domain/utils/short-id";
 import { postgresSessions } from "@minsky/domain/storage/schemas/session-schema";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { WorkspaceId } from "@minsky/domain/ids";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Advisory lock — serializes concurrent `--execute` runs (mirrors the
@@ -333,9 +334,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(
-      `backfill-session-short-ids failed: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`backfill-session-short-ids failed: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });
 }

@@ -9,7 +9,7 @@
 
 import type { MinskyMCPServer } from "../../mcp/server";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { KnowledgeSourceConfig } from "@minsky/domain/knowledge/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
@@ -37,7 +37,7 @@ export function registerKnowledgeResources(
         return { sources };
       } catch (error) {
         log.error("[knowledge://sources] Failed to list sources", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         throw error;
       }
@@ -90,7 +90,7 @@ export function registerKnowledgeResources(
       } catch (error) {
         log.error("[knowledge resource] Failed to list source documents", {
           uri,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         throw error;
       }
@@ -172,7 +172,7 @@ export function registerKnowledgeResources(
       } catch (error) {
         log.error("[knowledge resource] Failed to fetch document", {
           uri,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         throw error;
       }

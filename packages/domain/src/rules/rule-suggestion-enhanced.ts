@@ -3,6 +3,7 @@ import { classifyRuleType, RuleType } from "./rule-classifier";
 import { matchesGlobPatterns } from "./glob-matcher";
 import { extractRuleMentions, stripRuleMentions } from "./rule-mention-parser";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Options for enhanced rule suggestion
@@ -115,9 +116,7 @@ export async function suggestRules(
       }
     } catch (error) {
       // If similarity service fails, continue without agent-requested rules
-      log.warn(
-        `Failed to search for agent-requested rules: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.warn(`Failed to search for agent-requested rules: ${getLoggableErrorSummary(error)}`);
     }
   }
 

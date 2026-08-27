@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage, getErrorStack } from "@minsky/domain/errors/index";
+import { getErrorStack, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { processCwd } from "@minsky/shared/process";
 import { resolveMinskyCommand } from "./resolve-server-command";
 
@@ -189,7 +189,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       stack: getErrorStack(error),
     });
 

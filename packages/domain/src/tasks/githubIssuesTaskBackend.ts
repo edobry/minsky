@@ -11,7 +11,7 @@
 import { Octokit } from "@octokit/rest";
 import { createTimeoutFetch } from "../github/octokit-timeout";
 import { join } from "path";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type {
   TaskData,
   TaskSpecData,
@@ -143,7 +143,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       }
     } catch (error) {
       log.warn("Failed to ensure GitHub labels exist", {
-        error: getErrorMessage(error as Error),
+        error: getLoggableErrorSummary(error as Error),
       });
     }
   }
@@ -269,7 +269,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // has no issues. This was also what made `getTaskStatus`'s rethrow
       // unreachable — it reads through here, so swallowing at this level
       // defeated the guarantee one level up.
-      log.error("Failed to list tasks", { error: getErrorMessage(error) });
+      log.error("Failed to list tasks", { error: getLoggableErrorSummary(error) });
       throw error;
     }
   }
@@ -282,7 +282,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // mt#4457: same reasoning as `listTasks`. `null` must mean "this repo has
       // no such issue", never "the read failed" — those call for opposite
       // responses in every caller.
-      log.error("Failed to get task", { id, error: getErrorMessage(error) });
+      log.error("Failed to get task", { id, error: getLoggableErrorSummary(error) });
       throw error;
     }
   }
@@ -307,7 +307,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const task = await this.getTask(id);
       return task?.status || undefined;
     } catch (error) {
-      log.error("Failed to get task status", { id, error: getErrorMessage(error) });
+      log.error("Failed to get task status", { id, error: getLoggableErrorSummary(error) });
       throw error;
     }
   }

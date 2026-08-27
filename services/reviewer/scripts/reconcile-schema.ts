@@ -60,6 +60,7 @@ import {
   REVIEWER_TABLES_SCHEMA,
 } from "../src/db/migrate";
 import { reviewerSchema as schema } from "../src/db/schema";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface ReconcileReport {
   mode: "dry-run" | "execute";
@@ -182,6 +183,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error("Unhandled error:", err instanceof Error ? err.message : String(err));
+  console.error("Unhandled error:", getLoggableErrorSummary(err));
   process.exit(4);
 });

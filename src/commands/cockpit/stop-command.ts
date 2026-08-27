@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { getDaemonStatus, stopDaemon } from "../../cockpit/launchd";
 import { describeOutcome, realRestartProbes, resolveStop } from "../../cockpit/daemon-restart";
 import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createStopCommand(): Command {
   const cmd = new Command("stop");
@@ -29,7 +30,7 @@ signal cannot stop a supervised daemon — that is the supervisor's whole job:
     try {
       port = resolveCockpitPort(options.port);
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(getLoggableErrorSummary(error));
       process.exit(1);
     }
 

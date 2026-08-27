@@ -80,6 +80,7 @@ import {
 import type { ArtifactCapture } from "./judged-input-capture";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection (mt#3125 SC3)
@@ -882,7 +883,7 @@ export async function main(): Promise<void> {
     lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch (err) {
     console.error(
-      `[constructed-identifier-batch-detector] Failed to read transcript: ${err instanceof Error ? err.message : String(err)}`
+      `[constructed-identifier-batch-detector] Failed to read transcript: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }
@@ -902,7 +903,7 @@ export async function main(): Promise<void> {
     orderMatches = detectConsumeBeforeMint(turnLines, priorTextFor(lines, turnLines));
   } catch (err) {
     console.error(
-      `[constructed-identifier-batch-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[constructed-identifier-batch-detector] Detection error: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }

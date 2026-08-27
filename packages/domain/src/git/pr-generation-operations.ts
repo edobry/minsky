@@ -1,4 +1,4 @@
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { MinskyError } from "../errors/base-errors";
 import { createErrorContext, createSessionNotFoundMessage } from "../errors/index";
@@ -175,7 +175,7 @@ async function findBaseBranch(
     return baseBranch;
   } catch (err) {
     log.debug("Failed to get remote HEAD", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       branch,
     });
   }
@@ -190,7 +190,7 @@ async function findBaseBranch(
     return baseBranch;
   } catch (err) {
     log.debug("Failed to get upstream branch", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       branch,
     });
   }
@@ -202,7 +202,7 @@ async function findBaseBranch(
     return "main";
   } catch (err) {
     log.debug("Failed to check main branch", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -213,7 +213,7 @@ async function findBaseBranch(
     return "master";
   } catch (err) {
     log.debug("Failed to check master branch", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -244,7 +244,7 @@ async function determineBaseBranchAndMergeBase(
     log.debug("Found merge base with base branch", { baseBranch, mergeBase });
   } catch (err) {
     log.debug("Failed to find merge base", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       branch,
       baseBranch,
     });
@@ -257,7 +257,7 @@ async function determineBaseBranchAndMergeBase(
       log.debug("Using first commit as base", { mergeBase });
     } catch (err) {
       log.debug("Failed to find first commit", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
         branch,
       });
       // If that also fails, use empty tree

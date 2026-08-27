@@ -12,7 +12,7 @@ import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createTaskService } from "./multi-backend-service";
 import { TaskBackend } from "../configuration/backend-detection";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope, type ScopeResolverDb } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
@@ -165,7 +165,7 @@ export async function createConfiguredTaskService(options: {
         githubBackendEnabled = appConfig.tasks.githubBackend.enabled;
       } catch (error) {
         log.debug("Could not read configuration for github backend flag", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
       }
       if (!githubBackendEnabled) {
@@ -216,7 +216,7 @@ export async function createConfiguredTaskService(options: {
             service.registerBackend(minskyBackend);
             log.debug("Minsky backend registered successfully");
           } catch (error) {
-            log.debug("Minsky backend not available", { error: getErrorMessage(error) });
+            log.debug("Minsky backend not available", { error: getLoggableErrorSummary(error) });
             throw new Error(
               `Minsky backend requested but not available: ${getErrorMessage(error)}`
             );
@@ -248,7 +248,7 @@ export async function createConfiguredTaskService(options: {
           githubBackendEnabled = appConfig.tasks.githubBackend.enabled;
         } catch (error) {
           log.debug("Could not read configuration for github backend flag", {
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
         if (!githubBackendEnabled) {
@@ -272,7 +272,7 @@ export async function createConfiguredTaskService(options: {
           }
         }
       } catch (error) {
-        log.debug("GitHub backend not available", { error: getErrorMessage(error) });
+        log.debug("GitHub backend not available", { error: getLoggableErrorSummary(error) });
       }
 
       // Add minsky backend (mt# prefix) - persistence is guaranteed
@@ -330,11 +330,11 @@ export async function createConfiguredTaskService(options: {
               "Minsky task backend unavailable: Postgres is configured but persistence " +
                 "failed to initialize — the 'mt' task backend will NOT be registered. " +
                 "This is a genuine outage, not the expected local/dev degraded mode.",
-              { error: getErrorMessage(error) }
+              { error: getLoggableErrorSummary(error) }
             );
           } else {
             logSink.warn("Minsky backend database connection failed", {
-              error: getErrorMessage(error),
+              error: getLoggableErrorSummary(error),
             });
           }
 
@@ -377,7 +377,7 @@ export async function createConfiguredTaskService(options: {
         log.debug(`Set default backend to '${configuredBackend}' from configuration`);
       } catch (error) {
         log.debug("Could not read configuration for default backend", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         // Fallback to 'minsky' if config system fails
         configuredBackend = TaskBackend.MINSKY;
@@ -401,7 +401,7 @@ export async function createConfiguredTaskService(options: {
         );
       }
     } catch (error) {
-      log.warn("Failed to register some backends", { error: getErrorMessage(error) });
+      log.warn("Failed to register some backends", { error: getLoggableErrorSummary(error) });
     }
   }
 

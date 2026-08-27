@@ -34,6 +34,7 @@
  */
 
 import { readBraintrustConfig } from "@minsky/domain/observability/braintrust";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const SCORE_NAME = "reviewer-finding-label";
 
@@ -237,7 +238,7 @@ async function main(): Promise<void> {
 // nobody asked for.
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`FAILED: ${getLoggableErrorSummary(error)}`);
     process.exit(1);
   });
 }

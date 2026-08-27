@@ -1,4 +1,4 @@
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
 import type { GitServiceInterface } from "../git";
@@ -142,7 +142,7 @@ async function resolveOwnStashRef(
     // format string above invisible for two months (mt#3660).
     log.debug("Could not resolve own stash ref; falling back to positional pop", {
       workdir,
-      error: getErrorMessage(listError),
+      error: getLoggableErrorSummary(listError),
     });
   }
   return undefined;
@@ -205,7 +205,7 @@ async function listUnmergedPaths(workdir: string, git: StashRestoreGitDeps): Pro
   } catch (diffError) {
     log.debug("Could not list unmerged paths after a failed stash pop", {
       workdir,
-      error: getErrorMessage(diffError),
+      error: getLoggableErrorSummary(diffError),
     });
     return [];
   }
@@ -245,7 +245,7 @@ async function confirmOwnStashPresent(
   } catch (listError) {
     log.debug("Could not confirm the stash entry survived a conflicted pop", {
       workdir,
-      error: getErrorMessage(listError),
+      error: getLoggableErrorSummary(listError),
     });
     return "unidentifiable";
   }
@@ -328,7 +328,7 @@ async function rollbackConflictedPop(
   } catch (resetError) {
     log.warn("Failed to roll back a conflicted stash pop", {
       workdir,
-      error: getErrorMessage(resetError),
+      error: getLoggableErrorSummary(resetError),
     });
     return {
       stashed: true,
@@ -418,7 +418,7 @@ export async function findSessionUpdateStash(
   } catch (listError) {
     log.debug("Could not list stashes while checking for update-parked work", {
       workdir,
-      error: getErrorMessage(listError),
+      error: getLoggableErrorSummary(listError),
     });
     return undefined;
   }
@@ -539,7 +539,7 @@ export async function restoreSessionStash(
       log.debug("Stash pop blocked; discarding generated files and retrying", {
         workdir,
         generatedBlockers,
-        error: getErrorMessage(popError),
+        error: getLoggableErrorSummary(popError),
       });
       // Discard the post-rebase working-tree copy of each generated file so the
       // stashed version can apply. Generated files are reproducible.
@@ -549,7 +549,7 @@ export async function restoreSessionStash(
         } catch (checkoutError) {
           log.debug("Failed to discard generated file before retrying stash pop", {
             file,
-            error: getErrorMessage(checkoutError),
+            error: getLoggableErrorSummary(checkoutError),
           });
         }
       }
@@ -563,7 +563,7 @@ export async function restoreSessionStash(
       } catch (retryError) {
         log.debug("Stash pop still failed after discarding generated files", {
           workdir,
-          error: getErrorMessage(retryError),
+          error: getLoggableErrorSummary(retryError),
         });
         // The retry can conflict where the first attempt merely refused —
         // discarding the generated blockers is exactly what lets git get far
@@ -586,7 +586,7 @@ export async function restoreSessionStash(
       log.debug("Stash pop failed with no generated-file blockers to auto-discard", {
         workdir,
         parkedFiles,
-        error: getErrorMessage(popError),
+        error: getLoggableErrorSummary(popError),
       });
     }
 

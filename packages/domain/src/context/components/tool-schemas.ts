@@ -6,6 +6,7 @@ import {
 import { z } from "zod";
 import { createToolSimilarityService } from "../../tools/similarity/tool-similarity-service";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 type JsonSchema = {
   type?: string;
@@ -209,7 +210,7 @@ export const ToolSchemasComponent: ContextComponent = {
           filteredBy = "user-query";
         } catch (error) {
           log.warn(
-            `Failed to apply query-aware tool filtering, falling back to all tools: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to apply query-aware tool filtering, falling back to all tools: ${getLoggableErrorSummary(error)}`
           );
           // Fall back to including all tools if filtering fails
           shouldFilterByQuery = false;
@@ -278,7 +279,7 @@ export const ToolSchemasComponent: ContextComponent = {
       };
     } catch (error) {
       log.warn(
-        `Failed to load tool schemas via template system: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to load tool schemas via template system: ${getLoggableErrorSummary(error)}`
       );
       return {
         toolSchemas: {},

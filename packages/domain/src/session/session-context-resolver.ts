@@ -7,7 +7,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../errors/index";
+import { ValidationError, ResourceNotFoundError, getLoggableErrorSummary } from "../errors/index";
 import { taskIdSchema } from "../schemas/common";
 import { getCurrentSession, getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface } from "../session";
@@ -221,7 +221,7 @@ export async function resolveSessionContext(
       }
     } catch (error) {
       log.debug("Session auto-detection failed", {
-        error: getErrorMessage(error as Error),
+        error: getLoggableErrorSummary(error as Error),
         workingDirectory,
       });
     }

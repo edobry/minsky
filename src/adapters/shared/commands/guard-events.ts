@@ -23,7 +23,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 export interface GuardEventsIngestResult {
@@ -125,7 +125,7 @@ export function registerGuardEventsCommands(
         });
         return summary;
       } catch (err) {
-        log.error("guard-events.ingest failed", { error: getErrorMessage(err) });
+        log.error("guard-events.ingest failed", { error: getLoggableErrorSummary(err) });
         throw err;
       }
     },

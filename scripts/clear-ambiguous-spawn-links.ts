@@ -91,6 +91,7 @@ import "reflect-metadata";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -460,7 +461,7 @@ async function main(): Promise<void> {
     console.error(
       "FAILED: could not initialize the DB connection — no rows were examined or changed."
     );
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(1);
   }
 

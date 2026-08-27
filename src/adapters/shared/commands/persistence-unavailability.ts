@@ -24,6 +24,7 @@
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** The pre-mt#3661 message, and the fallback when the provider can't be read. */
 // sql-capability-message: the fallback constant this module exists to replace
@@ -47,7 +48,7 @@ export async function describeContainerPersistenceUnavailability(
     }
   } catch (err: unknown) {
     log.warn(`${logScope}: could not describe persistence unavailability`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
   return BARE_SQL_CAPABILITY_MESSAGE;

@@ -9,7 +9,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { AuthorshipTier } from "./types";
 
 // ── Merge trailer types ─────────────────────────────────────────────────────
@@ -155,7 +155,9 @@ export async function ensureAuthorshipLabelsExist(
       });
       log.debug(`Created authorship label: ${labelName}`);
     } catch (error) {
-      log.warn(`Failed to ensure authorship label "${labelName}": ${getErrorMessage(error)}`);
+      log.warn(
+        `Failed to ensure authorship label "${labelName}": ${getLoggableErrorSummary(error)}`
+      );
     }
   }
 }

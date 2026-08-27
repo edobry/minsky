@@ -20,6 +20,7 @@ import {
 } from "./setup-db";
 import { provisionProjectRow, type ProvisionProjectRowDeps } from "./project/provision";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "./errors/index";
 
 export interface SetupOptions {
   repoPath: string;
@@ -136,7 +137,7 @@ export async function performSetup(
       await provisionProjectRow(dbConnection.connectionString, { repoPath }, provisionDeps);
     } catch (err) {
       log.warn("[setup] project-row provisioning failed; setup still succeeded", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

@@ -32,6 +32,7 @@ import {
 } from "@minsky/domain/tasks/githubBackendConfig";
 import { processCwd } from "@minsky/shared/process";
 import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants & defaults
@@ -425,7 +426,7 @@ export function registerReviewerWatchCommands(): void {
             });
           } catch (err: unknown) {
             log.error("reviewer-watch: cycle errored (loop continues)", {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           } finally {
             isRunning = false;

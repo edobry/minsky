@@ -35,6 +35,7 @@ import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service"
 import type { MemorySearchResult } from "@minsky/domain/memory/types";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Tools the spike enriches. Hardcoded for spike scope. Production graduation
@@ -289,7 +290,7 @@ export async function enrichToolResponse(
     if (timeoutHandle) clearTimeout(timeoutHandle);
     log.debug("[memory-enrichment] search failed; skipping", {
       tool: toolName,
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     return null;
   }

@@ -110,6 +110,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Identifies the calling site in log lines so a shared-helper failure is traceable to its origin. */
 export interface WorkspaceActivityLogContext {
@@ -275,7 +276,7 @@ export async function resolveLastWorkspaceMtimeAtMs(
     log.warn(
       `[${logContext.source}] resolveLastWorkspaceMtimeAtMs resolution failed unexpectedly ` +
         "(degrading to no workspace-mtime signal)",
-      { sessionDir, error: err instanceof Error ? err.message : String(err) }
+      { sessionDir, error: getLoggableErrorSummary(err) }
     );
     return null;
   }

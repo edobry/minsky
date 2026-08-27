@@ -37,6 +37,7 @@ import type { AskRepository } from "./repository";
 import { isTerminal } from "./state-machine";
 import { findPrRef } from "./reconciler";
 import { buildAttentionCost } from "./accounting/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Input describing who/what resolved the Ask and the audit payload to attach. */
 export interface CloseAsResolvedInput {
@@ -152,7 +153,7 @@ async function closeByCurrentState(
   } catch (err) {
     log.debug("closeAskAsResolved: could not record cancellation provenance (best-effort)", {
       askId: ask.id,
-      reason: err instanceof Error ? err.message : String(err),
+      reason: getLoggableErrorSummary(err),
     });
   }
 

@@ -22,6 +22,7 @@
 import type { VectorStorage } from "../../storage/vector/types";
 import { clusterChunks, type ClusterableChunk, DEFAULT_CLUSTERING_THRESHOLD } from "./clustering";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 export interface ReconcileAfterSyncOptions {
   /**
@@ -88,9 +89,9 @@ export async function reconcileAfterSync(
       updated++;
     } catch (err) {
       log.warn(
-        `[reconcileAfterSync] Failed to update cluster metadata for chunk "${chunk.id}": ${
-          err instanceof Error ? err.message : String(err)
-        }`
+        `[reconcileAfterSync] Failed to update cluster metadata for chunk "${chunk.id}": ${getLoggableErrorSummary(
+          err
+        )}`
       );
     }
   }

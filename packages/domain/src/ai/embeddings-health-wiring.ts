@@ -52,6 +52,7 @@ import type { AppContainerInterface } from "../composition/types";
 import { buildEventEmitterFromProvider } from "../events/emit-best-effort";
 import type { PersistenceProvider } from "../persistence/types";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * A host's own way of reaching its persistence provider. Returning `undefined`
@@ -109,7 +110,7 @@ export function registerEmbeddingsHealthEventEmitter(
       // which host's resolver threw — and with several hosts registering the
       // same seam, that is the one detail worth having in the log.
       log.debug("embeddings-health-wiring: could not resolve a persistence provider", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }

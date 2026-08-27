@@ -13,6 +13,7 @@ import { readFileSync } from "fs";
 import { getSessionsDir } from "@minsky/shared/paths";
 import { log } from "@minsky/shared/logger";
 import type { SessionProviderInterface } from "../session/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 export interface WorkspaceInfo {
   /** Resolved absolute path to the workspace root */
@@ -116,7 +117,7 @@ function readBackendsFromConfig(
   } catch (err) {
     log.debug("workspace.info: failed to read backends from config", {
       configPath,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return {};
   }

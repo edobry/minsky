@@ -33,6 +33,7 @@ import type { OpenAskState } from "./state-machine";
 import type { AskState } from "./types";
 import { emptyOpenStateAgeStats } from "./repository";
 import type { AskRepository, AskAgeStats } from "./repository";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Dwell time past which an open ask is reported as stalled (mt#4361).
@@ -134,7 +135,7 @@ async function resolveRepo(): Promise<AskRepository | null> {
     return await repoBuilder();
   } catch (err) {
     log.debug("ask.state-counts: per-call repo build failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -167,7 +168,7 @@ export async function getAskStateCounts(): Promise<AskStateCountsSnapshot> {
     };
   } catch (err) {
     log.warn("ask.state-counts: count query failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return unavailableSnapshot();
   }

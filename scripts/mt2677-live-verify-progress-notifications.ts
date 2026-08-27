@@ -43,6 +43,7 @@
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const CONFIG_PATH = join(homedir(), ".config", "minsky", "config.yaml");
 if (!existsSync(CONFIG_PATH)) {
@@ -188,7 +189,7 @@ let exitCode: number;
 try {
   exitCode = await main();
 } catch (err) {
-  console.error(`[probe] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`[probe] FAILED: ${getLoggableErrorSummary(err)}`);
   exitCode = 1;
 } finally {
   child.kill();

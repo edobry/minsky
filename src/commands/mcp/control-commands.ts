@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -93,7 +93,7 @@ export function createStatusCommand(): Command {
       // scripting this, and exit 0 would hide it.
       if (result.serving !== true) process.exit(1);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });
@@ -123,7 +123,7 @@ export function createRestartCommand(): Command {
       if (result.hint) console.log(`\n${String(result.hint)}`);
       if (result.verify) console.log(`\n${String(result.verify)}`);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });

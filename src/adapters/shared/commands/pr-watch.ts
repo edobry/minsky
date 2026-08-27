@@ -32,6 +32,7 @@ import {
 import { DrizzleWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,7 +62,7 @@ async function buildPrWatchRepository(
     return new DrizzlePrWatchRepository(db);
   } catch (err: unknown) {
     log.warn("pr-watch: could not initialize PrWatchRepository", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -152,7 +153,7 @@ async function buildCompositeWakeSink(
       }
     } catch (err: unknown) {
       log.warn("pr.watch.run: could not initialize PersistentWakeSignalSink", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }
@@ -424,7 +425,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
           log.warn(
             "pr.watch.run: EventEmitter resolution failed (proceeding without event emission)",
             {
-              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+              error: getLoggableErrorSummary(emitErr),
             }
           );
         }

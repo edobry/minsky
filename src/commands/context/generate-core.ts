@@ -8,6 +8,7 @@ import { log } from "@minsky/shared/logger";
 import { getContextComponentRegistry } from "@minsky/domain/context/components/index";
 import { DefaultTokenizationService } from "@minsky/domain/ai/tokenization/index";
 import type { GenerateRequest, GenerateResult } from "./generate-types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The subset of the tokenization service this module reads.
@@ -83,7 +84,7 @@ export async function generateContext(
       log.warn("Tokenization failed; falling back to a character-count estimate", {
         label,
         model: targetModel,
-        error: error instanceof Error ? error.message : String(error),
+        error: getLoggableErrorSummary(error),
       });
       return estimateTokensFromLength(text);
     }

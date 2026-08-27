@@ -7,7 +7,7 @@
 
 import { Octokit } from "@octokit/rest";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { TaskData } from "../../../../src/types/tasks/taskData";
 import type {
   TaskReadOperationResult,
@@ -53,7 +53,7 @@ export async function fetchIssuesData(
     log.error("Failed to fetch GitHub issues", {
       owner,
       repo,
-      error: getErrorMessage(error as Error),
+      error: getLoggableErrorSummary(error as Error),
     });
     return {
       success: false,
@@ -123,7 +123,7 @@ export async function fetchTaskSpecData(
   } catch (error) {
     log.error("Failed to get task spec data from GitHub", {
       specPath,
-      error: getErrorMessage(error as Error),
+      error: getLoggableErrorSummary(error as Error),
     });
     return {
       success: false,
@@ -150,7 +150,7 @@ export async function syncTasksToGitHub(
     return { success: true };
   } catch (error) {
     log.error("Failed to save tasks data to GitHub", {
-      error: getErrorMessage(error as Error),
+      error: getLoggableErrorSummary(error as Error),
     });
     return {
       success: false,
@@ -418,7 +418,7 @@ export async function deleteIssue(
       }
     } catch (dbError) {
       log.debug(
-        `Could not delete task ${taskId} from database: ${getErrorMessage(dbError as Error)}`
+        `Could not delete task ${taskId} from database: ${getLoggableErrorSummary(dbError as Error)}`
       );
     }
 
@@ -434,7 +434,10 @@ export async function deleteIssue(
     log.debug("Marked task as deleted in GitHub", { taskId });
     return true;
   } catch (error) {
-    log.error("Failed to delete task", { id: taskId, error: getErrorMessage(error as Error) });
+    log.error("Failed to delete task", {
+      id: taskId,
+      error: getLoggableErrorSummary(error as Error),
+    });
     return false;
   }
 }

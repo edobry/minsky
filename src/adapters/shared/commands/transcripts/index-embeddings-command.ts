@@ -40,7 +40,7 @@ import {
   resolveConversationId,
 } from "./conversation-id-param";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
@@ -215,7 +215,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
           extractionResult = await extractTurnsForAllTranscripts(pgDb);
         } catch (err) {
           log.error("transcripts.index-embeddings --all: extraction failed", {
-            error: getErrorMessage(err),
+            error: getLoggableErrorSummary(err),
           });
         }
 
@@ -228,7 +228,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
           });
         } catch (err) {
           log.error("transcripts.index-embeddings --all: per-turn backfill failed", {
-            error: getErrorMessage(err),
+            error: getLoggableErrorSummary(err),
           });
         }
 
@@ -241,7 +241,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
           });
         } catch (err) {
           log.error("transcripts.index-embeddings --all: summary pipeline failed", {
-            error: getErrorMessage(err),
+            error: getLoggableErrorSummary(err),
           });
         }
 
@@ -306,7 +306,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
         };
       } catch (err) {
         log.error(`transcripts.index-embeddings --session=${sessionId}: extraction failed`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
 
@@ -316,7 +316,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
         perTurnResult = await perTurnPipeline.run({ agentSessionId: sessionId as string });
       } catch (err) {
         log.error(`transcripts.index-embeddings --session=${sessionId}: per-turn failed`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
 
@@ -333,7 +333,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
         };
       } catch (err) {
         log.error(`transcripts.index-embeddings --session=${sessionId}: summary failed`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
 

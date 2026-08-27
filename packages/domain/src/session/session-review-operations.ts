@@ -1,4 +1,9 @@
-import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../errors/index";
+import {
+  ResourceNotFoundError,
+  ValidationError,
+  getErrorMessage,
+  getLoggableErrorSummary,
+} from "../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../schemas/common";
 import { log } from "@minsky/shared/logger";
 import { type GitServiceInterface } from "../git";
@@ -96,7 +101,7 @@ export async function sessionReviewImpl(
     } catch (error) {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from repo path", {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
         repoPath: params.repo,
       });
     }
@@ -113,7 +118,7 @@ export async function sessionReviewImpl(
     } catch (error) {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
         currentDir: process.cwd(),
       });
     }
@@ -200,7 +205,7 @@ export async function sessionReviewImpl(
         }
       } catch (error) {
         // Continue trying other IDs
-        log.debug(`Changeset not found with ID: ${id}`, { error: getErrorMessage(error) });
+        log.debug(`Changeset not found with ID: ${id}`, { error: getLoggableErrorSummary(error) });
       }
     }
 
@@ -323,7 +328,7 @@ export async function sessionReviewImpl(
           }
         } catch (error) {
           log.debug("Git fallback strategy A (origin remote refs) failed", {
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
       }
@@ -346,7 +351,7 @@ export async function sessionReviewImpl(
           }
         } catch (error) {
           log.debug("Git fallback strategy B (local refs) failed", {
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
       }
@@ -369,7 +374,7 @@ export async function sessionReviewImpl(
           }
         } catch (error) {
           log.debug("Git fallback strategy C (baseBranch...HEAD) failed", {
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
       }

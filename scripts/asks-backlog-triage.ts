@@ -31,6 +31,7 @@ import "reflect-metadata";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask } from "@minsky/domain/ask/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const DEFAULT_MAX_AGE_DAYS = 7;
 
@@ -159,6 +160,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`asks-backlog-triage failed: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`asks-backlog-triage failed: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

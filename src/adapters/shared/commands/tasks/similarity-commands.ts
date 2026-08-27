@@ -48,7 +48,7 @@ async function resolveTaskSimilarityProjectScope(
     return await resolveProjectScope(identity, db, "tasks.similar");
   } catch (err) {
     log.debug("[tasks.similar] Project scope resolution failed; defaulting to ALL_PROJECTS", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return ALL_PROJECTS;
   }
@@ -427,6 +427,7 @@ export class TasksSearchCommand extends BaseTaskCommand<typeof tasksSearchParams
 import { createEmbeddingServiceFromConfig } from "@minsky/domain/ai/embedding-service-factory";
 import { getConfiguration } from "@minsky/domain/configuration";
 import { getEmbeddingDimension } from "@minsky/domain/ai/embedding-models";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Injectable embedding-service-factory seam (mt#3622). Defaults to the real

@@ -113,6 +113,7 @@ import { extractPgErrorContext } from "./webhook-events";
 import { DomainAskEmitter, makeContainerAskRepoProvider, type AskEmitter } from "./ask-emitter";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -708,7 +709,7 @@ export async function runSweep(
               event: "sweeper.alert_sink_unhandled",
               pr: m.number,
               headSha: m.headSha,
-              error: sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
+              error: getLoggableErrorSummary(sinkErr),
             });
           });
           const emitOutcome = askEmitter

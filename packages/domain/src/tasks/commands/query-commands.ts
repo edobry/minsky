@@ -19,7 +19,11 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage, ValidationError, ResourceNotFoundError } from "../../errors/index";
+import {
+  ValidationError,
+  ResourceNotFoundError,
+  getLoggableErrorSummary,
+} from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { isSqlCapable } from "../../persistence/types";
 import {
@@ -150,7 +154,7 @@ export async function listTasksFromParams(
           log.debug(
             "[listTasksFromParams] Project scope resolution failed; defaulting to ALL_PROJECTS",
             {
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             }
           );
         }
@@ -176,7 +180,7 @@ export async function listTasksFromParams(
     }
     return tasks;
   } catch (error) {
-    log.error(`Error listing tasks: ${getErrorMessage(error)}`);
+    log.error(`Error listing tasks: ${getLoggableErrorSummary(error)}`);
     throw error;
   }
 }
@@ -258,7 +262,7 @@ export async function getTaskFromParams(
   } catch (error) {
     const duration = Date.now() - startTime;
     log.error("[getTaskFromParams] Error getting task:", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       duration,
     });
     throw error;

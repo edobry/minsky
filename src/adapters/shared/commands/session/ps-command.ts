@@ -18,6 +18,7 @@ import type {
 } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
 import { sessionPsCommandParams } from "./session-parameters";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const PS_DESCRIPTION =
   "List sessions with a live runtime attachment (self-registered), cross-checked " +
@@ -56,7 +57,7 @@ async function executeSessionPs(
     if (db) repo = buildPresenceClaimRepository(db);
   } catch (err) {
     log.debug("[session.ps] Failed to resolve presence-claim repository", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 

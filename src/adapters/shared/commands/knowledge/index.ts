@@ -18,7 +18,7 @@ import {
   type CommandDefinition,
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
 import type { VectorStorage } from "@minsky/domain/storage/vector/types";
 import type {
@@ -292,7 +292,7 @@ export function registerKnowledgeCommands(
 
         return response;
       } catch (error) {
-        log.error("[knowledge.search] Search failed", { error: getErrorMessage(error) });
+        log.error("[knowledge.search] Search failed", { error: getLoggableErrorSummary(error) });
         return {
           chunks: [],
           freshness: {} as Record<ChunkId, ChunkFreshness>,
