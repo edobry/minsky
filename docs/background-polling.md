@@ -276,9 +276,17 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
   completely unbounded, and the observed incident (PR #2891, 2026-08-11) ran silent for 1824s
   against a 900s `timeoutSeconds`. A timeout during setup returns the SAME result shape a
   loop-side timeout returns —
-  `{allPassed: false, summary: {total:0, passed:0, failed:0, pending:0}, checks: [], timedOut: true}`
+  `{allPassed: false, summary: {total:0, passed:0, failed:0, pending:0}, failingChecks: [], timedOut: true}`
   — a caller cannot distinguish a setup-phase timeout from a loop-phase timeout from the result
   alone (nor does it need to; both mean "did not complete within `timeoutSeconds`").
+- **Structured payload is trimmed by default (mt#4657).** The structured (`json`) result carries
+  the summary counts always, plus `failingChecks` — the failed and still-pending entries — when
+  not all checks passed; on an all-green result the per-check array is dropped entirely, giving a
+  constant ~155-char payload. This is mt#2656's `trimChecksResult` shape, which
+  `session_pr_drive` (§2.11a) has used since July; mt#4657 extended it to this command after
+  measuring that callers read `allPassed` and merge on the green path, and drill into a failing
+  job's `runId` (recoverable from `failingChecks`) on the red one. Pass `fullBody: true` for the
+  complete breakdown. **The CLI's text output is unaffected** and always renders every check.
 - **Fit:** the correct answer for "block until CI finishes on this session's PR." Composed by
   `session_pr_drive` (§2.11a) as its checks-wait step after an APPROVED review.
 - **Latency:** bounded by the call's `timeoutSeconds`; sub-interval for a PR whose checks are
