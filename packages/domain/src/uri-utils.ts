@@ -299,3 +299,39 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     return undefined;
   }
 }
+
+/**
+ * Parse a GitHub remote URL into its `{owner, repo}` components.
+ *
+ * Single source of truth for the GitHub owner/repo parse (mt#4671). Eight call
+ * sites across four modules previously inlined their own regex capturing the
+ * repo as `([^.]+)` — "one or more NON-DOT characters" — which stops at the
+ * FIRST dot. So `edobry/peezombie.me` parsed as `peezombie` and `socket.io` as
+ * `socket`, and the `.replace(/\.git$/, "")` those sites ran afterwards was dead
+ * code, because the regex had already stopped short of `.git`. One of them
+ * (`repository/github.ts`) captured the OWNER that way too.
+ *
+ * `edobry/minsky` has no dot in its name, which is why this survived a year of
+ * single-project use and surfaced only when a second project was onboarded.
+ *
+ * The repo segment is captured as `([^/]+)` — everything up to the next path
+ * separator or the end of the string — and `.git` is stripped afterwards. That
+ * preserves the previous permissive, unanchored behaviour (a URL carrying extra
+ * path segments still yields the repo) while allowing dots in the name.
+ *
+ * Returns `null` for non-GitHub URLs; callers depend on that to fall through to
+ * their own handling (local paths, other hosts).
+ */
+export function parseGitHubOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
+  if (!remoteUrl) return null;
+
+  // SSH: git@github.com:owner/repo[.git]
+  // HTTPS: https://github.com/owner/repo[.git]
+  const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^/]+)/);
+  const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^/]+)/);
+
+  const match = sshMatch || httpsMatch;
+  if (!match || !match[1] || !match[2]) return null;
+
+  return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
+}
