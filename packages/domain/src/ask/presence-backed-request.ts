@@ -90,8 +90,24 @@ export interface PresenceRequestResolution {
 export interface PresenceRequestResolverDeps<K> {
   /** All asks that could be pending requests of this kind. */
   listCandidateAsks(): Promise<Ask[]>;
-  /** Presence per subject, read back from the oracle. */
-  listPresence(): Promise<PresenceSignal<K>[]>;
+  /**
+   * Presence per subject, read back from the oracle.
+   *
+   * **Receives the pending keys**, and is called ONLY when that list is
+   * non-empty. Both properties matter for an oracle that is a live network probe
+   * rather than a local read:
+   *
+   * - it can answer precisely instead of enumerating a universe — a GitHub App
+   *   installation set to "all repositories" covers everything and enumerates
+   *   nothing, so a universe-listing oracle would report the covered repo as
+   *   absent;
+   * - it costs nothing on a tick with no open requests, which is almost every
+   *   tick.
+   *
+   * An oracle backed by a local listing (the credential case) may ignore the
+   * argument and return everything it knows.
+   */
+  listPresence(pending: readonly K[]): Promise<PresenceSignal<K>[]>;
   /** Close one satisfied request. Throws if it is no longer closeable. */
   satisfy(ask: Ask, detail: string): Promise<void>;
   /**
@@ -169,7 +185,11 @@ export async function resolveSatisfiedPresenceRequests<K>(
   const pending = selectPendingPresenceRequests(await deps.listCandidateAsks(), shape);
   if (pending.length === 0) return { pending: 0, satisfied: [], raced: [] };
 
-  const satisfied = selectSatisfiedPresenceRequests(pending, await deps.listPresence(), shape);
+  const satisfied = selectSatisfiedPresenceRequests(
+    pending,
+    await deps.listPresence(pending.map((p) => p.key)),
+    shape
+  );
 
   const closed: string[] = [];
   const raced: string[] = [];

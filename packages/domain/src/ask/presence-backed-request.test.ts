@@ -142,6 +142,25 @@ describe("resolveSatisfiedPresenceRequests (mt#4693)", () => {
     expect(oracleCalls).toBe(0);
   });
 
+  it("hands the oracle exactly the pending keys, so a live probe can answer precisely", async () => {
+    // The App-grant oracle is a network call, and an installation set to "all
+    // repositories" enumerates nothing — so an oracle that had to list a
+    // universe would report a covered repo as absent.
+    let received: readonly RepoRole[] = [];
+    await resolveSatisfiedPresenceRequests<RepoRole>(
+      {
+        listCandidateAsks: async () => [ask("a", ALPHA), ask("b", BETA)],
+        listPresence: async (pending) => {
+          received = pending;
+          return [];
+        },
+        satisfy: async () => {},
+      },
+      SHAPE
+    );
+    expect(received).toEqual([ALPHA, BETA]);
+  });
+
   it("records a raced close rather than throwing, and does not release its parent", async () => {
     const released: string[] = [];
     const result = await resolveSatisfiedPresenceRequests<RepoRole>(
