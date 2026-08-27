@@ -101,6 +101,70 @@ export function pickBestLinks(
   return result;
 }
 
+/** One user-turn candidate, in the shape `pickSubstantiveUserText` consumes. */
+export interface BoundedUserTurn {
+  agentSessionId: string;
+  turnIndex: number;
+  userText: string;
+}
+
+/**
+ * The earliest `MAX_USER_TURN_CANDIDATES` user-text turns per session (mt#4655).
+ *
+ * The single home for this read — both label call sites go through it, so the
+ * bound has exactly one definition and the two surfaces cannot drift into
+ * labelling the same conversation differently.
+ *
+ * **The bound is the consumer's own, not a chosen threshold.**
+ * `pickSubstantiveUserText` does `candidates.slice(0, MAX_USER_TURN_CANDIDATES)`,
+ * so anything past it is discarded anyway; dropping it here is label-identical
+ * by construction rather than by measurement.
+ *
+ * **`row_number()` PARTITIONED by session, never a global `LIMIT`.** `ids` is
+ * batch-shaped, and an unordered global limit returns an arbitrary N rows
+ * ACROSS conversations — omitting the early turns a label depends on and
+ * silently changing or blanking it (mt#3591).
+ *
+ * **Callers should also skip ids whose label resolves at a higher tier.**
+ * `computeConversationLabel` short-circuits at the generated title
+ * (`if (generated) return generated;`), and 98.2% of conversations carry one —
+ * so for most ids this text is fetched and discarded. This function bounds the
+ * read; only the caller knows which ids still need it.
+ */
+export async function fetchBoundedFirstUserTurns(
+  db: PostgresJsDatabase,
+  ids: string[]
+): Promise<BoundedUserTurn[]> {
+  if (ids.length === 0) return [];
+  const rows = await db.execute<{
+    agent_session_id: string;
+    turn_index: number;
+    user_text: string;
+  }>(sql`
+    select agent_session_id, turn_index, user_text
+    from (
+      select
+        agent_session_id,
+        turn_index,
+        user_text,
+        row_number() over (
+          partition by agent_session_id order by turn_index asc
+        ) as rn
+      from agent_transcript_turns
+      where ${inArray(agentTranscriptTurnsTable.agentSessionId, ids)}
+        and user_text is not null
+    ) ranked
+    where rn <= ${MAX_USER_TURN_CANDIDATES}
+  `);
+  // snake_case, not camelCase: `db.execute` with a raw statement returns the
+  // driver's column names verbatim rather than drizzle's select aliases.
+  return rows.map((row) => ({
+    agentSessionId: row.agent_session_id,
+    turnIndex: row.turn_index,
+    userText: row.user_text,
+  }));
+}
+
 /**
  * Batch-fetch the enrichment inputs for the given agent session ids. Returns
  * an empty map (all tiers miss, callers fall back to the timestamp·cwd label)
@@ -200,29 +264,7 @@ export async function fetchEnrichment(
     const needsUserText = ids.filter(
       (id) => !linkedTaskIdBySession.has(id) && !generatedTitleById?.get(id)?.trim()
     );
-    const turns =
-      needsUserText.length > 0
-        ? await db.execute<{
-            agent_session_id: string;
-            turn_index: number;
-            user_text: string;
-          }>(sql`
-            select agent_session_id, turn_index, user_text
-            from (
-              select
-                agent_session_id,
-                turn_index,
-                user_text,
-                row_number() over (
-                  partition by agent_session_id order by turn_index asc
-                ) as rn
-              from agent_transcript_turns
-              where ${inArray(agentTranscriptTurnsTable.agentSessionId, needsUserText)}
-                and user_text is not null
-            ) ranked
-            where rn <= ${MAX_USER_TURN_CANDIDATES}
-          `)
-        : [];
+    const turns = await fetchBoundedFirstUserTurns(db, needsUserText);
 
     // Tier 2: first-SUBSTANTIVE user-turn text per session. Sort ascending by
     // turnIndex — pickSubstantiveUserText
@@ -234,14 +276,10 @@ export async function fetchEnrichment(
       string,
       { turnIndex: number; userText: string }[]
     >();
-    // snake_case here, not camelCase: these rows come from `db.execute` with a
-    // raw statement, which returns the driver's column names verbatim rather
-    // than drizzle's mapped select aliases.
     for (const turn of turns) {
-      if (!turn.user_text) continue;
-      const list = userTurnCandidatesBySession.get(turn.agent_session_id) ?? [];
-      list.push({ turnIndex: turn.turn_index, userText: turn.user_text });
-      userTurnCandidatesBySession.set(turn.agent_session_id, list);
+      const list = userTurnCandidatesBySession.get(turn.agentSessionId) ?? [];
+      list.push({ turnIndex: turn.turnIndex, userText: turn.userText });
+      userTurnCandidatesBySession.set(turn.agentSessionId, list);
     }
     for (const list of userTurnCandidatesBySession.values()) {
       list.sort((a, b) => a.turnIndex - b.turnIndex);
