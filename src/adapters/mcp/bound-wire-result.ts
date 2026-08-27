@@ -50,10 +50,16 @@ export const ECHO_ELISION_MIN_CHARS = 200;
  *
  * Echo elision runs unconditionally because it cannot lose anything (see
  * {@link boundWireResult}); capping an array CAN, so it is gated on the result
- * actually being large. 8 KB clears `session_pr_checks`'s measured maximum
- * (4,860) so ordinary CI polling is never touched, and sits below
- * `session_pr_create`'s (12,063) and `session_pr_wait-for-review`'s (34,668),
- * which are the payloads this exists for.
+ * actually being large. 8 KB clears `session_pr_checks`'s measured maximum so
+ * ordinary CI polling is never touched, and sits below `session_pr_create`'s
+ * (12,063) and `session_pr_wait-for-review`'s (34,668), which are the payloads
+ * this exists for.
+ *
+ * That headroom widened rather than moved: mt#4657 projects `session_pr_checks`
+ * at the command itself, taking its measured maximum from 4,860 to 3,164 and
+ * its average from 3,148 to 253. The budget is unchanged and still correct —
+ * but the clearance is now doubly satisfied, so do not read 8 KB as calibrated
+ * to this tool's CURRENT size.
  */
 export const ARRAY_BOUNDING_BUDGET_BYTES = 8 * 1024;
 

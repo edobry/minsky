@@ -48,7 +48,12 @@ import type { ClaudeHookInput } from "./types";
 import { extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { hasRetrospectiveSkillInvocation } from "./retrospective-trigger-scanner";
+import {
+  hasRetrospectiveSkillInvocation,
+  RETRO_INVOCATION_LOOKBACK_TURNS,
+} from "./retrospective-trigger-scanner";
+import { analyzeDischarge, type DischargeFinding } from "./retrospective-discharge";
+import { readFlagged, writeFlagged } from "./turn-end-scan-store";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_RETRO_COMPLETENESS";
 
@@ -253,9 +258,52 @@ export function analyze(text: string, turnLines: TranscriptLine[]): Completeness
 // Hook entry point
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve, record and return the discharge findings for this session's prior
+ * flagged turns (mt#4566).
+ *
+ * `storeDir` is a test seam, mirroring `turn-end-retro-scan.run`'s; the
+ * dispatcher never passes it. Failing to persist the reported-marker is
+ * non-fatal — the cost is a repeated finding, never a missed one.
+ */
+function collectDischargeFindings(
+  sessionId: string | undefined,
+  lines: TranscriptLine[],
+  storeDir?: string
+): { findings: DischargeFinding[]; unresolved: string[]; degraded?: string } {
+  // No session id, no discharge check (PR #3382 R1, BLOCKING).
+  //
+  // An earlier revision passed `input.session_id ?? "unknown"`, which is fine
+  // for a per-turn guard and wrong here. This store is keyed BY SESSION and
+  // read ACROSS turns: every session lacking an id would share one `unknown`
+  // file, pooling turn keys from unrelated conversations and — worse — sharing
+  // the reported-marker namespace, so one session could silently suppress
+  // another's finding. Turn keys are uuids, so a cross-session collision would
+  // not even look wrong; it would look like an already-reported turn.
+  //
+  // The Stop guard's own `?? "unknown"` is not precedent for this: it dedups
+  // within a turn, where a pooled key costs at most one suppressed advisory.
+  if (!sessionId) return { findings: [], unresolved: [] };
+
+  const flagged = readFlagged(sessionId, storeDir);
+  if (flagged.size === 0) return { findings: [], unresolved: [] };
+
+  const { findings, reportedKeys, unresolved, degraded } = analyzeDischarge(
+    lines,
+    flagged,
+    RETRO_INVOCATION_LOOKBACK_TURNS
+  );
+  if (reportedKeys.length > 0) {
+    for (const key of reportedKeys) flagged.add(key);
+    writeFlagged(sessionId, flagged, storeDir);
+  }
+  return { findings, unresolved, ...(degraded !== undefined ? { degraded } : {}) };
+}
+
 export async function run(
   input: ClaudeHookInput,
-  ctx: DispatchContext
+  ctx: DispatchContext,
+  storeDir?: string
 ): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
@@ -280,10 +328,47 @@ export async function run(
     // fail-to-degraded invariant most needs to cover, and the only one it did
     // not. Surfaced by the AT7 test, which could not reach the branch at all.
     const lines = ctx.transcriptLines;
-    if (lines.length === 0) return null;
+
+    // mt#4566 — did a PRIOR turn's fired retrospective trigger get discharged?
+    // Independent of the completeness check below: it asks about turns that
+    // have already closed, so it must run ahead of every early return here,
+    // including the ones taken when THIS turn is not retrospective-shaped —
+    // which is precisely the case a prose-only response produces.
+    const {
+      findings: dischargeFindings,
+      unresolved: dischargeUnresolved,
+      degraded: dischargeDegraded,
+    } = collectDischargeFindings(input.session_id, lines, storeDir);
+    const dischargeFields = {
+      ...(dischargeFindings.length > 0 ? { discharge: dischargeFindings } : {}),
+      ...(dischargeUnresolved.length > 0
+        ? { discharge_unresolved: dischargeUnresolved.length }
+        : {}),
+      ...(dischargeDegraded !== undefined ? { discharge_degraded: dischargeDegraded } : {}),
+    };
+    const hasDischargeSignal = Object.keys(dischargeFields).length > 0;
+    const dischargeOnly = (): GuardOutcome | null =>
+      hasDischargeSignal
+        ? {
+            calibration: {
+              source: "live",
+              timestamp: new Date().toISOString(),
+              session_id: input.session_id,
+              ...dischargeFields,
+            },
+          }
+        : null;
+
+    // An EMPTY transcript with flags present is the degraded case, not a
+    // no-op (PR #3382 R2, non-blocking). The `lines.length === 0` guard used to
+    // sit above the discharge block and returned null, so the marker added for
+    // exactly this situation could not fire in its emptiest instance — a
+    // degraded-reporting path with a hole in its own motivating case, which is
+    // the shape this whole task is about.
+    if (lines.length === 0) return dischargeOnly();
 
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
-    if (turnLines.length === 0) return null;
+    if (turnLines.length === 0) return dischargeOnly();
 
     const text = extractAssistantText(turnLines);
 
@@ -291,11 +376,11 @@ export async function run(
     // The tool-call signal is primary — it keys on STATE, not on wording, so a
     // retrospective that produced almost no prose still counts.
     const skillInvoked = hasRetrospectiveSkillInvocation(turnLines);
-    if (!skillInvoked && !hasRetrospectiveShape(text)) return null;
+    if (!skillInvoked && !hasRetrospectiveShape(text)) return dischargeOnly();
 
     const finding = analyze(text, turnLines);
     if (finding.missingSections.length === 0 && finding.unverifiedTaskIds.length === 0) {
-      return null;
+      return dischargeOnly();
     }
 
     // LOG-ONLY: calibration record, no `additionalContext`. The FP rate has to
@@ -310,6 +395,7 @@ export async function run(
         family_count: finding.familyCount,
         missing_sections: finding.missingSections,
         unverified_task_ids: finding.unverifiedTaskIds,
+        ...dischargeFields,
       },
     };
   } catch (err) {
