@@ -29,7 +29,7 @@
  * @see mt#3343 — this extraction (conversation page reads its OWN label)
  */
 
-import { and, inArray, isNotNull } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
@@ -41,6 +41,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { WorkspaceId } from "@minsky/domain/ids";
 import {
   composeSubagentDescriptor,
+  MAX_USER_TURN_CANDIDATES,
   pickSubstantiveUserText,
 } from "@minsky/domain/transcripts/conversation-label";
 import type { TaskTitleCache } from "./task-title-cache";
@@ -110,12 +111,21 @@ export function pickBestLinks(
 export async function fetchEnrichment(
   db: PostgresJsDatabase,
   ids: string[],
-  titleCache: TaskTitleCache | null
+  titleCache: TaskTitleCache | null,
+  /**
+   * Generated title (`agent_transcripts.title`) per id, when the caller already
+   * has it (mt#4655). Supplying it lets this function SKIP the user-text read
+   * entirely for conversations whose label is already decided by a higher tier.
+   *
+   * Optional so existing call sites keep compiling; omitting it reproduces the
+   * previous behaviour of fetching user text for every id.
+   */
+  generatedTitleById?: ReadonlyMap<string, string | null>
 ): Promise<Map<string, RowEnrichment>> {
   if (ids.length === 0) return new Map();
 
   try {
-    const [links, turns, spawns, invocations] = await Promise.all([
+    const [links, spawns, invocations] = await Promise.all([
       db
         .select({
           agentSessionId: minskySessionLinksTable.agentSessionId,
@@ -125,19 +135,6 @@ export async function fetchEnrichment(
         })
         .from(minskySessionLinksTable)
         .where(inArray(minskySessionLinksTable.agentSessionId, ids)),
-      db
-        .select({
-          agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-          turnIndex: agentTranscriptTurnsTable.turnIndex,
-          userText: agentTranscriptTurnsTable.userText,
-        })
-        .from(agentTranscriptTurnsTable)
-        .where(
-          and(
-            inArray(agentTranscriptTurnsTable.agentSessionId, ids),
-            isNotNull(agentTranscriptTurnsTable.userText)
-          )
-        ),
       db
         .select({
           childAgentSessionId: agentSpawnsTable.childAgentSessionId,
@@ -180,9 +177,55 @@ export async function fetchEnrichment(
       if (taskId) linkedTaskIdBySession.set(agentSessionId, taskId);
     }
 
-    // Tier 2: first-SUBSTANTIVE user-turn text per session. Collect every
-    // non-null-userText turn per session (already batch-fetched above, no
-    // extra query), then sort ascending by turnIndex — pickSubstantiveUserText
+    // Tier 3 (user text) is fetched LAZILY and BOUNDED (mt#4655).
+    //
+    // `computeConversationLabel` returns at the first tier that resolves —
+    // linked task title, then generated title, THEN this text
+    // (`conversation-label.ts:160-186`, `if (generated) return generated;`). So
+    // for any id whose higher tier already resolved, the text is fetched and
+    // discarded. Measured: 2,977 of 3,032 conversations (98.2%) carry a
+    // generated title, and the eager read cost 557 kB on one 984-turn
+    // conversation — 0.649 ms of server-side execution against a 146 ms RTT, so
+    // the cost was entirely transfer.
+    //
+    // The bound is `MAX_USER_TURN_CANDIDATES`, not a chosen threshold:
+    // `pickSubstantiveUserText` does `candidates.slice(0, MAX_USER_TURN_CANDIDATES)`,
+    // so rows beyond it are discarded by the consumer anyway. Dropping them is
+    // label-identical by construction rather than by measurement.
+    //
+    // `row_number()` PARTITIONED by session, never a global `LIMIT`: the ids
+    // array is batch-shaped, and an unordered global limit would return an
+    // arbitrary N rows across conversations — omitting the early turns the
+    // label depends on and silently changing or blanking labels (mt#3591).
+    const needsUserText = ids.filter(
+      (id) => !linkedTaskIdBySession.has(id) && !generatedTitleById?.get(id)?.trim()
+    );
+    const turns =
+      needsUserText.length > 0
+        ? await db.execute<{
+            agent_session_id: string;
+            turn_index: number;
+            user_text: string;
+          }>(sql`
+            select agent_session_id, turn_index, user_text
+            from (
+              select
+                agent_session_id,
+                turn_index,
+                user_text,
+                row_number() over (
+                  partition by agent_session_id order by turn_index asc
+                ) as rn
+              from agent_transcript_turns
+              where ${inArray(agentTranscriptTurnsTable.agentSessionId, needsUserText)}
+                and user_text is not null
+            ) ranked
+            where rn <= ${MAX_USER_TURN_CANDIDATES}
+          `)
+        : [];
+
+    // Tier 2: first-SUBSTANTIVE user-turn text per session. Sort ascending by
+    // turnIndex — pickSubstantiveUserText
     // (mt#2784) scans only the earliest MAX_USER_TURN_CANDIDATES of those,
     // skipping any that are harness markup only (e.g. a bare
     // `<command-message>` slash-command invocation) in favor of the next
@@ -191,11 +234,14 @@ export async function fetchEnrichment(
       string,
       { turnIndex: number; userText: string }[]
     >();
+    // snake_case here, not camelCase: these rows come from `db.execute` with a
+    // raw statement, which returns the driver's column names verbatim rather
+    // than drizzle's mapped select aliases.
     for (const turn of turns) {
-      if (!turn.userText) continue;
-      const list = userTurnCandidatesBySession.get(turn.agentSessionId) ?? [];
-      list.push({ turnIndex: turn.turnIndex, userText: turn.userText });
-      userTurnCandidatesBySession.set(turn.agentSessionId, list);
+      if (!turn.user_text) continue;
+      const list = userTurnCandidatesBySession.get(turn.agent_session_id) ?? [];
+      list.push({ turnIndex: turn.turn_index, userText: turn.user_text });
+      userTurnCandidatesBySession.set(turn.agent_session_id, list);
     }
     for (const list of userTurnCandidatesBySession.values()) {
       list.sort((a, b) => a.turnIndex - b.turnIndex);

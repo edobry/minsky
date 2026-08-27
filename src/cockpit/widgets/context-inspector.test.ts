@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import { MAX_USER_TURN_CANDIDATES } from "@minsky/domain/transcripts/conversation-label";
 import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
@@ -201,6 +202,29 @@ function mockMultiTableDb(fixture: MultiTableFixture): PostgresJsDatabase {
         throw new Error("mockMultiTableDb: unexpected table in .from()");
       },
     }),
+    // mt#4655: the user-text read is no longer a `.select().from()` chain — it
+    // is a single raw statement carrying a per-session `row_number()` bound, so
+    // the double has to answer `execute` instead. It applies the SAME bound and
+    // returns the SAME snake_case column names the driver does, so a test that
+    // passes here is exercising the shape production actually receives.
+    execute: () => {
+      const seenPerSession = new Map<string, number>();
+      const bounded = [...(fixture.turns ?? [])]
+        .filter((turn) => turn.userText !== null)
+        .sort((a, b) => a.turnIndex - b.turnIndex)
+        .filter((turn) => {
+          const nth = (seenPerSession.get(turn.agentSessionId) ?? 0) + 1;
+          seenPerSession.set(turn.agentSessionId, nth);
+          return nth <= MAX_USER_TURN_CANDIDATES;
+        });
+      return Promise.resolve(
+        bounded.map((turn) => ({
+          agent_session_id: turn.agentSessionId,
+          turn_index: turn.turnIndex,
+          user_text: turn.userText,
+        }))
+      );
+    },
   } as unknown as PostgresJsDatabase;
 }
 
