@@ -94,10 +94,28 @@ import { extractToolUseNames, findToolUseInputs } from "./transcript";
  * following the skill's own prescription armed a watch and was scored as having
  * armed NOTHING, by both consumers of this predicate.
  *
- * `pr_watch_run` was here from mt#4063 and `pr_watch_create` was not, which is
- * what makes this an oversight rather than a judgment: they are different calls
- * — `create` REGISTERS a watch, `run` EXECUTES a cycle of one — and only the
- * first is what an agent invokes to arm a wait and move on.
+ * `pr_watch_run` was here from mt#4063 and `pr_watch_create` was not. They are
+ * different calls — `create` REGISTERS a watch that outlives the turn
+ * (`pr-watch.ts:274`), `run` executes ONE pass over already-registered watches
+ * (`:386`) — so `create` was the missing one regardless of what is decided
+ * about `run`.
+ *
+ * ## `pr_watch_run`'s membership is an OPEN question, not an endorsement (mt#4696)
+ *
+ * Read literally, this set's own criterion above — "Only calls that actually
+ * leave something running" — excludes `run`: one pass completes within the turn,
+ * which is precisely why `session_pr_checks` is gated on `wait: true` rather than
+ * listed outright. Whether `run` nonetheless counts as INDIRECT evidence (a sweep
+ * is only meaningful when registered watches exist, and those do outlive the
+ * turn) is a real question with a real cost either way, since removing a member
+ * makes BOTH consumers fire more.
+ *
+ * It is NOT settled here, deliberately. mt#3560 added one member; reversing
+ * mt#4063's membership decision — whose per-member reasoning is not recorded —
+ * is a suppression change across two guards and belongs in its own task with a
+ * measured replay. **mt#4696 owns it.** Surfaced by `minsky-reviewer[bot]` on
+ * PR #3416, which was right that an earlier draft of this docblock asserted the
+ * exclusion while the code did the opposite.
  *
  * Note what this predicate ALREADY covered, and where the member list is
  * therefore not the whole answer: backgrounded `Bash` and `session_pr_checks`

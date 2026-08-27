@@ -805,6 +805,7 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
   // than a tautology.
   const WAIT_FOR_REVIEW_TOOL = "mcp__minsky__session_pr_wait-for-review";
   const PR_WATCH_CREATE_TOOL = "mcp__minsky__pr_watch_create";
+  const PR_WATCH_RUN_TOOL = "mcp__minsky__pr_watch_run";
 
   const WINDOW_PHRASINGS = [
     "That watch is armed in the background — I'll merge when it concludes.",
@@ -867,6 +868,21 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       expect(detectArmedWatcherEvidence(lines)).toEqual([PR_WATCH_CREATE_TOOL]);
     });
 
+    // PR #3416 review 5045481759 asked for a `run`-only turn to be covered, since
+    // the docblock's create/run distinction reads as if only `create` should count.
+    // This pins CURRENT behavior — `run` DOES count — so the state is explicit
+    // rather than accidental, and so a change to it fails visibly here.
+    //
+    // It is NOT an endorsement. `pr.watch.run` is one pass over already-registered
+    // watches (`pr-watch.ts:386`), which the set's own "only calls that actually
+    // leave something running" criterion arguably excludes. **mt#4696** owns that
+    // question and will update this assertion either way; do not read a green test
+    // as the membership having been justified.
+    test("a run-only turn counts today — behavior pinned, question open (mt#4696)", () => {
+      const lines = [toolUse("t1", PR_WATCH_RUN_TOOL, {})];
+      expect(detectArmedWatcherEvidence(lines)).toEqual([PR_WATCH_RUN_TOOL]);
+    });
+
     // PR #2972 R1: the set is hand-maintained and cannot be derived — blocking-
     // ness is a property of each tool's semantics, not of anything declared. So
     // pin its exact contents instead: a member added or removed fails here,
@@ -879,7 +895,7 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
         "mcp__minsky__asks_wait-for-response",
         "mcp__minsky__deployment_wait-for-latest",
         PR_WATCH_CREATE_TOOL,
-        "mcp__minsky__pr_watch_run",
+        PR_WATCH_RUN_TOOL,
         "mcp__minsky__reviewer_watch_run",
         WAIT_FOR_REVIEW_TOOL,
       ]);
