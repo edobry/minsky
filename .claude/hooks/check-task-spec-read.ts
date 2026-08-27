@@ -104,6 +104,7 @@ import {
   parseTranscript,
   findToolUseInputs,
   findCreatedResourceIds,
+  findToolCallsWithResults,
   resolveTranscriptCandidates,
   type TranscriptLine,
 } from "./transcript";
@@ -646,6 +647,169 @@ export function buildAskAdvisoryReason(toolName: string, unreadIds: readonly str
   ].join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// The falsified-premise leg (mt#4561) — advisory only
+// ---------------------------------------------------------------------------
+//
+// The residual the leg above names in its own header: an agent that DOES read a
+// falsified spec, misses the verdict in ~150 lines of prose, and recommends it
+// anyway. The two legs partition one transcript scan and neither subsumes the
+// other — mt#4551 fires when the spec was NOT surfaced, this one fires when it
+// WAS and carries the banner. The case mt#4551 gives up is the case where its
+// own check passes.
+//
+// Why a BANNER and not a phrase set. Reading a verdict back out of spec prose
+// was measured over 897 active specs and rejected: a fixed phrase set fires on
+// 94 with roughly one true positive, and 32 of those sit on a line naming a
+// DIFFERENT task. That is ADR-024's paraphrase axis. This leg reads a literal
+// token that `/plan-task`'s own gap-report branch EMITS at the moment the
+// verdict is known — the emitter already knows the answer, so nothing is
+// inferred. Same class as `require-duplicate-check-record.ts`: a literal form,
+// no similarity metric, no rung on ADR-024's ladder.
+//
+// Position is load-bearing, not cosmetic. The banner is only honoured in the
+// spec's TOP BLOCK — everything before the first `##` heading — which is what
+// makes the two hard false-positive classes structurally impossible rather than
+// tuned away: a spec DISCUSSING another task's falsification does so in its
+// body (the 32 cross-task fires), and a spec quoting the banner does so in a
+// fence. Fence elision is applied anyway as defence in depth.
+
+/**
+ * The literal token `/plan-task` Step 4 emits when it records gate (o) as
+ * failing. Uppercase and multi-word so it cannot collide with ordinary prose;
+ * defined here ONCE and referenced by the skill text rather than restated, so
+ * the emitter and the reader cannot drift apart.
+ */
+export const FALSIFIED_BANNER_TOKEN = "PROBLEM STATEMENT FALSIFIED";
+
+/**
+ * The spec body out of a `tasks_spec_get` / `tasks_get` result.
+ *
+ * The MCP result is a JSON envelope carrying the spec under `content`; the CLI
+ * surface returns the body directly. Both are accepted, and an unparseable body
+ * falls through to the raw text rather than throwing — this is a hook, and a
+ * malformed result must not take the guard down.
+ */
+export function extractSpecBody(resultText: string): string {
+  if (!resultText) return "";
+  try {
+    const parsed: unknown = JSON.parse(resultText);
+    if (parsed && typeof parsed === "object") {
+      const content = (parsed as Record<string, unknown>)["content"];
+      if (typeof content === "string") return content;
+    }
+  } catch {
+    // Not JSON — the CLI spelling returns the body directly. Fall through.
+  }
+  return resultText;
+}
+
+/**
+ * Whether a spec's TOP BLOCK carries the falsified banner.
+ *
+ * "Top block" is everything before the first `##` heading. A spec that mentions
+ * the token anywhere below that — discussing another task, quoting the
+ * convention, or describing this mechanism — is out of position and does not
+ * fire. Fenced blocks are elided first so a spec quoting the banner inside a
+ * fence at the very top does not fire either.
+ */
+export function specCarriesFalsifiedBanner(specBody: string): boolean {
+  if (!specBody) return false;
+
+  const headingIndex = specBody.search(/^##\s/m);
+  // Not a display truncation: the cut point is a regex match on `^##` at a line
+  // boundary, so it can only ever fall immediately after a newline. A surrogate
+  // pair cannot straddle that position, and safeTruncate would move the cut off
+  // the heading, which is the one thing this slice has to preserve.
+  // eslint-disable-next-line custom/no-unsafe-string-truncation
+  const topBlock = headingIndex === -1 ? specBody : specBody.slice(0, headingIndex);
+
+  // Elide fenced blocks before matching (AT4's negative control).
+  const withoutFences = topBlock.replace(/```[\s\S]*?```/g, "");
+
+  return withoutFences.includes(FALSIFIED_BANNER_TOKEN);
+}
+
+/**
+ * Of the ids an ask names, those whose spec THIS SESSION ALREADY READ carries
+ * the falsified banner.
+ *
+ * Reads the transcript rather than re-fetching: if the session surfaced the
+ * spec, its text is already in the result the read produced, so this leg adds
+ * no IO to the scan {@link unreadAskTaskIds} already performs. A hook cannot
+ * reach the task store without the domain bootstrap this module deliberately
+ * stays off (see the CLI-evidence section above), so the transcript is not
+ * merely the cheap channel — it is the available one.
+ */
+export function falsifiedAskTaskIds(
+  transcriptPath: string,
+  agentId: string | undefined,
+  rawIds: readonly string[]
+): string[] {
+  /** normalised id -> raw spelling, for ids not yet found falsified. */
+  const pending = new Map<string, string>();
+  for (const raw of rawIds) {
+    const normalized = normalizeTaskId(raw);
+    if (normalized) pending.set(normalized, raw);
+  }
+  if (pending.size === 0) return [];
+
+  const flagged: string[] = [];
+
+  for (const candidate of resolveTranscriptCandidates(transcriptPath, agentId)) {
+    if (pending.size === 0) break;
+    const lines = parseTranscript(candidate);
+    for (const call of findToolCallsWithResults(lines)) {
+      if (pending.size === 0) break;
+      if (call.toolName !== SPEC_GET_TOOL && call.toolName !== TASKS_GET_TOOL) continue;
+      if (!call.hasResult) continue;
+
+      const normalized = normalizeTaskId(call.input["taskId"]);
+      if (!normalized) continue;
+      const raw = pending.get(normalized);
+      if (raw === undefined) continue;
+
+      if (specCarriesFalsifiedBanner(extractSpecBody(call.resultText))) {
+        flagged.push(raw);
+        pending.delete(normalized);
+      }
+    }
+  }
+
+  return flagged;
+}
+
+/**
+ * Build the advisory for an ask naming a task whose spec carries the banner.
+ *
+ * Emitted as `additionalContext` with NO `permissionDecision`, matching the
+ * sibling leg: the verdict may be stale, or the ask may be ABOUT re-opening the
+ * premise, and denying either would be worse than the miss.
+ */
+export function buildFalsifiedAdvisoryReason(
+  toolName: string,
+  falsifiedIds: readonly string[]
+): string {
+  const action =
+    toolName === ASKS_EDIT_TOOL ? "editing an ask that names" : "filing an ask that names";
+  const one = falsifiedIds.length === 1;
+  return [
+    `[check-task-spec-read] ADVISORY — you are ${action} ${falsifiedIds.join(", ")}, and`,
+    `${one ? "its spec carries" : "their specs carry"} a recorded FALSIFIED PROBLEM STATEMENT.`,
+    "",
+    `A planning pass ran gate (o) against ${one ? "that task" : "those tasks"} and could NOT`,
+    `reproduce the cause the spec asserts. The status field still says where it sits in the`,
+    `lifecycle; the banner says the premise underneath it is dead. Recommending it as written is`,
+    `the mt#3473 / ask#10163 failure — a killed pilot led a principal-facing ask as its top option.`,
+    "",
+    `Re-read the top of ${one ? "that spec" : "each spec"} and the gap report it points at. If the`,
+    `recommendation depends on the falsified premise, revise or drop it; if the ask is precisely`,
+    `about re-establishing the premise, say so in the question so the principal can see that.`,
+    "",
+    `Advisory only — this call is NOT blocked. Override: ${OVERRIDE_ENV_VAR}=1.`,
+  ].join("\n");
+}
+
 /** Build the denial-reason message naming the action, the task, and the fix. */
 export function buildDenialReason(toolName: string, rawTaskId: unknown): string {
   const id = typeof rawTaskId === "string" && rawTaskId.length > 0 ? rawTaskId : "<unknown>";
@@ -753,17 +917,34 @@ async function main(): Promise<void> {
       if (!askTranscriptPath) return recordAndExit("allow");
 
       const unread = unreadAskTaskIds(askTranscriptPath, input.agent_id, askIds);
-      if (unread.length === 0) return recordAndExit("allow", "decided");
+
+      // The falsified-premise leg (mt#4561). Scoped to the ids the session DID
+      // read — an unread id is the sibling leg's case, and advising both about
+      // the same id would be telling the agent to read a spec it is
+      // simultaneously being told the contents of. The two sets are disjoint by
+      // construction, which is why both can be reported without triage.
+      const unreadSet = new Set(unread.map((raw) => normalizeTaskId(raw)));
+      const readIds = askIds.filter((raw) => !unreadSet.has(normalizeTaskId(raw)));
+      const falsified =
+        readIds.length > 0 ? falsifiedAskTaskIds(askTranscriptPath, input.agent_id, readIds) : [];
+
+      if (unread.length === 0 && falsified.length === 0) {
+        return recordAndExit("allow", "decided");
+      }
 
       // `additionalContext` with NO `permissionDecision` — the advisory shape
       // (`check-branch-fresh.ts` emits its warnings the same way). Written with
       // `process.stdout.write` rather than `writeOutput` to match this file's
       // own existing output call; the two differ only in `emitHookFiredOnDeny`,
       // which is a no-op for a non-deny payload.
+      const sections: string[] = [];
+      if (unread.length > 0) sections.push(buildAskAdvisoryReason(toolName, unread));
+      if (falsified.length > 0) sections.push(buildFalsifiedAdvisoryReason(toolName, falsified));
+
       const advisory: HookOutput = {
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
-          additionalContext: buildAskAdvisoryReason(toolName, unread),
+          additionalContext: sections.join("\n\n"),
         },
       };
       process.stdout.write(`${JSON.stringify(advisory)}\n`);
