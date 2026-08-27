@@ -368,75 +368,22 @@ export function detectReservedCategoryHalt(finalMessage: string): string[] {
 export const SUPPRESSION_ARMED_WATCHER_EVIDENCE = "armed-watcher-evidence";
 
 /**
- * Tool calls that ARE an armed wait, rather than prose claiming one (mt#4063).
+ * The armed-watcher predicate now lives in `./armed-watcher`, shared with
+ * `stop-at-decision-scan.ts` (mt#4327). Re-exported here so every existing
+ * consumer of this guard -- including the test that pins ARMED_WAIT_TOOLS to
+ * an exact set -- keeps its import site unchanged.
  *
- * ## Why this is not another phrase pattern
- *
- * This guard's armed-watcher suppression has now been widened twice on the
- * language axis — mt#3917 added it, mt#3948 unbound it from one word order —
- * and the 2026-08-12 calibration window produced three MORE phrasings that
- * escape both patterns: `watch` where the noun set has `watcher`/`wait`, an
- * intervening `for it` between the noun and its copula, and `is polling`, which
- * carries no `armed` token at all and so is unreachable by any widening of the
- * `armed` patterns.
- *
- * That is the precondition the patterns' own ADR-024 placement note set: "If a
- * THIRD distinct armed-watcher phrasing is filed against this set, that is the
- * measured insufficiency of Rung 1 for this family and the next pass raises the
- * rung rather than the pattern count." Three arrived at once.
- *
- * The rung this raises to is not Rung 2 (embedding). Whether a watcher was
- * armed is not a language question at all — it is a fact about the turn's tool
- * calls, and reading it directly REMOVES the paraphrase axis instead of buying
- * better recall along it. A cheaper deterministic signal outranking a costlier
- * probabilistic one is the outcome ADR-024's ladder exists to produce.
- *
- * ## What counts
- *
- * Only calls that actually leave something running. `session_pr_checks` is
- * listed but gated on `wait: true` below, because without it the call is a
- * one-shot snapshot read and no watcher survives it — the same distinction
- * `work-completion.mdc §External self-resolving waits` draws between arming a
- * watcher and merely looking once.
- *
- * Deliberately NOT bought: naming a blocker. "I'll merge when the review lands"
- * with no wait armed still fires, exactly as the phrase patterns intended — the
- * evidence here is the tool call, so prose cannot manufacture it.
- *
- * ## Keeping this set current (PR #2972 R1)
- *
- * The set is hand-maintained, so a new blocking-wait tool added elsewhere does
- * not appear here on its own. There is no registry of "tools that leave
- * something running" to derive it from — blocking-ness is a property of each
- * tool's semantics, not of anything declared — so a parity assertion has
- * nothing to assert against.
- *
- * What IS asserted is the set's exact contents (`ARMED_WAIT_TOOLS` is exported
- * for that test alone). Adding or removing a member fails that test, which
- * makes drift a deliberate edit with a visible diff rather than a silent one.
- * The failure mode this leaves open is a NEW wait tool nobody adds here — it
- * shows up as this guard firing on a correctly-armed turn, which is the same
- * signal the calibration log already surfaces, and the same way the three
- * phrasings in this docblock were found.
+ * One import, one export (PR #3402 R1). `run()` below calls the predicate, so
+ * the name has to be bound locally; re-exporting that same binding avoids
+ * naming the module twice, which the first revision did.
  */
-export const ARMED_WAIT_TOOLS = new Set([
-  "ScheduleWakeup",
-  "Monitor",
-  "mcp__minsky__session_pr_wait-for-review",
-  "mcp__minsky__deployment_wait-for-latest",
-  "mcp__minsky__asks_wait-for-response",
-  "mcp__minsky__pr_watch_run",
-  "mcp__minsky__reviewer_watch_run",
-]);
+import {
+  ARMED_WAIT_TOOLS,
+  CONDITIONAL_WAIT_TOOL,
+  detectArmedWatcherEvidence,
+} from "./armed-watcher";
 
-/** `session_pr_checks` is a watcher only when it was asked to wait. */
-export const CONDITIONAL_WAIT_TOOL = "mcp__minsky__session_pr_checks";
-
-/**
- * Tool-call evidence that a wait is running past the end of this turn.
- * Returns the evidence found, most useful for the calibration record; an empty
- * array means the turn armed nothing.
- */
+export { ARMED_WAIT_TOOLS, CONDITIONAL_WAIT_TOOL, detectArmedWatcherEvidence };
 /**
  * Suppression reason for a halt whose named-but-untaken step is DESTRUCTIVE (mt#4116).
  */
@@ -691,32 +638,6 @@ export function detectPrincipalInstructionHalt(
     /\bfile\s+(?:it|them)\b/i.test(openingPromptText) ||
     /\bstop\b/i.test(openingPromptText);
   return directive ? ["opening-prompt-directive"] : [];
-}
-
-export function detectArmedWatcherEvidence(
-  turnLines: Parameters<typeof findToolUseInputs>[0]
-): string[] {
-  const evidence = new Set<string>();
-
-  for (const name of extractToolUseNames(turnLines)) {
-    if (ARMED_WAIT_TOOLS.has(name)) evidence.add(name);
-  }
-
-  for (const input of findToolUseInputs(turnLines, CONDITIONAL_WAIT_TOOL)) {
-    if (input["wait"] === true) {
-      evidence.add(CONDITIONAL_WAIT_TOOL);
-      break;
-    }
-  }
-
-  for (const input of findToolUseInputs(turnLines, "Bash")) {
-    if (input["run_in_background"] === true) {
-      evidence.add("Bash(run_in_background)");
-      break;
-    }
-  }
-
-  return [...evidence];
 }
 
 export interface UntakenActionMatch {
