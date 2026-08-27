@@ -1,12 +1,20 @@
-/* eslint-disable max-lines -- mt#4694's three-bucket gap classification tipped this file from
-   ~1491 to 1538 counted lines, past the 1500 error threshold. The content is one template literal
-   of skill prose, not code: `max-lines` measures a complexity this file does not have, and the
-   real problem it is pointing at — 1,866 raw lines, more than DOUBLE the next-largest skill source
-   (implement-task at 916) — is a decomposition question, not something to solve by trimming the
-   amendment that happened to cross the line. **mt#4698 owns the split and REMOVES this comment**;
-   it was filed before this exemption was added, per `error-investigation.mdc` §"Workarounds are not
-   fixes." Do not treat this disable as licence to grow the file further — every addition until
-   mt#4698 lands makes that task bigger. */
+/* eslint max-lines: ["error", { max: 1540, skipBlankLines: true, skipComments: true }] --
+   A RATCHET, not a disable (PR #3417 R1). mt#4694's three-bucket gap classification tipped this
+   file from ~1491 to 1538 counted lines, past the repo's 1500 cap. A blanket
+   `eslint-disable max-lines` was the first draft and the reviewer was right to block it: removing
+   the guard entirely is how an exemption normalizes, because nothing then reports the file growing.
+
+   This keeps the rule ERRORING, at 1540 — two lines of headroom over the current 1538. A typo fix
+   fits; a new gate criterion, worked example, or checklist item does not, and trips the same error
+   this comment exists to answer. So the ceiling has to be raised deliberately, in a diff, with a
+   reason — which is the property the cap was buying and the disable would have thrown away.
+
+   Why not simply trim to fit: the file had 9 lines of headroom, which cannot hold four success
+   criteria. The real problem is what the cap is pointing AT — 1,866 raw lines, more than DOUBLE the
+   next-largest skill source (implement-task at 916), in the most-amended artifact in the planning
+   system. That is a decomposition question. **mt#4698 owns the split and REMOVES this comment**;
+   it was filed BEFORE this exemption was added, per `error-investigation.mdc` §"Workarounds are not
+   fixes." Do not raise this number to land an amendment — land mt#4698 instead. */
 import { defineSkill } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
