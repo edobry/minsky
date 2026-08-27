@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::daemon_core::DaemonLabels;
+use super::daemon_core::{daemon_labels, DaemonLabels};
 
 /// Which supervised daemon an entry, a menu item, or a command refers to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -57,13 +57,15 @@ impl DaemonId {
 // The MCP daemon entry (mt#3814's daemon, registered here).
 // ---------------------------------------------------------------------------
 
-pub(crate) const MCP_LABELS: DaemonLabels = DaemonLabels {
-    display_name: "MCP daemon",
-    running: "MCP daemon: running",
-    stopped: "MCP daemon: stopped",
-    starting: "MCP daemon: starting...",
-    stderr_log_hint: "~/.local/state/minsky/logs/mcp-daemon-stderr.log",
-};
+/// Unchanged by mt#4233's rename, byte for byte — this entry ALREADY carried the
+/// class word, which is exactly what made its sibling's bare "Cockpit" read as
+/// the app rather than as a process. Routed through `daemon_labels!` all the
+/// same, so both entries declare their name in one place and cannot drift apart
+/// on whether the suffix belongs in it.
+pub(crate) const MCP_LABELS: DaemonLabels = daemon_labels!(
+    "MCP daemon",
+    "~/.local/state/minsky/logs/mcp-daemon-stderr.log"
+);
 
 /// The MCP daemon's health endpoint. `/health`, not the cockpit's
 /// `/api/health` — the whole reason the path is per-entry data.
