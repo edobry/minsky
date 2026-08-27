@@ -61,8 +61,8 @@ larger than a subtraction from 60 suggests.
 | -------------- | ------- |
 | already-domain | 11      |
 | movable        | 88      |
-| immovable      | 81      |
-| **total**      | **180** |
+| immovable      | 82      |
+| **total**      | **181** |
 
 Of the 86 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 69 are tier 2 —
@@ -256,11 +256,12 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-unwired-task-relationship.ts`        | dispatcher-guard | findRelationshipAssertions, isDischarged                          | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (81)
+## immovable (82)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
 | `agent-dispatch-stamp.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `armed-watcher.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `ask-conversation-map.ts`                 | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-grant-store.ts`                      | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `ask-verification.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |

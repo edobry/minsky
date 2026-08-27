@@ -190,3 +190,67 @@ guards ask different questions: this one asks whether the turn took the next ste
 evidence, where PLANNING is the stop; the sibling asks whether anything happened to a just-minted
 id, where PLANNING is `/plan-task` Step 1 and firing would tell an agent mid-planning to go plan.
 The reasoning lives on `collectWalkedIds` in the file that does NOT carry the qualification.
+
+## mt#4327 (2026-08-26) — a turn that armed a watcher has not stopped
+
+The trigger reads "no task minted, no status advanced" as a stop. A turn waiting on a background run
+has nothing to mint YET — it is not at a decision, ripe or otherwise.
+
+`work-completion.mdc §External self-resolving waits` tells an agent that when the blocker is external
+and self-resolving, the correct move is to **arm a background watcher and keep going**, closing with
+something like _"I've armed a 30s background poll and will resume on recovery, no action needed from
+you."_ This detector fired hardest at exactly that sentence.
+
+### The discriminator is tool-call state, not wording
+
+`armedWatcherEvidence` already existed on the sibling `turn-end-untaken-action` guard, where it is
+populated; on this detector's records the field was **absent entirely**, so the fire was decided
+without consulting the one signal that separates a stop from a wait.
+
+The predicate moved to `.minsky/hooks/armed-watcher.ts`, shared by both guards — the same
+extract-rather-than-mirror choice `handoff-status.ts` made for mt#4228, and for the same reason: the
+tool list IS the discriminator, so two copies that drift silently reinstate the false positive
+(the class mt#4330 exists to flag). Matching the closing message's phrasing instead would have put
+this on ADR-024's ladder; reading the tool calls removes the paraphrase axis rather than buying
+recall along it.
+
+Three mechanisms count, and the third is what makes it a flag rather than a name check:
+a tool in `ARMED_WAIT_TOOLS`; `session_pr_checks` **with `wait: true`**; `Bash` with
+`run_in_background: true`. Without the flag, `session_pr_checks` is a one-shot snapshot read and no
+watcher survives it — a test pins that case specifically, because a suppressor keyed on the tool name
+passes every other test and is still wrong there.
+
+### Measured effect
+
+Replayed over the recorded evaluation stream with
+`scripts/replay-stop-at-decision-armed-watcher.ts`:
+
+```
+records:        1117
+unrecovered:    0
+unreproduced:   319   (recovered turn disagrees with its own record)
+compared:       798
+fired before:   43
+armed a wait:   405 of 798 compared
+NOW SUPPRESSED: 6 of 43 fires
+```
+
+**6 of 43 fires (14%) were turns that had armed a wait and said so.** Three of the six are the exact
+records the task quoted from the 2026-08-19 window before any of this was written —
+`2026-08-19T03:34` (`session_pr_checks`), `2026-08-13T13:50` (backgrounded `Bash`), and
+`2026-08-18T21:30` (`wait-for-review` plus a backgrounded `Bash`) — so the check demonstrably sees
+the cases it was filed for.
+
+The 319 `unreproduced` records are the denominator shrinking honestly rather than a delta being
+manufactured: a calibration log spans months of detector versions (mem#1125), so a record whose
+recovered turn no longer reproduces its own recorded suppression set is excluded rather than
+counted. `armed-watcher:*` is excluded from that fidelity comparison by construction — it is the
+reason this task adds, so no historical record can carry it.
+
+That 405-of-798 figure is not the defect's size and should not be read as one: most of those turns
+were already suppressed for other reasons and never fired. The 6 is the measured defect.
+
+### Posture unchanged
+
+Log-only, as before. This task changes precision only; a flip stays operator-reserved per ADR-042
+§Posture.
