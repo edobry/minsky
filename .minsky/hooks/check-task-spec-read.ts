@@ -758,17 +758,45 @@ export function falsifiedAskTaskIds(
     const lines = parseTranscript(candidate);
     for (const call of findToolCallsWithResults(lines)) {
       if (pending.size === 0) break;
-      if (call.toolName !== SPEC_GET_TOOL && call.toolName !== TASKS_GET_TOOL) continue;
+      // A call with no correlated result carries no body to read. NOT the same
+      // as a body with no banner — see findToolCallsWithResults' hasResult.
       if (!call.hasResult) continue;
 
-      const normalized = normalizeTaskId(call.input["taskId"]);
-      if (!normalized) continue;
-      const raw = pending.get(normalized);
-      if (raw === undefined) continue;
+      // The MCP surface.
+      if (call.toolName === SPEC_GET_TOOL || call.toolName === TASKS_GET_TOOL) {
+        const normalized = normalizeTaskId(call.input["taskId"]);
+        if (!normalized) continue;
+        const raw = pending.get(normalized);
+        if (raw === undefined) continue;
 
-      if (specCarriesFalsifiedBanner(extractSpecBody(call.resultText))) {
-        flagged.push(raw);
-        pending.delete(normalized);
+        if (specCarriesFalsifiedBanner(extractSpecBody(call.resultText))) {
+          flagged.push(raw);
+          pending.delete(normalized);
+        }
+        continue;
+      }
+
+      // The CLI surface (mt#4380 parity, PR #3410 R1). Minsky exposes the same
+      // read through two surfaces, and `specWasSurfaced` already credits both —
+      // so scanning only the MCP shape would let this leg go silent on exactly
+      // the sessions its sibling had just credited as having READ the spec. The
+      // false negative is invisible: the id is dropped from `unread`, so neither
+      // leg says anything.
+      if (!(COMMAND_TOOL_NAMES as readonly string[]).includes(call.toolName)) continue;
+      const command = call.input["command"];
+      if (typeof command !== "string" || command.trim() === "") continue;
+      const manifest = manifestOnce();
+      if (!manifest) continue;
+
+      for (const engagement of cliSpecEngagements(command, manifest)) {
+        if (engagement.kind !== "read") continue;
+        const raw = pending.get(engagement.taskId);
+        if (raw === undefined) continue;
+
+        if (specCarriesFalsifiedBanner(extractSpecBody(call.resultText))) {
+          flagged.push(raw);
+          pending.delete(engagement.taskId);
+        }
       }
     }
   }

@@ -1505,6 +1505,71 @@ describe("falsifiedAskTaskIds (mt#4561)", () => {
   test("no ids means no transcript work", () => {
     expect(falsifiedAskTaskIds(MISSING_TRANSCRIPT_PATH, undefined, [])).toEqual([]);
   });
+
+  // PR #3410 R1 (BLOCKING): the leg scanned only the MCP shape, while
+  // `specWasSurfaced` credits BOTH surfaces (mt#4380). A CLI read therefore
+  // left the id credited-as-read by the sibling leg and unscanned by this one —
+  // a false negative neither leg would report.
+  test("R1: a CLI `tasks spec get` read is scanned for the banner", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "Bash", {
+          command: "minsky tasks spec get mt#3473",
+        }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n\nThe killed pilot.\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual(["mt#3473"]);
+  });
+
+  test("R1: a CLI `tasks get --include-spec` read is scanned for the banner", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "mcp__minsky__session_exec", {
+          command: "minsky tasks get mt#3473 --include-spec",
+        }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual(["mt#3473"]);
+  });
+
+  test("R1 (negative control): a CLI read of a DIFFERENT task is not credited to ours", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "Bash", {
+          command: "minsky tasks spec get mt#2718",
+        }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
+
+  test("R1: a CLI read whose spec carries no banner does not fire", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "Bash", {
+          command: "minsky tasks spec get mt#3473",
+        }),
+        toolResultJson("call-1", { success: true, content: "## Summary\n\nAlive.\n" }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
 });
 
 describe("buildFalsifiedAdvisoryReason (mt#4561)", () => {
@@ -1512,8 +1577,12 @@ describe("buildFalsifiedAdvisoryReason (mt#4561)", () => {
     const reason = buildFalsifiedAdvisoryReason(ASKS_CREATE_TOOL, ["mt#3473"]);
     expect(reason).toContain("mt#3473");
     expect(reason).toContain("filing an ask that names");
+    // Leg-SPECIFIC substrings (PR #3410 R1, non-blocking): "NOT blocked" is
+    // shared verbatim with buildAskAdvisoryReason, so asserting on it alone
+    // would pass against the wrong leg's output.
     expect(reason).toContain("FALSIFIED PROBLEM STATEMENT");
-    expect(reason).toContain("NOT blocked");
+    expect(reason).toContain("could NOT");
+    expect(reason).toContain("reproduce the cause the spec asserts");
     expect(reason).toContain(OVERRIDE_ENV_VAR);
   });
 
