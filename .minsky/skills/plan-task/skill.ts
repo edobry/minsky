@@ -1,3 +1,20 @@
+/* eslint max-lines: ["error", { max: 1540, skipBlankLines: true, skipComments: true }] --
+   A RATCHET, not a disable (PR #3417 R1). mt#4694's three-bucket gap classification tipped this
+   file from ~1491 to 1538 counted lines, past the repo's 1500 cap. A blanket
+   `eslint-disable max-lines` was the first draft and the reviewer was right to block it: removing
+   the guard entirely is how an exemption normalizes, because nothing then reports the file growing.
+
+   This keeps the rule ERRORING, at 1540 — two lines of headroom over the current 1538. A typo fix
+   fits; a new gate criterion, worked example, or checklist item does not, and trips the same error
+   this comment exists to answer. So the ceiling has to be raised deliberately, in a diff, with a
+   reason — which is the property the cap was buying and the disable would have thrown away.
+
+   Why not simply trim to fit: the file had 9 lines of headroom, which cannot hold four success
+   criteria. The real problem is what the cap is pointing AT — 1,866 raw lines, more than DOUBLE the
+   next-largest skill source (implement-task at 916), in the most-amended artifact in the planning
+   system. That is a decomposition question. **mt#4698 owns the split and REMOVES this comment**;
+   it was filed BEFORE this exemption was added, per `error-investigation.mdc` §"Workarounds are not
+   fixes." Do not raise this number to land an amendment — land mt#4698 instead. */
 import { defineSkill } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
@@ -1517,8 +1534,8 @@ conversations, all of them this skill's gate reports).
 ## Gap Report (PLANNING — not yet READY)
 
 ### Blocking gaps
-- [criterion letter] [operator-actionable | self-resolving] <description of gap>
-- [criterion letter] [operator-actionable | self-resolving] <description of gap>
+- [criterion letter] [agent-actionable | operator-actionable | self-resolving] <description of gap>
+- [criterion letter] [agent-actionable | operator-actionable | self-resolving] <description of gap>
 
 ### Required actions before READY
 1. <concrete action the user or agent must take>
@@ -1575,15 +1592,26 @@ this one.)
    is queued for them.
 
 6. **Classify every blocking gap before you end the turn — the ending depends on it.**
-   Each gap is one of two kinds, and the gap report records which (the marker in the template
+   Each gap is one of THREE kinds, and the gap report records which (the marker in the template
    above):
 
-   - **operator-actionable** — a human has to act: a missing spec section, an unanswered design
-     question, a scope or naming decision. Nothing resolves this but the principal.
+   - **agent-actionable** — YOU can discharge it, here, in this turn. A stale spec reference, a
+     criterion grounded in something that does not exist, an unreconciled overlap with another
+     task, a fix-shape call that names no reserved category. **This is the largest bucket and it
+     was missing until mt#4694** — see the counter-example below for what its absence costs.
+   - **operator-actionable** — a human has to act. **Positive citation required, exactly as a HALT
+     requires one** (mt#3596): name which category from \`principal-context.mdc §Decisions Eugene
+     reserves\` applies, OR quote the principal's words deferring this specific step. A gap that
+     can cite neither is **not** operator-actionable — it is agent-actionable, and the label is
+     the only thing standing between you and doing it.
    - **self-resolving** — an external condition clears it on its own, with no operator
      involvement: an open PR merging, a CI run finishing, a deploy completing, a rate-limit
      window resetting. Gate (g) hits are USUALLY this kind, because the usual blocker is
      someone else's in-flight PR.
+
+   **The citation requirement on the middle bucket is load-bearing, not tidiness.** Without it the
+   third bucket is optional, and \`operator-actionable\` stays the path of least resistance for
+   anything that is merely unresolved — which is exactly how the failure below happened.
 
    Then:
 
@@ -1617,9 +1645,18 @@ this one.)
      closing sentence promise only what the unconditional mechanism delivers — and note that a
      watch is invisible to the principal from the moment it is armed (\`pr_watch_list\` is its
      only reader), so "I've armed a watch" asks them to trust something they cannot see.
-   - **Any gap operator-actionable → the turn ends on the human, as above** — but say which half
-     is which, so the principal is not left tracking the self-resolving ones. Arm the watcher for
-     those anyway.
+   - **Any gap agent-actionable → do NOT stop. Discharge it in THIS turn, then report what you
+     did.** This is the same refusal-to-hand-over the self-resolving branch makes, applied to work
+     that is yours rather than to a wait that is nobody's. Repair the stale ref, write the missing
+     criterion, do the reconciliation, make the call. A gap you can fix and instead describe is the
+     \`work-completion.mdc §Never notice an issue without acting on it\` failure, arriving through a
+     checklist rather than through prose. If discharging it changes what the task needs, re-run the
+     gate on the repaired spec rather than ending on a report about it.
+   - **Any gap operator-actionable → the turn ends on the human, as above** — but ONLY once its
+     citation holds (see the definition above), and say which kind is which so the principal is not
+     left tracking the other two. Discharge the agent-actionable ones and arm the watcher for the
+     self-resolving ones BEFORE you end; a turn that stops on one operator gap while leaving three
+     of its own undone has handed over a report, not a decision.
 
    **Why this step exists.** \`work-completion.mdc §External self-resolving waits\` already
    required the watcher, was always-loaded, and lost anyway — because this branch used to end
@@ -1628,6 +1665,33 @@ this one.)
    ended with "once PR #3039 merges, re-running the gate on mt#4183 picks it up"; no watcher was
    armed, and the operator prompted to resume ~80 minutes later with the PR still open. This is a
    recurrence AFTER mt#2956 shipped that rule — see mem#641 R2.
+
+   **Worked counter-example — what the missing third bucket cost (mt#4694, 2026-08-27).** A
+   \`/plan-task mt#3831\` run failed its gate on four blocking gaps and labelled every one of them
+   \`[operator-actionable]\`. Re-read against what that label asserts:
+
+   | Gap | Labelled | Actually |
+   | --- | --- | --- |
+   | the proposed fix deviates from ADR-024 | operator-actionable | **agent's** — the same pass had established no reserved category was nameable |
+   | unreconciled overlap with a sibling task | operator-actionable | **agent's** — the pass then did half of it unprompted |
+   | a criterion grounded in a corpus that does not exist | operator-actionable | **agent's** — a spec repair |
+   | a criterion written against a CLOSED task | operator-actionable | **agent's** — fixed in the same turn, by the same pass that labelled it operator-actionable |
+
+   Three of four mislabelled, and the fourth was FIXED by the agent while still carrying the label
+   that says a human has to act. The turn then ended per the routing above. The principal prompted
+   twice — *"Can we keep going?"*, then *"why did you stop?"*
+
+   **The mislabel was not carelessness, and that is the whole reason this bucket exists.** With
+   only two options offered, \`self-resolving\` is plainly wrong for a gap no external event clears,
+   so an agent answering honestly picks the nearer of two wrong labels — and \`operator-actionable\`
+   routes the turn to the human on its own authority. The step PRODUCED the stop rather than
+   permitting it. A second, independent instance is on record in the opposite direction: mt#4506's
+   gap report labels a subsume-or-coordinate decision \`[self-resolving]\`, which no external event
+   clears either. Two passes, two mislabels, opposite directions, one missing option.
+
+   Note where this sits relative to mt#3596: that task closed the RATIONALE path into an
+   unwarranted stop — a halt must now name a reserved category. This closes the LABEL path into the
+   same stop, which asserts no category at all and so had nothing for a citation test to catch.
 
 **Example (h) failure.** For a task that renames a config key (e.g., \`sessionDbPath\` →
 \`sessiondb.path\`) whose spec says "Sole consumer is \`~/.config/minsky/config.yaml\`":
