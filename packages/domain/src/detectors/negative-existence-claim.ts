@@ -6,8 +6,15 @@
  *
  *   A NEGATIVE EXISTENCE CLAIM — "X is never called", "nothing implements Y",
  *   "zero call sites" — written into a durable artifact, justified by a search
- *   that returned ZERO OR ONE hits, about a capability a task in DONE status
- *   claims to have delivered.
+ *   that was THIN (zero or one hits) or NARROW (scoped to a proper subtree of
+ *   the repo), about a capability a task in DONE status claims to have
+ *   delivered.
+ *
+ * The scope half arrived with mt#4362. Conjunct 2 originally tested hit COUNT
+ * alone, which models thin evidence by volume and cannot see a search that is
+ * narrow in TERRITORY and rich in HITS — the family's oldest axis, and one that
+ * had recurred three times (mem#490, mem#500, and the mt#4359 docblock that
+ * asserted a repo-wide absence on a `.minsky/hooks/`-scoped grep returning 8).
  *
  * All three conjuncts are machine-checkable. The matcher does NOT judge whether
  * the claim is true — an intractable question. It says: you are asserting
@@ -84,6 +91,28 @@ export const NEGATIVE_EXISTENCE_PATTERNS: readonly RegExp[] = [
 /** Task ids cited in prose, e.g. `mt#2677`. */
 const TASK_REF_RE = /\bmt#(\d+)\b/gi;
 
+/**
+ * How much TERRITORY a search covered (mt#4362).
+ *
+ * Conjunct 2 originally tested hit COUNT alone, which models thinness by volume
+ * and misses the family's oldest axis: a search can be narrow in SCOPE and rich
+ * in HITS. A subtree-scoped grep returning eight hits reads as thorough by the
+ * only signal the detector measured, while warranting nothing about the
+ * territory outside that subtree.
+ *
+ * - `subtree`  — the search named a path that is a PROPER subtree of the repo
+ *                root, so an unqualified repo-wide claim outruns its evidence.
+ * - `repo`     — the search covered the repo root (no path operand, or the root
+ *                itself). Its breadth is not in question.
+ * - `unscopable` — the tool has no path dimension at all (`tasks_search`,
+ *                `transcripts_search-text`), or expresses reach as a glob FILTER
+ *                rather than a path prefix (`session_grep_search`'s
+ *                `include_pattern`). Classified EXPLICITLY rather than left to
+ *                fall through, so "we cannot tell" is never silently read as
+ *                "repo-wide" (mt#4362 SC3/SC4).
+ */
+export type SearchScope = "subtree" | "repo" | "unscopable";
+
 /** A search call in the turn, paired with the hit count its result carried. */
 export interface SearchObservation {
   toolName: string;
@@ -92,6 +121,32 @@ export interface SearchObservation {
    * counted. A null count is NOT thin — see {@link isThinSearch}.
    */
   hitCount: number | null;
+  /**
+   * Territory the search covered, classified by the ADAPTER.
+   *
+   * OPTIONAL on purpose (mt#4362 SC6): this interface is re-exported from the
+   * package barrel, and four sites construct one today. A required field would
+   * break all of them for a signal only one conjunct reads. Absent means "the
+   * caller did not classify", which {@link isNarrowSearch} treats as NOT narrow —
+   * the same fail-quiet direction {@link isThinSearch} takes for a null count.
+   *
+   * Classified in the adapter rather than here because the shell grammar that
+   * parses a path out of a command string (`command-shape.ts`'s
+   * `nonFlagOperands` / `suppliesPattern`, shared with
+   * `nonexistent-search-path-detector` since mt#4328) lives in the hooks tree,
+   * and `packages/domain` does not import from there.
+   */
+  scope?: SearchScope;
+  /**
+   * The subtree the search named, when {@link SearchObservation.scope} is
+   * `"subtree"` — e.g. `.minsky/hooks/`.
+   *
+   * Carried so SC5 can be answered against the ACTUAL territory rather than
+   * against "some qualifier is present". A claim qualified to a DIFFERENT
+   * subtree than the one searched is still an unqualified claim about the one
+   * searched, and a presence-only test would silently excuse it.
+   */
+  scopePath?: string;
 }
 
 /** One matched negative-existence claim. */
@@ -148,6 +203,31 @@ export function isThinSearch(search: SearchObservation): boolean {
   return search.hitCount !== null && search.hitCount <= 1;
 }
 
+/**
+ * A search is SCOPE-NARROW when it looked at a proper subtree of the repo.
+ *
+ * Independent of hit count, and that independence is the point: the shape this
+ * catches returns MANY hits. An unclassified scope (`undefined`) is not narrow,
+ * matching {@link isThinSearch}'s treatment of an uncountable result — an
+ * adapter that did not classify is evidence about the ADAPTER, and treating its
+ * silence as narrowness would fire on every search a future caller forgets to
+ * label.
+ */
+export function isScopeNarrowSearch(search: SearchObservation): boolean {
+  return search.scope === "subtree";
+}
+
+/**
+ * Conjunct 2: the same-turn search was thin by COUNT **or** narrow by SCOPE.
+ *
+ * The disjunction is the mt#4362 widening. Count alone modelled "thin evidence"
+ * by volume, which a subtree-scoped search rich in hits satisfies in neither
+ * direction while warranting nothing outside its subtree.
+ */
+export function isNarrowSearch(search: SearchObservation): boolean {
+  return isThinSearch(search) || isScopeNarrowSearch(search);
+}
+
 /** Every distinct `mt#N` cited in `prose`, normalized to `mt#N`. */
 export function extractCitedTaskIds(prose: string): string[] {
   const ids = new Set<string>();
@@ -187,6 +267,37 @@ export function extractNegativeExistenceClaims(prose: string): ClaimMatch[] {
   return claims;
 }
 
+/** Strip a leading `./` and any trailing slashes so `./src/` and `src` compare equal. */
+function normalizeScopePath(path: string): string {
+  return path.replace(/^\.\/+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * SC5 — does every claim already CARRY the qualifier its search was scoped to?
+ *
+ * The defect this detector's scope leg catches is an UNQUALIFIED claim resting
+ * on a QUALIFIED search. Writing "no call sites under `.minsky/hooks/`" after
+ * grepping `.minsky/hooks/` is therefore the correct-authoring case, and firing
+ * on it would punish exactly the behaviour the guard exists to teach.
+ *
+ * Compared against the ACTUAL searched path, not against "a qualifier is
+ * present": a claim scoped to a DIFFERENT subtree than the one searched is
+ * still unqualified about the territory the evidence came from.
+ *
+ * `every`, not `some` — one unqualified claim in the turn is still an
+ * unqualified claim, and suppressing the whole turn because a SIBLING sentence
+ * was careful is the over-suppression this family keeps re-learning.
+ */
+export function claimsQualifiedTo(
+  claims: readonly ClaimMatch[],
+  scopePath: string | undefined
+): boolean {
+  if (scopePath === undefined || claims.length === 0) return false;
+  const needle = normalizeScopePath(scopePath);
+  if (needle.length === 0) return false;
+  return claims.every((claim) => claim.excerpt.includes(needle));
+}
+
 /**
  * Combine the three conjuncts.
  *
@@ -209,7 +320,23 @@ export function detectNegativeExistenceClaim(
 ): NegativeExistenceClaimResult {
   const claims = extractNegativeExistenceClaims(input.artifactProse);
   const citedTaskIds = extractCitedTaskIds(input.artifactProse);
-  const thinSearches = input.searches.filter(isThinSearch);
+
+  // The two legs are collected SEPARATELY and only then concatenated.
+  //
+  // Count-thin searches are admitted exactly as before — no new condition is
+  // applied to them — so mt#3918's behaviour is bit-for-bit preserved and
+  // AT5's replay delta is attributable to the scope leg alone. The SC5
+  // qualifier test gates ONLY the new leg, because it answers a question that
+  // is meaningless for a count-thin search: a repo-wide search returning one
+  // hit is not excused by naming a subtree.
+  const countThin = input.searches.filter(isThinSearch);
+  const scopeNarrow = input.searches.filter(
+    (search) =>
+      isScopeNarrowSearch(search) &&
+      !isThinSearch(search) &&
+      !claimsQualifiedTo(claims, search.scopePath)
+  );
+  const thinSearches = [...countThin, ...scopeNarrow];
   const known = input.doneTaskIds;
   const doneLookupUnavailable = known === null;
   const doneTaskIds = known === null ? citedTaskIds : citedTaskIds.filter((id) => known.has(id));
