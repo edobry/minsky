@@ -37,6 +37,7 @@ describe("DeploymentWaitTimeoutError", () => {
       status: "BUILDING" as const,
       commitHash: "abc1234",
       commitMessage: "fix: thing",
+      imageDigest: null,
       createdAt: "2026-05-11T20:00:00Z",
       finishedAt: null,
       durationMs: null,

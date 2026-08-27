@@ -49,9 +49,16 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
+import { type NewTranscriptLineRecord } from "../storage/schemas/transcript-lines-schema";
+import { readCapturedOrdinalHighWater, writeCapturedLines } from "./transcript-line-capture";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
+import {
+  classifyConnectionFailure,
+  databaseConditionSqlStateClass,
+  type ConnectionFailureKind,
+} from "../persistence/connection-failure";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { isSidecarLineType } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
@@ -85,6 +92,48 @@ import { SYNTHETIC_MODEL_SENTINEL } from "../ai/dispatch-models";
  * uninterrupted run of failures.
  */
 export const INGEST_QUARANTINE_THRESHOLD = 3;
+
+/**
+ * Consecutive INFRASTRUCTURE failures after which `ingestAll` abandons the pass
+ * (mt#4480).
+ *
+ * A sweep pass holds one database handle across every discovered session. When
+ * that handle dies mid-pass — the cockpit's own pool recycler tearing it down
+ * is the measured cause — every remaining session fails its first query in
+ * microseconds, and the pass runs to completion reporting
+ * `sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0`. Five such
+ * passes ran back to back on 2026-08-24 before this existed. The waste is not
+ * the point; the point is that a pass shaped like that is indistinguishable
+ * from a healthy one in every counter a caller reads.
+ *
+ * Why an infrastructure-CLASSIFIED count rather than a plain failure count: a
+ * single session cannot cause a `CONNECTION_ENDED`. The classification is what
+ * makes a low threshold sound — these errors are properties of the connection,
+ * so consecutive ones are evidence about the connection and never about the
+ * sessions they happened to land on. `classifyConnectionFailure` returns
+ * `"unknown"` rather than guessing, and `"unknown"` deliberately does NOT count
+ * here, so an unrecognized per-session error can never trip this.
+ *
+ * Ten, not three: three is the QUARANTINE threshold, where the cost of being
+ * wrong is a conversation permanently given up on. Here a wrong abort costs one
+ * skipped pass on a 30-minute cadence, and the next pass re-collects everything
+ * — so the threshold is set for headroom over a brief flap rather than for
+ * caution. Against a 1,502-session pass it still salvages 99.3% of the work.
+ */
+export const INGEST_ABORT_AFTER_CONSECUTIVE_INFRA_FAILURES = 10;
+
+/**
+ * True when an error is about the CONNECTION rather than about the session.
+ *
+ * `"unknown"` is excluded on purpose. `connection-failure.ts` documents it as
+ * "no information, never a synonym for transient", and treating it as
+ * infrastructure here would let an ordinary unrecognized per-session error
+ * abort a pass that should have continued.
+ */
+function isInfrastructureFailure(err: unknown): ConnectionFailureKind | null {
+  const { kind } = classifyConnectionFailure(err);
+  return kind === "unknown" ? null : kind;
+}
 
 /**
  * Cap on the stored `ingest_last_error` text. The whole point of the column is
@@ -212,7 +261,7 @@ async function resolveIngestProjectId(
   try {
     const identity = resolveProjectIdentity({ repoPath: cwd });
     if (identity.kind !== "resolved") return null;
-    const scope = await resolveProjectScope(identity, db);
+    const scope = await resolveProjectScope(identity, db, "transcripts.ingest");
     return isAllProjects(scope) ? null : scope;
   } catch (err) {
     log.debug("[transcripts] Project id resolution failed for ingest; leaving unscoped", {
@@ -362,12 +411,54 @@ export class AgentTranscriptIngestService {
     // this batch, logged once below rather than per line.
     let unsafeCodepointsReplaced = 0;
     let sanitizeKeyCollisions = 0;
+    // mt#4573: full-fidelity capture into `transcript_lines`. This is a SECOND,
+    // independent destination alongside the two below, and it is deliberately
+    // upstream of every gate in the loop — the retention filter, the sidecar
+    // check, and the timestamp high-water-mark each drop lines that the
+    // reconstruction path needs. `rawOrdinal` counts EVERY parsed line, so it
+    // is a different counter from `lineIndex` (which counts only retained
+    // non-sidecar lines and must keep its exact meaning — it is half of the
+    // attachments primary key).
+    const newCaptureRows: NewTranscriptLineRecord[] = [];
+    let rawOrdinal = -1;
+    const capturedOrdinalHighWater = await readCapturedOrdinalHighWater(this.db, agentSessionId);
 
     try {
       // mt#3288: pass the path this session was discovered at. Without it a
       // discovery-backed source re-scans every transcript in the corpus to
       // resolve the id, which made `ingestAll` quadratic.
-      for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
+      for await (const line of this.source.readSessionRaw(agentSessionId, jsonlPath)) {
+        rawOrdinal++;
+
+        // mt#4573: scrub + sanitize ONCE, here, and reuse the result for every
+        // destination below. Both transforms are mandatory before any Postgres
+        // write — mt#2763 for credentials, mt#3278 for U+0000, which `jsonb`
+        // cannot represent and which permanently freezes a session's ingest if
+        // it reaches the insert (mem#750).
+        const { value: scrubbedLine, redactions } = scrubValueDeep(line);
+        const { value: safeLine, replaced, keyCollisions } = sanitizeForPostgresDeep(scrubbedLine);
+        if (redactions.length > 0) allRedactions.push(...redactions);
+        unsafeCodepointsReplaced += replaced;
+        sanitizeKeyCollisions += keyCollisions;
+
+        // mt#4573: capture EVERY line, upstream of every filter below. The
+        // ordinal high-water makes this incremental over an append-only file;
+        // the PK is the backstop against a concurrent writer.
+        if (capturedOrdinalHighWater !== null && rawOrdinal > capturedOrdinalHighWater) {
+          newCaptureRows.push({
+            agentSessionId,
+            lineOrdinal: rawOrdinal,
+            line: safeLine as Record<string, unknown>,
+            lineType: typeof line.type === "string" ? line.type : "",
+          });
+        }
+
+        // mt#4573: this restores exactly the filter `readSession` used to apply
+        // upstream, so everything below sees the same population it always has.
+        // The switch to `readSessionRaw` widens what CAPTURE sees, and nothing
+        // else — in particular the divergence scanner's input is unchanged.
+        if (!this.source.isRetainedLine(line)) continue;
+
         // mt#3656: feed EVERY line to the divergence scanner before any gate
         // below can drop it. This must precede the timestamp check: a
         // `last-prompt` row — the only writer-identity trace the format offers
@@ -403,35 +494,17 @@ export class AgentTranscriptIngestService {
         if (highWaterMark !== null && tsDate <= highWaterMark) continue;
 
         const lineType = typeof line.type === "string" ? line.type : "";
+        // mt#4573: `safeLine` was scrubbed (mt#2763) and sanitized (mt#3278)
+        // once at the top of this loop, and the counters were accumulated
+        // there — so these branches consume the result rather than repeating
+        // either transform. Both durable-copy write paths still receive a
+        // scrubbed, storable line; only the place the work happens moved.
         if (lineType === "user" || lineType === "assistant") {
-          // mt#2763: scrub BEFORE the line is retained — this is the
-          // durable-copy write path (agent_transcripts.transcript JSONB).
-          const { value: scrubbedLine, redactions } = scrubValueDeep(line);
-          if (redactions.length > 0) allRedactions.push(...redactions);
-          // mt#3278: and make it storable. Postgres cannot hold U+0000 in a
-          // text-derived column, so a line carrying one fails the upsert
-          // identically on every retry — permanently freezing the transcript.
-          const {
-            value: safeLine,
-            replaced,
-            keyCollisions,
-          } = sanitizeForPostgresDeep(scrubbedLine);
-          unsafeCodepointsReplaced += replaced;
-          sanitizeKeyCollisions += keyCollisions;
+          // agent_transcripts.transcript JSONB.
           newLines.push(safeLine);
         } else if (lineType === "attachment" || lineType === "system") {
-          // mt#2763: scrub BEFORE buildAttachmentRow captures `content: line`
-          // verbatim (attachment-row-builder.ts) — the other durable-copy
-          // write path (agent_transcript_attachments.content).
-          const { value: scrubbedLine, redactions } = scrubValueDeep(line);
-          if (redactions.length > 0) allRedactions.push(...redactions);
-          const {
-            value: safeLine,
-            replaced,
-            keyCollisions,
-          } = sanitizeForPostgresDeep(scrubbedLine);
-          unsafeCodepointsReplaced += replaced;
-          sanitizeKeyCollisions += keyCollisions;
+          // agent_transcript_attachments.content, captured verbatim by
+          // buildAttachmentRow (attachment-row-builder.ts).
           const row = buildAttachmentRow(agentSessionId, lineIndex, safeLine, tsDate);
           if (row !== null) newAttachmentRows.push(row);
         }
@@ -511,7 +584,25 @@ export class AgentTranscriptIngestService {
       );
     }
 
-    if (newLines.length === 0 && newAttachmentRows.length === 0) {
+    // mt#4573 (PR #3346 R1, BLOCKING): capture rows join the early-return
+    // condition, so a batch carrying ONLY un-timestamped lines falls through to
+    // the main path instead of returning here.
+    //
+    // The reviewer was right that the previous shape lost them permanently. A
+    // brand-new conversation's first lines can be `bridge-session` / `mode` /
+    // `permission-mode` — all un-timestamped — so both timestamped paths are
+    // empty and there is no parent row yet. Guarding the capture write on
+    // `parentRowExists`, as this branch used to, therefore skipped it; and
+    // because the ordinal high-water only advances when rows land, every later
+    // sweep rebuilt the same batch and re-reached the same guard. The old
+    // comment claimed "the next sweep loses nothing", which assumed a parent
+    // row that only a timestamped line can create.
+    //
+    // Falling through fixes it without widening §3a: the §4 upsert creates the
+    // parent row, and §4a2 captures after it. Steady state is unaffected —
+    // a fully-captured session has no new capture rows, so it still returns here
+    // and writes nothing.
+    if (newLines.length === 0 && newAttachmentRows.length === 0 && newCaptureRows.length === 0) {
       // The transcript upsert below is skipped, so the verdict has to be
       // written on its own here or it is lost for every already-ingested
       // conversation. Conditional in SQL rather than unconditional: the WHERE
@@ -820,6 +911,34 @@ export class AgentTranscriptIngestService {
       return { ingested: 0, error: upsertError };
     }
 
+    // ── 4a2. Capture raw lines into transcript_lines (mt#4573) ───────────────
+    // Deliberately AFTER the upsert, which is the opposite of §3b's ordering —
+    // and for a reason that does not apply here. §3b must precede the upsert
+    // because attachments are gated by the TIMESTAMP watermark the upsert
+    // advances: a row lost after it moves is never re-collected.
+    //
+    // Capture has its own independent idempotency key. `newCaptureRows` is
+    // built from the ORDINAL high-water, which only moves when rows are
+    // actually written — so if this insert fails, the timestamp watermark has
+    // advanced but the ordinal one has not, and the next sweep rebuilds exactly
+    // the same batch and retries it. Capture self-heals across the watermark,
+    // which is what lets it run here where the parent row is guaranteed to
+    // exist (the upsert just created or updated it) rather than needing §3a to
+    // be widened to cover it.
+    //
+    // Failure is therefore logged, not fatal: aborting would discard a
+    // successful transcript+attachment ingest to retry a write that is going to
+    // be retried anyway.
+    if (newCaptureRows.length > 0) {
+      const captureError = await writeCapturedLines(this.db, newCaptureRows);
+      if (captureError) {
+        log.warn(
+          `transcript_lines capture FAILED for session ${agentSessionId} (${newCaptureRows.length} rows) — the ordinal high-water did not advance, so the next sweep retries this batch`,
+          { agentSessionId, error: getLoggableErrorSummary(captureError) }
+        );
+      }
+    }
+
     // ── 4b. Materialize per-turn rows for FTS (ADR-019, mt#2381) ──────────────
     // Extraction rides with capture: read back the full MERGED transcript (the
     // upsert just concatenated the new lines onto any prior transcript) and
@@ -1066,6 +1185,61 @@ export class AgentTranscriptIngestService {
   }
 
   private async recordIngestFailure(agentSessionId: string, cause: Error): Promise<void> {
+    // mt#4480: a connection failure is a property of the CONNECTION, not of
+    // this session, so it must not advance a counter whose only effect is to
+    // give up on this session permanently. INGEST_QUARANTINE_THRESHOLD is 3, a
+    // sweep touches every session on every pass, and the cockpit's pool can be
+    // recycled mid-pass — so three unlucky passes would quarantine an
+    // arbitrary set of healthy conversations for an outage none of them caused.
+    // That is precisely the silent never-ingest condition SC4 exists to
+    // prevent, arriving through the mechanism built to prevent it.
+    //
+    // The row write is skipped ENTIRELY rather than kept-but-not-counted: it
+    // goes through the same dead connection, so during the outage that makes
+    // this branch fire it would fail anyway. Nothing is lost by not attempting
+    // it — the sweep-level abort is what reports this class, at `error`, with
+    // the failure kind, and this line covers the case where the connection
+    // recovers before the counter would have been written.
+    const infraKind = isInfrastructureFailure(cause);
+    if (infraKind !== null) {
+      log.debug(
+        `Not counting ${infraKind} failure toward quarantine for session ${agentSessionId}`,
+        { agentSessionId, infraKind }
+      );
+      return;
+    }
+
+    // mt#4519: the check above only sees postgres-js CLIENT-SIDE codes. A
+    // SERVER-side SQLSTATE matches none of them, so `classifyConnectionFailure`
+    // returns "unknown" — and mapping "unknown" to "the session's content is
+    // bad" is precisely what that module's docblock forbids ("no information,
+    // never a synonym for transient").
+    //
+    // Measured (mt#4500): three conversations were quarantined on
+    // `57014 query_canceled` — a statement timeout during a degraded-database
+    // window — and all three ingested cleanly on release with no code change.
+    // The counter had recorded a fact about the DATABASE as a verdict about
+    // them. `08006 connection_failure` reaches here identically, so this is not
+    // specific to timeouts.
+    //
+    // Class-level, not a literal list (mt#4100 SC3): a sibling code is covered
+    // without another incident.
+    //
+    // Deliberately NOT folded into `isInfrastructureFailure`, whose OTHER
+    // caller is `ingestAll`'s consecutive-infra abort. That threshold is sound
+    // only because a single session cannot cause a connection failure — but a
+    // single oversized transcript CAN cause a statement timeout, so counting
+    // these there would let one bad session abandon a whole pass. Two
+    // questions, two predicates.
+    const dbConditionClass = databaseConditionSqlStateClass(cause);
+    if (dbConditionClass !== null) {
+      log.debug(
+        `Not counting SQLSTATE class ${dbConditionClass} database-condition failure toward quarantine for session ${agentSessionId}`,
+        { agentSessionId, sqlStateClass: dbConditionClass }
+      );
+      return;
+    }
+
     try {
       const summary = getLoggableErrorSummary(cause);
       // safeTruncate, not `.slice`: a plain slice can cut a UTF-16 surrogate
@@ -1115,17 +1289,37 @@ export class AgentTranscriptIngestService {
    *
    * @returns Total number of new lines ingested across all sessions.
    */
-  async ingestAll(): Promise<IngestAllResult> {
+  async ingestAll(options?: IngestAllOptions): Promise<IngestAllResult> {
     let totalIngested = 0;
     let sessionsProcessed = 0;
     let sessionsErrored = 0;
     let sessionsQuarantined = 0;
+
+    const abortThreshold =
+      options?.abortAfterConsecutiveInfraFailures ?? INGEST_ABORT_AFTER_CONSECUTIVE_INFRA_FAILURES;
+    let consecutiveInfraFailures = 0;
+    let lastInfraKind: ConnectionFailureKind | null = null;
+    let aborted: IngestAllResult["aborted"];
 
     for await (const session of this.source.discoverSessions()) {
       sessionsProcessed++;
       try {
         const result = await this.ingestSession(session);
         totalIngested += result.ingested;
+
+        // mt#4480: track connection-level failures separately from
+        // session-level ones. Any outcome that is not an infrastructure
+        // failure — including a success, a quarantine skip, and an ordinary
+        // per-session error — is evidence the connection is alive, so it
+        // resets the run.
+        const infraKind = result.error !== undefined ? isInfrastructureFailure(result.error) : null;
+        if (infraKind === null) {
+          consecutiveInfraFailures = 0;
+        } else {
+          consecutiveInfraFailures++;
+          lastInfraKind = infraKind;
+        }
+
         if (result.quarantined === true) {
           // Not an error THIS pass — nothing was attempted. Counted separately
           // so an operator can tell "N sessions are failing right now" from
@@ -1147,17 +1341,46 @@ export class AgentTranscriptIngestService {
         // Defensive — ingestSession is documented as never throwing, but if
         // an unexpected throw escapes (e.g., an iterator boundary), still count it.
         sessionsErrored++;
+        const infraKind = isInfrastructureFailure(err);
+        if (infraKind === null) {
+          consecutiveInfraFailures = 0;
+        } else {
+          consecutiveInfraFailures++;
+          lastInfraKind = infraKind;
+        }
         log.warn(`Session ${session.agentSessionId} failed during sweep`, {
           error: getLoggableErrorSummary(err),
         });
       }
+
+      // mt#4480: the connection is gone, so every remaining session would fail
+      // its first query too. Stop here and let the next pass start from a
+      // freshly-resolved handle — an ingest sweep is idempotent and
+      // high-water-mark gated, so nothing is lost by abandoning a pass.
+      if (consecutiveInfraFailures >= abortThreshold) {
+        aborted = {
+          afterSessionsProcessed: sessionsProcessed,
+          consecutiveInfraFailures,
+          failureKind: lastInfraKind ?? "unknown",
+        };
+        log.error(
+          `Ingest sweep ABORTED after ${consecutiveInfraFailures} consecutive connection failures ` +
+            `(${aborted.failureKind}) — abandoning the pass at session ${sessionsProcessed}`,
+          aborted
+        );
+        break;
+      }
     }
 
-    log.info(`Ingest sweep complete`, {
+    // mt#4480: an abandoned pass must not log as a completed one. It shares
+    // every counter with a healthy pass except the ones nobody reads, which is
+    // exactly how five consecutive zero-ingest passes went unnoticed.
+    log.info(aborted ? `Ingest sweep ABORTED (partial)` : `Ingest sweep complete`, {
       totalIngested,
       sessionsProcessed,
       sessionsErrored,
       sessionsQuarantined,
+      ...(aborted ? { aborted } : {}),
     });
     // mt#3278: a standing quarantine is an operator-visible condition, not a
     // per-sweep event, so it is surfaced every sweep rather than only on the
@@ -1169,7 +1392,7 @@ export class AgentTranscriptIngestService {
         { sessionsQuarantined }
       );
     }
-    return { totalIngested, sessionsProcessed, sessionsErrored, sessionsQuarantined };
+    return { totalIngested, sessionsProcessed, sessionsErrored, sessionsQuarantined, aborted };
   }
 }
 
@@ -1209,6 +1432,29 @@ export interface IngestAllResult {
    * cannot also have failed. Both are counted within `sessionsProcessed`.
    */
   sessionsQuarantined: number;
+  /**
+   * Set when the pass was ABANDONED rather than finished (mt#4480) — the
+   * connection died and every remaining session would have failed identically.
+   *
+   * Absent on a normal pass. A caller that records sweep health MUST branch on
+   * this: the other counters cannot distinguish an abandoned pass from a
+   * completed one, because both report a processed count and an errored count
+   * and neither carries an outcome.
+   */
+  aborted?: {
+    /** How far into discovery the pass got before giving up. */
+    afterSessionsProcessed: number;
+    consecutiveInfraFailures: number;
+    failureKind: ConnectionFailureKind;
+  };
+}
+
+export interface IngestAllOptions {
+  /**
+   * Override {@link INGEST_ABORT_AFTER_CONSECUTIVE_INFRA_FAILURES}. Tests set
+   * this low; production should not set it at all.
+   */
+  abortAfterConsecutiveInfraFailures?: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

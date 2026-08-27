@@ -320,10 +320,18 @@ export function burstElapsedMs(turns: PreparedTurn[]): number | null {
  * The one line a folded burst renders.
  *
  * Written as prose with counts rather than a label list, matching the
- * reference's register. Every figure is computed from elements already in hand
- * — per ADR-025 the transcript's system of record is object storage, so a
- * payload is not guaranteed resident and a summary must never be the reason one
- * has to be fetched (mt#3845 SC4).
+ * reference's register. Every figure is computed from elements already in hand:
+ * a summary must never be the reason a payload has to be fetched (mt#3845 SC4).
+ * Satisfied by construction — this function is synchronous over `PreparedTurn[]`
+ * and performs no IO.
+ *
+ * That requirement was originally justified by ADR-025 ("the transcript's system
+ * of record is object storage, so a payload is not guaranteed resident"), and
+ * **ADR-045 superseded that premise** — the raw now lands in Postgres. The
+ * requirement is unaffected: the payload was never inline in the rendered
+ * element under either posture, and Postgres is a cheaper fetch, not a
+ * non-fetch. Re-grounded in mt#3845 SC4's own terms so it no longer depends on
+ * where the raw lives.
  *
  * **Named tools, not a bare server count** — this is the deliberate deviation
  * from the reference. Claude Code renders `called minsky`, and mt#3845 SC6 names

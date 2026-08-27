@@ -20,9 +20,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import { findRepoRoot } from "./web-dist";
 import { githubRepoWebBase } from "./session-detail";
 import { createEpochKeyedCache, getSharedPersistenceService } from "./shared-persistence";
+import { describeQueryFailure, describeSourceFailure } from "./source-failure-log";
 import {
   deriveHookRegistry,
   parseHookInstallLog,
@@ -107,7 +109,7 @@ async function runHookInstallGitLog(repoRoot: string): Promise<string | null> {
     return stdout;
   } catch (err) {
     log.debug("topology-cache: hook-install git log failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeSourceFailure(err),
     });
     return null;
   }
@@ -150,17 +152,10 @@ const getTopologyDb = createEpochKeyedCache(
     try {
       const svc = await getSharedPersistenceService();
       const provider = svc.getProvider();
-      if (
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
-        return null;
-      }
-      const sqlProvider = provider as {
-        getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-      };
-      return await sqlProvider.getDatabaseConnection();
+      // Capability + method, via the one guard (mt#4543). The cast is gone with it —
+      // `isSqlCapable` narrows, so `getDatabaseConnection` is typed rather than asserted.
+      if (!isSqlCapable(provider)) return null;
+      return await provider.getDatabaseConnection();
     } catch {
       return null;
     }
@@ -179,7 +174,7 @@ async function fetchRetrospectiveEvents(): Promise<RetrospectiveEventInput[]> {
     return events.map((e) => ({ id: e.id, createdAt: e.createdAt, payload: e.payload }));
   } catch (err) {
     log.debug("topology-cache: retrospective.fired fetch failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeQueryFailure(err),
     });
     return [];
   }
@@ -221,7 +216,7 @@ export async function refreshTopologyCache(
     return true;
   } catch (err) {
     log.warn("topology-cache: refresh failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeSourceFailure(err),
     });
     return false;
   }

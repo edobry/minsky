@@ -7,6 +7,7 @@
 
 import type { CommandMapper } from "../../mcp/command-mapper";
 import type { ToolProgressReporter } from "../../mcp/server";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -16,6 +17,7 @@ import {
 } from "../shared/command-registry";
 import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
+import { boundWireResult } from "./bound-wire-result";
 import { z } from "zod";
 import { guardProjectSetup } from "@minsky/domain/configuration/guard";
 import { getErrorMessage } from "@minsky/domain/errors/index";
@@ -51,6 +53,28 @@ export function buildSafeDebugContext(context: CommandExecutionContext): Record<
  */
 function isBooleanCompatibleSchema(schema: z.ZodType): boolean {
   return schema.safeParse(true).success && schema.safeParse(false).success;
+}
+
+/**
+ * Parameter names a command declares as `mcpHidden` (mt#4579).
+ *
+ * `mcpHidden` marks a parameter the SERVER injects and overwrites — today only
+ * `callerActorId` (ADR-006 identity, mt#4408). Advertising such a parameter in
+ * `tools/list` tells a caller it may pass a value that is in fact discarded.
+ *
+ * Read here because this is the last point that still holds the
+ * `CommandParameterMap`: `convertParametersToZodSchema` below returns a
+ * `z.ZodType`, and the flag does not survive that conversion.
+ *
+ * The keys are NOT removed from the schema — see `omitAdvertisedParams` in
+ * `command-mapper.ts` for why removing them there would break the injection
+ * this flag exists to conceal.
+ */
+export function collectMcpHiddenParamKeys(parameters: CommandParameterMap): string[] {
+  if (!parameters) return [];
+  return Object.entries(parameters)
+    .filter(([, param]) => param?.mcpHidden === true)
+    .map(([key]) => key);
 }
 
 /**
@@ -533,6 +557,9 @@ export function registerSharedCommandsWithMcp(
         name: command.id,
         description,
         parameters: convertParametersToZodSchema(command.parameters),
+        // Advertising-only omission (mt#4579). The schema above stays FULL so
+        // `declaredParamKeys` keeps accepting the server's injected value.
+        mcpHiddenParamKeys: collectMcpHiddenParamKeys(command.parameters),
         // Behavior flags travel as a set, never field-by-field (mt#3989).
         // This literal used to name `mutating` alone, so `readsPresence` —
         // declared at the tool and consumed by the server — never arrived, and
@@ -542,7 +569,8 @@ export function registerSharedCommandsWithMcp(
         handler: async (
           args: Record<string, unknown>,
           _projectContext,
-          progress?: ToolProgressReporter
+          progress?: ToolProgressReporter,
+          callerCapabilities?: ClientCapabilityRegistry
         ) => {
           const startTime = Date.now();
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args: redact(args) });
@@ -563,6 +591,12 @@ export function registerSharedCommandsWithMcp(
               // otherwise, so poll loops' `context.onProgress?.(...)` calls
               // are unconditionally safe no-ops when absent).
               onProgress: progress,
+              // mt#4451: capabilities of the connection that made THIS call.
+              // Undefined on every non-MCP interface, and consumers treat
+              // undefined as "no elicitation" rather than reaching for a
+              // process-wide view — see the field's docblock on
+              // CommandExecutionContext.
+              callerCapabilities,
             };
             // Omit `container` from debug logs: it holds the full DI container,
             // which is expensive to walk and produces huge [Circular]-laden output.
@@ -670,7 +704,15 @@ export function registerSharedCommandsWithMcp(
               config.strikeTracker.recordSuccess(taskId, command.id);
             }
 
-            return result as string | Record<string, unknown>;
+            // mt#4418: the ONE place every MCP result passes through, which is
+            // why the bound lives here rather than in each command. Drops
+            // strings the caller itself just sent (free — it has them) and, only
+            // when the payload is genuinely large, caps arrays with mt#2817's
+            // loud `{returned, total, truncated}` triple. A small result is
+            // returned by the same reference, untouched.
+            return boundWireResult(result, parameters, command.id) as
+              | string
+              | Record<string, unknown>;
           } catch (error) {
             const duration = Date.now() - startTime;
 

@@ -3,6 +3,18 @@
   "hooks": {
     "PreToolUse": [
       {
+        "_comment": "mt#2358 main-workspace mutation observer, RECORDING half. Captures the MAIN workspace's dirty-file set immediately before a Bash call so the PostToolUse half can diff an exact before/after around THAT call. Without this the 'before' was inferred from the previous call's 'after', which is right in steady state and wrong exactly once — on the first call after a fresh checkout, where a real mutation is indistinguishable from pre-existing dirt and gets silently absorbed into the baseline (PR #3354 R1, BLOCKING). Records only; never injects, never denies. Matcher is Bash ALONE, not session_exec: session_exec runs in the session workspace, which is the correct destination, so observing it would flag the right behaviour.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-main-workspace-mutation.ts",
+            "timeout": 10,
+            "statusMessage": "Recording main-workspace baseline..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_pr_merge",
         "hooks": [
           {
@@ -182,22 +194,33 @@
             "statusMessage": "Validating task spec structure..."
           },
           {
-            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the SIX guards registered on this matcher (require-duplicate-check-record 5s, duplicate-signature-scan 18s, duplicate-check-search-provenance 5s per mt#4004, flakiness-control-detector 5s per mt#3658, claim-provenance-scan 5s per mt#4168, duplicate-check-candidate-read 5s per mt#4167) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart.",
+            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the EIGHT guards registered on this matcher (require-duplicate-check-record 5s, duplicate-signature-scan 18s, duplicate-check-search-provenance 5s per mt#4004, flakiness-control-detector 5s per mt#3658, claim-provenance-scan 5s per mt#4168, duplicate-check-candidate-read 5s per mt#4167, spec-criterion-claim-detector 10s per mt#4153, warn-unwired-task-relationship 12s per mt#2264) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart. Do NOT hand-maintain this number: it is the SEQUENTIAL worst case, and registry.test.ts recomputes it from the registrations on every run.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 58,
+            "timeout": 70,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
       },
       {
-        "_comment": "mt#4168: the spec-WRITE seam. These three tools rewrite an EXISTING task spec and carried NO PreToolUse guard of any kind before claim-provenance-scan — which is exactly where both of that guard's originating incidents wrote, since /implement-task §0a and /plan-task both operate on a task that already exists. Timeout is DERIVED (mt#3981) from the one guard routed here (claim-provenance-scan 5s) plus the 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block.",
+        "_comment": "mt#4168: the spec-WRITE seam. These three tools rewrite an EXISTING task spec and carried NO PreToolUse guard of any kind before claim-provenance-scan — which is exactly where both of that guard's originating incidents wrote, since /implement-task §0a and /plan-task both operate on a task that already exists. Timeout is DERIVED (mt#3981) from the THREE guards routed here (claim-provenance-scan 5s, spec-criterion-claim-detector 10s per mt#4153, warn-unwired-task-relationship 12s per mt#2264) plus the 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block. mt#2264's budget dominates because it is the only guard here that reads the live task graph; it consumes that budget ONLY when the spec actually states a relationship, and returns before any IO otherwise.",
+        "matcher": "mcp__minsky__tasks_spec_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the task event ledger for peer activity..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit|mcp__minsky__tasks_spec_search_replace",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 20,
+            "timeout": 32,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
@@ -232,17 +255,30 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tasks-status-set-guard.ts",
             "timeout": 10,
             "statusMessage": "Validating task status transition..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-peer-task-activity.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the task event ledger for peer activity..."
+          },
+          {
+            "_comment": "mt#4535: on a DONE transition only, surface decision records that still describe this task's work as future work. Standalone rather than dispatcher-routed, following this matcher's existing convention (tasks-status-set-guard, warn-peer-task-activity). Timeout 15s covers the 8s title-read deadline plus the corpus scan; advisory, never denies.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-stale-forward-reference.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for decision records that call this work pending..."
           }
         ]
       },
       {
-        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start|mcp__minsky__tasks_dispatch",
+        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start|mcp__minsky__tasks_dispatch|mcp__minsky__asks_create|mcp__minsky__asks_edit",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-task-spec-read.ts",
             "timeout": 10,
-            "statusMessage": "Checking the task spec was read before advancing/binding..."
+            "statusMessage": "Checking the task spec was read before advancing/binding/recommending..."
           }
         ]
       },
@@ -256,10 +292,10 @@
             "statusMessage": "Checking branch freshness..."
           },
           {
-            "_comment": "mt#4044: the FIRST dispatcher entry on the commit/PR-body seam. These three tool names already appeared in this file, but only on standalone hooks (check-branch-fresh here, dispatch-intent-write-gate below), so no GUARD_REGISTRY guard could reach a commit message or a PR body until this entry existed — the mt#3823 defect class, caught in advance by registry.test.ts's parity block. Register new guards in .minsky/hooks/registry.ts, not as new commands here. Timeout is DERIVED (mt#3981): sum of the routed guards' budgets + DISPATCH_TIMEOUT_MARGIN_MS, asserted for equality by that same parity block.",
+            "_comment": "mt#4044: the FIRST dispatcher entry on the commit/PR-body seam. These three tool names already appeared in this file, but only on standalone hooks (check-branch-fresh here, dispatch-intent-write-gate below), so no GUARD_REGISTRY guard could reach a commit message or a PR body until this entry existed — the mt#3823 defect class, caught in advance by registry.test.ts's parity block. Register new guards in .minsky/hooks/registry.ts, not as new commands here. Timeout is DERIVED (mt#3981): sum of the routed guards' budgets + DISPATCH_TIMEOUT_MARGIN_MS, asserted for equality by that same parity block. It moved 65 -> 80 when mt#4544 added spec-scope-execution-check (15s: one `minsky tasks spec get` shell-out on top of the transcript pass its siblings already do). Re-derive rather than guess — the parity block prints the full per-guard sum in its failure message.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 65,
+            "timeout": 80,
             "statusMessage": "Checking evidence-record provenance..."
           }
         ]
@@ -298,10 +334,10 @@
             "statusMessage": "Surfacing the task's success criteria..."
           },
           {
-            "_comment": "mt#3959: the ADR-028 D1 dispatcher's slot in the session_pr_create block. This is what makes session_pr_create a dispatcher-spawning tool — the sibling _comment above and the dispatch-intent gate's both record that it was NOT one, and that is the state this entry changed; a guard registered on this matcher without it would never run, which registry.test.ts's dispatcher-parity block is what catches (it caught exactly that while mt#3959 was being added). Timeout is DERIVED (mt#3981, absorbing mt#3675) from the guards registered on this matcher (stale-signal-sweep 18s + unrendered-result-field-scan 12s per mt#3913 + evidence-record-provenance 8s per mt#4044 + new-surface-design-pass 12s per mt#4124) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts. Re-derive it when adding another; registry.test.ts's parity block asserts the equality and is what caught this one.",
+            "_comment": "mt#3959: the ADR-028 D1 dispatcher's slot in the session_pr_create block. This is what makes session_pr_create a dispatcher-spawning tool — the sibling _comment above and the dispatch-intent gate's both record that it was NOT one, and that is the state this entry changed; a guard registered on this matcher without it would never run, which registry.test.ts's dispatcher-parity block is what catches (it caught exactly that while mt#3959 was being added). Timeout is DERIVED (mt#3981, absorbing mt#3675) from the guards registered on this matcher (stale-signal-sweep 18s + unrendered-result-field-scan 12s per mt#3913 + evidence-record-provenance 8s per mt#4044 + new-surface-design-pass 12s per mt#4124 + enumeration-scope-check 10s per mt#4171 + spec-scope-execution-check 15s per mt#4544) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts. Re-derive it when adding another; registry.test.ts's parity block asserts the equality and is what caught this one.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 65,
+            "timeout": 80,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
@@ -433,6 +469,18 @@
         ]
       },
       {
+        "_comment": "mt#2358 main-workspace mutation observer — advisory, never blocks. Reads the MAIN workspace's git status after a Bash call and names tracked files that became modified during it. Outcome-based rather than syntax-based on purpose: the recurrence that reopened mt#2358 used sed -i, cat >> and a python3 heredoc, none of which a destructive-verb list contains. The channel is uncovered because require-session-for-main-workspace-edits.ts matches only Edit/Write/NotebookEdit (FILE_EDITING_TOOLS, line 99) while the harness's auto mode instructs agents to make file changes with sed and heredocs. The reported set is a DIFF against the last observation, so the tree's pre-existing modified files never flag and each file flags at most once. Timeout 10: one git status (measured 0.03-0.04s in this repo) plus two local file touches — no subprocess chain, no network, no DB. NO override var, deliberately: this injects text and records a fire — there is no decision to bypass, and minting a name is what ADR-028 D3 is retiring.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-main-workspace-mutation.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for main-workspace mutations..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_pr_merge|mcp__github__merge_pull_request",
         "hooks": [
           {
@@ -452,6 +500,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/deploy-verification-after-merge.ts",
             "timeout": 30,
             "statusMessage": "Checking for deploy-surface changes needing post-merge verification..."
+          },
+          {
+            "_comment": "mt#4545: the REAL DONE seam. This hook is also registered PreToolUse on tasks_status_set, but that surface is near-dead by policy — at merge, session-merge-status-sync.ts calls taskService.setTaskStatus() directly, which no tool-level hook observes. Verified by fire log before this registration existed: 1 record, guardOutcome unset. ADR-042's discriminator — fire where the trace first exists. PostToolUse so it fires on a merge that actually succeeded. Timeout 15s covers the 8s title-read deadline plus the corpus scan; advisory, never blocks.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-stale-forward-reference.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for decision records that call this work pending..."
           }
         ]
       },
@@ -486,6 +541,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-pr-author-link.ts",
             "timeout": 20,
             "statusMessage": "Recording the authoring conversation for this PR..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__minsky__asks_create",
+        "hooks": [
+          {
+            "_comment": "mt#3564 ask->conversation attribution. Records which conversation filed an ask, so `inject-ask-responses` can tell that conversation when the ask is answered. Registered here rather than in GUARD_REGISTRY for the same reason the two sibling stamp hooks above are: `asks_create` is not among the tool names that already spawn the dispatcher, so a registry entry would need a new settings.json dispatcher slot anyway. Timeout=5 (not the siblings' 20): unlike them this hook touches no database — it reads the payload and writes one small local JSON file — so it has no connect cost to budget for. Fail-open and silent on every path.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stamp-ask-conversation.ts",
+            "timeout": 5,
+            "statusMessage": "Recording the conversation that filed this ask..."
           }
         ]
       },
@@ -547,7 +614,7 @@
             "_comment": "ADR-028 D1 guard-dispatcher UserPromptSubmit entrypoint: the SOLE settings.json entry for EVERY UserPromptSubmit guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered UserPromptSubmit guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block, which fails naming this entry if a guard's budget changes without this value following. This replaces the hand-recomputed-comment convention (prior history: mem#746 found the comment's own prose disagreeing with its own arithmetic) with a checked derivation.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 215,
+            "timeout": 230,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]

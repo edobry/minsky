@@ -39,6 +39,7 @@ import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
 import { registerGuardEventsCommands } from "./guard-events";
+import { registerReviewerCostCommands } from "./reviewer-cost";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
@@ -90,7 +91,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   registerSetupLocalHttpCommand();
 
   // Register config commands
-  registerConfigCommands();
+  registerConfigCommands(container);
 
   // Register debug commands
   registerDebugCommands();
@@ -152,6 +153,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register guard-events commands (guard-events.ingest — mt#4035 / mt#3334 phase 3)
   registerGuardEventsCommands(container);
+  registerReviewerCostCommands(container);
 
   // Register attention commands (attention.report — mt#1071 / ADR-008)
   registerAttentionCommands(container);

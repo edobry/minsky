@@ -68,7 +68,7 @@ function makeMockTaskService(tasks: ReturnType<typeof makeTask>[]) {
     listTasks: async () => tasks,
     getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
     getTaskStatus: async () => null,
-    setTaskStatus: async () => {},
+    setTaskStatus: async () => ({ recordsAffected: 1 }),
     createTask: async () => ({ id: "mt#999", title: "new", status: "TODO" }),
     deleteTask: async () => false,
     getWorkspacePath: () => "/tmp/test",

@@ -10,6 +10,11 @@ import { existsSync, readFileSync } from "fs";
 import { createHash } from "crypto";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
+// mt#4515: the drain budget for every teardown. These `end()` calls sit in
+// `finally` blocks on the migration path, which runs at boot under auto-migrate
+// and in the deploy-keyed runner — an unbounded one there stalls startup rather
+// than merely leaking, since nothing downstream of the `finally` executes.
+import { CLOSE_TIMEOUT_SECONDS } from "./providers/postgres-provider";
 
 /**
  * Where migration SQL lives in the repository, relative to the repo root.
@@ -649,7 +654,8 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
       appliedHashes = new Set(hashRows.map((r) => r.hash).filter((h): h is string => Boolean(h)));
     }
   } finally {
-    await sql.end();
+    // Bounded (mt#4515, PR #3308 R1) — see CLOSE_TIMEOUT_SECONDS.
+    await sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
   }
 
   let fileCount = 0;
@@ -1003,7 +1009,8 @@ export async function runPostgresSchemaMigrations(
       log.cli(`Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`);
     }
   } finally {
-    await sql.end();
+    // Bounded (mt#4515, PR #3308 R1) — see CLOSE_TIMEOUT_SECONDS.
+    await sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
   }
 
   const appliedPg: PostgresMigrationResult = {
@@ -1052,6 +1059,7 @@ export async function runPostgresSchemaMigrationsForBackend(
     const db = drizzle(sql, { logger: false });
     await migrate(db, { migrationsFolder });
   } finally {
-    await sql.end();
+    // Bounded (mt#4515, PR #3308 R1) — see CLOSE_TIMEOUT_SECONDS.
+    await sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
   }
 }

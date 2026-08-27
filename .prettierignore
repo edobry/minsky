@@ -50,6 +50,43 @@ AGENTS.md
 # as a side effect of this ignore. Author new skills under .minsky/skills/ (ADR-015).
 .claude/skills/
 
+# Markdown SOURCES for the skill and agent compile targets — the other half of the
+# mt#2555 exemption directly above, missing until mt#4622.
+#
+# That block exempts the compiled OUTPUT because "the compiler emits the source
+# markdown verbatim". That reasoning constrains BOTH sides of the equality, and only
+# the output side was exempted — so Prettier still reformatted the SOURCE. The result
+# was the same deadlock mt#2555 set out to end, reached from the other direction:
+# lint-staged rewrites a staged source at pre-commit Step 1, the output compiled from
+# the PRE-format source no longer matches, and runCompileCheck (Step 9b, ~8 steps
+# later) blocks the commit. It fires at most once per artifact — on the first commit
+# that stages its source — which is why it presented as a new-skill-only defect.
+#
+# Markdown ONLY, deliberately: `skill.ts` / `agent.ts` are code and stay formatted.
+# Prettier does not reformat template-literal contents, so formatting the TypeScript
+# cannot perturb the emitted body.
+#
+# By exact SOURCE FILENAME, not `**/*.md` (PR #3381 review, non-blocking). Every .md
+# under these trees is a compile source today (37 SKILL.md + 6 prompt.md + 3 content.md),
+# but a `**/*.md` pattern also exempts markdown nobody has written yet — a README added
+# here would silently stop being formatted, with no error and no test failure. Naming the
+# filenames inverts that: a NEW source filename fails the census in
+# `packages/domain/src/compile/prettier-source-exemption.test.ts` loudly, which tells you
+# to update both this list and that one. Keep the two in sync; the test is what enforces it.
+#
+# `.minsky/rules/` needs no entry: `.mdc` has no Prettier parser AND does not match
+# .lintstagedrc.json's `*.{json,md}` glob — two independent reasons it was never exposed.
+#
+# INTERIM, and its retirement condition is mt#4513 (`work-completion.mdc §Temporary
+# mechanism budget`). That task carries the principal's ask#9976 decision to stop
+# committing the compiled trees entirely; with no committed output there is no staleness
+# check, so this exemption stops being load-bearing and starts merely leaving 46 files
+# unformatted for no reason. Remove it as part of mt#4513. Escalate if mt#4513 is not DONE
+# by 2026-09-25.
+.minsky/skills/**/SKILL.md
+.minsky/skills/**/content.md
+.minsky/agents/**/prompt.md
+
 # Generator output ignored by a NESTED .gitignore, which Prettier never reads (mt#3880).
 # Prettier DOES consult .gitignore — `--ignore-path` defaults to [.gitignore,
 # .prettierignore] — but only the one in the directory it is run from, i.e. the repo root.

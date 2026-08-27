@@ -233,8 +233,17 @@ import {
   scoreService,
   type AlertClass,
   type CheckOutcome,
+  type CheckSummary,
   type ServiceCheckSummary,
 } from "../packages/domain/src/deployment/monitor-verdict";
+// mt#1495 — check (d)'s decision: what a service's DB-pool recovery counters
+// mean. Same split and the same reason as the two imports around it.
+import {
+  combineRecoveryReadings,
+  readRecycleCounters,
+  readRetryCounters,
+  toRecoveryCheckSummary,
+} from "../packages/domain/src/deployment/monitor-recovery-alarm";
 // mt#3963 — likewise for the resolution side: which classes a run observed as
 // recovered, and whether that recovery has been sustained long enough to close
 // the P0 it opened.
@@ -626,6 +635,17 @@ interface HealthProbeResult {
    */
   identityWarning: string | null;
   error: string | null;
+  /**
+   * The response body parsed as JSON, or `null` when it was absent/unparseable
+   * (mt#1495).
+   *
+   * Deliberately NOT derived from `bodySnippet`: that is capped at 200 chars for
+   * issue-body readability, so anything past the first couple of fields is gone.
+   * Check (d) reads `dbRecycle`, which sits well beyond that cap on the cockpit's
+   * payload — parsing the snippet would have silently reported "no counters
+   * present" for a service that publishes them.
+   */
+  parsedBody: unknown;
 }
 
 async function probeHealth(
@@ -659,16 +679,21 @@ async function probeHealth(
     //    during rollout for services that are perfectly healthy. Tightening
     //    this to a hard failure once all four services carry the field is
     //    tracked as a follow-up.
+    // Parsed once, here, and shared by the identity assertion below and check (d)
+    // (mt#1495). `parsedJson` stays null on a non-JSON body so check (d) can tell
+    // "not JSON" from "JSON without dbRecycle"; the identity assertion keeps its
+    // original behaviour of falling back to the raw text, which it handles.
+    let parsedJson: unknown = null;
+    try {
+      parsedJson = JSON.parse(bodyText);
+    } catch {
+      parsedJson = null;
+    }
+
     let identityWarning: string | null = null;
     let identityFailed = false;
     if (expectedIdentity && res.status === 200) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(bodyText);
-      } catch {
-        parsed = bodyText;
-      }
-      const identity = assertServiceIdentity(parsed, expectedIdentity);
+      const identity = assertServiceIdentity(parsedJson ?? bodyText, expectedIdentity);
       if (!identity.ok) {
         if (identity.reason === "wrong-service") {
           identityFailed = true;
@@ -683,6 +708,7 @@ async function probeHealth(
       bodySnippet,
       identityWarning,
       error: identityFailed ? `Wrong application deployed on this host — ${identityWarning}` : null,
+      parsedBody: parsedJson,
     };
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
@@ -692,6 +718,7 @@ async function probeHealth(
       bodySnippet: "",
       identityWarning: null,
       error: isTimeout ? `Timeout after ${HEALTH_TIMEOUT_MS}ms` : String(err),
+      parsedBody: null,
     };
   } finally {
     clearTimeout(timeoutId);
@@ -750,15 +777,20 @@ async function githubRequest<T>(
  * Used as the de-duplication key: search for an open issue with this exact title.
  */
 function issueTitle(serviceName: string, failureClass: AlertClass): string {
-  const classLabel =
-    failureClass === "deploy-failed"
-      ? "Deploy FAILED/CRASHED"
-      : failureClass === "health-down"
-        ? "Health check DOWN"
-        : failureClass === "check-failed"
-          ? "Monitor checks could not run — service state UNKNOWN"
-          : "Deployed image digest lags registry";
-  return `[P0] ${serviceName}: ${classLabel}`;
+  // A Record, not a ternary chain (mt#1495). The chain this replaces ended in a
+  // bare `: "Deployed image digest lags registry"` default, so adding a fifth
+  // AlertClass silently titled it as a digest lag — and since the title is the
+  // de-duplication key, two different failure classes would have collapsed onto
+  // one P0 issue. `Record<AlertClass, string>` makes the same omission a compile
+  // error instead.
+  const CLASS_LABELS: Record<AlertClass, string> = {
+    "deploy-failed": "Deploy FAILED/CRASHED",
+    "health-down": "Health check DOWN",
+    "check-failed": "Monitor checks could not run — service state UNKNOWN",
+    "digest-lag": "Deployed image digest lags registry",
+    "recovery-degraded": "DB-pool recovery is stranding connections",
+  };
+  return `[P0] ${serviceName}: ${CLASS_LABELS[failureClass]}`;
 }
 
 /**
@@ -1618,6 +1650,7 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
         deploy: notApplicableCheck("serviceId not provisioned"),
         health: notApplicableCheck("serviceId not provisioned"),
         digest: notApplicableCheck("serviceId not provisioned"),
+        recovery: notApplicableCheck("serviceId not provisioned"),
       },
     };
   }
@@ -1675,6 +1708,8 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   // is a design fact, not a failure to observe one.
   const healthOutcome: CheckOutcome = svc.healthUrl ? "ok" : "not-applicable";
   let healthDetail: string | null = svc.healthUrl ? null : "no healthUrl configured";
+  /** The parsed /health body, reused by check (d) below (mt#1495). */
+  let healthBody: unknown = null;
 
   if (svc.healthUrl) {
     // mt#3148: resolve the expected identity from the service DIRECTORY name
@@ -1686,12 +1721,40 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     healthStatus = probe.statusCode;
     healthError = probe.error;
     healthAlert = !probe.ok;
+    healthBody = probe.parsedBody;
     // An unreachable endpoint is an observation, not an unrunnable check: the
     // probe ran and the service failed to answer.
     healthDetail = probe.ok
       ? `HTTP ${probe.statusCode}`
       : (probe.error ?? `HTTP ${probe.statusCode ?? "timeout"}`);
   }
+
+  // --- (d) DB-pool recovery counters (mt#1495) ---
+  // Reads `dbRecycle` off the SAME body check (b) already fetched — no extra
+  // request, no extra credential. Only the cockpit publishes these today, so for
+  // every other service this resolves to `not-applicable` and is silent.
+  //
+  // Gated on the health probe having actually answered: when (b) failed there is
+  // no body to read, and reporting (d) as its own unrunnable check would raise a
+  // second alert for one underlying fault. The `check-failed` class de-dups per
+  // service, but the detail would name a consequence as if it were a cause.
+  const recoverySummary: CheckSummary = !svc.healthUrl
+    ? {
+        outcome: "not-applicable",
+        detail: "no healthUrl configured — nothing to read counters from",
+        problem: false,
+      }
+    : !healthOk
+      ? {
+          outcome: "not-applicable",
+          detail: "health probe did not answer — check (b) owns this failure",
+          problem: false,
+        }
+      : toRecoveryCheckSummary(
+          // mt#4562: both DB recovery mechanisms, folded into one check. The
+          // more severe reading wins so a healthy sibling cannot mask a fault.
+          combineRecoveryReadings([readRecycleCounters(healthBody), readRetryCounters(healthBody)])
+        );
 
   // --- (c) Digest-lag check (mt#3251) ---
   // Only applies to image-source deploys (svc.image set from deploy.config.ts's
@@ -1805,6 +1868,7 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
       deploy: { outcome: deployOutcome, detail: deployDetail, problem: deployAlert },
       health: { outcome: healthOutcome, detail: healthDetail, problem: healthAlert },
       digest: { outcome: digestOutcome, detail: digestDetail, problem: digestLagAlert },
+      recovery: recoverySummary,
     },
   };
 }
@@ -1881,6 +1945,41 @@ function formatDigestLagDetails(svc: ServiceDef, result: CheckResult): string {
     "",
     "**Action:** check the service's deploy workflow run history for recent failures, fix the " +
       "underlying cause, then manually trigger a redeploy.",
+  ].join("\n");
+}
+
+/**
+ * P0 body for check (d) — the DB-pool recovery mechanism reported a failed
+ * teardown (mt#1495).
+ *
+ * Takes no `CheckResult`: unlike its three siblings, everything this alert knows
+ * is already in `reason`, which `monitor-recovery-alarm.ts` renders from the
+ * counters themselves (how many recycles, how many abandoned, when the last one
+ * was). Threading the result through only to ignore it would suggest there is
+ * more context available here than there is.
+ */
+function formatRecoveryDegradedDetails(svc: ServiceDef, reason: string): string {
+  return [
+    `- **Service:** \`${svc.name}\``,
+    `- **Health URL:** \`${svc.healthUrl ?? "unknown"}\``,
+    `- **Why:** ${reason}`,
+    "",
+    "**What this means:** the service is UP and answering health checks — this is not an " +
+      "outage. Its DB connection pool is failing to release connections when it recycles, so " +
+      "each recycle strands sockets that stay ESTABLISHED for the life of the process. Left " +
+      "alone this exhausts the shared Supavisor client budget and takes down every service, " +
+      "not just this one.",
+    "",
+    "**Why this alert exists:** for months this failure was recorded ONLY as a `log.warn` — 88 " +
+      "abandoned closes and zero clean ones went unnoticed until an unrelated investigation " +
+      "happened to grep the daemon log (mt#4515). mt#4549 made the outcome a counter; this " +
+      "check is what reads it.",
+    "",
+    "**Action:** read `dbRecycle` on the service's `/api/health` for the current split, then " +
+      "check whether `PostgresPersistenceProvider.close()` is still passing postgres-js a " +
+      "`timeout` (`CLOSE_TIMEOUT_SECONDS`). An abandoned close post-mt#4515 means the driver's " +
+      "own destroy path failed too, which is a new fault rather than the old one recurring — " +
+      "`scripts/verify-close-terminates-wedged-pool.ts` reproduces a wedged pool on demand.",
   ].join("\n");
 }
 
@@ -2030,16 +2129,23 @@ async function main(): Promise<void> {
       );
     }
 
+    // A Record, not a ternary chain (mt#1495) — same reason as `issueTitle`. The
+    // chain this replaces fell through to `formatCheckFailedDetails` for anything
+    // unrecognized, so a new class would have been written into the P0 body as
+    // "the monitor's checks could not run" — describing the alert as the OPPOSITE
+    // of what it is, since check (d) firing means the check ran fine and found a
+    // fault. Exhaustive keys make the omission a compile error.
+    const ALERT_BODY: Record<AlertClass, (reason: string) => string> = {
+      "deploy-failed": () => formatDeployFailedDetails(svc, result),
+      "health-down": () => formatHealthDownDetails(svc, result),
+      "digest-lag": () => formatDigestLagDetails(svc, result),
+      "check-failed": (reason) => formatCheckFailedDetails(svc, result, reason),
+      "recovery-degraded": (reason) => formatRecoveryDegradedDetails(svc, reason),
+    };
+
     const alerts = score.alerts.map((alert) => ({
       class: alert.class,
-      details:
-        alert.class === "deploy-failed"
-          ? formatDeployFailedDetails(svc, result)
-          : alert.class === "health-down"
-            ? formatHealthDownDetails(svc, result)
-            : alert.class === "digest-lag"
-              ? formatDigestLagDetails(svc, result)
-              : formatCheckFailedDetails(svc, result, alert.reason),
+      details: ALERT_BODY[alert.class](alert.reason),
     }));
 
     if (score.verdict === "HEALTHY") {

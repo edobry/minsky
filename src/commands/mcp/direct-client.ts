@@ -1,5 +1,43 @@
 import { spawn } from "child_process";
 import { log } from "@minsky/shared/logger";
+import { resolveMinskyServerSpawn } from "../../mcp/resolve-server-command";
+
+/**
+ * Parse repeated `--arg key=value` strings into the arguments object sent to the tool.
+ *
+ * Extracted as a pure function so the marshalling can be tested without spawning a
+ * server (the pure-decision-core pattern, mt#3629): everything else in this module is IO.
+ *
+ * **Fails closed on anything it cannot marshal faithfully (mt#4459).** The whole point of
+ * this function is that a caller's value reaches the tool intact; an entry that cannot be
+ * split into a key and a value is therefore an error, not something to drop quietly. Silent
+ * skipping is the same failure mode as the truncation this function was written to fix —
+ * the command succeeds and the tool is called without the argument the operator supplied.
+ */
+export function parseToolArgs(args: string[]): Record<string, string> {
+  const argsObj: Record<string, string> = {};
+  for (const arg of args) {
+    // Split on the FIRST separator only, keeping the remainder in the value.
+    // Do NOT use `arg.split("=", 2)`: JavaScript's limit caps the RESULT ARRAY
+    // LENGTH and DISCARDS the rest, so `content=a=b=c` yielded `content -> "a"`
+    // and the tool was called with a silently truncated value (mt#4459).
+    const separatorIndex = arg.indexOf("=");
+    if (separatorIndex < 0) {
+      throw new Error(
+        `Malformed --arg '${arg}': expected key=value, but no '=' was found. ` +
+          `Pass the argument as --arg 'name=value'.`
+      );
+    }
+    if (separatorIndex === 0) {
+      throw new Error(
+        `Malformed --arg '${arg}': the parameter name before '=' is empty. ` +
+          `Pass the argument as --arg 'name=value'.`
+      );
+    }
+    argsObj[arg.slice(0, separatorIndex)] = arg.slice(separatorIndex + 1);
+  }
+  return argsObj;
+}
 
 /**
  * Call an MCP tool directly via stdio (faster than inspector CLI)
@@ -12,14 +50,30 @@ export async function callMcpToolDirectly(
   args: string[],
   options: { repo?: string; timeout?: number } = {}
 ): Promise<void> {
+  // Parse BEFORE spawning: a malformed --arg is a caller error, and failing here avoids
+  // starting a server process only to reject and leave it to be torn down (mt#4459).
+  const argsObj = parseToolArgs(args);
+
   return new Promise((resolve, reject) => {
     const serverArgs = ["mcp", "start"];
     if (options.repo) {
       serverArgs.push("--repo", options.repo);
     }
 
-    log.debug(`Spawning minsky with args: ${JSON.stringify(serverArgs)}`);
-    const child = spawn("minsky", serverArgs, {
+    // Re-invoke THIS build rather than resolving "minsky" on $PATH (mt#4475).
+    // The bare name only worked where a global install exists, which is why
+    // this file's own round-trip test failed in CI and took main red.
+    // Named `spawn*` rather than destructured to `{ command, args }` (PR #3266 R1):
+    // this function's own PARAMETER is `args`, meaning the TOOL's arguments, and a
+    // local of the same name meaning the SERVER PROCESS's arguments shadowed it.
+    // Legal TypeScript — typecheck passed across 8 projects, so it was a latent
+    // readability hazard rather than the compile error R1 reported — but two
+    // unrelated meanings under one identifier in overlapping scope is exactly how a
+    // later edit reaches for `args` and silently gets the wrong one.
+    const { command: spawnCommand, args: spawnArgs } = resolveMinskyServerSpawn(serverArgs);
+
+    log.debug(`Spawning ${spawnCommand} with args: ${JSON.stringify(spawnArgs)}`);
+    const child = spawn(spawnCommand, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: process.cwd(),
       env: { ...process.env },
@@ -42,15 +96,6 @@ export async function callMcpToolDirectly(
         reject(new Error(`Tool '${toolName}' timed out after ${timeoutMs / 1000} seconds`));
       }
     }, timeoutMs);
-
-    // Convert args array to object
-    const argsObj: Record<string, string> = {};
-    for (const arg of args) {
-      const [key, value] = arg.split("=", 2);
-      if (key && value !== undefined) {
-        argsObj[key] = value;
-      }
-    }
 
     // Send the MCP request
     const request = {

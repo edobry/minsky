@@ -14,6 +14,35 @@
  *   2. hookless:  env var absent → tools/call forwarded byte-identical,
  *                 no _meta key (spec AT3 fall-through).
  *   3. malformed: env var not a UUID → same as hookless (spec AT4).
+ *   4. baggage:   the same frame carries _meta.baggage with
+ *                 gen_ai.conversation.id equal to the agent_id's conversation
+ *                 (mt#3986's emission, on the proxy path).
+ *
+ * ## Why each case gets its own XDG_STATE_HOME (mt#3994)
+ *
+ * mt#3900 gave the proxy a HIGHER-authority identity source than the spawn-time
+ * env var this script controls: a `<harness pid> → conversation id` mapping a
+ * SessionStart hook writes under the state dir. That precedence is correct —
+ * the env value goes stale on `/clear` — and it made all three cases above fail
+ * on `main` for eleven days, because the proxy walked up to the REAL harness
+ * running the script and stamped whatever conversation that was. Cases 2 and 3
+ * are the fall-through assertions, so a script that always sees a stamp cannot
+ * tell "the proxy correctly stamped nothing" from "the proxy stamped the wrong
+ * conversation" — a probe that returns the same result whether or not the
+ * system is broken is not verification (mem#704).
+ *
+ * The isolation is one line: the mapping directory resolves through
+ * `getConversationPidMapDir()` → `getMinskyStateDir()` → `getXdgStateHome()` →
+ * `process.env.XDG_STATE_HOME`, so a child pointed at an empty temp dir finds
+ * no entry for its harness pid, `readConversationMapping` returns null, and
+ * resolution falls through to the env var — which is what these cases assert.
+ *
+ * This is the same mechanism seven other test files already use, and mt#3965
+ * deliberately kept `getMinskyStateDir()` keyed on `XDG_STATE_HOME` ALONE so
+ * that a more specific override cannot be outranked. It touches nothing in
+ * production: the variable is set on a spawned child, so the proxy's own
+ * precedence — mapping over env var — is unchanged and still exercised by
+ * `conversation-identity.test.ts`.
  *
  * Requires no external env vars, credentials, or network — fully hermetic.
  * Exit 0 = all cases pass; non-zero = failure, JSON summary on stdout.
@@ -22,13 +51,15 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
-import { appendFileSync, mkdtempSync, readFileSync, existsSync } from "fs";
+import { appendFileSync, mkdtempSync, readFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { createInterface } from "readline";
 
 const AGENT_ID_META_KEY = "io.minsky/agent_id";
+const BAGGAGE_META_KEY = "baggage";
+const CONVERSATION_BAGGAGE_KEY = "gen_ai.conversation.id";
 const TEST_UUID = "e2e0f1d2-3c4b-4a5d-9e8f-0123456789ab";
 const EXPECTED_AGENT_ID = `com.anthropic.claude-code:conv:${TEST_UUID}`;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +121,12 @@ async function runCase(opts: {
   const env: Record<string, string | undefined> = { ...process.env };
   delete env["CLAUDE_CODE_SESSION_ID"];
   if (opts.sessionIdEnv !== undefined) env["CLAUDE_CODE_SESSION_ID"] = opts.sessionIdEnv;
+  // Isolate the pid→conversation mapping this proxy would otherwise inherit from
+  // the machine running the script — see the module docblock. A FRESH dir per
+  // case, not one shared across the run: a shared dir would let one case's
+  // side effect reach the next, which is the same class of leak this closes.
+  const stateDir = mkdtempSync(join(tmpdir(), "conv-identity-state-"));
+  env["XDG_STATE_HOME"] = stateDir;
 
   let proxy: ChildProcess | null = null;
   try {
@@ -158,6 +195,15 @@ async function runCase(opts: {
     return { name: opts.name, pass: failure === null, detail: failure ?? "ok" };
   } finally {
     if (proxy && proxy.pid) proxy.kill("SIGTERM");
+    // Both temp dirs, not just the one this change added (PR #3255 R1). The
+    // capture dir has leaked since the script was written; a run over four
+    // cases now leaves eight directories in $TMPDIR, and a script whose whole
+    // purpose is to be run repeatedly should not accumulate them. `force` so a
+    // dir the OS already reaped is not an error, and cleanup never masks the
+    // case's own result — it runs after the assert has been captured.
+    for (const dir of [captureDir, stateDir]) {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
@@ -203,6 +249,48 @@ async function main(): Promise<void> {
         toolsCall.params && "_meta" in toolsCall.params
           ? `unexpected _meta present: ${JSON.stringify(toolsCall.params["_meta"])}`
           : null,
+    })
+  );
+
+  results.push(
+    await runCase({
+      name: "baggage: _meta.baggage carries the SAME conversation as agent_id (mt#3986)",
+      sessionIdEnv: TEST_UUID,
+      assert: (toolsCall) => {
+        const meta = toolsCall.params?._meta;
+        const baggage = meta?.[BAGGAGE_META_KEY];
+        if (typeof baggage !== "string") {
+          return `expected _meta[${BAGGAGE_META_KEY}] to be a string, got: ${JSON.stringify(baggage)}`;
+        }
+        // Parsed out of the W3C baggage list rather than compared against a
+        // whole-string literal: a later entry appended beside it is not a
+        // regression, and an assertion that breaks on one would be measuring
+        // the format instead of the identity.
+        const entry = baggage
+          .split(",")
+          .map((part) => part.trim())
+          .find((part) => part.startsWith(`${CONVERSATION_BAGGAGE_KEY}=`));
+        if (!entry) {
+          return `baggage carries no ${CONVERSATION_BAGGAGE_KEY} entry: ${baggage}`;
+        }
+        const fromBaggage = entry.slice(`${CONVERSATION_BAGGAGE_KEY}=`.length);
+        // The point of the case is AGREEMENT between the two keys, so the
+        // agent_id side is re-derived from the frame rather than assumed: two
+        // keys that are each individually right about different conversations
+        // is the defect this would otherwise miss.
+        const agentId = meta?.[AGENT_ID_META_KEY];
+        if (typeof agentId !== "string") {
+          return `expected _meta[${AGENT_ID_META_KEY}] alongside baggage, got: ${JSON.stringify(agentId)}`;
+        }
+        const fromAgentId = agentId.slice(agentId.lastIndexOf(":") + 1);
+        if (fromBaggage !== fromAgentId) {
+          return `baggage names conversation ${fromBaggage} but agent_id names ${fromAgentId}`;
+        }
+        if (fromBaggage !== TEST_UUID) {
+          return `expected conversation ${TEST_UUID}, got ${fromBaggage}`;
+        }
+        return null;
+      },
     })
   );
 

@@ -214,6 +214,10 @@ const VALID_RECORD = {
   content: "Body of the test memory",
 };
 
+/** The staleness banner's leading phrase (mt#1709), referenced rather than re-typed. */
+const OBSOLETE_MARKER = "POSSIBLY OBSOLETE";
+const STALE_NOTE = `⚠️ ${OBSOLETE_MARKER} — tracking task mt#1700 is DONE.`;
+
 describe("parseSearchOutput", () => {
   it("returns null for empty input", () => {
     expect(parseSearchOutput("")).toBe(null);
@@ -238,6 +242,101 @@ describe("parseSearchOutput", () => {
     expect(parsed?.results[0]?.record.name).toBe("Test memory");
     expect(parsed?.backend).toBe("embeddings");
     expect(parsed?.degraded).toBe(false);
+  });
+
+  // mt#1709: the parser rebuilds each result field-by-field, so a new server-side field
+  // is dropped unless it is explicitly carried. These pin that it is.
+  it("carries a stale verdict's note through to the result", () => {
+    const stdout = JSON.stringify({
+      results: [
+        {
+          record: VALID_RECORD,
+          score: 0.85,
+          staleness: {
+            outcome: "stale",
+            source: "text",
+            completedTasks: [{ taskId: "mt#1700", status: "DONE" }],
+            unresolvedTasks: [],
+            note: STALE_NOTE,
+          },
+        },
+      ],
+      backend: "embeddings",
+      degraded: false,
+    });
+    expect(parseSearchOutput(stdout)?.results[0]?.stalenessNote).toContain(OBSOLETE_MARKER);
+  });
+
+  it("carries a measurement-decay note (mt#4452), which has no completed tracking tasks", () => {
+    // Trigger 2's verdict is `stale` with EMPTY completedTasks — mem#773's shape, a
+    // measurement record declaring no retirement clause. The parser must key on `outcome`
+    // and `note`, not on the tracking-task fields being populated.
+    const stdout = JSON.stringify({
+      results: [
+        {
+          record: VALID_RECORD,
+          score: 0.85,
+          staleness: {
+            outcome: "stale",
+            source: "text",
+            completedTasks: [],
+            unresolvedTasks: [],
+            note: "⚠️ MEASUREMENT MAY BE STALE — figures here were measured 23 days ago.",
+            measurement: {
+              measuredOn: "2026-07-30",
+              ageDays: 23,
+              matchedSentence: "Measured on prod 2026-07-30",
+              subsystems: ["turn-writer.ts"],
+              interveningTasks: [{ taskId: "mt#4345", title: "…" }],
+            },
+          },
+        },
+      ],
+      backend: "embeddings",
+      degraded: false,
+    });
+    expect(parseSearchOutput(stdout)?.results[0]?.stalenessNote).toContain("MEASUREMENT MAY BE");
+  });
+
+  it.each(["current", "unresolved"])(
+    "carries NO note for a %s verdict — the silence contract",
+    (outcome) => {
+      const stdout = JSON.stringify({
+        results: [
+          {
+            record: VALID_RECORD,
+            score: 0.85,
+            staleness: { outcome, source: "text", completedTasks: [], unresolvedTasks: [] },
+          },
+        ],
+        backend: "embeddings",
+        degraded: false,
+      });
+      expect(parseSearchOutput(stdout)?.results[0]?.stalenessNote).toBeUndefined();
+    }
+  );
+
+  it("ignores a malformed staleness field rather than dropping the whole result", () => {
+    // Version skew must degrade to "no annotation", never to "no memory".
+    const stdout = JSON.stringify({
+      results: [{ record: VALID_RECORD, score: 0.85, staleness: "not-an-object" }],
+      backend: "embeddings",
+      degraded: false,
+    });
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0]?.stalenessNote).toBeUndefined();
+  });
+
+  it("parses a result with no staleness field at all (the common case)", () => {
+    const stdout = JSON.stringify({
+      results: [{ record: VALID_RECORD, score: 0.85 }],
+      backend: "embeddings",
+      degraded: false,
+    });
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0]?.stalenessNote).toBeUndefined();
   });
 
   it("parses degraded response with empty results", () => {
@@ -438,6 +537,27 @@ describe("renderResult", () => {
     expect(rendered).toContain("0.876");
     expect(rendered).toContain("A test memory entry");
     expect(rendered).toContain("Body of the test memory");
+  });
+
+  // mt#1709: the annotation is computed server-side, but it only does anything if it
+  // survives THIS formatter. A staleness field that reaches the MCP response and is then
+  // dropped here ships a feature that runs, passes its tests, and produces nothing.
+  it("renders the staleness note when one is present", () => {
+    const rendered = renderResult({ record: VALID_RECORD, score: 0.5, stalenessNote: STALE_NOTE });
+    expect(rendered).toContain(OBSOLETE_MARKER);
+    expect(rendered).toContain("mt#1700");
+  });
+
+  it("places the staleness note ABOVE the content, so budget truncation cannot cut it", () => {
+    const rendered = renderResult({ record: VALID_RECORD, score: 0.5, stalenessNote: STALE_NOTE });
+    expect(rendered.indexOf(OBSOLETE_MARKER)).toBeLessThan(rendered.indexOf(VALID_RECORD.content));
+  });
+
+  it("renders unchanged when no staleness note is present", () => {
+    const withNote = renderResult({ record: VALID_RECORD, score: 0.5, stalenessNote: undefined });
+    const without = renderResult({ record: VALID_RECORD, score: 0.5 });
+    expect(withNote).toBe(without);
+    expect(without).not.toContain(OBSOLETE_MARKER);
   });
 });
 

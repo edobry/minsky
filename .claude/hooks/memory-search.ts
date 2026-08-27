@@ -74,6 +74,17 @@ export interface MemoryRecordLite {
 export interface MemorySearchResultLite {
   record: MemoryRecordLite;
   score: number;
+  /**
+   * Reader-facing staleness line, carried through from the server's `staleness.note`
+   * (mt#1709). Present only when the server reached a `stale` verdict — a `current` or
+   * `unresolved` verdict deliberately renders nothing, so an absent note here means
+   * "nothing to say", never "not checked".
+   *
+   * A STRING, not the structured verdict: this hook is the render surface, and the
+   * server already owns the wording. Re-deriving the sentence here would put the
+   * detection vocabulary in two places that can disagree.
+   */
+  stalenessNote?: string;
 }
 
 export interface MemorySearchResponseLite {
@@ -320,6 +331,19 @@ export function parseSearchOutput(stdout: string): MemorySearchResponseLite | nu
     ) {
       continue;
     }
+    // mt#1709: carry the server's staleness note through. Read defensively rather than
+    // importing the domain type — this hook is a standalone bun script whose whole
+    // premise (see MemoryRecordLite) is that the CLI can evolve without breaking it.
+    // Only a `stale` verdict carries a note; `current` and `unresolved` render nothing.
+    const staleness = entry["staleness"] as Record<string, unknown> | undefined;
+    const stalenessNote =
+      staleness &&
+      typeof staleness === "object" &&
+      staleness["outcome"] === "stale" &&
+      typeof staleness["note"] === "string"
+        ? (staleness["note"] as string)
+        : undefined;
+
     validResults.push({
       record: {
         id: record["id"] as string,
@@ -329,6 +353,7 @@ export function parseSearchOutput(stdout: string): MemorySearchResponseLite | nu
         content: record["content"] as string,
       },
       score,
+      ...(stalenessNote ? { stalenessNote } : {}),
     });
   }
 
@@ -360,9 +385,13 @@ export function estimateTokens(text: string): number {
  * not here.
  */
 export function renderResult(result: MemorySearchResultLite): string {
-  const { record, score } = result;
+  const { record, score, stalenessNote } = result;
   const scoreStr = score.toFixed(3);
-  return `### ${record.name} (${record.type}, id ${record.id.slice(0, 8)}, score ${scoreStr})\n${record.description}\n\n${record.content}`;
+  // The staleness line goes ABOVE the description, not below the content (mt#1709).
+  // Budget truncation cuts from the end, so a warning placed after the body is exactly
+  // the thing that disappears on the long records most likely to have gone stale.
+  const staleness = stalenessNote ? `${stalenessNote}\n\n` : "";
+  return `### ${record.name} (${record.type}, id ${record.id.slice(0, 8)}, score ${scoreStr})\n${staleness}${record.description}\n\n${record.content}`;
 }
 
 const ENVELOPE_HEADER =

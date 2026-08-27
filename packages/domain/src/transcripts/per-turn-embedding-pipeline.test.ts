@@ -31,9 +31,17 @@ function fakeEmbedding(seed: number): number[] {
   return Array.from({ length: 4 }, (_, i) => seed + i * 0.1);
 }
 
-function makeFakeEmbeddingService(opts: { failOnCall?: boolean } = {}): EmbeddingService & {
+function makeFakeEmbeddingService(
+  opts: { failOnCall?: boolean; failBatches?: number[] } = {}
+): EmbeddingService & {
   calls: number;
 } {
+  // Which BATCH invocations to fail, 0-indexed (mt#4623 / PR #3388 R1). Distinct
+  // from `failOnCall`, which fails every one: a poison batch that keeps failing
+  // is the case deterministic ordering could in principle starve, so a test
+  // needs to fail exactly one and watch the rest.
+  let batchInvocation = 0;
+
   const svc = {
     calls: 0,
     async generateEmbedding(_content: string): Promise<number[]> {
@@ -43,6 +51,10 @@ function makeFakeEmbeddingService(opts: { failOnCall?: boolean } = {}): Embeddin
     },
     async generateEmbeddings(contents: string[]): Promise<number[][]> {
       if (opts.failOnCall) throw new Error("Simulated embedding failure");
+      const which = batchInvocation++;
+      if (opts.failBatches?.includes(which)) {
+        throw new Error(`Simulated embedding failure on batch ${which}`);
+      }
       return contents.map(() => {
         svc.calls++;
         return fakeEmbedding(svc.calls);
@@ -87,28 +99,52 @@ function makeDb(seed: SeedTurn[]) {
   // (mt#4212 — loading everything is the defect).
   let requestedLimit: number | null = null;
 
+  // WHICH columns the candidate query ordered by (mt#4623), by DB column name.
+  // Null means it never ordered — the state in which the partial index is
+  // INERT. The names matter, not just the count: ordering by two arbitrary
+  // columns would satisfy a count assertion and still leave the index unused,
+  // because the planner only gets the ordering for free from an index whose
+  // keys are exactly these (PR #3388 R1).
+  let orderedBy: string[] | null = null;
+
   const db = {
     select(_fields?: Record<string, unknown>) {
       return {
         from: (_table: unknown) => ({
           where: (_cond: unknown) => ({
-            limit: (n: number) => {
-              requestedLimit = n;
-              const cands = [...store.values()]
-                .filter(
-                  (r) => r.embedding === null && (r.userText !== null || r.assistantText !== null)
-                )
-                .slice(0, n);
-              selectOrder = cands.map((r) => key(r.agentSessionId, r.turnIndex));
-              ptr = 0;
-              return Promise.resolve(
-                cands.map((r) => ({
-                  agentSessionId: r.agentSessionId,
-                  turnIndex: r.turnIndex,
-                  userText: r.userText,
-                  assistantText: r.assistantText,
-                }))
-              );
+            // mt#4623: the candidate query is ORDERED, and the ordering is what
+            // makes `idx_agent_transcript_turns_embedding_backlog` usable at all
+            // — without it the planner takes a Seq Scan. The fake models the sort
+            // rather than swallowing the call, so a run's draw here matches what
+            // the real query returns.
+            orderBy: (...cols: unknown[]) => {
+              orderedBy = cols.map((c) => (c as { name?: string }).name ?? String(c));
+              return {
+                limit: (n: number) => {
+                  requestedLimit = n;
+                  const cands = [...store.values()]
+                    .filter(
+                      (r) =>
+                        r.embedding === null && (r.userText !== null || r.assistantText !== null)
+                    )
+                    .sort(
+                      (a, b) =>
+                        a.agentSessionId.localeCompare(b.agentSessionId) ||
+                        a.turnIndex - b.turnIndex
+                    )
+                    .slice(0, n);
+                  selectOrder = cands.map((r) => key(r.agentSessionId, r.turnIndex));
+                  ptr = 0;
+                  return Promise.resolve(
+                    cands.map((r) => ({
+                      agentSessionId: r.agentSessionId,
+                      turnIndex: r.turnIndex,
+                      userText: r.userText,
+                      assistantText: r.assistantText,
+                    }))
+                  );
+                },
+              };
             },
           }),
         }),
@@ -132,7 +168,15 @@ function makeDb(seed: SeedTurn[]) {
     },
   };
 
-  return { db, store, getRequestedLimit: () => requestedLimit };
+  return {
+    db,
+    store,
+    getRequestedLimit: () => requestedLimit,
+    getOrderedBy: () => orderedBy,
+    // The keys the last run actually DREW, in the order it drew them — so a
+    // test can assert the resulting sort, not merely that a sort was requested.
+    getSelectOrder: () => selectOrder,
+  };
 }
 
 type FakeDb = ReturnType<typeof makeDb>["db"];
@@ -269,6 +313,74 @@ describe("PerTurnEmbeddingPipeline (vector-only backfill)", () => {
   });
 });
 
+describe("candidate ordering (mt#4623)", () => {
+  const turn = (turnIndex: number): SeedTurn => ({
+    agentSessionId: SESSION_A,
+    turnIndex,
+    userText: `turn ${turnIndex}`,
+    assistantText: null,
+    embedding: null,
+  });
+
+  test("orders by EXACTLY the partial index's key columns, by name", async () => {
+    const { db, getOrderedBy } = makeDb([turn(0)]);
+
+    await makePipeline(db, makeFakeEmbeddingService()).run();
+
+    // The NAMES are the assertion, not the count (PR #3388 R1): ordering by two
+    // other columns would pass a count check and still leave the index unused.
+    // These two are the keys of `idx_agent_transcript_turns_embedding_backlog`,
+    // which is the only reason the planner gets the ordering for free.
+    //
+    // Measured on a 367,159-row / 313 MB reproduction of production: without
+    // the ordering the planner IGNORES the index (Seq Scan, 40,123 buffers,
+    // 63.0 ms); with it, Index Scan, 17 buffers, 0.059 ms. It over-estimates
+    // the predicate at 141,913 rows against an actual 62, so LIMIT looks
+    // satisfiable early in a scan that in fact reads the whole table.
+    expect(getOrderedBy()).toEqual(["agent_session_id", "turn_index"]);
+  });
+
+  test("draws candidates in that order, not in storage order", async () => {
+    // Seeded deliberately out of order — the fake's store iterates in insertion
+    // order, so an ascending draw can only come from the sort.
+    const { db, getSelectOrder } = makeDb([turn(2), turn(0), turn(1)]);
+
+    await makePipeline(db, makeFakeEmbeddingService()).run();
+
+    expect(getSelectOrder()).toEqual([key(SESSION_A, 0), key(SESSION_A, 1), key(SESSION_A, 2)]);
+  });
+
+  test("a persistently failing batch does not starve the candidates behind it", async () => {
+    // The fairness question deterministic ordering raises (PR #3388 R1): with a
+    // stable global order, does a batch that always fails block everything
+    // behind it forever? It does not — the batch loop `continue`s past a failed
+    // batch, so the failure costs its own batch and nothing else. Seed 6, fail
+    // only the first batch of 2.
+    const { db, store } = makeDb([turn(0), turn(1), turn(2), turn(3), turn(4), turn(5)]);
+    const svc = makeFakeEmbeddingService({ failBatches: [0] });
+    const pipeline = new PerTurnEmbeddingPipeline(db as unknown as PostgresJsDatabase, svc, {
+      batchSize: 2,
+    });
+
+    const result = await pipeline.run();
+
+    expect(result.turnsErrored).toBe(2);
+    expect(result.turnsEmbedded).toBe(4);
+
+    // Exactly one batch's worth stays unembedded, so the next run re-attempts a
+    // bounded 2 rows and the queue keeps advancing — which is the answer to the
+    // starvation question.
+    //
+    // The COUNT is asserted, not WHICH rows. That is a limit of this fake, not a
+    // hedge: its `update` ignores the WHERE clause and correlates each update to
+    // the next key in draw order via a FIFO pointer, so when a batch is skipped
+    // the later updates are misattributed. The count is unaffected by that and
+    // is the property under test.
+    const stuck = [...store.values()].filter((r) => r.embedding === null);
+    expect(stuck).toHaveLength(2);
+  });
+});
+
 describe("candidate-load bound (mt#4212)", () => {
   function seedTurns(n: number): SeedTurn[] {
     return Array.from({ length: n }, (_, i) => ({
@@ -312,8 +424,11 @@ describe("candidate-load bound (mt#4212)", () => {
       maxCandidatesPerRun: 10,
     });
 
-    // Progress without an ORDER BY: each embedded turn leaves the candidate set
-    // permanently, so the backlog drains regardless of which rows a run draws.
+    // Progress across runs: each embedded turn leaves the candidate set
+    // permanently, so successive bounded runs drain the backlog. Since mt#4623
+    // the draw is ORDERED, which makes that drain a deterministic front-to-back
+    // sweep rather than an arbitrary one — the guarantee is unchanged, only its
+    // shape.
     for (let i = 0; i < 3; i++) await pipeline.run();
 
     const remaining = [...store.values()].filter((r) => r.embedding === null);

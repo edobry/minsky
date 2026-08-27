@@ -43,7 +43,7 @@ import {
   sendDrivenSessionInput,
   buildReconnectingDrivenSessionRecord,
   drivenSessionRegistry,
-  hasLiveActuator,
+  hasLiveSessionDriver,
   DEFAULT_PERMISSION_MODE,
   type DrivenSessionCostSummary,
   type DrivenSessionEvent,
@@ -66,6 +66,10 @@ import {
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { pendingReplyBuffer, schedulePendingDrain } from "./entity-thread-reply-buffer";
 import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
+import {
+  writeHarnessSessionLabel,
+  type WriteHarnessSessionLabelInput,
+} from "./harness-session-label";
 
 // ---------------------------------------------------------------------------
 // Seeding (pure)
@@ -85,6 +89,20 @@ export interface EntitySeedContext {
   entityId: string;
   /** Human-readable label — what the principal sees in the page header. */
   title: string;
+  /**
+   * Short human-readable ref — `ask#9257`, `mt#4621` (mt#4621).
+   *
+   * Distinct from `entityId`, which is a uuid for an ask, and from `title`,
+   * which folds the short id in only as a FALLBACK when the entity has no
+   * title of its own. The harness session label needs the ref and the title as
+   * SEPARATE values to render `ask#9257 — <title>`, and neither existing field
+   * can supply it alone.
+   *
+   * Optional because {@link EntitySeedContext} is deliberately a narrow
+   * structural type every entity kind must satisfy; a kind with no short id
+   * omits it and the label falls back to the entity id.
+   */
+  shortRef?: string;
   /** The entity's substantive content: an ask's question, a task's summary. */
   body: string;
   /** Optional labelled references the entity already carries (contextRefs, parent task). */
@@ -248,6 +266,10 @@ export function askToEntitySeed(ask: AskSeedInput): EntitySeedContext {
     entityType: "ask",
     entityId: ask.id,
     title: ask.title?.trim() || ask.shortId || ask.id,
+    // mt#4621: the short id UNFOLDED, so the harness session label can render
+    // `ask#9257 — <title>`. `title` above already falls back to it, which is
+    // why it cannot serve as the ref on its own.
+    ...(ask.shortId ? { shortRef: ask.shortId } : {}),
     body: ask.question,
     ...(refs.length > 0 ? { refs } : {}),
     // NOT added to `refs`: the origin is a tool TARGET the prompt gives explicit
@@ -363,6 +385,10 @@ export function taskToEntitySeed(task: TaskSeedInput): EntitySeedContext {
     entityType: "task",
     entityId: task.id,
     title: task.title?.trim() || task.id,
+    // mt#4621: a task's id IS its short ref (`mt#4621`), so unlike an ask this
+    // needs no separate lookup — it is stated rather than derived so the label
+    // builder never has to know which entity kinds happen to coincide.
+    shortRef: task.id,
     body: spec && spec.length > 0 ? spec : "(This task has no spec body recorded.)",
     ...(refs.length > 0 ? { refs } : {}),
   };
@@ -398,6 +424,16 @@ export interface StartEntityThreadSessionOptions {
    */
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
   /**
+   * Override the harness session-label write (mt#4621). Same seam convention.
+   *
+   * Deliberately a SEPARATE seam from `onHarnessSessionLinked` above, not a
+   * behavior folded into it: a test that injects that observer is asserting
+   * something about the conversation adoption and must not thereby start
+   * writing real files into `/tmp`, which `custom/no-real-fs-in-tests` forbids
+   * and which would make those tests order-dependent on each other's leftovers.
+   */
+  writeSessionLabel?: (input: WriteHarnessSessionLabelInput) => boolean;
+  /**
    * Override the resume orchestration (mt#3550) — the same seam convention as
    * the observers above. Production omits it and gets
    * `orchestrateDrivenSessionResume`, which reads the persisted row and takes a
@@ -411,25 +447,25 @@ export interface EntityThreadSession {
   localId: string;
   record: DrivenSessionRecord;
   /**
-   * True when this call put a NEW actuator behind the thread — a first spawn, a
+   * True when this call put a NEW session driver behind the thread — a first spawn, a
    * resume-respawn, or a fresh replacement for a dead one. False only when an
    * already-live session was reused.
    *
    * The route keys the reply-recorder subscription on this: a swapped-in record
    * carries none of the old record's subscribers (`registry.replace` tells them
-   * to swap away), so anything that must observe the new actuator has to be
+   * to swap away), so anything that must observe the new session driver has to be
    * re-attached whenever this is true.
    */
   spawned: boolean;
   /**
    * True when a reachable agent is scoped to this entity — i.e. the returned
-   * record has a live actuator AND its conversation carries the seed prompt.
+   * record has a live session driver AND its conversation carries the seed prompt.
    *
    * Per branch: a fresh spawn reports whether the child's stdin actually
    * accepted the prompt (false means the spawn succeeded but the child was not
    * writable — the agent has NOT been told what entity it is discussing); a
    * reused live record and a resumed conversation are both already scoped; and
-   * a record handed back with NO actuator behind it is false regardless of
+   * a record handed back with NO session driver behind it is false regardless of
    * what its conversation once held, because nothing is reachable to have been
    * seeded (PR #2601 R1 BLOCKING).
    *
@@ -489,8 +525,8 @@ export type { FreshSpawnReason } from "@minsky/domain/storage/schemas/driven-ses
 // its own signatures below — hence the separate type-only import.
 import type { FreshSpawnReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 
-/** What {@link respawnThreadActuator} decided to do about an absent or dead record. */
-type ThreadActuatorRespawn =
+/** What {@link respawnThreadDriver} decided to do about an absent or dead record. */
+type ThreadDriverRespawn =
   | { kind: "resumed"; record: DrivenSessionRecord }
   /** Nothing to resume — the caller should spawn a fresh seeded child. */
   | { kind: "spawn-fresh"; reason: FreshSpawnReason; replacedConversationId?: string }
@@ -498,7 +534,7 @@ type ThreadActuatorRespawn =
   | { kind: "held-elsewhere" };
 
 /**
- * Put a live actuator back behind a thread whose child has exited (mt#3550).
+ * Put a live session driver back behind a thread whose child has exited (mt#3550).
  *
  * Resume FIRST, because the thread's earlier turns are the point: the seed
  * prompt carries the ENTITY's content and no discussion history, so a fresh
@@ -516,10 +552,10 @@ type ThreadActuatorRespawn =
  * undelivered. The panel's "send again" is the right advice in that one case —
  * the lock is released in seconds.
  */
-async function respawnThreadActuator(
+async function respawnThreadDriver(
   localId: string,
   opts: StartEntityThreadSessionOptions
-): Promise<ThreadActuatorRespawn> {
+): Promise<ThreadDriverRespawn> {
   const resume = opts.resumeSession ?? orchestrateDrivenSessionResume;
   let outcome: Awaited<ReturnType<typeof orchestrateDrivenSessionResume>>;
   try {
@@ -539,7 +575,7 @@ async function respawnThreadActuator(
 
   switch (outcome.outcome) {
     case "resumed":
-      log.info(`entity-thread: resumed the actuator for ${localId}`);
+      log.info(`entity-thread: resumed the session driver for ${localId}`);
       return { kind: "resumed", record: outcome.record };
     case "locked":
       log.info(`entity-thread: another process is resuming ${localId} — not spawning a rival`);
@@ -583,7 +619,7 @@ async function respawnThreadActuator(
  * on one conversation is the DAG-fork corruption mt#3095 exists to prevent, and
  * the registry lookup is what keeps this path from being a way to cause it.
  *
- * "Still live" is {@link hasLiveActuator}, NOT "a record exists" (mt#3550).
+ * "Still live" is {@link hasLiveSessionDriver}, NOT "a record exists" (mt#3550).
  * A record whose child has exited stays in the registry with a terminal status,
  * and reusing it produced a thread that could never answer again: the turn was
  * stored, `sendDrivenSessionInput` refused the dead stdin, and nothing
@@ -591,6 +627,41 @@ async function respawnThreadActuator(
  * forever. This is the same predicate the liveness report uses, so the spawn
  * guard and the panel can no longer disagree about whether an agent is there.
  */
+/**
+ * Run several init observers off one `onHarnessSessionLinked` slot (mt#4621).
+ *
+ * `startDrivenSession` takes ONE callback and an entity thread has two things
+ * to do at init, so they compose here.
+ *
+ * **Deliberately does NOT catch** (PR #3379 R1). An earlier revision wrapped
+ * each observer in its own try/catch, which the reviewer correctly flagged as a
+ * second error-handling layer for a concern the host already owns:
+ * `driven-session-host.ts:1089-1097` wraps this whole callback and logs at
+ * ERROR. Catching here too produced two logging surfaces at two levels for one
+ * failure, split across two modules — the drift risk is real and the
+ * duplication buys nothing.
+ *
+ * **The property that catch was protecting is preserved by ORDERING instead.**
+ * The host's boundary is callback-level, not observer-level, so an escaping
+ * throw from the first observer WOULD skip the rest — which is why the answer
+ * is not simply "delete it and rely on the host". Callers pass the observer
+ * that cannot throw FIRST (see the call site), so a failure in a later one
+ * cannot suppress it. Ordering is checkable by reading the call site; a catch
+ * is not.
+ *
+ * In practice neither of this file's observers throws synchronously today —
+ * `createDrivenInitObserver` detaches its async work behind its own error
+ * boundary, and `writeHarnessSessionLabel` swallows by contract — so the
+ * ordering is defense in depth against a future observer, not a live bug.
+ */
+export function composeInitObservers<T>(
+  ...observers: Array<(record: T) => void>
+): (record: T) => void {
+  return (record) => {
+    for (const observe of observers) observe(record);
+  };
+}
+
 export async function startEntityThreadSession(
   opts: StartEntityThreadSessionOptions
 ): Promise<EntityThreadSession> {
@@ -598,11 +669,11 @@ export async function startEntityThreadSession(
   const localId = entityThreadLocalId(opts.seed.entityType, opts.seed.entityId);
 
   const existing = registry.get(localId);
-  if (existing && hasLiveActuator(existing)) {
+  if (existing && hasLiveSessionDriver(existing)) {
     return { localId, record: existing, spawned: false, seeded: true };
   }
 
-  // mt#4093: consulted whenever no LIVE actuator is behind the thread — NOT
+  // mt#4093: consulted whenever no LIVE session driver is behind the thread — NOT
   // only when the registry happens to hold a record. The `if (existing)` this
   // replaced made an ABSENT record fall straight through to the fresh spawn
   // below, so a thread whose conversation the registry had simply not loaded
@@ -619,7 +690,7 @@ export async function startEntityThreadSession(
   // ./driven-session-ws.ts consults the same orchestration unconditionally and
   // treats only a `not-found` OUTCOME as gone. The two callers of one
   // orchestration no longer disagree about when to ask it.
-  const respawn = await respawnThreadActuator(localId, opts);
+  const respawn = await respawnThreadDriver(localId, opts);
   if (respawn.kind === "resumed") {
     // Already seeded — a resume continues the conversation the seed prompt
     // scoped, so re-sending it would repeat the whole scoping instruction to
@@ -627,7 +698,7 @@ export async function startEntityThreadSession(
     return { localId, record: respawn.record, spawned: true, seeded: true };
   }
   if (respawn.kind === "held-elsewhere") {
-    // `seeded: false` (PR #2601 R1 BLOCKING): no actuator is behind this
+    // `seeded: false` (PR #2601 R1 BLOCKING): no session driver is behind this
     // record, so nothing accepted anything. The thread's conversation WAS
     // scoped once, but reporting that as `seeded` here would tell the caller
     // an agent is ready when none is reachable until the other process
@@ -638,7 +709,7 @@ export async function startEntityThreadSession(
     // spawning a rival — the lock exists precisely to stop a second child
     // against one conversation, and that constraint does not weaken just
     // because this daemon has not loaded the record. `driven-session-ws.ts`
-    // builds the same placeholder for the same reason. It has no actuator, so
+    // builds the same placeholder for the same reason. It has no session driver, so
     // `sendDrivenSessionInput` refuses and the caller reports the message
     // undelivered — which is the truth, and clears in seconds.
     const record =
@@ -652,7 +723,7 @@ export async function startEntityThreadSession(
         minskySessionId: null,
         status: "reconnecting",
         unrecoverableReason: null,
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         startedAt: new Date().toISOString(),
       });
     return { localId, record, spawned: false, seeded: false };
@@ -688,8 +759,29 @@ export async function startEntityThreadSession(
     // `respawn` is narrowed to `spawn-fresh` here — the `resumed` and
     // `held-elsewhere` arms both returned above — so its `reason` is exactly
     // the FreshSpawnReason this adoption should record.
-    onHarnessSessionLinked:
-      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason }),
+    // mt#4621: the adoption observer AND the harness session-label write, in
+    // that order. Both need exactly what the init event yields — the child's
+    // conversation id — and this is the only moment it exists, so they compose
+    // here rather than each re-deriving a hook into the host.
+    //
+    // ORDER IS LOAD-BEARING (PR #3379 R1). `composeInitObservers` does not
+    // catch — the host owns that boundary — so a throw from an earlier observer
+    // skips the later ones. The label write goes FIRST precisely because it is
+    // the one that cannot throw (`writeHarnessSessionLabel` swallows by
+    // contract), which means the durable ADR-044 adoption behind it can never
+    // be suppressed by a cosmetic failure. Reversing these two would put the
+    // only throw-capable observer ahead of the one that must always run.
+    onHarnessSessionLinked: composeInitObservers(
+      (record) => {
+        if (!record.harnessSessionId) return;
+        (opts.writeSessionLabel ?? writeHarnessSessionLabel)({
+          harnessSessionId: record.harnessSessionId,
+          ref: opts.seed.shortRef ?? opts.seed.entityId,
+          title: opts.seed.title,
+        });
+      },
+      opts.onHarnessSessionLinked ?? createDrivenInitObserver({ adoptionReason: respawn.reason })
+    ),
     onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
     onResultSummary: opts.onResultSummary ?? createDrivenResultObserver(),
     // mt#3550: only when this spawn is REPLACING a dead record. `register`
@@ -830,7 +922,7 @@ export function createEntityThreadReplyRecorder(
         schedulePendingDrain(db);
       });
     },
-    // An actuator swap replaces the record this subscriber is attached to. The
+    // A session driver swap replaces the record this subscriber is attached to. The
     // thread itself is unaffected — it is keyed by localId, which survives the
     // swap — so there is nothing to tear down here; the route re-registers a
     // recorder against the new record on the next message.

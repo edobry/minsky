@@ -13,10 +13,13 @@ import { describe, expect, test } from "bun:test";
 import type { CorpusRow } from "../src/eval-corpus";
 import type { FlatFinding } from "../src/replay-summary";
 import {
+  armLabel,
+  formatArmEffort,
   groupCorpusRowsByPr,
   isPositiveGroundTruth,
   samplePrNumbers,
   scoreModelFindings,
+  splitModelSpec,
 } from "./paired-eval-runner";
 
 // ---------------------------------------------------------------------------
@@ -242,5 +245,163 @@ describe("scoreModelFindings", () => {
     const result = scoreModelFindings([finding({ line: undefined })], [gt]);
 
     expect(result.tp).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --model arm parsing, including the reasoning-effort suffix (mt#4554)
+// ---------------------------------------------------------------------------
+
+describe("splitModelSpec", () => {
+  test("parses a two-segment spec with no effort pinned", () => {
+    const result = splitModelSpec("openai:gpt-5");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.value).toEqual({ provider: "openai", model: "gpt-5" });
+    // Absent, not null/undefined-valued: an unpinned arm must be
+    // indistinguishable from a pre-mt#4554 arm at the call site.
+    expect("reasoningEffort" in result.value).toBe(false);
+  });
+
+  test.each(["low", "medium", "high"] as const)("parses %s as a pinned effort", (effort) => {
+    const result = splitModelSpec(`openai:gpt-5:${effort}`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.value).toEqual({
+      provider: "openai",
+      model: "gpt-5",
+      reasoningEffort: effort,
+    });
+  });
+
+  test("keeps a dotted model id intact when an effort follows it", () => {
+    // gpt-5.6-luna is the arm mt#4554 exists to test; a naive split would
+    // mangle it or drop the effort.
+    const result = splitModelSpec("openai:gpt-5.6-luna:high");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.value.model).toBe("gpt-5.6-luna");
+    expect(result.value.reasoningEffort).toBe("high");
+  });
+
+  test("rejects an unrecognized effort instead of folding it into the model id", () => {
+    // The failure this guards: "minimal" is not in the ReasoningEffort union
+    // (providers.ts:376). Folding it into the model name would send a request
+    // for a model called "gpt-5:minimal" and surface as an opaque provider
+    // 404 rather than an argument error.
+    const result = splitModelSpec("openai:gpt-5:minimal");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.error).toContain("minimal");
+    expect(result.error).toContain("low|medium|high");
+  });
+
+  test("rejects an unknown provider", () => {
+    const result = splitModelSpec("cohere:command-r");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.error).toContain("openai|google|anthropic");
+  });
+
+  test.each([
+    ["no colon", "gpt-5"],
+    ["empty provider", ":gpt-5"],
+    ["empty model", "openai:"],
+  ])("rejects a malformed spec (%s)", (_label, raw) => {
+    const result = splitModelSpec(raw);
+    expect(result.ok).toBe(false);
+  });
+
+  test("rejects an effort suffix with no model id", () => {
+    const result = splitModelSpec("openai::high");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.error).toContain("no model id");
+  });
+});
+
+describe("armLabel", () => {
+  test("omits the effort when none is pinned, matching pre-mt#4554 labels", () => {
+    // Load-bearing for comparability: results artifacts written before this
+    // change key arms as "<provider>:<model>", and an unpinned arm must still
+    // produce that exact string or old and new runs cannot be joined.
+    expect(armLabel({ provider: "openai", model: "gpt-5" })).toBe("openai:gpt-5");
+  });
+
+  test("carries the effort when one is pinned", () => {
+    expect(armLabel({ provider: "openai", model: "gpt-5", reasoningEffort: "high" })).toBe(
+      "openai:gpt-5:high"
+    );
+  });
+
+  test("distinguishes two arms that differ only in effort", () => {
+    // The factorial this change exists to enable: same model, two efforts, one
+    // artifact. Equal labels would collapse them into one row.
+    const low = armLabel({ provider: "openai", model: "gpt-5", reasoningEffort: "low" });
+    const high = armLabel({ provider: "openai", model: "gpt-5", reasoningEffort: "high" });
+    expect(low).not.toBe(high);
+  });
+
+  test("round-trips through splitModelSpec", () => {
+    for (const raw of ["openai:gpt-5", "openai:gpt-5:high", "anthropic:claude-sonnet-4-6"]) {
+      const result = splitModelSpec(raw);
+      if (!result.ok) throw new Error(`expected ${raw} to parse`);
+      expect(armLabel(result.value)).toBe(raw);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-run summary effort clause (PR #3366 R1)
+// ---------------------------------------------------------------------------
+
+describe("formatArmEffort", () => {
+  test("marks a derived effort as derived, not as absent", () => {
+    // The blocking finding: an unpinned OpenAI arm ran at "low", and a summary
+    // that showed nothing let it read as an effort-free baseline.
+    expect(formatArmEffort({ resolvedReasoningEffort: "low", pinnedReasoningEffort: null })).toBe(
+      "effort=low(derived)"
+    );
+  });
+
+  test("marks a pinned effort as pinned", () => {
+    expect(
+      formatArmEffort({ resolvedReasoningEffort: "high", pinnedReasoningEffort: "high" })
+    ).toBe("effort=high(pinned)");
+  });
+
+  test("distinguishes a derived low from a pinned low", () => {
+    // Same resolved value, different provenance — the whole reason both
+    // fields are carried rather than one.
+    const derived = formatArmEffort({
+      resolvedReasoningEffort: "low",
+      pinnedReasoningEffort: null,
+    });
+    const pinned = formatArmEffort({
+      resolvedReasoningEffort: "low",
+      pinnedReasoningEffort: "low",
+    });
+    expect(derived).not.toBe(pinned);
+  });
+
+  test("says none when the model takes no reasoning_effort", () => {
+    expect(formatArmEffort({ resolvedReasoningEffort: null, pinnedReasoningEffort: null })).toBe(
+      "effort=none"
+    );
+  });
+
+  test("never returns an empty clause, so no summary line can omit effort", () => {
+    // The regression guard for the finding itself: whatever the combination,
+    // the summary always states something about effort.
+    const combos = [
+      { resolvedReasoningEffort: null, pinnedReasoningEffort: null },
+      { resolvedReasoningEffort: "low" as const, pinnedReasoningEffort: null },
+      { resolvedReasoningEffort: "medium" as const, pinnedReasoningEffort: "medium" as const },
+      { resolvedReasoningEffort: "high" as const, pinnedReasoningEffort: "high" as const },
+    ];
+    for (const c of combos) {
+      expect(formatArmEffort(c)).toContain("effort=");
+      expect(formatArmEffort(c).length).toBeGreaterThan("effort=".length);
+    }
   });
 });

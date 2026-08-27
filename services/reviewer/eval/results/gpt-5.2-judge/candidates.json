@@ -1,0 +1,2068 @@
+{
+  "https://github.com/getsentry/sentry/pull/93824": {
+    "minsky": [
+      {
+        "text": "Click option declaration includes a bare token \"flusher_processes\" without a leading dash, causing an invalid option string error and breaking CLI parsing",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "_ensure_processes_alive restarts unhealthy workers by killing only multiprocessing.Process instances; when workers are threading.Threads (in-memory/testing mode), the old thread is never stopped/joined before starting a replacement, leaking concurrent flusher threads for the same shards",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "join() can break out of the worker-iteration loop when the deadline is exceeded, skipping shutdown handling for remaining workers and leaving some processes/threads running",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Shutdown logic only terminates the current worker inside the per-worker loop; workers skipped due to the early break are neither waited on nor terminated/joined, risking leaked workers and hang-on-exit",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "max_processes can be set to 0, resulting in zero workers being created and the flusher pipeline stalling without an explicit error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Metric tags use inconsistent keys (\"shard\" vs \"shards\") across timers, making metrics aggregation/dashboards inconsistent",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/keycloak-greptile/pull/1": {
+    "minsky": [
+      {
+        "text": "UsernameForm may be missing a compatible zero-arg isConditionalPasskeysEnabled() method after authenticate() was changed to call it, risking a compile error/unresolved method",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Helper method signature mismatch between UsernameForm (no-arg isConditionalPasskeysEnabled()) and UsernamePasswordForm (isConditionalPasskeysEnabled(UserModel user)) may create divergent logic and signature drift; should be centralized or made consistent",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "WebAuthn conditional UI setup may no longer run for anonymous/username-entry (context.getUser() == null) flows because fillContextForm is now gated by isConditionalPasskeysEnabled(context.getUser()) which only returns true when user != null, potentially regressing first-factor discoverable-credential UX",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In challenge(context, error, field), conditional WebAuthn setup on error responses may no longer occur when context.getUser() == null due to the new isConditionalPasskeysEnabled(context.getUser()) gate, potentially regressing anonymous-user error flows",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Changing USER_SET_BEFORE_USERNAME_PASSWORD_AUTH from protected to public broadens the API surface and may introduce unintended external dependencies or binary compatibility concerns; consider narrower visibility or documentation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/32918": {
+    "minsky": [
+      {
+        "text": "getForLogin returns raw IdentityProviderModel instances on cache-hit paths without wrapping via createOrganizationAwareIdentityProviderModel, unlike the delegate path",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "getForLogin behavior/model shape differs depending on cache state (wrapped vs raw models), creating silent and hard-to-reason-about downstream behavior changes",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "OrganizationAwareIdentityProviderBean adds a defensive isEnabled re-check because getForLogin sometimes returns wrapped models and sometimes raw models, masking the underlying inconsistency and pushing caching concerns into callers",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "getForLogin uses inconsistent revision/counter sources when writing cache entries (startupRevision vs cache.getCurrentCounter), risking broken/incorrect invalidation semantics and divergent revision tracking for the same cache key",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "remove(String alias) may call registerIDPInvalidation(storedIdp) with storedIdp == null when alias is not found, leading to a potential NullPointerException",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/33832": {
+    "minsky": [
+      {
+        "text": "AuthzClientCryptoProvider is auto-registered via META-INF/services and may be selected when default providers are absent, but most of its CryptoProvider methods throw UnsupportedOperationException, leading to runtime crashes",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "AuthzClientCryptoProvider should either implement/delegate unsupported crypto methods to JCA defaults or avoid being auto-selected unless explicitly opted in",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "getBouncyCastleProvider() returns the provider of the default KeyStore type (often SUN/platform) rather than an actual BouncyCastle provider, which can break callers expecting BC-specific behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "If BouncyCastle is not on the classpath, getBouncyCastleProvider() should return null or explicitly load/return the BC provider instead of returning an unrelated provider",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Adding abstract method order() to the public CryptoProvider interface is a binary-incompatible SPI change that can break third-party providers (AbstractMethodError / compile failures)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "CryptoProvider.order() should be a default method (or introduced via a new sub-interface) to preserve backward compatibility, with proper migration/versioning if breaking",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "AuthzClient.create(Configuration) now calls CryptoIntegration.init(AuthzClient.class.getClassLoader()), introducing global crypto initialization side effects from a factory method",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "CryptoIntegration.init(...) in AuthzClient.create may override/interfere with existing CryptoIntegration initialization in the same JVM and restrict provider discovery to the authz-client ClassLoader, hiding app-provided providers",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ASN1Decoder.readSequence does not handle indefinite-length BER (readLength() == -1) and can silently return empty/partial results instead of failing or parsing correctly",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "concatenatedRSToASN1DER contains redundant ASN1Encoder.create().write(...) calls whose results are discarded, making them ineffective and confusing",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ECDSAAlgorithmTest only asserts round-trip conversions and does not verify the produced DER is accepted by JCA Signature#verify",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ECDSAAlgorithmTest lacks coverage for leading-zero/high-bit padding, minimal-length INTEGER encoding, negative BigInteger representation, and malformed input exception behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/37038": {
+    "minsky": [
+      {
+        "text": "GroupPermissionsV2.canManage() fallback check treats VIEW on Groups as sufficient for manage rights, enabling privilege escalation; should require MANAGE only",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "GroupPermissionsV2.getGroupIdsWithViewPermission() collects Authorization Resource UUIDs (resource.getId()) instead of underlying GroupModel IDs, breaking downstream filtering/counting that expects group IDs",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Rename/semantic change from getGroupsWithViewPermission() to getGroupIdsWithViewPermission() may not be fully adopted across codebase, risking missed call sites and unintended behavior changes",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "UserPermissions.canViewByGroup logic changed from checking VIEW on a group to calling canViewMembers(group), which alters effective permissions and may broaden access compared to prior semantics",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "AdminPermissions.registerListener now registers the event listener only when the feature flag is enabled at registration time, potentially missing events if the flag can be enabled after bootstrap",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "GroupPermissions.canViewMembers(GroupModel) now allows MANAGE_MEMBERS to satisfy view-members checks (VIEW_MEMBERS or MANAGE_MEMBERS), widening read access without documented intent/tests",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/36882": {
+    "minsky": [
+      {
+        "text": "In UpdateCompatibilityCheck.run(), calling picocli.exit(...) is invalid because picocli is a package (no static exit method), causing a compile-time error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In UpdateCompatibilityMetadata.run(), calling picocli.exit(...) is invalid because picocli is a package (no static exit method), causing a compile-time error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Changing RECREATE_UPGRADE_EXIT_CODE from 4 to 3 and assigning FEATURE_DISABLED = 4 may break existing consumers that interpret exit code 4 as 'recreate required'",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing/insufficient tests to assert and lock down the expected exit codes for both the recreate-required and feature-disabled paths after the remapping",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/36880": {
+    "minsky": [
+      {
+        "text": "Permission cleanup on RoleRemovedEvent/ClientRemovedEvent/GroupRemovedEvent is now gated behind ADMIN_FINE_GRAINED_AUTHZ, so when the flag is off permissions are no longer disabled on removal events, leaving stale permissions in non-FGAP deployments",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "The feature-flag guard in AdminPermissions.registerListener is too broad if only V2-specific behavior was intended; it should be scoped so legacy (non-V2) cleanup behavior remains intact or the behavior change must be explicitly justified and callers adjusted",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ClientPermissionsV2.hasPermission(String scope) returns false when the Clients resource-type resource is missing instead of auto-creating/obtaining it, causing global Clients permissions (VIEW/MANAGE/CONFIGURE) to be falsely denied unless the resource-type resource was previously materialized",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ClientPermissionsV2.hasPermission(String scope) uses resourceStore.findByName(...) without the per-client fallback to AdminPermissionsSchema.SCHEMA.getResourceTypeResource(...), creating inconsistent behavior between global-scope and per-client permission checks",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Test testManageOnlyOneClient() assumes at least two default client scopes and calls defaultClientScopes.get(1) after only checking non-empty, which can throw IndexOutOfBoundsException on setups with a single default scope and make the test flaky",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ClientPermissionsV2 throws UnsupportedOperationException for setPermissionsEnabled (and other permission-management APIs) but core listener AdminPermissions.registerListener still invokes clients().setPermissionsEnabled(...), causing runtime failure (500) on ClientRemovedEvent when V2 is active",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Unused import org.keycloak.models.AdminRoles in ClientPermissionEvaluator (only referenced in Javadoc) may violate no-unused-imports style checks and break the build",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/38446": {
+    "minsky": [
+      {
+        "text": "Credential provider lookup uses a hardcoded provider ID string instead of RecoveryAuthnCodesCredentialProviderFactory.PROVIDER_ID, risking wrong provider selection if the ID changes",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing null-check after session.getProvider(...); if the provider is null, calling recoveryCodeCredentialProvider.createCredential(...) can throw a NullPointerException",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "createRecoveryCodesCredential(...) serializes and sends plaintext recovery codes to external user storage via updateCredential(...), leaking sensitive secrets and bypassing hashing/encryption expectations",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "When updateCredential(...) returns true, the code skips the local CredentialProvider creation path, leading to inconsistent/canonical credential storage behavior compared to the provider-managed (hashed/metadata) path",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "RecoveryAuthnCodesUtils.getCredential(user) returns Optional but the code calls .get() without checking presence, risking NoSuchElementException when no recovery-codes credential exists",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Misuse of UserCredentialModel: placing serialized recovery codes into the challengeResponse field (meant for ephemeral user input) couples/breaks provider contracts and may cause unintended persistence of secrets",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/37634": {
+    "minsky": [
+      {
+        "text": "AccessTokenContext constructor mistakenly null-checks grantType twice and never validates rawTokenId, allowing rawTokenId to be null at construction time",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "isAccessTokenId matcher has inverted grant-shortcut equality logic (returns false when the shortcut matches expectedGrantShortcut)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "isAccessTokenId extracts the grant shortcut using wrong substring indices (uses substring(3,5) instead of substring(4,6) for a 6-character header)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Adding getShortcut() as a new non-default method to OAuth2GrantTypeFactory is a binary-incompatible SPI change that can break third-party providers at runtime with AbstractMethodError",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "encodeTokenId can throw IllegalStateException for UNKNOWN/unregistered grant shortcuts while decoding supports UNKNOWN ('na'), creating brittle/asymmetric UNKNOWN handling that may fail for custom providers or future refactors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/37429": {
+    "minsky": [
+      {
+        "text": "Regex used to derive the English fallback path (`replaceAll(\"_[a-zA-Z-_]*\\\\.properties\", ...)`) has an unsafe character class where `-` forms a range, allowing backslashes and other characters; on Windows this can overmatch across directory separators and produce an invalid path",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "English fallback path derivation operates on the full absolute path instead of just the filename, making the locale-suffix replacement prone to matching unintended parts of the path; it should be anchored to the filename (e.g., `...\\.properties$`) and reconstructed from parent/name",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In `santizeAnchors`, `value` is mutated inside a `while (matcher.find())` loop using a `Matcher` created from the original string, causing the matcher to scan stale content and potentially skip or misreport anchors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`santizeAnchors` removes the English anchor string from the translation using raw-string equality (`replaceFirst(Pattern.quote(englishMatcher.group()), \"\")`), which fails when anchors differ only by whitespace/attribute order and leads to incorrect comparisons",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Anchor verification logic strips `<a>` tags from the translation before sanitization and then compares the stripped value, allowing translations that omit required English anchors to pass without detection",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Because `<a>` is not allowed by `POLICY_SOME_HTML` and anchors are stripped from the translation, valid translations that correctly include the same anchors as English are rejected/forced to drop anchors to pass",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In `verifySafeHtml`, unescaping the sanitizer output (`unescapeHtml4`) reintroduces escaped disallowed tags (e.g., `&lt;b&gt;` -> `<b>`), allowing unsafe HTML to pass the equality check and defeating sanitization",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`POLICY_SOME_HTML` allowlist is too restrictive (only `br`, `p`, `strong`, `b` with no attributes), causing legitimate existing message HTML (e.g., `i/em`, lists, `span`, links with `href/rel/target`) to fail verification spuriously",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Ad-hoc normalization that strips only `style=\"direction: rtl;\"` is brittle and can break RTL rendering or miss other benign/required attributes (e.g., `dir=\"rtl\"`), leading to incorrect failures or altered output",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Tests rely on English-bundle resolution via path rewriting, but fixtures in `src/test/resources` may not mirror the expected layout; tests may accidentally read the wrong English file or fail to find it, producing unreliable results",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/keycloak/keycloak/pull/40940": {
+    "minsky": [
+      {
+        "text": "Test starts a non-daemon background Thread but does not keep a reference or call join(), so the thread may outlive the test and hang/flake the suite",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Test asserts on caughtExceptions immediately after setting deletedAll, while the background thread may still be running and mutating the list, creating a data race and flaky assertions",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Background thread loop may be a tight CPU spin; missing sleep/yield can waste CPU and affect test stability",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "getSubGroupsCount() was changed to return null when modelSupplier.get() returns null, silently altering the method contract for a Long return type",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Returning null from getSubGroupsCount() can cause downstream NullPointerExceptions when callers unbox to long, do arithmetic, or pass to APIs expecting non-null",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Removal of private helper groupMatchesSearchOrIsPathElement may break compilation if any remaining references exist",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "If groupMatchesSearchOrIsPathElement logic was relied on, removing it may change group search/path semantics (e.g., prior fallback behavior when name didn\u2019t match)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/103633": {
+    "minsky": [
+      {
+        "text": "Denial-cache key and tracing attribute in Check() are built from checkReq.ParentFolder while callers/tests populate checkReq.Folder, so the denial cache may never hit and span attributes may be incorrect",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing/insufficient unit test coverage to prove denial cache hits when subsequent Check() calls use the public Folder field (rather than ParentFolder) for the same tuple",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "TestService_CacheCheck 'Should deny on explicit cache deny entry' sets the cached permission value to false, so the request would be denied even without the denial-cache entry and the test does not validate denial-cache precedence over an allow",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Denial cache entries are not invalidated on permission updates/grants or resource creation, so users may experience stale denies until TTL expiry",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Metrics label values for cache-hit vs fallback paths are ambiguous/inverted (e.g., boolean-as-string labels like \"true\"/\"false\" without clear meaning), making it easy to misinterpret dashboards",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Inconsistent cache hit/miss metric semantics between Check() and List() (and/or missing increments on some early-return paths) may skew cache usage metrics",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/79265": {
+    "minsky": [
+      {
+        "text": "Authenticate now calls TagDevice synchronously instead of async best-effort, changing auth-path semantics and risking auth failures/latency regressions",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Authenticate returns/propagates ErrDeviceLimitReached from TagDevice without clear downstream error mapping or tests for intended user-facing behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Auth path now blocks on DB I/O for every anonymous request due to synchronous TagDevice call, creating material latency/operational regression risk versus prior background goroutine",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing safeguards/justification for synchronous TagDevice (e.g., bounded timeout via context.WithTimeout, benchmarks, retries) or an alternative non-blocking limit enforcement design",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "API/Frontend contract mismatch: server serializes anonymousDeviceLimit as non-omitempty int64 (always present, 0 when unset) while frontend types it as number | undefined and defaults to undefined",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Device-limit enforcement in CreateOrUpdateDevice uses non-atomic count-then-insert/update (TOCTTOU), allowing limit to be exceeded or causing spurious rejections under concurrency",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "anonymousDeviceExpiration constant is duplicated in multiple packages, risking drift between API/listing behavior and DB enforcement window",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "updateDevice returns ErrDeviceLimitReached when rowsAffected == 0, conflating 'no matching row/expired/clock skew' with 'limit reached' due to restrictive WHERE clause",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/107534": {
+    "minsky": [
+      {
+        "text": "Test asserts `toHaveBeenCalledTimes` on `datasource.applyTemplateVariables` without mocking/spying it, so the matcher will fail because `applyTemplateVariables` is not a Jest mock in that test",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Test expectation that `applyTemplateVariables` is called 5 times seems incorrect/brittle given the implementation maps once per `request.targets` (likely one call per input query, not per shard), so the call-count assertion may not reflect real behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`runShardSplitQuery` behavior changed by filtering (`expr`/`hide`) before variable interpolation; queries whose `expr` becomes empty/invalid after interpolation will no longer be filtered out, potentially producing malformed downstream queries",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "New tests assume `createLokiDatasource({ replace, getVariables })` drives `applyTemplateVariables`; if `applyTemplateVariables` doesn\u2019t use those hooks, the tests may be false positives and need verification/documentation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/76186": {
+    "minsky": [
+      {
+        "text": "traceID is no longer extracted and logged for plugin request completion logs because tracing import and TraceIDFromContext usage were removed and ContextualLoggerMiddleware.instrumentContext does not add traceID, causing an observability regression",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Fields like endpoint, pluginId, dsName, dsUID, and uname were removed from explicit logParams in LoggerMiddleware.logRequest and now rely on contextual logger propagation, which may omit them depending on logger implementation, risking silent loss of expected log fields",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "No tests verify that the \"Plugin Request Completed\" log line still includes endpoint/plugin/datasource/user fields when relying on contextual attributes, risking regressions in log processing and dashboards",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "The public pkg/plugins/log.Logger interface was changed to add FromContext(context.Context) Logger, creating a breaking API change for any in-repo or external Logger implementations not updated",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "grafanaInfraLogWrapper.FromContext uses a concrete type assertion to *log.ConcreteLogger and falls back to d.New() on failure, silently dropping contextual attributes and risking missing fields in logs",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "metrics_middleware_test.go contains a stale test name TestInstrumentationMiddleware after renaming the middleware to MetricsMiddleware, causing naming inconsistency and confusion",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/106778": {
+    "minsky": [
+      {
+        "text": "useAllGrafanaPromRuleAbilities references useGrafanaRulesSilenceSupport and useCanSilenceInFolder but they are not imported in useAbilities.ts, causing unresolved identifier/compile errors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "useIsGrafanaPromRuleEditable uses ctx.hasPermissionInMetadata but ctx is not defined or imported, causing compile/runtime errors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "RuleActionsButtons calls useRulerRuleAbility(rule, ...) even when rule can be undefined (when only promRule is provided), leading to type errors and/or runtime issues; needs guarding or hook signature update",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "GrafanaRuleListItem builds rule links without preserving the returnTo parameter (previously added via createRelativeUrl), potentially degrading back-navigation UX",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "AlertRuleMenu.tsx imports useRulerRuleAbilities (plural) but the hook file may only export useRulerRuleAbility (singular), risking a broken named import/export mismatch",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/90939": {
+    "minsky": [
+      {
+        "text": "Cache and its RWMutex are package-level globals, cementing global mutable state and hidden coupling; should be encapsulated behind a type and injected",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing second cache check after acquiring the write lock (TOCTTOU window) can cause redundant recomputation and overwriting a cache populated by another goroutine",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Write lock is acquired unconditionally even in Dev mode where caching is bypassed, unnecessarily serializing concurrent requests and holding the lock during expensive computation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/90045": {
+    "minsky": [
+      {
+        "text": "In TestMode1_Get, variable `p` is used in `NewDualWriter(..., p)` after its initialization `p := prometheus.NewRegistry()` was removed, causing the test to not compile due to `p` being undefined",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Multiple Mode3 tests (e.g., TestMode3_Create and others) call `NewDualWriter(..., p)` without defining `p` in their scope (only TestMode3_Get defines it), causing compile-time `undefined: p` errors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In Create, on storage write failure the code calls `recordLegacyDuration(..., startStorage)` even though the timing/error is for the storage attempt; it should call `recordStorageDuration`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In Delete, after successful storage delete the code records storage duration with `name` as the third label argument where other calls use `options.Kind`, causing mis-labeled metrics",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In Delete, the logger with structured fields (`log := d.Log.WithValues(...)`) is discarded by calling `klog.NewContext(ctx, d.Log)` instead of using `log`, losing context fields",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In Update, on storage update error the code calls `recordLegacyDuration(..., startStorage)` even though the timing/error is for the storage attempt; it should call `recordStorageDuration`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In DeleteCollection, the async legacy write path records `recordStorageDuration(..., startLegacy)` even though it is operating on the legacy backend; it should call `recordLegacyDuration`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "In Mode 3 Update, removing the wrapper causes the async legacy update to receive `objInfo` and potentially recompute `UpdatedObject`, risking divergence from the object written to storage; legacy should receive the exact updated object computed once",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/80329": {
+    "minsky": [
+      {
+        "text": "Cleanup ticker interval changed from 10 minutes to 1 minute, increasing cleanup frequency 10x and altering system load characteristics without being part of the stated fix",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "SQL construction incorrectly embeds ORDER BY/LIMIT inside the WHERE condition string passed to fetchIDs, producing invalid SQL and breaking cleanup queries",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Cleanup code logs large ID lists at error level during normal operation, causing log spam, potential data leakage, and unnecessary CPU/memory overhead; should be debug/removed and avoid logging full ID arrays",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Tests call an undefined min helper in createTestAnnotations, which will not compile on Go versions without the builtin min (pre-1.21) unless a local helper is added or minimum Go version is bumped",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Integration tests share a single test DB instance across subtests, risking cross-test interference if a subtest fails before cleanup or if tests are parallelized later",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "deleteByIDs uses strings.Repeat but may be missing an import for strings, causing a compile error if not already imported",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/97529": {
+    "minsky": [
+      {
+        "text": "Removing the coarse BuildIndex lock allows concurrent goroutines to build the same index key simultaneously, causing race conditions and breaking the single-writer-per-key invariant",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Concurrent BuildIndex calls can double-create/open the same on-disk index directory, leading to racy filesystem writes, corruption, or transient errors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Concurrent BuildIndex calls can create multiple in-memory indexes for the same key but only cache the last one, leaking the others/resources",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Reordering server initialization to build the search index before starting the watcher creates a gap where writes during the initial index build are not observed, risking missed updates",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Without a consistent snapshot RV and deterministic catch-up, updates during the build-before-watcher window can be applied out of order or missed, leaving the search index stale/inconsistent with storage",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "A Postgres integration test is permanently skipped in CI via t.Skip, masking regressions and removing coverage for a supported backend",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "search.init duration logging uses Unix-second resolution (wall clock) instead of monotonic, higher-precision timing, reducing usefulness and risking inaccuracies due to clock jumps",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "IndexCreationTime metric observes whole-second durations (end-start) instead of sub-second precision, reducing metric fidelity for smaller builds and SLO tracking",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/grafana/grafana/pull/94942": {
+    "minsky": [
+      {
+        "text": "pkg/expr/sql_command.go replaces duck.NewInMemoryDB() with sql.NewInMemoryDB() but does not import the sql package, causing undefined: sql compile error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "enableSqlExpressions uses featuremgmt.FlagSqlExpressions but pkg/expr/reader.go may be missing the featuremgmt import, causing a potential compile error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "enableSqlExpressions in pkg/expr/reader.go always returns false due to incorrect/inverted feature-flag logic, making SQL expressions always rejected and the flag check misleading/dead code",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "pkg/expr/sql/parser.go replaces duck.NewInMemoryDB() with NewInMemoryDB() but lacks the import/qualification for the new local sql package, causing undefined: NewInMemoryDB compile error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/1": {
+    "minsky": [
+      {
+        "text": "Client-side upload max size check was changed from per-type, admin-configurable `Discourse.SiteSettings['max_' + type + '_size_kb']` to a hard-coded 10MB (`10 * 1024`) in `app/assets/javascripts/discourse/lib/utilities.js:179`, removing configurability and making all upload types share the same limit",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Hard-coded 10MB client-side upload limit can desynchronize with server-side `SiteSetting.max_*_size_kb` limits, causing the client to over-allow (leading to 413 errors) or under-allow (blocking valid uploads) and misreport the permissible size",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "413 error handler in `app/assets/javascripts/discourse/lib/utilities.js:243` was changed from using `Discourse.SiteSettings.max_image_size_kb` to a hard-coded 10MB, causing incorrect/misleading error messaging when server-configured limits differ",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "API download size limit in `app/controllers/uploads_controller.rb:52` was changed from `SiteSetting.max_image_size_kb.kilobytes` to hard-coded `10.megabytes`, removing admin configurability and risking larger downloads than intended (bandwidth/memory usage) and downstream failures",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`optimize` method signature changed from `(width, height)` to a single `dimensions` argument, which can break existing callers expecting the old arity",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`OptimizedImage.downsize` is defined twice with different signatures; the later definition overrides the former, so existing 5-argument calls will raise `ArgumentError: wrong number of arguments`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`OptimizedImage.downsize` is called with a percentage geometry string (`\"80%\"`) in `app/controllers/uploads_controller.rb:60-75`, which likely is not supported by the expected `downsize` geometry format (typically `\"<w>x<h>\"`), potentially producing invalid convert args/no-op and failing to reduce size below the limit",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3": {
+    "minsky": [
+      {
+        "text": "Ember computed property incorrectly depends on `rejectedEmails.@each` even though `rejectedEmails` is an array of primitive strings, so pushes/changes won\u2019t invalidate and the computed won\u2019t recompute",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Client-side rejected email check uses case/whitespace-sensitive `contains(email)` without normalization, allowing bypass via casing or surrounding spaces",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Server-side `BlockedEmail.should_block?(email)` matches on raw input (`where(email: email)`) without normalization, so casing/whitespace differences (and DB collation) can bypass the block list",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "No invariant/enforcement for normalized blocked emails (migration/DB constraint/index doesn\u2019t ensure normalized value), enabling inconsistent stored values and bypasses",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "User model validation was changed to `validates :email, email: true` relying on `EmailValidator` in `lib/validators`, but autoload/eager_load/require may not be configured, risking `Unknown validator` or validator not running in production",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing/removed model-level tests asserting `User` actually runs the whitelist/blacklist validation after moving logic into `EmailValidator`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`EmailValidator` triggers database writes during validation because `BlockedEmail.should_block?` increments counters and saves, violating side-effect-free validation expectations and risking extra load/deadlocks/exceptions during validation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4": {
+    "minsky": [
+      {
+        "text": "Migration adds posts.cook_method with default 1, which maps to :raw_html in the enum and makes existing/new posts bypass cooking/sanitization",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Default cook_method should be the safe :regular (likely 0) and a backfill/migration is needed to set legacy rows accordingly",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "ERB template closes an if-block with invalid syntax `<%- end if %>` instead of `<%- end %>`, causing a render-time template error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "RSS feed import unescapes and imports raw HTML content and renders it without sanitization, enabling stored XSS from malicious/compromised feeds",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "TopicEmbed.import creates posts with cook_method :raw_html so Post#cook returns raw, bypassing the normal cooking/sanitization pipeline for imported feed content",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "postMessage origin trust check uses `discourseUrl.indexOf(e.origin) === -1`, which is brittle and can mis-handle ports/trailing slashes; should use normalized strict origin comparison",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "postMessage handler does not validate `e.source === iframe.contentWindow`, allowing spoofed messages from other same-origin windows",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "postMessage targetOrigin is set to the full referer URL (`request.referer`) instead of an origin, which can break message delivery and weakens the origin contract",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Migration uses `create_table :top_topics, force: true`, which can drop an existing table and delete production data if re-run",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/2": {
+    "minsky": [
+      {
+        "text": "Template renders user-influenced `stopNotificiationsText` with triple-stash (`{{{...}}}`), allowing unescaped HTML injection/XSS via topic title interpolation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Controller builds `stopNotificiationsText` using `I18n.t(..., { title: model.fancyTitle })` where `model.fancyTitle` comes from the topic title; relying on its sanitization while rendering unescaped widens XSS risk",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`unsubscribe` action performs a state change (`TopicUser.notification_level`) but is exposed as a GET route, enabling CSRF via simple cross-site requests (e.g., `<img>` tag)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`skip_before_filter :check_xhr` includes `:unsubscribe`, removing an existing guard and further enabling CSRF/unauthorized triggering of the state-changing endpoint",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Ember route name `topicUnsubscribe` (flat/camelCase) does not match the added template path `templates/topic/unsubscribe.hbs` (nested), so the intended template/controller won\u2019t be used when navigating to `/t/:slug/:id/unsubscribe`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`unsubscribe` action calls `current_user.id` without guarding for anonymous users; logged-out requests will raise due to `current_user` being nil",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`unsubscribe` action assumes a `TopicUser` row exists; `TopicUser.find_by(...)` can return nil and `tu.notification_level = ...` will crash with `NoMethodError`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Email copy claims it will \u201cstop receiving notifications,\u201d but server logic only downgrades notification level to `regular` for watched/tracked topics, which can still generate notifications; behavior and messaging are inconsistent/misleading",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7": {
+    "minsky": [
+      {
+        "text": "Anchor (<a>) light-theme color unintentionally changed by switching from scale-color($primary, $lightness: 30%) to dark-light-choose with a first argument using 70% lightness, altering light-theme appearance",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "For .user-main .about .details .name, light-theme color changed from scale-color($primary, $lightness: 30%) to a dark-light-choose first argument using 50% lightness, altering light-theme appearance",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "For .custom-message-length, light-theme color inverted from scale-color($primary, $lightness: 70%) to a dark-light-choose first argument using 30% lightness, altering light-theme appearance",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "For mobile posts h3, light-theme color changed from scale-color($primary, $lightness: 20%) to a dark-light-choose first argument using 50% lightness, altering light-theme appearance",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/5": {
+    "minsky": [
+      {
+        "text": "Replacing `float: right` with flex + `margin-left: auto` on `.panel` may not right-align in prefixed flexbox fallbacks (IE10/11 and 2009 `-webkit-box`), causing a regression vs the previous float behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`.contents` lacks cross-version packing/justification properties (e.g., `-ms-flex-pack`, `-webkit-box-pack`, `justify-content`) needed to ensure `.panel` aligns right in legacy prefixed flex implementations",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`align-items` mixin emits invalid `-ms-align-items`, which is not a real property and will be ignored",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`align-items(baseline)` is not supported by IE10/11 `-ms-flex-align` (only `start|end|center|stretch`), so baseline alignment will be ignored and differ across browsers",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`order($val)` mixin uses the same value for `-webkit-box-ordinal-group` (1-based) and modern `order` (0-based), risking inconsistent ordering across legacy vs modern flexbox",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Flex conversion of `.small-action` changed `.small-action-desc` padding from fixed left offset (`4em`) to percentage padding, which can remove guaranteed avatar clearance and cause avatar/text overlap or inconsistent spacing on wide screens",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`.small-action` flex layout provides no explicit gap/margin between `.topic-avatar` and text, so content may butt up against the avatar",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`align-items` mixin omits `-moz-box-align` even though `flexbox()`/`inline-flex()` emit `display: -moz-box`, so alignment won\u2019t apply in engines parsing the `-moz-box` fallback",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/6": {
+    "minsky": [
+      {
+        "text": "Using `\".\" << website_host` inside the `end_with?` check mutates a string literal, which can raise `FrozenError` under frozen string literals and causes unnecessary in-place mutation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`website_name` repeatedly parses `URI(website.to_s)` multiple times, which is wasteful and could lead to inconsistency if `website` changes between calls",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Other templates/clients may still reference the removed `websiteName` (camelCase) computed property, which would cause runtime breakage if any references remain",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`Discourse.current_hostname` may be `nil`, so calling `split`/`end_with?` on it can raise `NoMethodError` without a nil/presence guard",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Comparing domains by dropping the first label via `split('.')[1..-1]` is brittle for multi-part/public-suffix TLDs (e.g., `.co.uk`) and can misclassify registrable domains",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/9": {
+    "minsky": [
+      {
+        "text": "Calling `I18n.fallbacks.ensure_loaded!` inside `set_locale` is unguarded and can raise at runtime if `I18n.fallbacks` isn\u2019t the expected custom type or doesn\u2019t implement `ensure_loaded!`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "The code assumes `I18n.ensure_loaded!` exists (from a custom patch) and will be loaded before requests; if initializer order changes or patches aren\u2019t loaded yet, production requests can hit `NoMethodError`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Including `I18n::Backend::Fallbacks` into `I18n.backend.class` is brittle because if `I18n.backend` is swapped later, the new backend won\u2019t have the fallbacks module",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`FallbackLocaleList#[]` depends on mutable `SiteSetting.default_locale` at runtime, so changing the site default can make cached fallbacks stale and cause inconsistent fallback behavior across requests/threads",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Missing test coverage for a request boot path that would catch these initializer-order/backend-swap failures in CI instead of at runtime",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10": {
+    "minsky": [
+      {
+        "text": "Migration seeds embeddable_hosts using unescaped SQL string interpolation for host value, which can break on quotes and enables SQL injection",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Migration should parameterize or properly quote dynamic values (e.g., host `h`, category_id) instead of executing raw interpolated SQL",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Controller update/destroy actions dereference `host` after `EmbeddableHost.where(...).first` without handling not-found, causing NoMethodError and 500s instead of 404",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "EmbeddableHost `before_validation` callback calls `self.host.sub!` without guarding against nil/blank host, causing NoMethodError before validations run",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`_hydrateEmbedded` maps over `obj[k]` without guarding for null/undefined, which can throw when ids list is missing",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`_hydrateEmbedded` can produce arrays containing `undefined` when lookups fail for some ids, leading to invalid hydrated results",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/8": {
+    "minsky": [
+      {
+        "text": "`totalPages` uses `Math.floor(user_count / limit) + 1`, causing an off-by-one when `user_count` is an exact multiple of `limit` and breaking pagination",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`totalPages` lacks a zero-user guard; should return 0 when `user_count === 0` to avoid incorrect page counts",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Incorrect `totalPages` value causes `showingLast` to be false on the real last page, allowing `next` to advance past the end",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Template is missing a closing `{{/each}}` for `{{each member in members itemView=\"group-member\"}}`, which will prevent correct compilation/rendering",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`asJSON` payload shape was changed from `{ group: {..., usernames} }` to a flat object and removed `usernames`, breaking server/controller strong-params expectations and potentially other callers",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Client code calling `group.save()`/`group.create()` with the new `asJSON()` no longer submits `usernames`, so any UI relying on bulk membership submission will silently lose functionality unless fully migrated",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Spec uses the wrong HTTP verb for `remove_member` (`PUT` instead of `DELETE`) given the routes, causing a route miss/404 and failing the test",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/1": {
+    "minsky": [
+      {
+        "text": "DateTimePaginator.get_result can compute a negative start_offset for prev cursors, leading to queryset[start_offset:stop] with a negative start index (unsupported by Django QuerySets) and breaking reverse pagination",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "organization_context is referenced in the enable_advanced guard but is not defined in the function scope, causing a runtime NameError",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "OptimizedCursorPaginator.get_result allows negative cursor offsets and slices the queryset with a negative start index, which Django QuerySets do not support and will crash reverse/bidirectional pagination",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "OptimizedCursorPaginator.get_item_key relies on self.key and self._is_asc, which are not defined on BasePaginator, causing AttributeError at runtime unless implemented or inherited correctly",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "OptimizedCursorPaginator.get_result calls self.count_hits(max_hits) without providing/binding the queryset as expected by the paginator contract, risking errors or incorrect hit counts",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "The optimized_pagination=true GET parameter acts as an undocumented external feature flag and bypasses proper server-side rollout/kill-switch controls; should use a feature flag system and/or document it",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/2": {
+    "minsky": [
+      {
+        "text": "`organization_context` is referenced for permission gating (`organization_context.member.has_global_access`) but is not defined/imported in scope, causing a runtime `NameError` when `optimized_pagination=true`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Pagination logic can produce a negative `start_offset` and slice a Django QuerySet with negative bounds (`queryset[-N:M]`), which Django does not support and will raise at runtime on reverse pagination paths",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`OptimizedCursorPaginator.get_item_key` calls `math.floor`/`math.ceil` but the module does not import `math`, causing `NameError: name 'math' is not defined`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Redis data structure migration from Set to Sorted Set changes commands (`scard`\u2192`zcard`, `sunionstore`\u2192`zunionstore`, `zpopmin`) without ensuring all writers are migrated, risking `WRONGTYPE` errors if existing keys are still Sets",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`Span` NamedTuple adds a new required field `end_timestamp_precise` without a backward-compatible default, so any unupdated instantiations will crash with `TypeError` due to a missing positional argument",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/3": {
+    "minsky": [
+      {
+        "text": "Cache key derivation uses Python built-in hash(), which is non-deterministic across processes and breaks cache locality and invalidation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "invalidate_upsampling_cache uses the same unstable hash()-based key derivation, making invalidation unreliable across processes",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "New SnQL function upsampled_count is registered without private=True, unintentionally exposing it to user queries and expanding the public query surface",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Public exposure of upsampled_count can bypass eligibility checks / allow arbitrary use outside guarded transformation logic, producing misleading results and creating an undocumented user-facing contract",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "transform_query_columns_for_error_upsampling rewrites count() to upsampled_count() for the errors dataset, but upsampled_count is only registered in the Discover function converter, causing unresolved-function runtime errors for errors-dataset queries",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Refactor delays applying column transformation until late and duplicates it across multiple branches, risking missed transforms and inconsistent behavior between execution paths",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "User-facing error message text changed (\"If topEvents\u2026\" to \"topEvents\u2026\"), which may break tests or UI/client expectations tied to the previous string",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/getsentry/sentry/pull/67876": {
+    "minsky": [
+      {
+        "text": "Potential KeyError when accessing integration.metadata[\"sender\"][\"login\"] without guarding missing keys, causing a 500 instead of returning the intended user-facing error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "OAuth token exchange network request (safe_urlopen to GitHub access token URL) is not wrapped in exception handling, so network/non-200 failures can bubble up and 500 the setup flow",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "get_user_info(access_token) call is not wrapped in exception handling, so network/API/unexpected payload errors can raise and crash the pipeline with a 500 instead of returning the intended error response",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/5": {
+    "minsky": [
+      {
+        "text": "GitHubPRCommentWorkflow.get_comment_body calls self.get_merged_pr_single_issue_template(...) but that method is not defined on PRCommentWorkflow/GitHubPRCommentWorkflow, causing AttributeError at runtime",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "GitLab PR comment workflow has the same missing get_merged_pr_single_issue_template method issue, leading to the same runtime AttributeError",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "CommitContextIntegration.get_merged_pr_single_issue_template incorrectly calls PRCommentWorkflow._truncate_title(title) even though _truncate_title is defined on CommitContextIntegration, causing AttributeError at runtime",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "commit_context.py get_environment_info uses logger.info(...) but logger is not imported/defined in the module, causing NameError",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "fetch_error_details zips error_ids with events.values() from nodestore.get_multi, relying on unordered dict iteration and potentially mismatching event_id to event data",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "WidgetCardChart.tableResultComponent renders TableWidgetVisualization with empty columns/data/meta when the feature flag is enabled, ignoring actual tableResults result.data/result.meta and producing empty tables",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Serializer validators enforce mutual exclusion between timestamp and age, potentially rejecting valid inputs where both are present and causing 422s",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Removal of ParameterizationRegexExperiment while also removing the related option can silently break existing regex-based experiment configurations and loses test coverage without migration/documentation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Visualize.fromJSON return type changed from a single Visualize to Visualize[], breaking existing callers that still treat it as a single instance and risking type/runtime errors or unexpected array nesting",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/getsentry/sentry/pull/80528": {
+    "minsky": [
+      {
+        "text": "get_monitor_environment_context computes a modified local config (e.g., converts schedule_type to display value) but returns monitor_environment.monitor.config instead, dropping the adjustment",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Typo in get_failure_reason docstring: 'humam readible' should be 'human readable'",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "get_failure_reason can produce a malformed message (' check-ins detected') when status_counts is empty because no failed_checkins statuses match HUMAN_FAILURE_STATUS_MAP; needs an explicit empty-case fallback",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Module declares logger = logging.getLogger(__name__) but never uses it (dead code / linter warning)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Removing create_issue_platform_occurrence may break other modules that still import/use it; need to search and update consumers to create_incident_occurrence",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/getsentry/sentry/pull/77754": {
+    "minsky": [
+      {
+        "text": "AssignmentSource.to_dict() includes a non-JSON-serializable datetime field (queued) via dataclasses.asdict, causing Celery JSON serialization failure when passed as task kwargs",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "sync_assignee_outbound is invoked with unexpected kwarg assignment_source, but the abstract method signature (and potentially implementations) was not updated to accept it, leading to TypeError",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "AssignmentSource.queued default is set as timezone.now() at import time, so all instances share the same timestamp instead of creation time; should use field(default_factory=timezone.now)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Test name typo: test_from_dict_inalid_data should be test_from_dict_invalid_data",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/getsentry/sentry/pull/95633": {
+    "minsky": [
+      {
+        "text": "Code references non-existent queue API `queue.ShutDown` exception in `OrderedQueueWorker.run`, which will never be raised and can cause crashes/unclean shutdown",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Code calls non-existent `Queue.shutdown(immediate=False)` in `FixedQueuePool.shutdown`, leading to `AttributeError` and workers that cannot be cleanly stopped",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Worker thread blocks indefinitely because `OrderedQueueWorker.run` calls `Queue.get()` with no timeout and only checks shutdown after `get()` returns, so it can\u2019t exit promptly without a sentinel/timeout",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`FixedQueuePool` creates unbounded `queue.Queue()` instances (no `maxsize`), providing no backpressure and risking unbounded memory growth/OOM while contradicting the docstring claim about backpressure",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`FixedQueuePool.get_queue_for_group` can raise `ZeroDivisionError` if `num_queues` is ever 0 due to `hash(group_key) % self.num_queues`, so `num_queues`/`max_workers` should be validated to be >= 1",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Tests reference `kafka_definition` namespace without importing it, causing `NameError` when calling `kafka_definition.get_topic_codec(...)` and `kafka_definition.Topic.UPTIME_RESULTS`",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/getsentry/sentry/pull/80168": {
+    "minsky": [
+      {
+        "text": "Duplicate detector group keys are no longer detected/logged because results are stored in a dict keyed by group_key, causing silent overwrites of earlier results",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "process_detectors no longer performs the prior explicit duplicate group-key check, reducing observability and determinism when duplicates occur",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "MetricAlertDetectorHandler now subclasses StatefulDetectorHandler but does not implement the new abstract method build_occurrence_and_event_data, making it abstract/uninstantiable and causing TypeError on instantiation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Duplicate-group-key behavior is no longer covered by tests after switching to dict-based results (e.g., removal of test_state_results_multi_group_dupe), leaving the new semantics untested",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/10600": {
+    "minsky": [
+      {
+        "text": "Backup code validation in `packages/features/auth/lib/next-auth-options.ts` is case-sensitive (does not lowercase input), so uppercase user input can be rejected",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Backup code validation in `apps/web/pages/api/auth/two-factor/totp/disable.ts` does not normalize input (no trim/whitespace removal and no lowercasing), so valid codes with uppercase letters or copied whitespace can be rejected",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Backup code consumption in the NextAuth `authorize` flow is not atomic (read-modify-write of the backupCodes array), allowing the same single-use code to be authorized twice under concurrent requests (race condition)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Backup codes are stored via symmetric encryption rather than one-way hashing, increasing exposure risk if the DB row and encryption key are compromised",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/8087": {
+    "minsky": [
+      {
+        "text": "Using an async callback with Array.forEach (e.g., bookingRefsFiltered.forEach(async ...)) does not await the async work, so deletions/updates may run out of order or the outer function may finish before they complete",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Errors/exceptions thrown inside async forEach callbacks are not propagated to the surrounding try/catch, leading to unhandled errors and silent failures (e.g., orphaned events not deleted)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Dynamic imports used as appStore property initializers (import('./module') in object construction) execute eagerly at module evaluation time, so this is not true lazy loading and may load all packages concurrently at startup",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Multiple other instances of array.forEach(async ...) (e.g., iterating credentials to await getCalendar and call updateEvent/deleteEvent) have the same non-awaited async loop problem, risking incomplete operations and lost errors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/7232": {
+    "minsky": [
+      {
+        "text": "Email reminder cancellation cron query in scheduleEmailReminders.ts does not filter by WorkflowMethods.EMAIL, so cancelled SMS reminders within the next hour are also selected and sent to the SendGrid cancel API",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Cron calls SendGrid cancel API with batch_id set to reminder.referenceId without handling null/undefined referenceId, causing 400 errors and leaving records in an inconsistent state",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "deleteScheduledEmailReminder immediateDelete branch cancels the SendGrid batch but does not delete/update the corresponding WorkflowReminder row, leaving orphaned/stale reminders that may be reprocessed",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "WorkflowReminder.cancelled is defined as an optional/nullable boolean without a default, creating a tri-state (null/false/true) that can lead to ambiguous logic and missed rows in queries; should be non-null with default false and backfilled",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/10967": {
+    "minsky": [
+      {
+        "text": "Calendar interface change: Calendar.createEvent now requires credentialId but multiple implementations still use the old single-argument signature (larkcalendar CalendarService, office365calendar CalendarService, BaseCalendarService)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Call sites now pass two arguments to createEvent, causing TypeScript implementation/type mismatch and CI type-check failures until implementations/base classes are updated",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "EventManager: possible runtime crash by accessing mainHostDestinationCalendar.integration when destinationCalendar is empty/null (mainHostDestinationCalendar can be undefined)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "updateEvent: selectedCalendar derivation is flawed\u2014when externalCalendarId is falsy it compares against undefined, resulting in selectedCalendar being undefined",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "updateEvent: missing fallback/default calendarId (e.g., \"primary\" or first destinationCalendar) when selectedCalendar is undefined, which can cause Google API update call to fail",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "deleteEvent: calendarId selection logic is flawed\u2014when externalCalendarId is falsy it compares against undefined and never selects a destinationCalendar entry, causing unintended fallback behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "User-facing string spelling changed from \"organiser\" to \"organizer\"; may cause inconsistent dialect/i18n issues if not centralized",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/22345": {
+    "minsky": [
+      {
+        "text": "`buildOrgAuthorizationCondition` references an undefined `teamIds` variable in the SQL condition (`teamId = ANY(${teamIds})`), causing a compile-time error",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Constructor parameter `options` is typed as `InsightsBookingServicePublicOptions` but is assigned to `this.options` declared as `InsightsBookingServiceOptions | null`, creating a TypeScript type mismatch and weakening validation/invariants (e.g., `scope: \"team\"` without `teamId`)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Org-scope authorization logic no longer includes the org\u2019s own team id in the `teamId` set (only descendant team ids), narrowing access and breaking expected behavior/tests",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`buildAuthorizationConditions` passes `this.options` (potentially the weaker/public shape) into helpers that require stricter `InsightsBookingServiceOptions` extracts, leading to type errors and possible runtime assumptions failing (e.g., missing `teamId`)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`getBaseConditions` returns `NOTHING_CONDITION` (`1=0`) when both auth and filter conditions are null, changing prior behavior to return zero rows and potentially masking legitimate results",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/8330": {
+    "minsky": [
+      {
+        "text": "Date-override guard compares Dayjs instances with strict equality (object identity), making the `start === end` branch unreachable and altering availability decisions",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Working-hours boundary check computes both `start` and `end` from `slotStartTime` instead of deriving `end` from `slotEndTime`/event length, causing incorrect boundary validation",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Override timezone conversion recomputes `dayjs(override.start).utc().add(offset, 'minute')` (and similarly for end) multiple times instead of computing once and reusing, which is inefficient and could diverge around DST/millis handling",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Override timezone conversion derives minutes-of-day via `.hour()`/`.minute()` after applying offset without handling day rollover, so offsets crossing midnight can misapply overrides to the wrong day",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`dateOverrides.find` predicate does not explicitly return a boolean in all branches and mixes side effects with partial returns, reducing readability and increasing maintenance risk",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "New date-override and working-hours early-return guards run before busy-time overlap checks, changing prior availability semantics (notably for multi-host/round-robin/collective scenarios) and requiring justification and coverage",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Test coverage is insufficient for the new guard semantics across scheduling types (fixed host, round-robin, collective); only a timezone test was added and edge cases are untested",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/14943": {
+    "minsky": [
+      {
+        "text": "deleteMany where clause uses an OR with { retryCount: { gt: 1 } }, causing deletion of any WorkflowReminder with retryCount > 1 regardless of method or scheduledDate (can delete non-SMS reminders)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "retryCount is incremented via read-modify-write (retryCount: reminder.retryCount + 1), which is non-atomic and can lose updates under concurrent workers; should use atomic increment",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "retryCount can be incremented in both the send-false path inside try and again in catch, potentially double-counting a single failure and triggering premature delete-after-two behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/11059": {
+    "minsky": [
+      {
+        "text": "minimumTokenResponseSchema uses computed keys like [z.string().toString()] which evaluate to a literal \"[object Object]\" property name, making the Zod schema invalid and not validating arbitrary properties as intended",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "parseRefreshTokenResponse returns the Zod safeParse result wrapper (success/error + data) instead of the parsed data object, causing callers to persist the wrapper rather than credential payload",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "parseRefreshTokenResponse force-sets a missing refresh_token to the literal string \"refresh_token\", risking overwriting a valid stored refresh token with garbage during updates",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "refreshOAuthTokens returns inconsistent types (fetch Response in credential-sharing mode vs refreshFunction result otherwise), breaking callers that expect a token object or Axios-like response with .data",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Callsites (e.g., googlecalendar) access res.data and token.access_token, which fails when refreshOAuthTokens returns a fetch Response (no .data)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Callsites (e.g., hubspot) expect a typed HubspotToken but may receive an untyped fetch Response when sharing is enabled",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Callsites (e.g., zoho-bigin) read tokenInfo.data.error, which will throw if tokenInfo is a fetch Response",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Other adapters (webex, office365video, zohocrm) assume Axios .data or parsed objects and will break when refreshOAuthTokens returns a fetch Response",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Handler decrypts reqBody.keys using symmetricDecrypt with process.env.CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY || \"\", allowing an empty key and producing garbage or failures",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Decrypted payload is JSON.parse'd without try/catch, so malformed decryption output can throw and crash the handler",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "No validation that CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY is present and correct length before decrypting, risking decryption failures and insecure behavior",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "No post-decrypt schema/type validation of keys against the app-specific credential schema, risking persisting malformed blobs to prisma.credential.key",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Documentation/instructions for generating the AES-256 encryption key are wrong: openssl rand -base64 24 yields 24 bytes of raw randomness, not the required 32 bytes",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "APP_CREDENTIAL_SHARING_ENABLED is assigned via env && env, resulting in a string/undefined rather than a boolean, which can misgate logic relying on boolean semantics",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "APP_CREDENTIAL_SHARING_ENABLED does not incorporate CALCOM_CREDENTIAL_SYNC_ENDPOINT even though sync logic requires it, leading to inconsistent gating across callsites",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/22532": {
+    "minsky": [
+      {
+        "text": "SelectedCalendarRepository.updateManyByCredentialId is called with an empty update payload ({}), which can be a Prisma validation error or no-op and will not bump updatedAt as intended",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Direct instantiation of CalendarCacheRepository (new CalendarCacheRepository()) may bypass feature-flag/DI logic (e.g., using CalendarCacheRepositoryMock) and cause unintended DB/cache access when the feature is disabled",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Authorization in deleteCache.handler.ts restricts access to credentials where credential.userId === ctx.user.id, which may incorrectly deny valid team/org/delegated access scenarios",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "deleteCache.handler.ts does not verify the credential is a calendar-type integration before deleting cache, risking deletion for unrelated credential types",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Migration 20250715160635_add_calendar_cache_updated_at has a future-dated timestamp that can misorder/skip migrations in CI/CD and disrupt migration sequencing",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Migration adds updatedAt with DB default NOW() while Prisma schema uses @default(now()) @updatedAt; this mismatch needs verification to avoid conflicts/double-write expectations, especially when adding a required column to a non-empty table",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  },
+  "https://github.com/calcom/cal.com/pull/14740": {
+    "minsky": [
+      {
+        "text": "Server-side guest email handling does not de-duplicate duplicate emails within the incoming `guests` array, so `uniqueGuests` can still contain duplicates",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`ZAddGuestsInputSchema` does not enforce intra-request uniqueness of guest emails, allowing duplicate inputs to reach persistence",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "`createMany` may be invoked with duplicate attendee records for the same booking/email, potentially creating duplicate rows or triggering DB unique-constraint failures",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Authorization logic computes `isTeamAdminOrOwner` using logical AND instead of OR, incorrectly requiring a user to be both team admin and team owner to pass",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "As a result of the AND logic, team admins (only) or team owners (only) are incorrectly blocked by the permission gate (access control regression)",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Blacklist checks are case-sensitive because guest emails are not normalized before comparing against lowercased `blacklistedGuestEmails`, allowing blacklist bypass via case variants",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Existing-attendee email comparisons are case-sensitive (`guest === attendee.email`), allowing case-variant duplicates to slip through and potentially create duplicates or DB errors",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Email manager introduces conflicting/mismatched template systems: it imports/uses class-style templates with `new ...Email(...)` while new React component templates with the same names also exist, causing inconsistent usage",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "Imports in `email-manager.ts` may point to missing or misnamed class-based template files (lowercase paths), which can break build/runtime if those files do not exist",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      },
+      {
+        "text": "If the intention is to use the new React templates, the current code incorrectly instantiates them with `new`, which is invalid for function components and will fail at runtime/build",
+        "path": null,
+        "line": null,
+        "source": "extracted"
+      }
+    ]
+  }
+}

@@ -15,7 +15,34 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { isHostedMcpServer } from "./cli-discriminators";
+import {
+  isHostedMcpServer,
+  isMcpStartStdio,
+  resolveMcpTransport,
+  type McpStartCommandLike,
+} from "./cli-discriminators";
+
+/**
+ * A minimal stand-in for the `Command` the preAction hook receives (mt#4322).
+ *
+ * `isMcpStartStdio` reads exactly three things off it — `name()`,
+ * `parent?.name()` and `opts()` — so this covers its whole contract. Built by
+ * hand rather than by constructing a real commander `Command`: importing the
+ * CLI's command tree to test a pure predicate would pull in the bootstrap this
+ * module exists to stay out of (see this file's own header, and the module
+ * docblock in `cli-discriminators.ts`).
+ */
+function makeCommand(
+  name: string,
+  parentName: string | undefined,
+  opts: Record<string, unknown>
+): McpStartCommandLike {
+  return {
+    name: () => name,
+    parent: parentName ? { name: () => parentName } : undefined,
+    opts: () => opts,
+  };
+}
 
 describe("isHostedMcpServer — mt#4338 hosted-vs-local derivation", () => {
   // The two argv forms that actually exist in production. Both reach this
@@ -104,3 +131,86 @@ describe("isHostedMcpServer — mt#4342 capability, not just the launcher flag",
 // The capability probe itself moved to `@minsky/domain/utils/git-exec` in
 // PR #3233 R1 so it could reuse `isInsideGitWorkTree`'s upward walk; its tests
 // live in `packages/domain/src/utils/git-exec.test.ts`.
+
+describe("resolveMcpTransport — the single source (mt#4322)", () => {
+  /** Every transport-selecting flag combination the CLI accepts today. */
+  const COMBINATIONS: Array<{
+    label: string;
+    opts: { http?: boolean; localDaemon?: boolean };
+    transport: "http" | "stdio";
+  }> = [
+    { label: "no flags (plain stdio)", opts: {}, transport: "stdio" },
+    { label: "--http", opts: { http: true }, transport: "http" },
+    {
+      label: "--local-daemon alone (mt#4297's case)",
+      opts: { localDaemon: true },
+      transport: "http",
+    },
+    { label: "--http --local-daemon", opts: { http: true, localDaemon: true }, transport: "http" },
+  ];
+
+  test("AT1 — every flag combination resolves consistently at BOTH sites", () => {
+    for (const { label, opts, transport } of COMBINATIONS) {
+      // Site 1: the preAction discriminator, which takes a Command.
+      const viaDiscriminator = isMcpStartStdio(makeCommand("start", "mcp", opts))
+        ? "stdio"
+        : "http";
+      // Site 2: the action body, which holds resolved options.
+      const viaActionBody = resolveMcpTransport(opts).transport;
+
+      expect(viaDiscriminator, `discriminator disagreed for ${label}`).toBe(transport);
+      expect(viaActionBody, `action body disagreed for ${label}`).toBe(transport);
+      expect(viaDiscriminator).toBe(viaActionBody);
+    }
+  });
+
+  test("AT1 — a flag added to the single source reaches both sites at once", () => {
+    // The property SC1 buys: adding a transport-selecting flag means editing
+    // resolveMcpTransport, and every consumer follows. Demonstrated by proving
+    // both sites read THIS function rather than testing flags themselves —
+    // `--local-daemon` is the flag mt#4297 had to add in two places, and it now
+    // resolves identically through both without either naming it.
+    const localDaemonOnly = { localDaemon: true };
+    expect(resolveMcpTransport(localDaemonOnly).transport).toBe("http");
+    expect(isMcpStartStdio(makeCommand("start", "mcp", localDaemonOnly))).toBe(false);
+    expect(resolveMcpTransport(localDaemonOnly).isLocalDaemon).toBe(true);
+  });
+
+  test("AT2 — the ordering property: idempotent across the action body's mutation", () => {
+    // This is the mechanism SC2 requires, and the reason the two sites drifted.
+    // `start-command.ts` sets `options.http = true` for --local-daemon INSIDE
+    // the action body; preAction runs before it. A resolver that answered from
+    // `http` alone would give different answers either side of that assignment.
+    const beforeMutation: { http?: boolean; localDaemon?: boolean } = { localDaemon: true };
+    const resolvedBefore = resolveMcpTransport(beforeMutation);
+
+    // Simulate exactly what the action body does.
+    const afterMutation = { ...beforeMutation, http: true };
+    const resolvedAfter = resolveMcpTransport(afterMutation);
+
+    expect(resolvedBefore).toEqual(resolvedAfter);
+    expect(resolvedBefore.transport).toBe("http");
+
+    // The negative control this replaces: the pre-mt#4297 predicate, which read
+    // `!opts.http` only. It disagrees across the same mutation — which is the
+    // divergence AT2 asks to reproduce.
+    const preFixPredicate = (o: { http?: boolean }) => (!o.http ? "stdio" : "http");
+    expect(preFixPredicate(beforeMutation)).toBe("stdio");
+    expect(preFixPredicate(afterMutation)).toBe("http");
+    expect(preFixPredicate(beforeMutation)).not.toBe(preFixPredicate(afterMutation));
+  });
+
+  test("isLocalDaemon is reported independently of the transport", () => {
+    expect(resolveMcpTransport({ http: true }).isLocalDaemon).toBe(false);
+    expect(resolveMcpTransport({ localDaemon: true }).isLocalDaemon).toBe(true);
+  });
+
+  test("isHostedMcpServer reads the same source and is unchanged for every combination", () => {
+    // Regression floor for the refactor: hosted classification must not shift.
+    expect(isHostedMcpServer({})).toBe(false);
+    expect(isHostedMcpServer({ http: true })).toBe(true);
+    expect(isHostedMcpServer({ http: true, hasLocalWorkspace: true })).toBe(false);
+    expect(isHostedMcpServer({ localDaemon: true })).toBe(false);
+    expect(isHostedMcpServer({ http: true, localDaemon: true })).toBe(false);
+  });
+});

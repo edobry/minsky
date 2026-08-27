@@ -36,7 +36,7 @@ function makeMockService(): {
     listTasks: mock(async () => []),
     getTask: mock(async () => null),
     getTaskStatus: mock(async () => undefined),
-    setTaskStatus: mock(async () => {}),
+    setTaskStatus: mock(async () => ({ recordsAffected: 1 })),
     createTaskFromTitleAndSpec: createMock,
     deleteTask: mock(async () => false),
     getWorkspacePath: () => "/mock",

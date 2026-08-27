@@ -43,7 +43,20 @@ services/reviewer/eval/cache/
 # mt#2726: paired-eval-runner.ts / run-judge-pass.ts run outputs (regenerable
 # comparative JSON artifacts, non-clobbering timestamped filenames — not
 # committed, same rationale as the diff cache above)
-services/reviewer/eval/results/
+services/reviewer/eval/results/*
+# mt#4577: Martian Code Review Bench outputs are the exception to the blanket ignore
+# above — NOT regenerable without re-running a ~$11 external benchmark pass against a
+# pinned third-party commit, and committing them (SC2) is this task's own acceptance
+# criterion. Everything else under results/ (paired-eval-runner.ts's own timestamped
+# comparative runs) stays ignored per the rationale above.
+!services/reviewer/eval/results/benchmark_data.json
+!services/reviewer/eval/results/benchmark_data-generation-meta.json
+!services/reviewer/eval/results/REPORT.md
+# Negating the directory entry is sufficient — results/* only matches direct children of
+# results/, so once gpt-5.2-judge/ itself is un-ignored, nothing further excludes files
+# nested inside it. A second, file-level negation here would be redundant (verified via
+# `git check-ignore -v` against all three committed files in this directory).
+!services/reviewer/eval/results/gpt-5.2-judge/
 *.tsbuildinfo
 
 # Hook-calibration telemetry + calibration-review state (mt#2667) — local
@@ -71,6 +84,10 @@ services/reviewer/eval/results/
 # leave one behind; the next pass reaps it by mtime. Never a tracked artifact.
 **/.minsky/calibration-review-watermarks.lock/
 **/.minsky/calibration-review-cadence-last-warned.json
+# mt#2358: the main-workspace mutation observer's last-observed dirty set. Local
+# state, rewritten on every Bash call — tracking it would make the observer the
+# single largest source of the very dirty-tree noise it exists to report.
+**/.minsky/main-workspace-mutation-baseline.json
 
 # IntelliJ based IDEs
 .idea

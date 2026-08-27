@@ -125,3 +125,77 @@ describe("ResolveProposalCard", () => {
     expect(button.disabled).toBe(true);
   });
 });
+
+describe("ResolveProposalCard reports its own confirm (mt#4503)", () => {
+  test("at rest the card promises nothing has been sent", () => {
+    render(
+      <ResolveProposalCard
+        ask={askWithOptions(["Run it", "Hold off"])}
+        proposal={{ optionLetter: "A" }}
+        disabled={false}
+        onConfirm={() => {}}
+      />
+    );
+
+    expect(screen.getByText("Nothing is committed until you confirm.")).toBeDefined();
+    expect(screen.queryByTestId("pending-spinner")).toBeNull();
+  });
+
+  test("confirming: the spinner is on the button and the reassurance is replaced", () => {
+    render(
+      <ResolveProposalCard
+        ask={askWithOptions(["Run it", "Hold off"])}
+        proposal={{ optionLetter: "A" }}
+        disabled={true}
+        confirming={true}
+        onConfirm={() => {}}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: /confirm and answer/i });
+    expect(button.querySelector('[data-testid="pending-spinner"]')).not.toBeNull();
+    expect(button.getAttribute("aria-busy")).toBe("true");
+
+    // "Nothing is committed until you confirm" stops being true the moment the
+    // request is out. Leaving it up would tell the operator the opposite of
+    // what is happening.
+    expect(screen.queryByText("Nothing is committed until you confirm.")).toBeNull();
+    expect(screen.getByText("Saving your response…")).toBeDefined();
+  });
+
+  test("disabled by a SIBLING action shows no spinner — only the clicked control claims to work", () => {
+    // `disabled` is true whenever any resolve is in flight, including one the
+    // detail panel's own option buttons started. This card must not borrow that
+    // and claim the confirm is what is saving.
+    render(
+      <ResolveProposalCard
+        ask={askWithOptions(["Run it", "Hold off"])}
+        proposal={{ optionLetter: "A" }}
+        disabled={true}
+        confirming={false}
+        onConfirm={() => {}}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: /confirm and answer/i }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.querySelector('[data-testid="pending-spinner"]')).toBeNull();
+    expect(screen.getByText("Nothing is committed until you confirm.")).toBeDefined();
+  });
+
+  test("a failed confirm renders the reason in place", () => {
+    render(
+      <ResolveProposalCard
+        ask={askWithOptions(["Run it", "Hold off"])}
+        proposal={{ optionLetter: "A" }}
+        disabled={false}
+        error={new Error("resolve failed (409): Ask is in \"closed\" state")}
+        onConfirm={() => {}}
+      />
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Your response was not saved");
+    expect(alert.textContent).toContain("409");
+  });
+});

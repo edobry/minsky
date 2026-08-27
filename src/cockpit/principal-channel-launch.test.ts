@@ -12,7 +12,7 @@ import {
   CREDENTIAL_RETRY_DELAYS_MS,
   CREDENTIAL_RETRY_MIN_DELAY_MS,
   createEventLogCursor,
-  createTopicActuatorResolver,
+  createTopicDriverResolver,
   ensureTelegramChannelTopic,
   getPrincipalChannelStatus,
   loadPrincipalChannelLaunchConfig,
@@ -25,7 +25,7 @@ import {
   type DbLike,
   type PrincipalChannelStatus,
 } from "./principal-channel-launch";
-import type { ChannelActuator } from "./principal-channel-poller";
+import type { ChannelDriver } from "./principal-channel-poller";
 import type { SweepLivenessSnapshot } from "./sweepers";
 import type { TelegramGetMeResult } from "@minsky/domain/notify/telegram-transport";
 // The checked-in golden fixture both the bun and Rust sides pin (mt#2629).
@@ -168,9 +168,9 @@ describe("startPrincipalChannel", () => {
 });
 
 /**
- * Telegram topic mapping + per-topic actuator wiring (mt#3505, parent
+ * Telegram topic mapping + per-topic session driver wiring (mt#3505, parent
  * mt#3500). These are the composition-root pieces the poller's
- * `resolveTopicActuator` dep is built from.
+ * `resolveTopicDriver` dep is built from.
  */
 // mt#3505 — shared fixture so the expected localId string lives in one place.
 const SAMPLE_CHAT_ID = "167346572";
@@ -388,8 +388,8 @@ describe("bindTelegramChannelTopicToTask (mt#3507)", () => {
   });
 });
 
-describe("createTopicActuatorResolver (mt#3505)", () => {
-  function stubActuator(): ChannelActuator {
+describe("createTopicDriverResolver (mt#3505)", () => {
+  function stubSessionDriver(): ChannelDriver {
     return {
       converse: async (text) => text,
       interrupt: async () => "stopped",
@@ -398,14 +398,14 @@ describe("createTopicActuatorResolver (mt#3505)", () => {
     };
   }
 
-  test("resolves to the SAME actuator for the same thread id across calls", async () => {
+  test("resolves to the SAME session driver for the same thread id across calls", async () => {
     let buildCalls = 0;
-    const resolve = createTopicActuatorResolver({
+    const resolve = createTopicDriverResolver({
       chatId: "167346572",
       getDb: async () => null,
-      buildActuator: () => {
+      buildSessionDriver: () => {
         buildCalls += 1;
-        return stubActuator();
+        return stubSessionDriver();
       },
     });
 
@@ -416,11 +416,11 @@ describe("createTopicActuatorResolver (mt#3505)", () => {
     expect(buildCalls).toBe(1);
   });
 
-  test("resolves to DIFFERENT actuators for different thread ids", async () => {
-    const resolve = createTopicActuatorResolver({
+  test("resolves to DIFFERENT session drivers for different thread ids", async () => {
+    const resolve = createTopicDriverResolver({
       chatId: "167346572",
       getDb: async () => null,
-      buildActuator: stubActuator,
+      buildSessionDriver: stubSessionDriver,
     });
 
     const a = await resolve(100);
@@ -428,14 +428,14 @@ describe("createTopicActuatorResolver (mt#3505)", () => {
     expect(a).not.toBe(b);
   });
 
-  test("builds the actuator with the topic's deterministic localId", async () => {
+  test("builds the session driver with the topic's deterministic localId", async () => {
     const seenLocalIds: string[] = [];
-    const resolve = createTopicActuatorResolver({
+    const resolve = createTopicDriverResolver({
       chatId: SAMPLE_CHAT_ID,
       getDb: async () => null,
-      buildActuator: (localId) => {
+      buildSessionDriver: (localId) => {
         seenLocalIds.push(localId);
-        return stubActuator();
+        return stubSessionDriver();
       },
     });
 

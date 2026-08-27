@@ -52,6 +52,7 @@
  * @see ./db-providers.ts — shared lazy-cached persistence getters
  * @see ./sweepers.ts — the periodic-sweeper factory + concrete sweepers
  */
+import { isSqlCapable } from "@minsky/domain/persistence/types";
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -68,6 +69,7 @@ import { mountHealthRoutes } from "./routes/health";
 import { mountTaskRoutes } from "./routes/tasks";
 import { mountAgentRoutes } from "./routes/agents";
 import { mountAgentFocusRoutes } from "./routes/agent-focus";
+import { mountConversationRehydrateRoutes } from "./routes/conversation-rehydrate";
 import type { AgentFocusRouteOptions } from "./routes/agent-focus";
 import { mountConversationRoutes } from "./routes/conversations";
 import type { ConversationRoutesOptions } from "./routes/conversations";
@@ -463,13 +465,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         createLazyDrizzlePasskeyStore(async () => {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const provider = await (await getSharedPersistenceService()).getProvider();
-          if (
-            provider === null ||
-            typeof provider !== "object" ||
-            !("getDatabaseConnection" in provider) ||
-            typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-              "function"
-          ) {
+          // Capability + method, via the one guard (mt#4543); the null/typeof preamble
+          // and the cast both go with it.
+          if (!isSqlCapable(provider)) {
             return null;
           }
           return await (
@@ -511,13 +509,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         createLazyDrizzleShareStore(async () => {
           const { getSharedPersistenceService } = await import("./shared-persistence");
           const provider = await (await getSharedPersistenceService()).getProvider();
-          if (
-            provider === null ||
-            typeof provider !== "object" ||
-            !("getDatabaseConnection" in provider) ||
-            typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-              "function"
-          ) {
+          // Capability + method, via the one guard (mt#4543); the null/typeof preamble
+          // and the cast both go with it.
+          if (!isSqlCapable(provider)) {
             return null;
           }
           return await (
@@ -608,6 +602,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountTaskRoutes(app);
   mountAgentRoutes(app);
   mountAgentFocusRoutes(app, opts.overrideAgentFocus ?? {});
+  // mt#4573: production passes no `fs` seam, so `rehydrateTranscript` falls
+  // through to the real filesystem — the same convention `agent-focus` uses for
+  // its executor.
+  mountConversationRehydrateRoutes(app, {});
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountConversationSearchRoutes(app, opts.overrideConversationSearch ?? {});
   mountChangesetRoutes(app);

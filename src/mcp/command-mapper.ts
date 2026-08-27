@@ -3,6 +3,7 @@ import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { MinskyMCPServer, ToolDefinition, ToolProgressReporter } from "./server";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 
 /**
  * Cross-cutting arg keys the framework itself reads even when a command does
@@ -78,6 +79,46 @@ function unwrapToObjectShape(schema: unknown, depth = 0): Record<string, unknown
  * duplicate-zod-instance reasons documented in shared-command-integration.ts
  * (monorepo/pnpm dedupe).
  */
+/**
+ * Remove server-injected parameters from an ADVERTISED JSON Schema (mt#4579).
+ *
+ * Pure: schema in, schema out, no IO — so the advertising rule is testable
+ * without registering a tool or standing up a server.
+ *
+ * Returns the input unchanged when there is nothing to hide, so the common case
+ * allocates nothing. Otherwise copies rather than mutating: the caller's object
+ * comes from `zodToJsonSchema` and is not ours to edit in place.
+ *
+ * `required` is filtered alongside `properties` deliberately. A key listed as
+ * required but absent from properties is a malformed JSON Schema, and a client
+ * that validates against it would demand a parameter it cannot see.
+ */
+export function omitAdvertisedParams(
+  jsonSchema: Record<string, unknown>,
+  hiddenKeys: readonly string[] | undefined
+): Record<string, unknown> {
+  if (!hiddenKeys || hiddenKeys.length === 0) return jsonSchema;
+
+  const hidden = new Set(hiddenKeys);
+  const next: Record<string, unknown> = { ...jsonSchema };
+
+  const properties = next.properties;
+  if (properties != null && typeof properties === "object") {
+    const kept = Object.fromEntries(
+      Object.entries(properties as Record<string, unknown>).filter(([key]) => !hidden.has(key))
+    );
+    next.properties = kept;
+  }
+
+  if (Array.isArray(next.required)) {
+    const kept = (next.required as string[]).filter((key) => !hidden.has(key));
+    if (kept.length === 0) delete next.required;
+    else next.required = kept;
+  }
+
+  return next;
+}
+
 function getDeclaredParamKeys(
   schema: z.ZodType | undefined,
   toolName: string
@@ -272,7 +313,8 @@ export class CommandMapper {
     handler?: (
       args: Record<string, unknown>,
       context?: ProjectContext,
-      progress?: ToolProgressReporter
+      progress?: ToolProgressReporter,
+      callerCapabilities?: ClientCapabilityRegistry
     ) => Promise<string | Record<string, unknown>>;
     /**
      * mt#1792: lazy handler thunk. When provided (without `handler`), the tool
@@ -284,7 +326,8 @@ export class CommandMapper {
       (
         args: Record<string, unknown>,
         context?: ProjectContext,
-        progress?: ToolProgressReporter
+        progress?: ToolProgressReporter,
+        callerCapabilities?: ClientCapabilityRegistry
       ) => Promise<string | Record<string, unknown>>
     >;
     /**
@@ -306,6 +349,25 @@ export class CommandMapper {
      * Opt out only for handlers that demonstrably don't touch DI services.
      */
     requiresInit?: boolean;
+    /**
+     * Parameter names to omit from the ADVERTISED input schema (mt#4579).
+     *
+     * These are server-injected parameters — `callerActorId` is the whole
+     * population today — which the server overwrites on every call, so
+     * advertising them in `tools/list` invites a caller to pass a value that is
+     * silently discarded.
+     *
+     * **Advertising only.** The keys stay in `command.parameters`, so
+     * `declaredParamKeys` below still contains them and `enforceDeclaredParams`
+     * still ACCEPTS the injected value. Filtering them out of the Zod schema
+     * instead would remove them from that key set too, and the server's own
+     * injection would be rejected as an undeclared parameter — the schema is
+     * built with `z.strictObject`, so there is no slack there.
+     *
+     * Carried through from `CommandParameterDefinition.mcpHidden`, which lives
+     * on the parameter map and is gone by the time a `z.ZodType` arrives here.
+     */
+    mcpHiddenParamKeys?: readonly string[];
   }): void {
     // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
@@ -319,6 +381,7 @@ export class CommandMapper {
 
     if (command.parameters) {
       inputSchema = this.zodToJsonSchema(command.parameters);
+      inputSchema = omitAdvertisedParams(inputSchema, command.mcpHiddenParamKeys);
     }
 
     // Track registered method names for debugging
@@ -343,7 +406,7 @@ export class CommandMapper {
         mutating: command.mutating,
         readsPresence: command.readsPresence,
         requiresInit: command.requiresInit,
-        handler: async (args, progress) => {
+        handler: async (args, progress, callerCapabilities) => {
           try {
             log.debug("Executing MCP command", {
               methodName: normalizedName,
@@ -354,7 +417,15 @@ export class CommandMapper {
             // mt#2778: reject undeclared params before the handler runs.
             enforceDeclaredParams(normalizedName, args || {}, declaredParamKeys);
 
-            const result = await eagerHandler(args || {}, capturedContext, progress);
+            // mt#4451: `callerCapabilities` rides the same request-scoped path
+            // as `progress` — forwarded, never captured at registration time,
+            // because it describes THIS call's connection.
+            const result = await eagerHandler(
+              args || {},
+              capturedContext,
+              progress,
+              callerCapabilities
+            );
 
             log.debug("MCP command executed successfully", {
               methodName: normalizedName,
@@ -391,7 +462,11 @@ export class CommandMapper {
           const resolvedFn = await lazyGetHandler();
           // Return a wrapped handler that injects project context + logging,
           // matching the eager path's behaviour exactly.
-          return async (args: Record<string, unknown>, progress?: ToolProgressReporter) => {
+          return async (
+            args: Record<string, unknown>,
+            progress?: ToolProgressReporter,
+            callerCapabilities?: ClientCapabilityRegistry
+          ) => {
             try {
               log.debug("Executing MCP command (lazy-resolved)", {
                 methodName: normalizedName,
@@ -400,7 +475,13 @@ export class CommandMapper {
               });
               // mt#2778: reject undeclared params before the handler runs.
               enforceDeclaredParams(normalizedName, args || {}, declaredParamKeys);
-              const result = await resolvedFn(args || {}, capturedContext, progress);
+              // mt#4451: same request-scoped forwarding as the eager path above.
+              const result = await resolvedFn(
+                args || {},
+                capturedContext,
+                progress,
+                callerCapabilities
+              );
               log.debug("MCP command executed successfully (lazy-resolved)", {
                 methodName: normalizedName,
                 resultType: typeof result,

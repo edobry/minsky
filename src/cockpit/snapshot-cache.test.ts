@@ -14,6 +14,8 @@ import type { SessionContextSnapshot } from "@minsky/domain/context/types";
 import {
   DEFAULT_MAX_ENTRIES,
   ifNoneMatchSatisfies,
+  OVERVIEW_FRESHNESS_CEILING_MS,
+  OverviewCache,
   SnapshotCache,
   snapshotEtag,
 } from "./snapshot-cache";
@@ -178,5 +180,103 @@ describe("snapshotEtag", () => {
 
   test("distinct tokens produce distinct etags", () => {
     expect(snapshotEtag("10-2-live")).not.toBe(snapshotEtag("11-2-live"));
+  });
+});
+
+/**
+ * `OverviewCache` (mt#4429).
+ *
+ * Validity here is a CONJUNCTION, and each half exists because the other cannot
+ * see a particular staleness. The tests are written to fail if either half is
+ * dropped — a token-only cache passes the ceiling tests' setup and serves a
+ * stale git commit list; a TTL-only cache passes the token tests' setup and
+ * serves a stale turn count.
+ */
+describe("OverviewCache", () => {
+  const T0 = 1_000_000;
+  const payload = (label: string): { label: string } => ({ label });
+
+  test("serves a stored payload when the token matches and the entry is fresh", () => {
+    const cache = new OverviewCache<{ label: string }>();
+    const value = payload("mt#4429 spec audit");
+    cache.set("conv-a", "tok-1", value, T0);
+
+    expect(cache.get("conv-a", "tok-1", T0 + 1_000)).toBe(value);
+  });
+
+  test("a changed token is a MISS even when the entry is fresh", () => {
+    // The conversation gained a turn one millisecond after the store: the
+    // ceiling is nowhere near expiry, so ONLY the token can catch this.
+    const cache = new OverviewCache<{ label: string }>();
+    cache.set("conv-a", "tok-1", payload("stale"), T0);
+
+    expect(cache.get("conv-a", "tok-2", T0 + 1)).toBeUndefined();
+  });
+
+  test("an expired entry is a MISS even when the token still matches", () => {
+    // Nothing about the conversation changed, so the token is identical — this
+    // is the git/PR drift the token structurally cannot see, and ONLY the
+    // ceiling can catch it.
+    const cache = new OverviewCache<{ label: string }>();
+    cache.set("conv-a", "tok-1", payload("stale commits"), T0);
+
+    expect(cache.get("conv-a", "tok-1", T0 + OVERVIEW_FRESHNESS_CEILING_MS + 1)).toBeUndefined();
+  });
+
+  test("the ceiling is exclusive at the boundary", () => {
+    const cache = new OverviewCache<{ label: string }>();
+    cache.set("conv-a", "tok-1", payload("edge"), T0);
+
+    expect(cache.get("conv-a", "tok-1", T0 + OVERVIEW_FRESHNESS_CEILING_MS - 1)).toBeDefined();
+    expect(cache.get("conv-a", "tok-1", T0 + OVERVIEW_FRESHNESS_CEILING_MS)).toBeUndefined();
+  });
+
+  test("evicts least-recently-used beyond the bound", () => {
+    const cache = new OverviewCache<{ label: string }>(2);
+    cache.set("a", "t", payload("a"), T0);
+    cache.set("b", "t", payload("b"), T0);
+    cache.set("c", "t", payload("c"), T0);
+
+    expect(cache.size()).toBe(2);
+    expect(cache.get("a", "t", T0)).toBeUndefined();
+    expect(cache.get("c", "t", T0)).toBeDefined();
+  });
+
+  test("an expired entry is DELETED on read, not merely withheld", () => {
+    // PR #3252 R1 BLOCKING. Withholding is not enough: the token matched, so
+    // the inner lookup already refreshed recency. An undeleted expired entry is
+    // therefore the LAST thing that would be evicted.
+    const cache = new OverviewCache<{ label: string }>();
+    cache.set("conv-a", "tok-1", payload("expired"), T0);
+    expect(cache.size()).toBe(1);
+
+    cache.get("conv-a", "tok-1", T0 + OVERVIEW_FRESHNESS_CEILING_MS + 1);
+
+    expect(cache.size()).toBe(0);
+  });
+
+  test("reading expired keys does not evict the live ones — the poisoning case", () => {
+    // The failure this guards is not a leaked slot, it is INVERTED eviction
+    // priority: without the delete, each expired read promotes a never-servable
+    // entry above a servable one, and a cache read repeatedly at the ceiling
+    // ends up holding nothing useful.
+    const cache = new OverviewCache<{ label: string }>(2);
+    cache.set("stale-a", "tok", payload("stale-a"), T0);
+    cache.set("stale-b", "tok", payload("stale-b"), T0);
+
+    const past = T0 + OVERVIEW_FRESHNESS_CEILING_MS + 1;
+    cache.get("stale-a", "tok", past);
+    cache.get("stale-b", "tok", past);
+    expect(cache.size()).toBe(0);
+
+    // Both slots are free, so a live entry stored afterwards survives.
+    cache.set("live", "tok", payload("live"), past);
+    expect(cache.get("live", "tok", past + 1)?.label).toBe("live");
+  });
+
+  test("rejects a non-positive freshness ceiling rather than degrading silently", () => {
+    expect(() => new OverviewCache(8, 0)).toThrow(RangeError);
+    expect(() => new OverviewCache(8, -1)).toThrow(RangeError);
+    expect(() => new OverviewCache(8, 1.5)).toThrow(RangeError);
   });
 });

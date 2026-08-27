@@ -41,7 +41,14 @@ import { asksTable } from "../storage/schemas/ask-schema";
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
-import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
+import {
+  guardTransition,
+  isTerminal,
+  ALL_ASK_STATES,
+  TERMINAL_ASK_STATES,
+  OPEN_ASK_STATES,
+  type OpenAskState,
+} from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 
@@ -99,6 +106,7 @@ export function toAsk(row: AskRecord): Ask {
     routingTarget: row.routingTarget ?? undefined,
     parentTaskId: row.parentTaskId ?? undefined,
     parentSessionId: row.parentSessionId ?? undefined,
+    filedByAgentId: row.filedByAgentId ?? undefined,
     projectId: row.projectId ?? undefined,
     title: row.title,
     question: row.question,
@@ -164,6 +172,7 @@ export function toInsert(input: CreateAskInput): AskInsert {
     routingTarget: input.routingTarget ?? null,
     parentTaskId: input.parentTaskId ?? null,
     parentSessionId: input.parentSessionId ?? null,
+    filedByAgentId: input.filedByAgentId ?? null,
     projectId: input.projectId ?? null,
     title: input.title,
     question: input.question,
@@ -221,6 +230,13 @@ export interface CreateAskInput {
   parentTaskId?: string;
   parentSessionId?: string;
   /**
+   * Conversation-grain identity of the caller filing this Ask (mt#4476). Supplied
+   * at the `asks.create` execute callsite from the MCP server's server-injected
+   * `callerActorId`, NOT from caller input — see `Ask.filedByAgentId`. Omitted on
+   * paths that resolve no declared identity (CLI, or an ADR-006 Layer 1 fallback).
+   */
+  filedByAgentId?: string;
+  /**
    * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). Omitted
    * when the project is unidentified — the Ask is then unscoped (NULL). Resolved
    * at the `asks.create` execute callsite via the same path `asks.list` uses for
@@ -277,6 +293,38 @@ export interface EditAskFields {
   question?: string;
   options?: Ask["options"];
   contextRefs?: Ask["contextRefs"];
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Graph fields repairable after creation (mt#4305).
+ *
+ * Deliberately a SEPARATE interface from {@link EditAskFields} rather than two
+ * more optional keys on it. `EditAskFields`' docblock above states that routing
+ * fields are mechanism-owned and "NOT reachable through `updateContent`"; that
+ * boundary is right and is not being moved. What was missing is not a wider
+ * content surface but a REPAIR surface — a way to correct a field the mechanism
+ * that owns it failed to write, or wrote against the wrong parent.
+ *
+ * Both fields were unreachable after creation until this shipped:
+ *
+ * - `parentTaskId` had no write path at all. `CreateAskInput` sets it and
+ *   nothing else ever touched it, so an Ask filed against the wrong task stayed
+ *   there. mem#724 prescribed re-parenting as a mitigation for years; no surface
+ *   could perform it.
+ * - `routingTarget` had {@link AskRepository.updateRoutingTarget}, but no tool
+ *   surface exposed it. When mt#4450's elicitation early-return skipped
+ *   `persistRouteOutcome`, three suspended asks landed with a NULL target — and
+ *   the cockpit inbox filters on `routingTarget === "operator"` on both its list
+ *   and resolve paths, so they were invisible and unresolvable there.
+ *
+ * `metadata` rides along so the field change and its provenance note land in ONE
+ * write. Splitting them would leave a window where the graph moved and the
+ * `editHistory` record of the move did not.
+ */
+export interface RepairAskGraphFields {
+  parentTaskId?: string;
+  routingTarget?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -393,6 +441,30 @@ export interface AskRepository {
    * @throws    `Error` — Ask not found.
    */
   transition(id: string, to: AskState): Promise<Ask>;
+
+  /**
+   * Merge ONE key into `metadata` atomically, leaving every other key intact.
+   *
+   * The general form of {@link recordCancellation} below, extracted when a
+   * second caller needed the same shape (mt#4486: a credential request records
+   * its parent's entry status at ask-creation time, from a read taken BEFORE
+   * the ask existed, and has to correct it from the authoritative read the
+   * block itself takes). Both share the property that matters and the reason it
+   * matters — see that docblock: the read and the write are ONE statement, so a
+   * concurrent edit to another key cannot be lost, and the read-merge-write
+   * alternative was already caught as BLOCKING once (PR #3190 R1).
+   *
+   * Replaces the key WHOLESALE. The merge is top-level only, so a caller
+   * changing one field of a nested payload passes the whole payload — ideally
+   * from the same builder that wrote it, so the two cannot drift.
+   *
+   * Only touches a NON-TERMINAL row, matching `updateContent`.
+   *
+   * @returns true when a row was updated; false on a miss (already terminal, or
+   *          gone) — never throws, because a provenance write must not fail the
+   *          operation it rides on.
+   */
+  mergeMetadataKey(id: string, key: string, value: unknown): Promise<boolean>;
 
   /**
    * Merge a cancellation-provenance record into `metadata` ATOMICALLY (mt#3353).
@@ -585,6 +657,35 @@ export interface AskRepository {
   updateContent(id: string, fields: EditAskFields): Promise<Ask>;
 
   /**
+   * Persist repaired GRAPH fields on a non-terminal Ask (mt#4305).
+   *
+   * Same contract as {@link updateContent} in every respect that matters —
+   * does NOT enforce the state machine, MUST NOT change `state`, and carries
+   * the identical optimistic-concurrency `WHERE id = ? AND state NOT IN
+   * (closed, cancelled, expired)` so a concurrent close between the caller's
+   * read and this write matches zero rows and throws.
+   *
+   * It is a distinct method rather than a widening of `updateContent` because
+   * the two answer to different owners: `updateContent` serves the CONTENT
+   * surface (`asks.edit`), whose field set is what a producer may rewrite,
+   * while this serves the REPAIR surface (`asks.repair`), whose field set is
+   * what a MECHANISM owns and got wrong. Collapsing them would put
+   * `routingTarget` inside the set `asks.edit` accepts, which is the boundary
+   * `EditAskFields`' own docblock draws.
+   *
+   * The value-level constraint — that a `routingTarget` repair may only FILL an
+   * absent one, never re-route a set one — is enforced in `repairAskGraph`
+   * (`repair.ts`), not here. This layer is the atomic write; the authority rule
+   * needs the router, which is a domain concern.
+   *
+   * @param id     Primary key of the Ask to repair.
+   * @param fields Graph fields to persist (at least one must be present).
+   * @returns      The updated Ask.
+   * @throws       `Error` — Ask not found, Ask in terminal state, or no fields.
+   */
+  repairGraphFields(id: string, fields: RepairAskGraphFields): Promise<Ask>;
+
+  /**
    * Atomically persist a router outcome on a pre-routing Ask (mt#2265).
    *
    * The router (`policyFirstRoute`) computes its result in memory; this
@@ -616,6 +717,89 @@ export interface AskRepository {
    * metrics) never need existence checks.
    */
   countByState(): Promise<Record<AskState, number>>;
+
+  /**
+   * Dwell-time statistics for OPEN asks, grouped by state (mt#4361).
+   *
+   * `countByState` above answers "how many are in each state" and is silent on
+   * the only question that distinguishes a healthy `routed` from a stranded
+   * one: how long they have been there. A snapshot count is byte-identical five
+   * minutes and five weeks after an ask routes, which is why 3,195 `detected`
+   * rows (mt#2257) and later five undelivered `routed` asks (mt#3353) were both
+   * found by a manual probe rather than by the signal built to surface them.
+   *
+   * Age is measured from the moment the ask ENTERED its current state, not from
+   * `createdAt` — the question is "how long undelivered", and an ask created
+   * long before it routed would otherwise read as stranded on arrival. Where a
+   * state has no dedicated timestamp column (`detected`, `classified`) the row's
+   * `createdAt` is the entry time.
+   *
+   * Terminal states are excluded rather than zero-filled: a closed ask has no
+   * meaningful dwell time, and a `Record` over all eight states would
+   * manufacture a `0` indistinguishable from a real zero-age ask.
+   *
+   * @param opts.nowMs             Clock, injected so tests need not depend on wall time.
+   * @param opts.stallThresholdMs  Dwell time past which an ask counts as stalled.
+   * @returns Every `OpenAskState` key, present and zeroed when the state is empty.
+   */
+  openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>>;
+}
+
+/**
+ * Dwell-time statistics for one open Ask state (mt#4361).
+ */
+export interface AskAgeStats {
+  /**
+   * Age in ms of the oldest ask in this state, measured from state entry.
+   *
+   * `null` — not `0` — when no ask is in the state. The two are different
+   * findings and only one of them is data: `0` means an ask entered this state
+   * just now.
+   */
+  oldestAgeMs: number | null;
+  /** Asks in this state whose dwell time exceeds the stall threshold. */
+  stalledCount: number;
+}
+
+/**
+ * A complete, empty `openStateAgeStats` result — every `OpenAskState` key
+ * present, `oldestAgeMs: null` (no ask, as distinct from a zero-age one).
+ *
+ * Shared by both repository implementations and by the state-counts provider's
+ * unavailable path, so all three agree on what "nothing to report" looks like.
+ */
+export function emptyOpenStateAgeStats(): Record<OpenAskState, AskAgeStats> {
+  return Object.fromEntries(
+    OPEN_ASK_STATES.map((s) => [s, { oldestAgeMs: null, stalledCount: 0 }])
+  ) as Record<OpenAskState, AskAgeStats>;
+}
+
+/**
+ * When an Ask entered its CURRENT state (mt#4361).
+ *
+ * **This MUST stay equivalent to the `stateSince` COALESCE in
+ * `DrizzleAskRepository.openStateAgeStats`** — the same semantics exist twice,
+ * once in SQL for Postgres and once here for the fake, and a divergence would
+ * make the hermetic tests agree with a production query that behaves
+ * differently. `openStateAgeStats` is covered against both implementations for
+ * that reason.
+ *
+ * `createdAt` is `notNull` in the schema, so the fallback always yields a value.
+ */
+function stateEntryIso(ask: Ask): string {
+  switch (ask.state) {
+    case "routed":
+      return ask.routedAt ?? ask.createdAt;
+    case "suspended":
+      return ask.suspendedAt ?? ask.createdAt;
+    case "responded":
+      return ask.respondedAt ?? ask.createdAt;
+    default:
+      return ask.createdAt;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,12 +1223,12 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
-  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+  async mergeMetadataKey(id: string, key: string, value: unknown): Promise<boolean> {
     // jsonb `||` merges right-into-left server-side, so the read and the write
     // are one statement and no concurrent edit can be lost. COALESCE covers a
     // NULL metadata column, where `||` would otherwise yield NULL and erase the
     // record we are trying to write.
-    const merged = sanitizeForPostgresDeep({ [CANCELLATION_METADATA_KEY]: record }).value;
+    const merged = sanitizeForPostgresDeep({ [key]: value }).value;
     const rows = await this.db
       .update(asksTable)
       .set({
@@ -1055,6 +1239,13 @@ export class DrizzleAskRepository implements AskRepository {
       )
       .returning();
     return rows.length > 0;
+  }
+
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    // Delegates rather than repeating the statement: mt#4486 needed the same
+    // atomic single-key merge, and two copies of a jsonb `||` whose exact shape
+    // is what keeps a concurrent edit from being lost is two chances to drift.
+    return this.mergeMetadataKey(id, CANCELLATION_METADATA_KEY, record);
   }
 
   async respond(id: string, rawInput: RespondAskInput): Promise<Ask> {
@@ -1294,6 +1485,43 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async repairGraphFields(id: string, fields: RepairAskGraphFields): Promise<Ask> {
+    const updates: Partial<AskInsert> = {};
+    if (fields.parentTaskId !== undefined) updates.parentTaskId = fields.parentTaskId;
+    if (fields.routingTarget !== undefined) updates.routingTarget = fields.routingTarget;
+    if (fields.metadata !== undefined) updates.metadata = fields.metadata;
+    if (Object.keys(updates).length === 0) {
+      throw new Error(`Ask repairGraphFields: no fields to update for ${id}`);
+    }
+
+    // Same optimistic-concurrency guard as `updateContent` above, for the same
+    // reason: a repair must never land on a row that reached a terminal state
+    // between the caller's read and this write. MUST NOT change `state`.
+    const rows = await this.db
+      .update(asksTable)
+      .set(updates)
+      .where(
+        and(eq(asksTable.id, id), notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[]))
+      )
+      .returning();
+
+    if (rows.length === 0) {
+      // Disambiguate: not-found vs. terminal-state.
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — graph repairs are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask repairGraphFields returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
   async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
     // Validate the logical walk against the state-machine table first.
     guardRouteOutcomeWalk(outcome.state);
@@ -1355,6 +1583,52 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return counts;
   }
+
+  async openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>> {
+    const nowIso = new Date(opts.nowMs).toISOString();
+
+    // When the row entered its CURRENT state. `routed`/`suspended`/`responded`
+    // each carry their own stamp; `detected` and `classified` have no column, so
+    // creation IS state entry for them. The COALESCE also covers a row whose
+    // stamp is NULL because it predates that column.
+    const stateSince = sql`coalesce(
+      case ${asksTable.state}
+        when 'routed' then ${asksTable.routedAt}
+        when 'suspended' then ${asksTable.suspendedAt}
+        when 'responded' then ${asksTable.respondedAt}
+      end,
+      ${asksTable.createdAt}
+    )`;
+    const ageMs = sql`(extract(epoch from (${nowIso}::timestamptz - ${stateSince})) * 1000)`;
+
+    // `max()` and `count()` come back as strings from postgres-js for the
+    // numeric/bigint result types, hence the Number() coercions below.
+    const rows = await this.db
+      .select({
+        state: asksTable.state,
+        oldestAgeMs: sql<string | null>`max(${ageMs})`,
+        stalledCount: sql<string>`count(*) filter (where ${ageMs} > ${opts.stallThresholdMs})`,
+      })
+      .from(asksTable)
+      .where(inArray(asksTable.state, [...OPEN_ASK_STATES]))
+      .groupBy(asksTable.state);
+
+    const stats = emptyOpenStateAgeStats();
+    for (const row of rows) {
+      if (!(OPEN_ASK_STATES as readonly string[]).includes(row.state)) continue;
+      stats[row.state as OpenAskState] = {
+        // Deliberately NOT clamped at zero: a negative age means this process's
+        // clock is behind the stamp Postgres wrote, and clamping would render
+        // clock skew as a healthy zero.
+        oldestAgeMs: row.oldestAgeMs === null ? null : Math.round(Number(row.oldestAgeMs)),
+        stalledCount: Number(row.stalledCount),
+      };
+    }
+    return stats;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1391,6 +1665,23 @@ export class FakeAskRepository implements AskRepository {
     this.idCounter = 0;
   }
 
+  /**
+   * Insert a fully-formed Ask directly, bypassing `create` (test seam, mt#4361).
+   *
+   * `create` stamps `createdAt` from the wall clock and `transition` stamps the
+   * per-state columns the same way, so a fixture of asks with DIFFERENT ages —
+   * the entire subject of `openStateAgeStats` — cannot be built through the
+   * normal path. Injecting a clock into the QUERY does not help: one `nowMs`
+   * ages every row written in the same millisecond identically.
+   *
+   * A seam rather than a mutation through the `all` getter, which happens to
+   * return live references today and would silently stop working the day it
+   * returns copies.
+   */
+  seed(ask: Ask): void {
+    this.store.set(ask.id, ask);
+  }
+
   async create(input: CreateAskInput): Promise<Ask> {
     const id = `fake-ask-${++this.idCounter}`;
     // Mirrors DrizzleAskRepository's minting (mt#2965): sequential ask#N,
@@ -1407,6 +1698,7 @@ export class FakeAskRepository implements AskRepository {
       routingTarget: input.routingTarget,
       parentTaskId: input.parentTaskId,
       parentSessionId: input.parentSessionId,
+      filedByAgentId: input.filedByAgentId,
       projectId: input.projectId,
       title: input.title,
       question: input.question,
@@ -1574,7 +1866,7 @@ export class FakeAskRepository implements AskRepository {
     return { ...updated };
   }
 
-  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+  async mergeMetadataKey(id: string, key: string, value: unknown): Promise<boolean> {
     const existing = this.store.get(id);
     // Mirrors the Drizzle `where`: non-terminal rows only, and a miss is a
     // `false` return rather than a throw.
@@ -1585,9 +1877,13 @@ export class FakeAskRepository implements AskRepository {
     // interleave with another caller.
     this.store.set(id, {
       ...existing,
-      metadata: { ...(existing.metadata ?? {}), [CANCELLATION_METADATA_KEY]: record },
+      metadata: { ...(existing.metadata ?? {}), [key]: value },
     });
     return true;
+  }
+
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    return this.mergeMetadataKey(id, CANCELLATION_METADATA_KEY, record);
   }
 
   async respond(id: string, input: RespondAskInput): Promise<Ask> {
@@ -1742,6 +2038,42 @@ export class FakeAskRepository implements AskRepository {
     return { ...updated };
   }
 
+  async repairGraphFields(id: string, fields: RepairAskGraphFields): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    // Mirror the Drizzle backend's non-terminal guard, message included — the
+    // hermetic tests assert against this text, so a divergence here would make
+    // them agree with a production query that reports something else.
+    if (isTerminal(existing.state)) {
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — graph repairs are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+
+    const updated: Ask = { ...existing };
+    let touched = false;
+    if (fields.parentTaskId !== undefined) {
+      updated.parentTaskId = fields.parentTaskId;
+      touched = true;
+    }
+    if (fields.routingTarget !== undefined) {
+      updated.routingTarget = fields.routingTarget as Ask["routingTarget"];
+      touched = true;
+    }
+    if (fields.metadata !== undefined) {
+      updated.metadata = fields.metadata;
+      touched = true;
+    }
+    if (!touched) {
+      throw new Error(`Ask repairGraphFields: no fields to update for ${id}`);
+    }
+
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
   async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
     // Same guard chain as production.
     guardRouteOutcomeWalk(outcome.state);
@@ -1787,6 +2119,23 @@ export class FakeAskRepository implements AskRepository {
       counts[ask.state] += 1;
     }
     return counts;
+  }
+
+  async openStateAgeStats(opts: {
+    nowMs: number;
+    stallThresholdMs: number;
+  }): Promise<Record<OpenAskState, AskAgeStats>> {
+    const stats = emptyOpenStateAgeStats();
+    for (const ask of this.store.values()) {
+      if (!(OPEN_ASK_STATES as readonly string[]).includes(ask.state)) continue;
+      const ageMs = opts.nowMs - Date.parse(stateEntryIso(ask));
+      // An unparseable stamp is malformed fixture data, not a zero-age ask.
+      if (Number.isNaN(ageMs)) continue;
+      const entry = stats[ask.state as OpenAskState];
+      if (entry.oldestAgeMs === null || ageMs > entry.oldestAgeMs) entry.oldestAgeMs = ageMs;
+      if (ageMs > opts.stallThresholdMs) entry.stalledCount += 1;
+    }
+    return stats;
   }
 
   /**

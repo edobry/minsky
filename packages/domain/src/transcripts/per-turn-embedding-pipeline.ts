@@ -65,11 +65,27 @@ export interface PerTurnEmbeddingPipelineOptions {
  * because the backlog was large, which is the wrong way round.
  *
  * 2,000 is derived from the work a run should do, not chosen as a round number:
- * at `batchSize` 20 it is 100 provider calls, and the slowest batch latency
- * measured against the live endpoint is 449ms (`request-resilience.ts`), so a
- * full run is ~45s of provider time. The sweeper's cadence is minutes, so a run
- * finishes well inside its interval. Each run shrinks the candidate set, so a
- * backlog drains across runs rather than being attempted all at once.
+ * at `batchSize` 20 it is 100 provider calls. The BOUND is still right; the
+ * duration this docblock derived from it was not.
+ *
+ * **CORRECTED 2026-08-26 (mt#4601): a full run is ~13 MINUTES, not ~45 seconds.**
+ * This paragraph read *"the slowest batch latency measured against the live
+ * endpoint is 449ms (`request-resilience.ts`), so a full run is ~45s of provider
+ * time. The sweeper's cadence is minutes, so a run finishes well inside its
+ * interval."* The 449 ms is real and is scoped: `request-resilience.ts:23`
+ * records it for a *"batch of 20 (~2KB each)"*. Real transcript turns are far
+ * larger, and one batch of 20 measured against the live pipeline took
+ * **8,054 ms** — ~18x. So 100 batches is ~13 minutes, and "finishes well inside
+ * its interval" was false for any cadence under that.
+ *
+ * This mattered: mt#4601 sized a new sweep's tick timeout at 5 minutes from the
+ * ~45s figure, which would have abandoned every full run in production. Caught by
+ * running the pipeline against the live database rather than by review. **Re-measure
+ * before deriving a duration from this constant** — the number of calls is fixed,
+ * the time per call is a property of the payloads, and those grow.
+ *
+ * Each run still shrinks the candidate set, so a backlog drains across runs
+ * rather than being attempted all at once.
  */
 export const DEFAULT_MAX_CANDIDATES_PER_RUN = 2_000;
 
@@ -137,12 +153,36 @@ export class PerTurnEmbeddingPipeline {
         })
         .from(agentTranscriptTurnsTable)
         .where(and(...conditions))
-        // Bounded per run (mt#4212). Deliberately unordered: the ORDER BY that
-        // would make the selection deterministic forces a sort over the whole
-        // filtered set before the limit applies, which is the cost this bound
-        // exists to avoid. Progress is guaranteed without it — every embedded
-        // turn leaves the candidate set permanently, so successive runs drain
-        // the backlog regardless of which rows any one run happens to draw.
+        // ORDERED, and the order is what makes the index usable (mt#4623).
+        //
+        // This was deliberately UNORDERED until mt#4623, on reasoning that was
+        // correct at the time: with no index on the predicate, an ORDER BY
+        // forces a sort over the whole filtered set before the limit applies.
+        // `idx_agent_transcript_turns_embedding_backlog` inverts that — it is a
+        // partial index on exactly this predicate, keyed on exactly these two
+        // columns, so it SUPPLIES the order and no sort node is planned at all.
+        //
+        // The ordering is not cosmetic; without it the index is not used.
+        // Measured on a 367,159-row / 313 MB reproduction of production:
+        //
+        //   no ORDER BY   Seq Scan, 40,123 buffers, 63.0 ms  (index ignored)
+        //   ORDER BY      Index Scan, 17 buffers,   0.059 ms
+        //
+        // The planner ignores the index without the ordering because it
+        // estimates 141,913 matching rows against an actual 62: it assumes
+        // `embedding IS NULL` and the text predicate are independent when they
+        // are strongly anti-correlated (almost every NULL embedding belongs to
+        // a text-less row, which can never be a candidate). Its arithmetic is
+        // 0.5757 × (1 − 0.5755²) × 367,159 ≈ 141,380. Believing that many
+        // matches exist, it expects LIMIT to be satisfied ~1.4% into a
+        // sequential scan — so it takes the scan, and then reads the whole
+        // table because only 62 rows actually match.
+        //
+        // The mt#4212 bound below is unaffected and still does its job.
+        // Determinism is now a by-product rather than a cost: progress never
+        // depended on it (every embedded turn leaves the candidate set
+        // permanently), but stable ordering makes successive runs reproducible.
+        .orderBy(agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex)
         .limit(this.maxCandidatesPerRun);
     } catch (err) {
       log.error("PerTurnEmbeddingPipeline: failed to load candidate turns", {

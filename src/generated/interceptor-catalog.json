@@ -381,7 +381,7 @@
     },
     {
       "guardName": "block-secret-file-read",
-      "description": "Denies printing a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) through an emitting reader. Reader and path together deny; naming the path alone is fine.",
+      "description": "Denies four command shapes that would print a credential into the transcript: a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) read through an emitting reader (reader and path together deny; naming the path alone is fine); a direct invocation of a secret-EMITTING script; a process listing requesting the argv column; and a vendor CLI that dumps env-var values (`railway variable list`). The last two are pipeline-scoped — a counting sink or a key-projecting `jq` stage is permitted, because that is the safe form the rule teaches.",
       "failureClasses": ["secret-exposure"],
       "provenance": [".minsky/hooks/block-secret-file-read.ts", ".minsky/rules/hook-files.mdc"],
       "stratum": "registry",
@@ -753,7 +753,7 @@
     },
     {
       "guardName": "check-task-spec-read",
-      "description": "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case.",
+      "description": "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case. On `asks_create` / `asks_edit` the same check ADVISES rather than blocks: an ask recommends a task to the principal, and a status field says where a task sits in the lifecycle while only its body says whether it is still worth doing.",
       "failureClasses": ["unfounded-claim", "duplicate-work"],
       "provenance": [".minsky/hooks/check-task-spec-read.ts", ".minsky/rules/hook-files.mdc"],
       "stratum": "standalone",
@@ -1841,6 +1841,34 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": null
+    },
+    {
+      "guardName": "inject-ask-responses",
+      "description": "Tells the agent that an ask THIS conversation filed has been answered or otherwise settled, so it stops reporting the ask as open from memory of having filed it. Fires once per response.",
+      "failureClasses": ["stale-context", "lost-signal"],
+      "provenance": [".minsky/hooks/inject-ask-responses.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-ask-responses"
     },
     {
       "guardName": "inject-current-time",
@@ -3204,6 +3232,37 @@
       "sourceFile": null
     },
     {
+      "guardName": "secret-request-in-chat-detector",
+      "description": "Records the assistant asking the principal to hand over a secret through the conversation — 'paste your bot token here'. The transcript is persisted and ingested, so the value becomes durable searchable data; the correct surface is credentials.request. Suppresses the agent REFUSING, and prose describing the antipattern rather than committing it. Log-only.",
+      "failureClasses": ["secret-exposure"],
+      "provenance": [
+        ".minsky/hooks/secret-request-in-chat-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "secret-request-in-chat-detector"
+    },
+    {
       "guardName": "secret-scanning",
       "description": "Blocks a commit whose staged content matches a known credential shape.",
       "failureClasses": ["secret-exposure"],
@@ -3364,6 +3423,37 @@
       "sourceFile": "spec-criterion-claim-detector"
     },
     {
+      "guardName": "spec-scope-execution-check",
+      "description": "Records when the bound task's spec enumerates in-scope file paths that the session never edited — the author's own gate-(h) enumeration, compared against what the PR actually changed. Nothing read that list before: the execution-evidence gate reads `## Acceptance Tests`, `tasks_spec_freshness` compares ref STATES, and the sibling `enumeration-scope-check` joins sweep-call arguments. Originating instance mt#4531 / PR #3310, where the spec named `guard-calibration-stream-inventory.md` explicitly, the implementation added three fields to that record and never touched the doc, and the reviewer caught it BLOCKING one round late by re-deriving the impact rather than reading the enumeration. Parses STRICTLY — the shared extractor's `## Context` / whole-document fallback would collect every path a spec merely mentions, which for this join is a false positive by construction. A spec with no parseable in-scope paths records `skipped` (\"nothing to compare\"), never `clean`. Resolves a `path.ts:83` line reference and a directory glob against the file they actually name (mt#4591 — 12 of 32 flagged entries were this, and every one of the checked files HAD been changed). Suppresses an entry the author marked UNCONDITIONALLY exempt (`READ-ONLY`, `only insofar as`, `only to the extent of`, `no behavior change`), reading the whole bullet including its continuation lines because half of them wrap, and RECORDS the suppressed count as `qualified` rather than dropping it silently (mt#4582). Record-only; the dominant REMAINING false positive is a CONDITIONAL enumeration entry whose condition did not fire — deliberately NOT suppressed, because whether it fired is exactly what a path comparison cannot evaluate, and both entries on the founding incident are conditionals.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/spec-scope-execution-check.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "spec-scope-execution-check"
+    },
+    {
       "guardName": "sql-capability-message-check",
       "description": "Blocks a commit whose persistence-gated error says only that the database is unavailable, without naming which of the two opposite causes it is — never configured, or configured and failed at boot (ADR-035 rule 3). The check itself predates this registration by a long way and had no caller at all until mt#4398, so it sat exiting non-zero against three real sites that nothing surfaced.",
       "failureClasses": ["broken-main"],
@@ -3417,6 +3507,34 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "stale-signal-sweep"
+    },
+    {
+      "guardName": "stamp-ask-conversation",
+      "description": "Records which CONVERSATION filed an ask — the one place that sees the harness conversation id and the newly-minted ask id together. Without it `inject-ask-responses` can never fire: `Ask.parentSessionId` holds a WORKSPACE session id, and a main-workspace conversation has no workspace session to record.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/stamp-ask-conversation.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stamp-ask-conversation"
     },
     {
       "guardName": "stamp-pr-author-link",
@@ -4169,6 +4287,130 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "wall-of-text-detector"
+    },
+    {
+      "guardName": "warn-main-workspace-mutation",
+      "description": "After every `Bash` call, reads the MAIN workspace's `git status` and injects an advisory naming tracked files that became modified DURING that call — the mutation style is irrelevant, because it observes git STATE rather than the command string. That is the point: the recurrence it was built for used `sed -i`, `cat >>` and a `python3` heredoc, none of which any destructive-verb list contains, and a heredoc that writes is not statically distinguishable from one that prints. The channel is uncovered because `require-session-for-main-workspace-edits` matches only Edit/Write/NotebookEdit while the harness's auto mode routes file changes to Bash. Fires at most once per file: the reported set is a diff against the last observation, so the tree's pre-existing modifications never flag. Untracked files are exempt — legitimate main-workspace scratch writes exist. Advisory and log-only; a deliberate main-workspace edit is the residual false-positive class and the advisory text says so.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [
+        ".minsky/hooks/warn-main-workspace-mutation.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-main-workspace-mutation"
+    },
+    {
+      "guardName": "warn-peer-task-activity",
+      "description": "Reads the TASK EVENT LEDGER on `tasks_status_set` / `tasks_spec_patch` and injects an advisory naming any `session.started` (minus the caller's own) or recent `task.status_changed` — the one peer-presence signal keyed to the task rather than to an actor, so it does not inherit the attribution defect every probe in `user-preferences.mdc §Probe before claiming a shared resource` reads through. Never denies: prevention is a principal-owned question (substrate RFC Open question 4).",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [
+        ".minsky/hooks/warn-peer-task-activity.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-peer-task-activity"
+    },
+    {
+      "guardName": "warn-stale-forward-reference",
+      "description": "On a `tasks_status_set` transition to DONE, scans the ADR corpus and `.minsky/rules` for paragraphs that describe THIS task's deliverable as still-pending — a forward-looking marker plus either the task id or two distinct tokens from the task's title — and injects them as reconciliation candidates with file, line and excerpt. The title-token path exists because the originating instance (ADR-006's \"upgrade path if that bites\", left stale by mt#3900) names no task id at all, so an id-only index would have missed exactly the class that matters. Advisory and log-only: the heuristic half's false-positive rate is unmeasured.",
+      "failureClasses": ["stale-context"],
+      "provenance": [
+        ".minsky/hooks/warn-stale-forward-reference.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-stale-forward-reference"
+    },
+    {
+      "guardName": "warn-unwired-task-relationship",
+      "description": "Records when a task spec STATES a relationship to another task in prose — \"hard prerequisite for mt#N\", \"feeds mt#N\", \"is part of mt#N\" — while the matching structural edge is absent. Fires across the whole spec-authoring seam: at `tasks_create` the discharge is exact from the payload (`dependsOn` / `parent`), at the three edit seams it reads the live `task_relationships` graph. Distinguishes the two axes mem#530 keeps apart — dependency (data-flow / blocking) vs parent/child (decomposition) — because conflating them is half the family. The failure is not that the graph goes quiet: `tasks_orchestrate` derives `blockedBy` from edges alone, so an unwired prerequisite renders as `ready: true, blockedBy: []`, and the agent this targets is the one consulting the graph instead of reading specs. Record-only at ship; graduation gated on a replay measuring the recognition half.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/warn-unwired-task-relationship.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-unwired-task-relationship"
     }
   ]
 }

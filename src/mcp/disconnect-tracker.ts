@@ -70,6 +70,18 @@ import os from "os";
 import { log } from "@minsky/shared/logger";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { scrubText } from "@minsky/domain/transcripts/credential-scrubber";
+// Only the predicate is imported: nothing here reads the set directly any more
+// (the predicate owns that), and `SERVER_INITIATED_CAUSES` is re-exported below
+// via `export … from`, which needs no local binding.
+import { isEscalationEligible as isSharedEscalationEligible } from "./disconnect-escalation";
+import {
+  decideRoll,
+  listCorpusPaths,
+  newestTimestampMonth,
+  readTail,
+  rollIfNeeded,
+  TAIL_READ_BYTES,
+} from "./disconnect-log-segments";
 
 /**
  * The kind of event recorded.
@@ -115,7 +127,18 @@ export type McpEventKind = "process_start" | "disconnect" | "reconnect" | "trans
  * Other:
  * - `transport_error`: error on the underlying transport stream.
  * - `process_start`: synthetic cause for `process_start` events (no actual disconnect).
- * - `signal`: legacy signal cause (kept for backward compatibility with logs from mt#1645).
+ * - `reconnect`: synthetic cause for `reconnect` events (a session BEGINNING, so there is
+ *   no disconnect to attribute). Same kind-as-cause shape as `process_start` above; added
+ *   by mt#4511 to replace a `unknown` default that made every reconnect indistinguishable
+ *   from an unclassified disconnect in the raw log.
+ * - `signal`: a signal with no dedicated cause above — SIGSEGV, SIGABRT, SIGBUS
+ *   and friends. Emitted ONLY by the stdio proxy's `classifyExitForDisconnectLog`
+ *   `default:` branch (mt#2830); read `event.signal` for the actual name. These
+ *   are runtime CRASHES and DO count toward escalation (mt#4499).
+ *   Declared by mt#1645 as a backward-compat placeholder and described here as
+ *   one until mt#4499 — but no mt#1645-era record ever carried it (that log's
+ *   causes are `stdin_close` and `unknown` only), so the compat case it was
+ *   named for never existed.
  * - `unknown`: no cause information was available.
  */
 export type McpDisconnectCause =
@@ -131,6 +154,7 @@ export type McpDisconnectCause =
   | "staleness_exit"
   | "proxy_observed_crash"
   | "process_start"
+  | "reconnect"
   | "unknown";
 
 /**
@@ -180,10 +204,17 @@ export interface McpDisconnectEvent {
    */
   pid?: number;
   /**
-   * Process uptime in milliseconds at the time of the event (now - process
-   * start). Always present on `disconnect` / `transport_error`. Used by the
-   * escalation filter to distinguish short-lived harness probes (uptimeMs < 5s,
-   * class 1) from genuine long-lived-session closures (class 3).
+   * How long the thing that just ended had been alive, in milliseconds. Always
+   * present on `disconnect` / `transport_error`. Used by the escalation filter to
+   * distinguish short-lived harness probes (uptimeMs < 5s, class 1) from genuine
+   * long-lived-session closures (class 3).
+   *
+   * **This is the SESSION's lifetime when the session's start is known, and the
+   * PROCESS's uptime otherwise (mt#4511).** The two coincide for stdio, where one
+   * process binds 1:1 with one session; they diverge sharply for HTTP, where many
+   * short sessions live inside one long-running daemon. Before mt#4511 it was
+   * unconditionally process uptime, which made the sub-5s probe filter inert for
+   * every HTTP session.
    */
   uptimeMs?: number;
   /**
@@ -241,7 +272,20 @@ export interface McpDisconnectSummary {
   byServer: Record<string, number>;
   /** Breakdown by event kind. */
   byKind: Record<McpEventKind, number>;
-  /** Breakdown by cause (all events combined). Lets operators see the cause distribution at a glance. */
+  /**
+   * Breakdown by cause — **`disconnect` events only** (mt#4511), matching `byRole` below.
+   *
+   * A cause answers "why did a connection END?", so it is only meaningful for an ending.
+   * Until mt#4511 this counted EVERY event kind, and the result was dominated by the two
+   * kinds that cannot have a cause: `reconnect` (whose cause defaulted to `unknown`, so
+   * every reconnect landed in the same bucket as a genuinely unclassified disconnect) and
+   * `process_start` (whose cause tautologically repeats its kind). Measured on the live log
+   * at 2026-08-25T00:58Z: 235 of 289 events read as `unknown`, of which 183 were reconnects
+   * — so the headline "two thirds of events are unclassified" was an artifact of the
+   * pooling, while the real figure, over disconnects, was 56 of 86.
+   *
+   * Kind totals are NOT lost by this narrowing: `byKind` above carries them.
+   */
   byCause: Record<string, number>;
   /**
    * Breakdown by process role (disconnect events only, last 24h). Populated from
@@ -285,12 +329,9 @@ const ESCALATION_THRESHOLD_SESSION = 1;
 /** 24-hour escalation-eligible disconnect threshold. */
 const ESCALATION_THRESHOLD_24H = 3;
 
-/**
- * Process-uptime threshold below which a disconnect is treated as a short-lived
- * harness probe (class 1) and excluded from escalation. 5 seconds is well above
- * the 1.8–2.1s typical handshake time observed in Claude Code's MCP logs.
- */
-const SHORT_LIVED_THRESHOLD_MS = 5000;
+// `SHORT_LIVED_THRESHOLD_MS` (5s — well above the 1.8-2.1s typical handshake
+// observed in Claude Code's MCP logs) moved to `./disconnect-escalation`
+// alongside the predicate that reads it (mt#4499).
 
 /**
  * Hard size bounds for the mt#2830 diagnostic fields (R1 review finding 3).
@@ -323,18 +364,15 @@ export const STDIO_SESSION_KEY = "stdio";
 export const DEFAULT_SESSION_KEY = "_default";
 
 /**
- * Causes whose disconnect events are server-initiated by design and excluded
- * from the escalation count regardless of uptime.
+ * The escalation set and its predicate now live in `./disconnect-escalation`,
+ * a dependency-free module (mt#4499). They had three hand-written copies —
+ * here, the cadence rule, and the cockpit's S3-gauge widget — and the widget's
+ * disagreed. That module's header carries the full history, including the
+ * correction to mt#4481's account of when `"signal"` joined the set.
+ *
+ * Re-exported so existing importers of this module are unaffected.
  */
-const SERVER_INITIATED_CAUSES: ReadonlySet<McpDisconnectCause> = new Set<McpDisconnectCause>([
-  "staleness_exit",
-  "signal",
-  "signal_sigterm",
-  "signal_sigint",
-  "signal_sighup",
-  "server_close",
-  "idle_timeout",
-]);
+export { SERVER_INITIATED_CAUSES } from "./disconnect-escalation";
 
 /** Directory where the persistent event log is written. */
 function getStateDir(): string {
@@ -487,6 +525,29 @@ export class DisconnectTracker {
    */
   private toolCallCounts: Map<string, number> = new Map();
   /**
+   * Per-session start times (mt#4511). Keyed by the same `sessionKey` as
+   * `toolCallCounts` above, and evicted on the same path in `recordDisconnect()`.
+   *
+   * Exists because `uptimeMs` was derived from `processStartTime` for EVERY
+   * disconnect, which conflates two different quantities. For stdio that is
+   * correct — one process binds 1:1 with one session for its lifetime, so process
+   * uptime IS session lifetime. For HTTP it is not: many short sessions live inside
+   * one long-running daemon, so a 200 ms poll session reported the daemon's
+   * multi-hour uptime.
+   *
+   * That mattered because `isEscalationEligible` excludes short-lived harness probes
+   * via `uptimeMs < SHORT_LIVED_THRESHOLD_MS` — a filter that could never fire for an
+   * HTTP session, so routine poll churn counted as escalation-eligible and pinned the
+   * escalation signal at `daily`. Measured on the live log at 2026-08-25T00:58Z: not
+   * one of the 56 unclassified disconnects had an uptime under 10 minutes, because
+   * every one of them was reporting the process's age rather than the session's.
+   *
+   * The argument is the same one already made for `toolCallCounts` above — a
+   * process-wide value misclassifies per-session disconnects — and it simply was
+   * never carried over to uptime.
+   */
+  private sessionStartTimes: Map<string, number> = new Map();
+  /**
    * Set to true when a server-initiated disconnect cause has been recorded
    * (staleness_exit, signal_*, server_close). The SDK's `Server.onclose`
    * fires during stdio teardown after these events; the wireDisconnectHooks
@@ -547,6 +608,16 @@ export class DisconnectTracker {
   }
 
   /**
+   * Override a session's recorded start time for test purposes (mt#4511). Lets
+   * uptime-filtering tests produce an arbitrary SESSION lifetime without sleeping,
+   * the same way `setProcessStartTimeForTest` does for process uptime. Only call
+   * from test code.
+   */
+  noteSessionStartForTest(sessionKey: string, timestamp: number): void {
+    this.sessionStartTimes.set(sessionKey, timestamp);
+  }
+
+  /**
    * Increment the tool-call counter for the given session (mt#1705).
    * Called from the `CallToolRequestSchema` handler in `server.ts` on each
    * tool invocation (before the handler runs, so the count is accurate even
@@ -561,6 +632,22 @@ export class DisconnectTracker {
    */
   incrementToolCallCount(sessionKey: string = DEFAULT_SESSION_KEY): void {
     this.toolCallCounts.set(sessionKey, (this.toolCallCounts.get(sessionKey) ?? 0) + 1);
+  }
+
+  /**
+   * Record when a session began, so its disconnect can report the SESSION's
+   * lifetime rather than the process's (mt#4511).
+   *
+   * Call this once per session, at the point the session is established — for HTTP
+   * that is beside the per-session `wireDisconnectHooks` call in `server.ts`.
+   *
+   * Deliberately NOT called for stdio: there, one process binds 1:1 with one session,
+   * so `processStartTime` already IS the session start, and `recordDisconnect` falls
+   * back to it when no entry exists. That fallback is also what keeps legacy and
+   * ad-hoc callers behaving exactly as before.
+   */
+  noteSessionStart(sessionKey: string = DEFAULT_SESSION_KEY): void {
+    this.sessionStartTimes.set(sessionKey, Date.now());
   }
 
   /**
@@ -687,7 +774,14 @@ export class DisconnectTracker {
     lastTransportEvent = sanitized.lastTransportEvent;
     errorMessage = sanitized.errorMessage;
 
-    const uptimeMs = Date.now() - this.processStartTime;
+    // mt#4511: measure THIS SESSION's lifetime when we know when it started, falling
+    // back to process uptime when we do not. The fallback is the stdio case (one
+    // process == one session, so they are the same number) and any legacy/ad-hoc
+    // caller. Without this, every HTTP session reported the daemon's uptime and the
+    // `uptimeMs < SHORT_LIVED_THRESHOLD_MS` probe filter in `isEscalationEligible`
+    // could not fire for HTTP at all — see `sessionStartTimes`.
+    const sessionStart = this.sessionStartTimes.get(sessionKey);
+    const uptimeMs = Date.now() - (sessionStart ?? this.processStartTime);
     // mt#1705: classify process role from PER-SESSION tool-call count at
     // disconnect time. Reading the process-wide counter (the original mt#1705
     // approach) misclassified HTTP per-session disconnects when any session
@@ -699,8 +793,9 @@ export class DisconnectTracker {
     const sessionToolCalls = this.toolCallCounts.get(sessionKey) ?? 0;
     const processRole: McpProcessRole =
       processRoleOverride ?? (sessionToolCalls === 0 ? "helper" : "main_session");
-    // Evict the entry — the session is closing and we've captured what we need.
+    // Evict the entries — the session is closing and we've captured what we need.
     this.toolCallCounts.delete(sessionKey);
+    this.sessionStartTimes.delete(sessionKey);
     const event: McpDisconnectEvent = {
       timestamp: new Date().toISOString(),
       serverName: this.serverName,
@@ -786,7 +881,15 @@ export class DisconnectTracker {
       timestamp: new Date().toISOString(),
       serverName: this.serverName,
       kind: "reconnect",
-      cause: cause ?? "unknown",
+      // mt#4511: a reconnect is a session BEGINNING and has no disconnect cause, so
+      // this defaults to the tautological `"reconnect"` rather than `"unknown"` —
+      // the same kind-as-cause shape `process_start` already uses. Defaulting to
+      // `"unknown"` put every reconnect in the same bucket as a genuinely
+      // unclassified disconnect, which is what made the log read as two-thirds
+      // unclassified. `byCause` now counts disconnects only, so this value never
+      // reaches the cause distribution; it is fixed here so that anyone reading the
+      // raw JSONL (mt#4487 does) is not misled by it either.
+      cause: cause ?? "reconnect",
     };
     this.push(event);
     log.info("mcp_reconnect", {
@@ -858,16 +961,20 @@ export class DisconnectTracker {
     for (const e of recent) {
       byServer[e.serverName] = (byServer[e.serverName] ?? 0) + 1;
       byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
-      byCause[e.cause] = (byCause[e.cause] ?? 0) + 1;
-      // byRole only counts disconnect events; role classification is only
-      // meaningful at disconnect time. Events without processRole come from
-      // pre-mt#1705 logs and are counted in the explicit "legacy" bucket so
-      // operators can see the fraction of the log still in the old format
-      // (it should shrink toward 0 as new-format events saturate the log).
-      // Note: `isEscalationEligible` still treats legacy/undefined events as
-      // eligible (conservative) — only the aggregate breakdown shows them
-      // separately.
+      // byCause and byRole BOTH count disconnect events only. Cause and role are
+      // properties of an ENDING: neither is meaningful for a `reconnect` (a session
+      // beginning) or a `process_start` (a lifecycle marker). Until mt#4511 only the
+      // role half applied that filter, so the cause distribution pooled three
+      // populations and read as mostly-unclassified no matter what the disconnects
+      // actually were — see `McpDisconnectSummary.byCause` for the measurement.
+      //
+      // Events without processRole come from pre-mt#1705 logs and are counted in the
+      // explicit "legacy" bucket so operators can see the fraction of the log still in
+      // the old format (it should shrink toward 0 as new-format events saturate the
+      // log). Note: `isEscalationEligible` still treats legacy/undefined events as
+      // eligible (conservative) — only the aggregate breakdown shows them separately.
       if (e.kind === "disconnect") {
+        byCause[e.cause] = (byCause[e.cause] ?? 0) + 1;
         const role = e.processRole ?? "legacy";
         byRole[role] = (byRole[role] ?? 0) + 1;
       }
@@ -922,18 +1029,13 @@ export class DisconnectTracker {
   // Private helpers
   // -------------------------------------------------------------------------
 
+  /**
+   * Delegates to the shared predicate (mt#4499) so this tracker and the
+   * cockpit's S3-gauge widget cannot answer differently about the same event.
+   * The eligibility rules and their rationale live in `./disconnect-escalation`.
+   */
   private isEscalationEligible(event: McpDisconnectEvent): boolean {
-    if (event.kind !== "disconnect") return false;
-    if (SERVER_INITIATED_CAUSES.has(event.cause)) return false;
-    // Legacy events without uptimeMs (from mt#1645 logs) are counted as
-    // eligible — we have no way to know whether they were short-lived.
-    if (event.uptimeMs !== undefined && event.uptimeMs < SHORT_LIVED_THRESHOLD_MS) return false;
-    // mt#1705: helper sessions (0 tool calls before disconnect) are excluded
-    // from escalation regardless of uptime. Legacy events without processRole
-    // are treated conservatively as "main_session" (eligible) — we have no
-    // tool-call count to discriminate them.
-    if (event.processRole === "helper") return false;
-    return true;
+    return isSharedEscalationEligible(event);
   }
 
   private push(event: McpDisconnectEvent): void {
@@ -944,17 +1046,68 @@ export class DisconnectTracker {
   }
 
   /**
+   * True when the persist file exists, is non-empty, and its final byte is not
+   * a newline — i.e. appending directly would produce a line carrying two
+   * records' worth of text.
+   *
+   * Reads exactly one byte at the tail rather than the whole file: this log is
+   * megabytes after a few months (mt#4495), and the question is about the last
+   * byte only.
+   */
+  private lastByteIsNotNewline(): boolean {
+    if (!this.persistPath) return false;
+    let fd: number | undefined;
+    try {
+      const { size } = fs.statSync(this.persistPath);
+      if (size === 0) return false; // Nothing to separate from.
+      fd = fs.openSync(this.persistPath, "r");
+      // Uint8Array rather than Buffer: this repo's ambient Buffer type exposes
+      // only `from`, and readSync takes any ArrayBufferView.
+      const tail = new Uint8Array(1);
+      fs.readSync(fd, tail, 0, 1, size - 1);
+      return tail[0] !== 0x0a; // 0x0a === "\n"
+    } catch {
+      // intentional-swallow: the file is missing or unreadable, so there is no
+      // preceding byte to separate from. appendFileSync below reports the real
+      // failure if the path is genuinely broken — this probe must not turn a
+      // readability problem into a lost event.
+      return false;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+
+  /**
    * Durably append a single event as one JSON line to the persist file.
    * Uses `appendFileSync` (O_APPEND semantics) so the write is atomic at the
    * line boundary and complete before the call returns — even if the process
    * exits microseconds later.
+   *
+   * mt#4481 — why the leading separator. The mt#1645 writer emitted
+   * `JSON.stringify(events, null, 2)`, which ends in `]` with NO trailing
+   * newline. This method writes a TRAILING newline only, so the first append
+   * after that migration was glued onto the closing bracket, producing a
+   * single `]{"timestamp":...}` line. The loader below tolerates it (its
+   * cursor advances past the matched bracket before line-splitting), but the
+   * OPERATOR read path does not: `jq` aborts a stream at its first parse
+   * error, and that line is the first one a `"kind":"process_start"` grep
+   * matches — so the restart query dies at exit 5 emitting zero rows, which
+   * reads as "the tracker stopped recording" rather than as a malformed file.
+   *
+   * The check is unconditional rather than first-append-only. Every append
+   * writes a complete line ending in a newline, so after the first one the
+   * probe always answers false — including under concurrent writers, which is
+   * why no cross-process coordination is needed. Three syscalls on a path that
+   * fires a handful of times per process lifetime is not worth optimizing into
+   * a state flag that could go stale.
    */
   private appendEvent(event: McpDisconnectEvent): void {
     if (!this.persistPath) return; // In-memory-only mode (tests)
     try {
       const dir = path.dirname(this.persistPath);
       fs.mkdirSync(dir, { recursive: true });
-      const line = `${JSON.stringify(event)}\n`;
+      const separator = this.lastByteIsNotNewline() ? "\n" : "";
+      const line = `${separator}${JSON.stringify(event)}\n`;
       fs.appendFileSync(this.persistPath, line, "utf-8");
     } catch (err) {
       log.warn("mcp_disconnect_tracker: failed to append event log", {
@@ -979,56 +1132,40 @@ export class DisconnectTracker {
   private loadFromDisk(): void {
     if (!this.persistPath) return; // In-memory-only mode (tests)
     try {
-      if (!fs.existsSync(this.persistPath)) return;
-      const raw = fs.readFileSync(this.persistPath, { encoding: "utf-8" }) as string;
-      const trimmed = raw.trim();
-      if (!trimmed) return;
+      // Roll BEFORE reading (mt#4495). The roll is a rename, so the read below
+      // sees whichever file the active path now points at — a fresh empty one
+      // just after a month boundary, in which case the walk falls through into
+      // the segment that was just rolled.
+      this.maybeRollSegment();
 
+      // Bounded read (mt#4495 SC3). Walk the corpus NEWEST-first, taking a
+      // bounded tail of each file, and stop as soon as the ring is full. In
+      // steady state that is exactly one 256 KB read regardless of how much
+      // history exists; the older segments are touched only in the window right
+      // after a roll, when the active file cannot fill the ring by itself.
+      const corpus = listCorpusPaths(this.persistPath);
       const valid: McpDisconnectEvent[] = [];
-      let cursor = 0;
-
-      // Legacy single-array format detection (mt#1645). The original `persist`
-      // wrote `JSON.stringify(events, null, 2)` so the file started with `[`.
-      // Parse the array, then advance the cursor past it for any trailing
-      // JSONL content appended by post-mt#1682 writers.
-      if (trimmed.startsWith("[")) {
-        const arrayStart = raw.indexOf("[");
-        const arrayEnd = this.findMatchingBracket(raw, arrayStart);
-        if (arrayEnd >= 0) {
-          const arraySlice = raw.slice(arrayStart, arrayEnd + 1);
-          try {
-            const parsed: unknown = JSON.parse(arraySlice);
-            if (Array.isArray(parsed)) {
-              for (const item of parsed) {
-                if (isValidEvent(item)) valid.push(item);
-              }
-            }
-          } catch {
-            // Fall through — corrupted legacy block won't block JSONL load
-          }
-          cursor = arrayEnd + 1;
-        }
-      }
-
-      // JSONL parse: split remaining content on newlines, parse each non-blank line.
-      const remaining = raw.slice(cursor);
-      const lines = remaining.split("\n");
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) continue;
-        if (trimmedLine.startsWith("[") || trimmedLine.startsWith("]")) continue; // legacy bracket residue
-        try {
-          const parsed: unknown = JSON.parse(trimmedLine);
-          if (isValidEvent(parsed)) valid.push(parsed);
-        } catch {
-          // skip malformed line
-        }
+      let segmentsRead = 0;
+      for (let i = corpus.length - 1; i >= 0 && valid.length < MAX_EVENTS; i--) {
+        const segment = corpus[i];
+        if (!segment) continue;
+        const tail = readTail(segment, TAIL_READ_BYTES);
+        segmentsRead++;
+        if (tail.raw.trim() === "") continue;
+        // Prepend: we are walking backwards in time, so each older file's
+        // records belong BEFORE everything gathered so far.
+        valid.unshift(...this.parseLogText(tail.raw));
       }
 
       this.events = valid.slice(-MAX_EVENTS);
       log.debug("mcp_disconnect_tracker: loaded events from disk", {
         count: this.events.length,
         path: this.persistPath,
+        // Both, because they differ and the difference is the point: the loop
+        // stops once the ring is full, so in steady state ONE segment is read
+        // out of however many exist (reviewer R1 non-blocking).
+        segmentsRead,
+        segmentsDiscovered: corpus.length,
       });
     } catch (err) {
       log.debug("mcp_disconnect_tracker: failed to load event log from disk (non-fatal)", {
@@ -1036,6 +1173,99 @@ export class DisconnectTracker {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * Roll the active file to a monthly segment when the calendar or the size
+   * valve says so (mt#4495).
+   *
+   * Runs at load time, NEVER on the append path — `appendEvent` stays a single
+   * `appendFileSync` with no read-modify-write, which is what keeps a record
+   * durable when the process is about to die (mt#4495 SC5).
+   */
+  private maybeRollSegment(): void {
+    if (!this.persistPath) return;
+    try {
+      if (!fs.existsSync(this.persistPath)) return;
+      const activeSize = fs.statSync(this.persistPath).size;
+      // A small window is enough: the decision only needs the LAST record's
+      // month, and `newestTimestampMonth` scans from the end.
+      const probe = readTail(this.persistPath, 8 * 1024);
+      const decision = decideRoll({
+        activeSize,
+        newestRecordMonth: newestTimestampMonth(probe.raw),
+        currentMonth: new Date().toISOString().slice(0, 7),
+      });
+      const rolled = rollIfNeeded(this.persistPath, decision);
+      if (rolled) {
+        log.debug("mcp_disconnect_tracker: rolled log to monthly segment", {
+          segment: rolled,
+          reason: decision.reason,
+        });
+      }
+    } catch (err) {
+      // intentional-swallow: a failed roll leaves the log exactly as it was,
+      // which is the pre-mt#4495 status quo. Never fail a boot over rotation.
+      log.debug("mcp_disconnect_tracker: segment roll skipped (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Parse log text in EITHER format into valid events.
+   *
+   * Extracted verbatim from the old `loadFromDisk` (mt#4495) so the legacy
+   * hybrid tolerance is preserved exactly — mt#4481's glued-seam fixture still
+   * exercises this path, and other hosts can still present a hybrid even though
+   * this one no longer does (mt#4558).
+   */
+  private parseLogText(raw: string): McpDisconnectEvent[] {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+
+    const valid: McpDisconnectEvent[] = [];
+    let cursor = 0;
+
+    // Legacy single-array format detection (mt#1645). The original `persist`
+    // wrote `JSON.stringify(events, null, 2)` so the file started with `[`.
+    // Parse the array, then advance the cursor past it for any trailing
+    // JSONL content appended by post-mt#1682 writers.
+    if (trimmed.startsWith("[")) {
+      const arrayStart = raw.indexOf("[");
+      const arrayEnd = this.findMatchingBracket(raw, arrayStart);
+      if (arrayEnd >= 0) {
+        const arraySlice = raw.slice(arrayStart, arrayEnd + 1);
+        try {
+          const parsed: unknown = JSON.parse(arraySlice);
+          if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+              if (isValidEvent(item)) valid.push(item);
+            }
+          }
+        } catch {
+          // Fall through — corrupted legacy block won't block JSONL load
+        }
+        cursor = arrayEnd + 1;
+      }
+    }
+
+    // JSONL parse: split remaining content on newlines, parse each non-blank line.
+    const remaining = raw.slice(cursor);
+    const lines = remaining.split("\n");
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      if (trimmedLine.startsWith("[") || trimmedLine.startsWith("]")) continue; // legacy bracket residue
+      try {
+        const parsed: unknown = JSON.parse(trimmedLine);
+        if (isValidEvent(parsed)) valid.push(parsed);
+      } catch {
+        // skip malformed line
+      }
+    }
+
+    return valid;
   }
 
   /**

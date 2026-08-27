@@ -74,12 +74,42 @@ pub(crate) use daemon_core::{
 pub(crate) const COCKPIT_HEALTH_PATH: &str = "/api/health";
 pub(crate) const COCKPIT_SERVICE: &str = "minsky-cockpit";
 
-/// Consecutive /api/health polls with db != "ok" before a principal alert fires.
-/// At POLL_INTERVAL = 5s → 24 polls ≈ 2 min (spec requirement: "DB degraded > 2 min").
+/// Consecutive health polls reporting the daemon cannot serve DB-backed work,
+/// before this watchdog acts.
 ///
-/// Stays in the policy layer rather than the core: only the cockpit daemon's
-/// health body carries a `db` field at all.
-const DB_DEGRADED_POLL_THRESHOLD: u32 = 24;
+/// At POLL_INTERVAL = 5s → 24 polls ≈ 2 min (spec requirement: "DB degraded > 2
+/// min"). Grounded in the poll cadence rather than a round number of seconds,
+/// which is also what makes it robust: change POLL_INTERVAL and the wall-clock
+/// bound moves with it rather than silently meaning something else.
+///
+/// **A single degraded poll is common and self-clears** — observed live
+/// 2026-08-24T23:58Z, cockpit daemon at `db: "degraded"` with
+/// `consecutiveDegraded: 1`, back to `ok` within 30s with no recycle and no
+/// intervention. A threshold of 1 would have restarted a daemon that was about
+/// to recover by itself, which is why this is 24 and not a smaller number.
+///
+/// No longer policy-layer state (mt#4472): it applied only to the cockpit
+/// because "only the cockpit daemon's health body carries a `db` field at all",
+/// and mt#4471 gave the MCP daemon `db` and `ready`.
+const NOT_READY_POLL_THRESHOLD: u32 = 24;
+
+/// Minimum gap between two not-ready RESTARTS of the same entry (mt#4472).
+///
+/// The threshold above bounds how long a daemon must be unserving before the
+/// FIRST restart. This bounds the second: after a restart, the counter resets
+/// and has to climb again, so the natural floor is already ~2 min — but only
+/// while the restart actually takes effect. A daemon that comes back and is
+/// immediately unserving again (the database itself being down, which a restart
+/// cannot fix — the spec's `## Does NOT cover`) would otherwise re-restart on
+/// that same 2-minute cadence indefinitely.
+///
+/// 10 min = 5x the detection threshold: long enough that a restart-cannot-fix
+/// condition costs at most ~6 restarts an hour rather than ~30, and short
+/// enough that a genuinely wedged daemon is not left unserving for a working
+/// session. The restart-storm watchdog (`RESTART_STORM_THRESHOLD` over
+/// `RESTART_STORM_WINDOW`) is the second, independent backstop and alerts the
+/// principal when restarts cluster regardless of which path triggered them.
+const NOT_READY_RESTART_COOLDOWN: Duration = Duration::from_secs(600);
 
 /// The cockpit daemon's contribution to the supervision core's string seam
 /// (mt#3990). Registering a second daemon means adding a second value of this
@@ -346,12 +376,9 @@ pub(crate) struct CockpitPolicy {
     /// Newest backend-source mtime at the moment the daemon was (re)started — the
     /// "source version" the running daemon reflects (mt#2299).
     pub(crate) daemon_source_mtime: Option<SystemTime>,
-    /// Number of consecutive POLL_INTERVAL polls where db != "ok".
-    /// Reset to 0 on the first "ok" poll.
-    consecutive_db_degraded: u32,
-    /// Instant of the last DB-degraded alert toast; reset to `None` when
-    /// condition clears.
-    last_db_alert: Option<Instant>,
+    // mt#4472 moved `consecutive_db_degraded` and `last_db_alert` out of here
+    // and onto `SupervisedDaemon`. They were cockpit-only because the cockpit
+    // was the only entry publishing a readiness signal; it no longer is.
 }
 
 impl Sup {
@@ -628,8 +655,6 @@ fn build_registry() -> Vec<Sup> {
                 DaemonPolicy::Cockpit(CockpitPolicy {
                     last_build_label: None,
                     daemon_source_mtime: None,
-                    consecutive_db_degraded: 0,
-                    last_db_alert: None,
                 }),
             ),
             DaemonId::Mcp => Sup::new(
@@ -870,14 +895,23 @@ async fn handle_child_exit(
 /// The healthy-poll arm's per-daemon half: what to do when this entry answered
 /// and identified itself.
 ///
-/// The cockpit's `db` watchdog lives here rather than in the core because only
-/// its `/api/health` publishes a `db` field at all.
+/// The not-ready watchdog lives here rather than in the core because the
+/// READING of the health body is per-entry (`db` for the cockpit, `ready` for
+/// the MCP daemon); the counters it drives are generic and live on
+/// `SupervisedDaemon` (mt#4472).
+///
+/// Returns what the watchdog decided rather than acting on it. A restart needs
+/// `spawned`, `path` and a `client` and is `async`; this function has none of
+/// those and is sync, so returning the decision keeps the IO in `poll_entry`
+/// and leaves the decision itself unit-testable without a daemon
+/// (`testing-standards.mdc §Testable Design`).
+#[must_use]
 fn handle_healthy_poll(
     app: &AppHandle,
     sup: &mut Sup,
     probe: &daemon_core::HealthProbe,
     poll_now: Instant,
-) {
+) -> Option<String> {
     // An answer from the right service that is not 2xx: the daemon is up and
     // says it is unwell. Restarting cannot fix what a 503 reports (mt#2949), so
     // this is a LABEL, not a lifecycle decision.
@@ -888,68 +922,182 @@ fn handle_healthy_poll(
         );
         set_status(app, sup, &label);
         refresh_uptime(app, sup);
-        return;
+        return None;
     }
 
-    let db = match &sup.policy {
-        DaemonPolicy::Cockpit(_) => Some(db_status_from_body(probe.body.as_ref())),
-        DaemonPolicy::Mcp => None,
-    };
-    let Some(db) = db else {
-        let running = sup.daemon.labels.running;
-        set_status(app, sup, running);
-        refresh_uptime(app, sup);
-        return;
-    };
+    let readiness = readiness_from_body(&sup.policy, probe.body.as_ref());
 
-    // --- Watchdog: DB-degraded detection (cockpit policy) ---
-    match db {
-        DbStatus::Ok => {
-            if let Some(p) = sup.cockpit_mut() {
-                if p.consecutive_db_degraded > 0 {
+    // --- Watchdog: not-ready detection (mt#4472) ---
+    let mut restart_reason: Option<String> = None;
+    match readiness {
+        Readiness::Serving | Readiness::Abstain => {
+            if sup.daemon.consecutive_not_ready > 0 {
+                eprintln!(
+                    "[watchdog] {} recovered after {} not-ready polls",
+                    sup.daemon.labels.display_name, sup.daemon.consecutive_not_ready
+                );
+            }
+            sup.daemon.consecutive_not_ready = 0;
+            // Condition cleared — next episode re-alerts immediately.
+            sup.daemon.last_not_ready_alert = None;
+        }
+        Readiness::NotServing(state) => {
+            sup.daemon.consecutive_not_ready += 1;
+            let alert_cooldown_elapsed = sup
+                .daemon
+                .last_not_ready_alert
+                .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                .unwrap_or(true);
+            let restart_cooldown_elapsed = sup
+                .daemon
+                .last_not_ready_restart
+                .map(|t| poll_now.duration_since(t) >= NOT_READY_RESTART_COOLDOWN)
+                .unwrap_or(true);
+            let outcome = assess_not_ready(
+                sup.daemon.consecutive_not_ready,
+                alert_cooldown_elapsed,
+                restart_cooldown_elapsed,
+            );
+
+            // The duration is derived from OUR OWN poll count, never from a
+            // timestamp in the daemon's body (mt#4472).
+            //
+            // The decision stands; its original stated reason did not (mt#4538).
+            // That reason read "`dbHealth.lastAttemptAt` is frozen at process
+            // boot", generalized from one 102-minute window in which the field
+            // sat at the boot instant. It is not frozen — it dates an INIT
+            // ATTEMPT, and init happens only at boot and on a re-init, so it
+            // holds precisely when nothing has been re-attempted. Two live reads
+            // on 2026-08-25 found it 2384s and 3769s PAST boot, each coincident
+            // with a logged pool recycle.
+            //
+            // The real reason is stronger: an init-attempt stamp is not a
+            // not-ready duration on any daemon, moving or still, so no reading
+            // of it would have answered this question. `dbHealth.lastSuccessAt`
+            // (added by mt#4538) IS the field that dates reachability, and this
+            // watchdog still does not read it — what we need is how long WE have
+            // observed not-ready, which is our own poll count, not the daemon's
+            // view of its database.
+            let sustained_secs = sup.daemon.consecutive_not_ready as u64 * POLL_INTERVAL.as_secs();
+
+            if outcome.alert || outcome.restart {
+                let reason = format!(
+                    "{} has been unable to serve DB-backed work ({state}) for {sustained_secs}s. \
+                     Check logs: {}",
+                    sup.daemon.labels.display_name, sup.daemon.labels.stderr_log_hint,
+                );
+                if outcome.alert {
+                    notify_daemon_unhealthy(app, sup.daemon.labels.display_name, &reason);
+                    eprintln!("[watchdog] not-ready alert: {}", reason);
+                    sup.daemon.last_not_ready_alert = Some(poll_now);
+                }
+                if outcome.restart {
+                    // SC4: the restart is attributable — reason AND the observed
+                    // duration, so it never reads as a spontaneous respawn.
                     eprintln!(
-                        "[watchdog] DB recovered after {} degraded polls",
-                        p.consecutive_db_degraded
+                        "[watchdog] not-ready RESTART of {} after {sustained_secs}s unserving \
+                         ({state}) — RFC \"Thin hooks\" §Answerer recovery",
+                        sup.daemon.labels.display_name,
                     );
+                    sup.daemon.last_not_ready_restart = Some(poll_now);
+                    // The counter restarts with the daemon: the replacement has
+                    // not been observed unserving yet, and carrying the old
+                    // streak forward would re-trip the threshold on its first
+                    // bad poll.
+                    sup.daemon.consecutive_not_ready = 0;
+                    restart_reason = Some(reason);
                 }
-                p.consecutive_db_degraded = 0;
-                // Condition cleared — next episode re-alerts immediately.
-                p.last_db_alert = None;
-            }
-        }
-        db_state => {
-            let mut alert: Option<String> = None;
-            if let Some(p) = sup.cockpit_mut() {
-                p.consecutive_db_degraded += 1;
-                if p.consecutive_db_degraded > DB_DEGRADED_POLL_THRESHOLD {
-                    let cooldown_elapsed = p
-                        .last_db_alert
-                        .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
-                        .unwrap_or(true);
-                    if cooldown_elapsed {
-                        let sustained_secs =
-                            p.consecutive_db_degraded as u64 * POLL_INTERVAL.as_secs();
-                        alert = Some(format!(
-                            "Cockpit DB has been {db_state:?} for {sustained_secs}s — \
-                             circuit-breaker may be active. Check Supabase connectivity \
-                             and ~/.local/state/minsky/logs/cockpit-stderr.log",
-                        ));
-                        p.last_db_alert = Some(poll_now);
-                    }
-                }
-            }
-            if let Some(reason) = alert {
-                notify_daemon_unhealthy(app, &reason);
-                eprintln!("[watchdog] DB-degraded alert: {}", reason);
             }
         }
     }
-    // Daemon HTTP is up (DB degraded or not) — still show running: the daemon
-    // serves UI requests; only DB writes fail.
+    // Daemon HTTP is up (serving or not) — still show running: it answers UI
+    // requests either way; only DB-backed work fails.
     let running = sup.daemon.labels.running;
     set_status(app, sup, running);
     // mt#2299: keep the uptime line ticking while healthy.
     refresh_uptime(app, sup);
+    restart_reason
+}
+
+/// Whether a health body says the daemon can currently serve DB-backed work.
+///
+/// Per-entry because the two daemons publish different fields — which is not an
+/// inconsistency to normalize away here: `ready` is the MCP daemon's own
+/// end-to-end verdict (mt#4471 races a real round trip against a timer), while
+/// the cockpit publishes the raw `db` state. Reading each one's actual signal
+/// beats inventing a lowest common denominator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Readiness {
+    /// Serving. Resets the counter.
+    Serving,
+    /// Answering, but reporting it cannot serve. Carries the operator-facing
+    /// state word for the alert text.
+    NotServing(String),
+    /// The body does not say, or says not-ready for an EXPECTED reason. Treated
+    /// exactly like `Serving` for counting purposes: this watchdog's action is
+    /// destructive, so "cannot tell" must never accumulate toward it.
+    Abstain,
+}
+
+fn readiness_from_body(policy: &DaemonPolicy, body: Option<&serde_json::Value>) -> Readiness {
+    match policy {
+        DaemonPolicy::Cockpit(_) => match db_status_from_body(body) {
+            DbStatus::Ok => Readiness::Serving,
+            // `Unknown` means the body carried no `db` field we understood —
+            // abstain rather than counting it as a fault.
+            DbStatus::Unknown => Readiness::Abstain,
+            other => Readiness::NotServing(format!("db: {other:?}").to_lowercase()),
+        },
+        DaemonPolicy::Mcp => {
+            // SC5: `unconfigured` is `ready: false` BY DESIGN — the offline/dev
+            // boot, which `health-payload.ts` documents and the CI bundle-boot
+            // smoke gate depends on. Restarting it would loop forever on a
+            // daemon that is behaving exactly as intended.
+            let mode = body
+                .and_then(|v| v.get("persistence"))
+                .and_then(|v| v.get("mode"))
+                .and_then(|v| v.as_str());
+            if mode == Some("unconfigured") {
+                return Readiness::Abstain;
+            }
+            match body.and_then(|v| v.get("ready")).and_then(|v| v.as_bool()) {
+                Some(true) => Readiness::Serving,
+                Some(false) => Readiness::NotServing("db: degraded".to_string()),
+                // No `ready` field at all: a daemon built before mt#4471. Absent
+                // is not false — treating it as not-ready would restart-loop
+                // every older build.
+                None => Readiness::Abstain,
+            }
+        }
+    }
+}
+
+/// What the not-ready watchdog does this poll. Pure: no clock, no IO, no
+/// `Sup` — every input is a value, so the threshold and both cooldowns are
+/// testable without a daemon or a running tray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NotReadyOutcome {
+    alert: bool,
+    restart: bool,
+}
+
+fn assess_not_ready(
+    consecutive_not_ready: u32,
+    alert_cooldown_elapsed: bool,
+    restart_cooldown_elapsed: bool,
+) -> NotReadyOutcome {
+    if consecutive_not_ready <= NOT_READY_POLL_THRESHOLD {
+        // Below the threshold nothing happens — the single transient degraded
+        // poll (observed live, self-cleared in <30s) must not reach either arm.
+        return NotReadyOutcome {
+            alert: false,
+            restart: false,
+        };
+    }
+    NotReadyOutcome {
+        alert: alert_cooldown_elapsed,
+        restart: restart_cooldown_elapsed,
+    }
 }
 
 /// One poll tick for ONE registry entry.
@@ -989,7 +1137,7 @@ async fn poll_entry(
                 RESTART_STORM_WINDOW.as_secs() / 60,
                 sup.daemon.labels.stderr_log_hint,
             );
-            notify_daemon_unhealthy(app, &reason);
+            notify_daemon_unhealthy(app, sup.daemon.labels.display_name, &reason);
             sup.daemon.last_restart_alert = Some(poll_now);
             eprintln!("[watchdog] restart-storm alert: {}", reason);
         }
@@ -1036,6 +1184,7 @@ async fn poll_entry(
             if cooldown_elapsed {
                 notify_daemon_unhealthy(
                     app,
+                    sup.daemon.labels.display_name,
                     &format!(
                         "{} exceeded its {} MB memory ceiling and was terminated. It is being \
                          restarted automatically — no action needed unless this repeats. Logs: {}",
@@ -1107,7 +1256,29 @@ async fn poll_entry(
             sup.daemon.last_process_started_at_ms = probe.process_started_at_ms;
         }
 
-        handle_healthy_poll(app, sup, &probe, poll_now);
+        // mt#4472: the watchdog DECIDES in `handle_healthy_poll` and the restart
+        // happens here, where `spawned`/`path`/`client` are in scope and we can
+        // await. `restart_entry` already refuses to restart over a foreign
+        // listener, so the not-ready path inherits that safety rather than
+        // re-implementing it.
+        //
+        // Reconciling with the rule three lines into `handle_healthy_poll`
+        // ("Restarting cannot fix what a 503 reports (mt#2949), so this is a
+        // LABEL, not a lifecycle decision"): that still holds and is untouched.
+        // It governs a NON-2xx answer — the daemon reporting an upstream fault
+        // it is merely relaying. This path is the opposite case: a 2xx answer
+        // whose body says the daemon's OWN pool is not serving, which a restart
+        // demonstrably does fix (`minsky mcp restart --execute` cleared exactly
+        // this twice on 2026-08-24) and which the Accepted RFC "Thin hooks"
+        // §Answerer recovery requires a supervisor restart for.
+        if let Some(reason) = handle_healthy_poll(app, sup, &probe, poll_now) {
+            notify_daemon_unhealthy(
+                app,
+                sup.daemon.labels.display_name,
+                &format!("Restarting: {reason}"),
+            );
+            restart_entry(app, sup, spawned, path, client).await;
+        }
         return;
     }
 
@@ -1166,7 +1337,7 @@ async fn poll_entry(
                          Check logs: {}",
                         sup.daemon.labels.display_name, sup.daemon.labels.stderr_log_hint,
                     );
-                    notify_daemon_unhealthy(app, &reason);
+                    notify_daemon_unhealthy(app, sup.daemon.labels.display_name, &reason);
                     sup.daemon.last_http_alert = Some(poll_now);
                     eprintln!(
                         "[watchdog] sustained HTTP-failure (child alive) alert: {}",
@@ -1194,7 +1365,9 @@ async fn poll_entry(
                 &labels,
                 || port_in_use(port),
                 |eff| match eff {
-                    NoChildEffect::Notify(reason) => notify_daemon_unhealthy(app, &reason),
+                    NoChildEffect::Notify(reason) => {
+                        notify_daemon_unhealthy(app, labels.display_name, &reason)
+                    }
                     NoChildEffect::Spawn => do_spawn(app, sup, spawned, path),
                     NoChildEffect::SetStatus(label) => set_status(app, sup, label),
                     NoChildEffect::ClearUptime => clear_uptime(app, sup),
@@ -1421,11 +1594,20 @@ fn db_status_from_body(body: Option<&serde_json::Value>) -> DbStatus {
 /// Fire a best-effort OS-toast when the daemon is self-reporting unhealthy (mt#2578).
 /// Mirrors `watcher_web::notify_build_failure`; ignored if notification permission
 /// is unavailable.
-fn notify_daemon_unhealthy(app: &AppHandle, reason: &str) {
+/// Toast that a supervised daemon is unhealthy.
+///
+/// Takes the entry's display name rather than hardcoding one (PR #3299 R1).
+/// Every caller is per-entry — the restart-storm, sustained-HTTP-failure,
+/// memory-ceiling and not-ready watchdogs all run once per registered daemon —
+/// so a fixed "Cockpit" title was already the wrong shape and became visibly
+/// wrong when mt#4472 let the MCP entry raise these: the operator would get a
+/// toast blaming the cockpit for an MCP wedge, which is worse than no toast,
+/// because it points triage at the wrong process.
+fn notify_daemon_unhealthy(app: &AppHandle, display_name: &str, reason: &str) {
     let _ = app
         .notification()
         .builder()
-        .title("Cockpit daemon unhealthy")
+        .title(format!("{display_name} daemon unhealthy"))
         .body(reason)
         .show();
 }
@@ -1670,6 +1852,154 @@ mod tests {
     /// A configured non-default port, used by the mt#3988 cases below. Chosen to
     /// match the port in the 2026-06-04 incident this task fixes.
     const CONFIGURED_PORT: u16 = 4317;
+
+    // -----------------------------------------------------------------------
+    // Not-ready watchdog (mt#4472).
+    //
+    // Both units under test are pure, which is the point of splitting the
+    // DECISION out of `handle_healthy_poll`: the threshold, both cooldowns and
+    // every per-entry body reading are asserted here with no daemon, no tray,
+    // no clock and no HTTP.
+    // -----------------------------------------------------------------------
+
+    fn cockpit_policy() -> DaemonPolicy {
+        DaemonPolicy::Cockpit(CockpitPolicy {
+            last_build_label: None,
+            daemon_source_mtime: None,
+        })
+    }
+
+    /// AT4 — a single transient not-ready poll must not trigger anything.
+    ///
+    /// Not a hypothetical: on 2026-08-24T23:58Z the cockpit daemon was observed
+    /// at `db: "degraded"` with `consecutiveDegraded: 1` and was back to `ok`
+    /// within 30s, no recycle, no intervention. A watchdog that acted on one
+    /// poll would have restarted a daemon that was already recovering.
+    #[test]
+    fn a_single_not_ready_poll_does_nothing() {
+        let outcome = assess_not_ready(1, true, true);
+        assert!(!outcome.alert);
+        assert!(!outcome.restart);
+    }
+
+    /// The threshold is a STRICT crossing: at the threshold nothing fires, one
+    /// poll past it both fire. Pinning the boundary keeps a later refactor from
+    /// turning `>` into `>=` unnoticed and halving the detection window.
+    #[test]
+    fn the_threshold_is_crossed_not_reached() {
+        let at = assess_not_ready(NOT_READY_POLL_THRESHOLD, true, true);
+        assert!(!at.alert, "at the threshold nothing fires");
+        assert!(!at.restart);
+
+        let past = assess_not_ready(NOT_READY_POLL_THRESHOLD + 1, true, true);
+        assert!(past.alert, "one poll past the threshold, both fire");
+        assert!(past.restart);
+    }
+
+    /// AT3 — the rate limit. Past the threshold with the RESTART cooldown still
+    /// running, the principal is still alerted but the daemon is not restarted
+    /// again. This is what bounds a daemon whose not-ready cause a restart
+    /// cannot fix (the spec's `## Does NOT cover`).
+    #[test]
+    fn the_restart_cooldown_suppresses_the_restart_but_not_the_alert() {
+        let outcome = assess_not_ready(NOT_READY_POLL_THRESHOLD + 1, true, false);
+        assert!(outcome.alert);
+        assert!(!outcome.restart, "restart is rate-limited independently");
+    }
+
+    /// The two cooldowns are independent in both directions — an alert already
+    /// sent this episode must not suppress a due restart.
+    #[test]
+    fn the_alert_cooldown_does_not_gate_the_restart() {
+        let outcome = assess_not_ready(NOT_READY_POLL_THRESHOLD + 1, false, true);
+        assert!(!outcome.alert);
+        assert!(outcome.restart);
+    }
+
+    /// AT2 / SC5 — the negative control. The MCP daemon's offline/dev boot is
+    /// `ready: false` BY DESIGN, and the CI bundle-boot-smoke gate depends on
+    /// that 200. It must never be counted as a fault, or the tray would restart
+    /// a correctly-behaving daemon forever.
+    #[test]
+    fn an_unconfigured_mcp_daemon_is_never_counted_not_ready() {
+        let body = serde_json::json!({
+            "service": "minsky-mcp",
+            "ready": false,
+            "persistence": { "mode": "unconfigured" },
+        });
+        assert_eq!(
+            readiness_from_body(&DaemonPolicy::Mcp, Some(&body)),
+            Readiness::Abstain,
+        );
+    }
+
+    /// A daemon built before mt#4471 publishes no `ready` field at all. Absent
+    /// is not false: reading it as not-ready would restart-loop every older
+    /// build, which is the failure mode that makes an over-eager watchdog worse
+    /// than none.
+    #[test]
+    fn a_health_body_without_ready_abstains_rather_than_faulting() {
+        let body = serde_json::json!({ "service": "minsky-mcp", "status": "ok" });
+        assert_eq!(
+            readiness_from_body(&DaemonPolicy::Mcp, Some(&body)),
+            Readiness::Abstain,
+        );
+        assert_eq!(
+            readiness_from_body(&DaemonPolicy::Mcp, None),
+            Readiness::Abstain
+        );
+    }
+
+    /// The MCP entry participates at all — the half of mt#4472 that the
+    /// pre-existing cockpit-only watchdog could not do, and the entry where the
+    /// 2026-08-23 incident actually happened.
+    #[test]
+    fn the_mcp_entry_reports_readiness_from_its_ready_field() {
+        let serving = serde_json::json!({
+            "service": "minsky-mcp",
+            "ready": true,
+            "persistence": { "mode": "connected" },
+        });
+        assert_eq!(
+            readiness_from_body(&DaemonPolicy::Mcp, Some(&serving)),
+            Readiness::Serving,
+        );
+
+        let wedged = serde_json::json!({
+            "service": "minsky-mcp",
+            "ready": false,
+            "db": "degraded",
+            "persistence": { "mode": "connected" },
+        });
+        assert!(matches!(
+            readiness_from_body(&DaemonPolicy::Mcp, Some(&wedged)),
+            Readiness::NotServing(_),
+        ));
+    }
+
+    /// The cockpit entry keeps reading `db`, which is the signal it actually
+    /// publishes — it has no `ready` field (verified live 2026-08-24).
+    #[test]
+    fn the_cockpit_entry_reports_readiness_from_its_db_field() {
+        let serving = serde_json::json!({ "service": "minsky-cockpit", "db": "ok" });
+        assert_eq!(
+            readiness_from_body(&cockpit_policy(), Some(&serving)),
+            Readiness::Serving,
+        );
+
+        let degraded = serde_json::json!({ "service": "minsky-cockpit", "db": "degraded" });
+        assert!(matches!(
+            readiness_from_body(&cockpit_policy(), Some(&degraded)),
+            Readiness::NotServing(_),
+        ));
+
+        // No `db` key at all — abstain, not fault.
+        let silent = serde_json::json!({ "service": "minsky-cockpit" });
+        assert_eq!(
+            readiness_from_body(&cockpit_policy(), Some(&silent)),
+            Readiness::Abstain,
+        );
+    }
 
     /// mt#3990: the cockpit's argv is now DATA handed to the daemon-agnostic
     /// spawn rather than a literal inside it, so the thing the extraction could

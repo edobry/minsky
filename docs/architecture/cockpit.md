@@ -173,7 +173,7 @@ Every cockpit API handler distinguishes the two, and callers should too:
 
 The classification runs through `respondIfDatabaseUnavailable`
 (`src/cockpit/db-unavailable-response.ts`), which wraps `isDatabaseUnavailableError` (mt#3398).
-That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the driver
+That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the Postgres driver
 error and carries the QUERY TEXT as the wrapper's own message, so a non-walking check sees a query
 string and concludes "application bug" for what is really an outage.
 
@@ -345,7 +345,22 @@ subagent/mesh/retriever asks persist as `routed` awaiting a delivery loop
 (mt#1570 family). `createAsk` itself persists its route outcome at create
 (the sweep is the recovery backstop, not the primary path). Observability:
 asks count-by-state on `debug_systemInfo` (`asks` field) — a growing
-`detected` count means the advancement path is not running. One-time backlog
+`detected` count means the advancement path is not running.
+
+**The counts also carry an age dimension (mt#4361).** Alongside `byState`, the
+`asks` field reports `stallThresholdMs` (5 days, per `decision-defaults.mdc
+§Thresholds`) and `ageByState`: for each NON-TERMINAL state, the dwell time of
+the oldest ask in it (`oldestAgeMs`, measured from state ENTRY, `null` when the
+state is empty — not `0`, which means an ask that just arrived) and how many are
+past the threshold (`stalledCount`). The count alone cannot answer the question
+that matters for `routed`, which ADR-008 defines as transient: `routed: 5` reads
+identically five minutes and five weeks after those asks routed. Five undelivered
+`routed` asks sat 9–16 days and were found by a manual probe (mt#3353) with the
+count available the whole time. Deliberately a signal and NOT a sweep — an ask in
+`routed` is one no transport ever delivered, so nobody has seen it, and retiring
+it on age would discard an unread question rather than tidy a stale one.
+
+One-time backlog
 triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
 `--execute` to expire the stale set; `direction.decide` asks are never
 bulk-expired).
@@ -384,6 +399,10 @@ under a `transcriptWatcher` object:
   "turnsIngested": 410,
   "lastIngestAt": "2026-06-18T20:00:00.000Z",
   "lastErrorAt": "2026-06-18T19:58:00.000Z",
+  "ingestsInFlight": 1,
+  "oldestIngestInFlightAgeMs": 240,
+  "ingestsAbandoned": 0,
+  "ingestPausedUntil": null,
   "activeSessions": [
     {
       "agentSessionId": "abc-123",
@@ -405,6 +424,29 @@ text is emitted to the daemon log surface, not the API). Adding a field here
 that could leak a path or internal detail re-opens that disclosure — keep the
 redaction when extending it.
 
+**Bounded-ingest fields (mt#4492).** The four `ingest*` fields above the session
+list exist because `ingestsTriggered` counts ingest STARTS — it is incremented
+before the ingest's first await — so a started-and-never-finished ingest reads
+identically to a quiet watcher on every other field. During a pooler wedge on
+2026-08-24 this object read `ingestsTriggered: 1` with an EMPTY live-session
+list for four hours, which is exactly what an idle watcher looks like.
+
+- **`oldestIngestInFlightAgeMs` is the field to read**, not `ingestsInFlight`. A
+  non-zero COUNT is ordinary; a large AGE is not. It is derived at read time, so
+  it cannot go stale between polls, and is `null` when nothing is in flight.
+- **`ingestsAbandoned`** counts ingests dropped at the 90s wall-clock bound.
+  Abandoning costs FRESHNESS only — completeness is the sweep backstop's
+  guarantee, per ADR-017's division of the two.
+- **`ingestPausedUntil`** is non-null while the ingest path is backing off after
+  consecutive abandons. It is exposed rather than kept internal precisely
+  because a deliberately-paused watcher is the same inert-but-running shape this
+  object exists to make legible.
+
+The empty live-session list was not a separate symptom: until mt#4492 the
+per-path in-flight guard returned BEFORE stamping `lastEventAt`, so a path whose
+ingest hung stopped refreshing its stamp and dropped out of `activeSessions`
+entirely — the conversation looked idle because it was stuck.
+
 **Watchdog fields (mt#2578).** The tray-app supervisor's self-health watchdog
 (ADR-014 lifecycle extension) reads two additional top-level fields from
 `/api/health` to detect daemon restarts and sustained DB degradation:
@@ -418,12 +460,68 @@ redaction when extending it.
 epoch-ms integer with no path or identity information; `consecutiveDegraded` is
 a small counter. Neither violates the endpoint's unauthenticated-access posture.
 
+### DB recovery-mechanism counters — `dbRecycle` and `dbRetry`
+
+`/api/health` carries the outcome counters of the two DB **recovery** mechanisms.
+They exist because both previously recorded their failures ONLY as a `log.warn`:
+the pool recycle abandoned its connections 88 times with zero clean closes and
+nobody noticed for months, and it surfaced only because an unrelated
+investigation happened to `grep` the daemon log (mt#4515). A recovery mechanism
+whose failure mode is silence needs a number, not a log line.
+
+`dbRecycle` (mt#4549) — the pool RECYCLE, which replaces a wedged pool:
+
+| Field                   | Semantics                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `recycleCount`          | Recycles performed. **The denominator** — see the trap below.                                                                 |
+| `closesDrained`         | The old pool emptied inside the drain budget.                                                                                 |
+| `closesForceTerminated` | postgres-js's destroy timer fired and released the connections. **The mt#4515 fix WORKING, not a fault.**                     |
+| `closesAbandoned`       | **The alarm.** The close never returned and the outer deadline gave up, so sockets are stranded.                              |
+| `closesFailed`          | `close()` rejected before the deadline — a real fault, but a different one, split out so the alarm counter stays trustworthy. |
+
+`dbRetry` (mt#4562) — the per-query RETRY (`withPgPoolRetry`), which absorbs
+transient connection failures:
+
+| Field                    | Semantics                                                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `saturationRetries`      | Retries against a pool-exhaustion rejection. **Near-zero BY DESIGN** — see the trap below.                                         |
+| `staleConnectionRetries` | Retries against a stale/closed connection. The class production actually hits (mt#3092, mem#597).                                  |
+| `retriesExhausted`       | **The alarm.** The retry budget ran out and the error reached the caller, i.e. retry tried and could not. A fault in either class. |
+| `lastRetryAt`            | ISO timestamp of the most recent retry of either class, or `null`.                                                                 |
+
+**TRAP, and it is the whole reason these are split the way they are: a ZERO here
+is not a health claim.** Every one of these counters reads zero both when the
+mechanism is working perfectly and when nothing has exercised it — and for
+`saturationRetries`, zero is the _expected steady state forever_, because
+mt#3497 established that pool exhaustion on the transaction pooler production
+uses needs far more concurrent clients than Minsky's process count can produce.
+So:
+
+- Read `closesAbandoned` **against `recycleCount`**. Zero-with-zero means
+  untested; zero-with-nonzero means every recycle released.
+- Read `retriesExhausted` **against the two attempt counters**, and never infer
+  a fault from a low retry rate. A "rate dropped to zero" rule over a
+  normally-zero signal cannot fail — it emits the same answer whether the
+  mechanism is healthy or dead (mem#704).
+
+The post-deploy health monitor's check (d) applies exactly these rules
+(`packages/domain/src/deployment/monitor-recovery-alarm.ts`) and reports an
+unexercised mechanism as `not-applicable` rather than `ok` — deliberately, so
+that restarting the daemon (which zeroes every counter) cannot present as
+evidence of recovery and auto-close the P0 its own failures opened.
+
+**minsky-mcp's `/health` carries `dbRetry` too**, with the same semantics —
+`withPgPoolRetry` runs in every process, not just the cockpit. It does NOT carry
+`dbRecycle`, which is cockpit-only module state.
+
 ## Transcript sweep backstop (mt#2321)
 
 The cockpit daemon also runs the **transcript sweep backstop** — the recovery
 layer behind the watcher (mt#2320), per ADR-017's watcher-primary +
 sweep-backstop design. On a configurable cadence (`startTranscriptSweepBackstop`
-in `src/cockpit/sweepers.ts`) it runs a full-discovery `ingestAll()` (idempotent /
+in `src/cockpit/transcript-sweep-backstop.ts` — lifted out of `sweepers.ts` by
+mt#4480, which is also where its test file already pointed) it runs a
+full-discovery `ingestAll()` (idempotent /
 HWM-gated) followed by the vector-only semantic-embedding backfill
 (`index-embeddings`), run off the critical path and fail-open — a missing or
 failing embedding provider does not crash the sweep. It recovers what the watcher
@@ -445,15 +543,200 @@ would read zero for cockpit-process state:
   "sweepsRun": 3,
   "sessionsIngested": 41,
   "sessionsErrored": 0,
+  "sessionsQuarantined": 0,
   "embedRuns": 3,
   "lastSweepAt": "2026-06-19T22:00:00.000Z",
-  "lastErrorAt": null
+  // mt#4480 — see "Abandoned passes" below.
+  "sweepsAborted": 0,
+  "lastAbortAt": null,
+  "lastProductiveSweepAt": "2026-06-19T22:00:00.000Z",
+  "lastErrorAt": null,
+  // mt#4489 / mt#4524 — the embedding phase; see "Reading the embedding phase" below.
+  "embedFailures": 0,
+  "embedPhase": "succeeded",
+  "embedInFlightAgeMs": null,
+  "embedOverdueBoundMs": 1800000,
+  "lastEmbedAttemptAt": "2026-06-19T22:00:00.000Z",
+  "embedNeverSucceeded": false,
+  // mt#4532 — the cross-restart journal; see "Reading acrossRestarts" below.
+  "acrossRestarts": {
+    "totals": {
+      "started": 47,
+      "completed": 6,
+      "aborted": 12,
+      "failed": 4,
+      "skipped": 2,
+      "interrupted": 22
+    },
+    "completionRate": 0.128,
+    "inFlight": null,
+    "lastOutcome": "interrupted",
+    "lastEndedAt": "2026-06-19T22:00:00.000Z"
+  },
+  // mt#4601 — the embedding backfill's OWN sweep, with its own journal file.
+  "backfill": {
+    "acrossRestarts": {
+      "totals": {
+        "started": 31,
+        "completed": 28,
+        "aborted": 0,
+        "failed": 1,
+        "skipped": 0,
+        "interrupted": 2
+      },
+      "completionRate": 0.903,
+      "inFlight": null,
+      "lastOutcome": "completed",
+      "lastEndedAt": "2026-06-19T22:05:00.000Z"
+    }
+  }
 }
 ```
+
+**The two sweeps, and why they are separate (mt#4601).** Until mt#4601 the
+embedding backfill ran as "Phase 2" of the transcript sweep's tick. It now has
+its own `createIntervalSweeper` registration — visible as its own row on
+`GET /api/sweeps` — because three measured numbers made the sharing indefensible:
+
+| quantity                                       | value                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| one batch of 20 candidates                     | **~8 s** (measured 2026-08-26 against the live DB, one provider call) |
+| a FULL backfill run at the 2,000-candidate cap | ~100 batches ≈ **~13 min**                                            |
+| a steady-state run (554 candidates, measured)  | ~28 batches ≈ **~4 min**                                              |
+| the ingest pass it queued behind               | **~12 min** over ~1,500 sessions                                      |
+| the daemon's median lifetime on a working day  | **13.4 min**                                                          |
+
+A run that usually takes ~4 minutes sat behind a 12-minute ingest pass inside a 13.4-minute process, and every
+one of the ingest tick's early returns (abort, ingest throw, schema-behind) bails
+before reaching it. Measured on the shipped journal immediately before the split:
+**0 of 4 ticks reached Phase 2**, two of them interrupted by a restart.
+
+**What that cost, stated accurately.** Not completeness. The real backlog when
+this was measured was **919 turns**, with nine consecutive prior days fully
+drained — one successful run (2,000 candidates) covers a median day's intake
+(~2,200 embeddable turns), so the backfill was starved of opportunities and still
+finishing its work. The cost is **freshness**: semantic search over the last few
+hours going stale on days the sweep is interrupted. Do not read a low
+`completionRate` on the ingest sweep as evidence that embeddings are missing —
+read it beside the actual backlog:
+
+```sql
+SELECT count(*) FROM agent_transcript_turns
+WHERE embedding IS NULL AND (user_text IS NOT NULL OR assistant_text IS NOT NULL);
+```
+
+**That predicate is the backlog; a bare `embedding IS NULL` is not.** The pipeline
+only ever considers turns with text, so rows with neither `user_text` nor
+`assistant_text` stay null permanently by design — 206,433 of them at the time of
+measurement, against 919 real candidates. A bare null-count over-reports the
+backlog by 226x.
+
+**Reading `acrossRestarts` (mt#4532).** Every OTHER field above resets to zero
+when the process is replaced, and the tray restarts the daemon on every merge
+touching `src/cockpit/**` or `packages/**`. Measured 2026-08-25: **23 daemon
+boots in one working day, a median 13.4 minutes apart**, against a 30-minute
+cadence whose Phase 1 alone takes ~12 minutes — so on a working day most
+processes never conclude a tick at all, and the process-scoped counters beside
+this block are describing minutes of history, not the sweep's actual behaviour.
+
+Each sweep keeps its own journal — the ingest sweep at
+`~/.local/state/minsky/transcript-sweep-journal.json`, the backfill at
+`transcript-backfill-journal.json` — and both outlive the process. Read them
+FIRST, and read the rest against them. Same shape either side:
+
+| Field                | What it answers                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `completionRate`     | **The number.** The share of THIS sweep's ticks that ran to conclusion. `null` before any tick started; `0` means ticks ran and none finished — those are different readings and must not be conflated. |
+| `totals.interrupted` | Ticks whose process was replaced mid-flight. Reconstructed at boot, since a killed process cannot write its own terminal record.                                                                        |
+| `totals.aborted`     | A pass abandoned because the DB connection died (mt#4480). Ingest-specific in practice; the backfill has no such marker.                                                                                |
+| `totals.failed`      | The tick threw — an ingest throw, a failing backfill, or a `PersistenceService.initialize()` timeout.                                                                                                   |
+| `totals.skipped`     | The tick declined to run — schema behind (mt#3297), or no SQL-capable provider. Correct behaviour, and still not work done.                                                                             |
+| `inFlight`           | The tick running right now (`startedAt`, `pid`), or `null`. A non-null `inFlight` from a DEAD pid is what boot reconciles.                                                                              |
+
+**`phase`, `reachedPhase2` and the `embed-failed` outcome were retired by
+mt#4601.** They existed to say WHERE inside a two-phase tick something happened;
+once each sweep has exactly one job, the sweep's own journal answers that and a
+phase field would be a constant. A failing backfill is now plainly `failed` in
+the backfill's block.
+
+**Why a local file rather than Postgres.** `decision-defaults.mdc §Datastores`
+makes Postgres the default for state, and this deviates on purpose: two of the
+outcomes the journal exists to record (`aborted`, `skipped`) happen precisely
+BECAUSE the database is unreachable, so a Postgres-backed journal would fail to
+record exactly the events it was built for. Same `getStateDir()` +
+`atomicWriteJSON` pair `dispatch-watchdog.ts` and `ask-state-cache.ts` already
+use for cross-restart cockpit state.
+
+**A live foreign pid is left alone.** Boot reconcile folds an orphaned `inFlight`
+record as `interrupted` only when its pid is NOT alive. Under two concurrent
+daemons (mt#4243) the other process still owns its tick, and stealing it would
+manufacture an interruption that never happened.
+
+**Reading the embedding phase (mt#4524).** The sweep tick has two phases, and the
+counters above describe the FIRST one. `embedRuns` counts only backfills that
+CONCLUDED successfully, so on its own it cannot say whether a backfill is
+running, has never started, or has been failing — which is what `embedPhase`
+is for:
+
+| `embedPhase`           | Meaning                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `never-attempted`      | No backfill has started in this process's lifetime. Healthy on a daemon that has not swept yet.                                            |
+| `in-flight`            | A backfill is running and within its bound. **Normal**, and over ~1500 sessions it lasts minutes.                                          |
+| `in-flight-overdue`    | A backfill is running and has exceeded `embedOverdueBoundMs`. Its own condition, because a hang concludes nothing and so moves no counter. |
+| `succeeded` / `failed` | The last attempt concluded, with that outcome.                                                                                             |
+
+`embedNeverSucceeded` means _at least one attempt has CONCLUDED without success
+and none has succeeded_ — a standing failure. It was originally derived as
+`sweepsRun > 0 && embedRuns === 0`, which also fired for the entire duration of
+every healthy first backfill, because `recordSweepCompleted` ends Phase 1 before
+Phase 2 begins. Prefer `embedInFlightAgeMs` over `embedPhase` alone when judging
+severity: in-flight is normal, a large age is not — the same posture as
+`transcriptWatcher.oldestIngestInFlightAgeMs`.
+
+`embedOverdueBoundMs` is derived from this sweeper's own budgets rather than
+hardcoded: the resolved sweep interval (past which ticks start being skipped),
+capped by the per-tick timeout (past which `createIntervalSweeper` abandons the
+tick and `/api/sweeps` is the surface that says so). With the shipped defaults
+that is `min(30m, 60m)` = 30 minutes, and an
+`MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` override moves it too.
 
 Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint
 disclosure constraint).
+
+**Abandoned passes, and why `lastSweepAt` alone is not enough (mt#4480).** A pass
+holds ONE database handle across every discovered session. When the shared pool
+is recycled mid-pass (mt#3638), postgres-js rejects every subsequent query on
+that handle with `CONNECTION_ENDED`, so each remaining session fails its first
+query in microseconds and the pass reaches its end having ingested nothing.
+Measured before this shipped: five consecutive passes reporting
+`sessionsProcessed: 1502, sessionsErrored: 1502, totalIngested: 0` — and each
+one incremented `sweepsRun` and added 1,502 to `sessionsIngested`, so this
+payload read like a busy, healthy sweep throughout.
+
+`ingestAll` now abandons a pass after 10 consecutive failures that classify as
+INFRASTRUCTURE (`classifyConnectionFailure`; an `"unknown"` classification
+deliberately never counts, so ordinary per-session errors cannot trip it), and
+the three fields above make the outcome legible:
+
+- **`sweepsAborted` / `lastAbortAt`** — abandoned passes. **Disjoint from
+  `sweepsRun`**: an abandoned pass is not a sweep that happened, and its sessions
+  are NOT added to `sessionsIngested`/`sessionsErrored`, because they were failed
+  at rather than swept. The embedding backfill is skipped for such a pass too —
+  it needs the same dead connection. `lastErrorAt` is set, since an abandoned
+  pass is a sweep-level error.
+- **`lastProductiveSweepAt`** — the last pass that actually ingested something
+  (`totalIngested > 0`). This is the field to read for freshness, and the only
+  one here that a merely-RUNNING mechanism cannot satisfy: `lastSweepAt` advances
+  on every completed tick including ones that write nothing. **A widening gap
+  between `lastSweepAt` and `lastProductiveSweepAt` is the standing condition an
+  operator wants**, and it is visible here without reading a log.
+
+Note the sweep is a BACKSTOP — its cadence is 30 minutes, so
+`lastProductiveSweepAt` is not a latency signal. Capture freshness is the
+watcher's job (`transcriptWatcher`, previous section); since mt#4480 the watcher
+re-resolves its handle after a pool recycle rather than caching it for the life
+of the process.
 
 ## Scheduled follow-up sweeper (mt#2322)
 
@@ -502,6 +785,101 @@ work is succeeding is visible on `/api/sweeps` beside its scheduling fields.
 (mt#3684 added the channel and left adoption optional; mt#4412 made it
 mandatory, so "migrating each sweep onto it is separate work" no longer
 applies — every registrant now declares one.)
+
+## Unattended task-supervision sweeper (mt#4571)
+
+The sweep that makes assigning an umbrella actually start a workstream. The
+principal's ask, verbatim: _"I want to assign the umbrella so that I can be
+confident that I kicked off the entire work stream … I can then leave my
+computer for a few hours and know that the 'supervisor agent' will proceed to
+walk that task tree without me having to watch."_
+
+**Almost nothing here is new.** mt#4571's planning pass checked six premises at
+source and falsified three: a runner that outlives the operator already exists
+(this file's `createIntervalSweeper`), the actuator that spawns a genuine
+`claude` child already shipped (mt#2750, with mt#3038's persistence and
+restart reconciliation), and the graph reasoning already exists
+(`TaskGraphService`). What was missing was a **supervision record and a tick
+that walks it** — plus a usable completion signal, below.
+
+**The record.** `task_supervisions` (one row per supervised umbrella: explicit
+status filter, WIP limit, model, event watermark, `last_tick_at`,
+`last_advance_at`, `last_hold_reason`) and `task_supervision_dispatches` (one
+row per child started, unique on `(supervision_id, task_id)`). A partial unique
+index on `umbrella_task_id WHERE status = 'active'` makes at-most-one-active a
+database guarantee rather than a check-then-insert two concurrent callers would
+both pass. `DrizzleSupervisionStore`
+(`packages/domain/src/supervision/supervision-store.ts`) owns the reads and
+writes; `runSupervisionTick` (`../supervision-tick.ts`) owns the decisions and
+takes its dependencies as an interface, so the DAG walk is testable without a
+database or a real child process.
+
+**The tick**, every 60 seconds, per active supervision, under a
+`pg_try_advisory_xact_lock` keyed on the supervision id (a second daemon's tick
+takes no lock and does nothing):
+
+1. **Settle from `pr.merged`** — rows since the supervision's watermark that
+   name a dispatched child.
+2. **Reconcile against the graph** — re-read each in-flight child's task status
+   and its driven-session record. This is the backstop that makes a missed
+   event non-fatal (`decision-defaults.mdc §Reliability`).
+3. **Recompute the frontier** via `computeUmbrellaFrontier`
+   (`packages/domain/src/tasks/umbrella-frontier.ts`), the same function
+   `tasks.orchestrate` uses — extracted so the command an operator inspects an
+   umbrella with and the supervisor that dispatches from it cannot disagree
+   about whether a child is blocked.
+4. **Dispatch up to the free WIP slots** — `resolveTaskWorkspace` →
+   `startDrivenSession` → `sendDrivenSessionInput` with a prompt from
+   `generateSubagentPrompt`. Note this does NOT call `tasks_dispatch`, which
+   spawns nothing: it ends at prompt generation, gated on
+   `hasNativeSubagentSupport()`, returning a prompt for a HARNESS to hand to its
+   Agent tool. A sweeper has no harness.
+
+**`task.status_changed` is deliberately not used.** Its only emitter is
+`emitTaskStatusChangedEvent`, called from the `tasks_status_set` path; a
+merge-driven DONE goes through `applyPostMergeStateSync` →
+`taskService.setTaskStatus`, which emits nothing. So a child completing the
+ordinary way produces no row at all. mt#4574 owns closing that gap and is
+deliberately NOT a dependency — `pr.merged` covers the trigger, so mt#4574 buys
+a uniform stream rather than unblocking anything.
+
+**Thresholds, measured rather than picked** (`decision-defaults.mdc
+§Thresholds`), from one pass over `system_events` on 2026-08-25 treating a
+child's window as `[min(session.started), min(pr.merged)]`:
+
+| Threshold                  | Value | Measurement                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WIP limit, per supervision | 4     | Per-umbrella peak concurrency over 60 days across 86 umbrellas: median 1, p90 1, p95 2, **max 4**. The limit is the observed maximum — the median would refuse parallelism that has demonstrably happened, and a round 8 or 10 has no observed support. Whole-system concurrency over the same window was median 8 / p95 14 / peak 22, so one umbrella at its cap cannot monopolize capacity. |
+| Semantic-stall threshold   | 8h    | Child duration, 1,156 spans: median 0.68h, p90 7.26h, p95 18.37h. p90 rounded up to the next whole hour.                                                                                                                                                                                                                                                                                      |
+| Tick cadence               | 60s   | The 60s sweeper cohort. Median child duration is 41 minutes, so the tick bounds dispatch LATENCY, not any threshold.                                                                                                                                                                                                                                                                          |
+
+**Bounded autonomy.** The supervisor calls exactly three actuators (resolve a
+workspace, spawn a child, hand it its prompt). It never merges, answers an ask,
+changes scope, or **retries a failed child** — an automatic retry would burn a
+WIP slot indefinitely on work that needs a person, so a failure becomes a
+`failed`/`stranded` dispatch row instead. A child that needs a decision escalates
+through the ordinary asks surface, which reaches the operator's inbox
+independently of the supervisor.
+
+**Observability.** Liveness of the TICK is covered generically by the
+sweep-liveness registry below under the name `"task supervision"`. What is
+net-new is the SEMANTIC stall — the tick is healthy and nothing has advanced —
+which `startSweepMetaWatchdog` structurally cannot see, because it watches for a
+dead tick. That is what `last_advance_at` is separate from `last_tick_at` for,
+and `tasks.supervision-status` reports it as a distinct `stalled` flag.
+
+**Command surface** (`src/adapters/shared/commands/tasks/supervision-commands.ts`):
+
+```
+tasks.supervise            — start supervising an umbrella
+tasks.supervision-status   — what is dispatched, what it is waiting on, has it stalled
+tasks.supervise-stop       — dispatch nothing further (already-started children keep running)
+```
+
+**Verification artifact:** `scripts/verify-task-supervision.ts` — exercises the
+store, the partial unique index, the advisory lock's exclusion across two
+connections, and the full AT1 walk against a real Postgres with a seeded
+fixture DAG.
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -611,6 +989,39 @@ their own, which is why the domain fields above exist on the shared registry
 rather than being deferred to a per-sweep tracker that may not exist. Settle the
 count with
 `curl -s localhost:3737/api/sweeps | jq '.sweeps | length'`.
+
+**`/api/health` carries the AGGREGATE, and only since mt#4384.** Its `sweepLiveness`
+block reports `abandonedTicksOutstanding`, the sweeps holding those ticks,
+`registrants`, and the declaring/reporting counts — enough that a reader cannot reach
+"healthy, just hasn't finished" from a wedged sweep. Before mt#4384 this endpoint never
+read the liveness registry at all, so abandonment could not appear there **by
+construction**: the three blocks it did carry are DOMAIN trackers, and an abandoned tick
+never completes, so it produces no domain outcome for them to report. On 2026-08-21
+`prodStateSweep` read `lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0`
+while `/api/sweeps` showed nine sweeps wedged with guards held. **Per-sweep detail still
+lives on `/api/sweeps`**, which the payload names in `authoritativeSurface`.
+
+### A restarted daemon takes up to 15 minutes to look healthy
+
+**At 12 minutes it looks identically wedged, and that is the single most misleading
+reading this subsystem produces.** mt#4335's abandoned-tick hard release fires at
+`DEFAULT_TICK_TIMEOUT_MS × ABANDONED_TICK_HARD_RELEASE_MULTIPLIER` = 5 min × 3 = **15
+minutes**. Until it does, a boot tick that wedged is still outstanding, so the sweep
+shows a tick open with `lastSuccessAt: null` — indistinguishable from a restart that
+accomplished nothing.
+
+Measured 2026-08-21: the boot tick was abandoned at 17:52:09, the hard release fired at
+18:07:09 **exactly**, and the next tick succeeded at 18:07:09.248Z. Someone checking at
+12 minutes concluded the restart had failed, and that reached the principal as an
+incident before being corrected.
+
+**So: wait past `tickTimeoutMs × 3` before judging a restart**, and read `/api/sweeps`
+(or `/api/health`'s `sweepLiveness`) rather than a domain tracker while you wait —
+`abandonedTicksOutstanding` falling to zero is the signal that recovery actually
+happened. Two further cautions from the same family: a restart is not reliably the
+remedy at all (mem#1178 records an occurrence that self-cleared with none), and
+`minsky cockpit restart` DOES work under the tray despite an older note to the contrary
+(re-measured 2026-08-21).
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the
@@ -957,7 +1368,7 @@ Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 returns `{ active: boolean, activeSessionIds: string[] }` — a cheap,
 in-memory scan of the registry for any session whose LATEST observed event
 is not yet a terminal `result`/`minsky_exit` event (a record with no live
-actuator — any terminal status, or `reconnecting` — is never mid-turn). This
+session driver — any terminal status, or `reconnecting` — is never mid-turn). This
 is the pre-restart gate the cockpit-tray watcher's backend-source watcher
 (mt#2299, `cockpit-tray/src-tauri/src/watcher_backend.rs`) queries before a
 hot-reload daemon restart: if a turn is active, the restart is deferred for

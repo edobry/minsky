@@ -103,6 +103,67 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     expect(actualFields).toEqual(fixtureFields);
   });
 
+  // mt#4489 — the route half of the cwd guard. `findRepoRoot`'s own negative
+  // case is covered at web-dist.test.ts:23 with an injected `exists`; what is
+  // NOT covered there, and is the entire point of this field, is that the route
+  // re-resolves against the LIVE cwd on each request rather than a boot-time
+  // constant. A test that only asserted the healthy shape would pass against a
+  // hardcoded `resolved: <repo>`, so the flip is asserted directly.
+  test("workspaceRoot reports resolves: true from a healthy cwd", async () => {
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as {
+      workspaceRoot: { resolves: boolean; checkedAt: string };
+    };
+
+    expect(body.workspaceRoot.resolves).toBe(true);
+    expect(Number.isNaN(Date.parse(body.workspaceRoot.checkedAt))).toBe(false);
+  });
+
+  test("workspaceRoot reports resolves: false when the cwd is not a repo root", async () => {
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    // The condition this field exists for is a cwd that STOPS resolving under a
+    // running process. Deleting the real cwd mid-test is not available to us, so
+    // we move to a directory that cannot resolve — `/` has no `src/cockpit/web`
+    // at or above it — which reaches the route through the same code path.
+    // Restored in `finally` so a failed assertion cannot leak a bad cwd into
+    // any test that runs after this one.
+    const original = process.cwd();
+    try {
+      process.chdir(path.sep);
+      const res = await fetch(`${url}/api/health`);
+      const body = (await res.json()) as { workspaceRoot: { resolves: boolean } };
+      expect(body.workspaceRoot.resolves).toBe(false);
+    } finally {
+      process.chdir(original);
+    }
+  });
+
+  // PR #3296 R1 — the reviewer caught `workspaceRoot` publishing absolute paths
+  // on this unauthenticated endpoint. Guarding the CLASS rather than the one
+  // field: any future addition that serializes a path fails here, which is the
+  // check that was missing when the field was added.
+  test("the unauthenticated payload carries no absolute filesystem path", async () => {
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const raw = await res.text();
+
+    // The operator's home directory is the specific thing that leaked, and it is
+    // the cheapest true positive to assert against. `homedir()` is used rather
+    // than a hardcoded prefix so this is meaningful on any machine and in CI.
+    expect(raw).not.toContain(os.homedir());
+    // Any other rooted POSIX path that looks like a real directory, as a JSON
+    // string value. Narrow on purpose: bare "/" appears in URLs and ISO strings,
+    // so only a multi-segment absolute path counts.
+    expect(raw).not.toMatch(/"\/(?:[A-Za-z0-9._-]+\/){2,}/);
+  });
+
   test("live response field types match the shared golden fixture", async () => {
     const fixture = loadFixture();
     const { url, close } = await startTestServer();
@@ -166,6 +227,30 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     for (const [field, expectedType] of Object.entries(parsed.transcriptWatcherFields)) {
       expect(body.transcriptWatcher).toHaveProperty(field);
       expect(typeOf(body.transcriptWatcher[field])).toBe(expectedType);
+    }
+  });
+
+  test("sweepLiveness's nested field set and types match the fixture (mt#4384)", async () => {
+    // PR #3240 R1: `.fields.sweepLiveness = "object"` pins that the block EXISTS and
+    // is an object; it cannot catch a field added, removed or retyped INSIDE it. That
+    // is the same cannot-see-it shape this whole task is about — a surface that does
+    // not look at the layer holding the answer — so the block gets the same nested
+    // pin `transcriptWatcher` already has.
+    const parsed = healthShapeFixtureJson as unknown as {
+      sweepLivenessFields: Record<string, string>;
+    };
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as { sweepLiveness: Record<string, unknown> };
+
+    expect(Object.keys(body.sweepLiveness).sort()).toEqual(
+      Object.keys(parsed.sweepLivenessFields).sort()
+    );
+    for (const [field, expectedType] of Object.entries(parsed.sweepLivenessFields)) {
+      expect(body.sweepLiveness).toHaveProperty(field);
+      expect(typeOf(body.sweepLiveness[field])).toBe(expectedType);
     }
   });
 
@@ -334,6 +419,12 @@ describe("/api/health liveness-dating invariant (mt#4186)", () => {
   // the reset runs on both edges.
   beforeEach(() => {
     TranscriptWatcherTracker.resetForTest();
+    // mt#4538: `_dbStatus` and the `lastSuccessAt` stamp are process-global on
+    // the same footing as the tracker above, and the mt#4538 test below drives
+    // BOTH into an affirmative state. Reset on both edges for the reason the
+    // tracker already does: an afterEach alone protects later files but not this
+    // block's own starting point.
+    __resetSharedPersistenceForTests();
   });
 
   afterEach(async () => {
@@ -341,6 +432,7 @@ describe("/api/health liveness-dating invariant (mt#4186)", () => {
       await close();
     }
     TranscriptWatcherTracker.resetForTest();
+    __resetSharedPersistenceForTests();
   });
 
   /** The pre-mt#4183 `principalChannel`, verbatim: a healthy claim nothing can date. */
@@ -509,5 +601,66 @@ describe("/api/health liveness-dating invariant (mt#4186)", () => {
     expect(
       findUndatedLivenessAssertions({ pump: { state: "running", lastAttemptAtMs: NaN } })
     ).toEqual([{ field: "pump", assertion: 'state="running"' }]);
+  });
+
+  test("mt#4538: a CONNECTED dbHealth is dated over the real route, by lastSuccessAt", async () => {
+    // The route-level half of mt#4538. The mt#4186 AT2 test above never inspects
+    // `dbHealth` at all — it sits `unavailable` in this harness, so it asserts no
+    // liveness and the invariant skips it. Driving the probe to success is what
+    // puts `mode: "connected"` on the live payload, which is the state the whole
+    // task is about.
+    await refreshDbReachability(() => Promise.resolve("ok"), 50);
+    expect(getDbStatus()).toBe("ok");
+
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const dbHealth = body.dbHealth as Record<string, unknown>;
+
+    expect(dbHealth.mode).toBe("connected");
+    expect(typeof dbHealth.lastSuccessAt).toBe("string");
+
+    // And the assertion is DATED — inspected, not skipped. `dated` naming
+    // dbHealth is what distinguishes this from the vacuous reading mem#704
+    // warns about: an empty `undated` is also what a check that looked at
+    // nothing returns.
+    const { undated, dated } = auditLivenessAssertions(body);
+    expect(describeUndatedLivenessAssertions(undated)).toBe("");
+    expect(dated.map((d) => d.field)).toContain("dbHealth");
+  });
+
+  test("mt#4538: this check cannot tell whether a dating field dates THIS assertion", () => {
+    // Characterization, deliberately pinning a LIMIT rather than a capability.
+    //
+    // The rule is keyed on shape, so a `dbHealth` carrying only `lastAttemptAt`
+    // passes: `/At(Ms)?$/` matches and nothing asks what event the field dates.
+    // For ~two months that pass was INCIDENTAL — `mode: "connected"` is
+    // maintained by the reachability probe on a ~10s cadence, while
+    // `lastAttemptAt` moves only when the persistence singleton is
+    // re-initialized, so on a healthy daemon the two diverge without bound. A
+    // live read on 2026-08-25 showed `lastAttemptAt` 3768s behind a `connected`
+    // that had been re-confirmed seconds earlier.
+    expect(
+      findUndatedLivenessAssertions({
+        dbHealth: { mode: "connected", lastAttemptAt: "2026-08-25T20:33:05.146Z" },
+      })
+    ).toEqual([]);
+
+    // Widening the check to catch that is NOT the remedy and was considered and
+    // rejected: whether a field dates the assertion beside it is a semantic
+    // question about two runtime cadences, not a property of the object's shape,
+    // so nothing static can decide it. The remedy is the missing field
+    // (`dbHealth.lastSuccessAt`, mt#4538), and its regression pin lives in
+    // `shared-persistence.test.ts` where the real cadences can be driven —
+    // `dbHealth` sits `unavailable` in this harness, so the live-payload test
+    // above never inspects it at all.
+    //
+    // What this check DOES still guarantee for the same sub-object: a `dbHealth`
+    // with no dating field whatsoever is caught, by shape, exactly as designed.
+    expect(findUndatedLivenessAssertions({ dbHealth: { mode: "connected" } })).toEqual([
+      { field: "dbHealth", assertion: 'mode="connected"' },
+    ]);
   });
 });

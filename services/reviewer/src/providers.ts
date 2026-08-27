@@ -14,7 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import type * as OpenAICore from "openai/core";
-import type { ReviewerConfig } from "./config";
+import { REVIEWER_CALLTIME_ENV_VAR_NAMES, type ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import {
   OUTPUT_TOOL_DEFINITIONS,
@@ -55,7 +55,10 @@ const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
  * provider-side transient had cleared. Matching the primary timeout gives the
  * retry the same budget as the first attempt.
  *
- * Tunable via REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS at process-env load time.
+ * Tunable at process-env load time via the TOOLLOOP_RETRY_TIMEOUT_MS entry in
+ * config.ts's REVIEWER_CALLTIME_ENV_VAR_NAMES, which is where the operator-
+ * facing variable name lives (mt#4619 — naming it here too would be a second
+ * spelling that a rename leaves stale).
  */
 const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120_000;
 
@@ -63,10 +66,25 @@ const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120_000;
  * Read the toolloop-retry config from process env at call time. Defaults match
  * the empirically-grounded values above. mt#1969.
  */
+/**
+ * Parse the toolloop-retry flag (mt#1969).
+ *
+ * Default TRUE, and deliberately a DIFFERENT rule from the default-OFF
+ * behavioural flags parsed by `config-fingerprint.ts` — which is why it is
+ * defined here beside its consumer and exported for the fingerprint to reuse,
+ * rather than re-derived there against the wrong default. mt#4556.
+ */
+export function parseToolloopRetryEnabled(raw: string | undefined): boolean {
+  return raw === undefined ? true : raw === "true" || raw === "1";
+}
+
 function resolveToolloopRetryConfig(): { enabled: boolean; retryTimeoutMs: number } {
-  const rawEnabled = process.env["REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT"];
-  const enabled = rawEnabled === undefined ? true : rawEnabled === "true" || rawEnabled === "1";
-  const rawMs = process.env["REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS"];
+  // Names come from config.ts's registry, never spelled here (mt#4619) — a
+  // typo'd property is a type error; a typo'd string would read no env var.
+  const enabled = parseToolloopRetryEnabled(
+    process.env[REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_ON_TIMEOUT]
+  );
+  const rawMs = process.env[REVIEWER_CALLTIME_ENV_VAR_NAMES.TOOLLOOP_RETRY_TIMEOUT_MS];
   const parsedMs = rawMs ? parseInt(rawMs, 10) : NaN;
   const retryTimeoutMs =
     Number.isFinite(parsedMs) && parsedMs > 0 ? parsedMs : DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS;
@@ -84,9 +102,10 @@ export interface ToolloopRetryResult<T> {
  * Behavior:
  *   - First attempt uses the caller-supplied `primaryTimeoutMs` (production
  *     default 120s from config.ts → DEFAULT_MODEL_TIMEOUT_MS).
- *   - On TimeoutError AND retry-enabled (REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT,
- *     default "true"), emits a `toolloop.timeout_retry` log line and retries
- *     once with REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS (default 90s).
+ *   - On TimeoutError AND retry-enabled (the TOOLLOOP_RETRY_ON_TIMEOUT entry
+ *     in config.ts's REVIEWER_CALLTIME_ENV_VAR_NAMES, default "true"), emits a
+ *     `toolloop.timeout_retry` log line and retries once with that registry's
+ *     TOOLLOOP_RETRY_TIMEOUT_MS entry (default 90s).
  *   - If the retry also times out OR retry is disabled, the TimeoutError
  *     propagates to the toolloop caller and surfaces in logs as the existing
  *     `sweeper.retrigger_failed` / equivalent shape.
@@ -340,7 +359,7 @@ export interface ToolLoopDiagnostics {
  * output and usually succeeds.
  */
 export interface CallReviewerOptions {
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -359,6 +378,49 @@ export function isReasoningModel(model: string): boolean {
   // gpt-5 family (gpt-5, gpt-5-turbo, gpt-5-mini, etc.)
   if (/^gpt-5(\b|-)/.test(model)) return true;
   return false;
+}
+
+/**
+ * The values OpenAI's `reasoning_effort` parameter accepts.
+ *
+ * The ARRAY is the source of truth and the type is derived from it, rather
+ * than the other way round: consumers that need to VALIDATE a runtime string
+ * (the eval runner's `--model` effort suffix) would otherwise hand-enumerate
+ * the same values, and a widening here — mt#3526 proposes adding `"minimal"` —
+ * would leave them silently rejecting a value this module accepts.
+ */
+export const REASONING_EFFORTS = ["low", "medium", "high"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/**
+ * The `reasoning_effort` a call resolves to, or `null` when none is sent.
+ *
+ * There is no reasoning-effort SETTING — the value is computed per call, which
+ * is why this is a function rather than a config field. `callOpenAIWithClient`
+ * below is the one caller that acts on it; `config-fingerprint.ts` (mt#4556) is
+ * the one caller that RECORDS it, and both go through here so a recorded effort
+ * cannot disagree with the effort actually sent.
+ *
+ * `null` when the provider is not OpenAI (Google and Anthropic have no
+ * equivalent knob and ignore the option) or when the model takes no
+ * `reasoning_effort` parameter — passing it to a non-reasoning model returns
+ * 400 from the API, which is why the parameter is omitted rather than defaulted.
+ *
+ * The default varies by path: `"low"` when tools are active, so budget goes to
+ * tool-call JSON rather than hidden CoT, and `"medium"` for single-turn
+ * no-tools reviews (mt#1232). A caller-supplied override always wins — the
+ * retry path uses it to force `"low"` (mt#1131).
+ */
+export function resolveReasoningEffort(
+  provider: string,
+  model: string,
+  toolsActive: boolean,
+  override?: ReasoningEffort
+): ReasoningEffort | null {
+  if (provider !== "openai") return null;
+  if (!isReasoningModel(model)) return null;
+  return override ?? (toolsActive ? "low" : "medium");
 }
 
 // TODO(mt#1126 follow-up): add Gemini function-calling implementation
@@ -764,7 +826,7 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
 interface ChatCreateBaseParams {
   model: string;
   max_completion_tokens: number;
-  reasoning_effort?: "low" | "medium" | "high";
+  reasoning_effort?: ReasoningEffort;
   // mt#2722 — OpenAI prompt-cache controls. Neither field is typed by the
   // installed openai@4.104.0 (both postdate it); the OpenAI Node SDK forwards
   // unknown body fields verbatim, so we carry them as a typed passthrough on
@@ -1066,11 +1128,18 @@ export async function callOpenAIWithClient(
   // overhead). See mt#1232.
   const maxCompletionTokens = tools ? 32768 : 16384;
 
-  // When tools are active, default reasoning_effort to "low" so the model
-  // spends budget on structured output (tool calls) rather than hidden CoT.
-  // The no-tools path keeps "medium" as the baseline. Caller-supplied
-  // options.reasoningEffort always takes precedence on both paths. See mt#1232.
-  const defaultReasoningEffort = tools ? ("low" as const) : ("medium" as const);
+  // The reasoning_effort actually sent on this call. Resolved by the single
+  // function that owns the rule (mt#4556) rather than inline, so the value
+  // recorded in the config fingerprint cannot disagree with the value sent
+  // here. Tools-active defaults to "low" so the model spends budget on
+  // structured output rather than hidden CoT; the no-tools path keeps "medium"
+  // (mt#1232). A caller-supplied override wins on both paths (mt#1131).
+  const effectiveReasoningEffort = resolveReasoningEffort(
+    "openai",
+    model,
+    tools !== undefined,
+    options?.reasoningEffort
+  );
 
   // mt#2722 — stable prompt-cache routing key. The OpenAI cached prefix is the
   // systemPrompt + tools array; the systemPrompt (built by
@@ -1100,14 +1169,9 @@ export async function callOpenAIWithClient(
     prompt_cache_retention: "24h" as const,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
-    // API — so only include it when the configured model supports it. The
-    // default varies by path: "low" when tools are active (preserve budget for
-    // tool-call JSON), "medium" for single-turn no-tools reviews. Retries
-    // override with "low" to shift the budget toward visible output when the
-    // first attempt returned empty (mt#1131).
-    ...(isReasoningModel(model)
-      ? { reasoning_effort: options?.reasoningEffort ?? defaultReasoningEffort }
-      : {}),
+    // API — so resolveReasoningEffort returns null for those and the field is
+    // omitted entirely rather than defaulted.
+    ...(effectiveReasoningEffort !== null ? { reasoning_effort: effectiveReasoningEffort } : {}),
   };
 
   // No tools provided — preserve original single-turn behavior.

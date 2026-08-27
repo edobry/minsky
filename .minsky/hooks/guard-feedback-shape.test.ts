@@ -287,6 +287,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
+        "inject-ask-responses",
         "inject-current-time",
         "inject-dispatch-watchdog",
         "inject-git-state",
@@ -303,6 +304,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "pre-narration-detector",
         "require-duplicate-check-record",
         "retrospective-trigger-scanner",
+        "secret-request-in-chat-detector",
         "silent-stretch-detector",
         "skill-staleness-detector",
         "spec-criterion-claim-detector",
@@ -313,6 +315,12 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "turn-end-untaken-action-scan",
         "turn-end-unwalked-task-scan",
         "wall-of-text-detector",
+        // mt#2264. Present here while `INJECTION_ENABLED` is false, because
+        // this receipt measures what a guard CAN render (via `renderProbe`),
+        // not what it currently emits. Listing it now means the text is
+        // size-checked from the day it ships rather than from the day it is
+        // graduated — which is the point at which nobody re-measures.
+        "warn-unwired-task-relationship",
       ].sort()
     );
   });
@@ -432,6 +440,7 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // fallback against the declared 400), not a sample of an unbounded axis.
   "context-fill-gauge": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
+  "inject-ask-responses": "capped", // MAX_ENUMERATED_ASKS x (MAX_TITLE_CHARS + MAX_CHOSEN_RENDER_CHARS) (mt#3564)
   "inject-current-time": "fixed",
   "inject-dispatch-watchdog": "capped", // MAX_ENUMERATED_FLAGS (mt#3485)
   "inject-git-state": "fixed",
@@ -451,6 +460,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "pre-narration-detector": "capped", // one line per category, phrase at 200
   "require-duplicate-check-record": "fixed",
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)
+  // One line per matched pattern PER SURFACE, and neither the match count nor
+  // the surface count is capped — a turn with many matching sentences exceeds
+  // the posed render. A saturated sample, not a proved ceiling; an `…and N more`
+  // cap is owed before injection is enabled (mt#2428).
+  "secret-request-in-chat-detector": RENDER_PROBE_SAMPLE,
   "silent-stretch-detector": "fixed",
   "skill-staleness-detector": "capped", // MAX_FILES_LISTED
   // One block per flagged criterion and a spec may carry many, so the
@@ -471,8 +485,26 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // longer branch — so the ordinary canary (commitment-only) measures the shorter
   // one and bounds nothing. The declared worstCaseCanary is posed at the overlap.
   "turn-end-untaken-action-scan": WORST_CASE_CANARY, // capped lines + a branching directive
-  "turn-end-unwalked-task-scan": "capped", // MAX_LISTED_IDS (mt#3536)
+  // mt#3784: was `"capped"` on `MAX_LISTED_IDS` alone, which was true and no
+  // longer sufficient — the restructure added a SECOND axis (two directive
+  // branches of different lengths), and the id cap says nothing about which one
+  // renders. Both axes are now saturated at once by a declared
+  // `worstCaseCanary` (four ids so the `…and N more` line renders, and NO
+  // primary-thread call so the longer branch is selected), so it earns the
+  // stronger value. The measurement that motivated this: the registration's own
+  // comment had drifted to "470 chars" against an actual 519, because nothing
+  // had ever rendered the guard at its cap.
+  "turn-end-unwalked-task-scan": WORST_CASE_CANARY,
   "wall-of-text-detector": "fixed", // one excerpt, EXCERPT_MAX_CHARS
+  // mt#2264. `fixed`, and it is a PROVED ceiling rather than an assumption:
+  // all three rendered dimensions are bounded — the list at
+  // MAX_RENDERED_ASSERTIONS, the overflow suffix at one line, and the remedy
+  // block at one line per axis, of which there are exactly three.
+  // `renderWorstCase` saturates all three at once, and the module's own test
+  // asserts its length against the registration's declared `attentionCost`,
+  // so the two cannot drift the way `turn-end-unwalked-task-scan`'s comment
+  // did (470 claimed against 519 actual).
+  "warn-unwired-task-relationship": "fixed",
 };
 
 describe("guard feedback — growth-shape classification receipt (mt#3705)", () => {

@@ -234,6 +234,9 @@ describe("callOpenAIWithClient carries partial timing out of a throw (mt#4281)",
 
 const FAKE_DB = {} as unknown as ReviewerDb;
 
+/** mt#4556: the configuration arm the caller stamps on this path. */
+const FINGERPRINT = "v1;effort=low;model=gpt-5;provider=openai;tier2=off";
+
 function baseInput() {
   const captured: ReviewTimingInput[] = [];
   return {
@@ -253,6 +256,7 @@ function baseInput() {
       toolUseActive: true,
       provider: "openai",
       model: "gpt-5",
+      configFingerprint: FINGERPRINT,
     },
   };
 }
@@ -273,6 +277,10 @@ describe("recordUnrecoveredReviewTiming (mt#4281)", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]?.retryOutcomes).toContain(TIMEOUT_UNRECOVERED);
     expect(captured[0]?.prNumber).toBe(3095);
+    // mt#4556 AT5: this path has no model OUTPUT to derive from — the call
+    // threw — but a call was attempted, so the row must still name the
+    // configuration arm it was attempted under.
+    expect(captured[0]?.configFingerprint).toBe(FINGERPRINT);
   });
 
   test("partial latencies are PERSISTED, not dropped to an empty array", async () => {

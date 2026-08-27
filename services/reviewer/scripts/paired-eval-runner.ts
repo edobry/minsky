@@ -24,10 +24,25 @@
  *
  * Flags:
  *   --corpus <path>    Corpus JSONL path. Default: the committed v1 corpus.
- *   --model <p:m>      Repeatable. "<provider>:<model>", e.g. "openai:gpt-5".
+ *   --model <p:m[:e]>  Repeatable. "<provider>:<model>" or
+ *                      "<provider>:<model>:<effort>", e.g. "openai:gpt-5" or
+ *                      "openai:gpt-5:high". Effort is one of low|medium|high
+ *                      and is OPTIONAL.
  *                      Default: [openai:gpt-5, openai:gpt-5-mini] — the
  *                      exact mt#2718 comparison this benchmark exists to
  *                      answer (spec Acceptance Test #4).
+ *
+ *                      Effort is an ARM dimension rather than a run-wide flag
+ *                      (mt#4554) so a factorial lands in ONE artifact:
+ *                        --model openai:gpt-5:low --model openai:gpt-5:high
+ *                      compares effort with everything else held fixed. A
+ *                      run-wide flag would put those two in separate runs.
+ *
+ *                      OMITTING the effort is not a neutral baseline: this
+ *                      runner always passes a tools object, so
+ *                      providers.ts derives "low" for an unpinned OpenAI arm.
+ *                      Both the pinned and the resolved value are written to
+ *                      the results artifact; GROUP BY the resolved one.
  *   --sample N         Number of corpus PRs to replay. Default 8.
  *   --attempts K       Attempts per PR per config. Default 1.
  *   --out <path>       Output artifact path. Default: a non-clobbering,
@@ -44,10 +59,21 @@
  *                      fetch — the live path is what exercises
  *                      fetchIterationContext.
  *
- * Live runs require OPENAI_API_KEY (gating check below — at minimum one
- * configured provider must be reachable) plus OCTOKIT_AUTH or GITHUB_TOKEN
- * (for fetchIterationContext's PR-context reconstruction). Neither is
- * required for --dry-run.
+ * Live runs require at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY /
+ * ANTHROPIC_API_KEY matching a requested --model provider (gating check
+ * below — a missing key for one requested provider SKIPs just that arm; the
+ * whole run only skips when NONE of the requested providers are runnable),
+ * plus OCTOKIT_AUTH or GITHUB_TOKEN for fetchIterationContext's PR-context
+ * reconstruction. Neither is required for --dry-run.
+ *
+ * Credential resolution is env-first, then falls back to Minsky's own
+ * configuration (mt#3547 for OpenAI/GitHub, extended to google/anthropic by
+ * mt#4620 — see harness-config-auth.ts and services/reviewer/HARNESS.md's
+ * "Config fallback" section). On a developer machine or an agent session,
+ * the key or token typically lives in Minsky's config rather than as a raw
+ * exported env var; without the fallback this script reports "no key
+ * configured" even when e.g. `ai_complete`/`ai_validate` against that same
+ * provider would succeed.
  */
 
 import { Octokit } from "@octokit/rest";
@@ -68,11 +94,21 @@ import {
   type FindingVerdict,
 } from "../src/eval-metrics";
 import { parseFindingsFromBody, type FlatFinding } from "../src/replay-summary";
-import { callReviewer, type ReviewOutput } from "../src/providers";
+import {
+  callReviewer,
+  REASONING_EFFORTS,
+  resolveReasoningEffort,
+  type ReasoningEffort,
+  type ReviewOutput,
+} from "../src/providers";
+import { REVIEWER_PROVIDERS } from "../src/config";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewerConfig } from "../src/config";
 import { fetchIterationContext, type IterationContext } from "./measure-calibration";
-import { resolveGitHubToken } from "./harness-auth";
+import {
+  resolveGitHubTokenWithConfig,
+  resolveProviderApiKeyWithConfig,
+} from "./harness-config-auth";
 
 // ---------------------------------------------------------------------------
 // Paths + constants
@@ -94,7 +130,45 @@ type Provider = ReviewerConfig["provider"];
 interface ModelConfigArg {
   provider: Provider;
   model: string;
+  /**
+   * Reasoning effort to send for this arm (mt#4554). `undefined` means "let
+   * `providers.ts` derive it", which is NOT the same as a neutral baseline —
+   * see `ARM_EFFORT_NOTE` below.
+   */
+  reasoningEffort?: ReasoningEffort;
 }
+
+/**
+ * Why effort is an ARM dimension rather than a run-wide flag (mt#4554).
+ *
+ * mt#4554's `## Context` names "a `--reasoning-effort` flag". A run-wide flag
+ * cannot express the factorial that task's `## Scope` asks for: comparing
+ * (gpt-5, low) against (gpt-5, high) requires both in ONE artifact, and a
+ * single global setting puts them in two runs whose only difference is also
+ * every other thing that changed between them. Making effort part of the arm
+ * keeps the comparison paired, which is the whole point of this runner.
+ *
+ * It is also why the arm LABEL carries the effort: mt#4554's `## Context`
+ * requires each arm's actual effort be recorded rather than assumed, and a
+ * label that omits it would make two different arms indistinguishable in the
+ * results artifact.
+ *
+ * The deviation from the spec's wording is recorded in mt#4554's
+ * `## Implementation` section.
+ */
+const ARM_EFFORT_NOTE =
+  "Effort is per-arm (third segment of --model), not run-wide, so a factorial lands in one artifact.";
+
+/**
+ * The allowed efforts and providers are IMPORTED, not re-listed (PR #3366 R1).
+ *
+ * Both were hand-enumerated here, duplicating unions that live in
+ * `providers.ts` and `config.ts`. The drift is not hypothetical: mt#3526
+ * proposes widening the effort union with `"minimal"`, and a stale copy here
+ * would reject a value the rest of the service accepts — as an argument error
+ * that looks like a user typo.
+ */
+const VALID_REASONING_EFFORTS = REASONING_EFFORTS;
 
 /** The exact gpt-5-vs-gpt-5-mini comparison mt#2718 needs (spec Acceptance
  * Test #4) — the default so a bare `--dry-run` invocation (no --model flags)
@@ -117,21 +191,81 @@ interface ParsedArgs {
   dryRun: boolean;
 }
 
-function parseModelArg(raw: string): ModelConfigArg {
+export type ModelSpecResult = { ok: true; value: ModelConfigArg } | { ok: false; error: string };
+
+/**
+ * Parse one `--model` value into an arm, returning the outcome rather than
+ * exiting.
+ *
+ * Split out from `parseModelArg` so every branch — including the rejections —
+ * is observable without patching `process.exit`. `parseModelArg` keeps the
+ * process-exiting behaviour the CLI needs; this holds the decision.
+ */
+export function splitModelSpec(raw: string): ModelSpecResult {
   const sep = raw.indexOf(":");
   if (sep <= 0 || sep === raw.length - 1) {
-    console.error(`ERROR: --model must be "<provider>:<model>", got "${raw}"`);
+    return { ok: false, error: `--model must be "<provider>:<model>[:<effort>]", got "${raw}"` };
+  }
+  const rawProvider = raw.slice(0, sep);
+  if (!REVIEWER_PROVIDERS.includes(rawProvider as Provider)) {
+    return {
+      ok: false,
+      error: `--model provider must be one of ${REVIEWER_PROVIDERS.join("|")}, got "${rawProvider}"`,
+    };
+  }
+  const provider = rawProvider as Provider;
+
+  // Split the remainder on the LAST colon, not the first: a model id may
+  // contain dots and dashes but the effort suffix is always the final segment.
+  // `openai:gpt-5` (no suffix) and `openai:gpt-5:high` must both parse, so the
+  // suffix is only treated as an effort when it IS one — otherwise a typo'd
+  // effort would be silently swallowed into the model name, where it surfaces
+  // as an opaque 404 from the provider rather than as an argument error.
+  const remainder = raw.slice(sep + 1);
+  const lastSep = remainder.lastIndexOf(":");
+  if (lastSep === -1) {
+    return { ok: true, value: { provider, model: remainder } };
+  }
+
+  const suffix = remainder.slice(lastSep + 1);
+  const modelPart = remainder.slice(0, lastSep);
+  if (!VALID_REASONING_EFFORTS.includes(suffix as ReasoningEffort)) {
+    return {
+      ok: false,
+      error:
+        `--model effort suffix must be one of ${VALID_REASONING_EFFORTS.join("|")}, got "${suffix}".\n` +
+        `       ${ARM_EFFORT_NOTE}\n` +
+        `       If "${suffix}" is part of the model id, the id cannot contain a colon.`,
+    };
+  }
+  if (modelPart.length === 0) {
+    return { ok: false, error: `--model has an effort suffix but no model id, got "${raw}"` };
+  }
+  return {
+    ok: true,
+    value: { provider, model: modelPart, reasoningEffort: suffix as ReasoningEffort },
+  };
+}
+
+function parseModelArg(raw: string): ModelConfigArg {
+  const result = splitModelSpec(raw);
+  if (!result.ok) {
+    console.error(`ERROR: ${result.error}`);
     process.exit(2);
   }
-  const provider = raw.slice(0, sep);
-  const model = raw.slice(sep + 1);
-  if (provider !== "openai" && provider !== "google" && provider !== "anthropic") {
-    console.error(
-      `ERROR: --model provider must be one of openai|google|anthropic, got "${provider}"`
-    );
-    process.exit(2);
-  }
-  return { provider, model };
+  return result.value;
+}
+
+/**
+ * The arm's display key, used as the results artifact's `modelConfig` and in
+ * every console line. Carries the effort ONLY when one was pinned, so an
+ * unpinned arm's label stays byte-identical to what pre-mt#4554 runs produced
+ * and old artifacts remain comparable.
+ */
+export function armLabel(m: ModelConfigArg): string {
+  return m.reasoningEffort === undefined
+    ? `${m.provider}:${m.model}`
+    : `${m.provider}:${m.model}:${m.reasoningEffort}`;
 }
 
 function parseArgs(): ParsedArgs {
@@ -471,15 +605,23 @@ function mean(values: readonly number[]): number {
 
 /** Exported (PR #2151 R1): `run-judge-pass.ts` reuses this per-provider key
  * resolution rather than duplicating it — see that script's provider-gating
- * logic. */
-export function resolveProviderApiKey(provider: Provider): string | undefined {
+ * logic.
+ *
+ * Config-backed as of mt#4620: on a developer machine (or an agent session)
+ * the raw env var is typically unset while Minsky's own configuration has
+ * the key — `resolveProviderApiKeyWithConfig` falls back to
+ * `ai.providers.<provider>.apiKey` the same way `harness-config-auth.ts`
+ * already does for OpenAI (mt#3547). Reading env only made this runner
+ * report "no key configured" for every provider from a session shell even
+ * when `ai_complete`/`ai_validate` against that same provider succeeded. */
+export async function resolveProviderApiKey(provider: Provider): Promise<string | undefined> {
   switch (provider) {
     case "openai":
-      return process.env.OPENAI_API_KEY;
+      return resolveProviderApiKeyWithConfig("openai", "OPENAI_API_KEY");
     case "google":
-      return process.env.GOOGLE_AI_API_KEY;
+      return resolveProviderApiKeyWithConfig("google", "GOOGLE_AI_API_KEY");
     case "anthropic":
-      return process.env.ANTHROPIC_API_KEY;
+      return resolveProviderApiKeyWithConfig("anthropic", "ANTHROPIC_API_KEY");
   }
 }
 
@@ -550,10 +692,27 @@ async function runSingleAttempt(
   });
 
   const config = buildEvalReviewerConfig(modelConfig, apiKey);
-  const output = await callReviewer(config, systemPrompt, userPrompt, {
-    readFile: async () => null,
-    listDirectory: async () => null,
-  });
+  const output = await callReviewer(
+    config,
+    systemPrompt,
+    userPrompt,
+    {
+      readFile: async () => null,
+      listDirectory: async () => null,
+    },
+    // mt#4554: the fifth argument this call previously omitted. Passing the
+    // options object only when an effort is pinned keeps the unpinned path
+    // byte-identical to the pre-mt#4554 call, so an arm without a suffix is
+    // still exactly the run this corpus was calibrated against.
+    //
+    // Worth knowing when reading results: the tools object above is always
+    // non-null, so `resolveReasoningEffort` sees toolsActive=true and derives
+    // "low" for an unpinned OpenAI arm (providers.ts:1073). "Unpinned" is
+    // therefore a LOW-effort baseline, not a neutral one.
+    modelConfig.reasoningEffort === undefined
+      ? undefined
+      : { reasoningEffort: modelConfig.reasoningEffort }
+  );
 
   return extractProducedFindings(output);
 }
@@ -576,12 +735,56 @@ function buildDefaultOutputPath(corpusVersion: string, sample: number, attempts:
 
 interface PerConfigResult extends AggregateMetrics {
   modelConfig: string;
+  /**
+   * The effort explicitly pinned on this arm, or `null` when none was.
+   * mt#4554's `## Context` asks that each arm's effort be RECORDED rather than
+   * assumed — and the two fields answer different questions, which is why both
+   * are here rather than one.
+   */
+  pinnedReasoningEffort: ReasoningEffort | null;
+  /**
+   * What `providers.ts` actually resolved and sent, derived the same way the
+   * live call derives it. `null` means the model takes no `reasoning_effort`
+   * parameter at all (every non-OpenAI arm, and OpenAI non-reasoning models).
+   *
+   * This is the field to GROUP BY. An unpinned OpenAI arm records `"low"` here
+   * and `null` above, and reading only the pinned column would score it as an
+   * effort-free baseline it never was.
+   */
+  resolvedReasoningEffort: ReasoningEffort | null;
   sampledPrCount: number;
   positiveGroundTruthCount: number;
   attemptsPerPr: number;
   meanPassAt1: number;
   meanPassCaretK: number;
   errors: string[];
+}
+
+/**
+ * The effort clause on a post-run summary line (PR #3366 R1).
+ *
+ * The reviewer's blocking finding: the per-arm effort fields were added to the
+ * artifact and shown in the DRY-RUN config block, but the summary printed after
+ * a real run showed neither. A reader comparing `openai:gpt-5` against
+ * `openai:gpt-5:high` there had nothing telling them the first ran at "low", so
+ * it read as an effort-free baseline — the exact mis-scoring those fields exist
+ * to prevent.
+ *
+ * Reports the RESOLVED effort, since that is what was sent. `(derived)` vs
+ * `(pinned)` is kept alongside because it answers a different question: whether
+ * the operator CHOSE that effort or inherited it.
+ *
+ * Pure and exported so the fix is testable without a live arm run — the
+ * reporting path is the thing under test, and spending API budget to observe a
+ * format string would be the wrong trade.
+ */
+export function formatArmEffort(config: {
+  resolvedReasoningEffort: ReasoningEffort | null;
+  pinnedReasoningEffort: ReasoningEffort | null;
+}): string {
+  if (config.resolvedReasoningEffort === null) return "effort=none";
+  const origin = config.pinnedReasoningEffort === null ? "(derived)" : "(pinned)";
+  return `effort=${config.resolvedReasoningEffort}${origin}`;
 }
 
 interface PairedEvalArtifact {
@@ -641,7 +844,19 @@ async function main() {
   }
 
   console.log(`Model configs (${args.models.length}):`);
-  for (const m of args.models) console.log(`  ${m.provider}:${m.model}`);
+  for (const m of args.models) {
+    // Print the RESOLVED effort, not the pinned one — an unpinned OpenAI arm
+    // is a low-effort arm, and a summary that showed it blank would invite
+    // exactly the "default effort baseline" reading mt#4554 warns against.
+    const resolved = resolveReasoningEffort(m.provider, m.model, true, m.reasoningEffort);
+    const effortNote =
+      resolved === null
+        ? " (model takes no reasoning_effort)"
+        : m.reasoningEffort === undefined
+          ? ` (effort ${resolved}, derived)`
+          : ` (effort ${resolved}, pinned)`;
+    console.log(`  ${armLabel(m)}${effortNote}`);
+  }
   console.log(`Attempts per PR per config: ${args.attempts}`);
 
   const outputPath =
@@ -659,19 +874,23 @@ async function main() {
   // individual config whose provider key is missing; this top-level check
   // only short-circuits the whole run when NONE of the requested configs
   // are runnable at all (nothing useful to do otherwise).
-  const runnableModels = args.models.filter((m) => resolveProviderApiKey(m.provider) !== undefined);
+  const runnableFlags = await Promise.all(
+    args.models.map(async (m) => (await resolveProviderApiKey(m.provider)) !== undefined)
+  );
+  const runnableModels = args.models.filter((_m, i) => runnableFlags[i]);
   if (runnableModels.length === 0) {
     const requestedProviders = [...new Set(args.models.map((m) => m.provider))];
     console.log(
       `\nSKIP: no API key configured for any requested provider (${requestedProviders.join(", ")}). ` +
         "Live paired-eval run requires at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY " +
+        "(env var, OR the matching key configured in Minsky — see HARNESS.md's Config fallback section) " +
         "matching a --model provider."
     );
     console.log("HINT: re-run with --dry-run to validate wiring without API calls.");
     process.exit(0);
   }
 
-  const githubToken = resolveGitHubToken();
+  const githubToken = await resolveGitHubTokenWithConfig();
   if (!githubToken) {
     console.error(
       "ERROR: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Live run requires GitHub API access."
@@ -683,8 +902,8 @@ async function main() {
   const perConfigResults: PerConfigResult[] = [];
 
   for (const modelConfig of args.models) {
-    const configLabel = `${modelConfig.provider}:${modelConfig.model}`;
-    const apiKey = resolveProviderApiKey(modelConfig.provider);
+    const configLabel = armLabel(modelConfig);
+    const apiKey = await resolveProviderApiKey(modelConfig.provider);
     const errors: string[] = [];
 
     if (!apiKey) {
@@ -763,6 +982,16 @@ async function main() {
 
     perConfigResults.push({
       modelConfig: configLabel,
+      pinnedReasoningEffort: modelConfig.reasoningEffort ?? null,
+      // Derived through the SAME function the live call uses, rather than
+      // re-implementing its rules here: `toolsActive` is true because
+      // runSingleAttempt always passes a tools object.
+      resolvedReasoningEffort: resolveReasoningEffort(
+        modelConfig.provider,
+        modelConfig.model,
+        true,
+        modelConfig.reasoningEffort
+      ),
       sampledPrCount,
       positiveGroundTruthCount,
       attemptsPerPr: args.attempts,
@@ -790,8 +1019,9 @@ async function main() {
 
   console.log("\n=== Summary ===");
   for (const config of perConfigResults) {
+    const effort = formatArmEffort(config);
     console.log(
-      `${config.modelConfig}: precision=${config.precision.toFixed(3)} recall=${config.recall.toFixed(3)} ` +
+      `${config.modelConfig}: ${effort} precision=${config.precision.toFixed(3)} recall=${config.recall.toFixed(3)} ` +
         `f1=${config.f1.toFixed(3)} fpRate=${config.falsePositiveRate.toFixed(3)} mcc=${config.verdictMcc.toFixed(3)} ` +
         `passAt1=${config.meanPassAt1.toFixed(3)}`
     );

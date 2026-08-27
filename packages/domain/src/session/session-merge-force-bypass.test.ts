@@ -95,7 +95,7 @@ function buildDeps(approvalStatus: unknown): { deps: any; mocks: FakeBackendMock
         getType: () => "github",
       } as any),
     taskService: {
-      setTaskStatus: async () => {},
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
       getTaskStatus: async () => "IN-REVIEW",
       getTask: async () => null,
     } as any,

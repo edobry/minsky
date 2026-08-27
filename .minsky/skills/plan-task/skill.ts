@@ -335,6 +335,26 @@ Run all three:
    - Also check recent merges: \`mcp__minsky__git_log\` with the file path filter for the
      last 7 days — a fix that just landed on \`main\` is just as bad as one in flight.
 
+   **Read pathMatched on the result — an empty output alone does not distinguish the two
+   things it can mean (mt#4422).** git log -- <pathspec> exits 0 with EMPTY output when the
+   pathspec matches nothing, which is byte-identical to a real "no commits in this window". A
+   typo, a stale path, or several paths passed space-separated in the single path string
+   (quoted into ONE pathspec, so it can never match) therefore all read as "no collision" — the
+   pass this check is supposed to earn, handed over for free. The result now carries the
+   discriminator:
+
+   - pathMatched: true — the path has history and nothing touched it in your window. A real
+     negative: **no collision.**
+   - pathMatched: false — no commit has EVER touched this path. If the file is new or not yet
+     created, that is still **no collision** and is the expected answer for a spec listing files
+     it will create. If you believed the file exists, it is a typo or a stale path — fix it and
+     re-run, because nothing was searched.
+   - **field absent** — the probe could not run (not a git repository, git unavailable). You have
+     learned nothing about the path; do not score it either way.
+
+   Also: path takes ONE pathspec. **Issue one call per path** — a space-separated list is
+   quoted as a single filename containing spaces and always reports pathMatched: false.
+
    **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
    evidence is \`get_files\`/\`get_diff\` for an open PR, or \`git_log --path\` for a merge. A task's
    title, its \`## Scope\` prose, or an inference about where that kind of code lives is NOT
@@ -788,10 +808,11 @@ and generalized by mt#2445 (which subsumed the recommendation-time-only mt#2494)
 
 When the spec (or amendment) **cites a memory ID, rule section, or doc passage** AND that
 citation is used to justify a **structural choice** (substrate, capability, abstraction
-boundary, "new vs extended pattern"), the agent MUST produce a three-step citation-and-mapping
-protocol BEFORE the structural choice is encoded. This is the factual-content sibling of gate
-(j): gate (j) verifies a categorization _label_ against its defining rule; gate (m) verifies a
-_factual claim_ against its cited source.
+boundary, "new vs extended pattern"), the agent MUST produce the four-step citation-and-mapping
+protocol below — **quote → map → scope-check → verdict** — BEFORE the structural choice is
+encoded. This is the factual-content sibling of gate (j): gate (j) verifies a categorization
+_label_ against its defining rule; gate (m) verifies a _factual claim_ against its cited source.
+Both protocols run four steps and they are NOT the same four, so name the gate when citing one.
 
 Rationale: the memory-snippet-conflation pattern. The agent retrieves a source correctly, then
 a salient phrase in it becomes the anchor for the rendering while adjacent qualifying sentences
@@ -804,17 +825,42 @@ and an explicit mapping the agent cannot fluently rationalize past.
 doc passage. If no cited claim drives a structural choice, the criterion passes automatically:
 "(m) No cited factual claim drives a structural choice — criterion passes."
 
-**Required three-step protocol (when triggered):**
+**Required four-step protocol — quote → map → scope-check → verdict (when triggered):**
 
 1. **Verbatim quote** of the cited text — copied exactly from the source (\`memory_get\`, the
    rule file, the doc), not paraphrased. Paraphrase is where conflation re-enters.
 2. **Explicit mapping** of how the structural choice follows from the quote — one-to-one: what
    the quote actually says vs. what the spec asserts it supports. Name any gap.
-3. **Verdict:** "claim supported" / "claim not supported" / "claim ambiguous". If ambiguous or
+3. **Scope conditions — ENUMERATE them from the quote, then state whether each HOLDS.** Re-read
+   the text you transcribed in step 1 and LIST every condition it attaches to the figure or
+   fact: a payload size, a sample population, a version, a date, an environment, a hardware or
+   plan tier, a unit. Then, for each, say whether that condition obtains in the case at hand.
+   **"Does not hold" and "unknown" are BOTH \`claim not supported\`** — an unchecked condition is
+   not a satisfied one. If the quote carries none, write "no scope conditions in the quote";
+   that sentence is the discharge and it costs one line.
+
+   **This is an enumeration over text you already have, not a judgment about which parts of the
+   quote look unusual.** That distinction is the entire step. The originating failure was a
+   conscientious agent transcribing \`(~2KB each)\` into its own audit and reading straight past
+   it, so any wording that depends on the qualifier STANDING OUT reproduces the failure it is
+   meant to prevent. Listing is mechanical; noticing is not, and noticing is what failed.
+
+   **Expect the arithmetic to feel like the hard part — it is not.** A figure that survives
+   careful, deliberately conservative arithmetic is precisely this step's target: the number is
+   correct about the population it was measured over and silent about yours. Same root as
+   \`claim-confidence.mdc\`'s pooled-population and regime-boundary cases (mem#1247, mem#1105);
+   all three produce an arithmetically correct number with no error to notice.
+
+   **Corollary for a DERIVED figure.** When the quote states a rate or latency and the spec
+   derives a DURATION or a TOTAL from it, the derivation inherits every condition on the rate —
+   and ages differently from it. The call COUNT is fixed by the code; the time per call is a
+   property of the payloads, and payloads grow. Re-measure before deriving a duration from a
+   cited latency.
+4. **Verdict:** "claim supported" / "claim not supported" / "claim ambiguous". If ambiguous or
    not supported, do not encode the structural choice — surface the gap; file an Ask if the
    source itself is unclear.
 
-A spec that cites a source to justify a structural choice without producing this three-step
+A spec that cites a source to justify a structural choice without producing this four-step
 output fails gate (m) and must not proceed to READY.
 
 **Worked example — mt#1852 / ADR-010 (2026-05-15).** The spec and ADR-010 §Substrate-constraint
@@ -828,15 +874,57 @@ the \`project_supabase\` memory. Walking gate (m):
    "session-pool mode on the same pooler." Two distinct axes — "session vs transaction pool mode"
    and "pooled vs direct connection" — were collapsed under the salient phrase "no LISTEN/NOTIFY."
    Gap: the spec's "bypass the pooler" is not in the source.
-3. **Verdict:** claim NOT supported. The structural choice as framed does not follow from the
+3. **Scope conditions:** the quote attaches the capability to **session-pool mode**, on **port
+   5432**, on **the same Supavisor**. Does that obtain here? The spec proposes bypassing
+   Supavisor entirely — so no, on the condition that carries the whole claim.
+4. **Verdict:** claim NOT supported. The structural choice as framed does not follow from the
    citation. Gate (m) blocks; the agent surfaces the gap instead of encoding the wrong framing
    (which is what shipped in ADR-010 commit \`af07a249c\`, later corrected via mt#1857).
+
+**Worked example — mt#4601 (2026-08-26): the qualifier was INSIDE the quote, and step 2 passed
+anyway.** This is the case step 3 was added for, and it is the harder of the two: mt#1852 above
+fails at MAPPING (the spec asserted something the quote does not say), which a careful reader
+catches. Here the mapping is FAITHFUL and the verdict is still wrong.
+
+Sizing a new sweep's tick timeout, the audit quoted \`packages/domain/src/ai/request-resilience.ts\`
+verbatim:
+
+> \`batch of 20 (~2KB each)  p50 368ms  p90 449ms  max 449ms\`
+
+and mapped it: *"2,000 candidates ÷ batch 20 = 100 calls; 100 × 449 ms (the MAX, not the median)
+≈ 45 s. **Verdict: claim supported**, and deliberately computed on the worst-case column so the
+bound is conservative."*
+
+Read against step 2 alone that mapping is sound — the quote says 449 ms per batch, the choice
+used 449 ms per batch, and it deliberately took the worst-case column. **Step 3 is where it
+breaks.** Enumerating the quote's conditions yields one: **\`(~2KB each)\`**, a payload size. Does
+it hold? The items being embedded are transcript turns, which are far larger — a measured batch
+took **8,054 ms, ~18x**. Condition does not hold → **claim NOT supported**, and the 45 s figure
+must be re-derived rather than used.
+
+What shipping it would have cost: a 5-minute tick timeout that abandons every full backfill run
+— the exact starvation the task existed to remove, rebuilt through a new mechanism. Typecheck,
+lint, 713 tests, a passing negative control and two reviewer APPROVEs all passed over the wrong
+constant; nothing but a live run the author chose to extend caught it. Note also the **derived
+figure** corollary in step 3: the bad number was a DURATION derived from a cited latency, and
+the source docblock that stated it has been corrected in place
+(\`packages/domain/src/transcripts/per-turn-embedding-pipeline.ts\`) so the next reader cannot
+derive another one from it.
 
 Cross-reference: bridge memory \`feedback_memory_snippet_conflation_at_artifact_write_time\`
 (id \`de54bd12-fa9a-4023-bc34-83a1832aefdb\`) is the originating-pattern reference; once this gate
 ships, that memory's job becomes historical record + pointer here. Sibling gates: (j) label
 verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
 runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
+
+**Step 3 (scope conditions) provenance: mt#4626**, from the mt#4601 incident above; bridge memory
+**mem#1285**, which retires to historical record now that this step ships. Registered as R22 on
+**mt#2544**, the \`family:assertion-without-verification\` anchor — the family's other two surfaces
+are mem#1247 (pooled population) and mem#1105 (regime boundary, shipped as mt#4284 into gate (o)
+step 3). Gate (o) step 3 covers the case where the falsifier is a QUERY the pass runs; step 3 here
+covers a CONSTANT cited from source. The two do not overlap, and neither reaches a scope-bound
+figure whose source states no qualifier at all — that residual is unowned and named in mt#4626's
+\`## Does NOT cover\`.
 
 #### Gate criterion (n) — External-system integration provisioning enumeration
 
@@ -981,6 +1069,20 @@ bias, not verification; the missing step is checking whether the failure ACTUALL
 it — run the failing command, read the live health/log signal, trace the actual event sequence — and
 record the observed evidence in the spec.
 
+**The claim has TWO sources and both are in scope (mt#4548).** A causal claim reaches the pass one
+of two ways, and everything below applies to both:
+
+- **INHERITED** — the claim the spec ARRIVED with. This is the case the gate was built for twice,
+  and the one its examples describe.
+- **AUTHORED** — a claim the planning pass writes ITSELF, most often after falsifying the inherited
+  one. Falsifying an inherited diagnosis does not license the replacement you put in its place.
+
+**The authored case is the one that reads as most satisfied.** Falsifying an inherited claim IS this
+gate working, and the pass has just done real measurement to earn the replacement — so the fresh
+claim inherits the credibility of the work that produced it. The stronger the pass, the larger the
+hole: a pass that merely accepted its spec leaves nothing new unverified, and a pass that overturned
+it leaves a brand-new cause with no gate behind it.
+
 **Why this gate exists (and why it was re-added).** It originally shipped as gate (l)
 "problem-statement verification" via mt#2091 / PR #1272 (2026-05-24), after mt#2083 shipped three
 fixes for a reviewer-timeout "problem" that production logs showed never happened (both timeouts
@@ -996,9 +1098,16 @@ would have falsified it immediately.
 phrases: "X fails/throws/crashes/times out because Y", "the parser doesn't handle Q", "users see Y
 when Z", "the config doesn't support W", "the mechanism degrades under V", or any "reproduced" /
 "definitive diagnosis" claim whose evidence is a SIMULATION rather than an observation of the actual
-failing context. If the spec makes no runtime causal claim (a pure refactor, a docs edit, a
-greenfield feature with no "X is broken" premise), it passes automatically. State that explicitly:
-"(o) No runtime causal claim to verify — criterion passes."
+failing context. **It fires the same way on a claim the PASS authors** — if you falsify the spec's
+premise and write a replacement cause, that replacement is a runtime causal claim and re-triggers
+this gate on itself. If the spec makes no runtime causal claim AND the pass authors none (a pure
+refactor, a docs edit, a greenfield feature with no "X is broken" premise), it passes automatically.
+State that explicitly: "(o) No runtime causal claim to verify — criterion passes."
+
+**No over-fire on the ordinary case.** A pass that reproduces an inherited claim and proposes a fix
+for THAT reproduced cause passes cleanly — the cause was verified, so naming a fix is exactly what
+the gate wants. This amendment adds a requirement only where a cause is relied on WITHOUT having
+been reproduced; it is not a license to object to every plan (ADR-032).
 
 **Required when triggered.** Reproduce the asserted failure against the real system and record the
 observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
@@ -1033,21 +1142,78 @@ observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
    rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
    surface the gap and re-scope BEFORE designing a fix.
 
+**Discharging an AUTHORED claim — pick one, and it cannot be neither (mt#4548).** The inherited case
+is discharged by reproducing the claim. An authored claim admits a second, cheaper discharge,
+because the pass may legitimately not know the cause yet:
+
+1. **Run the cause's own falsifier in this pass** — the same steps 1-4 above, applied to the claim
+   you just wrote. Then the Scope may name a specific fix.
+2. **Write the Scope to FINDING the cause, not to a named fix** — the honest option when the
+   falsifier is implementation work. The Scope says "identify the divergence"; it does not say
+   "source the key from X".
+
+**Not both-and-neither.** Labelling the cause unproven AND writing the Scope to a fix derived from
+it is the failure mode, not a compromise between the two. The hedge does not make the commitment
+provisional — it just puts the contradiction in two different sections where nothing compares them.
+
+**The artifact-level tell, which you can check by reading your own draft.** Before promoting to
+READY, grep the spec you are about to pass for a hedge — \`not yet proven\`, \`unverified\`,
+\`hypothesis\`, \`localized\`, \`the implementation's first question\` — and then read what \`## Scope\`,
+\`## Success Criteria\`, and every other gate's verdict actually commit to. **A cause hedged in one
+section and relied on in another is a gate-(o) failure**, and it is visible without running
+anything. This is the residue the originating incident left behind: one paragraph said "not yet
+proven", the Scope named the fix, and gate (p) recorded "EXTEND" on that basis. Nothing in the pass
+compared the three.
+
+**Audit-output requirement.** Gate (o)'s entry must say WHICH claim was reproduced — the symptom or
+the cause — and must not report the first as though it covered the second. A pass that measured a
+defect's RATE has reproduced the symptom; a pass that measured WHY has reproduced the cause. Write
+the verdict so a reader can tell them apart, e.g. *"symptom reproduced (5-9% hit rate, live logs);
+cause AUTHORED this pass and NOT reproduced — Scope written to finding it."* The originating
+incident's entry was accurate about the symptom and silent about the distinction, which is what let
+it read as full verification.
+
 **Rigor-theater callout.** A confident "Diagnosis (definitive — reproduced)" section is exactly the
 shape that invites inheritance without re-verification. Treat a spec's own diagnosis as a HYPOTHESIS
-to reproduce, not a settled premise — especially a spec you did not author, or authored in a prior
-session.
+to reproduce, not a settled premise — and note that **a diagnosis you authored MINUTES ago in this
+same pass is the hardest case, not the safest one.** Per mem#736, self-authorship is an AGGRAVATING
+factor: what you retain is the intent that produced the claim, while the divergence lives in the
+specifics. An inherited diagnosis at least arrives looking like someone else's assertion; your own
+arrives already believed.
 
 **Disambiguation from adjacent gates.** Gate (m) verifies a spec's cited MEMORY/RULE/DOC claim
 against its source; gate (o) verifies a spec's asserted RUNTIME-BEHAVIOR claim against the live
 system. Premise-audit check (i) asks whether the parent investigation leaves premises open; gate (o)
 is the stronger, action-forcing requirement to REPRODUCE a runtime claim before building on it.
 
+**Originating incident for the AUTHORED half — mt#4407 (2026-08-25).** A pass falsified the spec's
+inherited premise with real measurements (a dedup mechanism the spec called unbuilt had shipped
+three weeks earlier; its hit rate was 5-9% across every denominator tried), then authored a cause:
+*the two guards hash different derivations of the last assistant message.* One paragraph labelled it
+"Localized, not yet proven — this is the implementation's first question." The \`## Scope\`, written
+minutes later, committed to *"sourcing the sibling's key text from ADR-031's recorded
+\`last_assistant_message\`"*, and gate (p)'s verdict recorded "EXTEND — the repair applies ADR-031's
+own sub-operation (2)." The task went READY on that basis. At implementation the cause was false —
+reconstructing the turn from real transcripts reproduced the other guard's key **exactly, 6 of 6** —
+and two further hypotheses fell the same way. Gate (o) had reported a pass, correctly by its own
+text, because the claim it was pointed at WAS reproduced. **Recurrence-after-DONE against mt#2964**,
+whose restore was faithful to what mt#2445 deleted; the authored half was never in scope either
+time, because the gate was built twice from inherited-claim incidents and its text encodes that
+origin. Note the eventual toll on that one task: **five causal hypotheses, four dead**, and a fix
+proposed on an untested mechanism twice.
+
 Cross-references: mt#2091 / PR #1272 (original gate); mt#2083 (originating incident); mt#2445 (the
 letter-(l) reuse that clobbered it); mt#2958 (the recurrence that surfaced the loss); mt#2964 (this
-restore + the append-only convention above); memories \`d77d2bd4\` (problem-statement verification),
-\`dc9f7ad8\` (the mt#2958 retro), \`7c83fed0\` ("reproduce error before theorizing"), \`8814a2e1\`
-(verify diagnostic tools before building theories).
+restore + the append-only convention above); **mt#4548** (this authored-claim amendment); **mt#4407**
+(its originating incident); memories \`d77d2bd4\` (problem-statement verification), \`dc9f7ad8\` (the
+mt#2958 retro), \`7c83fed0\` ("reproduce error before theorizing"), \`8814a2e1\` (verify diagnostic
+tools before building theories), **mem#1253** (the bridge memory this amendment retires to
+historical record), **mem#736** (self-authorship is an aggravating factor). Sibling surfaces:
+**mt#4241** (the \`code-mechanism-assertion\` detector's \`write-echo-backed\` leg suppressing a claim
+the agent just wrote) and **mt#4301** (mechanizing \`/create-task\` §2c's causal-claim check at
+\`tasks_create\`) — same root, different surfaces. The narrower mechanizable slice of THIS gate — a
+hedge marker whose Scope names a derived fix — belongs to **mt#2755**, and must be added only AFTER
+this amendment, so what gets mechanized is the corrected gate rather than the inherited-only scope.
 
 #### Gate criterion (p) — First-party decision-record check
 
@@ -1508,7 +1674,7 @@ To re-run the gate after fixes: \`/plan-task mt#XXXX\`
 
 **Example (m) failure.** For a task whose spec cites the \`project_supabase\` memory to justify
 a "dedicated direct Postgres connection bypassing Supavisor's transaction pooler" without
-producing the three-step citation-and-mapping protocol:
+producing the four-step citation-and-mapping protocol:
 
 \`\`\`
 ## Gap Report for mt#1852 (PLANNING — not yet READY)
@@ -1522,8 +1688,9 @@ producing the three-step citation-and-mapping protocol:
   salient phrase "no LISTEN/NOTIFY." Verdict: claim NOT supported.
 
 ### Required actions before READY
-1. Produce the three-step protocol: verbatim-quote \`project_supabase\`, map the substrate choice
-   to the quote, state the verdict.
+1. Produce the four-step protocol: verbatim-quote \`project_supabase\`, map the substrate choice
+   to the quote, enumerate the quote's scope conditions and state whether each holds, then state
+   the verdict.
 2. Re-frame the substrate decision to match the source (session-pool mode on the same pooler),
    or cite a different source that actually supports the direct-connection bypass.
 

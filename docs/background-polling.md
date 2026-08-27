@@ -467,6 +467,15 @@ CREATE INDEX wake_pending_undelivered
   ON wake_pending (parent_session_id) WHERE drained_at IS NULL;
 ```
 
+> **The sketch above is the v0 proposal, not the shipped shape.** As built, `id` is
+> `uuid`, `parent_session_id` is nullable (mt#4476 added the conversation-grain
+> `agent_id` key alongside it, with a CHECK requiring one of the two), and there are
+> three indexes. **Rows are no longer kept forever (mt#4537):** a cockpit sweep deletes
+> delivered rows past a retention window and undelivered rows whose addressee no longer
+> exists — never an undelivered row that could still be delivered. The authoritative
+> shape is `packages/domain/src/storage/schemas/wake-pending-schema.ts`; the retention
+> policy and its derivation are in `packages/domain/src/ask/wake-pending-retention.ts`.
+
 **Domain seam:**
 
 - `src/domain/ask/wake-on-respond.ts` — add `PersistentWakeSignalSink` implementing

@@ -21,10 +21,12 @@
 import { z } from "zod";
 import { getErrorMessage, ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
+import { isSqlCapable } from "../../persistence/types";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
   TaskServiceOptions,
   TaskServiceInterface,
+  TaskSpecContentResult,
 } from "../taskService";
 import type { Task } from "../types";
 import { first } from "@minsky/shared/array-safety";
@@ -132,15 +134,16 @@ export async function listTasksFromParams(
     let projectScope: ProjectScope = ALL_PROJECTS;
     if (!validParams.allProjects) {
       const persistenceProvider = deps?.persistenceProvider;
-      if (persistenceProvider && "getDatabaseConnection" in persistenceProvider) {
+      // Capability, not method presence (mt#4543). The guard narrows, so the cast and
+      // the `?.()` that hedged it are both gone — `getDatabaseConnection` is required on
+      // the narrowed type.
+      if (isSqlCapable(persistenceProvider)) {
         try {
           const identity = resolveProjectIdentity({ repoPath: process.cwd() });
           if (identity.kind === "resolved") {
-            const sqlProvider =
-              persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
-            const db = await sqlProvider.getDatabaseConnection?.();
+            const db = await persistenceProvider.getDatabaseConnection();
             if (db) {
-              projectScope = await resolveProjectScope(identity, db);
+              projectScope = await resolveProjectScope(identity, db, "tasks.list");
             }
           }
         } catch (err) {
@@ -342,7 +345,7 @@ export async function getTaskSpecContentFromParams(
   } = {
     resolveRepoPath,
   }
-): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+): Promise<TaskSpecContentResult> {
   try {
     // Validate params with Zod schema
     const validParams = taskSpecContentParamsSchema.parse(params);
@@ -413,6 +416,16 @@ export async function getTaskSpecContentFromParams(
       task: result.task,
       specPath: result.specPath,
       content: sectionContent,
+      // Spec-CONTENT timestamp, threaded through unchanged (mt#4415). Note it
+      // describes the WHOLE spec even when `section` narrowed the content —
+      // per-section timestamps do not exist, and a section read is still a read
+      // of a document last written at this instant.
+      specUpdatedAt: result.specUpdatedAt,
+      // Spec AUTHORING timestamp, threaded the same way (mt#4420). The
+      // whole-document caveat above applies to it identically: it dates the
+      // document, not the section, which is precisely why it can serve as a
+      // drift floor that editing one section does not move.
+      specCreatedAt: result.specCreatedAt,
       section: validParams.section,
     };
   } catch (error) {

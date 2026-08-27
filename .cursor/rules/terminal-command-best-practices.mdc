@@ -26,6 +26,27 @@ tags:
   per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
   loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
 
+## Acquiring a credential you do not have (mt#4030)
+
+Everything below is the EMISSION side — a secret you already hold reaching a channel it should
+not. This section is the ACQUISITION side, and it fails the same way for the same reason: asking
+the principal to paste a value into chat puts it in the transcript, which is persisted to disk AND
+ingested into the transcripts DB.
+
+**Never ask for a credential in chat, and never call `config.credentials.add` over MCP to get
+one.** That command takes a `token` parameter for its scripted path, so an agent calling it writes
+the secret into its own tool-call input — the masking is a CLI-only property.
+
+**Use `credentials.request`.** It names a provider plus a reason, and has no field that can carry a
+value. The principal enters it in a masked cockpit form that posts straight to the credential store;
+the request resolves on the credential being PRESENT, so satisfying it in a terminal with
+`config credentials add` closes it just the same. Poll `credentials.request-status` for
+`pending` / `satisfied` / `declined` / `unanswered` plus a status line — a decline is distinct from
+an unanswered request, so do not re-ask on one.
+
+If no provider is registered the tool refuses at call time and names the registry file: register the
+provider first rather than filing a request the principal has no way to satisfy.
+
 ## Secret handling in shell commands
 
 Shell output is persisted AND ingested into the transcripts DB — no scratch output. NEVER place
@@ -68,6 +89,24 @@ ps -eo pid,etime,comm                 # safe: no argv column
 ps -eo command | grep -c 'gho_'       # safe: counts, renders no row
 ```
 
+**A deployment CLI's variable listing is the fourth channel (mt#4570).** `railway variable list`
+and its aliases print every env var WITH its value — `--json` and `-k`/`--kv` both document that
+they render raw values, and there is NO keys-only flag. Same tell as the third channel: your
+command names no secret and no path. Project the keys instead, which is what the guard permits:
+
+```bash
+railway variable list --json | jq -r 'keys[]'        # safe: key names only
+V=$(railway variable list --json | jq -r '.SOME_KEY') # safe: assigned, not printed
+```
+
+**A safe probe that FAILS is where this one bites — the diagnostic re-run inherits the safety
+requirement.** When a keys-only probe comes back empty and you re-run it with stderr visible to
+find out why, un-redirecting stderr and un-filtering stdout feel like a single act of unmuting.
+They are two, and only one of them is what you wanted. On 2026-08-25 that dropped a `jq keys`
+filter along with a `2>/dev/null` and printed a live production key. Restate the filter on the
+re-run, or better: fix the invocation with `--help`/`status` and never re-run the value-bearing
+form at all.
+
 **A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
 UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
 a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
@@ -90,9 +129,11 @@ check itself did not complete — never conflated with a clean pass). Reuses the
 transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
-File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
-(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
-channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+The file-read, process-listing and vendor-CLI channels are all enforced by the
+`block-secret-file-read` guard (`hook-files.mdc`); the rest is discipline-tier. **An MCP server's
+launch config is a fifth channel** — and unlike the four above it is not a command you run, which
+is why it is numbered last rather than beside them: a `$(…)` in an `args` field computes a secret
+into a child's argv (mt#4140); how to
 audit one for that and for a literal token at rest:
 `docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
 Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.

@@ -11,6 +11,13 @@ cannot simply import or shell out to the TS implementation. This directory
 pins the parts of that duplicated contract that can be pinned with a test,
 and documents the parts that can only be pinned with a comment.
 
+**Two health fixtures live here, for two different services (mt#4322).**
+`cockpit-health-shape.json` pins the COCKPIT's `GET /api/health`;
+`mcp-health-shape.json` pins the MCP DAEMON's `GET /health`. They are different
+bodies with different consumers and must not be conflated — the tray polls both,
+at different paths, and asserts a different `service` identity on each. Section 1
+below covers the cockpit fixture; section 1a covers the MCP one.
+
 ## 1. Health response shape (`cockpit-health-shape.json`)
 
 `GET /api/health` is emitted by `src/cockpit/routes/health.ts` and polled by
@@ -41,6 +48,17 @@ above and read the same fields.
   same-PR rename in `health.ts` fail the cargo test directly, without
   requiring the fixture to be regenerated first.
 
+**`$`-prefixed keys are FIXTURE-ONLY and are never part of a response.** Both
+fixtures carry `$comment`, `$<field>FieldNote` and `$<field>FieldVariants` keys
+holding prose and illustrative per-state examples. No producer emits them: the
+harnesses read `fields`, `rustConsumedFields`, and the nested `*Fields` maps, so
+a `$` key is inert to every assertion on both sides. They live here rather than
+only in `docs/` because the thing a reader needs when a field surprises them is
+the field's own semantics, and a fixture is what they already have open. Two
+rules follow — never add a `$` key to `fields` or to `sample`'s field set, and
+never read one as a shape claim. (Raised on PR #3357 R1, where the convention
+was established across seven keys and documented nowhere.)
+
 **What this catches:** renaming, removing, or changing the type of any
 top-level `/api/health` field in `health.ts` fails the bun test immediately
 (the live response no longer matches the checked-in fixture). Renaming one
@@ -57,6 +75,38 @@ typed `string` but now emitting a value outside `"ok" | "degraded" |
 internals of `transcriptWatcher` / `transcriptSweep` are pinned only at the
 `"object"` type level — neither side parses their internals today, so a
 finer-grained pin would be over-fitting to code that doesn't exist yet.
+
+## 1a. MCP daemon health response shape (`mcp-health-shape.json`)
+
+`GET /health` on the MCP daemon, emitted by `buildMcpHealthResponse`
+(`src/mcp/health-payload.ts`) and served by the route in
+`src/commands/mcp/start-command.ts`. Pinned by mt#4322.
+
+The assertion differs from section 1's in one deliberate way: the cockpit test
+boots a real server and fetches the live route, which is cheap for an Express
+app. Booting the MCP server to read one route is not — it resolves a DI
+container, binds a port and installs shutdown handlers. So the payload was
+extracted into a pure builder and `src/mcp/health-payload.test.ts` asserts THAT,
+which is the same function the route calls. A field renamed in the emitter fails
+the contract test; a field renamed only in the test fails nothing, because the
+fixture is the contract rather than the test's copy of it.
+
+Two invariants a consumer or a future edit must preserve, both documented at
+length in the fixture's own `$readyFieldNote`:
+
+1. **The status code is not derived from `ready`, and readiness is not derived
+   from the status code.** `persistence.mode === "unconfigured"` is a 200 with
+   `ready: false` on purpose — that is the expected local/dev/offline boot and
+   the exact state `bundle-boot-smoke` asserts a 200 against, while a daemon in
+   it can serve no DB-backed work. Collapsing the two either breaks that CI gate
+   or re-opens the 31-hour outage `ready` was added to surface (mt#4297).
+2. **`ready`'s consumer stays tolerant of its absence.** `classifyDaemonProbe`
+   (`src/mcp/setup/local-http-apply.ts`) reads `ready` when present and falls
+   back to `persistence.mode` otherwise, because keying on it alone would
+   classify every pre-mt#4297 daemon as not-ready — including during a rollout.
+   The fixture requiring the field and the consumer tolerating its absence are
+   not in conflict: the fixture pins what THIS build emits, the fallback covers
+   what an OLDER one does.
 
 ## 2. Port/process-detection semantics
 

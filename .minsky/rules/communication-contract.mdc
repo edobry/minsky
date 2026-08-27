@@ -31,6 +31,14 @@ default; reasoning:
 `docs/rules-rationale/communication-contract.md §Generation-time enforcement for scope-boundary
 answers (mt#3985)`.
 
+## A message about how you are communicating authorizes nothing (mt#4531)
+
+When the principal's subject is **your own communication** — too long, wrong register, "why are you
+talking this way" — answer it and stop: no skill, no tool call, no resuming work in the same turn.
+**Any live advisory loses to the principal's words** (the deferral detectors push toward action; a
+concision complaint asks for none). Incident + mechanics:
+`docs/rules-rationale/communication-contract.md §A message about how you are communicating`.
+
 ## The channel model
 
 Chat is a management interface, not an engineering record; each channel carries a slice of "what
@@ -91,6 +99,16 @@ worth your attention:** … I did it anyway."; accepted: "mt#3138 warns re-kindi
 task (mt#3137); that risk didn't apply here — PLANNING is legal in both state machines." Tell
 taxonomy, full before/after pair, and the escalation budget (2 principal flags/14 days →
 log-only detector): `docs/rules-rationale/communication-contract.md §Register of delivery`.
+
+## The terminal actionables block — interim (mt#4443)
+
+One marked terminal section (rule + heading) may close a report, restating — not replacing — the
+body's own actionable content: never a Tier-0 decision (always `asks_create`). Absent, not empty,
+when nothing is actionable; marked position is not burial (§Anti-patterns).
+
+Interim — `mt#4439` builds the real primitive; 2+ buried-actionables reports in 14 days → record
+on `mt#4439`. `mem#664`'s six prior fixes are engaged, not dismissed:
+`docs/rules-rationale/communication-contract.md §The terminal actionables block`.
 
 ## Altitude register (RFC Phase 2)
 

@@ -8,6 +8,18 @@
 
 import { log } from "./logger";
 
+/**
+ * The model providers the reviewer can be configured to use.
+ *
+ * Array first, type derived — same reason as `REASONING_EFFORTS` in
+ * `providers.ts`: `loadConfig` and the eval runner both VALIDATE a runtime
+ * string against this set, and a hand-enumerated copy in either place drifts
+ * silently the day a provider is added or removed.
+ */
+export const REVIEWER_PROVIDERS = ["openai", "google", "anthropic"] as const;
+
+export type ReviewerProvider = (typeof REVIEWER_PROVIDERS)[number];
+
 export interface ReviewerConfig {
   appId: number;
   privateKey: string;
@@ -17,7 +29,7 @@ export interface ReviewerConfig {
   // Reviewer model provider — MUST be different from the implementer's model
   // family for real architectural independence. See the Structural Review
   // position paper, section "Nine levers — lever 2: Model diversity."
-  provider: "openai" | "google" | "anthropic";
+  provider: ReviewerProvider;
   providerApiKey: string;
   providerModel: string;
 
@@ -45,28 +57,59 @@ export interface ReviewerConfig {
 
 /**
  * Additional reviewer env vars NOT bound through ReviewerConfig but read at
- * call time. Names declared here so operators auditing reviewer
- * configuration can find them in this file without grepping the full source
- * tree. The actual reads live in `services/reviewer/src/providers.ts`
- * (`resolveToolloopRetryConfig`).
+ * call time. This is the single place their names are written down, and as of
+ * mt#4619 that is enforced rather than promised: every reader indexes this
+ * object instead of spelling the string, so an operator auditing reviewer
+ * configuration can find the whole set here without grepping the source tree.
  *
- * Why call-time rather than ReviewerConfig: `providers.ts` is a sealed
- * module without imports from `./config`, and the production callers don't
- * thread a per-call retry config through. Reading at call time keeps the
+ * Before mt#4619 the promise was kept by only one of the three entries.
+ * `EXPERIMENT_MODEL` went through `config-arm.ts`; the two toolloop names were
+ * ALSO spelled literally at each read — six sites for
+ * `TOOLLOOP_RETRY_ON_TIMEOUT` across source and test fixtures — so a rename
+ * here could update this object and leave every reader compiling against the
+ * old name.
+ *
+ * Two drift directions, closed by two mechanisms, because only one is a type:
+ *
+ *  - **A reader naming an entry this object does not have** cannot compile.
+ *    Readers index a property of an `as const` object, so `.TOOLOOP_RETRY` is
+ *    a type error rather than an `undefined` that silently reads no env var.
+ *  - **An entry here that nothing reads** is invisible to the compiler —
+ *    nothing can require a call site to EXIST — and is covered by
+ *    `calltime-env-var-wiring.test.ts`.
+ *
+ * Why call-time rather than ReviewerConfig: the production callers don't
+ * thread a per-call retry config through, and reading at call time keeps the
  * surface narrow while still being operator-tunable. If operational
  * complexity grows (more retry knobs, hot-reload, etc.) the proper fix is
  * to plumb them through ReviewerConfig.
  *
- * Defaults are in `providers.ts` (`DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120000`;
- * `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT` defaults `"true"`).
+ * This paragraph used to also claim `providers.ts` is "a sealed module without
+ * imports from `./config`". That was not true when written — `providers.ts`
+ * already imported `ReviewerConfig` as a type — and it is not a constraint:
+ * `config.ts` imports only `./logger`, so nothing here can close a cycle back
+ * on a module that imports it.
  *
- * mt#1969.
+ * Defaults live with their readers in `providers.ts`
+ * (`DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120000`; the enable flag defaults
+ * `"true"` — see `parseToolloopRetryEnabled`).
+ *
+ * mt#1969; enforced by mt#4619.
  */
 export const REVIEWER_CALLTIME_ENV_VAR_NAMES = {
   /** Enable single retry on toolloop `TimeoutError`. Default `"true"`. */
   TOOLLOOP_RETRY_ON_TIMEOUT: "REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT",
   /** Timeout ceiling for the retry attempt (matches primary). Default `120000` ms. */
   TOOLLOOP_RETRY_TIMEOUT_MS: "REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS",
+  /**
+   * Candidate model for a per-PR A/B arm (mt#4569). Unset — the default —
+   * means no experiment is running and every PR uses `REVIEWER_MODEL`. When
+   * set, even-numbered PRs are reviewed by this model and odd-numbered PRs by
+   * `REVIEWER_MODEL`, so both arms occupy the same window and a cohort
+   * comparison needs no time predicate. Read in `config-arm.ts`; unsetting it
+   * ends the experiment with no deploy of new code.
+   */
+  EXPERIMENT_MODEL: "REVIEWER_EXPERIMENT_MODEL",
 } as const;
 
 /**
@@ -109,9 +152,9 @@ function optionalEnv(name: string, fallback: string): string {
 
 export function loadConfig(): ReviewerConfig {
   const provider = requireEnv("REVIEWER_PROVIDER") as ReviewerConfig["provider"];
-  if (!["openai", "google", "anthropic"].includes(provider)) {
+  if (!REVIEWER_PROVIDERS.includes(provider)) {
     throw new Error(
-      `minsky-reviewer: REVIEWER_PROVIDER must be one of openai|google|anthropic, got "${provider}"`
+      `minsky-reviewer: REVIEWER_PROVIDER must be one of ${REVIEWER_PROVIDERS.join("|")}, got "${provider}"`
     );
   }
 

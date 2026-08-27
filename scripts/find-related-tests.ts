@@ -10,11 +10,15 @@
  *   1. Sibling test — `src/foo/bar.ts` changed => `src/foo/bar.test.ts` (if it
  *      exists) is related. A changed `*.test.ts` file is trivially related to
  *      itself.
- *   2. Reverse-dependency-graph walk — build an import graph over the same
- *      file scope `scripts/run-tests-main.ts` uses (ROOTS, minus
- *      EXCLUDE_DIR_PREFIXES — notably src/mcp, whose tests must run in
- *      per-file isolation per mt#2665; see scripts/run-related-tests.ts for
- *      how a directly-changed src/mcp sibling test is still handled safely),
+ *   2. Reverse-dependency-graph walk — build an import graph over the
+ *      SELECTOR's file scope: `GRAPH_ROOTS`, minus EXCLUDE_DIR_PREFIXES
+ *      (notably src/mcp, whose tests must run in per-file isolation per
+ *      mt#2665; see scripts/run-related-tests.ts for how a directly-changed
+ *      src/mcp sibling test is still handled safely). `GRAPH_ROOTS` is
+ *      `scripts/run-tests-main.ts`'s `ROOTS` plus the selector-only roots it
+ *      does NOT execute — `./.minsky/hooks` today (mt#4521). The two scopes
+ *      were identical until then; see that constant's doc comment for why
+ *      they had to diverge,
  *      then breadth-first-walk the REVERSE edges (importers, not imports)
  *      from each changed file up to `maxDepth` hops. Any `*.test.ts` file
  *      reached this way — because it imports the changed file directly, or
@@ -33,10 +37,12 @@
  * which is why `DEFAULT_MAX_DEPTH` is deliberately tight — see its doc comment
  * for the measurements.
  *
- * Depth is bounded (default 6) and the caller (scripts/run-related-tests.ts)
- * additionally caps the total related-test count -- a widely-imported
- * low-level utility (e.g. a shared logger) can otherwise pull in a large
- * fraction of the suite, defeating the "fast" purpose of this gate.
+ * Depth is bounded by `DEFAULT_MAX_DEPTH` (3 since mt#3765 lowered it from 6).
+ * The caller (scripts/run-related-tests.ts) bounds the run by WALL-CLOCK budget,
+ * not by a related-test COUNT — mt#3765 removed the former count cap because it
+ * skipped tests silently while a slow-but-small set still blew the budget. A
+ * widely-imported low-level utility (e.g. a shared logger) can otherwise pull in
+ * a large fraction of the suite, defeating the "fast" purpose of this gate.
  *
  * All filesystem access is routed through the injectable `FsLike` interface
  * (default: real `node:fs`) so tests can pass an in-memory mock filesystem
@@ -46,7 +52,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
-import { ROOTS, shouldExclude } from "./run-tests-main";
+import { GRAPH_ROOTS, shouldExclude } from "./run-tests-main";
 
 const TS_EXT_RE = /\.tsx?$/;
 const TEST_SUFFIX_RE = /\.test\.tsx?$/;
@@ -280,8 +286,23 @@ export function resolveSpecifier(
   return null;
 }
 
-/** Collect every `.ts`/`.tsx` file under ROOTS, excluding EXCLUDE_DIR_PREFIXES (mirrors run-tests-main.ts's walk, but for ALL source files, not just *.test.ts). */
-export function collectAllProjectFiles(repoRoot: string, fs: FsLike = realFs): string[] {
+/**
+ * Collect every `.ts`/`.tsx` file under the GRAPH scope, excluding
+ * EXCLUDE_DIR_PREFIXES (mirrors run-tests-main.ts's walk, but for ALL source files,
+ * not just *.test.ts).
+ *
+ * Defaults to `GRAPH_ROOTS`, not `ROOTS` (mt#4521): what this selector must SEE is a
+ * different question from what the pre-push runner must EXECUTE, and `.minsky/hooks`
+ * is the case where the answers differ. `roots` is injectable for the same reason
+ * `discoverTestFiles(roots = ROOTS)` is — so a caller (or a measurement harness) can
+ * compare scopes without a second process, where cold-vs-warm cache would confound
+ * the comparison.
+ */
+export function collectAllProjectFiles(
+  repoRoot: string,
+  fs: FsLike = realFs,
+  roots: readonly string[] = GRAPH_ROOTS
+): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
     let entries: string[];
@@ -307,7 +328,7 @@ export function collectAllProjectFiles(repoRoot: string, fs: FsLike = realFs): s
       }
     }
   };
-  for (const root of ROOTS) {
+  for (const root of roots) {
     walk(toPosix(root.replace(/^\.\//, "")));
   }
   return out;
@@ -471,6 +492,84 @@ export function buildDataReadGraph(
 }
 
 /**
+ * Directories whose whole POPULATION is asserted over by a census test (mt#4508).
+ *
+ * The three edges above all key on an individual FILE: a sibling by name, an importer,
+ * or a test naming that file as a literal. A census test has none of those relationships
+ * to the module it would catch — it asserts over the directory's whole membership, so it
+ * is related to a file it has never heard of, precisely BECAUSE that file is new.
+ *
+ * That gap is why adding a `.minsky/hooks/<name>.ts` module selected ZERO tests
+ * (measured 2026-08-24: `find-related-tests .minsky/hooks/zz-scratch-probe.ts` → empty),
+ * so every local check passed and the first signal was a full CI run on an
+ * already-reviewed PR. Adding one hook module obliges several separate registries, and
+ * an author currently learns the count by exhausting it one CI round at a time.
+ *
+ * Deliberately a DECLARED scope rather than a repo-wide heuristic. A general
+ * "test that reads a directory" rule would fire for changes anywhere in the tree, and
+ * over-inclusion in this selector is not free — per `DEFAULT_MAX_DEPTH` below, a bloated
+ * related set overruns the pre-commit wall-clock budget and blocks the commit outright.
+ * Keying on a named directory bounds the cost to exactly the tree that needs it and
+ * leaves every other change's selection byte-identical.
+ *
+ * Note this list does NOT go stale the way the registries it guards do: adding a hook
+ * module requires no edit here — the edge fires on the DIRECTORY. Only adding a whole
+ * new censused tree would.
+ */
+export const DIRECTORY_CENSUS_TESTS: ReadonlyArray<{
+  readonly dir: string;
+  readonly tests: readonly string[];
+}> = [
+  {
+    dir: ".minsky/hooks",
+    // `hook-module-inventory.test.ts` is the one that fires on mere ADDITION — it walks
+    // the live tree and fails with the new module listed as `unclassified` plus a
+    // bucket-count mismatch. `interceptor-coordinates.test.ts` censuses the DESCRIPTION
+    // population rather than the tree, so it fires a step later, once the module is
+    // described; it is selected here too so the author sees the whole obligation in one
+    // run instead of discovering it on the next round.
+    tests: [
+      ".minsky/hooks/hook-module-inventory.test.ts",
+      ".minsky/hooks/interceptor-coordinates.test.ts",
+    ],
+  },
+];
+
+/**
+ * Census tests owed by a changed repo-relative path, or `[]` if it is not a member of any
+ * censused POPULATION.
+ *
+ * Membership is narrower than "sits under the directory", and deliberately mirrors what the
+ * census actually enumerates (PR #3289 R1). `hook-module-inventory.test.ts` derives its
+ * population as `readdirSync(HOOKS_DIR).filter(f => f.endsWith(".ts") && !f.endsWith(".test.ts"))`,
+ * so three kinds of path under the directory are NOT in it and must not pull the census tests in:
+ *
+ *   - a **test file** — editing a hook's own `.test.ts` body changes neither census
+ *   - a **nested** path (`fixtures/x.json`) — that `readdirSync` is non-recursive
+ *   - a **non-`.ts`** file — `.tsx` included, since the filter is `.ts`-exact
+ *
+ * Matching on a segment boundary also keeps a sibling directory sharing a name prefix
+ * (`.minsky/hooks-archive/x.ts`) from claiming `.minsky/hooks`.
+ */
+export function censusTestsFor(changedFile: string): string[] {
+  const out: string[] = [];
+  for (const scope of DIRECTORY_CENSUS_TESTS) {
+    const prefix = `${scope.dir}/`;
+    if (!changedFile.startsWith(prefix)) continue;
+    const name = changedFile.slice(prefix.length);
+    if (name.includes("/")) continue;
+    // `.ts` exactly — deliberately NOT the module-level `TS_EXT_RE`, which also matches
+    // `.tsx` (PR #3289 R2). The census filters `f.endsWith(".ts") && !f.endsWith(".test.ts")`,
+    // and a hook is a node process rather than a component, so a `.tsx` under this tree
+    // would not be in the population it enumerates. Mirroring the predicate means mirroring
+    // its extension too, or the claim above is only approximately true.
+    if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+    out.push(...scope.tests);
+  }
+  return out;
+}
+
+/**
  * Default BFS hops over the reverse-dependency graph.
  *
  * Lowered 6 -> 3 by mt#3765. The header above states that over-inclusion "only
@@ -496,6 +595,13 @@ export interface FindRelatedTestsOptions {
   maxDepth?: number;
   /** Injectable filesystem -- defaults to real node:fs. */
   fs?: FsLike;
+  /**
+   * Graph scope to walk. Defaults to `GRAPH_ROOTS` (mt#4521). Injectable so a
+   * measurement harness can compare scopes in ONE process — comparing across two
+   * processes confounds the difference with cold-vs-warm filesystem cache, which is
+   * how mt#4508 first measured 635ms vs 352ms for a change that was actually 316 vs 315.
+   */
+  roots?: readonly string[];
 }
 
 /**
@@ -510,6 +616,7 @@ export function findRelatedTestFiles(
 ): string[] {
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
   const fs = opts.fs ?? realFs;
+  const roots = opts.roots ?? GRAPH_ROOTS;
 
   // EVERY existing changed path, not only TS (mt#4224). The TS filter used to live
   // here, which discarded a changed `.md`/`.mdc` before any graph work and returned
@@ -530,12 +637,27 @@ export function findRelatedTestFiles(
   //    Built lazily — a commit whose changed files no test names pays one tree walk
   //    and no more, and a commit that touches nothing existing returned above.
   {
-    const testFiles = collectAllProjectFiles(repoRoot, fs).filter((f) => TEST_SUFFIX_RE.test(f));
+    const testFiles = collectAllProjectFiles(repoRoot, fs, roots).filter((f) =>
+      TEST_SUFFIX_RE.test(f)
+    );
     const dataReadGraph = buildDataReadGraph(testFiles, repoRoot, fs);
     for (const file of allChanged) {
       const readers = dataReadGraph.get(file);
       if (!readers) continue;
       for (const reader of readers) related.add(reader);
+    }
+  }
+
+  // 0b. Directory-census edges (mt#4508): a test asserting over the whole population of
+  //     a declared directory. Seeded from `allChanged` rather than the TS-only
+  //     `normalizedChanged` because membership is decided by `censusTestsFor`, which
+  //     applies the census's OWN predicate (direct child, `.ts`, non-test) rather than
+  //     this function's admission filter. Gated on existence for the same reason every
+  //     other edge here is: a declared test that has been renamed or deleted must produce
+  //     no edge rather than a path bun cannot run.
+  for (const file of allChanged) {
+    for (const censusTest of censusTestsFor(file)) {
+      if (fs.existsSync(join(repoRoot, censusTest))) related.add(censusTest);
     }
   }
 
@@ -558,7 +680,7 @@ export function findRelatedTestFiles(
   //    ROOTS/EXCLUDE_DIR_PREFIXES as scripts/run-tests-main.ts.
   const graphSeeds = normalizedChanged.filter((f) => !shouldExclude(f));
   if (graphSeeds.length > 0) {
-    const allFiles = collectAllProjectFiles(repoRoot, fs);
+    const allFiles = collectAllProjectFiles(repoRoot, fs, roots);
     const pkgExportsMap = loadPackageExportsMaps(repoRoot, fs);
     const revGraph = buildReverseDependencyGraph(allFiles, repoRoot, pkgExportsMap, fs);
 

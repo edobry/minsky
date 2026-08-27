@@ -1,0 +1,1 @@
+ALTER TABLE "wake_pending" ADD CONSTRAINT "wake_pending_addressable" CHECK ("wake_pending"."parent_session_id" IS NOT NULL OR "wake_pending"."agent_id" IS NOT NULL);

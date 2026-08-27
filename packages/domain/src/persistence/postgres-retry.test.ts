@@ -1,5 +1,7 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
+  __resetPgRetryCountersForTests,
+  getPgRetryCounters,
   isPgPoolExhaustionError,
   isPgRetryableConnectionError,
   isPgStaleConnectionError,
@@ -423,5 +425,120 @@ describe("withPgPoolRetry backoff timing", () => {
     } finally {
       globalThis.setTimeout = originalSetTimeout;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4562 — retry outcome counters
+// ---------------------------------------------------------------------------
+
+describe("retry counters (mt#4562)", () => {
+  beforeEach(() => {
+    __resetPgRetryCountersForTests();
+  });
+
+  const saturationError = () => ({
+    code: "53300",
+    message: SUPAVISOR_SATURATION_MESSAGE,
+    query: undefined,
+  });
+  const staleError = () => ({
+    code: CONNECTION_CLOSED_CODE,
+    message: CONNECTION_TERMINATED_MESSAGE,
+    query: undefined,
+  });
+  /** No `query` own-property and no retryable code/message — never retried. */
+  const nonRetryableError = () => new Error('syntax error at or near "SLECT"');
+
+  test("a zeroed process reports all counters at zero", () => {
+    expect(getPgRetryCounters()).toEqual({
+      saturationRetries: 0,
+      staleConnectionRetries: 0,
+      retriesExhausted: 0,
+      lastRetryAt: null,
+    });
+  });
+
+  test("a saturation retry increments ONLY the saturation counter", async () => {
+    let calls = 0;
+    await withPgPoolRetry(
+      async () => {
+        calls++;
+        if (calls === 1) throw saturationError();
+        return "ok";
+      },
+      "test.saturation",
+      { initialDelayMs: 1, jitter: () => 0 }
+    );
+
+    const counters = getPgRetryCounters();
+    expect(counters.saturationRetries).toBe(1);
+    expect(counters.staleConnectionRetries).toBe(0);
+    expect(counters.retriesExhausted).toBe(0);
+    expect(counters.lastRetryAt).not.toBeNull();
+  });
+
+  test("a stale-connection retry increments ONLY the stale counter", async () => {
+    let calls = 0;
+    await withPgPoolRetry(
+      async () => {
+        calls++;
+        if (calls === 1) throw staleError();
+        return "ok";
+      },
+      "test.stale",
+      { initialDelayMs: 1, jitter: () => 0 }
+    );
+
+    const counters = getPgRetryCounters();
+    expect(counters.staleConnectionRetries).toBe(1);
+    expect(counters.saturationRetries).toBe(0);
+    expect(counters.retriesExhausted).toBe(0);
+  });
+
+  test("exhausting the budget increments retriesExhausted", async () => {
+    await expect(
+      withPgPoolRetry(
+        async () => {
+          throw staleError();
+        },
+        "test.exhausted",
+        { maxAttempts: 2, initialDelayMs: 1, jitter: () => 0 }
+      )
+    ).rejects.toMatchObject({ code: CONNECTION_CLOSED_CODE });
+
+    const counters = getPgRetryCounters();
+    expect(counters.retriesExhausted).toBe(1);
+    // 2 attempts = 1 retry wait, so exactly one class increment.
+    expect(counters.staleConnectionRetries).toBe(1);
+  });
+
+  test("a NON-retryable error increments nothing, including retriesExhausted", async () => {
+    // The guard clause shares one branch with budget exhaustion, so the obvious
+    // implementation counts both. A non-retryable error never engaged the retry
+    // mechanism at all — counting it would make the fault signal rise on errors
+    // retry was never going to absorb.
+    await expect(
+      withPgPoolRetry(
+        async () => {
+          throw nonRetryableError();
+        },
+        "test.non-retryable",
+        { initialDelayMs: 1, jitter: () => 0 }
+      )
+    ).rejects.toThrow("syntax error");
+
+    expect(getPgRetryCounters()).toEqual({
+      saturationRetries: 0,
+      staleConnectionRetries: 0,
+      retriesExhausted: 0,
+      lastRetryAt: null,
+    });
+  });
+
+  test("a call that succeeds first try increments nothing", async () => {
+    await withPgPoolRetry(async () => "ok", "test.clean");
+
+    expect(getPgRetryCounters().lastRetryAt).toBeNull();
   });
 });

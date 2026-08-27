@@ -6,6 +6,13 @@
  * every service logged `Railway GraphQL errors: Not Authorized`, the digest
  * check was skipped for want of that data, and each service still printed
  * `Status: HEALTHY` with `Total alerts fired: 0`.
+ *
+ * mt#1495 added check (d) — DB-pool recovery counters. Every fixture below
+ * carries `recovery: NO_COUNTERS`, which is what all five services report
+ * today: only the cockpit publishes `dbRecycle` at all, and even there the
+ * reading is `not-applicable` until a recycle has actually happened. So these
+ * tests keep asserting exactly what they asserted before, and check (d)'s own
+ * behaviour is covered in `monitor-recovery-alarm.test.ts`.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -30,12 +37,16 @@ const couldNotRun = (detail: string): CheckSummary => ({
   problem: false,
 });
 
+/** Check (d) for a service that publishes no `dbRecycle` — i.e. all of them but the cockpit. */
+const NO_COUNTERS = notApplicable("service publishes no dbRecycle counters");
+
 /** A repo-source service (cockpit, site): no configured image, so no digest check. */
 const healthyRepoSourceService = (): ServiceCheckSummary => ({
   service: "cockpit",
   deploy: ran(),
   health: ran(),
   digest: notApplicable("repo-source service — no configured image to compare"),
+  recovery: NO_COUNTERS,
 });
 
 describe("scoreService", () => {
@@ -54,6 +65,7 @@ describe("scoreService", () => {
         deploy: couldNotRun(NOT_AUTHORIZED),
         health: ran(),
         digest: couldNotRun(NO_DEPLOY_DATA),
+        recovery: NO_COUNTERS,
       },
       false
     );
@@ -73,6 +85,7 @@ describe("scoreService", () => {
         deploy: couldNotRun(NOT_AUTHORIZED),
         health: ran(),
         digest: couldNotRun(NO_DEPLOY_DATA),
+        recovery: NO_COUNTERS,
       },
       false
     );
@@ -90,6 +103,7 @@ describe("scoreService", () => {
         deploy: couldNotRun(NOT_AUTHORIZED),
         health: couldNotRun("fetch timed out after 10000ms"),
         digest: couldNotRun(NO_DEPLOY_DATA),
+        recovery: NO_COUNTERS,
       },
       false
     );
@@ -127,6 +141,7 @@ describe("scoreService", () => {
         deploy: ran(),
         health: notApplicable("no healthUrl configured"),
         digest: ran(),
+        recovery: NO_COUNTERS,
       },
       false
     );
@@ -141,6 +156,7 @@ describe("scoreService", () => {
         deploy: { outcome: "ok", detail: "deployment CRASHED", problem: true },
         health: { outcome: "ok", detail: "HTTP 503", problem: true },
         digest: ran(),
+        recovery: NO_COUNTERS,
       },
       false
     );
@@ -155,6 +171,7 @@ describe("scoreService", () => {
       deploy: ran(),
       health: ran(),
       digest: { outcome: "ok", detail: "deployed sha256:aaa, registry sha256:bbb", problem: true },
+      recovery: NO_COUNTERS,
     };
 
     // A single observation is the normal build-push-redeploy window (mt#3284).
@@ -174,10 +191,43 @@ describe("scoreService", () => {
         deploy: { outcome: "failed", detail: NOT_AUTHORIZED, problem: true },
         health: ran(),
         digest: notApplicable("repo-source service — no configured image to compare"),
+        recovery: NO_COUNTERS,
       },
       false
     );
 
     expect(score.alerts.map((a) => a.class)).toEqual(["check-failed"]);
+  });
+
+  // mt#1495 — check (d)'s contribution to the verdict. The reading-level cases
+  // live in monitor-recovery-alarm.test.ts; these cover the wiring.
+  test("mt#1495: an abandoned-close reading alerts under recovery-degraded, not health-down", () => {
+    const score = scoreService(
+      {
+        ...healthyRepoSourceService(),
+        recovery: { outcome: "ok", detail: "3 of 12 pool recycles ABANDONED", problem: true },
+      },
+      false
+    );
+
+    expect(score.verdict).toBe("DEGRADED");
+    // Its own class: the service is answering 200, so `health-down` would send
+    // an operator to look at the wrong thing.
+    expect(score.alerts.map((a) => a.class)).toEqual(["recovery-degraded"]);
+    expect(score.alerts[0]?.reason).toContain("ABANDONED");
+  });
+
+  test("mt#1495: an unrunnable recovery check makes the service DEGRADED, not HEALTHY", () => {
+    const score = scoreService(
+      {
+        ...healthyRepoSourceService(),
+        recovery: couldNotRun("dbRecycle is present but is not an object"),
+      },
+      false
+    );
+
+    expect(score.verdict).toBe("DEGRADED");
+    expect(score.alerts.map((a) => a.class)).toEqual(["check-failed"]);
+    expect(score.alerts[0]?.reason).toContain("DB-pool recovery counters");
   });
 });

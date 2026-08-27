@@ -128,13 +128,45 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
         },
       ];
       writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+      // mt#4380: the same transcript PLUS a CLI spec read, as the control. Without it this canary
+      // is satisfied by a guard that denies unconditionally — including one whose CLI channel has
+      // silently stopped crediting anything (mem#1237: a check that cannot distinguish the broken
+      // state from the healthy one is not evidence of coverage).
+      const cliTranscriptPath = join(dir, "transcript-cli.jsonl");
+      writeFileSync(
+        cliTranscriptPath,
+        [
+          ...lines,
+          {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  name: "Bash",
+                  input: { command: "minsky tasks spec get mt#9999" },
+                },
+              ],
+            },
+          },
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n")
+      );
       try {
         const targetId = resolveTargetTaskId("mcp__minsky__session_start", {
           task: "mt#9999",
         });
         if (!targetId) return false;
         const surfaced = specWasSurfacedInAnyTranscript(transcriptPath, undefined, targetId);
-        return !surfaced; // NOT surfaced -> the real guard would deny
+        const surfacedViaCli = specWasSurfacedInAnyTranscript(
+          cliTranscriptPath,
+          undefined,
+          targetId
+        );
+        // NOT surfaced -> the real guard would deny; surfaced via the CLI channel -> it would not.
+        return !surfaced && surfacedViaCli;
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -182,13 +214,14 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       recorderEffect("execution-evidence-test-first"),
       recorderEffect("execution-evidence-render-path"),
       recorderEffect("execution-evidence-sc-coverage"),
+      recorderEffect("execution-evidence-consumer-account"),
     ],
     expects: "deny",
-    // FOUR logs from one guard, every one written in-process off this same merge-gate
+    // FIVE logs from one guard, every one written in-process off this same merge-gate
     // entry point: `execution-evidence-at-coverage` by the gate itself, and the other
-    // three through modules it calls — `test-first-evidence.ts`,
-    // `render-path-evidence.ts`, `success-criteria-coverage.ts`. The list form exists
-    // for this (mt#3519).
+    // four through modules it calls — `test-first-evidence.ts`,
+    // `render-path-evidence.ts`, `success-criteria-coverage.ts`, and
+    // `consumer-account-evidence.ts` (mt#4493). The list form exists for this (mt#3519).
     //
     // mt#4064: this declared two of the four, and the two shapes the omission takes are
     // different. `-render-path` was ON DISK, so it read as `Unmapped` — with no
@@ -259,6 +292,55 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
           "If that basis does not hold, say so and proceed."
       );
       return (bare.report?.bare.length ?? 0) > 0 && (grounded.report?.bare.length ?? 0) === 0;
+    },
+  },
+  {
+    // mt#4390. This guard is wired STRAIGHT from `.claude/settings.json` (two
+    // entries, on `session.pr.merge` and on the gh-api bypass surface) rather
+    // than through the dispatcher, so it is absent from `GUARD_REGISTRY` — and
+    // it had no canary either. That left it declared on NEITHER of the two
+    // surfaces `buildCalibrationLogToGuards` reads, which is the only reason
+    // its log was invisible: it writes 2,666 fire-log rows under this exact
+    // name, so the invocation evidence was there the whole time with no join
+    // key to reach it. The coverage receipt reported `[FLAGGED] … no live fires
+    // and no invocation evidence` while the log was being appended to in real
+    // time, and named it on the `Unmapped` line in the same run.
+    guardName: "gate-walk-provenance",
+    // Record-only by design: it never denies and never warns. `fireLogDecisionFor`
+    // returns "allow" unconditionally, so `calibration` is the outcome-shaped
+    // expectation — the record IS the effect.
+    effects: [recorderEffect()],
+    expects: "calibration",
+    calibrationLog: "gate-walk-provenance",
+    check: async () => {
+      const { classifyGateWalk } = await import("../../.minsky/hooks/gate-walk-provenance");
+
+      // A DISCRIMINATING pair, not a single sample: the guard's whole job is to
+      // tell "was this task ever gated?" apart from "we cannot tell", so a
+      // canary that only exercised one branch would pass against a classifier
+      // stuck on that answer.
+      const gated = classifyGateWalk({
+        readyEventAt: "2026-08-01T00:00:00.000Z",
+        horizonAt: "2026-07-01T00:00:00.000Z",
+        taskCreatedAt: "2026-07-15T00:00:00.000Z",
+      });
+      const ungated = classifyGateWalk({
+        readyEventAt: null,
+        horizonAt: "2026-07-01T00:00:00.000Z",
+        taskCreatedAt: "2026-07-15T00:00:00.000Z",
+      });
+      // The third outcome, kept in the canary because conflating it with
+      // `ungated` is the specific error this guard's own docblock warns about:
+      // a task predating the horizon is unanswerable, not un-gated.
+      const skipped = classifyGateWalk({
+        readyEventAt: null,
+        horizonAt: "2026-07-01T00:00:00.000Z",
+        taskCreatedAt: "2026-06-01T00:00:00.000Z",
+      });
+
+      return (
+        gated.outcome === "gated" && ungated.outcome === "ungated" && skipped.outcome === "skipped"
+      );
     },
   },
 ];

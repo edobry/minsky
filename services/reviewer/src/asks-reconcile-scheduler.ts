@@ -32,9 +32,14 @@
  * The scheduler calls `reconcile()` from `@minsky/domain/ask/reconciler`
  * directly via domain imports, bypassing the MCP-over-HTTP path entirely.
  * A `DrizzleAskRepository` is built from the domain container's persistence
- * provider; a `makeProductionGithubReviewClient` is constructed from the
- * Minsky implementer GitHub App token; `SystemOperatorNotify` is used for
- * notifications.
+ * provider; the GitHub review client is constructed from THIS SERVICE'S OWN
+ * GitHub App token (mt#4435 — see `github-token-provider.ts`);
+ * `SystemOperatorNotify` is used for notifications.
+ *
+ * Until mt#4435 this said "the Minsky implementer GitHub App token." That was
+ * the intent and never the behavior — the code read a domain-config namespace
+ * this service does not provision, fell through to an empty token, and issued
+ * every request unauthenticated.
  *
  * @see mt#1636 — Invocation path wiring for asks.reconcile (sibling to mt#1618).
  * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
@@ -42,6 +47,10 @@
 
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
+import {
+  createReviewerTokenProvider,
+  findMissingReviewerCredentials,
+} from "./github-token-provider";
 import { log } from "./logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
@@ -82,8 +91,8 @@ interface AsksReconcileResult {
  * Run one asks-reconcile pass via domain imports.
  *
  * Builds a `DrizzleAskRepository` from the persistence provider, creates a
- * `makeProductionGithubReviewClient` backed by the Minsky implementer GitHub
- * App token, and calls `reconcile()` directly.
+ * GitHub review client backed by the reviewer service's own GitHub App token
+ * (mt#4435), and calls `reconcile()` directly.
  *
  * Errors are caught and returned as `{ success: false }` — the scheduler is
  * a best-effort background task; a single failed call must not crash the
@@ -92,7 +101,8 @@ interface AsksReconcileResult {
  * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 async function runAsksReconcileDomain(
-  container: AppContainerInterface
+  container: AppContainerInterface,
+  config: ReviewerConfig
 ): Promise<AsksReconcileResult> {
   try {
     const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
@@ -103,9 +113,6 @@ async function runAsksReconcileDomain(
     const { DrizzleWakePendingRepository } = await import(
       "@minsky/domain/ask/wake-pending-repository"
     );
-    const { getConfiguration } = await import("@minsky/domain/configuration/index");
-    const { createTokenProvider } = await import("@minsky/domain/auth");
-
     const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
     const db = await persistenceProvider.getDatabaseConnection();
     if (!db) {
@@ -114,9 +121,13 @@ async function runAsksReconcileDomain(
 
     const repo = new DrizzleAskRepository(db);
 
-    const cfg = getConfiguration();
-    const userToken = cfg.github?.token ?? "";
-    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+    // mt#4435: authenticate as THIS service's own GitHub App, for the same
+    // reason as the pr-watch scheduler — the previous
+    // `createTokenProvider(cfg.github ?? {}, …)` read a domain-config namespace
+    // (`MINSKY_APP_*`) this service does not provision, fell through to an empty
+    // token, and issued every request unauthenticated. Both schedulers share
+    // this one seam so a fix to either cannot silently miss the other.
+    const tokenProvider = createReviewerTokenProvider(config);
 
     // Build a GithubReviewClient inline using domain list-reviews infrastructure.
     // This replicates makeProductionGithubReviewClient from
@@ -222,13 +233,31 @@ export function startAsksReconcileScheduler(
     return null;
   }
 
+  // mt#4435: refuse to start rather than degrade silently. Same rationale as
+  // the pr-watch scheduler — an unauthenticated reconciler exhausts GitHub's
+  // 60/hour per-IP budget and then fails every cycle with nothing surfacing.
+  //
+  // Runs BEFORE the `enabled` log, alongside the guards above: an `enabled`
+  // line for a scheduler that then refuses to start is a claim the behavior
+  // does not back, which is the shape of the defect this task fixes
+  // (PR #3254 R1).
+  const missingCredentials = findMissingReviewerCredentials(config);
+  if (missingCredentials.length > 0) {
+    log.error(
+      `asks_reconcile_scheduler.missing_github_credentials: ${missingCredentials.join(", ")}`,
+      {
+        event: "asks_reconcile_scheduler.missing_github_credentials",
+        missing: missingCredentials,
+        message: "Asks-reconcile scheduler cannot authenticate to GitHub and will NOT start.",
+      }
+    );
+    return null;
+  }
+
   log.info("asks_reconcile_scheduler.enabled", {
     event: "asks_reconcile_scheduler.enabled",
     intervalMs: schedulerConfig.intervalMs,
   });
-
-  // Suppress unused variable warning — config is held for future use
-  void config;
 
   let isRunning = false;
 
@@ -246,7 +275,7 @@ export function startAsksReconcileScheduler(
       event: "asks_reconcile_scheduler.tick.start",
     });
 
-    runAsksReconcileDomain(container)
+    runAsksReconcileDomain(container, config)
       .then((result) => {
         if (result.success) {
           log.info("asks_reconcile_scheduler.tick.complete", {

@@ -11,7 +11,11 @@ import { describe, expect, test } from "bun:test";
 import {
   type ConversationTransition,
   type MappingIo,
+  getConversationPidMapDir,
+  getConversationPidMapPath,
   getConversationTransitionLogPath,
+  processLiveness,
+  pruneDeadMappings,
   readConversationMapping,
   resolveHarnessPid,
   writeConversationMapping,
@@ -55,6 +59,15 @@ function transitionsIn(io: MappingIo & { files: Map<string, string> }) {
     .filter((l) => l.trim().length > 0)
     .map((l) => JSON.parse(l) as ConversationTransition);
 }
+
+/**
+ * Every fixture below uses a SYNTHETIC pid, which is genuinely dead on the
+ * machine running the suite — so mt#4378's liveness check would reject each
+ * entry for a reason none of these tests is about. Stating the assumption
+ * explicitly is the point: these cases assert mapping semantics GIVEN a live
+ * harness, and the dead-pid behaviour has its own tests below.
+ */
+const ALIVE = (): "alive" => "alive";
 
 describe("resolveHarnessPid — the rule writer and reader must share (mt#3900)", () => {
   /** Build a fake process tree: pid → {ppid, comm}. */
@@ -142,14 +155,14 @@ describe("mapping round-trip (mt#3900)", () => {
   test("a written conversation id reads back", () => {
     const io = memoryIo();
     expect(writeConversationMapping(TEST_PID, CONV_A, undefined, io)).toBe(true);
-    expect(readConversationMapping(TEST_PID, io)).toBe(CONV_A);
+    expect(readConversationMapping(TEST_PID, io, undefined, ALIVE)).toBe(CONV_A);
   });
 
   test("a later write replaces the earlier one — this IS the /clear case", () => {
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, "startup", io);
     writeConversationMapping(TEST_PID, CONV_B, "clear", io);
-    expect(readConversationMapping(TEST_PID, io)).toBe(CONV_B);
+    expect(readConversationMapping(TEST_PID, io, undefined, ALIVE)).toBe(CONV_B);
   });
 
   test("mappings are per-pid, so concurrent harnesses do not collide", () => {
@@ -158,18 +171,18 @@ describe("mapping round-trip (mt#3900)", () => {
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, undefined, io);
     writeConversationMapping(TEST_PID_2, CONV_B, undefined, io);
-    expect(readConversationMapping(TEST_PID, io)).toBe(CONV_A);
-    expect(readConversationMapping(TEST_PID_2, io)).toBe(CONV_B);
+    expect(readConversationMapping(TEST_PID, io, undefined, ALIVE)).toBe(CONV_A);
+    expect(readConversationMapping(TEST_PID_2, io, undefined, ALIVE)).toBe(CONV_B);
   });
 
   test("an absent mapping reads as null, never as a guess", () => {
-    expect(readConversationMapping(TEST_PID, memoryIo())).toBeNull();
+    expect(readConversationMapping(TEST_PID, memoryIo(), undefined, ALIVE)).toBeNull();
   });
 
   test("a non-UUID conversation id is refused at write time", () => {
     const io = memoryIo();
     expect(writeConversationMapping(TEST_PID, "not-a-uuid", undefined, io)).toBe(false);
-    expect(readConversationMapping(TEST_PID, io)).toBeNull();
+    expect(readConversationMapping(TEST_PID, io, undefined, ALIVE)).toBeNull();
   });
 
   test("malformed JSON on disk reads as null rather than throwing", () => {
@@ -179,13 +192,13 @@ describe("mapping round-trip (mt#3900)", () => {
     writeConversationMapping(TEST_PID, CONV_A, undefined, io);
     const [path] = [...io.files.keys()];
     io.files.set(path as string, "{not json");
-    expect(readConversationMapping(TEST_PID, io)).toBeNull();
+    expect(readConversationMapping(TEST_PID, io, undefined, ALIVE)).toBeNull();
   });
 
   test("the id is normalized to lower case on both sides", () => {
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A.toUpperCase(), undefined, io);
-    expect(readConversationMapping(TEST_PID, io)).toBe(CONV_A);
+    expect(readConversationMapping(TEST_PID, io, undefined, ALIVE)).toBe(CONV_A);
   });
 });
 
@@ -275,7 +288,7 @@ describe("conversation transition capture (mt#3943)", () => {
     };
 
     expect(writeConversationMapping(TEST_PID, CONV_B, "clear", brokenIo, null)).toBe(true);
-    expect(readConversationMapping(TEST_PID, io, () => null)).toBe(CONV_B);
+    expect(readConversationMapping(TEST_PID, io, () => null, ALIVE)).toBe(CONV_B);
   });
 
   test("a recycled pid is distinguishable from a real switch using the log ALONE", () => {
@@ -340,7 +353,7 @@ describe("recycled-pid staleness (mt#3900)", () => {
   test("an entry whose start time matches the live process is used", () => {
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_A);
-    expect(readConversationMapping(TEST_PID, io, () => STARTED_A)).toBe(CONV_A);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_A, ALIVE)).toBe(CONV_A);
   });
 
   test("an entry from a RECYCLED pid is treated as absent", () => {
@@ -349,7 +362,7 @@ describe("recycled-pid staleness (mt#3900)", () => {
     // the same class of error the whole task exists to remove.
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_A);
-    expect(readConversationMapping(TEST_PID, io, () => STARTED_B)).toBeNull();
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_B, ALIVE)).toBeNull();
   });
 
   test("a start time that cannot be read does not invalidate the entry", () => {
@@ -357,7 +370,7 @@ describe("recycled-pid staleness (mt#3900)", () => {
     // mapping rather than toward discarding a good one.
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_A);
-    expect(readConversationMapping(TEST_PID, io, () => null)).toBe(CONV_A);
+    expect(readConversationMapping(TEST_PID, io, () => null, ALIVE)).toBe(CONV_A);
   });
 
   test("an entry without a recorded start time is still honored", () => {
@@ -365,6 +378,157 @@ describe("recycled-pid staleness (mt#3900)", () => {
     // not evidence of recycling either.
     const io = memoryIo();
     writeConversationMapping(TEST_PID, CONV_A, undefined, io, null);
-    expect(readConversationMapping(TEST_PID, io, () => STARTED_B)).toBe(CONV_A);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_B, ALIVE)).toBe(CONV_A);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dead-pid entries and the prune (mt#4378)
+// ---------------------------------------------------------------------------
+
+/** A liveness stub that reports whatever the case under test needs. */
+const DEAD = (): "dead" => "dead";
+const UNKNOWN = (): "unknown" => "unknown";
+
+describe("processLiveness (mt#4378)", () => {
+  test("our own pid is alive", () => {
+    // The one pid every environment is guaranteed to agree about.
+    expect(processLiveness(process.pid)).toBe("alive");
+  });
+
+  test("a pid that is not running reports dead, NOT unknown", () => {
+    // The whole point of the three-valued answer: `readProcessStartTime`
+    // collapses "gone" and "ps failed" into null, and that conflation is what
+    // let a dead pid's entry answer as a live mapping.
+    const pid = 0x7ffffffe; // above any real pid on a 64-bit host
+    expect(processLiveness(pid)).toBe("dead");
+  });
+
+  test("a non-pid degrades to unknown rather than dead", () => {
+    // `unknown` must never prune or reject — wrongly deleting a live session's
+    // mapping costs it its identity, which is worse than keeping a stale entry
+    // the reader already rejects.
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(processLiveness(bad)).toBe("unknown");
+    }
+  });
+});
+
+describe("readConversationMapping rejects a DEAD pid (SC1, mt#4378)", () => {
+  test("AT1 — a dead pid's entry is treated as absent", () => {
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_EARLIER);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_EARLIER, DEAD)).toBeNull();
+  });
+
+  test("AT2 negative control — the SAME entry is returned when the pid is alive", () => {
+    // Without this, AT1 passes for the wrong reason: any unrelated defect that
+    // made the read return null would satisfy it. The two cases differ only in
+    // the liveness verdict, so the rejection is attributable to that and
+    // nothing else.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_EARLIER);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_EARLIER, ALIVE)).toBe(CONV_A);
+  });
+
+  test("an UNKNOWN liveness does not reject — degrade toward the existing mapping", () => {
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_EARLIER);
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_EARLIER, UNKNOWN)).toBe(CONV_A);
+  });
+
+  test("AT1 end-to-end — a live entry wins over a dead one in the same store", () => {
+    // The shape the task was filed from: two entries on disk, one belonging to
+    // a harness that exited days ago. Resolution must reach the live one.
+    const io = memoryIo();
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_EARLIER); // dead harness
+    writeConversationMapping(TEST_PID_2, CONV_B, undefined, io, STARTED_LATER); // live harness
+    const liveOnly = (pid: number): "alive" | "dead" => (pid === TEST_PID_2 ? "alive" : "dead");
+
+    expect(readConversationMapping(TEST_PID, io, () => STARTED_EARLIER, liveOnly)).toBeNull();
+    expect(readConversationMapping(TEST_PID_2, io, () => STARTED_LATER, liveOnly)).toBe(CONV_B);
+  });
+});
+
+describe("pruneDeadMappings (SC4, mt#4378)", () => {
+  /** `memoryIo` plus the two optional capabilities the prune needs. */
+  function prunableIo(): MappingIo & { files: Map<string, string> } {
+    const io = memoryIo();
+    return {
+      ...io,
+      list: (dir) =>
+        [...io.files.keys()]
+          .filter((p) => p.startsWith(`${dir}/`))
+          .map((p) => p.slice(dir.length + 1)),
+      remove: (path) => {
+        io.files.delete(path);
+      },
+    };
+  }
+
+  test("removes dead entries and keeps live ones", () => {
+    // Seeded directly rather than through `writeConversationMapping`: that
+    // function now sweeps too, and its sweep (using the REAL liveness, against
+    // synthetic pids that are genuinely dead) would remove the fixture before
+    // the call under test ever ran. Building the store by hand keeps this test
+    // about `pruneDeadMappings` and nothing else.
+    const io = prunableIo();
+    io.files.set(getConversationPidMapPath(TEST_PID), `{"conversationId":"${CONV_A}"}\n`);
+    io.files.set(getConversationPidMapPath(TEST_PID_2), `{"conversationId":"${CONV_B}"}\n`);
+
+    const pruned = pruneDeadMappings(io, (pid) => (pid === TEST_PID_2 ? "alive" : "dead"));
+
+    expect(pruned).toBe(1);
+    expect(io.files.has(getConversationPidMapPath(TEST_PID))).toBe(false);
+    expect(io.files.has(getConversationPidMapPath(TEST_PID_2))).toBe(true);
+  });
+
+  test("an UNKNOWN liveness removes nothing", () => {
+    const io = prunableIo();
+    io.files.set(getConversationPidMapPath(TEST_PID), `{"conversationId":"${CONV_A}"}\n`);
+    expect(pruneDeadMappings(io, UNKNOWN)).toBe(0);
+    expect(io.files.has(getConversationPidMapPath(TEST_PID))).toBe(true);
+  });
+
+  test("an io without list/remove prunes nothing rather than throwing", () => {
+    // The capabilities are optional so every pre-existing fake still satisfies
+    // `MappingIo`. Omitting them must degrade to today's behaviour.
+    expect(pruneDeadMappings(memoryIo(), DEAD)).toBe(0);
+  });
+
+  test("ignores files that are not `<pid>.json`", () => {
+    const io = prunableIo();
+    io.files.set(`${getConversationPidMapDir()}/README.md`, "not a mapping");
+    io.files.set(getConversationPidMapPath(TEST_PID), `{"conversationId":"${CONV_A}"}\n`);
+
+    expect(pruneDeadMappings(io, DEAD)).toBe(1);
+    expect(io.files.has(`${getConversationPidMapDir()}/README.md`)).toBe(true);
+  });
+
+  test("a write sweeps the store, so the prune has a caller", () => {
+    // An invocation path that nothing calls is the mt#1618 shape: the feature
+    // exists, its tests pass, and it never runs.
+    const io = prunableIo();
+    io.files.set(getConversationPidMapPath(991003), '{"conversationId":"x"}\n');
+
+    writeConversationMapping(TEST_PID, CONV_A, undefined, io, STARTED_EARLIER);
+
+    // The stale entry is gone, written by the WRITE rather than a direct call.
+    expect(io.files.has(getConversationPidMapPath(991003))).toBe(false);
+  });
+
+  test("a failing remove does not fail the write it rides on", () => {
+    const io = prunableIo();
+    const hostile = {
+      ...io,
+      remove: () => {
+        throw new Error("EACCES");
+      },
+    };
+    io.files.set(getConversationPidMapPath(991003), '{"conversationId":"x"}\n');
+
+    expect(writeConversationMapping(TEST_PID, CONV_A, undefined, hostile, STARTED_EARLIER)).toBe(
+      true
+    );
   });
 });

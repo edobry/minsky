@@ -13,8 +13,12 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { render, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Root, Element } from "hast";
-import { buildEntityIndex, rehypeEntityLinks, LinkifiedText } from "./entity-linkifier";
+import { buildEntityIndex, rehypeEntityLinks } from "./entity-linkifier";
+// Moved to components/ in mt#4630 — it renders through <EntityRef> now, which
+// would make lib/ → components/ → lib/ a cycle if it stayed here.
+import { LinkifiedText } from "../components/LinkifiedText";
 
 afterEach(cleanup);
 
@@ -90,13 +94,23 @@ describe("makeAnchor — data-entity-* attributes (mt#3174)", () => {
 });
 
 describe("Inline-only linkify path (mt#3174 acceptance test)", () => {
+  // The QueryClientProvider is required as of mt#4630: LinkifiedText renders
+  // through <EntityRef>, whose useResolvedEntityLabel issues TanStack queries.
+  // No label ever resolves here (nothing serves /api/tasks in this harness),
+  // which is deliberate — it exercises the failure-tolerant path, where the
+  // rendered text must still be exactly the matched substring.
   function renderInline(text: string, index = makeIndex()) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     return render(
-      <MemoryRouter>
-        <span data-testid="inline-host">
-          <LinkifiedText text={text} index={index} />
-        </span>
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <span data-testid="inline-host">
+            <LinkifiedText text={text} index={index} />
+          </span>
+        </MemoryRouter>
+      </QueryClientProvider>
     );
   }
 

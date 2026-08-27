@@ -2,7 +2,7 @@
  * Task Spec Freshness Command (mt#2826)
  *
  * Checks whether the task/PR refs cited in a task's spec have drifted (changed
- * state) since the spec was last edited — catching the "consume-time" gap
+ * state) since the spec was authored — catching the "consume-time" gap
  * between spec authoring and implementation entry in a fast-moving
  * parallel-agent graph. See packages/domain/src/tasks/spec-freshness.ts for
  * the detection core; this command wires it to the same read-only
@@ -17,6 +17,9 @@ import { resolveChangesetRepoUrl } from "../changeset/changeset-commands";
 import { ResourceNotFoundError } from "@minsky/domain/errors/index";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+// Type-only: erased at build time, so it does not affect the lazy-import
+// load-cost rationale below.
+import type { SpecFreshnessDeps } from "@minsky/domain/tasks/spec-freshness";
 
 /**
  * Task spec freshness command implementation
@@ -25,12 +28,23 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
   readonly id = "tasks.spec.freshness";
   readonly name = "freshness";
   readonly description =
-    "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited";
+    "Check whether task/PR refs cited in a task's spec changed state after the spec was authored, flagging which changed before its last edit";
   readonly parameters = tasksSpecFreshnessParams;
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getTaskService?: () => TaskServiceInterface,
+    /**
+     * Resolves a cited PR ref. Left unset in production, where the command
+     * builds one from the repo's changeset service.
+     *
+     * Injected rather than patched so this command's baseline-selection logic
+     * — the whole subject of mt#4415 — is testable without a live repo or a
+     * network call: a spec citing only `mt#N` refs never invokes it, but the
+     * changeset service would still be CONSTRUCTED, which is what made the
+     * defect untestable at this seam before.
+     */
+    private readonly getChangesetInfoOverride?: SpecFreshnessDeps["getChangesetInfo"]
   ) {
     super();
   }
@@ -59,15 +73,40 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
     // of this command family.
     const { getTaskFromParams } = await import("@minsky/domain/tasks");
     const { checkSpecFreshness } = await import("@minsky/domain/tasks/spec-freshness");
-    const { createChangesetService } = await import("@minsky/domain/changeset/index");
 
-    const repoUrl = await resolveChangesetRepoUrl(params.repo);
-    const changesetService = await createChangesetService(repoUrl);
+    // `??` short-circuits, so an injected resolver skips repo resolution and
+    // changeset-service construction entirely.
+    const getChangesetInfo =
+      this.getChangesetInfoOverride ??
+      (await (async () => {
+        const { createChangesetService } = await import("@minsky/domain/changeset/index");
+        const repoUrl = await resolveChangesetRepoUrl(params.repo);
+        const changesetService = await createChangesetService(repoUrl);
+        return async (prNumber: string) => {
+          // changesetService.get() returns null/undefined for "not found" —
+          // no try/catch needed for that case. A genuine error (network,
+          // rate-limit, auth) propagates naturally so checkSpecFreshness
+          // records the real reason instead of a misleading "not found".
+          const changeset = await changesetService.get(prNumber);
+          return changeset ? { status: changeset.status, updatedAt: changeset.updatedAt } : null;
+        };
+      })());
 
     const result = await checkSpecFreshness(
       validatedTaskId,
       specResult.content,
-      specResult.task?.updatedAt,
+      // Both spec-CONTENT timestamps, NOT `specResult.task?.updatedAt`
+      // (mt#4415). The tasks-table row timestamp is bumped by ANY mutation, so
+      // reading it here moved the baseline to ~now for every caller that
+      // transitions status before checking — which `/plan-task` does on every
+      // run, making the check vacuous exactly where it was most needed.
+      //
+      // `createdAt` is the detection floor (mt#4420): `updatedAt` moves on any
+      // spec write, so on its own it hid every ref that drifted before the
+      // caller's own edit. Passed as a named pair because the two are the same
+      // type and transposing them would silently restore that defect. When both
+      // are undefined the core reports `checked: false` rather than a clean pass.
+      { updatedAt: specResult.specUpdatedAt, createdAt: specResult.specCreatedAt },
       {
         getTaskInfo: async (refTaskId: string) => {
           try {
@@ -86,29 +125,62 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
             throw err;
           }
         },
-        getChangesetInfo: async (prNumber: string) => {
-          // changesetService.get() returns null/undefined for "not found" —
-          // no try/catch needed for that case. A genuine error (network,
-          // rate-limit, auth) propagates naturally so checkSpecFreshness
-          // records the real reason instead of a misleading "not found".
-          const changeset = await changesetService.get(prNumber);
-          return changeset ? { status: changeset.status, updatedAt: changeset.updatedAt } : null;
-        },
+        getChangesetInfo,
       }
     );
 
     this.debug("Spec freshness check complete", {
+      checked: result.checked,
       hasDrift: result.hasDrift,
       driftCount: result.drift.length,
     });
 
-    const message = result.hasDrift
-      ? `${result.drift.length} ref(s) cited in ${validatedTaskId}'s spec changed state after the spec was last edited (${specResult.task?.updatedAt?.toISOString() ?? "unknown"})`
-      : `No drift — cited refs unchanged since ${validatedTaskId}'s spec was last edited`;
+    // Three outcomes, not two. The not-checked case previously rendered as the
+    // clean-pass message, which is the reporting half of the mt#4415 defect: a
+    // check that could not run must not read as a check that passed.
+    //
+    // Each message now names the BASELINE it is speaking about (mt#4420).
+    // "No drift — unchanged since the spec was last edited" was true of the
+    // comparison and false about the world in 43% of the clean passes it
+    // rendered, because the reader has no way to know the baseline moved when
+    // they themselves edited an unrelated section.
+    // Consumed only on the CHECKED paths below — when `checked` is false,
+    // `baselineUsed` is null (no comparison ran) and the NOT-CHECKED message
+    // names no baseline at all.
+    const baselineLabel =
+      result.baselineUsed === "spec-authored"
+        ? `authored (${result.specCreatedAt})`
+        : `last edited (${result.specUpdatedAt})`;
+    const precedingCount = result.drift.filter((d) => d.precedesLastSpecEdit).length;
+
+    let message: string;
+    if (!result.checked) {
+      message =
+        `NOT CHECKED — ${validatedTaskId} has no spec-content timestamp to baseline against, ` +
+        `so none of its cited refs were compared. This is not a clean result.`;
+    } else if (result.hasDrift) {
+      const preceding =
+        precedingCount > 0
+          ? `, ${precedingCount} of them BEFORE the spec was last edited (${result.specUpdatedAt}) — drift the last editor may never have seen`
+          : "";
+      message = `${result.drift.length} ref(s) cited in ${validatedTaskId}'s spec changed state since the spec was ${baselineLabel}${preceding}`;
+    } else if (result.baselineUsed === "spec-authored") {
+      message = `No drift — cited refs unchanged since ${validatedTaskId}'s spec was ${baselineLabel}`;
+    } else {
+      // Degraded: no authoring timestamp, so this is the pre-mt#4420 comparison
+      // and cannot see drift predating the last edit. Say so rather than
+      // rendering it as the full check.
+      message =
+        `No drift since ${validatedTaskId}'s spec was ${baselineLabel} — but NO authoring timestamp ` +
+        `was available, so drift predating that edit was not checked. Weaker than a clean pass.`;
+    }
 
     return this.formatResult(
       this.createSuccessResult(validatedTaskId, message, {
         specUpdatedAt: result.specUpdatedAt,
+        specCreatedAt: result.specCreatedAt,
+        baselineUsed: result.baselineUsed,
+        checked: result.checked,
         hasDrift: result.hasDrift,
         drift: result.drift,
         skipped: result.skipped,
@@ -123,6 +195,7 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
  */
 export const createTasksSpecFreshnessCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskService?: () => TaskServiceInterface
+  getTaskService?: () => TaskServiceInterface,
+  getChangesetInfoOverride?: SpecFreshnessDeps["getChangesetInfo"]
 ): TasksSpecFreshnessCommand =>
-  new TasksSpecFreshnessCommand(getPersistenceProvider, getTaskService);
+  new TasksSpecFreshnessCommand(getPersistenceProvider, getTaskService, getChangesetInfoOverride);

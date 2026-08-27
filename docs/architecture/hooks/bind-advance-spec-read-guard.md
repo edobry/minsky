@@ -160,6 +160,89 @@ by fires like session `bdf8f782`'s mt#2738 (spec authored in one session,
 advanced unread in a later, separate session) — per the mt#2814 spec, this
 class should STILL block, and it does.
 
+**The CLI evidence channel (mt#4380).** Minsky exposes the same commands through
+two surfaces, and every predicate above names MCP tools only. So a session that
+read and amended a spec through `minsky tasks spec get` and `minsky tasks edit
+--spec-file` — the documented fallback when the MCP daemon is down — looked
+identical to one that never opened the task, and was DENIED at `session_start`.
+Observed 2026-08-21: roughly an hour of engagement recorded in the task, and the
+denial was discharged by calling `tasks_spec_get` once, which changed nothing
+about what the agent knew and everything about what the guard could see.
+
+**Which channels count as evidence, and why each.** A spec is credited as READ
+when the transcript carries any of these for the target task id:
+
+| Channel  | Spelling                               | Why it counts                                          |
+| -------- | -------------------------------------- | ------------------------------------------------------ |
+| MCP read | `tasks_spec_get`                       | the result surfaces the spec body                      |
+| MCP read | `tasks_get` with `includeSpec: true`   | same, gated on the flag                                |
+| CLI read | `minsky tasks spec get <id>`           | the CLI spelling of the first row                      |
+| CLI read | `minsky tasks get <id> --include-spec` | the CLI spelling of the second, gated on the same flag |
+
+and as AUTHORED when it carries any of: `tasks_spec_patch`,
+`tasks_spec_search_replace`, a `tasks_create` whose correlated result confirms
+the created id, a `tasks_edit` carrying `specContent`/`spec`/`specFile`, or the
+CLI `minsky tasks edit <id>` with `--spec`, `--spec-file`, or `--spec-content`.
+The CLI rows mirror their MCP counterparts exactly, including the negative
+cases: a bare `minsky tasks get <id>` prints metadata and is not a read, and a
+metadata-only `minsky tasks edit <id> --kind …` is not authorship.
+
+**What does NOT count, deliberately.** A CLI `minsky tasks create --spec-file`
+is not credited. The MCP credit for `tasks_create` correlates the minted task id
+out of the tool RESULT (`findCreatedResourceIds`); recovering it from CLI stdout
+text is a different mechanism from the manifest resolver this channel is built
+on. Residual: a session whose ONLY engagement is a CLI task creation still
+denies. Named, not solved.
+
+**How a command is resolved — a generated oracle, never a pattern.** Commands
+are resolved through the `commandId` stamp in
+`src/generated/completion-manifest.json` (mt#4144), the same oracle
+`cli-mcp-substitution` uses. The manifest is generated from the shared command
+registry, so the accepted spellings and their flags cannot drift from the CLI
+the way a hand-maintained list would. It also carries each leaf's positional
+`arguments` and per-option `takesValue`, which is what lets the guard recover
+the TARGET TASK ID rather than merely recognising the command — the difference
+between crediting a read and crediting _a read of the right task_. Argv is
+parsed against the LEAF's own option table rather than at the point the manifest
+walk stops, because the walk consumes a token following an unrecognised flag: in
+`minsky tasks spec get --json mt#4380` it would otherwise swallow the id.
+
+An option the manifest does not list is assumed to take a value. That direction
+is deliberate: over-consuming can only cause a positional to be MISSED, leaving
+the guard exactly as it behaves without this channel, whereas under-consuming
+would let a flag's value be read as a task id — inventing an engagement with a
+task nobody named. A miss is recoverable; a fabricated id is not.
+
+**The matcher is unchanged, and that is the point.** mt#4536 swept this family
+and split "CLI-blind" into three consequences. This guard was the sole confirmed
+member of the one that BLOCKS WRONGLY: it is the only blind guard whose
+discharge evidence comes from prior tool-call records rather than from the call
+being guarded. That makes the repair an EVIDENCE-side one. The guard already
+fires correctly — it runs on `session_start`, sees the call, and reaches its
+decision — so mt#4536's prescription for the REGISTRATION-blind guards (widen
+the matcher onto `Bash`) does not apply here and would be expensive if applied:
+this module reads the transcript to decide, so it would pay a full transcript
+parse on every bash call in the session. Nothing in `.claude/settings.json`
+changed.
+
+**Not governed by ADR-024's ladder.** ADR-024 scopes its rungs to
+`UserPromptSubmit` guidance hooks matching behavioral trigger PHRASES in the
+agent's own prose. A parsed command string resolved against a generated oracle
+has no paraphrase axis, so there is no rung to climb. Same boundary
+`detect-cli-mcp-substitution.ts` records for itself; mt#4595 is writing it into
+ADR-024 directly. Note the distinction from that guard's family: the
+command-string guards register ON `Bash` and decide from the live command, while
+this one registers elsewhere and reads command strings retrospectively. Same
+matcher class, different seam.
+
+**The widening reaches `duplicate-check-candidate-read` by construction, and
+that is intended.** That detector COMPOSES `specWasSurfaced` rather than
+duplicating it, so before mt#4380 a duplicate-check candidate whose spec was
+read on the CLI was reported UNREAD — the same false negative, one guard over.
+Letting the widening propagate corrects it in the same direction; isolating the
+guard behind a private predicate would have preserved a known-wrong behavior in
+the consumer. Its tests pin both directions.
+
 **Why full-transcript, not last-turn.** Claude Code records `tool_result` blocks
 as user-role lines, so a turn slice keyed on user-role boundaries silently drops
 tool calls from earlier turns (mt#2255 / memory `a3e60471`). The spec is
@@ -175,6 +258,98 @@ file:line references, sketch the approach, note scope/blockers — then call
 **Fail-open posture:** the entrypoint is wrapped in try/catch; any error — or a
 missing `transcript_path` — exits 0 = allow. A non-READY `tasks_status_set`, an
 unguarded tool, or an unresolvable id also passes silently.
+
+## The ask seam (mt#4551) — the same premise, advisory
+
+The three tools above are ACTIONS ON a task. `asks_create` and `asks_edit` are a
+RECOMMENDATION ABOUT one: the payload names a task id, and the principal reads it
+as a work candidate. The guard's premise — this session never engaged the task's
+content — fails identically there, so the same transcript scan runs; only the
+remedy differs.
+
+**Advisory, not deny, and the reason is an asymmetry rather than a hedge.** An
+unread reference costs a re-read. A denied `asks_create` can strand an
+escalation, including a `severity: "incident"` one — the only channel that
+reaches the principal's phone. A flip to deny is operator-reserved per ADR-032
+and routes through the disposition ask `/calibration-review` files. The output is
+`additionalContext` with no `permissionDecision`, the shape `check-branch-fresh.ts`
+uses for its warnings.
+
+**Where ids are read from:** the `question`, each option's `label` and
+`description`, and each `contextRefs` entry's `ref` (a bare string or an object;
+the entry's `kind` is not consulted). `parentTaskId` is deliberately excluded —
+it names the task an ask was filed FROM, which the filing session has almost
+always just been working, so reading it would fire on the ordinary case rather
+than the recommending one.
+
+**Which spellings count, and the one measured floor (PR #3327 R1).** The
+extractor matches the delimited forms `mt#3473` / `mt-3473` / `mt_3473` at any
+digit count, and the bare form `mt3473` only at **three digits or more**. The
+floor is measured, not chosen: across the 10,201 asks in the corpus there are
+323 bare-form matches — 308 `mt` + 4 digits, 10 `mt` + 3, 1 `md` + 3 — and **all
+four `md` + 1-digit matches are literally `md5` / `MD5`**, the hash algorithm.
+Real task ids run 1 to 4 digits with exactly one at or below 2, so the floor
+removes the entire observed false-positive class at the cost of one task's bare
+spelling. A delimiter removes the ambiguity, so the delimited branch has no
+floor.
+
+The review that caught the original `#`-only pattern estimated the impact as
+"many real asks will silently bypass the advisory". Measured, that is **9 of
+7,938 asks (0.11%)** missed ENTIRELY — an alternate spelling nearly always
+co-occurs with a `#` form in the same payload. The finding is still correct on
+an axis it did not name: **77 asks carry a hyphen form and 177 a bare form**, and
+in those the id the `#` pattern missed may be the unread one, so the miss is
+partial rather than total. Recorded because the fix's size and the finding's
+stated size differ, and a later reader should inherit the number rather than the
+estimate.
+
+`.minsky/hooks/loop-preflight-pr-merge-check.ts`'s `extractTaskIds` carries the
+same `#`-only pattern. It is **deliberately not changed here**: it serves a
+different consumer (`/loop` preflight over user-typed prompts, not ask payloads),
+it normalises its output to the `mt#N` form, and no corpus of loop prompts has
+been measured — widening it blind would repeat exactly the mistake the floor
+above exists to avoid. The check that would settle it is the same one run here,
+against loop-prompt text.
+
+**One transcript pass, not one per id.** `unreadAskTaskIds` parses each candidate
+transcript once and tests every still-pending id against it, draining as they are
+credited and stopping early when nothing is left. Calling
+`specWasSurfacedInAnyTranscript` per id would re-parse the same file once per
+reference; a six-reference ask is ordinary. `MAX_ASK_TASK_REFS` (20) bounds a
+pathological payload — it is a backstop, not a tuning knob.
+
+**Why the READ and not the verdict.** The obvious alternative is to read the
+falsification out of the spec's prose. It was measured at planning and rejected:
+a fixed phrase set (`do not implement`, `do not build`, `do not re-open`,
+`CLOSED as falsified`, `falsified` in a heading), with fenced blocks and inline
+code spans elided per ADR-024's Rung 1, fires on **94 of 897 active tasks with
+roughly one true positive**. Two reasons it cannot be tightened into working:
+
+- It cannot separate a verdict on the WHOLE TASK from a live directive about part
+  of one — mt#390's "Out of scope … do not implement", mt#446's "do not build
+  independently of the sibling embeddings tasks", mt#3594's "Do NOT build a
+  second symbol-matching layer".
+- It cannot tell whose task the verdict is about — 32 of the 94 fires sit on a
+  line naming a DIFFERENT task id.
+
+That is ADR-024's paraphrase axis, and mt#4168's _"key on the TOOL CALL, never on
+a phrase set"_ is the correction this leg applies. The read is machine-recorded,
+so this leg has no matcher to tune and never joins the recall arms race. The
+residual it accepts — an agent that reads a falsified spec and recommends it
+anyway — is **mt#4561**, which changes what a failed gate (o) WRITES rather than
+trying to read prose back out.
+
+**Originating incident (2026-08-25).** `ask#10163`'s first revision led with
+"Build the cheap-model triage pilot (mt#3473)", described as approved at ask#6603
+and never built (the pre-edit body is preserved in the ask's
+`metadata.originalContent`). mt#3473's spec had recorded since 2026-08-01 that the
+pilot was measured and killed — 8 of 16 pushes its classifier called `trivial`
+carried a real BLOCKING finding — and its closing line reads _"do not implement
+the Summary/Success Criteria above as written."_ The filing conversation
+(`cbafdfe3-8d61-4e73-a679-e6f7ce9948a4.jsonl`) made 20 spec-surfacing reads across
+14 distinct task ids; mt#3473 was not among them. It DID read mt#2718, the
+umbrella whose prose supplied the stale "never built" claim. A dispatched advisor
+caught it, not any check.
 
 **Override mechanism:** Set `MINSKY_SKIP_SPEC_READ_CHECK=1` (or `true` / `yes`)
 to allow advancing/binding a genuinely-unread task. The override emits an audit

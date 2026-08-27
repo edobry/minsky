@@ -72,6 +72,7 @@
  * @see mt#1735 packages/domain/src/storage/schemas/subagent-invocations-schema.ts
  * @see mt#2092 packages/domain/src/events/query.ts — the system_events substrate
  */
+import { hasRawSqlConnection } from "@minsky/domain/persistence/types";
 import * as fs from "fs";
 import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
@@ -643,14 +644,9 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
 
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
-  const getRawSql =
-    "getRawSqlConnection" in provider &&
-    typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
-      ? (provider as { getRawSqlConnection: () => Promise<unknown> }).getRawSqlConnection.bind(
-          provider
-        )
-      : null;
-  if (!getRawSql) return null;
+  // Capability + the optional accessor, via the one guard (mt#4543).
+  if (!hasRawSqlConnection(provider)) return null;
+  const getRawSql = provider.getRawSqlConnection.bind(provider);
 
   const sql = (await getRawSql()) as
     | { unsafe: (query: string, params?: unknown[]) => Promise<Array<Record<string, unknown>>> }

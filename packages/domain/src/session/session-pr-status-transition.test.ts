@@ -28,6 +28,7 @@ import { join } from "path";
 import { applyInReviewTransition, type StatusTransitionReceipt } from "./session-pr-operations";
 import { TASK_STATUS } from "../tasks";
 import type { TaskServiceInterface } from "../tasks/taskService";
+import type { StatusWriteOutcome } from "../tasks/types";
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -58,10 +59,11 @@ function makeTaskService(opts: {
       if (opts.getShouldThrow) throw opts.getShouldThrow;
       return currentStatus;
     },
-    async setTaskStatus(taskId: string, status: string): Promise<void> {
+    async setTaskStatus(taskId: string, status: string): Promise<StatusWriteOutcome> {
       setCalls.push({ taskId, status });
       if (opts.setShouldThrow) throw opts.setShouldThrow;
       currentStatus = status;
+      return { recordsAffected: 1 };
     },
     async listTasks() {
       throw new Error("not used");

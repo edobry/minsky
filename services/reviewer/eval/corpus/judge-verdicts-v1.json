@@ -1,0 +1,2141 @@
+{
+  "corpusVersion": "v1",
+  "runStartedAt": "2026-08-25T23:25:55.239Z",
+  "panel": ["openai:gpt-5", "anthropic:claude-sonnet-4-6"],
+  "candidateCount": 114,
+  "judgedCount": 114,
+  "disagreementCount": 76,
+  "selectedIds": [
+    "pr-2141-r2-f0",
+    "pr-2140-r1-f0",
+    "pr-2138-r2-f0",
+    "pr-2136-r1-f0",
+    "pr-2135-r1-f0",
+    "pr-2130-r1-f0",
+    "pr-2120-r1-f0",
+    "pr-2120-r1-f1",
+    "pr-2120-r2-f0",
+    "pr-2120-r2-f1",
+    "pr-2114-r1-f0",
+    "pr-2114-r2-f1",
+    "pr-2113-r2-f0",
+    "pr-2100-r1-f0",
+    "pr-2100-r1-f2",
+    "pr-2079-r1-f0",
+    "pr-2073-r1-f0",
+    "pr-2070-r1-f0",
+    "pr-2070-r2-f1",
+    "pr-2070-r3-f0",
+    "pr-2057-r1-f0",
+    "pr-2052-r2-f0",
+    "pr-2051-r3-f0",
+    "pr-2050-r1-f0",
+    "pr-2028-r1-f0",
+    "pr-2019-r1-f1",
+    "pr-2018-r2-f0",
+    "pr-2015-r2-f0",
+    "pr-2012-r3-f2",
+    "pr-2010-r2-f1",
+    "pr-2003-r4-f0",
+    "pr-2002-r1-f0",
+    "pr-1995-r1-f0",
+    "pr-1995-r1-f1",
+    "pr-1990-r1-f0",
+    "pr-1985-r1-f0",
+    "pr-1981-r1-f0",
+    "pr-1973-r1-f0",
+    "pr-1966-r1-f1",
+    "pr-1961-r1-f2",
+    "pr-1942-r3-f0",
+    "pr-1940-r1-f0",
+    "pr-1936-r1-f0",
+    "pr-1926-r1-f0",
+    "pr-1922-r1-f0",
+    "pr-1915-r1-f0",
+    "pr-1911-r1-f0",
+    "pr-1907-r1-f1",
+    "pr-1905-r1-f0",
+    "pr-1889-r1-f0",
+    "pr-1888-r1-f0",
+    "pr-1888-r1-f1",
+    "pr-1883-r1-f0",
+    "pr-1883-r1-f1",
+    "pr-1878-r1-f0",
+    "pr-1876-r1-f0",
+    "pr-1873-r2-f0",
+    "pr-1873-r3-f0",
+    "pr-1865-r1-f0",
+    "pr-1861-r2-f0",
+    "pr-1859-r1-f0",
+    "pr-1838-r1-f0",
+    "pr-1837-r6-f1",
+    "pr-1826-r1-f1",
+    "pr-1821-r2-f1",
+    "pr-1821-r2-f2",
+    "pr-1821-r3-f0",
+    "pr-1819-r1-f1",
+    "pr-1815-r1-f1",
+    "pr-1812-r1-f1",
+    "pr-1812-r1-f8",
+    "pr-1812-r1-f9",
+    "pr-1793-r1-f0",
+    "pr-1788-r1-f0",
+    "pr-1786-r1-f0",
+    "pr-1776-r1-f0"
+  ],
+  "judgeVerdicts": {
+    "pr-2141-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code handles writeTurnsForTranscript errors via catch and also checks nonEmptyYieldedZero; there’s no evidence of an unhandled chunk-failure signal in the shown return value."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code explicitly captures `writeTurnsForTranscript` failures in `turnExtractError` (both thrown errors and the `nonEmptyYieldedZero` signal) and surfaces them to the caller — the finding's claim that failures are \"ignored\" is incorrect based on the visible code."
+        }
+      ]
+    },
+    "pr-2140-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "8+ hex-only inputs are routed to prefix resolution (not exact match), so a hex-like custom session name can incorrectly throw ambiguity instead of matching exactly."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The comment at line ~100 explicitly addresses this case, stating \"Prefix matching is inclusive of an exact match, so a legitimate custom session NAME that happens to be a pure-hex string of 8+ chars (e.g. 'deadbeef1234') still resolves correctly\" — meaning an exact hex-named session would match itself via LIKE prefix query and return one row, not cause ambiguity. The ambiguity error only fires if two+ rows share the same prefix, which is a genuine conflict regardless of the feature change."
+        }
+      ]
+    },
+    "pr-2138-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Gating defers to sessionStartBlockedReason with principal-driven exemption and no other status checks, so without an explicit terminal-status block a DONE/CLOSED task can still create a session."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code at line 206 explicitly checks `if (!noStatusUpdate)` before calling `sessionStartBlockedReason`, and when `launchIntent` is \"principal\", `sessionStartBlockedReason` is designed to be permissive — the finding claims terminal statuses are no longer rejected for principal-driven launches, but this appears to be the *intended behavior* described in the comment at mt#2986, not a bug introduced by the diff shown."
+        }
+      ]
+    },
+    "pr-2136-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The script unconditionally GRANTs/ALTERs on schema \"drizzle\" without existence checks, so it errors on DBs lacking that schema under ON_ERROR_STOP."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate concern — if the `drizzle` schema doesn't exist, the `GRANT USAGE ON SCHEMA drizzle` and subsequent grants will fail, aborting the transaction due to `\\set ON_ERROR_STOP on`. However, this is a style/robustness issue (missing existence guard like `IF EXISTS` or a conditional block) rather than a definite bug in a known broken state, since the script is intended for production DBs that presumably have the drizzle schema from migrations."
+        }
+      ]
+    },
+    "pr-2135-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The regexes use \\w+ to capture tool names, which excludes hyphens, so phrases like \"how does drizzle-kit handle this\" won’t match, causing false negatives."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the regex `/\\bhow\\s+does\\s+\\w+\\s+(?:handle|do)\\s+this\\b/i` misses hyphenated tool names like \"drizzle-kit\" because `\\w+` doesn't match hyphens, but the actual originating incident phrase from the comments is \"you should do some research on the appropriate way to handle this\" — which would be caught by the first pattern `/\\b(you\\s+)?should\\s+(do\\s+(?:some|more)\\s+)?research\\b/i`, not the `\\w+` pattern. The `\\w+` slot in that pattern matches the tool/library name only incidentally, and the full phrase \"how does drizzle-kit handle this\" failing to match is not clearly a false negative since the other broader patterns would catch the method-redirect intent. No concrete false negative is demonstrated."
+        }
+      ]
+    },
+    "pr-2134-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "In Postgres, UNIQUE indexes allow multiple NULLs, so adding a nullable short_id with a UNIQUE index will not cause backfill violations; the concern is unfounded here."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "In PostgreSQL, NULL values are not considered equal for unique index purposes, so multiple NULLs in a nullable column do not violate a unique index — this is standard SQL/PostgreSQL behavior, making the concern about uniqueness violations during backfill invalid."
+        }
+      ]
+    },
+    "pr-2133-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The test temporarily reassigns global process.stdout/stderr.write, which can affect other concurrently running tests in the same process and cause flakiness despite try/finally restoration."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate concern — the test directly mutates `process.stdout.write` and `process.stderr.write` on the global process object, which could interfere with other tests running in parallel; however, the code does restore the originals in a `finally` block, mitigating (but not eliminating) the risk under true parallel execution where another test might write during the capture window."
+        }
+      ]
+    },
+    "pr-2131-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The test asserts a wall-clock threshold (< 0.75 of sequential) that can be exceeded by process spawn overhead and CI jitter, making it prone to flakiness despite true concurrency."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The test asserts `elapsedMs < shardCount * SLEEP_MS * 0.75` (i.e., < 900ms) for 4 concurrent 300ms sleeps plus spawn overhead on potentially slow CI machines, which is a wall-clock timing assertion that can produce flaky failures under load, though it's a real concern rather than a false positive."
+        }
+      ]
+    },
+    "pr-2131-r2-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The test asserts elapsedMs < shardCount*SLEEP_MS*0.75 (~900ms), a relatively strict wall-clock bound that can intermittently fail under CI jitter even when concurrency works, so the flakiness concern is legitimate."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The test uses a wall-clock threshold (elapsed < shardCount * SLEEP_MS * 0.75 = 900ms) to prove concurrency, which can be flaky under heavy CI load or slow process-spawn times; while not a code bug, it's a legitimate test-reliability concern worth flagging."
+        }
+      ]
+    },
+    "pr-2130-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "In the catch block, awaiting probedSql.end() can reject and throw, which would supersede and mask the original probe error before it’s logged and rethrown."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "If `probedSql.end()` throws, that new error will propagate and the original `error` caught from the probe will be lost, masking the root cause; wrapping the cleanup in a try/catch would prevent this."
+        }
+      ]
+    },
+    "pr-2120-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The regex only matches self-closing <testcase .../>, so any testcase with nested failure/error content is skipped, undercounting/omitting slow or failed tests."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is technically accurate — the regex `/<testcase\\b([^>]*?)\\/>/g` only matches self-closing `<testcase ... />` elements, so non-self-closing `<testcase>` elements containing `<failure>` or `<error>` child elements would be missed. However, the comment in the code explicitly states this is intentional and that \"bun's reporter output is well-formed, single-line-per-tag, and testcases are always emitted as self-closing elements,\" making this a documented design assumption/limitation rather than an overlooked bug, so it sits between VALID and NOISE — but since it could silently undercount failed tests if the assumption is wrong, it deserves acknowledgment as a real (if documented) limitation."
+        }
+      ]
+    },
+    "pr-2120-r1-f1": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "attrOf uses an unanchored pattern key=\"([^\"]*)\" so e.g. name matches inside classname and can return wrong values when order changes, and it only supports double quotes, making it a real parsing bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies real limitations: the regex `${key}=\"([^\"]*)\"` can match partial keys (e.g., \"classname\" could match \"name\"), doesn't handle single-quoted attributes, and would fail on escaped quotes within values; however, given the explicit documented constraint that bun's JUnit reporter emits well-formed, fixed-attribute-order output, these are theoretical robustness issues rather than bugs that will actually trigger in practice, making this a valid concern rather than an active bug."
+        }
+      ]
+    },
+    "pr-2120-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The parser intentionally targets Bun’s JUnit output where testcases are always self-closing (per code comments), so non-self-closing cases don’t occur and the concern is speculative."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The regex `/<testcase\\b([^>]*?)\\/>/g` only matches self-closing tags; failed/errored/skipped testcases in JUnit XML are typically non-self-closing (e.g., `<testcase ...><failure>...</failure></testcase>`), so those test cases would be silently dropped from the timing analysis."
+        }
+      ]
+    },
+    "pr-2120-r2-f1": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "attrOf uses `${key}=\"([^\"]*)\"` without anchoring the attribute name, so e.g. key \"name\" matches inside \"classname=\", yielding wrong values; it also ignores single-quoted attrs, making mis-parsing likely."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The `attrOf` function uses an unanchored regex without a word boundary (e.g., `\\b` or `(?<!\\w)`) before `key`, so a key like `name` could match `classname`, and it only handles double-quoted values; these are legitimate fragility concerns for a regex-based XML parser, though in practice the fixed attribute order in bun's JUnit output may prevent actual mis-parses, making this a valid style/robustness observation rather than a confirmed bug."
+        }
+      ]
+    },
+    "pr-2114-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The test only checks for duplicate letters and the presence of gate (o); deleting a gate and reusing its letter (without duplicates) would still pass, so it doesn't generally prevent silent deletion via letter reuse."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the test \"does not catch the failure mode it claims to prevent,\" but the test explicitly checks for duplicate letters (the silent deletion scenario) and for the presence of the restored gate (o) — these checks directly target the failure mode described. The reviewer's concern appears to be that merely checking for no-duplicates and presence of (o) doesn't prevent a *different* gate being silently deleted, but the test does what it says it does for the specific bug it references (mt#2445 reusing letter l), making this a subjective coverage concern rather than a real defect in the test's logic."
+        }
+      ]
+    },
+    "pr-2114-r1-f2": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The tests assert against the source .minsky skill content only and never check the generated .claude/skills/.../SKILL.md consumed by agents, which is a legitimate test coverage gap."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate observation — the test checks only the source `.minsky/skills/plan-task/skill.ts` content, not the generated `.claude/skills/plan-task/SKILL.md` that agents actually consume, so a build/generation step failure could leave the generated file out of sync without the test catching it. This is a real gap in test coverage, though not a bug in the tested code itself."
+        }
+      ]
+    },
+    "pr-2114-r2-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code explicitly references a “plan-task-gate-letters” test that enforces the append-only letter sequence and prevents reuse/deletion, contradicting the claim of missing programmatic enforcement."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies that the append-only convention for gate letters is documented in prose but not enforced programmatically, and notes missing comprehensive invariant tests — this is a legitimate observation about a gap between the stated requirement and its enforcement, not a false positive."
+        }
+      ]
+    },
+    "pr-2113-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The placeholder is intentionally designed to return non-throwing property reads and only throw upon invocation, matching the documented behavior, so a “no-op proxy” is not the intended requirement."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the placeholder returns a throwing function for all unknown properties, but the code clearly shows that only `prop => return () => fail()` (a function that throws only when *called*, not when read) is returned for unknown properties — matching the documented design intent of \"property READS are benign.\" The reviewer's prior concern about returning a throwing function directly has been addressed; the current implementation returns a callable that defers the throw to invocation time."
+        }
+      ]
+    },
+    "pr-2106-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The provided AGENTS.md content contains no \"# Claim Confidence\" section, so the claim of a duplicate section is unsupported by the context shown."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code context shown does not contain any \"# Claim Confidence\" section at all, let alone a duplicate one, so the finding cannot be verified from the provided context and appears to be a false positive."
+        }
+      ]
+    },
+    "pr-2104-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The JSON contains machine-specific benchmark results with nondeterministic timings and an absolute local path exposing the username, so committing it is a legitimate PII/repo-hygiene issue."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The file contains a hardcoded absolute local path (`/Users/edobry/.local/state/minsky/sessions/...`) that is machine-specific and includes what appears to be a username, making it a legitimate concern about committing non-reproducible, environment-specific artifact with PII (username in path) to the repository."
+        }
+      ]
+    },
+    "pr-2100-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The single counter is an intentional session-level bound for the forcing function and only affects resolution-note-like BLOCKING attempts, matching the design rather than causing an unintended bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims cross-finding interference from a single global `resolutionNoteRejectionCount`, but this counter tracks rejections for a single review session's conversation loop — it intentionally counts total resolution-note rejections across the entire review to enforce a global retry budget, which is the correct design for a bounded-retry guard; there is no per-finding isolation needed here."
+        }
+      ]
+    },
+    "pr-2100-r1-f2": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The resolution regex lacks word-boundary anchors and can match substrings (e.g., \"prefix verified\" matching \"fix verified\"), risking false positives and incorrect reclassification of genuine BLOCKING findings."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate concern about regex over-matching (e.g., \"already resolved\" could match \"not already resolved\", and lack of word-boundary anchors could match substrings), but it's a style/robustness observation rather than a confirmed bug since the test suite is claimed to pin both directions — this is a valid quality concern, not clearly a bug."
+        }
+      ]
+    },
+    "pr-2079-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The finding speculates about prior log behavior without evidence; current debug-level skip logs appear intentional and not a clear defect or guaranteed breakage."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims a \"silent behavior change in log level and message text\" but the code clearly shows explicit `log.debug` calls with descriptive messages for the skip paths — there is no silent behavior, and no evidence that any log-based smoke/health gates depend on the specific text of these debug messages."
+        }
+      ]
+    },
+    "pr-2073-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The timeout is never cleared, so if the component unmounts before it fires it will call setCopied on an unmounted component, causing a state update after unmount."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The `setTimeout` return value is not stored and cleared via `useEffect` cleanup, so if the component unmounts within the 2-second window, `setCopied(null)` will be called on an unmounted component — a legitimate (if typically harmless in React 18) concern that should use a `useEffect` with a cleanup or `useRef` to store the timer ID."
+        }
+      ]
+    },
+    "pr-2070-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "is_cockpit_internal_url() whitelists all non-http(s) schemes via the default case, so javascript:/file:/data: would be treated as internal and allowed to load instead of being blocked or handled safely."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The `is_cockpit_internal_url` function only allows non-http(s) schemes (like `tauri:`, `data:`, `about:`) but the `EXTERNAL_LINK_SHIM` JS code already filters those out on the client side by returning early if `url.protocol !== 'http:' && url.protocol !== 'https:'`, so external link clicks will only ever navigate to http/https URLs; the server-side `is_cockpit_internal_url` catch-all for non-http(s) handles legitimate internal Tauri/webview schemes, not attacker-controlled ones."
+        }
+      ]
+    },
+    "pr-2070-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The shim only intercepts primary-button non-modifier clicks and explicitly ignores Ctrl/Meta/Shift/Alt (and non-left clicks), so it does not suppress new-tab/window gestures; it enables external opening where WKWebView would otherwise drop target=_blank."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the shim \"suppresses user-intended new-tab/window behavior,\" but the code explicitly guards against modifier keys (`e.metaKey || e.ctrlKey || e.shiftKey || e.altKey`) — exactly the modifiers users press to open links in new tabs/windows — so those cases are already handled and fall through untouched."
+        }
+      ]
+    },
+    "pr-2070-r2-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "is_cockpit_internal_url returns true for any non-http(s) scheme via `_ => true`, over-permitting beyond intended internal schemes and posing a plausible security risk."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate security observation — the `_ => true` arm allows non-http(s) schemes (like `file:`, `javascript:`, custom protocol handlers, etc.) to navigate in-webview, which could be a security concern, though the comment intentionally documents this as allowing `tauri:/data:/about:` internal schemes; the reviewer is correct that this is a blanket allowance with no explicit allowlist, but it's a design/security tradeoff rather than an outright bug."
+        }
+      ]
+    },
+    "pr-2070-r2-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code and comments explicitly intend to rewrite all external HTTP(S) clicks (not just target=\"_blank\") so on_navigation can handle them and open externally, so this is by design, not a bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The shim explicitly checks `url.origin === window.location.origin` before intercepting, so same-origin links fall through; only cross-origin HTTP(S) links are rewritten — the comment says this intentionally captures external links regardless of `target=\"_blank\"`, which is the documented design goal (mt#2942), not a regression."
+        }
+      ]
+    },
+    "pr-2070-r3-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "on_navigation treats any http(s) localhost/127.0.0.1 as internal without checking port, so different-origin localhost ports can navigate the webview instead of being opened externally"
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The check `matches!(url.host_str(), Some(\"localhost\") | Some(\"127.0.0.1\"))` does not verify the port, so any localhost URL (e.g., `http://localhost:4444/malicious`) would be allowed to navigate in the webview rather than being opened externally or blocked; this is a real security concern, though whether it constitutes a bug depends on the threat model."
+        }
+      ]
+    },
+    "pr-2065-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The manifest legitimately documents --all-projects for search/similar and nothing in the shown context indicates missing CLI wiring/tests, making the claim speculative without supporting evidence."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims `--all-projects` flags are added without verifying CLI bridge wiring/tests, but this is a manifest/schema file describing CLI options — its correctness depends on the actual CLI implementation, and the finding provides no evidence that the bridge wiring is actually missing or broken; it's speculative process-based concern rather than an identifiable defect in the code shown."
+        }
+      ]
+    },
+    "pr-2059-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The doc consistently states unit tests run via bun test and as part of pre-commit hooks (“Runs on every commit”), which is complementary not contradictory."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims internal contradiction about where/when unit tests run, but the documentation is consistent: unit tests run pre-commit (shown in the Test Organization tree, the \"Runs on every commit\" bullet, and the commit workflow), while integration tests are manual-only — there is no contradiction visible in the provided context."
+        }
+      ]
+    },
+    "pr-2057-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The single-workspace branch computes projectPath as `${workspace}/tsconfig.json` relative to rootDir just like multi-workspace; any duplication would stem from runTypecheckTarget, which would affect both modes, and nothing here shows a single-only incorrect -p path."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The `rel` computation uses `relative(rootDir, resolve(rootDir, explicitWorkspace))`, where `resolve(rootDir, explicitWorkspace)` already produces an absolute path, and `relative(rootDir, ...)` correctly yields the relative portion — there is no duplicate nesting here. The `|| \".\"` fallback handles the root case, and `projectPath` is `undefined` (falling back to root tsconfig) when `rel === \".\"`. The logic appears correct, and no concrete scenario of nested duplicate path construction is demonstrated by the finding."
+        }
+      ]
+    },
+    "pr-2052-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The resolve functions default to live sources when deps are omitted, so not threading ResolveWatchConfigDeps in production executors is intentional and not a defect."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims production command executors don't thread `ResolveWatchConfigDeps`, but the code clearly shows `resolveWatchConfig` and `resolveWatchOwnerRepo` both accept `deps: ResolveWatchConfigDeps = {}` with proper defaults, and the finding references line 178 without showing specific missing wiring that constitutes a real bug — this appears to be a carry-over complaint about an alleged prior issue that isn't substantiated by the visible code context."
+        }
+      ]
+    },
+    "pr-2051-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The hotkey path calls menu::ensure_cockpit_window_visible—the same presentation path used elsewhere—so any cold‑start recovery would occur there; the claim of a blank first summon is speculative and not supported by this code."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the hotkey show path skips \"cold-start recovery,\" but the code calls `ensure_cockpit_window_visible(app)` in the else branch — the same function the tray menu uses — and `toggle_cockpit_window` already handles the `None` (nonexistent window) case via `unwrap_or(false)`, so a missing window is treated as the show case. Without seeing `ensure_cockpit_window_visible`'s implementation there is no evidence it fails to handle first-summon creation, and the finding provides no concrete code path showing the alleged blank window."
+        }
+      ]
+    },
+    "pr-2051-r3-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The hotkey handler routes show through menu::ensure_cockpit_window_visible (the designated presentation path), so it does not bypass cold‑start recovery; the blank‑window risk isn’t supported by this code."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims a \"blank window risk on first summon\" from bypassing cold-start recovery, but the code simply calls `ensure_cockpit_window_visible(app)` for the show path — whether any cold-start/recovery logic exists there is entirely outside this snippet, and nothing in the shown code demonstrates the alleged bypass or blank window bug."
+        }
+      ]
+    },
+    "pr-2050-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The code references React.ComponentType in a type annotation without importing React or ComponentType, which will cause a TS \"Cannot find name 'React'\" build error."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "`React.ComponentType` is used in the `NavItem` interface at line 52, but the file only imports `useState` and `useEffect` from \"react\" — `React` itself is never imported as a namespace, so `React.ComponentType` will cause a TypeScript compilation error."
+        }
+      ]
+    },
+    "pr-2028-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Selecting the latest row by subagentSessionId is an explicit, documented design to target the still-open attempt and updates are applied by primary key, so the claimed misattribution is speculative and not a demonstrated bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims a misattribution risk, but the code explicitly addresses this concern: it selects the most recent row via `orderBy(desc(subagentInvocationsTable.startedAt)).limit(1)` and then updates by primary key (`id`), not by `subagentSessionId`, which is precisely the correct approach documented in the comments. The code appears intentionally designed and correct for the described scenario."
+        }
+      ]
+    },
+    "pr-2028-r3-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The function writes directly to a nested path without ensuring parent directories exist, so on a fresh session dir Bun.write will fail (returning false), breaking expectations that the write succeeds."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "`Bun.write` does not create intermediate directories, so writing to `<sessionDir>/.minsky/sessions/<sessionId>/current-invocation-id` will fail when those directories don't exist yet; `mkdir -p` equivalent is needed before the write."
+        }
+      ]
+    },
+    "pr-2027-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "groups are built from controls.pageItems (already paginated asks), so grouping occurs after pagination and can split a group across pages or omit related items, contrary to the stated intent to paginate over groups."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "`groupAsks` is called on `controls.pageItems` (already paginated) rather than on the full filtered list, so groups that span a page boundary are silently split and items belonging to the same unit-of-work can be dropped or separated across pages."
+        }
+      ]
+    },
+    "pr-2025-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The claim about a non-existent file cannot be verified from the shown context and the comment plausibly refers to generated guard paths; even if mismatched, it would be a doc nit, not a blocking bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The comment accurately describes that a raw `git commit` is blocked by a PreToolUse guard, and the file path mentioned (`.claude/hooks/block-git-gh-cli.ts`, compiled from `.minsky/hooks/block-git-gh-cli.ts`) is a comment referencing an external file not shown in this diff — the reviewer has no evidence the file doesn't exist, making this a speculative finding based on absence of proof rather than proof of absence."
+        }
+      ]
+    },
+    "pr-2019-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Registry keys sweeps by a human-readable name without enforcing uniqueness, so Map.set(name, entry) silently overwrites prior entries causing /api/sweeps inconsistencies and watchdog actions to target the wrong sweeper."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding assumes duplicate sweep names are a realistic risk, but the code context shows `sweepLivenessRegistry.set(name, entry)` is called once per `createIntervalSweeper` call — there is no evidence in the provided code that the same name is ever registered twice, no registration-time duplicate check is missing from any obvious call site, and the finding speculates about a potential misuse pattern rather than identifying an actual bug in the shown code."
+        }
+      ]
+    },
+    "pr-2018-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code re-exports and separately imports the same symbols; re-export doesn’t create local bindings, so importing once for local use is correct and not a duplicate import issue."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The file has both `export { classifyMergeError, withOriginalMessage, ... }` and a separate `import { classifyMergeError, withOriginalMessage, ... }` from the same module, which is a duplicate binding declaration that will cause a TypeScript/JavaScript error since you cannot re-export and also import the same identifier in the same module scope."
+        }
+      ]
+    },
+    "pr-2015-r2-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "consumeAskGrant does a non-atomic read-modify-write without any locking, so concurrent callers can both see an unconsumed grant and both return true, resulting in multiple allows."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is correct — `consumeAskGrant` performs a non-atomic read-then-write with no file locking, so two concurrent callers can both read the file, both find the grant unconsumed, both mark it consumed, and both return `true`, violating the one-shot guarantee; however since this is a file-based store on a single-user local system this is a real but likely low-severity design limitation, making it a valid (non-noise) observation even if not strictly a crash bug."
+        }
+      ]
+    },
+    "pr-2015-r3-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The code JSON-parses stdout from “minsky tools asks list” but doesn’t request JSON output (no --json), so non-JSON/default output will make parsing fail and break verification."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The `fetchState` function calls `minsky tools asks list` without a `--json` flag, then immediately tries to `JSON.parse(result.stdout)`, which will fail if the CLI defaults to human-readable (non-JSON) output format."
+        }
+      ]
+    },
+    "pr-2012-r3-f2": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The adapter targets six specific legacy logs (all listed/mapped) and falls back to entry.name; “silent-stretch” isn’t among those logs, so no mapping is required and no aggregation is affected."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The `CALIBRATION_NAME_TO_GUARD_NAME` map has 6 entries but is missing `\"silent-stretch\"` → `\"silent-stretch-detector\"`, meaning any calibration records from a \"silent-stretch\" log would fall through to the `?? entry.name` fallback and be aggregated under a different key than the dispatcher fire-log uses, breaking cross-log merging for that guard."
+        }
+      ]
+    },
+    "pr-2010-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The provided code shows no stdout writes or non-JSON output behavior, so the claim about an audit line to stdout isn’t supported by this context."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding speculates about compatibility of non-JSON stdout output with the hook runner but provides no evidence of an actual bug; the code context doesn't even show line 143 or the override/audit-line behavior in question, making this an unsubstantiated concern rather than an identified defect."
+        }
+      ]
+    },
+    "pr-2010-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The dispatcher/registry constraint applies to the exec matcher only, not the PR-merge hooks cited around line 35, and the latency concern is speculative without a concrete misordering or functional defect shown."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims a \"new hook not covered by dispatcher guard registry\" but the ADR-028 comment in the code explicitly explains the design: the dispatcher handles only migrated guards, and new individual hooks are intentionally added as standalone entries outside the registry until migrated; the \"cumulative latency\" concern is speculative and not a concrete defect in the code shown."
+        }
+      ]
+    },
+    "pr-2010-r2-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "Several sequential PR-merge hooks each have 60s timeouts and run in order (first-deny-wins), so worst-case cumulative latency can become significant, a legitimate performance concern rather than a functional bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "This is a configuration observation about cumulative latency (10+15+60+60+60+15=220s worst case), not a bug — the hooks function correctly as designed; the finding is a subjective performance concern with no actual defect."
+        }
+      ]
+    },
+    "pr-2003-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The inline code span for the command breaks across a newline (`... --ref` then `<branch>`), which is poor Markdown formatting and can hinder rendering/copy-paste."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies that the inline code block starting with `gh workflow run <file> --ref` is broken across lines (line 147 has the opening backtick but the closing `<branch>` token appears on the next line without proper formatting), resulting in malformed markdown that renders incorrectly."
+        }
+      ]
+    },
+    "pr-2003-r4-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The excerpt clearly shows broken Markdown emphasis/code spans (e.g., \"check*runs\", \"It does \\_not* cover:\", \"GITHUB*TOKEN\", \"\\_documented in this codebase*\"), making this a valid docs-formatting issue rather than a functional bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The \"malformed\" patterns like \"check*runs\", \"\\_not*\", \"GITHUB*TOKEN\", and \"\\_documented in this codebase*\" are intentional Markdown formatting using underscores and asterisks as emphasis/italic markers rendered in context (e.g., `_not_` around \"not\", `_documented in this codebase_`), or are literal code terms appearing outside backticks for stylistic reasons; they are not actual Markdown syntax errors causing rendering breakage, and the finding misidentifies valid (if unusual) prose formatting as defects."
+        }
+      ]
+    },
+    "pr-2002-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Using \"command -v git\" relies on a POSIX shell; on Windows (cmd.exe) this command doesn't exist, so the probe throws and returns null even when Git is installed, causing false negatives."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies that `command -v git` is a POSIX shell builtin unavailable on Windows cmd.exe, which would cause the probe to always fail (throwing an exception) and return null even when Git is installed, making this a real cross-platform limitation — though whether it rises to \"blocking\" severity depends on whether the codebase targets Windows."
+        }
+      ]
+    },
+    "pr-1995-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The bundle’s example ToolSearch list omits mcp__minsky__tasks_spec_get even though later steps require it immediately, making the observation a legitimate consistency/performance nit rather than a concrete bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code explicitly handles the case where `tasks_spec_get` might not be loaded yet (\"If `tasks_spec_get` wasn't already loaded by an earlier step this conversation, add it to the list too\") and §0a also notes to fetch it via `tasks_spec_get` if the spec hasn't been loaded yet — the skill accounts for conditional inclusion, so the claim that it's \"not included in the bundle\" is incorrect; it's conditionally included, which is appropriate."
+        }
+      ]
+    },
+    "pr-1995-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The ToolSearch bundle shown omits mcp__minsky__tasks_spec_get even though the text says it’s needed next, creating an inconsistency (a valid doc clarity issue, not a functional bug)."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the bundle omits `tasks_spec_get`, but the text explicitly states \"If `tasks_spec_get` wasn't already loaded by an earlier step this conversation, add it to the list too — Step 2 needs it immediately after this step.\" The omission from the hardcoded ToolSearch call is intentional and documented, with a conditional instruction to add it when needed."
+        }
+      ]
+    },
+    "pr-1990-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code intentionally persists all webhooks for forensics, and dispatch always goes through signature verification or is filtered by 200-ACK criteria, so unauthenticated payloads are not later dispatched."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "Webhooks without a signature are persisted with status `received` before the `!signature` check returns 400, meaning they remain in the DB as unprocessed and could be picked up by boot-time recovery logic that dispatches rows in `received` state — allowing unsigned/unauthenticated requests to trigger review work."
+        }
+      ]
+    },
+    "pr-1985-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The markdown links target ../product-thinking/SKILL.md but this skill uses content.md convention, so SKILL.md likely doesn’t exist and the cross-reference is broken."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the link to `../product-thinking/SKILL.md` points to a non-existent file, but without filesystem evidence showing the file doesn't exist, this is speculative — the file may well exist in the repository; the code context only shows the content of `cockpit-design/content.md`, not the full directory structure."
+        }
+      ]
+    },
+    "pr-1981-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The docs claim mt#2875 purged live-store rows, but if the PR neither implements nor executes that purge and its body says a follow-up is needed, the documentation is factually incorrect."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The documentation at line 201 states mt#2875 \"purged the 4 fixture rows this gap wrote to the operator's live store,\" but according to the finding, this PR does not actually perform the purge and its own body indicates a follow-up purge is still required — the documentation claims a completed action that hasn't happened."
+        }
+      ]
+    },
+    "pr-1973-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "ElementView applies API-error styling based only on text prefix and lacks a role check, so user turns starting with \"API Error:\" get the destructive alert styling too."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is technically correct — `isApiErrorText` checks any `element.text` regardless of `turn.role`, so a user message starting with \"API Error:\" would also get destructive alert styling; this is a legitimate design/correctness observation, though it's a very unlikely edge case rather than a critical bug."
+        }
+      ]
+    },
+    "pr-1966-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The success/error messages use appropriate live regions (status/alert) without needing focus or dismissal and do not trap screen readers; lack of timeout is a UX choice, not a blocking defect."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies that the `focusMutation.isSuccess`/`isError` status spans have no dismissal mechanism (timeout, close button, or focus management) and could trap screen readers indefinitely, but this is a UX/accessibility concern rather than a functional bug that breaks behavior."
+        }
+      ]
+    },
+    "pr-1961-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The degraded tmux path suggests `tmux attach -t <pane>` which is invalid since attach targets a session, not a pane, and labels the result as \"degraded-app-raised\" which doesn’t fit a non-permission/no-client scenario."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The degraded path on line 54 suggests `tmux attach -t ${pane}` where `pane` is a `TMUX_PANE` value (e.g. `%3`), but `tmux attach` doesn't accept a pane ID as its `-t` target for attachment — it expects a session name/ID; the correct command would be something like `tmux attach-session -t <session>`, making the remediation command invalid/misleading."
+        }
+      ]
+    },
+    "pr-1961-r1-f2": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The behavior is explicitly documented and intentional to normalize failures to a single shape (non-zero exit, stderr message) with adapters relying on stderr, so not a defect."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The catch block intentionally converts spawn failures (binary-not-found, etc.) into a consistent `{exitCode:1, stderr: errorMessage}` shape, and the comment explicitly documents this design decision; `isAppleScriptPermissionError` does text-matching on stderr which works correctly for real permission-denial errors (which come from `osascript` running successfully but being denied, not from spawn failures), so there is no actual bug here."
+        }
+      ]
+    },
+    "pr-1957-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code intentionally provides a best-effort annotation from stored presence claims (separate from liveness) and may rely on repository TTL/cleanup; without evidence of staleness in listAllSessionAttachments, the claimed bug is speculative."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies that the \"attached\" indicator relies solely on self-registered presence claims with no TTL/staleness check or live process verification, meaning a crashed or killed process that never cleaned up its claims would still appear as \"attached\" — this is a legitimate design limitation worth noting, though it's acknowledged as \"best-effort\" in the docstring, making it a valid concern rather than an outright bug."
+        }
+      ]
+    },
+    "pr-1956-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The guard only creates sizeBudget when at least one field is provided, so it never becomes {warnChars: undefined, failChars: undefined}, and partial undefineds are intended for downstream defaulting."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code explicitly handles the case where only one field is defined: the `sizeBudget` object `{ warnChars: params.warnChars, failChars: params.failChars }` is intentionally constructed with possibly-undefined fields when at least one is defined, and the comment explains this is acceptable because `resolveSizeBudget`'s merge logic handles undefined fields correctly — the downstream function treats `undefined` fields as \"not overridden.\""
+        }
+      ]
+    },
+    "pr-1955-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The sql tagged template binds JSON.stringify(deduped) as a parameter (not concatenated SQL), so the update is parameterized and safe; the ::jsonb cast is explicit and not an injection or JSON ambiguity risk."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code uses Drizzle ORM's `sql` template tag with `JSON.stringify(deduped)` as a proper parameterized placeholder (not string interpolation), which safely passes the JSON as a bound parameter before casting to jsonb — this is the correct and safe pattern, not SQL injection."
+        }
+      ]
+    },
+    "pr-1953-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Options for tasks children/parent only include --task while their descriptions say it’s a legacy alias and to prefer taskId, indicating the primary --task-id flag is missing from the manifest."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The `tasks children` and `tasks parent` commands do show `--task` (the legacy alias for taskId) in the manifest; if `--task-id` is absent, it may simply not be a documented flag in this generated file, and the finding gives no evidence from the surrounding code that `--task-id` was ever present or was accidentally removed — it's speculative without a diff showing the deletion."
+        }
+      ]
+    },
+    "pr-1953-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The manifest lists only --task for children/parent while descriptions say taskId is preferred, implying --task-id should exist; its absence indicates an unintended breaking flag removal."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code context shows `--task` option (described as \"Legacy alias for taskId\") is present for both `children` and `parent` commands; there is no evidence of a removed `--task-id` option, and the finding's claim about a breaking removal cannot be verified from the shown context alone — it appears to be comparing against a prior state not shown here, making this a speculative finding without solid evidence in the provided diff context."
+        }
+      ]
+    },
+    "pr-1952-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Under Bun tests process.execPath points to the Bun binary and \"bun run <script>\" is valid, avoiding PATH reliance, so the assumption is sound and not a real issue."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The command `[process.execPath, \"run\", hookPath]` is exactly correct for Bun — `bun run <script>` is the standard way to invoke a TypeScript/JS file with Bun, and `process.execPath` in a Bun process points to the Bun binary itself, making this invocation entirely valid."
+        }
+      ]
+    },
+    "pr-1942-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "In Postgres GREATEST returns NULL if any argument is NULL, so the ON CONFLICT update can leave or regress lastIngestedJsonlTimestamp to NULL (e.g., when existing or EXCLUDED is NULL, such as attachments-only updates), defeating the intended watermark advancement."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "PostgreSQL's GREATEST() does propagate NULL if any argument is NULL, but the code uses it as `GREATEST(existing_column, EXCLUDED.new_value)` — if `existing_column` is NULL (first insert would be an INSERT not UPDATE, so on UPDATE the existing value was already set), the result could be NULL. However, the `lastIngestedJsonlTimestamp` insert value is `latestTs ?? undefined` which means it could be NULL/undefined on insert, and on conflict the GREATEST could yield NULL if the existing value is NULL. This is a real edge case, but the reviewer's claim that it causes the watermark to \"silently regress to NULL\" is an actual valid concern in PostgreSQL where GREATEST(NULL, non-null) = non-null but GREATEST(non-null, NULL) also = non-null — actually PostgreSQL GREATEST() ignores NULLs and returns the non-null value, unlike COALESCE but similar — so the finding is actually wrong about GREATEST behavior with NULLs in PostgreSQL, where GREATEST returns NULL only if ALL arguments are NULL."
+        }
+      ]
+    },
+    "pr-1942-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "GREATEST returns NULL if any argument is NULL, and since existing/EXCLUDED timestamp may be NULL here the upsert can regress or fail to advance lastIngestedJsonlTimestamp to NULL."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "PostgreSQL's GREATEST() function does handle NULLs by ignoring them (unlike arithmetic operators) — it returns the non-NULL argument when one side is NULL, and only returns NULL when ALL arguments are NULL; since the existing value being NULL (first ingest) is the normal case and EXCLUDED value should never be NULL here (latestTs or undefined from the values insert), this isn't actually a bug."
+        }
+      ]
+    },
+    "pr-1942-r3-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "PostgreSQL GREATEST is strict (any NULL yields NULL), so with nullable timestamps it can null/regress or fail to advance the watermark, contradicting the comment/intent."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The comment explicitly states and explains that PostgreSQL's GREATEST (unlike MySQL) ignores NULL arguments and returns NULL only when ALL arguments are NULL, meaning GREATEST(NULL, ts) = ts — the finding's premise that GREATEST returns NULL when either side is NULL is incorrect for PostgreSQL."
+        }
+      ]
+    },
+    "pr-1940-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The claim relies on an external “≤5-line” success criterion not evidenced in the shown file; exceeding five lines here is not inherently a defect."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The \"pointer block exceeds 5-line limit\" finding refers to an internal style rule, but there is no such rule visible in the code context provided, and the block in question (the operational reference rules section) is a natural documentation structure, not a \"pointer block\" as defined by any visible constraint; the finding is unsubstantiated by the code shown."
+        }
+      ]
+    },
+    "pr-1936-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Using an injected poll_now instead of Instant::now() is a common, testable pattern and at most introduces negligible timing skew within a poll, with no concrete evidence of a harmful respawn-throttle bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims `poll_now` may allow \"earlier-than-intended respawns,\" but `poll_now` is explicitly passed in as a parameter representing the current poll time, and `throttle_ok` uses it to compute `duration_since(last_spawn)` — this is the correct and intentional design for testability (replacing `Instant::now()` with an injected value). There is no bug here; the behavior is equivalent in production and controllable in tests."
+        }
+      ]
+    },
+    "pr-1926-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Windows newlines are \"\\r\\n\" which still contain \"\\n\", so value.includes(\"\\n\") correctly detects them and renders the preformatted block."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is technically correct — `value.includes(\"\\n\")` misses `\"\\r\\n\"`-only strings — but in a web/JSON context Windows-style newlines are extremely rare and JSON data typically uses `\"\\n\"`, making this a minor edge-case style/correctness note rather than a practical bug."
+        }
+      ]
+    },
+    "pr-1922-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Proxy is asserted as Sql but overrides .unsafe to a plain Promise, removing cursor/stream methods and creating a type-contract violation that can compile yet fail at runtime if chaining is used."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies a documented limitation: `guardedUnsafe` returns a plain `Promise<unknown>` rather than a postgres-js `PendingQuery`/`Query` object, so `.cursor()`, `.stream()`, and `.cancel()` chaining on `.unsafe()` results will silently fail at runtime despite the proxy typing as `Sql`. However, the code explicitly documents this gap and notes a callsite audit confirms no current consumer uses those APIs, making this a known, intentional tradeoff rather than an overlooked bug — hence VALID (legitimate documented limitation) rather than BUG_HIT."
+        }
+      ]
+    },
+    "pr-1917-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The claim depends on PR description and external verification artifacts not shown; the provided AGENTS.md content doesn't evidence or refute it, making the finding ungrounded in this code context."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "This finding is about a PR description claiming \"live verification evidence\" — it's a process/documentation complaint about PR metadata, not a defect in the code or configuration shown. The AGENTS.md content itself appears correctly generated and valid; there's no code bug here."
+        }
+      ]
+    },
+    "pr-1915-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Code comments and function docs explicitly target scripts/*.ts (top-level), matching the implemented regex; no evidence here that the spec requires scripts/**.ts so the claim doesn’t hold."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is accurate — `OPERATIONAL_SCRIPT_PATTERN = /^scripts\\/[^/]*\\.ts$/` only matches files directly under `scripts/` (no subdirectories), while the spec says `scripts/**.ts` (any depth); however, this appears to be a deliberate design choice documented in the JSDoc comment (\"a brand-new backfill/migration/sweep script\" in the scripts/ dir), making this a legitimate scope/clarity concern rather than a clear bug."
+        }
+      ]
+    },
+    "pr-1911-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "getDeclaredParamKeys relies on .shape and doesn’t unwrap Zod wrappers (optional/default/effects), so wrapped object schemas return undefined declaredKeys and skip enforcement, letting undeclared params bypass checks."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is correct: `getDeclaredParamKeys` only checks for `.shape` directly on the schema, so Zod wrappers like `z.optional()`, `z.default()`, or `z.effects()` that wrap a `ZodObject` won't expose `.shape` at the top level, causing the function to return `undefined` and skip enforcement — a real gap in the boundary check logic, though not a crash bug."
+        }
+      ]
+    },
+    "pr-1907-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "In this file the side-effect import is correctly first (after comments); the rest is speculative repo-wide concern without a concrete, code-backed issue."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding is a vague style/ordering concern about side-effect imports across the repo, not a concrete bug in this file; `import \"reflect-metadata\"` appears correctly placed as the first import, making this a speculative repo-wide observation rather than an actionable issue in the shown code."
+        }
+      ]
+    },
+    "pr-1905-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The spec here explicitly forbids editing generated outputs and requires editing sources then recompiling, so flagging direct edits to compiled files is a legitimate process violation."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding references line 214 of SKILL.md, claiming compiled outputs were updated directly, but the code context shown is entirely documentation/instructional text (markdown instructions for implementing tasks), not any compiled output or source file. There's no evidence in the provided context of compiled outputs being edited directly; the finding appears to be based on something not visible in this snippet, and the text shown is the source (.mdc/.md) rule documentation itself."
+        }
+      ]
+    },
+    "pr-1889-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The script promises a 0 exit on no-DB skip but only handles setupConfiguration errors; missing DB/raw SQL leads to probe failure and exit 1, contradicting its stated contract."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The script's stated contract in the JSDoc comment is \"Exits 0 on pass or graceful skip (no DB configured); 1 on failure.\" The configuration unavailability is handled at lines 31-37 with a SKIP/exit(0). The exit(1) at line 45 is intentional and correct — it fires only when the DB *is* reachable but `SELECT 1` returns no rows, which is a genuine failure of the query layer, not a \"no DB configured\" scenario."
+        }
+      ]
+    },
+    "pr-1888-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Host and Origin are compared with exact-case Set.has without normalization, but DNS hostnames are case-insensitive, so mixed-case values (and URL.hostname lowercasing) can cause false rejections."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The allowlist contains only lowercase loopback aliases (\"localhost\", \"127.0.0.1\", \"::1\"), and the `extractHostname` function does not lowercase the extracted hostname. However, HTTP/1.1 host headers for loopback addresses (localhost, 127.0.0.1, ::1) are virtually always lowercase in practice, and the explicit host added via `--host` is stored as-is (so it matches exactly what the user configured). Mixed-case hostnames in Host headers are theoretically possible but are not a real-world concern for a loopback-only daemon, and the finding doesn't point to a concrete code path where this causes a real security or correctness failure."
+        }
+      ]
+    },
+    "pr-1888-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The claim is speculative (serializeCockpitCookie not shown) and incorrect about Domain (host-only is safer); omitting Secure is likely intentional for loopback HTTP, so no demonstrated cross-site leakage."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The `serializeCockpitCookie` function (not shown) likely handles cookie attributes like `SameSite=Strict`, and the finding's concern about cross-site leakage is already mitigated by the host allowlist middleware and `SameSite=Strict` defense-in-depth; the absence of `Secure` is typical for localhost-bound servers where HTTPS isn't available, and the finding assumes a non-loopback scenario that is explicitly called out as a future opt-in path — insufficient evidence of an actual bug from the code shown."
+        }
+      ]
+    },
+    "pr-1883-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The research compares automation approaches but omits the Pulumi Kubernetes Operator; for GitOps this is a standard alternative and, if required by success criteria, its inclusion/exclusion should be documented."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The document explicitly covers the Pulumi Kubernetes Operator's absence from consideration — the approaches table evaluates pulumi/actions, Pulumi Deployments, and Atlantis/Spacelift/env0, and the Kubernetes Operator is not relevant to Minsky's setup (Railway services via TF bridge, no Kubernetes). There is no stated \"Success Criteria\" in the document requiring every Pulumi offering to be explicitly noted in/out, and the finding assumes a requirement that doesn't exist in the shown context."
+        }
+      ]
+    },
+    "pr-1883-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The document references mt#2738 multiple times but does not hyperlink it, so adding a concrete link is a reasonable clarity/traceability improvement."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims mt#2738 is \"named but not linked,\" but the document repeatedly references \"mt#2738\" in plain text consistent with the rest of the document's cross-reference style (which uses plain `mt#XXXX` identifiers throughout, never hyperlinks), and the Cross-references section explicitly lists mt#2738 with a description — there is no hyperlink convention established anywhere in this document."
+        }
+      ]
+    },
+    "pr-1878-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The module already has a value import of github-client via resolveThread, so importing createOctokit as a value adds no new runtime dependency or cycle risk and is not a real issue."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The `createOctokit` import is used only as a type reference via `ReturnType<typeof createOctokit>` in the `ReviewRunContext` interface; TypeScript erases this at runtime, so there is no actual runtime value import or dependency cycle introduced."
+        }
+      ]
+    },
+    "pr-1877-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The test simulates in-flight via a map and checks exit timing but never exercises or asserts that a sibling request’s response is actually delivered before exit."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate test-quality observation: the test named \"Acceptance Test 1\" (or the first staleness test) never asserts that the sibling/concurrent request's response is delivered before the exit fires, meaning the drain-before-exit behavior is not actually verified end-to-end in that test — only the exit itself is checked after the timer elapses."
+        }
+      ]
+    },
+    "pr-1876-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Per-row highlight uses only abs ratio diff >0.2 without the A6 sample-size gate used by anomalies.a6VerdictDrift, so rows can show amber while the global drift is suppressed."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The row-level `diverged` check at line ~420 applies a raw >20pp threshold without checking the A6 sample-size gate (minimum review count) that guards the global `anomalies.a6VerdictDrift` badge, so a row can be highlighted amber even when the global anomaly is correctly suppressed due to insufficient sample size."
+        }
+      ]
+    },
+    "pr-1876-r1-f1": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "verdict is a plain string and inserted without normalization or validation despite docs implying a limited lowercased set, so this code does not enforce the constraint and could admit arbitrary values."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is a legitimate design observation — `verdict` is typed as `string | null` with only a JSDoc comment constraining its values, meaning any string can be inserted into the DB without runtime validation; whether this is a bug depends on enforcement elsewhere, but as a code-quality/correctness concern it's a valid non-noise finding, though not necessarily a blocking bug if the DB schema itself enforces the constraint."
+        }
+      ]
+    },
+    "pr-1873-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The code still hardcodes anthropic’s default to \"claude-3-5-sonnet-20241022,\" matching the reviewer’s claim that it wasn’t updated per the task/PR, which is a legitimate issue even if not strictly a runtime bug."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims the model is \"retired\" but `claude-3-5-sonnet-20241022` is still a valid, active Anthropic model; there's no evidence in the code or context that it was supposed to be updated to a newer model, and the PR description/task notes referenced in the finding are not visible here to confirm the claim."
+        }
+      ]
+    },
+    "pr-1873-r3-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The default Anthropic model is set to 'claude-sonnet-5', which is not a valid Anthropic model identifier and will fail at runtime when used."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims \"claude-sonnet-5\" is a non-existent/invalid model ID, but this appears to be a legitimate Anthropic model identifier (claude-sonnet-4-5 / claude-sonnet-5 naming patterns exist); there is no evidence in the code context that this model ID is invalid, and the finding provides no concrete proof the model doesn't exist — it's speculative and unsupported by the shown code."
+        }
+      ]
+    },
+    "pr-1865-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "GitHub returns 403 for many non-credential cases (e.g., rate limit, missing repo access), so treating all 403s as auth failures will misclassify and trigger false alerts."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly notes that treating all HTTP 403s as credential failures is overly broad — GitHub returns 403 for permission/scope errors, rate limiting, and repository access restrictions that are not credential failures — but this is a design/accuracy concern rather than a code bug, making it a legitimate VALID observation rather than a BUG_HIT."
+        }
+      ]
+    },
+    "pr-1861-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "Uses non-recursive readdirSync so only top-level *.test.ts are picked, contradicting the /** src/mcp/**.test.ts */ comment and skipping subdirectory tests."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "`readdirSync` without `{ recursive: true }` only lists direct children of `MCP_DIR`, so subdirectory test files are silently skipped, contradicting the `**/*.test.ts` claim in the comment."
+        }
+      ]
+    },
+    "pr-1861-r2-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Bun.spawnSync with stdout/stderr \"pipe\" returns Buffer-like/text where .toString() yields proper UTF‑8, and the output is textual bun test logs, so the regex runs on valid strings and not non-text."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "`proc.stdout` and `proc.stderr` from `Bun.spawnSync` with `\"pipe\"` are `Buffer` objects, and calling `.toString()` on them correctly decodes them as UTF-8 strings; the regex then runs against those strings, not raw bytes — the decoding is correct and the finding is baseless."
+        }
+      ]
+    },
+    "pr-1859-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "Parent title is only fetched lazily when an initial duplicate candidate exists, ensuring accurate audit info under override and avoiding unnecessary calls otherwise."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims `fetchParentTitle` is called under active override, but the code shows `detect(children)` is called only when `overrideActive` is true, and `detect` calls `getParentTitle()` lazily only when `detectDuplicateChild` returns a non-null match. The parent title fetch under override is both conditional (only on match) and serves the audit match logging purpose — it determines whether the match is discounted — which is relevant even in override mode to produce an accurate `auditMatch` value. This is intentional design, not a bug."
+        }
+      ]
+    },
+    "pr-1852-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The ambiguous error reports resolution.candidates.length after slicing to MAX_AMBIGUOUS_CANDIDATES, undercounting actual matches when more exist."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The error message at line ~120 reports `resolution.candidates.length` (which is already truncated to `MAX_AMBIGUOUS_CANDIDATES` by `resolveCandidates`), so when there are more actual matches than the cap, the displayed count will be misleading — it shows the truncated count rather than the true total number of matching records."
+        }
+      ]
+    },
+    "pr-1838-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "checkOverride handles both MINSKY_HOOK_OVERRIDE and grant-file, but resolveDuplicateGuardOverride always labels that path as source=\"grant\", so env-based MINSKY_HOOK_OVERRIDE is misreported in audit as a grant."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims `MINSKY_HOOK_OVERRIDE` is \"misclassified as a grant\" but the code clearly distinguishes sources: the legacy `MINSKY_FORCE_DUPLICATE_OK=1` env var returns `source: \"env\"`, while `checkOverrideFn` (which handles `MINSKY_HOOK_OVERRIDE`) returns `source: \"grant\"` only when `result.overridden` is true via grant-file channel. The audit log correctly uses `overrideResolution.source` to distinguish them, and `MINSKY_HOOK_OVERRIDE` would be handled by `checkOverrideFn` which could correctly set source based on whether it matched via env or grant. No misclassification bug is evident from the code shown."
+        }
+      ]
+    },
+    "pr-1837-r6-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The hook is intentionally scoped to guard the session_start tool call (the universal start boundary), and there’s no evidence here that tasks_dispatch bypasses session_start or should be guarded differently."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding accurately notes that the hook is documented and coded to handle only `mcp__minsky__session_start` but doesn't address `tasks_dispatch` in \"existing-task\" mode, which is a legitimate gap in coverage — this is a valid design/completeness observation, not a false positive, though it's more of a missing feature than a runtime bug."
+        }
+      ]
+    },
+    "pr-1826-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "advanceWatermarks rebuilds the watermark entry without carrying over existing openAskId when askId is undefined, unintentionally clearing pending-ask suppression that should only be removed by clearResolvedAskIds."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "When `askId` is omitted, `advanceWatermarks` spreads only `lastReviewedCount` and `lastReviewedAt`, discarding any existing `openAskId` from the current watermark — silently clearing the suppression flag without going through `clearResolvedAskIds`, which is supposed to be the controlled path for that transition."
+        }
+      ]
+    },
+    "pr-1826-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The code intentionally advances watermarks for past-threshold logs and optionally records askId; askId is documented as optional and there’s no evidence that this clears existing openAskId or violates the stated behavior, so the spec-break claim isn’t supported by the shown code."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims `--ack` ignores open asks, but the code clearly checks `r.openAskId` in the JSON output and passes `params.askId` to `advanceWatermarks` — whether gating on open asks is required by the spec cannot be determined from this context alone, and no bug is visible in the shown code path."
+        }
+      ]
+    },
+    "pr-1823-r1-f0": {
+      "aggregate": "VALID",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The doc explicitly states the precise root cause was not pinned down and mitigation deferred to mt#2665, which conflicts with the cited spec’s Success Criteria requiring root cause identification or immediate fix."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding correctly identifies that the root cause of the CI failure-swallowing mechanism was not pinned down and is deferred to mt#2665, while the spec's success criteria require identification (or fix) now — this is a legitimate observation about incomplete spec acceptance, not a false positive."
+        }
+      ]
+    },
+    "pr-1821-r2-f1": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The doc references a non-existent \"Guard-Dispatcher Framework (ADR-028 Phase 1–2a)\" section \"above,\" making the cross-reference broken in this standalone file."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The cross-reference at line 85 says \"see 'Guard-Dispatcher Framework (ADR-028 Phase 1–2a)' above\" but no such section exists anywhere in this standalone document, making it a dangling reference that will confuse readers."
+        }
+      ]
+    },
+    "pr-1821-r2-f2": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The doc text refers to “the four detector functions above” and “Guard-Dispatcher Framework (ADR-028 Phase 1–2a) above,” but no such section appears in the file context, indicating a broken intra-doc reference after extraction."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims a broken \"above\" reference at line 147, but the text at that location contains \"the four detector functions above\" and \"Guard-Dispatcher Framework (ADR-028 Phase 1–2a) above\" — these are references within a documentation file that likely has those sections earlier in the document; the code context shown is only a partial excerpt, and there's no evidence the referenced sections don't exist elsewhere in the same file."
+        }
+      ]
+    },
+    "pr-1821-r3-f0": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The markdown cites “see ‘Guard-Dispatcher Framework (ADR-028 Phase 1–2a)’ above” but no such section appears in this standalone doc, leaving a dangling in-doc reference."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The last cross-reference entry says 'see \"Guard-Dispatcher Framework (ADR-028 Phase 1–2a)\" above,' but this standalone document contains no section with that title, making the reference a dangling pointer."
+        }
+      ]
+    },
+    "pr-1819-r1-f1": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "When no session/PR is found the code defaults baseBranch to \"main\" and computes commits vs origin/main, which may be wrong for repos with a different default branch and violates the “degrade to null” intent, misreporting baseBranch and commitsAheadOfBase."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is accurate: when `sessionRecord` is null (session not found or provider unavailable), `baseBranch` defaults to `\"main\"`, causing `commitsAheadOfBase` to be computed against `origin/main` and the returned `baseBranch` to be `\"main\"` rather than null — this misreports the probe state, though the docstring's \"best-effort\" framing makes this a design/clarity issue rather than a crash bug."
+        }
+      ]
+    },
+    "pr-1818-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The migrated guard now runs in a separate PreToolUse block placed after the original Bash|session_exec block, changing execution order and potentially affecting behavior even if intentional."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims a \"potential silent behavior change\" from ordering, but the new block is intentionally separate per its own `_comment` (ADR-028 pilot), uses a dispatcher pattern, and the original Bash|session_exec block remains intact — both blocks will still fire for matching tools; this is a deliberate architectural split, not an unintended reordering bug."
+        }
+      ]
+    },
+    "pr-1815-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "If deriveRepoFromGit fails the hook silently exits, unlike other fail-open paths that warn, which can mask guard failure and create a potential gap in protection."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The fail-open behavior on `deriveRepoFromGit` failure (`if (!repo) process.exit(0)`) and on PR body fetch failure is an intentional design choice explicitly documented in the comments (\"Fail-open: emit a warning to stderr... then allow the merge\"), consistent with similar hooks like `check-branch-fresh.ts`; the finding calls this a \"behavior change\" but the surrounding comment at line ~414 area and code context confirm this is deliberate, not a bug."
+        }
+      ]
+    },
+    "pr-1815-r1-f1": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "If deriveRepoFromGit fails the hook exits 0 with no warning, unlike other failure paths that warn, creating a silent fail-open that changes behavior and can bypass the guard."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The \"fail-open\" behavior on repo-derivation failure is an explicit, documented design choice (matching the pattern of `check-branch-fresh.ts`) with comments explaining the rationale; the code intentionally emits a warning to stderr before allowing, which is a recognized trade-off for a best-effort safety gate, not a silent or unintentional gap."
+        }
+      ]
+    },
+    "pr-1812-r1-f1": {
+      "aggregate": "VALID",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "readInput is awaited at top level with no try/catch, so any stdin/parse error will crash the process (non-zero exit) instead of the intended fail-open allow path, likely blocking prompts."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "VALID",
+          "rationale": "The finding is legitimate: if `readInput()` throws (e.g., malformed JSON, closed stdin, unexpected input), the unhandled exception will crash the hook process, which depending on Claude's hook-failure behavior could block all prompt dispatches — a fail-open try/catch around the top-level await would be the safer pattern, making this a real (if not catastrophic) design concern rather than noise."
+        }
+      ]
+    },
+    "pr-1812-r1-f8": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The git diff is scoped to \"src/\" via pathspec, so stdout is only non-empty when src/ changed; it won’t warn on diffs outside src/."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code correctly uses `git diff --name-only before after -- src/` which scopes the diff to `src/` only; if `diffResult.stdout` is non-empty, it means files under `src/` actually changed, so the warning is not a false positive."
+        }
+      ]
+    },
+    "pr-1812-r1-f9": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "This PostToolUse runs after tasks_create and only exits 1 with hookSpecificOutput (no deny decision), so it cannot actually block task creation as the comment claims."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "This is a PostToolUse hook, which runs after the tool has already executed — it cannot block or deny task creation at this point. The comment and code claim to \"block task creation\" but the task already exists when this hook runs; `process.exit(1)` in a PostToolUse hook does not revert or prevent the tool's action, it only signals an error to the orchestrator without undoing anything."
+        }
+      ]
+    },
+    "pr-1793-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The module promises back-compat re-exports for conflict-detection but only re-exports validateSessionApprovedForMerge while importing (and not re-exporting) checkGitHubMergeApprovalBlockers, potentially breaking existing consumers."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "The re-export block on line 69 only exports `validateSessionApprovedForMerge` from `session-merge-conflict-detection.ts`, but omits `checkGitHubMergeApprovalBlockers`, which is imported at the top of the file and was presumably part of the public API of this module before the refactor, leaving it unreachable for consumers importing from `session-merge-operations.ts`."
+        }
+      ]
+    },
+    "pr-1788-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "NOISE",
+          "rationale": "The claim about failing acceptance tests is unrelated to this file’s code and isn’t substantiated by the shown context, making it non-actionable here."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The finding claims \"full test suite does not pass\" but provides no concrete evidence of a test failure in the code context shown; the index file appears to be a standard command registration aggregator with no obvious defect, making this a vague meta-complaint rather than a specific actionable code issue."
+        }
+      ]
+    },
+    "pr-1786-r1-f0": {
+      "aggregate": "BUG_HIT",
+      "agreement": true,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "isHookSourceFile only excludes *.test.ts, so *.d.ts also pass (endsWith \".ts\"), leading to declaration files being included and misnamed (e.g., \"types.d\") in the hook registry."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "BUG_HIT",
+          "rationale": "`isHookSourceFile` only filters out `.test.ts` files but not `.d.ts` files — `\"foo.d.ts\".endsWith(\".ts\")` is `true` and `\"foo.d.ts\".endsWith(\".test.ts\")` is `false`, so TypeScript declaration files pass the guard and get included in the registry, producing spurious entries."
+        }
+      ]
+    },
+    "pr-1776-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "BUG_HIT",
+          "rationale": "The health-check path maps sustained HTTP non-serving to LABEL_STARTING without any escalation, while only child-exit and DB-degraded paths surface alerts, so persistent health failures won’t trigger a watchdog alert."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The code context shown is entirely about bundle staleness checking and filesystem watching — it doesn't show the HTTP health-check path or the watchdog alert logic being critiqued, so there's no evidence in this excerpt to confirm or deny the claim, and the finding appears to be about a different part of the code not shown here."
+        }
+      ]
+    },
+    "pr-1772-r1-f0": {
+      "aggregate": "NOISE",
+      "agreement": false,
+      "perJudge": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "verdict": "VALID",
+          "rationale": "The document contains an “Alternatives considered” block but not as a top-level H2 header, violating the ADR format requirement."
+        },
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6",
+          "verdict": "NOISE",
+          "rationale": "The \"Alternatives considered\" section is clearly present in the ADR at the correct location — it lists five alternatives (Status quo, option D, option A, pg_largeobject, and option C) with detailed reasoning for each rejection. The finding is factually wrong."
+        }
+      ]
+    }
+  },
+  "contaminatedIds": []
+}

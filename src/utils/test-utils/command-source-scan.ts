@@ -84,6 +84,67 @@ function linesOf(path: string): string[] {
 }
 
 /**
+ * Strip block and line comments (mt#1576).
+ *
+ * Exported because the long-wait census below is only meaningful if a DOCBLOCK
+ * mentioning a symbol cannot satisfy a check for that symbol being WIRED — and
+ * that is not hypothetical: `deployment.ts` and `asks.ts` both contained the
+ * word `onProgress` while emitting nothing, inside comments explaining that they
+ * did not emit it. A plain grep scored both as covered.
+ *
+ * The line-comment pattern requires the `//` not be preceded by `:`, so a URL
+ * (`https://…`) is not mistaken for a comment and does not swallow the rest of
+ * its line.
+ */
+export function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+/**
+ * Shared-command source files that declare a `timeoutSeconds` parameter but do
+ * NOT wire `onProgress` — i.e. long waits that are silent to the MCP transport
+ * (mt#1576). Returns paths relative to `dir`, sorted.
+ *
+ * Why this belongs in the census rather than in two unit tests: the transport
+ * applies an IDLE timeout, so a silent wait is killed at roughly three minutes
+ * regardless of its declared budget. mt#1576 accumulated 9+ occurrences of that
+ * over three months because nothing connected "declares a long wait" to "must
+ * emit progress" — each new long-waiting command silently reacquired the defect.
+ *
+ * **Known bound:** detection is by a file MENTIONING `timeoutSeconds`. A command
+ * inheriting the parameter from `session-parameters.ts` without naming it is not
+ * detected — `pr-drive-command.ts` is that case, and it wires `onProgress`
+ * anyway, so nothing is currently uncovered. Resolving imported parameter
+ * bundles was judged not worth the fragility for one known case.
+ */
+export function scanSilentLongWaitCommands(dir: string = COMMANDS_DIR): string[] {
+  const silent: string[] = [];
+  for (const path of sourceFiles(dir)) {
+    const stripped = stripComments(String(readFileSync(path, "utf8")));
+    if (!stripped.includes("timeoutSeconds")) continue;
+    if (stripped.includes("onProgress")) continue;
+    silent.push(path.slice(dir.length + 1));
+  }
+  return silent.sort();
+}
+
+/**
+ * Shared-command source files that declare a `timeoutSeconds` parameter, wired
+ * or not (mt#1576). Paths relative to `dir`, sorted.
+ *
+ * Exists so the census can assert it is looking at a non-empty population — a
+ * check over an empty set passes for the wrong reason.
+ */
+export function scanLongWaitCommands(dir: string = COMMANDS_DIR): string[] {
+  const found: string[] = [];
+  for (const path of sourceFiles(dir)) {
+    const stripped = stripComments(String(readFileSync(path, "utf8")));
+    if (stripped.includes("timeoutSeconds")) found.push(path.slice(dir.length + 1));
+  }
+  return found.sort();
+}
+
+/**
  * Every command id DECLARED in the sources, deduplicated and sorted.
  *
  * Includes declarations nothing registers — see the module docblock.

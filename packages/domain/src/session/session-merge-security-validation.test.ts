@@ -31,7 +31,7 @@ const mockSessionProvider = {
 };
 
 const mockTaskService = {
-  setTaskStatus: async () => {},
+  setTaskStatus: async () => ({ recordsAffected: 1 }),
   getTaskStatus: async () => "IN-REVIEW",
   getTask: async () => null,
 } as any;
@@ -271,7 +271,7 @@ describe("Session Merge Security Validation", () => {
         persistenceProvider: { capabilities: { sql: false, vector: false } } as any,
         createRepositoryBackend: (_config: any) => Promise.resolve(mockRepositoryBackend as any),
         taskService: {
-          setTaskStatus: async () => {},
+          setTaskStatus: async () => ({ recordsAffected: 1 }),
           getTaskStatus: async () => "IN-REVIEW",
           getTask: async () => null,
         } as any,
@@ -387,7 +387,7 @@ describe("Session Merge Security Validation", () => {
           getType: () => "github",
         } as any),
       taskService: {
-        setTaskStatus: async () => {},
+        setTaskStatus: async () => ({ recordsAffected: 1 }),
         getTaskStatus: async () => "IN-REVIEW",
         getTask: async () => null,
       } as any,
@@ -583,7 +583,7 @@ describe("Session Merge Security Validation", () => {
             getType: () => "github",
           } as any),
         taskService: {
-          setTaskStatus: async () => {},
+          setTaskStatus: async () => ({ recordsAffected: 1 }),
           getTaskStatus: async () => "IN-REVIEW",
           getTask: async () => null,
         } as any,

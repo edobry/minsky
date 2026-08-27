@@ -29,6 +29,7 @@ import {
   type CommandExecutionContext,
 } from "../command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
+import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
 import { buildSweptEntries } from "../../../domain/calibration/swept-entries";
 import {
   blockingClaims,
@@ -223,29 +224,18 @@ async function saveClaims(workspacePath: string, store: CalibrationClaimStore): 
 /**
  * This pass's actor identity, or null when the runtime cannot supply one.
  *
- * Null is a real outcome rather than a fallback to an invented id: a claim whose
- * holder cannot be named is worse than no claim — a second pass would see it,
- * stand down, and have nobody to attribute the work to. So an unidentifiable
- * pass FAILS OPEN (claims nothing, blocks nobody) and says so in the result,
- * which is the current behaviour and therefore not a regression.
+ * The resolution itself (server-injected first, then harness env) moved to
+ * `resolveCallerActorId` in mt#4568, because `tasks.claims.release` needs the
+ * identical rule and a second copy of an identity rule is exactly the failure
+ * this resolution exists to end. Its docblock carries the mt#4408 measurement.
+ *
+ * The CALIBRATION-specific consequence stays here: null is a real outcome
+ * rather than a fallback to an invented id — a claim whose holder cannot be
+ * named is worse than no claim, since a second pass would see it, stand down,
+ * and have nobody to attribute the work to. So an unidentifiable pass FAILS
+ * OPEN (claims nothing, blocks nobody) and says so in the result.
  */
-function resolveActorId(callerActorId?: string): string | null {
-  // Server-injected identity first (mt#4408). The two env vars below belong to
-  // the Claude Code HARNESS process; an MCP tool call executes inside the
-  // long-lived Minsky MCP server, a daemon started before the conversation
-  // existed, so it can never carry that conversation's id. Measured
-  // 2026-08-21: the same sweep returned `claimsUnavailable: true` over MCP and
-  // `false` over the CLI, minutes apart, against the same store — the
-  // difference was the PROCESS, not the state. That made the mt#4164 claim
-  // inert on the invocation path every pass actually uses, which is how the
-  // R4 collision happened with no warning on either side.
-  if (callerActorId && callerActorId.trim()) return callerActorId.trim();
-  const agentId = process.env.CLAUDE_AGENT_ID;
-  if (agentId && agentId.trim()) return agentId.trim();
-  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
-  if (sessionId && sessionId.trim()) return `com.anthropic.claude-code:conv:${sessionId.trim()}`;
-  return null;
-}
+const resolveActorId = resolveCallerActorId;
 
 /**
  * Run `critical` with exclusive access to the watermark store (mt#3899).
@@ -573,6 +563,9 @@ export function registerCalibrationCommands(): void {
         // Server-injected only — hide it from the CLI surface so it is not
         // advertised as a hand-passable flag (mirrors tasks.dispatch-recover).
         cliHidden: true,
+        // Server-injected on the MCP path too, so do not advertise it there
+        // either (mt#4579) — the server overwrites any supplied value.
+        mcpHidden: true,
       },
     },
     async execute(params, ctx) {

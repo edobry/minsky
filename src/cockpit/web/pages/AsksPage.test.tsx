@@ -627,3 +627,75 @@ describe("AsksPage expanded row renders the question as Markdown (mt#3639)", () 
     expect(urls.some((u) => u.startsWith("/api/tasks/ids"))).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Inline action feedback (mt#4503)
+//
+// The inbox is the surface where a lost answer is most invisible: the row is
+// one of many, and before this change a failed inline resolve cleared the
+// pending marker and re-rendered the row exactly as an idle one. Nothing said
+// the answer had not landed, and the ask simply stayed in the list.
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the inbox with a resolve endpoint that answers `status`.
+ *
+ * Uses the real `Response` constructor rather than this file's `jsonResponse`
+ * stub: `resolveAsk` reads `res.status` and calls `res.text()` on a failure, and
+ * the stub object has neither.
+ */
+function renderAsksPageWithResolve(asks: AskItem[], status: number, body: unknown) {
+  global.fetch = mock(async (url: string) => {
+    if (url.includes("/resolve")) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
+    return fallback();
+  }) as unknown as typeof fetch;
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <AsksPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+describe("AsksPage inline actions report their own outcome (mt#4503)", () => {
+  test("a failed inline resolve leaves the row with an error naming the status", async () => {
+    renderAsksPageWithResolve([askWithLongOptions()], 500, { error: "boom" });
+
+    const button = await waitFor(() =>
+      screen.getByRole("button", { name: LONG_OPTION_LABELS[0] as string })
+    );
+    fireEvent.click(button);
+
+    await waitFor(() => expect(screen.getByTestId("inline-ask-error")).toBeDefined());
+    const error = screen.getByTestId("inline-ask-error");
+    expect(error.textContent).toContain("Your response was not saved");
+    expect(error.textContent).toContain("500");
+
+    // The row is still answerable — a failure must not strand the ask.
+    expect(
+      (screen.getByRole("button", { name: LONG_OPTION_LABELS[0] as string }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+  });
+
+  test("at rest a row shows neither a status line nor an error", async () => {
+    renderAsksPageWithResolve([askWithLongOptions()], 200, { ok: true });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: LONG_OPTION_LABELS[0] as string })).toBeDefined()
+    );
+    expect(screen.queryByTestId("inline-ask-status")).toBeNull();
+    expect(screen.queryByTestId("inline-ask-error")).toBeNull();
+    expect(screen.queryByTestId("pending-spinner")).toBeNull();
+  });
+});

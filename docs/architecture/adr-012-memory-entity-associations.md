@@ -1,8 +1,16 @@
 # ADR-012: Generic Metadata Associations on Memories
 
-**Status:** Proposed
+**Status:** Accepted (2026-05-24) — amended 2026-08-24 by mt#4448
 **Date:** 2026-05-24
-**Tracking task:** mt#2066
+**Tracking task:** mt#2066 (design, DONE) · mt#2070 (schema, DONE) · mt#2071 (backfill, DONE) · mt#4448 (enforcement + normalization)
+
+> **What shipped, and what did not (mt#4448, 2026-08-24).** Shape A shipped: the `associations`
+> JSONB column, its GIN index, the CRUD surface, and the `memory_list` containment filter are all
+> live and working (filter verified against prod). What did NOT ship is the §Convention half. A
+> census of the live corpus found **28 of 1226 memories carrying associations, of which 26 used
+> keys this ADR does not define** — `tasks`, `memories`, `prs`, `changesets`, `docs`, and a
+> singular `task`. Only 2 carried `tracksTask`. The `enforced by code review` clause below has been
+> amended accordingly; see §Convention.
 
 ## Context
 
@@ -198,8 +206,28 @@ migratable into it (each key→value pair maps to an edge).
 
 4. **Convention-extensible.** New association types are just new keys — no schema
    migration for "we also want `citedInReview`." Agents and systems agree on type
-   strings by convention. The convention is documented in this ADR and enforced by
-   code review, not by schema constraints.
+   strings by convention.
+
+   > **AMENDED 2026-08-24 (mt#4448).** This clause originally ended: _"The convention is
+   > documented in this ADR and enforced by code review, not by schema constraints."_ That
+   > enforcement was measured and had a **0% success rate** — 26 of the 28 records carrying
+   > associations used keys defined nowhere, every one written by an agent at a `memory_create`
+   > call site. No code produced them; the column simply accepted any string.
+   >
+   > The lesson is not that reviewers were careless. `Record<string, string[]>` has no way to
+   > say _"that is not a key"_, so the first plausible spelling wins and nothing contradicts it.
+   > **Code review cannot hold a vocabulary the type system does not.**
+   >
+   > The vocabulary is therefore now **CLOSED and enforced in code** —
+   > `packages/domain/src/memory/associations.ts`, checked at the `memory.create` /
+   > `memory.update` seams. Two consequences worth stating plainly:
+   >
+   > - Adding a type means editing `ASSOCIATION_TYPES` **and** amending the table below. That is
+   >   a code change with a review — the discipline this clause originally intended, now with a
+   >   mechanism behind it. "Convention-extensible" survives; "extensible by whoever types first"
+   >   does not.
+   > - The check is **not** bypassable with `memory_create`'s `force` flag, which covers the
+   >   derivation heuristic (mt#960) only. An override would restore the exact condition above.
 
 5. **Sequenceable.** The data shape is mechanically migratable to Shape B if needed:
    each `{ key: [values] }` entry in the JSONB maps to one or more rows in a junction

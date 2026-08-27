@@ -94,7 +94,7 @@ function formatTime(iso: string): string {
  *
  * The vocabulary, the precedence rules, and the `Errored`-vs-`Rate-limited`
  * split all live in `../lib/conversation-outcome.ts` (mt#3132) — ONE
- * terminal-condition taxonomy shared with the actuator channel's status
+ * terminal-condition taxonomy shared with the session driver channel's status
  * readout, replacing the per-pipeline enums that had drifted apart. This
  * function is now only the transcript ADAPTER: it extracts the evidence a turn
  * carries and hands it to the shared classifier.

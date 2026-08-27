@@ -57,6 +57,12 @@ export function buildReviewCostEvent(input: ReviewTimingInput): BraintrustEvent 
       cost_usd: input.costUsd ?? null,
       iteration_index: input.iterationIndex,
       scope_classification: input.scopeClassification,
+      // mt#4556: the configuration arm, carried on BOTH surfaces from one
+      // value. The trace-shape record (Notion 35e937f0) asks for a variant tag
+      // on every span; Postgres is where mt#4546's command and mt#4557's page
+      // can reach it without a second credential. Since this event is built
+      // from the same ReviewTimingInput, both get it for one field.
+      config_fingerprint: input.configFingerprint,
     },
   };
 }

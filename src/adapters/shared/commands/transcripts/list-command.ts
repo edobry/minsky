@@ -190,7 +190,11 @@ export function registerTranscriptListCommand(
       const svc = new TranscriptListService(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase
       );
-      const { conversations: rows, truncation } = await svc.listConversations({ limit });
+      const {
+        conversations: rows,
+        truncation,
+        allConversationIds,
+      } = await svc.listConversations({ limit });
 
       // ── Resolve task titles for tier-1/tier-3 label inputs (best-effort) ──
       const { titles: taskTitles, degradedNoTaskService } = await resolveTaskTitles(rows, context);
@@ -198,8 +202,13 @@ export function registerTranscriptListCommand(
       const conversations: TranscriptListEntry[] = rows.map((row) => buildEntry(row, taskTitles));
 
       // ── Coverage ──────────────────────────────────────────────────────────
+      // mt#4480: compare disk against EVERY conversation id, never against
+      // `rows` — `rows` is the capped page, and passing it made an
+      // un-returned conversation indistinguishable from a never-ingested one.
+      // A default-limit call reported 1,491 of 1,503 on-disk sessions as
+      // missing; the true count was 3.
       const coverage = checkDiskCoverage
-        ? await buildDiskCoverage(rows.map((r) => r.agentSessionId))
+        ? await buildDiskCoverage(allConversationIds)
         : { diskCoverageChecked: false, note: DEFAULT_NOTE };
 
       // mt#2818 R1 nit: surface the taskService-absent degradation explicitly
@@ -335,14 +344,23 @@ async function resolveTaskTitles(
  * `ClaudeCodeTranscriptSource.discoverSessions()`, the same mechanism
  * `transcripts.ingest --all` uses, to find conversations on disk with zero
  * rows in `agent_transcripts`.
+ *
+ * @param allKnownIds EVERY conversation id in `agent_transcripts` — NOT the
+ *   returned page (mt#4480). The distinction is the whole correctness of this
+ *   function: anything absent from this set is reported as never-ingested, so
+ *   handing it a capped page turns "not on this page" into "not in the
+ *   database." That produced a standing 1,491-conversation phantom gap against
+ *   a true value of 3, and it is silent by construction — a page is a
+ *   perfectly well-formed set, so there is no error to notice, only a number
+ *   that looks alarming and is wrong.
  */
-async function buildDiskCoverage(knownIds: string[]): Promise<TranscriptListCoverage> {
+async function buildDiskCoverage(allKnownIds: string[]): Promise<TranscriptListCoverage> {
   try {
     const { ClaudeCodeTranscriptSource } = await import(
       "@minsky/domain/transcripts/claude-code-transcript-source"
     );
     const source = new ClaudeCodeTranscriptSource();
-    const known = new Set(knownIds);
+    const known = new Set(allKnownIds);
     const missing: string[] = [];
     let scanned = 0;
 

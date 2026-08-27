@@ -28,6 +28,12 @@ import {
   psRequestsArgv,
   isArgvBearingProcessListing,
   isNonEmittingSink,
+  findSecretDumpingCliReads,
+  isSecretDumpingCliInvocation,
+  isKeyOnlyJqStage,
+  positionalArgs,
+  SECRET_DUMPING_CLI_SPECS,
+  isUnderSourceRoot,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -41,6 +47,10 @@ const CTX = {} as DispatchContext;
 /** The canonical emitting read of Minsky's own config — used by several suites. */
 const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
 
+/** The canonical value-dumping railway invocation (mt#4570), shared by its own
+ *  block and mt#4581's untouched-siblings check. */
+const RAILWAY_VARIABLES_JSON = "railway variables --json";
+
 // ── Process listings (mt#3850) ──────────────────────────────────────────────
 
 /**
@@ -49,6 +59,259 @@ const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
  * it printed a live GitHub token carried by an unrelated `docker run` row.
  */
 const PS_INCIDENT_COMMAND = "ps -eo pid,etime,command | grep -iE 'git|credential'";
+
+// ── Vendor CLI env-var dumps (mt#4570) ──────────────────────────────────────
+
+/**
+ * The originating incident command, verbatim (2026-08-25): checking whether the
+ * reviewer service still carried a Braintrust key. It names no secret path,
+ * invokes no script, and requests no argv column — so all three prior checks
+ * pass it — and it printed the production BRAINTRUST_API_KEY.
+ */
+const RAILWAY_INCIDENT_COMMAND = "railway variables --json";
+
+/**
+ * The SAFE form the agent tried FIRST, which failed on a wrong service name.
+ * The whole point of the carve-out: if this denied, the guard would push
+ * callers straight onto the unsafe form the incident used.
+ */
+const RAILWAY_SAFE_COMMAND = "railway variables --service minsky-reviewer --json | jq -r 'keys[]'";
+
+/** A value-LESS global flag before the noun — must not consume the next token. */
+const RAILWAY_VALUELESS_FLAG_COMMAND = "railway --json variable list";
+
+describe("mt#4570 — vendor CLIs that dump env-var values", () => {
+  test("denies the verbatim railway incident command", () => {
+    const hits = findSecretDumpingCliReads(RAILWAY_INCIDENT_COMMAND);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.kind).toBe("cli-env-dump");
+    expect(hits[0]?.reader).toBe("railway");
+  });
+
+  test("the incident command is invisible to all three prior checks", () => {
+    // This is the whole justification for a fourth check rather than widening
+    // one of the existing three. If any of these starts returning hits, this
+    // check may be redundant — that is worth knowing.
+    expect(findSecretReads(RAILWAY_INCIDENT_COMMAND)).toEqual([]);
+    expect(findSecretScriptInvocations(RAILWAY_INCIDENT_COMMAND)).toEqual([]);
+    expect(findProcessListingReads(RAILWAY_INCIDENT_COMMAND)).toEqual([]);
+  });
+
+  test("denies every spelling of the listing command", () => {
+    // `railway variable` and `railway variables` are the same command; the
+    // canonical form is `variable list` (alias `ls`); a bare noun lists too.
+    // Verified against `railway variable --help`, 2026-08-25.
+    for (const cmd of [
+      "railway variables",
+      "railway variable",
+      "railway variable list",
+      "railway variable ls",
+      "railway variables list --json",
+      "railway variable list -k",
+      "railway variable list --kv",
+      "railway variable list --service api --json",
+      "railway --json variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("allows a key-projecting jq pipeline — the recommended safe form", () => {
+    for (const cmd of [
+      RAILWAY_SAFE_COMMAND,
+      "railway variable list --json | jq -r 'keys[]'",
+      "railway variable list --json | jq 'keys'",
+      "railway variable list --json | jq -r 'keys | length'",
+      "railway variable list --json | jq -r 'keys_unsorted[]'",
+      "railway variable list --json | jq -r '. | keys'",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("allows a counting sink, same carve-out the ps check has", () => {
+    for (const cmd of [
+      "railway variable list --kv | grep -c BRAINTRUST",
+      "railway variable list --kv | grep -q BRAINTRUST",
+      "railway variable list --json | wc -l",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("a jq filter that could render a VALUE is not a carve-out", () => {
+    // Fail-closed: only the whitelisted key-projecting tokens suppress values.
+    for (const cmd of [
+      "railway variable list --json | jq -r '.BRAINTRUST_API_KEY'",
+      "railway variable list --json | jq '.'",
+      "railway variable list --json | jq -r 'to_entries[]'",
+      "railway variable list --json | jq -r '.[]'",
+      "railway variable list --json | jq -r 'keys[] as $k | .[$k]'",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("the suppressing stage may sit anywhere downstream", () => {
+    // Once keys are projected, no later stage can resurrect the values —
+    // mirrors findProcessListingReads' reducedDownstream rule.
+    expect(
+      findSecretDumpingCliReads("railway variable list --json | jq -r 'keys[]' | sort | tee out")
+    ).toEqual([]);
+  });
+
+  test("leaves non-listing railway subcommands alone", () => {
+    // Keyed on the value-dumping subcommand, not on the binary.
+    for (const cmd of [
+      "railway status",
+      "railway whoami",
+      "railway logs",
+      "railway up",
+      "railway variable set API_URL=https://example.com",
+      "railway variable delete API_KEY",
+      "railway variable rm API_KEY",
+      "railway variable help",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("a value-taking flag before the noun does not shift it out of position", () => {
+    // PR #3336 R1 (BLOCKING): `filter(t => !t.startsWith("-"))` treats a flag's
+    // VALUE as a positional, so the noun lands at index 1 and matches nothing —
+    // a silent BYPASS, not a cosmetic parsing gap. Every value-taking flag from
+    // `railway variable --help` is covered here, in both spellings.
+    for (const cmd of [
+      "railway -s api variable list",
+      "railway --service api variable list",
+      "railway -e production variable list",
+      "railway --environment production variable list",
+      "railway -p proj-id variable list",
+      "railway --project proj-id variable list",
+      "railway -s api -e production variable list",
+      "railway --service api --json variables",
+      // attached form: the value rides on the flag token, nothing to skip
+      "railway --service=api variable list",
+      // `--` ends flag parsing
+      "railway --service api -- variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("the flag-value skip does not swallow the noun itself", () => {
+    // The inverse risk of the fix: over-consuming a token would make the guard
+    // blind. A value-less flag must NOT eat the next token.
+    expect(findSecretDumpingCliReads(RAILWAY_VALUELESS_FLAG_COMMAND).length).toBeGreaterThan(0);
+    expect(findSecretDumpingCliReads("railway -k variable list").length).toBeGreaterThan(0);
+    // ...and a safe verb is still reached through a value-taking flag.
+    expect(findSecretDumpingCliReads("railway --service api variable set A=b")).toEqual([]);
+  });
+
+  test("positionalArgs skips flag values, not positionals", () => {
+    const valueFlags = new Set(["-s", "--service"]);
+    expect(positionalArgs(tokenize("railway -s api variable list"), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+    expect(positionalArgs(tokenize("railway --service=api variable list"), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+    expect(positionalArgs(tokenize(RAILWAY_VALUELESS_FLAG_COMMAND), valueFlags)).toEqual([
+      "variable",
+      "list",
+    ]);
+  });
+
+  test("an unrecognised verb is treated as dumping (fail-closed)", () => {
+    // safeVerbs is an allow-list on purpose: a subcommand this table has never
+    // heard of is more likely a new read than a new write.
+    expect(findSecretDumpingCliReads("railway variable dump").length).toBeGreaterThan(0);
+  });
+
+  test("leaves other programs alone", () => {
+    for (const cmd of ["vercel env ls", "fly secrets list", "echo railway variables"]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("sibling CLIs verified NOT to render values stay allowed", () => {
+    // Each of these was checked against its own installed `--help` on
+    // 2026-08-25 and does not emit a value; see the comment block above
+    // SECRET_DUMPING_CLI_SPECS for the verbatim evidence. Pinned so a later
+    // "while we're here" addition trips a test instead of shipping a guard
+    // that denies a command which cannot leak.
+    for (const cmd of [
+      // digest only — "The actual value of the secret is only available to the application"
+      "fly secrets list",
+      "flyctl secrets list",
+      // --json field set has no `value` — GitHub secrets are write-only
+      "gh secret list",
+      "gh secret ls",
+      // renders `value`, but GitHub forbids storing a secret as a variable
+      "gh variable list",
+    ]) {
+      expect(findSecretDumpingCliReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("isSecretDumpingCliInvocation returns the matching spec", () => {
+    const railwaySpec = SECRET_DUMPING_CLI_SPECS.find((s) => s.program === "railway");
+    expect(railwaySpec).toBeDefined();
+    expect(isSecretDumpingCliInvocation("railway", tokenize(RAILWAY_VARIABLES_JSON))).toBe(
+      railwaySpec ?? null
+    );
+    expect(isSecretDumpingCliInvocation("railway", tokenize("railway status"))).toBeNull();
+  });
+
+  test("isKeyOnlyJqStage discriminates key projections from value reads", () => {
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r 'keys[]'"))).toBe(true);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq 'keys'"))).toBe(true);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r '.SOME_KEY'"))).toBe(false);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r"))).toBe(false);
+    expect(isKeyOnlyJqStage("grep", tokenize("grep -c x"))).toBe(false);
+  });
+
+  test("a filter of only pass-through tokens does not reduce (regression)", () => {
+    // Caught by this suite during authoring: `.` is permitted as a pass-through
+    // inside `. | keys`, so an allow-list alone accepted `jq '.'` — which
+    // renders the whole object, values included. A key-projecting filter must
+    // contain a token that actually DISCARDS values.
+    expect(isKeyOnlyJqStage("jq", tokenize("jq '.'"))).toBe(false);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r '. | sort'"))).toBe(false);
+    expect(isKeyOnlyJqStage("jq", tokenize("jq -r '. | keys'"))).toBe(true);
+  });
+
+  test("fires through findInToolInput and renders a denial naming the safe form", () => {
+    const hits = findInToolInput({ command: RAILWAY_INCIDENT_COMMAND });
+    expect(hits.some((h) => h.kind === "cli-env-dump")).toBe(true);
+
+    const reason = buildDenialReason(hits);
+    expect(reason).toContain("prints every variable WITH its value");
+    expect(reason).toContain("jq -r 'keys[]'");
+    // The denial must teach the probe-degradation lesson, not just refuse.
+    expect(reason).toContain("do NOT re-run it without the filter");
+  });
+
+  test("the override covers this check like its three siblings", () => {
+    const input = {
+      tool_name: "Bash",
+      tool_input: { command: RAILWAY_INCIDENT_COMMAND },
+    } as unknown as ToolHookInput;
+
+    expect(run(input, CTX)?.deny).toBeDefined();
+
+    const prev = process.env[OVERRIDE_ENV_VAR];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      expect(run(input, CTX)?.deny).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env[OVERRIDE_ENV_VAR];
+      else process.env[OVERRIDE_ENV_VAR] = prev;
+    }
+  });
+});
 
 describe("mt#3850 — process listings that print argv", () => {
   test("denies the verbatim incident command", () => {
@@ -644,6 +907,144 @@ describe("mt#3703 — the two false-positive classes", () => {
 
     test("a pattern-only grep (reading stdin) drops it and finds no file", () => {
       expect(filePathCandidates("grep", ["grep", "credentials"])).toEqual([]);
+    });
+  });
+});
+
+describe("mt#4581 — a SOURCE directory argument is not a secret path", () => {
+  // mt#3703 rescued the source FILE by its extension; a directory argument has
+  // none, so `packages/domain/src/credentials/` still denied. These pin both
+  // directions of the fix — the false positive removed, and the coverage hole a
+  // prefix-only carve-out would have opened.
+
+  /** The command denied verbatim on 2026-08-25, during mt#4486's implementation. */
+  const DENIED_VERBATIM =
+    "grep -rn 'parentTaskId' --include='*.test.ts' " +
+    "src/adapters/shared/commands/config/ packages/domain/src/credentials/";
+
+  describe("AT1 — the regression case", () => {
+    test("the exact denied command is permitted", () => {
+      expect(findSecretReads(DENIED_VERBATIM)).toEqual([]);
+    });
+
+    test("the same directory without an --include filter is permitted", () => {
+      // SC1 says "whether or not it carries an --include filter" — the filter
+      // was incidental to the denial, so pin the bare form too.
+      expect(findSecretReads("grep -rn 'x' packages/domain/src/credentials/")).toEqual([]);
+    });
+
+    test("a leading ./ is tolerated", () => {
+      expect(findSecretReads("grep -rn 'x' ./packages/domain/src/credentials/")).toEqual([]);
+    });
+  });
+
+  describe("AT2 — the positive control", () => {
+    test("a real secret file still denies", () => {
+      // Without this, the fix would pass just as well if the whole check were
+      // disabled.
+      expect(findSecretReads(CAT_MINSKY_CONFIG).length).toBe(1);
+    });
+  });
+
+  describe("AT3 — negative controls: a DATA file under a source root still denies", () => {
+    // The hole a prefix-only carve-out would have opened. Neither case is
+    // covered by mt#3703's bare `secrets/prod.yaml` test, which carries no
+    // source-root prefix and so would have kept passing over the hole.
+    test.each([
+      ["cat packages/domain/src/secrets/prod.yaml", "prod.yaml"],
+      ["grep -rn 'x' src/credentials/fixtures/creds.json", "creds.json"],
+      ["cat services/reviewer/src/secrets/token.txt", "token.txt"],
+    ])("%s still denies", (command, expectedPath) => {
+      const hits = findSecretReads(command);
+      expect(hits.length).toBe(1);
+      expect(hits[0]?.path).toContain(expectedPath);
+    });
+
+    test("the explicit list still denies from under a source root", () => {
+      // The carve-out narrows GENERIC_SECRET_NAME_PATTERN alone; the explicit
+      // patterns are evaluated first and are unaffected (SC3).
+      expect(findSecretReads("cat src/foo/.env").length).toBe(1);
+      expect(findSecretReads("cat packages/domain/src/credentials/key.pem").length).toBe(1);
+    });
+  });
+
+  describe("AT4 — mt#3703's behaviour is unregressed", () => {
+    test("a source file under credentials/ is still permitted", () => {
+      expect(findSecretReads("grep -rn 'x' packages/domain/src/credentials/lifecycle.ts")).toEqual(
+        []
+      );
+    });
+
+    test("a data file under a NON-source secrets/ directory still denies", () => {
+      expect(findSecretReads("cat secrets/prod.yaml").length).toBe(1);
+    });
+  });
+
+  describe("isUnderSourceRoot — the discriminator in isolation", () => {
+    test("matches a repo-relative path rooted at a source root", () => {
+      expect(isUnderSourceRoot("packages/domain/src/credentials/")).toBe(true);
+      expect(isUnderSourceRoot("src/credentials/")).toBe(true);
+      expect(isUnderSourceRoot("scripts/foo/")).toBe(true);
+      expect(isUnderSourceRoot("./services/reviewer/src/")).toBe(true);
+    });
+
+    test("a directory merely PREFIXED with a root's name does not qualify", () => {
+      expect(isUnderSourceRoot("services-archive/credentials/")).toBe(false);
+      expect(isUnderSourceRoot("srcfoo/credentials/")).toBe(false);
+    });
+
+    test("a token naming no source root does not qualify", () => {
+      expect(isUnderSourceRoot("docs/credentials/")).toBe(false);
+      expect(isUnderSourceRoot("~/.config/minsky/")).toBe(false);
+    });
+
+    test("PR #3364 R1 — an INTERIOR source-root segment does not qualify", () => {
+      // The carve-out belongs to this repo's top-level roots. Matching
+      // `(^|/)<root>/` anywhere would have carved out real secret paths that
+      // merely happen to contain such a segment.
+      expect(isUnderSourceRoot("/var/secrets/services/credentials")).toBe(false);
+      expect(isUnderSourceRoot("~/.config/app/src/credentials")).toBe(false);
+      expect(isUnderSourceRoot("/etc/secrets/packages/credential-store")).toBe(false);
+    });
+  });
+
+  describe("isSecretPath — the discriminator in isolation", () => {
+    test("a source-tree directory escapes only the generic pattern", () => {
+      expect(isSecretPath("packages/domain/src/credentials/")).toBe(false);
+      expect(isSecretPath("packages/domain/src/credentials")).toBe(false);
+      // ...but a data extension under the same root does not escape.
+      expect(isSecretPath("packages/domain/src/secrets/prod.yaml")).toBe(true);
+    });
+
+    test("the accepted residuals still match", () => {
+      // Named in the spec's "Known residual, accepted" — widening the root list
+      // is a separate change with its own false-positive surface.
+      expect(isSecretPath("docs/credentials/")).toBe(true);
+      // ...and, since PR #3364 R1, an ABSOLUTE path into repo source. Denying a
+      // legitimate read is the safe direction; carving out every interior
+      // `/services/` was not.
+      expect(isSecretPath("/Users/e/sessions/abc/packages/domain/src/credentials/")).toBe(true);
+    });
+
+    test("PR #3364 R1 — a real secret path with an interior source-root name still denies", () => {
+      // End-to-end through the guard, not just the helper: these are the paths
+      // the over-broad first version would have permitted outright.
+      expect(findSecretReads("cat /var/secrets/services/credentials").length).toBe(1);
+      expect(findSecretReads("cat ~/.config/app/src/credentials").length).toBe(1);
+    });
+  });
+
+  describe("the other three checks are untouched", () => {
+    test("the secret-emitting script check still denies", () => {
+      expect(findSecretScriptInvocations("bun scripts/drizzle-config-loader.ts").length).toBe(1);
+    });
+
+    test("the argv-column process listing still denies", () => {
+      expect(findProcessListingReads("ps -eo command").length).toBe(1);
+    });
+
+    test("the vendor-CLI env dump still denies", () => {
+      expect(findSecretDumpingCliReads(RAILWAY_VARIABLES_JSON).length).toBe(1);
     });
   });
 });

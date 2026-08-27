@@ -72,7 +72,7 @@ const BASE_ROW: DrivenSessionRow = {
   pid: null,
   pidCmdline: null,
   model: null,
-  actuatorGeneration: 0,
+  driverGeneration: 0,
   startedAt: new Date("2026-07-22T18:00:00.000Z"),
   updatedAt: new Date("2026-07-22T18:05:00.000Z"),
 };
@@ -191,7 +191,7 @@ const neverSettles = <T>(): Promise<T> => new Promise<T>(() => {});
  * `resolve-db` and no later stage could ever be reached. Counting races
  * instead lets a test name the exact await it is stalling — race 1 is
  * `resolve-db`, race 2 is `list-rows`, then PER ROW: the cwd probe, then the
- * actuator probe when the row is resumable and carries a pid (mt#4255), then a
+ * session driver probe when the row is resumable and carries a pid (mt#4255), then a
  * verdict write when one is owed.
  *
  * Deterministic and instant in both directions: the tripped race resolves on
@@ -199,7 +199,7 @@ const neverSettles = <T>(): Promise<T> => new Promise<T>(() => {});
  * without any wall-clock wait.
  *
  * Module-scoped (mt#4255) rather than local to the mt#4103 block: the
- * actuator-retirement tests below stall the same seam, and a second copy would
+ * session driver-retirement tests below stall the same seam, and a second copy would
  * be a second thing to keep in step with the race ordering above.
  */
 function tripRace(n: number): (ms: number) => Promise<{ timedOut: true }> {
@@ -240,7 +240,7 @@ describe("boot reconciliation observability + bounds (mt#4103)", () => {
       });
       expect(level).toBe("info");
       expect(message).toContain("loaded 2 persisted session(s)");
-      expect(message).toContain("retired 23 whose recorded actuator was gone");
+      expect(message).toContain("retired 23 whose recorded session driver was gone");
     });
 
     test("SC7 — retiring EVERY row is a loaded line, not the empty line", () => {
@@ -308,7 +308,7 @@ describe("boot reconciliation observability + bounds (mt#4103)", () => {
         // The retiring variant is its own entry: it takes a different branch
         // inside the `loaded` case, so the no-silent-kind guarantee has to
         // cover it too (mt#4255).
-        { kind: "loaded", count: 0, retired: 1, degraded: ["actuator-probe"] },
+        { kind: "loaded", count: 0, retired: 1, degraded: ["sessionDriver-probe"] },
         { kind: "empty" },
         { kind: "no-persistence" },
         { kind: "timed-out", stage: "list-rows", timeoutMs: 15000 },
@@ -510,7 +510,7 @@ describe("loadPersistedDrivenSessions", () => {
       model: "fable",
       pid: 4242,
       pidCmdline: "claude -p --input-format stream-json",
-      actuatorGeneration: 3,
+      driverGeneration: 3,
     };
     const writes: Record<string, unknown>[] = [];
 
@@ -529,7 +529,7 @@ describe("loadPersistedDrivenSessions", () => {
     expect(written["model"]).toBe("fable");
     expect(written["pid"]).toBe(4242);
     expect(written["pidCmdline"]).toBe("claude -p --input-format stream-json");
-    expect(written["actuatorGeneration"]).toBe(3);
+    expect(written["driverGeneration"]).toBe(3);
     expect(written["cwd"]).toBe(row.cwd);
     // ...while the two fields the write exists to change did change.
     expect(written["status"]).toBe("unrecoverable");
@@ -664,7 +664,7 @@ describe("orchestrateDrivenSessionResume", () => {
     if (outcome.outcome === "resumed") {
       expect(outcome.record.localId).toBe("local-1");
       expect(outcome.record.harnessSessionId).toBe("harness-1");
-      expect(outcome.record.actuatorGeneration).toBe(1);
+      expect(outcome.record.driverGeneration).toBe(1);
       expect(registry.get("local-1")).toBe(outcome.record);
     }
   });
@@ -865,7 +865,7 @@ describe("deleted workspace cwd (mt#3397)", () => {
 });
 
 /**
- * mt#3095 — attach: putting an actuator on a conversation Minsky did NOT spawn.
+ * mt#3095 — attach: putting a session driver on a conversation Minsky did NOT spawn.
  *
  * The behaviour under test is mostly a REFUSAL policy, and its failure mode is
  * silent (a wrong admit forks a transcript with no error), so the refusal cases
@@ -888,7 +888,7 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
     withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
     registry: new DrivenSessionRegistry(),
     spawnFn: () => new FakeClaudeProcess(),
-    newLocalId: () => "actuator-1",
+    newLocalId: () => "sessionDriver-1",
   });
 
   test("attaches an idle conversation and registers it under BOTH ids", async () => {
@@ -905,8 +905,8 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
     // SC2: the whole point of passing harnessSessionId up front — the record is
     // addressable by CONVERSATION id with no id-space change anywhere else.
     expect(registry.get(CONVERSATION)).toBe(outcome.record);
-    // ...and still by its actuator id, because that is the registry's PK.
-    expect(registry.get("actuator-1")).toBe(outcome.record);
+    // ...and still by its session driver id, because that is the registry's PK.
+    expect(registry.get("sessionDriver-1")).toBe(outcome.record);
   });
 
   test("an attached foreign conversation carries no task/workspace binding", async () => {
@@ -1026,7 +1026,7 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
     expect(outcome).toEqual({ outcome: "no-transcript" });
   });
 
-  test("returns locked when another cockpit actuator holds the conversation", async () => {
+  test("returns locked when another cockpit session driver holds the conversation", async () => {
     const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
       ...admitDeps(),
       withResumeLock: async () => ({ acquired: false }),
@@ -1034,8 +1034,8 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
     expect(outcome).toEqual({ outcome: "locked" });
   });
 
-  test("the lock is keyed on the CONVERSATION id, not the actuator id", async () => {
-    // Keying on the actuator id would give each attach its own namespace and
+  test("the lock is keyed on the CONVERSATION id, not the session driver id", async () => {
+    // Keying on the session driver id would give each attach its own namespace and
     // never exclude anything — the lock would be decorative.
     const keys: string[] = [];
     await orchestrateDrivenSessionAttach(CONVERSATION, {
@@ -1050,10 +1050,10 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// mt#4255 — actuator-gone retirement at boot
+// mt#4255 — driver-gone retirement at boot
 // ---------------------------------------------------------------------------
 
-describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", () => {
+describe("boot reconciliation retires a row whose session driver is gone (mt#4255)", () => {
   /**
    * A row that reaches the new third test: transcript intact, real cwd, and a
    * recorded pid/cmdline pair. `BASE_ROW` has `pid: null` on purpose, which is
@@ -1089,7 +1089,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [LIVE_SHAPED_ROW],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => "gone",
+      probeSessionDriver: async () => "gone",
     });
 
     expect(outcome.kind).toBe("loaded");
@@ -1104,7 +1104,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
     expect(writes[0]?.status).toBe("exited");
   });
 
-  test("AT2 — a live actuator that still MATCHES is left alone (the dual-daemon case)", async () => {
+  test("AT2 — a live session driver that still MATCHES is left alone (the dual-daemon case)", async () => {
     // The test that a sweep marking everything terminal would fail. The
     // sanctioned dev loop runs a second daemon beside the tray one; its boot
     // reads the first daemon's rows and must not retire live children.
@@ -1116,7 +1116,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [LIVE_SHAPED_ROW],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => "ours",
+      probeSessionDriver: async () => "ours",
     });
 
     if (outcome.kind !== "loaded") throw new Error("unreachable");
@@ -1139,7 +1139,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [LIVE_SHAPED_ROW],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => "not-ours",
+      probeSessionDriver: async () => "not-ours",
     });
 
     if (outcome.kind !== "loaded") throw new Error("unreachable");
@@ -1158,7 +1158,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, pid: null }],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => {
+      probeSessionDriver: async () => {
         probed += 1;
         return "gone";
       },
@@ -1184,7 +1184,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [LIVE_SHAPED_ROW],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => "unknown",
+      probeSessionDriver: async () => "unknown",
     });
 
     if (outcome.kind !== "loaded") throw new Error("unreachable");
@@ -1202,12 +1202,12 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [LIVE_SHAPED_ROW],
       registry,
       persistTerminalVerdict,
-      probeActuator: () => neverSettles<"gone">(),
+      probeSessionDriver: () => neverSettles<"gone">(),
       rowTimeoutMs: 5_000,
       // Race 4, per `tripRace`'s ordering: 1 `resolve-db`, 2 `list-rows`, 3 the
-      // row's cwd probe, 4 its actuator probe. Tripping 3 instead stalls the
+      // row's cwd probe, 4 its session driver probe. Tripping 3 instead stalls the
       // cwd probe, which fails open to "not missing" and leaves the row
-      // resumable — so the actuator probe still runs, against a signal that
+      // resumable — so the session driver probe still runs, against a signal that
       // will now never trip and an operation that never settles. The test then
       // hangs rather than failing, which is how this index was found.
       timeoutSignal: tripRace(4),
@@ -1215,7 +1215,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
 
     if (outcome.kind !== "loaded") throw new Error("unreachable");
     expect(outcome.retired).toBe(0);
-    expect(outcome.degraded).toContain("actuator-probe");
+    expect(outcome.degraded).toContain("sessionDriver-probe");
     // Degraded is not retired: a probe that could not answer leaves the row
     // exactly as it was.
     expect(registry.get("local-1")?.status).toBe("reconnecting");
@@ -1241,7 +1241,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       }) as NonNullable<
         Parameters<typeof reconcilePersistedDrivenSessions>[0]["persistTerminalVerdict"]
       >,
-      probeActuator: async () => "gone" as const,
+      probeSessionDriver: async () => "gone" as const,
     };
 
     const first = await reconcilePersistedDrivenSessions({
@@ -1274,7 +1274,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       persistTerminalVerdict: async () => {
         throw new Error("simulated upsert failure");
       },
-      probeActuator: async () => "gone",
+      probeSessionDriver: async () => "gone",
     });
 
     if (outcome.kind !== "loaded") throw new Error("unreachable");
@@ -1295,9 +1295,9 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [LIVE_SHAPED_ROW],
       registry,
       persistTerminalVerdict: () => neverSettles<"written">(),
-      probeActuator: async () => "gone",
+      probeSessionDriver: async () => "gone",
       rowTimeoutMs: 5_000,
-      // Race 5: 1 resolve-db, 2 list-rows, 3 cwd probe, 4 actuator probe,
+      // Race 5: 1 resolve-db, 2 list-rows, 3 cwd probe, 4 session driver probe,
       // 5 the verdict write.
       timeoutSignal: tripRace(5),
     });
@@ -1327,7 +1327,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => rows,
       registry,
       persistTerminalVerdict,
-      probeActuator: async (pid) => (pid === 2 ? "gone" : "ours"),
+      probeSessionDriver: async (pid) => (pid === 2 ? "gone" : "ours"),
     });
 
     if (outcome.kind !== "loaded") throw new Error("unreachable");
@@ -1354,26 +1354,26 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
 
     await reconcilePersistedDrivenSessions({
       getDb: async () => FAKE_DB,
-      listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, model: "fable", actuatorGeneration: 3 }],
+      listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, model: "fable", driverGeneration: 3 }],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => "gone",
+      probeSessionDriver: async () => "gone",
     });
 
     const write = writes[0];
     expect(write?.model).toBe("fable");
-    expect(write?.actuatorGeneration).toBe(3);
+    expect(write?.driverGeneration).toBe(3);
     expect(write?.pid).toBe(4242);
     expect(write?.pidCmdline).toContain("claude");
     expect(write?.harnessSessionId).toBe("harness-1");
     // `unrecoverableReason` is an assertion about the CONVERSATION, and this
     // verdict makes none — the conversation stays resumable. Writing an
-    // actuator-layer reason into that column would tell the next reader it was
+    // session driver-layer reason into that column would tell the next reader it was
     // condemned.
     expect(write?.unrecoverableReason).toBeNull();
   });
 
-  test("an unrecoverable row is still unrecoverable — the actuator probe never runs for it", async () => {
+  test("an unrecoverable row is still unrecoverable — the session driver probe never runs for it", async () => {
     // Ordering guard: the conversation-layer verdict wins, and a row with no
     // transcript must not be downgraded to a mere `exited` just because its pid
     // also happens to be dead.
@@ -1386,7 +1386,7 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
       listNonTerminal: async () => [{ ...LIVE_SHAPED_ROW, harnessSessionId: null }],
       registry,
       persistTerminalVerdict,
-      probeActuator: async () => {
+      probeSessionDriver: async () => {
         probed += 1;
         return "gone";
       },

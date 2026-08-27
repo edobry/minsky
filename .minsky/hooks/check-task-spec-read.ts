@@ -11,6 +11,41 @@
 // path composes this guard rather than bypassing it. New-task mode (`title`, no `taskId`) is not
 // guarded — there is no pre-existing spec to have skipped reading.
 //
+// mt#4551 — the ask seam, and why it ADVISES where the three above DENY.
+//
+// The three tools above are ACTIONS ON a task. `asks_create` / `asks_edit` are
+// a RECOMMENDATION ABOUT one: the payload names a task id and the principal
+// reads it as a work candidate. The same premise fails there — the session
+// never engaged the task's content — with a different remedy, so this leg
+// emits `additionalContext` and does not block.
+//
+// It is advisory rather than deny because the failure modes are asymmetric. An
+// unread reference costs a re-read; a denied `asks_create` can strand an
+// escalation, including a `severity: "incident"` one, which is the only
+// channel that reaches the principal's phone. A flip is operator-reserved per
+// ADR-032.
+//
+// Originating incident (2026-08-25): ask#10163's first revision led with
+// "Build the cheap-model triage pilot (mt#3473)", described as approved and
+// never built. mt#3473's own spec had recorded, since 2026-08-01, that the
+// pilot was measured and killed — 8 of 16 "trivial" pushes carried a real
+// BLOCKING finding — and its last line reads "do not implement the
+// Summary/Success Criteria above as written". The filing conversation
+// (`cbafdfe3-…`) made 20 spec-surfacing reads across 14 distinct task ids;
+// mt#3473 was not among them. A status field says where a task sits in the
+// lifecycle. Only its body says whether it is still worth doing.
+//
+// Why the READ and not the verdict: reading the verdict back out of spec prose
+// was measured at planning and rejected. A fixed phrase set (`do not
+// implement`, `do not build`, `CLOSED as falsified`, …), fences and code spans
+// elided, fires on 94 of 897 active tasks with roughly one true positive — it
+// cannot separate a verdict on the whole task from a live directive inside one
+// ("Out of scope … do not implement"), and 32 of the 94 sit on a line naming a
+// DIFFERENT task. That is ADR-024's paraphrase axis, and mt#4168's "key on the
+// TOOL CALL, never on a phrase set" is the correction this leg applies. The
+// read is machine-recorded, so this leg has no matcher to tune. The residual —
+// an agent that reads a falsified spec and recommends it anyway — is mt#4561.
+//
 // Originating incident: mt#2191 session 935e6a4c (2026-05-31). A Slidev-deck
 // publishing session bound itself to the unrelated naming task mt#2191,
 // advanced it TODO -> PLANNING -> READY, and shipped the deck under it — without
@@ -70,6 +105,15 @@ import {
   type TranscriptLine,
 } from "./transcript";
 import { recordFireLogEntry } from "./fire-log";
+import { splitPipeline, splitTopLevel } from "./command-shape";
+import {
+  firstPositional,
+  hasAnyFlag,
+  minskyArgvOf,
+  readManifest,
+  resolveCommandNode,
+  type ManifestNode,
+} from "./detect-cli-mcp-substitution";
 
 /** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
 const GUARD_NAME = "check-task-spec-read";
@@ -111,6 +155,14 @@ export const STATUS_SET_TOOL = "mcp__minsky__tasks_status_set";
 export const SESSION_START_TOOL = "mcp__minsky__session_start";
 /** One-call dispatch (mt#2657) — guarded only in existing-task mode (a `taskId` is present). */
 export const DISPATCH_TOOL = "mcp__minsky__tasks_dispatch";
+
+/**
+ * Advisory-only surfaces (mt#4551): an ask RECOMMENDS a task rather than acting
+ * on one, so an unread reference here warns and never denies. See the header
+ * for why the asymmetry runs this way.
+ */
+export const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
+export const ASKS_EDIT_TOOL = "mcp__minsky__asks_edit";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for testing)
@@ -164,6 +216,151 @@ export function specWasSurfaced(lines: TranscriptLine[], targetId: string): bool
   for (const input of findToolUseInputs(lines, TASKS_GET_TOOL)) {
     if (input["includeSpec"] === true && normalizeTaskId(input["taskId"]) === targetId) {
       return true;
+    }
+  }
+  // The CLI spelling of the same two reads (mt#4380), checked last so the MCP path stays free.
+  return cliEngagementInTranscript(lines, targetId, "read");
+}
+
+// ---------------------------------------------------------------------------
+// The CLI evidence channel (mt#4380)
+// ---------------------------------------------------------------------------
+//
+// Minsky exposes the same commands through two surfaces, and every predicate above names MCP tools
+// only — so a session that read and amended a spec through `minsky tasks spec get` / `minsky tasks
+// edit --spec-file` looked identical to one that never opened the task, and was DENIED at
+// `session_start`. That is the class mt#4536 calls "blocks WRONGLY", and this guard was its sole
+// confirmed member: it is the only CLI-blind guard whose discharge evidence comes from prior
+// tool-call records rather than from the call being guarded.
+//
+// The fix is on the EVIDENCE side, not the enforcement side. This guard already FIRES correctly —
+// it runs on `session_start`, sees the call, and reaches its decision. Widening its
+// `.claude/settings.json` matcher onto `Bash` (mt#4536's prescription for the REGISTRATION-blind
+// guards, which never run at all for a CLI call) would be the wrong repair here and an expensive
+// one: this module reads the transcript to decide, so it would pay a full transcript parse on every
+// bash call in the session. Nothing about the matcher changes.
+//
+// Commands are resolved through `src/generated/completion-manifest.json`'s `commandId` stamp
+// (mt#4144), the same oracle `cli-mcp-substitution` uses — never a hand-rolled command-string
+// pattern. The manifest is generated from the shared command registry, so the accepted spellings
+// and their flags cannot drift from the CLI. Reading the shared registry in-process was rejected by
+// mt#4144's audit — it would force the hook domain-bootstrap (config init plus a DB-capable
+// provider resolve) on every call. Reading the generated JSON keeps this module off the domain
+// layer entirely; do NOT reintroduce that identifier here, even in prose, because
+// hook-module-inventory.test.ts classifies a module as persistence-reaching by a bare substring
+// match on the file text and would file this guard under ADR-026 tier 1 on the strength of a
+// comment. It is a committed build artifact, NOT a sweeper-written cache — the
+// Thin-hooks RFC (Accepted 2026-08-11) is retiring those four pipelines and this must not add a
+// fifth.
+//
+// Not governed by ADR-024's ladder: its rungs scope to matching trigger PHRASES in the agent's own
+// prose, and a parsed command string resolved against a generated oracle has no paraphrase axis.
+// Same boundary `detect-cli-mcp-substitution.ts` records for itself, which mt#4595 is writing into
+// ADR-024 directly.
+
+/** Tools whose input carries a shell command string — both surfaces reach the CLI. */
+const COMMAND_TOOL_NAMES = ["Bash", "mcp__minsky__session_exec"] as const;
+
+/**
+ * CLI command ids that surface a spec body, mapped to the flags REQUIRED for them to do so (null =
+ * the command always surfaces it). `tasks.get` mirrors the MCP side's `includeSpec: true` gate: a
+ * bare `minsky tasks get <id>` prints metadata and is not a spec read, exactly as a `tasks_get`
+ * without `includeSpec` is not.
+ */
+const CLI_SPEC_READ_COMMANDS = new Map<string, readonly string[] | null>([
+  ["tasks.spec.get", null],
+  ["tasks.get", ["--include-spec"]],
+]);
+
+/**
+ * `tasks edit`'s spec-writing flags — the CLI spelling of the `specContent` / `spec` / `specFile`
+ * set `edit-commands.ts` treats as `hasSpecOperation`. `--spec` is boolean (it opens the spec for
+ * an interactive edit); the other two take a value. A metadata-only edit (`--kind`, `--title`,
+ * `--tag`) carries none of these and is NOT authorship, mirroring {@link editHasSpecContent}.
+ */
+const CLI_SPEC_EDIT_COMMAND = "tasks.edit";
+const CLI_SPEC_WRITE_FLAGS = ["--spec", "--spec-file", "--spec-content"] as const;
+
+/**
+ * Lazily-read manifest, memoised for the process. `readManifest` returns null on ANY failure, and
+ * that null is cached deliberately: a guard invocation is short-lived, and re-reading a missing or
+ * unparseable file once per candidate transcript buys nothing. A null degrades this channel to
+ * silence — the guard falls back to exactly its pre-mt#4380 MCP-only evidence, which preserves the
+ * fail-safe direction (it can under-credit, never over-credit).
+ */
+let cachedManifest: ManifestNode | null | undefined;
+function manifestOnce(): ManifestNode | null {
+  if (cachedManifest === undefined) cachedManifest = readManifest();
+  return cachedManifest;
+}
+
+/** A spec engagement recovered from one shell command string, with its task id normalised. */
+export interface CliSpecEngagement {
+  kind: "read" | "authored";
+  taskId: string;
+}
+
+/**
+ * Every spec read or spec authorship a shell command string carries, across `&&`/`;` segments and
+ * pipeline stages. Pure: takes the manifest rather than reading it, so both directions are
+ * testable — that a CLI read of the TARGET is credited, and that a CLI read of a DIFFERENT task is
+ * not (mem#812: a widened relation's inverse is where the old behaviour survives).
+ *
+ * A command with no recoverable task id yields nothing. That is the safe direction — the guard
+ * denies, exactly as it does today, rather than crediting an engagement with a task nobody named.
+ */
+export function cliSpecEngagements(command: string, manifest: ManifestNode): CliSpecEngagement[] {
+  const engagements: CliSpecEngagement[] = [];
+
+  for (const segment of splitTopLevel(command)) {
+    for (const stage of splitPipeline(segment)) {
+      const argv = minskyArgvOf(stage);
+      if (!argv) continue;
+
+      const { node, rest } = resolveCommandNode(manifest, argv);
+      const commandId = node.commandId;
+      if (!commandId) continue;
+
+      const taskId = normalizeTaskId(firstPositional(node, rest));
+      if (!taskId) continue;
+
+      if (CLI_SPEC_READ_COMMANDS.has(commandId)) {
+        const required = CLI_SPEC_READ_COMMANDS.get(commandId) ?? null;
+        if (required === null || hasAnyFlag(rest, required)) {
+          engagements.push({ kind: "read", taskId });
+        }
+        continue;
+      }
+
+      if (commandId === CLI_SPEC_EDIT_COMMAND && hasAnyFlag(rest, CLI_SPEC_WRITE_FLAGS)) {
+        engagements.push({ kind: "authored", taskId });
+      }
+    }
+  }
+
+  return engagements;
+}
+
+/**
+ * True iff the transcript carries a CLI invocation of the given `kind` for `targetId`. Scanned only
+ * after the MCP predicates miss, so the common case never touches the manifest or the disk.
+ */
+function cliEngagementInTranscript(
+  lines: TranscriptLine[],
+  targetId: string,
+  kind: CliSpecEngagement["kind"]
+): boolean {
+  if (!targetId) return false;
+  const manifest = manifestOnce();
+  if (!manifest) return false;
+
+  for (const toolName of COMMAND_TOOL_NAMES) {
+    for (const input of findToolUseInputs(lines, toolName)) {
+      const command = input["command"];
+      if (typeof command !== "string" || command.trim() === "") continue;
+      for (const engagement of cliSpecEngagements(command, manifest)) {
+        if (engagement.kind === kind && engagement.taskId === targetId) return true;
+      }
     }
   }
   return false;
@@ -247,7 +444,11 @@ export function specWasAuthored(lines: TranscriptLine[], targetId: string): bool
     return true;
   }
 
-  return false;
+  // `minsky tasks edit <id> --spec-file|--spec-content|--spec` (mt#4380), checked last for the
+  // same reason as the read path. `tasks create` is deliberately NOT credited here: the MCP credit
+  // correlates the minted id out of the tool RESULT, and recovering it from CLI stdout is a
+  // different mechanism from the manifest resolver — named as a residual in the spec, not solved.
+  return cliEngagementInTranscript(lines, targetId, "authored");
 }
 
 /**
@@ -272,6 +473,174 @@ export function specWasSurfacedInAnyTranscript(
     if (specWasSurfaced(lines, targetId) || specWasAuthored(lines, targetId)) return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// The ask seam (mt#4551) — advisory only
+// ---------------------------------------------------------------------------
+
+/**
+ * Task references in an ask payload, in the two id namespaces the task backends
+ * mint (`mt#` / `md#`) and the alternate spellings {@link normalizeTaskId}
+ * already collapses.
+ *
+ * Two branches, because they carry different ambiguity:
+ *
+ * - **Separated** (`mt#3473`, `mt-3473`, `mt_3473`) — the delimiter makes it
+ *   unambiguous, so any digit count matches. The hyphen form is how a branch
+ *   name spells it (`task/mt-3473`) and shows up in asks that quote one.
+ * - **Bare** (`mt3473`) — needs a **three-digit floor**, and that floor is
+ *   measured rather than chosen. Over the 10,201 asks in the corpus there are
+ *   323 bare-form matches: 308 are `mt` + 4 digits, 10 are `mt` + 3, 1 is `md` +
+ *   3, and **all 4 of the `md` + 1-digit matches are literally `md5` / `MD5`** —
+ *   the hash algorithm, a pure false positive. Real task ids run 1 to 4 digits
+ *   with exactly ONE task at or below 2, so the floor drops the entire observed
+ *   false-positive class and costs coverage of a single task's bare spelling.
+ *
+ * PR #3327 R1 (BLOCKING) caught the original `#`-only pattern. Its magnitude
+ * claim — "many real asks will silently bypass the advisory" — measured at **9
+ * of 7,938 asks (0.11%)** missed ENTIRELY, because an alternate spelling nearly
+ * always co-occurs with a `#` form in the same payload. The finding is real
+ * anyway on the PARTIAL-miss axis it did not name: 77 asks carry a hyphen form
+ * and 177 a bare form, and in those the un-matched id may be the unread one.
+ *
+ * Deliberately NOT fence- or code-span-aware, unlike the guidance detectors: a
+ * backticked `mt#3473` in an ask is a real reference to a real task, not a
+ * quotation of one. There is no paraphrase axis here to elide around — an id
+ * either appears or it does not.
+ */
+const TASK_REF_RE = /\b(?:mt|md)(?:[#\-_]\d+|\d{3,})\b/gi;
+
+/**
+ * Ceiling on distinct references extracted from one ask.
+ *
+ * Bounds the transcript work, which is what makes this leg cheap: the scan
+ * below parses each candidate transcript ONCE and tests every pending id
+ * against it, so the cost is O(transcripts), not O(transcripts x ids). The cap
+ * is a backstop against a pathological payload rather than a tuning knob — the
+ * largest real ask in the corpus carries six.
+ */
+export const MAX_ASK_TASK_REFS = 20;
+
+/**
+ * Every distinct task id an ask payload names, in first-seen order, in the raw
+ * spelling it was written with (so the advisory quotes the operator's own text
+ * back).
+ *
+ * Reads exactly three places, per this task's Success Criterion 1: the
+ * `question`, each option's `label` and `description`, and each `contextRefs`
+ * entry's `ref`. `parentTaskId` is deliberately NOT read — it names the task an
+ * ask was filed FROM, which the filing session has almost always just been
+ * working, so including it would fire on the ordinary case rather than the
+ * recommending one.
+ *
+ * A `contextRefs` entry may be a bare string or an object; both are handled,
+ * and an entry's `kind` is not consulted — an id that matches the pattern is a
+ * task reference whatever the entry claims to be.
+ */
+export function extractAskTaskIds(toolInput: Record<string, unknown>): string[] {
+  /** normalised id -> the raw spelling first seen for it. */
+  const seen = new Map<string, string>();
+
+  const harvest = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    for (const match of value.matchAll(TASK_REF_RE)) {
+      const raw = match[0];
+      const normalized = normalizeTaskId(raw);
+      if (!normalized || seen.has(normalized)) continue;
+      if (seen.size >= MAX_ASK_TASK_REFS) return;
+      seen.set(normalized, raw);
+    }
+  };
+
+  harvest(toolInput["question"]);
+
+  const options = toolInput["options"];
+  if (Array.isArray(options)) {
+    for (const option of options) {
+      if (option === null || typeof option !== "object") continue;
+      const record = option as Record<string, unknown>;
+      harvest(record["label"]);
+      harvest(record["description"]);
+    }
+  }
+
+  const contextRefs = toolInput["contextRefs"];
+  if (Array.isArray(contextRefs)) {
+    for (const entry of contextRefs) {
+      if (typeof entry === "string") {
+        harvest(entry);
+        continue;
+      }
+      if (entry === null || typeof entry !== "object") continue;
+      harvest((entry as Record<string, unknown>)["ref"]);
+    }
+  }
+
+  return [...seen.values()];
+}
+
+/**
+ * The subset of `rawIds` whose specs were neither READ nor AUTHORED anywhere in
+ * the session's conversation tree — returned in the raw spelling the ask used.
+ *
+ * Structured as one pass over the transcripts rather than one call to
+ * {@link specWasSurfacedInAnyTranscript} per id: that helper re-parses every
+ * candidate file for each id it is asked about, which for a six-reference ask
+ * would be six full parses of the same transcript. Here each candidate is
+ * parsed once and every still-pending id is tested against it, and the loop
+ * stops early once nothing is pending.
+ */
+export function unreadAskTaskIds(
+  transcriptPath: string,
+  agentId: string | undefined,
+  rawIds: readonly string[]
+): string[] {
+  /** normalised id -> raw spelling, drained as each id is credited. */
+  const pending = new Map<string, string>();
+  for (const raw of rawIds) {
+    const normalized = normalizeTaskId(raw);
+    if (normalized) pending.set(normalized, raw);
+  }
+  if (pending.size === 0) return [];
+
+  for (const candidate of resolveTranscriptCandidates(transcriptPath, agentId)) {
+    if (pending.size === 0) break;
+    const lines = parseTranscript(candidate);
+    for (const normalized of [...pending.keys()]) {
+      if (specWasSurfaced(lines, normalized) || specWasAuthored(lines, normalized)) {
+        pending.delete(normalized);
+      }
+    }
+  }
+
+  return [...pending.values()];
+}
+
+/**
+ * Build the advisory for an ask naming task ids this session never opened.
+ *
+ * Emitted as `additionalContext` with NO `permissionDecision`, so the call
+ * proceeds — see the header for why this leg does not deny.
+ */
+export function buildAskAdvisoryReason(toolName: string, unreadIds: readonly string[]): string {
+  const action =
+    toolName === ASKS_EDIT_TOOL ? "editing an ask that names" : "filing an ask that names";
+  const one = unreadIds.length === 1;
+  return [
+    `[check-task-spec-read] ADVISORY — you are ${action} ${unreadIds.join(", ")}, but this`,
+    `session has never read or authored ${one ? "that task's spec" : "those tasks' specs"}.`,
+    "",
+    `An ask is a RECOMMENDATION the principal acts on. A task's STATUS says where it sits in the`,
+    `lifecycle; only its BODY says whether it is still worth doing — a spec can carry a measured`,
+    `falsification while the status still reads as available (mt#3473 / ask#10163, where a killed`,
+    `pilot led a principal-facing ask as its top option).`,
+    "",
+    `Call mcp__minsky__tasks_spec_get on ${one ? "it" : "each"} before the principal acts on this ask.`,
+    `If the body contradicts the recommendation, revise the ask rather than filing it as written.`,
+    "",
+    `Advisory only — this call is NOT blocked. Override: ${OVERRIDE_ENV_VAR}=1.`,
+  ].join("\n");
 }
 
 /** Build the denial-reason message naming the action, the task, and the fix. */
@@ -367,6 +736,37 @@ async function main(): Promise<void> {
 
     const toolName = input.tool_name;
     const toolInput = input.tool_input ?? {};
+
+    // The ask seam (mt#4551). Returns from inside this block on every path —
+    // an ask is never a bind/advance action, so it must not fall through to
+    // the deny logic below.
+    if (toolName === ASKS_CREATE_TOOL || toolName === ASKS_EDIT_TOOL) {
+      const askIds = extractAskTaskIds(toolInput);
+      // An ask naming no task does no transcript work at all.
+      if (askIds.length === 0) return recordAndExit("allow");
+
+      const askTranscriptPath = input.transcript_path;
+      // Same fail-open as the deny path: nothing to scan, nothing to claim.
+      if (!askTranscriptPath) return recordAndExit("allow");
+
+      const unread = unreadAskTaskIds(askTranscriptPath, input.agent_id, askIds);
+      if (unread.length === 0) return recordAndExit("allow", "decided");
+
+      // `additionalContext` with NO `permissionDecision` — the advisory shape
+      // (`check-branch-fresh.ts` emits its warnings the same way). Written with
+      // `process.stdout.write` rather than `writeOutput` to match this file's
+      // own existing output call; the two differ only in `emitHookFiredOnDeny`,
+      // which is a no-op for a non-deny payload.
+      const advisory: HookOutput = {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: buildAskAdvisoryReason(toolName, unread),
+        },
+      };
+      process.stdout.write(`${JSON.stringify(advisory)}\n`);
+      return recordAndExit("allow", "decided");
+    }
+
     const targetId = resolveTargetTaskId(toolName, toolInput);
     // not guarded / non-READY transition / no resolvable id
     if (!targetId) return recordAndExit("allow");

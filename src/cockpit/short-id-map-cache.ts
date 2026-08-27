@@ -33,6 +33,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
+import { describeQueryFailure, describeSourceFailure } from "./source-failure-log";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -132,7 +133,7 @@ export async function buildShortIdEntries(sql: UnsafeSql): Promise<ShortIdEntrie
     } catch (err) {
       log.warn("short-id-map-cache: family query failed", {
         table: source.table,
-        message: err instanceof Error ? err.message : String(err),
+        message: describeQueryFailure(err),
       });
     }
   }
@@ -158,7 +159,7 @@ export function writeShortIdMapCache(
     return true;
   } catch (err) {
     log.warn("short-id-map-cache: failed to write cache", {
-      message: err instanceof Error ? err.message : String(err),
+      message: describeSourceFailure(err),
     });
     return false;
   }

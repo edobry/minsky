@@ -35,6 +35,7 @@ import {
   escalateAsk,
   AskNotFoundError,
   type AskItem,
+  type AskActionInFlight,
   type AsksListResponse,
   composeResolvePayload,
 } from "../widgets/AskDetail";
@@ -43,7 +44,6 @@ import { TerminalAskNotice } from "../components/TerminalAskNotice";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { CopyId } from "../components/CopyId";
-import { useState } from "react";
 import { useTabs } from "../lib/tabs";
 import { EntityThreadPanel } from "../widgets/EntityThreadPanel";
 import {
@@ -58,7 +58,6 @@ export function AskPage() {
   const { pathname } = useLocation();
   const { closeTab } = useTabs();
   const queryClient = useQueryClient();
-  const [resolving, setResolving] = useState(false);
 
   const query = useQuery<AskItem, Error>({
     queryKey: ["asks", askId],
@@ -73,9 +72,19 @@ export function AskPage() {
   const notFound = query.isError && query.error instanceof AskNotFoundError;
   const terminal = ask !== null && isTerminal(ask.state);
 
-  /** Consumable-entity settle: close this ask's tab, landing on /asks. */
+  /**
+   * Consumable-entity settle: close this ask's tab, landing on /asks.
+   *
+   * Registered on `onSuccess`, NOT `onSettled` (mt#4503). `onSettled` is
+   * documented by TanStack Query as running on both outcomes — "Error or
+   * success... doesn't matter!" — so registering the settle there closed the tab
+   * and navigated away on a FAILED resolve exactly as it did on a successful
+   * one. The ask stayed `suspended` server-side and reappeared in the inbox with
+   * no explanation, which reads to an operator as their answer silently not
+   * taking. Every non-2xx `/api/asks/:id/resolve` documents — 403, 404, 409, 500,
+   * 503 — reached that path.
+   */
   function settle() {
-    setResolving(false);
     void queryClient.invalidateQueries({ queryKey: ["asks"] });
     void queryClient.invalidateQueries({ queryKey: ["attention"] });
     closeTab(pathname, { navigateTo: "/asks" });
@@ -99,21 +108,56 @@ export function AskPage() {
       // AskDetail serves both the inline inbox actions and this detail page.
       await resolveAsk(target.id, composeResolvePayload(target, optionLetter, resolvedIn));
     },
-    onMutate: () => setResolving(true),
-    onSettled: settle,
+    onSuccess: settle,
   });
 
   const deferMutation = useMutation({
     mutationFn: (targetId: string) => deferAsk(targetId),
-    onMutate: () => setResolving(true),
-    onSettled: settle,
+    onSuccess: settle,
   });
 
   const escalateMutation = useMutation({
     mutationFn: (targetId: string) => escalateAsk(targetId),
-    onMutate: () => setResolving(true),
-    onSettled: settle,
+    onSuccess: settle,
   });
+
+  /**
+   * Which control is mid-request, derived from the mutations themselves
+   * (mt#4503).
+   *
+   * The page used to carry `const [resolving, setResolving] = useState(false)`
+   * driven by each mutation's `onMutate`. That hand-rolled flag is what TanStack
+   * Query's `isPending` already is — its guide's first example gates on
+   * `mutation.isPending` for exactly this — and rebuilding it cost more than the
+   * duplication: a boolean cannot name WHICH option is saving, and a page that
+   * never reads `isPending` is a page that never reads `isError` either, which
+   * is how the failure branch went unrendered for as long as it did. Reading
+   * both off the mutation makes the two states arrive together.
+   */
+  /**
+   * The resolve's variables, read ONCE and guarded (PR #3285 R1).
+   *
+   * `MutationObserverBaseResult.variables` is `TVariables | undefined`; the
+   * pending and error VARIANTS narrow it to `TVariables`, which is why the
+   * unguarded reads typechecked. The guard does not fix a reachable crash — it
+   * removes the dependency on that narrowing holding, since a discriminated
+   * union is a library-version detail and nothing here would fail loudly if a
+   * future version widened it. One read, one guard, used by both derivations
+   * below.
+   */
+  const resolveVars = resolveMutation.variables;
+
+  const acting: AskActionInFlight | null =
+    resolveMutation.isPending && resolveVars
+      ? { kind: "resolve", optionLetter: resolveVars.optionLetter }
+      : deferMutation.isPending
+        ? { kind: "defer" }
+        : escalateMutation.isPending
+          ? { kind: "escalate" }
+          : null;
+
+  const actionError =
+    resolveMutation.error ?? deferMutation.error ?? escalateMutation.error ?? null;
 
   return (
     <div className="p-4 max-w-3xl mx-auto w-full">
@@ -169,7 +213,8 @@ export function AskPage() {
           onResolve={(target, optionLetter) => resolveMutation.mutate({ target, optionLetter })}
           onDefer={(target) => deferMutation.mutate(target.id)}
           onEscalate={(target) => escalateMutation.mutate(target.id)}
-          resolving={resolving}
+          acting={acting}
+          actionError={actionError}
           onClose={() => navigate("/asks")}
         />
       ) : (
@@ -197,7 +242,16 @@ export function AskPage() {
                   <ResolveProposalCard
                     ask={ask}
                     proposal={proposal}
-                    disabled={resolving}
+                    disabled={acting !== null}
+                    // The card is the acting control only when the in-flight
+                    // resolve is the one IT started — `resolvedIn` is what tells
+                    // the two apart, and it is already on the mutation's own
+                    // variables, so nothing extra has to be tracked.
+                    confirming={
+                      resolveMutation.isPending &&
+                      resolveVars?.resolvedIn === RESOLVE_PROPOSAL_SURFACE
+                    }
+                    error={resolveMutation.error}
                     onConfirm={(optionLetter) =>
                       resolveMutation.mutate({
                         target: ask,

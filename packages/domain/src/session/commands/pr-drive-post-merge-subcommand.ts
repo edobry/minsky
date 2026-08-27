@@ -30,6 +30,8 @@ import {
   listServicesWithDeployConfig,
   resolveAdapter,
   resolveDeploymentConfig,
+  assessBuildIdentity,
+  type BuildIdentity,
   type DeploymentRecord,
 } from "../../deployment/index";
 
@@ -59,6 +61,19 @@ export interface SessionPrDrivePostMergeParams {
    * rather than silent.
    */
   mergedAt?: string;
+  /**
+   * The merge COMMIT this watch is verifying — `mergeInfo.commitHash` from the
+   * same `session.pr.merge` that supplied `mergedAt` (mt#4583).
+   *
+   * `mergedAt` bounds the deployment's TIME; this names its IDENTITY. They are
+   * different questions and the first does not answer the second: on a busy
+   * branch a NEIGHBOURING merge's deployment lands inside the window and
+   * satisfies the bound. Each per-service result therefore carries a
+   * `buildIdentity` verdict; `deployBoundApplied` reports only that the TIME
+   * bound was applied, which is exactly as reassuring — and exactly as
+   * uninformative about identity — as the SUCCESS it accompanies.
+   */
+  mergedCommitSha?: string;
 }
 
 export interface SessionPrDrivePostMergeDependencies {
@@ -84,8 +99,25 @@ export interface SessionPrDrivePostMergeDependencies {
 export interface SessionPrDrivePostMergeResult {
   /** Services actually watched (post detection/override). */
   watchedServices: string[];
-  /** Per-service terminal deployment record, in `watchedServices` order. */
-  results: Array<{ service: string; deployment: DeploymentRecord }>;
+  /**
+   * Per-service terminal deployment record, in `watchedServices` order.
+   *
+   * `buildIdentity` (mt#4583) answers whether THAT service's deployment carries
+   * the merge named by `mergedCommitSha` — a different question from
+   * `deployBoundApplied` below, which reports only that the TIME bound was
+   * applied. Per-service because services deploy independently: one can carry
+   * this merge while another still serves a neighbour's build, and a single
+   * aggregate verdict would hide that.
+   *
+   * `indeterminate` is NOT a pass. It is the expected verdict for an
+   * image-source service, whose deployment record carries no commit at all.
+   */
+  results: Array<{
+    service: string;
+    deployment: DeploymentRecord;
+    buildIdentity: BuildIdentity;
+    buildIdentityReason: string;
+  }>;
   /** True when there was nothing to watch (no deploy-surface changes / empty override). */
   skipped: boolean;
   skipReason?: string;
@@ -133,13 +165,45 @@ export async function sessionPrDrivePostMerge(
       services = [...new Set(params.services)].sort();
     } else {
       const { sessionDB } = deps;
-      const resolvedContext = await resolveSessionContextWithFeedback({
-        sessionId: params.sessionId,
-        task: params.task,
-        repo: params.repo,
-        sessionProvider: sessionDB,
-        allowAutoDetection: true,
-      });
+
+      // This mode runs AFTER a merge, and a successful merge CLEANS UP the
+      // session — so `--task` / `--session-id` routinely fails to resolve here
+      // for the most ordinary reason there is, and the bare "No session found
+      // for task ID" that surfaced gave no hint that (a) this is expected and
+      // (b) two working alternatives exist. Naming them is the whole fix: the
+      // caller is mid-verification and a dead end costs a re-derivation
+      // (mt#4425).
+      let resolvedContext;
+      try {
+        resolvedContext = await resolveSessionContextWithFeedback({
+          sessionId: params.sessionId,
+          task: params.task,
+          repo: params.repo,
+          sessionProvider: sessionDB,
+          allowAutoDetection: true,
+        });
+      } catch (err) {
+        // Only a genuine not-found gets the guidance treatment. Wrapping ANY
+        // failure would collapse error semantics: `resolveSessionContextWithFeedback`
+        // also throws ValidationError when a task matches MULTIPLE sessions, and
+        // backend I/O or auth failures surface as their own classes. Those need
+        // different handling — retry vs. disambiguate vs. tell the operator — and
+        // relabelling them all "not found" would send callers and observability
+        // to the wrong cause (PR #3394 R1 BLOCKING).
+        if (!(err instanceof ResourceNotFoundError)) throw err;
+
+        const target = params.task ?? params.sessionId ?? "(auto-detect)";
+        throw new ResourceNotFoundError(
+          `Could not resolve a session for ${target} to auto-detect deploy services.\n\n` +
+            `If the merge already succeeded this is EXPECTED — merging cleans the session up, ` +
+            `so post-merge mode cannot reach it by task or session id afterwards.\n\n` +
+            `Two ways forward:\n` +
+            `  - Pass an explicit \`services\` list to skip session-based auto-detection.\n` +
+            `  - Verify the deploy directly, which needs no session at all:\n` +
+            `      bun scripts/verify-deploy.ts <service> --merged-at <iso> --commit <merge-sha>\n\n` +
+            `Underlying resolution error: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
 
       const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
       if (!sessionRecord) {
@@ -191,14 +255,28 @@ export async function sessionPrDrivePostMerge(
       };
     }
 
-    const results: Array<{ service: string; deployment: DeploymentRecord }> = [];
+    const results: Array<{
+      service: string;
+      deployment: DeploymentRecord;
+      buildIdentity: BuildIdentity;
+      buildIdentityReason: string;
+    }> = [];
     for (const service of services) {
       const deployment = await waitForDeployment(service, {
         timeoutSeconds: params.deployTimeoutSeconds,
         pollIntervalSeconds: params.deployIntervalSeconds,
         notBefore: params.mergedAt,
       });
-      results.push({ service, deployment });
+      // mt#4583: per-service, because services deploy independently — one can
+      // carry this merge while another is still serving a neighbour's build,
+      // and a single aggregate verdict would hide that.
+      const identity = assessBuildIdentity(deployment, params.mergedCommitSha);
+      results.push({
+        service,
+        deployment,
+        buildIdentity: identity.identity,
+        buildIdentityReason: identity.reason,
+      });
     }
 
     return {

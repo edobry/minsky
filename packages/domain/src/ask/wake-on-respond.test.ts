@@ -446,6 +446,9 @@ describe("PersistentWakeSignalSink", () => {
       async drainBySession(): Promise<WakeSignalPayload[]> {
         return [];
       },
+      async drainByAgent(): Promise<WakeSignalPayload[]> {
+        return [];
+      },
     };
     const sink = new PersistentWakeSignalSink(failingRepo);
     const payload: WakeSignalPayload = {

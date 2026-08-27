@@ -26,6 +26,14 @@ import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resourc
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
+import {
+  createReadinessProbe,
+  type ReadinessProbe,
+  type ReadinessResult,
+} from "@minsky/domain/persistence/readiness-probe";
+import { buildMcpHealthResponse } from "../../mcp/health-payload";
+import { resolveDeeplinkBridge } from "../../mcp/deeplink-bridge";
+import { getPgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
@@ -42,8 +50,8 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { hasLocalGitCapability } from "@minsky/domain/utils/git-exec";
-import { isHostedMcpServer } from "../../cli-discriminators";
-import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
+import { isHostedMcpServer, resolveMcpTransport } from "../../cli-discriminators";
+import { MCPConnectionTracker } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { EventEmitterWithTryEmit } from "@minsky/domain/events/emitter";
@@ -613,7 +621,91 @@ async function startHttpServer(
   // connection string WAS configured but initialization failed — a genuine
   // outage): only the latter flips this endpoint to 503. See
   // packages/domain/src/persistence/health.ts for the full rationale.
-  app.get("/health", (_req, res) => {
+  // mt#4471: bound on the readiness round trip, DERIVED from the ceiling it has
+  // to fit inside rather than picked as a round number
+  // (`decision-defaults.mdc §Thresholds`, CEILING case).
+  //
+  // The binding constraint is the tray supervisor's own HTTP request timeout:
+  // `cockpit-tray/src-tauri/src/supervisor.rs:1244` sets `.timeout(2s)` on the
+  // health request, inside a `POLL_INTERVAL` of 5s
+  // (`supervisor/daemon_core.rs:51`). A probe slower than that budget makes the
+  // whole request time out, and a timed-out request reads as "daemon DOWN"
+  // rather than "daemon not ready" — two states with opposite recoveries. So
+  // this must sit BELOW 2s with room for the rest of the response, not merely
+  // below the poll interval.
+  //
+  // A healthy `select 1` is single-digit milliseconds, so 1500ms is ~2 orders
+  // of magnitude of headroom over normal and still leaves 500ms of the tray's
+  // budget. If that Rust timeout ever changes, this must change with it.
+  const HEALTH_READINESS_PROBE_TIMEOUT_MS = 1_500;
+
+  // mt#4471: one probe per process, created lazily on the first `/health` that
+  // finds a connected provider. Deduplication lives inside the probe; this
+  // memo just avoids rebuilding the closure per request.
+  let readinessProbe: ReadinessProbe | undefined;
+
+  /**
+   * Build the probe bound to a specific provider. Extracted so startup can warm
+   * it (below) with the same closure the route uses — a second closure would
+   * open a second connection and defeat the point.
+   */
+  const ensureReadinessProbe = (provider: PersistenceProvider): ReadinessProbe => {
+    readinessProbe ??= createReadinessProbe({
+      timeoutMs: HEALTH_READINESS_PROBE_TIMEOUT_MS,
+      runProbeQuery: async () => {
+        // The TAGGED-TEMPLATE path, deliberately — not `.unsafe()`. mt#2773's
+        // guard wraps `.unsafe()` with its own FIFO, so a probe sent through it
+        // would report on that queue rather than on the pool. Since mt#4473
+        // that queue also carries drizzle, which makes the distinction sharper
+        // rather than weaker: a probe behind the admission gate would be
+        // REFUSED after the admission deadline during exactly the condition it
+        // exists to measure, reporting our own backpressure instead of the
+        // pool's state. This acquires a real pool connection exactly as an
+        // ordinary query does, which is what makes it end-to-end.
+        const raw = await (
+          provider as PersistenceProvider & {
+            getRawSqlConnection?: () => Promise<unknown>;
+          }
+        ).getRawSqlConnection?.();
+        if (!raw) {
+          throw new Error("provider reports SQL capability but exposes no raw connection");
+        }
+        const sql = raw as (strings: TemplateStringsArray) => Promise<unknown>;
+        await sql`select 1`;
+      },
+    });
+    return readinessProbe;
+  };
+
+  // mt#4471: WARM the pool at startup, because postgres.js connects lazily and
+  // the first query pays TCP + TLS + auth.
+  //
+  // Found by live verification, not by the unit tests, which all passed: a
+  // freshly booted daemon's FIRST `/health` measured 1.505s and reported
+  // `ready: false` with the saturation reason, while calls 2-4 returned
+  // `ready: true` in ~90ms. That is a false negative — the daemon was healthy
+  // and merely cold — and it is exactly the reading that would make a
+  // health-driven supervisor (mt#4472) restart a working process.
+  //
+  // Fire-and-forget: the result is discarded because it is not a verdict about
+  // anything yet, and a rejection cannot escape (the probe never rejects). Its
+  // only job is to have paid the handshake before anything polls.
+  //
+  // RESIDUAL, stated rather than implied: `max_lifetime` (30-60 min) recycles
+  // connections, so a later probe can still land on a fresh connect and blip
+  // not-ready. That is why mt#4472 requires a PERSISTENCE threshold rather than
+  // acting on a single poll — one blip that clears on the next poll is expected
+  // behaviour here, not a degraded daemon.
+  {
+    const bootProvider = container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined;
+    if (bootProvider && assessPersistenceHealth(bootProvider).mode === "connected") {
+      void ensureReadinessProbe(bootProvider).check();
+    }
+  }
+
+  app.get("/health", async (_req, res) => {
     // `container.get()` is synchronous by design: `AppServices["persistence"]`
     // is typed as a plain `BasePersistenceProvider`, not a Promise. All async
     // factory resolution already happened inside `container.initialize()`
@@ -627,41 +719,53 @@ async function startHttpServer(
       ? (container.get("persistence") as PersistenceProvider)
       : undefined;
     const persistenceHealth = assessPersistenceHealth(persistence);
-    res.status(persistenceHealth.healthy ? 200 : 503).json({
-      status: persistenceHealth.healthy ? "ok" : "unhealthy",
-      // mt#3148: `service` is the uniform, assertable identity key every
-      // Minsky service emits. `server` is retained UNCHANGED alongside it —
-      // mt#3142's own diagnosis read `server` to identify the wrong app on the
-      // reviewer host, and mem#704's probe recipe still cites it. Renaming
-      // would break the diagnostic path this field exists to strengthen.
-      service: "minsky-mcp",
-      server: "Minsky MCP Server",
-      transport: "http",
-      timestamp: new Date().toISOString(),
-      persistence: {
-        mode: persistenceHealth.mode,
-        ...(persistenceHealth.reason ? { reason: persistenceHealth.reason } : {}),
-      },
-      // mt#4297: LIVENESS and READINESS are different questions, and this
-      // endpoint answered only the first. `status`/the status code say "the
-      // process booted"; `ready` says "it can serve DB-backed work".
-      //
-      // They diverge precisely in the `unconfigured` case, which is reported as
-      // healthy ON PURPOSE — it is the expected local/dev/offline boot and the
-      // bundle-boot-smoke CI gate's exact state, and that gate asserts a 200 and
-      // never reads this body. So the status code must NOT change. What was
-      // missing was any field a CUTOVER check could read: a shared daemon with
-      // no persistence provider served 200 for 31 hours while every DB-backed
-      // call failed, and `minsky setup local-http` would have pointed every
-      // conversation at it, because "a Minsky daemon answered" was the whole
-      // test (`classifyDaemonProbe`).
-      //
-      // Deliberately derived from `mode` alone rather than from the process's
-      // own mode flags: a reader asking "can this serve me?" should not have to
-      // know how the process was launched, and a future transport gets the
-      // right answer here without touching this line.
-      ready: persistenceHealth.mode === "connected",
-    });
+    // mt#4322: the body is built by `buildMcpHealthResponse` so the golden
+    // contract in `contract/mcp-health-shape.json` can assert the SAME code
+    // this route runs, rather than a copy of it. The per-field rationale moved
+    // there with it — including why `unconfigured` stays a 200 while `ready` is
+    // false, which is the invariant `bundle-boot-smoke` depends on.
+    // mt#4471: `mode === "connected"` only says a SQL-capable provider object
+    // exists. Round-trip it, so a pool that has stopped serving reports
+    // not-ready instead of the `ready: true` this endpoint answered twice
+    // during the 2026-08-23 outage.
+    //
+    // Skipped when there is nothing to round-trip against: `unconfigured` is
+    // the offline/dev boot (already `ready: false` without a probe, and the
+    // state `bundle-boot-smoke` asserts a 200 against), and `unavailable` is
+    // already reporting the outage on its own evidence.
+    let readiness: ReadinessResult | undefined;
+    if (persistence && persistenceHealth.mode === "connected") {
+      readiness = await ensureReadinessProbe(persistence).check();
+    }
+    // mt#4562: the route is the imperative shell — it reads the module-level
+    // retry counters and hands them to the pure builder, which only renders.
+    const health = buildMcpHealthResponse(
+      persistenceHealth,
+      new Date().toISOString(),
+      readiness,
+      getPgRetryCounters()
+    );
+    res.status(health.statusCode).json(health.body);
+  });
+
+  // mt#4604: https → minsky:// deeplink bridge. Public like /health — the whole
+  // point is that a link pasted into Notion/GitHub/Slack works for a reader who
+  // holds no bearer token. Posture this route must keep (PR #3362 R1): no auth,
+  // no per-request or per-user state in the body (only the entity URI and the
+  // id-derived label), no host self-reference, and Cache-Control: no-store on
+  // every response so an intermediary never caches whatever a future edit
+  // emits. Express percent-decodes params, so an id containing an encoded `/`
+  // (%2F) would be split by the router and truncate req.params.id — fine for
+  // every current id shape (task short ids, uuids, PR numbers, guard names),
+  // none of which may contain `/`; revisit with a wildcard param if one ever
+  // can.
+  app.get("/r/:type/:id", (req, res) => {
+    const result = resolveDeeplinkBridge(req.params.type, req.params.id);
+    res
+      .status(result.status)
+      .type(result.contentType)
+      .set("Cache-Control", result.cacheControl)
+      .send(result.body);
   });
 
   // OAuth discovery + Dynamic Client Registration (mt#1634c).
@@ -1393,8 +1497,19 @@ export function createStartCommand(
           process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS = defaults.sessionIdleTimeoutMs;
         }
 
-        // Determine transport type from --http flag
-        const transportType = options.http ? "http" : "stdio";
+        // mt#4322: ask the single source rather than re-deriving from flags.
+        // Note this is deliberately still read AFTER the mode branch above:
+        // `resolveMcpTransport` treats `localDaemon` as implying http itself,
+        // so it returns the same answer either side of that `options.http`
+        // assignment — which is precisely the property that lets the preAction
+        // hook and this body agree without depending on which ran first.
+        //
+        // PR #3238 R1: resolved ONCE for this whole action body and reused
+        // below (the stdin-cleanup branch, the error log). Re-calling it per
+        // site would be cheap and correct today, but re-opens in miniature the
+        // very thing this task closes — N derivations that a later edit
+        // mutating `options` in between could drift apart.
+        const transportType = resolveMcpTransport(options).transport;
 
         // Validate HTTP configuration if using HTTP transport
         if (transportType === "http") {
@@ -1432,16 +1547,25 @@ export function createStartCommand(
 
         const projectContext = resolveProjectContext(options.repo);
 
-        // mt#1457: build the MCP-backed capability registry and wire it both
-        // into the container (for asks.create / router consumers) and into
-        // the MinskyMCPServer (for register/unregister of Server instances).
-        // The CLI composition root (`createCliContainer`) registers a no-op
-        // by default; this override replaces it for MCP-server execution so
-        // routing decisions reflect actual host capabilities.
-        const clientCapabilityRegistry = new MCPClientCapabilityRegistry();
-        if (container) {
-          container.set("clientCapabilityRegistry", clientCapabilityRegistry);
-        }
+        // mt#1457, rescoped by mt#4451: build the connection tracker and hand
+        // it to MinskyMCPServer for register/unregister of Server instances.
+        //
+        // It is deliberately NOT set into the container under
+        // `clientCapabilityRegistry` any more. That override existed so
+        // "routing decisions reflect actual host capabilities", and it did —
+        // but it reflected the capabilities of the WHOLE FLEET. Under ADR-038's
+        // shared daemon every conversation registers into this one process, so
+        // a single elicitation-capable client made `hasElicitation()` true for
+        // asks filed by every other connection, and the dispatch then targeted
+        // whichever `Server` the `Set` yielded first rather than the caller's.
+        //
+        // Host capabilities now reach the router per REQUEST instead:
+        // `src/mcp/server.ts` builds a `SingleConnectionCapabilityRegistry`
+        // from the connection handling each CallTool and passes it down as
+        // `CommandExecutionContext.callerCapabilities`. Leaving this key at the
+        // container's no-op default is what makes a caller with no resolvable
+        // connection resolve to "no elicitation".
+        const connectionTracker = new MCPConnectionTracker();
 
         // mt#1625 spike: compose the static memory bundle BEFORE the
         // MinskyMCPServer constructor so the SDK Server receives the bundle
@@ -1486,7 +1610,7 @@ export function createStartCommand(
           version: "1.0.0", // TODO: Import from package.json
           projectContext,
           transportType: transportType as "stdio" | "http",
-          clientCapabilityRegistry,
+          connectionTracker,
           ...(instructionsBundle && { instructions: instructionsBundle }),
           ...(transportType === "http" && {
             httpConfig: {
@@ -2279,7 +2403,7 @@ export function createStartCommand(
         // than once (PR #881 R1 NON-BLOCKING). Only attach for stdio transport —
         // HTTP-mode containers don't use stdin and may run with stdin closed at
         // startup, which would falsely trigger.
-        if (!options.http) {
+        if (transportType === "stdio") {
           process.stdin.on("close", cleanup);
         }
 
@@ -2293,7 +2417,12 @@ export function createStartCommand(
         await new Promise(() => {});
       } catch (error) {
         log.error("Failed to start MCP server", {
-          transportType: options.http ? "http" : "stdio",
+          // Re-resolved rather than reusing the `transportType` binding above:
+          // that const lives inside the `try`, and a throw before it is reached
+          // means it never existed. This is the "once per EXECUTION PATH" the
+          // R1 finding asks for — the catch is a different path, not a repeat
+          // of the same one.
+          transportType: resolveMcpTransport(options).transport,
           withInspector: options.withInspector || false,
           error: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,

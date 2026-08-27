@@ -67,6 +67,8 @@ import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { findToolCallsWithResults, extractToolUseNames } from "./transcript";
+import { readAuthoredSpecText } from "./authored-spec-text";
+import type { SpecTextRead } from "./authored-spec-text";
 // Spec prose is not known-ASCII — em dashes and backticked identifiers are
 // routine — so the calibration excerpt cannot use a bare `.slice`, which may
 // split a surrogate pair (`custom/no-unsafe-string-truncation`).
@@ -101,24 +103,43 @@ export const SPEC_TEXT_FIELD_BY_TOOL: Readonly<Record<string, string>> = {
   tasks_spec_search_replace: "replace",
 };
 
-/** Strip the MCP prefix and normalize the dotted/underscore spellings. */
-function normalize(toolName: string): string {
-  return toolName
-    .replace(/^mcp__minsky__/, "")
-    .replace(/\./g, "_")
-    .toLowerCase();
+/**
+ * The authored prose this call is about to write — inline OR from a referenced
+ * `specFile` — with the read outcome attached (mt#4295, via mt#4525's shared
+ * resolver).
+ *
+ * Before this, the map above was the whole story: `tasks_edit` was read only at
+ * `specContent`, so a `--spec-file` write produced no text and the guard recorded
+ * `skipped`, indistinguishable from a call legitimately carrying no spec. A recall
+ * hole that reports itself as a clean skip is not discoverable by use.
+ *
+ * The scanning SCOPE is unchanged — `SPEC_TEXT_FIELD_BY_TOOL` above is still this
+ * guard's own map and is passed in, not merged with the sibling's. Sharing the
+ * resolution while leaving scope alone is deliberate: a widened corpus would change
+ * this guard's fire rate and confound its before/after replay.
+ */
+export function readAuthoredSpecTextForCall(
+  toolName: string | undefined,
+  toolInput: Record<string, unknown> | undefined,
+  readFile?: (path: string) => string | null
+): SpecTextRead {
+  return readAuthoredSpecText(toolName, toolInput, SPEC_TEXT_FIELD_BY_TOOL, readFile);
 }
 
-/** The authored prose this call is about to write, or null if none applies. */
+/**
+ * The authored prose this call is about to write, or null if none applies.
+ *
+ * Retained as the text-only form for `scripts/replay-claim-provenance.ts`, which
+ * needs the prose and not the read outcome. The live guard uses
+ * {@link readAuthoredSpecTextForCall} so it can tell "no spec here" from "a spec was
+ * named and could not be read" — mt#4295 SC2.
+ */
 export function extractAuthoredSpecText(
   toolName: string | undefined,
-  toolInput: Record<string, unknown> | undefined
+  toolInput: Record<string, unknown> | undefined,
+  readFile?: (path: string) => string | null
 ): string | null {
-  if (!toolName || !toolInput) return null;
-  const field = SPEC_TEXT_FIELD_BY_TOOL[normalize(toolName)];
-  if (!field) return null;
-  const value = toolInput[field];
-  return typeof value === "string" && value.trim() !== "" ? value : null;
+  return readAuthoredSpecTextForCall(toolName, toolInput, readFile).text;
 }
 
 // ---------------------------------------------------------------------------
@@ -641,12 +662,24 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
     toolName: input.tool_name ?? null,
   };
 
-  const specText = extractAuthoredSpecText(input.tool_name, input.tool_input);
-  if (specText === null) {
+  const specRead = readAuthoredSpecTextForCall(input.tool_name, input.tool_input);
+  if (specRead.text === null) {
+    // mt#4295 SC2 — a named-but-unreadable spec file is a MISS, and it must not
+    // share a reason string with "this call carries no spec". Both are `skipped`
+    // (a guard that could not read its input has not adjudicated it, so neither is
+    // `clean`), but only one of them means coverage was lost, and a single reason
+    // string would make that invisible in the calibration log.
     return {
-      calibration: { ...base, outcome: "skipped", reason: "no authored spec text on this call" },
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason: specRead.specFileUnreadable
+          ? "spec file named on this call could not be read"
+          : "no authored spec text on this call",
+      },
     };
   }
+  const specText = specRead.text;
 
   // The referent of "this task", resolved once: a deictic remaining-work claim
   // is about the spec being written, and that id is on the call itself.

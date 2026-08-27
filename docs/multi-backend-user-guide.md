@@ -223,6 +223,28 @@ Before mt#3636 this state answered `{"tasks": [], "total": 0}` with exit 0, and
 `tasks status get` reported an existing task as "not found" — which invited agents and scripts to
 act on the emptiness (re-creating tasks that already exist, concluding a dependency was missing).
 
+### A status WRITE reports what it actually changed (mt#4457)
+
+`tasks status set` returns a `recordsAffected` count alongside `success`, `taskId` and `status`.
+Read it rather than `success` alone when a script's next step depends on the write having landed:
+
+| `recordsAffected` | Meaning                                                                                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `1`               | The write persisted. This is the only value a successful call returns.                                                                                                                                     |
+| `0`               | The write did **not** persist and the task's status is unchanged. The command raises `StatusWriteDidNotPersistError` rather than returning this, so a caller should never observe it in a success payload. |
+| `>1`              | More records changed than the one task addressed — a corruption signal. The command raises rather than reporting success.                                                                                  |
+
+The `changed` field in the CLI/MCP envelope is **derived from this count**, not asserted. Until
+2026-08-25 it was the literal `true`, which meant the payload read identically whether or not the
+update reached the row: on 2026-08-23 three task rows were reported as transitioned by writes that
+never committed. A Postgres `UPDATE` matching zero rows raises nothing, so the count is the only
+signal that distinguishes the two.
+
+**Backend caveat.** The Minsky (Postgres) backend derives the count from the UPDATE itself, so it
+is exact. The GitHub Issues backend has no rowcount and reports `1` for any successful API call —
+including a transition to a status the issue already held. Do not read `changed: true` from a
+`gh#` task as proof the status actually differed.
+
 The error text distinguishes two causes, which need opposite responses:
 
 | Error says                                                      | Cause                                                    | What to do                                                                                                                                                                                                                                                                                                                      |

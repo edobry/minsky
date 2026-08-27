@@ -58,6 +58,45 @@ const EPOCH_MACHINERY = /createEpochKeyedCache|getPersistenceEpoch/;
 /** Module-level mutable state: a top-of-file `let`, not one inside a function. */
 const MODULE_LEVEL_LET = /^let\s+(\w+)/gm;
 
+/**
+ * Mutable state held on a class INSTANCE rather than at module level (mt#4480).
+ *
+ * The original guard matched only `^let`, and a long-lived singleton's instance
+ * field caches across a recycle exactly as a module-level `let` does — the
+ * lifetime that matters is the object's, not the declaration's syntax. That gap
+ * was not theoretical: `TranscriptWatcher` held `private cachedDb` with no
+ * epoch check, so one pool recycle killed the primary transcript-capture path
+ * for the rest of the daemon's life while this guard passed.
+ *
+ * Keyed on the declared TYPE, not on the field's name (PR #3278 R1). A
+ * name-based heuristic was tried first and is wrong in both directions: it
+ * overmatches benign fields that merely contain the substring (`debugLevel`,
+ * `poolSize`, `dbusClient`) and undermatches a real handle called `client`,
+ * `driver`, or `sql`. Forcing exemption markers onto obvious non-offenders is
+ * the worse half — it trains people to add the marker without reading it, which
+ * costs the guard its meaning.
+ *
+ * A provider-derived handle is nearly always declared with an explicit type,
+ * because it is initialised to `null` and needs one. That makes the type the
+ * precise signal, and it is already scoped: this only runs on files that
+ * resolve the persistence provider at all.
+ *
+ * `readonly` is excluded because it cannot be reassigned, so it cannot latch
+ * onto a NEW handle — an epoch-keyed cache assigned once in a constructor is
+ * the intended shape and must not be flagged.
+ *
+ * Residual gap, stated rather than papered over: a handle held with an inferred
+ * type is invisible here. That is the same trade the module-level check makes —
+ * this guard fires on a legible signal and asks a human, rather than pretending
+ * to decide what is provider-derived.
+ */
+const HANDLE_TYPE_NAMES =
+  "PostgresJsDatabase|PersistenceService|PersistenceProvider|SqlCapablePersistenceProvider|DatabaseConnection|Sql";
+const INSTANCE_LEVEL_CACHE = new RegExp(
+  String.raw`^\s*(?:private|protected|public)\s+(?!readonly\b)(\w+)\s*:\s*[^;\n=]*\b(?:${HANDLE_TYPE_NAMES})\b`,
+  "gm"
+);
+
 /** Opt-out marker carrying its own reason, e.g. `// epoch-exempt: warn rate-limit clock`. */
 const EXEMPT_MARKER = /epoch-exempt:/;
 
@@ -85,13 +124,17 @@ describe("persistence-epoch cache coverage (mt#3721)", () => {
       if (!PROVIDER_RESOLVERS.test(source)) continue;
 
       const lets = [...source.matchAll(MODULE_LEVEL_LET)].map((m) => m[1]);
-      if (lets.length === 0) continue;
+      // mt#4480: an instance field on a long-lived object latches across a
+      // recycle exactly as a module-level `let` does.
+      const fields = [...source.matchAll(INSTANCE_LEVEL_CACHE)].map((m) => m[1]);
+      const state = [...lets, ...fields];
+      if (state.length === 0) continue;
 
       if (EPOCH_MACHINERY.test(source) || EXEMPT_MARKER.test(source)) continue;
 
       offenders.push(
-        `${file.replace(COCKPIT_DIR, "src/cockpit")} — module-level state ` +
-          `[${lets.join(", ")}] in a module that resolves the persistence provider, ` +
+        `${file.replace(COCKPIT_DIR, "src/cockpit")} — mutable state ` +
+          `[${state.join(", ")}] in a module that resolves the persistence provider, ` +
           `with no epoch check and no 'epoch-exempt:' marker.`
       );
     }
@@ -128,5 +171,77 @@ describe("persistence-epoch cache coverage (mt#3721)", () => {
     expect([...offending.matchAll(/^\s*let\s+(\w+)/gm)].length).toBeGreaterThan(0);
     expect(EPOCH_MACHINERY.test(offending)).toBe(false);
     expect(EXEMPT_MARKER.test(offending)).toBe(false);
+  });
+
+  test("an INSTANCE-field cache is detected too (mt#4480)", () => {
+    // Negative control for the widening, written from the real pre-fix source
+    // of `TranscriptWatcher.resolveDb` rather than from an invented shape. The
+    // guard passed on this for as long as it existed, because `cachedDb` is a
+    // class field and the original predicate matched only `^let`. One pool
+    // recycle then killed the primary transcript-capture path permanently.
+    const offending = `
+      import { getSharedPersistenceService } from "./shared-persistence";
+      export class Watcher {
+        private cachedDb: PostgresJsDatabase | null = null;
+        private async resolveDb(): Promise<PostgresJsDatabase | null> {
+          if (this.cachedDb) return this.cachedDb;
+          const db = await this.getDb();
+          if (db) this.cachedDb = db;
+          return db;
+        }
+      }
+    `;
+
+    expect(PROVIDER_RESOLVERS.test(offending)).toBe(true);
+    // The OLD predicate does not see it — this is the gap, stated as an assertion.
+    expect([...offending.matchAll(MODULE_LEVEL_LET)].length).toBe(0);
+    // The new one does.
+    const fields = [...offending.matchAll(INSTANCE_LEVEL_CACHE)].map((m) => m[1]);
+    expect(fields).toContain("cachedDb");
+    expect(EPOCH_MACHINERY.test(offending)).toBe(false);
+    expect(EXEMPT_MARKER.test(offending)).toBe(false);
+  });
+
+  test("a readonly epoch-keyed field is NOT flagged", () => {
+    // The shape the fix produces must not be an offender, or the widening would
+    // just push everyone toward exemption markers. `readonly` cannot be
+    // reassigned, so it cannot latch onto a new handle.
+    const fixed = `
+      import { createEpochKeyedCache } from "./shared-persistence";
+      export class Watcher {
+        private readonly resolveDbCached: () => Promise<PostgresJsDatabase | null>;
+      }
+    `;
+    expect([...fixed.matchAll(INSTANCE_LEVEL_CACHE)].length).toBe(0);
+  });
+
+  test("benign fields whose NAMES look cache-ish are not flagged (PR #3278 R1)", () => {
+    // The first draft keyed on the name and would have flagged every one of
+    // these, forcing exemption markers onto fields that hold no handle. The
+    // reviewer named these three exactly.
+    const benign = `
+      export class Thing {
+        private debugLevel: number = 0;
+        private poolSize: number = 15;
+        private dbusClient: string | null = null;
+        private cachedCount = 0;
+      }
+    `;
+    expect([...benign.matchAll(INSTANCE_LEVEL_CACHE)].length).toBe(0);
+  });
+
+  test("a real handle is flagged whatever it is NAMED (PR #3278 R1)", () => {
+    // The other direction the reviewer named: a name-based rule misses a handle
+    // called `client`, `driver`, or `sql`. Keying on the TYPE catches all of
+    // them without needing to enumerate naming habits.
+    const handles = `
+      export class Thing {
+        private client: PostgresJsDatabase | null = null;
+        private driver: Sql | null = null;
+        private store: PersistenceService | null = null;
+      }
+    `;
+    const found = [...handles.matchAll(INSTANCE_LEVEL_CACHE)].map((m) => m[1]);
+    expect(found).toEqual(["client", "driver", "store"]);
   });
 });

@@ -4,6 +4,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
   TaskBackend as TaskBackendInterface,
+  StatusWriteOutcome,
 } from "./types";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
@@ -45,8 +46,50 @@ async function resolveCurrentProjectId(
   workspacePath: string,
   db: ScopeResolverDb
 ): Promise<string | undefined> {
-  const scope = await resolveProjectScope(resolveProjectIdentity({ repoPath: workspacePath }), db);
+  const scope = await resolveProjectScope(
+    resolveProjectIdentity({ repoPath: workspacePath }),
+    db,
+    "taskService.currentProjectId"
+  );
   return isAllProjects(scope) ? undefined : scope;
+}
+
+/**
+ * Result of a spec-content read.
+ *
+ * `specUpdatedAt` is the SPEC-CONTENT timestamp (`task_specs.updated_at`): it
+ * advances only when the spec's TEXT is written. It is deliberately distinct
+ * from `task.updatedAt`, the tasks-table row timestamp that ANY mutation bumps
+ * — status, title, tags, kind. Callers that need "when did this spec last
+ * change" must read this field; reading `task.updatedAt` for that question is
+ * the mt#4415 defect, where a status transition moved the baseline to ~now and
+ * silently suppressed every drift row.
+ *
+ * Optional because a backend need not track one (the GitHub-issues path stores
+ * no separate spec row). Absent means "no spec-content baseline available",
+ * which consumers must distinguish from "baseline is old" — never collapse the
+ * two into a clean pass.
+ *
+ * `specCreatedAt` is the spec's AUTHORING timestamp (`task_specs.created_at`),
+ * and the two are not interchangeable — that is the whole reason both are here
+ * (mt#4420). `specUpdatedAt` moves on EVERY spec write, including one that
+ * touched an unrelated section, so a drift check baselined on it goes blind to
+ * everything that changed before the reader's own edit. `specCreatedAt` is
+ * written once at insert and is never re-set by the update paths, so it is a
+ * floor an incidental edit cannot move.
+ *
+ * Measured on prod before this field existed: of 566 specs whose freshness
+ * check reported a clean pass, 244 (43%) had at least one ref that HAD drifted
+ * since authoring; on specs authored in the last 7 days — the population where
+ * the check actually runs — 29 of 41 clean passes (71%) were false.
+ */
+export interface TaskSpecContentResult {
+  task: Task;
+  specPath: string;
+  content: string;
+  section?: string;
+  specUpdatedAt?: Date;
+  specCreatedAt?: Date;
 }
 
 // Define the base TaskService interface used across the domain
@@ -54,7 +97,7 @@ export interface TaskServiceInterface {
   listTasks(options?: TaskListOptions): Promise<Task[]>;
   getTask(taskId: string): Promise<Task | null>;
   getTaskStatus(taskId: string): Promise<string | undefined>;
-  setTaskStatus(taskId: string, status: string): Promise<void>;
+  setTaskStatus(taskId: string, status: string): Promise<StatusWriteOutcome>;
   createTaskFromTitleAndSpec(
     title: string,
     spec: string,
@@ -62,10 +105,7 @@ export interface TaskServiceInterface {
   ): Promise<Task>;
   deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean>;
   getTasks(ids: string[]): Promise<Task[]>;
-  getTaskSpecContent(
-    taskId: string,
-    section?: string
-  ): Promise<{ task: Task; specPath: string; content: string; section?: string }>;
+  getTaskSpecContent(taskId: string, section?: string): Promise<TaskSpecContentResult>;
   getWorkspacePath(): string;
   getBackendForTask?(taskId: string): Promise<string>;
   listBackends?(): Pick<TaskBackendInterface, "name" | "prefix">[];
@@ -236,6 +276,16 @@ export async function createConfiguredTaskService(options: {
       }
 
       // Add minsky backend (mt# prefix) - persistence is guaranteed
+      // EXEMPT from mt#4543's capability conversion, deliberately — do not "fix" this to
+      // `isSqlCapable`. Admitting the unconfigured placeholder here is the POINT: it
+      // defines `getDatabaseConnection` and throws the verbatim boot reason, the catch
+      // below carries that reason into `setBackendUnavailable`, and `listTasks` then
+      // raises with it. A capability guard short-circuits before the throw and the cause
+      // is replaced by a generic "not configured" string — which
+      // `taskService.test.ts`'s "carries the boot reason end-to-end" (mt#3636) exists to
+      // prevent, and which is what caught the attempt.
+      //
+      // The method-presence check is load-bearing at THIS site rather than insufficient.
       if (
         "getDatabaseConnection" in persistenceProvider &&
         typeof persistenceProvider.getDatabaseConnection === "function"

@@ -21,6 +21,7 @@ import {
   exitCodeForVerdict,
   HEALTH_BUDGET_ENV,
   isBudgetAbort,
+  isDefinitelyAbsent,
   probeReachability,
   readHealthBody,
   REACH_BUDGET_ENV,
@@ -28,6 +29,7 @@ import {
   SLOW_CONFIRM_BUDGET_ENV,
   verdictForReach,
   type FetchLike,
+  type ReachOutcome,
 } from "./verify-preflight";
 
 /** What `AbortSignal.timeout` rejects with — observed shape, not invented. */
@@ -43,6 +45,48 @@ function connectionRefused(): Error {
   const err = new Error("Unable to connect. Is the computer able to access the url?");
   (err as Error & { code?: string }).code = CONNECTION_REFUSED_CODE;
   return err;
+}
+
+/** Bun's `code` for a socket that was accepted and then reset. Observed, not invented. */
+const CONNECTION_RESET_CODE = "ECONNRESET";
+
+/**
+ * What Bun rejects with when a listener accepts the socket and then tears it
+ * down. Observed shape (mt#4624) — the message is Bun's verbatim.
+ */
+function connectionReset(): Error {
+  const err = new Error("The socket connection was closed unexpectedly.");
+  (err as Error & { code?: string }).code = CONNECTION_RESET_CODE;
+  return err;
+}
+
+/**
+ * Render an outcome for comparison against an EXPECTED kind, folding `detail`
+ * into the compared value only when the kind does NOT match (mt#4550).
+ *
+ * Why not a bare `expect(outcome.kind).toBe(...)`: that renders
+ * `Expected: "slow" / Received: "absent"` and discards the one field that
+ * explains it. `describeError` has already built that string by the time the
+ * outcome exists — the assertion is where it gets thrown away.
+ *
+ * That is not hypothetical. mt#4550's originating occurrence, in a full gated
+ * run on 2026-08-25, recorded exactly those two lines and nothing else. Naming
+ * the error took a separate investigation that had to reproduce the failure
+ * from scratch; the run that saw it first had the answer in hand and dropped it.
+ *
+ * Folding `detail` in ONLY on mismatch is load-bearing: since mt#4624 a correct
+ * `slow` can legitimately carry a `detail` (an interrupted first probe), so
+ * folding it in unconditionally would fail a passing case.
+ */
+function kindOrCause(outcome: ReachOutcome, expected: ReachOutcome["kind"]): string {
+  if (outcome.kind === expected) return expected;
+  // Discriminated rather than cast (PR #3374 R1): `reached` is the only variant
+  // without a `detail`, so narrowing on it lets the compiler check the access.
+  // A cast would keep compiling if `ReachOutcome` ever gained a variant that
+  // carries a differently-shaped detail — exactly the drift this helper exists
+  // to make visible.
+  const detail = outcome.kind === "reached" ? undefined : outcome.detail;
+  return detail === undefined ? outcome.kind : `${outcome.kind}: ${detail}`;
 }
 
 const DESCRIBE = { absentReason: "no cockpit reachable at http://x", slowSubject: "the cockpit" };
@@ -100,6 +144,63 @@ describe("isBudgetAbort", () => {
   });
 });
 
+describe("isDefinitelyAbsent (mt#4624)", () => {
+  it("recognizes the code Bun emits when nothing is listening", () => {
+    expect(isDefinitelyAbsent(connectionRefused())).toBe(true);
+  });
+
+  it("does NOT treat a reset socket as absent — it reached a listener", () => {
+    expect(isDefinitelyAbsent(connectionReset())).toBe(false);
+  });
+
+  it("defaults unknown failures to NOT-absent, so an unrecognized code fails closed", () => {
+    // The allowlist direction is the point: a Bun release inventing a code we
+    // have never seen must not silently become `skip` + exit 0.
+    const novel = new Error("something new") as Error & { code?: string };
+    novel.code = "ESOMETHINGNEW";
+    expect(isDefinitelyAbsent(novel)).toBe(false);
+    expect(isDefinitelyAbsent(new TypeError("boom"))).toBe(false);
+    expect(isDefinitelyAbsent(timeoutError())).toBe(false);
+    expect(isDefinitelyAbsent(undefined)).toBe(false);
+  });
+});
+
+describe("kindOrCause — the assertion helper itself (mt#4550)", () => {
+  // A self-naming assertion that names nothing is worse than a bare one: it
+  // reads as though the evidence problem were solved. So the helper gets its
+  // own coverage rather than being trusted because it looks right.
+
+  it("returns the bare kind on a match, even when the outcome carries a detail", () => {
+    // The passing case must be unaffected. Since mt#4624 a CORRECT `slow` can
+    // carry a detail (an interrupted first probe), so a helper that folded it in
+    // unconditionally would fail this — which is the whole reason for the guard.
+    const slowWithDetail: ReachOutcome = {
+      kind: "slow",
+      budgetMs: 5,
+      measuredMs: 41,
+      confirmBudgetMs: 5000,
+      detail: "first attempt: reset",
+    };
+    expect(kindOrCause(slowWithDetail, "slow")).toBe("slow");
+  });
+
+  it("folds the detail into the compared value on a mismatch — the whole point", () => {
+    const absentWithCause: ReachOutcome = {
+      kind: "absent",
+      detail: "The socket connection was closed unexpectedly. (ECONNRESET)",
+    };
+    // This is what mt#4550's originating failure would have printed as
+    // `Received:` had the assertion been written this way.
+    expect(kindOrCause(absentWithCause, "slow")).toBe(
+      "absent: The socket connection was closed unexpectedly. (ECONNRESET)"
+    );
+  });
+
+  it("falls back to the bare kind on a mismatch with no detail to report", () => {
+    expect(kindOrCause({ kind: "reached", elapsedMs: 12 }, "slow")).toBe("reached");
+  });
+});
+
 describe("probeReachability (classification)", () => {
   it("reports reached, with the elapsed time, when a response arrives in budget", async () => {
     let clock = 1000;
@@ -130,6 +231,93 @@ describe("probeReachability (classification)", () => {
     expect(outcome.kind).toBe("absent");
     if (outcome.kind !== "absent") return;
     expect(outcome.detail).toContain(CONNECTION_REFUSED_CODE);
+  });
+
+  it("stays slow — never absent — when the first socket is reset and the confirm answers", async () => {
+    // mt#4624: a reset says the connection broke, not that nothing is listening.
+    // The confirm answering proves the target was there the whole time.
+    let clock = 1000;
+    let attempt = 0;
+    const outcome = await probeReachability(
+      "http://target",
+      { budgetMs: 3000, confirmBudgetMs: 30000 },
+      {
+        fetchImpl: async () => {
+          attempt += 1;
+          if (attempt === 1) throw connectionReset();
+          clock += 41;
+          return {};
+        },
+        now: () => clock,
+      }
+    );
+    expect(outcome.kind).toBe("slow");
+    if (outcome.kind !== "slow") return;
+    expect(outcome.measuredMs).toBe(41);
+    // The interruption is carried, not discarded — reporting it as plain
+    // slowness would hide the only fact that explains the first failure.
+    expect(outcome.detail).toContain(CONNECTION_RESET_CODE);
+  });
+
+  it("lets OUR budget abort win over the absence allowlist, whatever code it carries", async () => {
+    // PR #3372 R1. `isBudgetAbort` reads `name`, `isDefinitelyAbsent` reads
+    // `code`, and one error can carry both — a proxy or a rethrowing wrapper can
+    // stamp a connect code onto an abort. Asking the allowlist first would turn
+    // our own timeout into `absent` + exit 0, the exact fail-open this task
+    // exists to close. Order is behaviour, so it gets a test.
+    // A plain Error rather than a DOMException, because `DOMException.code` is a
+    // readonly accessor and cannot be stamped — which is itself the point: the
+    // realistic carrier of both fields is a wrapper that rethrows, and what it
+    // rethrows is an ordinary Error.
+    const abortWearingAConnectCode = new Error("The operation timed out.") as Error & {
+      code?: string;
+    };
+    abortWearingAConnectCode.name = "TimeoutError";
+    abortWearingAConnectCode.code = CONNECTION_REFUSED_CODE;
+    expect(isBudgetAbort(abortWearingAConnectCode)).toBe(true);
+    expect(isDefinitelyAbsent(abortWearingAConnectCode)).toBe(true);
+
+    let clock = 1000;
+    let attempt = 0;
+    const outcome = await probeReachability(
+      "http://target",
+      { budgetMs: 3000, confirmBudgetMs: 30000 },
+      {
+        fetchImpl: async () => {
+          attempt += 1;
+          if (attempt === 1) throw abortWearingAConnectCode;
+          clock += 88;
+          return {};
+        },
+        now: () => clock,
+      }
+    );
+    expect(outcome.kind).toBe("slow");
+    if (outcome.kind !== "slow") return;
+    expect(outcome.measuredMs).toBe(88);
+    // A budget abort is not an interruption either — nothing to annotate.
+    expect(outcome.detail).toBeUndefined();
+  });
+
+  it("stays slow — never absent — for an unrecognized failure code", async () => {
+    // Fail-closed: a code the allowlist has never seen must not become
+    // `skip` + exit 0. Asserted with an injected error because there is no real
+    // socket condition that produces an arbitrary novel code.
+    const novel = new Error("brand new failure") as Error & { code?: string };
+    novel.code = "ESOMETHINGNEW";
+    const outcome = await probeReachability(
+      "http://target",
+      { budgetMs: 3000, confirmBudgetMs: 30000 },
+      {
+        fetchImpl: async () => {
+          throw novel;
+        },
+      }
+    );
+    expect(outcome.kind).toBe("slow");
+    if (outcome.kind !== "slow") return;
+    expect(outcome.measuredMs).toBeNull();
+    expect(outcome.detail).toContain("ESOMETHINGNEW");
   });
 
   it("reports slow — with the measured latency — for a target that answers past its budget", async () => {
@@ -293,7 +481,10 @@ describe("probeReachability (real fetch binding)", () => {
         { budgetMs: 5, confirmBudgetMs: 5000 },
         {}
       );
-      expect(outcome.kind).toBe("slow");
+      // mt#4550: compared through `kindOrCause` so a future mismatch names the
+      // error instead of reporting only `Received: "absent"`. This is the test
+      // whose 2026-08-25 failure recorded no cause at all.
+      expect(kindOrCause(outcome, "slow")).toBe("slow");
       if (outcome.kind !== "slow") return;
       // The follow-up measurement succeeded against a real server, so the report
       // carries a latency rather than only a lower bound.
@@ -318,7 +509,48 @@ describe("probeReachability (real fetch binding)", () => {
       { budgetMs: 3000, confirmBudgetMs: 5000 },
       {}
     );
-    expect(outcome.kind).toBe("absent");
+    expect(kindOrCause(outcome, "absent")).toBe("absent");
+  });
+
+  it("classifies a listener that resets the socket as slow, not absent", async () => {
+    // mt#4624's defect, against a REAL socket rather than an injected shape.
+    // `Bun.listen` + `terminate()` on open accepts the connection and tears it
+    // down, which is what produced the `ECONNRESET` observed in the wild — and it
+    // does so deterministically, unlike the ~1-in-5400 load-dependent original.
+    //
+    // Something IS listening here. Before this fix the probe reported `absent`,
+    // which `verdictForReach` maps to `skip` + exit 0 — a check reported as
+    // skipped when it was actually never performed.
+    const resetter = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        open: (socket) => socket.terminate(),
+        data: () => {},
+      },
+    });
+    try {
+      const outcome = await probeReachability(
+        `http://127.0.0.1:${resetter.port}/`,
+        { budgetMs: 3000, confirmBudgetMs: 3000 },
+        {}
+      );
+      expect(kindOrCause(outcome, "slow")).toBe("slow");
+      if (outcome.kind !== "slow") return;
+      // Deliberately NOT coupled to Bun's exact code string (PR #3372 R1): the
+      // behaviour under test is the CLASSIFICATION, so assert the outcome and
+      // that the interruption was named at all. The exact strings are pinned
+      // once, on purpose, by the canary describe below.
+      expect(outcome.detail).toMatch(/^first attempt: /);
+      expect(outcome.detail).toMatch(/closed|reset/i);
+      // The consequence that actually matters: a non-zero exit, so no caller
+      // downstream can read this as a performed-and-passed check.
+      const verdict = verdictForReach(outcome, DESCRIBE);
+      expect(verdict.action).toBe("incomplete");
+      expect(exitCodeForVerdict(verdict)).toBe(EXIT_INCOMPLETE);
+    } finally {
+      resetter.stop(true);
+    }
   });
 
   it("classifies a live, fast target as reached", async () => {
@@ -329,9 +561,70 @@ describe("probeReachability (real fetch binding)", () => {
         { budgetMs: 3000, confirmBudgetMs: 5000 },
         {}
       );
-      expect(outcome.kind).toBe("reached");
+      expect(kindOrCause(outcome, "reached")).toBe("reached");
     } finally {
       server.stop(true);
+    }
+  });
+});
+
+/**
+ * The one place that couples to Bun's exact `code` strings — on purpose.
+ *
+ * `isDefinitelyAbsent`'s allowlist is a literal string match, so PRODUCTION
+ * correctness depends on these codes, not just the tests. Pinning them here
+ * keeps the coupling in a single named place instead of scattered through the
+ * behaviour tests (PR #3372 R1), and a Bun upgrade that renames one fails HERE,
+ * with a name that says what actually moved.
+ *
+ * Deliberately NOT gated on `Bun.version`, contrary to the review's suggestion:
+ * a version-gated canary stops checking on exactly the version where the premise
+ * may have changed, which is the one run where you need it. Note the failure
+ * direction is safe either way — a renamed absent-code makes `isDefinitelyAbsent`
+ * stop matching, so everything becomes `slow`/`EXIT_INCOMPLETE`. Noisy, never a
+ * silent exit 0.
+ */
+describe("Bun's error surface — canary for the isDefinitelyAbsent allowlist (mt#4624)", () => {
+  it("emits ConnectionRefused when nothing is listening", async () => {
+    const doomed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+    const closedPort = doomed.port;
+    doomed.stop(true);
+
+    const err = await fetch(`http://127.0.0.1:${closedPort}/`, {
+      signal: AbortSignal.timeout(3000),
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).not.toBeNull();
+    expect((err as Error & { code?: string }).code).toBe(CONNECTION_REFUSED_CODE);
+    // The premise the production allowlist rests on, asserted directly.
+    expect(isDefinitelyAbsent(err)).toBe(true);
+  });
+
+  it("emits ECONNRESET — NOT an absent code — when a listener resets the socket", async () => {
+    const resetter = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        open: (socket) => socket.terminate(),
+        data: () => {},
+      },
+    });
+    try {
+      const err = await fetch(`http://127.0.0.1:${resetter.port}/`, {
+        signal: AbortSignal.timeout(3000),
+      }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(err).not.toBeNull();
+      expect((err as Error & { code?: string }).code).toBe(CONNECTION_RESET_CODE);
+      // The whole point of mt#4624: this reached a listener, so it is not absent.
+      expect(isDefinitelyAbsent(err)).toBe(false);
+      expect(isBudgetAbort(err)).toBe(false);
+    } finally {
+      resetter.stop(true);
     }
   });
 });

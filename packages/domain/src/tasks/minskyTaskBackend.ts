@@ -18,7 +18,9 @@ import type {
   DeleteTaskOptions,
   BackendCapabilities,
   TaskMetadata,
+  StatusWriteOutcome,
 } from "./types";
+import type { TaskSpecContentResult } from "./taskService";
 import { isAllProjects } from "../project/scope";
 import { log } from "@minsky/shared/logger";
 import {
@@ -203,14 +205,27 @@ export class MinskyTaskBackend implements TaskBackend {
     return task?.status;
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
-    await this.db
+  /**
+   * mt#4457: `.returning()` is load-bearing, not decoration. Without it this method
+   * discarded the update result entirely and declared `Promise<void>`, so an UPDATE
+   * matching zero rows — which Postgres reports without raising — was indistinguishable
+   * from one that changed the row. Returning the affected ids lets the caller refuse
+   * to report success for a write that did not land.
+   *
+   * `.returning()` is used rather than a driver rowcount because the count's shape is
+   * postgres-js-specific; a returned id list means the same thing under any drizzle
+   * driver, so this does not silently change meaning if the driver is swapped.
+   */
+  async setTaskStatus(id: string, status: string): Promise<StatusWriteOutcome> {
+    const updated = await this.db
       .update(tasksTable)
       .set({
         status: status as (typeof TaskStatus)[keyof typeof TaskStatus],
         updatedAt: new Date(),
       })
-      .where(eq(tasksTable.id, id));
+      .where(eq(tasksTable.id, id))
+      .returning({ id: tasksTable.id });
+    return { recordsAffected: updated.length };
   }
 
   async createTaskFromTitleAndSpec(
@@ -513,29 +528,48 @@ export class MinskyTaskBackend implements TaskBackend {
     }
   }
 
-  async getTaskSpecContent(
-    taskId: string,
-    section?: string
-  ): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+  async getTaskSpecContent(taskId: string, section?: string): Promise<TaskSpecContentResult> {
     // Get the task first
     const task = await this.getTask(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
 
-    // Get spec content from database
+    // Get spec content from database.
+    //
+    // The `select()` already fetches every column, and `task_specs.updated_at`
+    // is set explicitly by all three write paths (`tryInsertTask`,
+    // `tryInsertTaskWithId`, `updateTaskMetadata`). Until mt#4415 the row was
+    // cast to `{ content }` and the timestamp was dropped right here — so the
+    // one caller that needed a spec-CONTENT baseline had to fall back to the
+    // tasks-table row timestamp, which any status transition bumps. Widening
+    // the cast is the whole fix: no extra query, no migration.
+    //
+    // mt#4420 widens it once more, for `created_at`. The three write paths
+    // above set `createdAt` only on INSERT — both upserts carry it in their
+    // `.values()` and omit it from `.onConflictDoUpdate`'s `set`, and
+    // `updateTaskMetadata` is a bare UPDATE of `content` + `updatedAt` — so it
+    // is the one spec-side timestamp an incidental edit cannot move. Same
+    // widening, same absence of a query or a migration.
     const specRows = (await this.db
       .select()
       .from(taskSpecsTable)
       .where(eq(taskSpecsTable.taskId, taskId))
-      .limit(1)) as Array<{ content: string }>;
+      .limit(1)) as Array<{ content: string; updatedAt: Date | null; createdAt: Date | null }>;
 
-    const content = specRows.length > 0 ? first(specRows, "task spec content query").content : "";
+    const specRow = specRows.length > 0 ? first(specRows, "task spec content query") : undefined;
 
     return {
       task,
       specPath: "", // Minsky backend doesn't use file paths
-      content,
+      content: specRow?.content ?? "",
+      // Spec-CONTENT timestamp. `null` (column default never re-set) and "no
+      // row at all" both mean "no baseline available" and normalize to
+      // undefined, which consumers must not read as a clean pass.
+      specUpdatedAt: specRow?.updatedAt ?? undefined,
+      // Spec AUTHORING timestamp — the drift floor (mt#4420). Normalizes the
+      // same way and for the same reason.
+      specCreatedAt: specRow?.createdAt ?? undefined,
       section,
     };
   }

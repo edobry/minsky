@@ -247,6 +247,42 @@ describe("ClaudeCodeTranscriptSource — nested subagent transcripts (mt#3294)",
     }
   });
 
+  test("skips a Workflow run journal, which is not a conversation (mt#4480)", async () => {
+    // The Workflow tool writes `journal.jsonl` beside the agent transcripts in
+    // the same `subagents/workflows/<wf-id>/` directory mt#3294 taught this
+    // walk to recurse into. Discovery yielded it as a session whose id was the
+    // literal string "journal", which then showed up permanently in
+    // `transcripts list --check-disk-coverage` as an on-disk conversation that
+    // had never been ingested and never could be.
+    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-journal-"));
+    try {
+      const wfDir = join(
+        dir,
+        PROJECT_DIR_NAME,
+        "parent-session",
+        SUBAGENTS_DIR_NAME,
+        "workflows",
+        "wf_abc123"
+      );
+      await mkdir(wfDir, { recursive: true });
+      await writeFile(join(wfDir, "journal.jsonl"), `${USER_LINE}\n`);
+      await writeFile(join(wfDir, `${NESTED_ID}.jsonl`), `${USER_LINE}\n`);
+
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: dir,
+        projectDirGlob: PROJECT_DIR_GLOB,
+      });
+      const sessions = await collect(src.discoverSessions());
+
+      expect(sessions.find((s) => s.agentSessionId === "journal")).toBeUndefined();
+      // The real transcript in the SAME directory is still discovered — the
+      // exclusion is one filename, not the directory it lives in.
+      expect(sessions.find((s) => s.agentSessionId === NESTED_ID)).toBeDefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("recovers cwd for a nested transcript via the project-dir fallback", async () => {
     // The fallback walks UP to the project dir. Before mt#3294 its hop budget
     // was 3, which stops one directory short for this depth — so discovery

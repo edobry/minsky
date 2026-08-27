@@ -436,3 +436,63 @@ gated behind measured insufficiency, which this task produces rather than spends
 
 `scripts/replay-settled-decision.ts` is the measurement, and it exits non-zero if the regression
 floor breaks.
+
+### Rung 2 — the climb that residual gated (mt#4404)
+
+The section above ends by naming its residual "the evidence gate for any later climb." That gate was
+met, three times, and this is the climb.
+
+**What forced it.** Three consecutive calibration windows after mt#4175 shipped each measured a
+DIFFERENT grammatical rendering of the same behaviour still firing, and each proposed adding another
+pattern family:
+
+| window     | rendering                        | example                                                                            |
+| ---------- | -------------------------------- | ---------------------------------------------------------------------------------- |
+| 2026-08-21 | participial lead                 | _"Picking X over Y … cheap to reverse if you'd rather I start elsewhere."_         |
+| 2026-08-25 | conditional mood                 | _"I'd go with the backfill … if you'd rather stop the bleeding first."_            |
+| 2026-08-25 | default-plus-escape continuation | _"I'll keep going on the backlog diagnosis unless you'd rather I stop."_           |
+| 2026-08-26 | present progressive              | _"…so I'm proceeding rather than stopping to ask — say the word if you'd rather…"_ |
+| 2026-08-26 | participial lead, again          | _"Proceeding on the revised shape — say so if … you'd rather I switch."_           |
+
+ADR-024 §Context names that trajectory: _"Each miss has historically been answered by adding another
+regex family (R1 → R5) — an arms race."_ It assigns the recall/paraphrase axis to **Rung 2 —
+embedding recall-widening, "only if paraphrase misses recur."** A fourth widening was the mechanism
+the ADR exists to prevent, so the task was re-scoped from a tune to a climb (principal decision,
+2026-08-26).
+
+**Rung 1 is RETAINED, not replaced.** `SETTLED_DECISION_PATTERNS` is untouched and runs first; Rung
+2 is consulted only over what Rung 1 left. That ordering does two things: the patterns are free and
+deterministic, so anything they catch never costs a provider round-trip; and PR #3224 R1's
+first-person-subject contract holds **by construction**, because nothing that review removed can
+return through a function that does not touch the array.
+
+**The suppressor inversion, and why ADR-024's invariant already covers it.** Every other shipped
+Rung-2 consumer nominates to widen recall of a TRIGGER. This one widens recall of a SUPPRESSOR, so
+"fail to Rung 1 and still inject" lands on the safe side without adaptation: a degraded nomination
+suppresses nothing, and the false positive returns rather than a genuine deferral being silenced.
+The degraded reason is recorded on the calibration record as `rung2DegradedReason`, which is what
+separates "Rung 2 found nothing" from "Rung 2 never ran" — the same empty verdict otherwise.
+
+**The threshold was measured on THIS corpus, not inherited.** `DEFAULT_SIMILARITY_THRESHOLD` (0.455)
+comes from the retrospective-trigger exemplar band, and mt#4280 records it under-scoring ground-truth
+fixtures on a second corpus already. `bun scripts/replay-settled-decision.ts --rung2` scores every
+AT1 and AT2 case with `threshold: 0` and reports the raw distribution. Measured 2026-08-26:
+
+- AT2 ceiling (highest-scoring GENUINE deferral): **0.4387**
+- AT1 floor among what a floor-safe threshold reaches: **0.5901**
+- `SETTLED_DECISION_RUNG2_THRESHOLD` = **0.5144**, the band's midpoint (~0.076 margin either way,
+  against ~0.006 of run-to-run embedding jitter)
+
+**The gate is the FLOOR, not coverage.** Four AT1 cases score below the AT2 ceiling and are NOT
+reached: the passive marker PR #3224 R1 refused to reach (0.3072), two additive offers (0.3374,
+0.3250), and a subject-less past participle one word from a neutral status line (0.4141). Lowering
+the threshold to reach them would cross the floor and silence a real deferral. Three of the four
+were already mt#4175's documented residual — the climb did not make them worse, and it did not
+pretend to reach them.
+
+**Ships opt-in, off by default** (`MINSKY_ARD_RUNG2_NOMINATION`, category `tunable`), matching
+mt#3408's precedent for the sibling families: the mechanism lands, the threshold is measured, and a
+human flips it on after reading the calibration record. The sibling `operator-deferral-detector`'s
+own climb is phase 2 — mt#4649 — because ADR-024 gates rung climbs per detector on that detector's
+own evidence, and its array feeds a different surface (`isPermissionAskSuppressed`) with a different
+regression floor.

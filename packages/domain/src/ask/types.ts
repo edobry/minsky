@@ -277,6 +277,27 @@ export interface Ask {
   parentSessionId?: string;
 
   /**
+   * Conversation-grain identity of the caller that FILED this Ask, in ADR-006
+   * `{kind}:{scope}:{id}` AgentId form (mt#4476).
+   *
+   * Server-stamped, never caller-supplied: `asks.create` is on the MCP server's
+   * `CALLER_ACTOR_ID_TOOL_NAMES` set, so the resolved caller identity overwrites
+   * anything a caller passes. That is what distinguishes this field from
+   * {@link requestor}, whose docblock claims the same AgentId format but which is
+   * populated straight from caller input (`params.requestor ?? "minsky.agent:unknown"`)
+   * and in practice holds free text — a live sample carried a bare model name.
+   *
+   * Absent when the Ask was filed through a path that resolves no declared identity
+   * — a CLI invocation, or an MCP caller whose `_meta` carried no conversation id
+   * (ADR-006 Layer 1, a process hash, which is deliberately NOT written here).
+   *
+   * This is the key an answered-ask wake is addressed to, and the reason delivery
+   * needs no `InterfaceBinding` model: a main-workspace conversation has no
+   * {@link parentSessionId} to key on, but always has this.
+   */
+  filedByAgentId?: string;
+
+  /**
    * Project scope (ADR-021, mt#2391 / mt#2563).
    *
    * The uuid of the `projects` row this Ask belongs to. Stamped at create time

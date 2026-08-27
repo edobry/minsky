@@ -109,7 +109,10 @@ Implemented under the mt#2234 umbrella:
   (`JsonlTailer`), ingest-on-append via the idempotent `ingestSession`. Health
   on the cockpit `/api/health` `transcriptWatcher` field.
 - **Sweep backstop — mt#2321:** `startTranscriptSweepBackstop`
-  (`src/cockpit/server.ts`) runs a full-discovery `ingestAll()` + vector-only
+  (`src/cockpit/transcript-sweep-backstop.ts` — this line read `server.ts` until
+  mt#4480; it moved to `sweepers.ts` with mt#2615 and out again into its own
+  module when that file reached the `max-lines` ceiling) runs a full-discovery
+  `ingestAll()` + vector-only
   `index-embeddings` backfill on a **configurable cadence** (default 30m, env
   override `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS`), fail-open. Health on the
   cockpit `/api/health` `transcriptSweep` field (counts + ISO timestamps only;
@@ -117,6 +120,39 @@ Implemented under the mt#2234 umbrella:
   same-process `/api/health` rather than `debug_systemInfo` (which runs in the
   MCP-server process and would read zero for cockpit-process state). See
   `docs/architecture/cockpit.md` for the operational detail.
+
+- **Cross-restart tick journal — mt#4532:** the `transcriptSweep` counters above
+  are all PROCESS-scoped, and the tray restarts the daemon on every merge
+  touching `src/cockpit/**` or `packages/**` — measured 2026-08-25 at 23 boots in
+  one working day, a median 13.4 minutes apart, against a 30-minute cadence whose
+  Phase 1 alone takes ~12 minutes. `transcriptSweep.acrossRestarts` records every
+  tick's start, whether it entered the embedding backfill, and how it ended, in a
+  local state file that outlives the process. Two notes on this ADR's own terms.
+  **The redaction convention holds** — counts, ISO timestamps, a pid and an
+  outcome enum; no paths, no raw error strings. **And the two-mechanism
+  redundancy above covers INGEST only:** the embedding backfill has no
+  watcher-side path, so the sweep is its ONLY mechanism. That asymmetry is not a
+  departure from this ADR — it is a consequence of it that was not previously
+  written down.
+
+  **CORRECTED by mt#4601:** this entry originally said a starved sweep was "total
+  loss" for the backfill. Measured against production a day later, that
+  overstates it — the real backlog was 919 turns with nine consecutive prior days
+  fully drained, because one bounded run (2,000 candidates) covers a
+  median day's intake. The backfill was starved of OPPORTUNITIES and still
+  finishing its work; the cost is freshness, not lost embeddings.
+
+- **The backfill became its own sweep — mt#4601:** it ran as Phase 2 of the sweep
+  tick above until a 45-second job was measured queueing behind a 12-minute
+  ingest pass inside a daemon whose median lifetime is 13.4 minutes, and being
+  skipped outright by every early return in that tick (0 of 4 ticks reached it,
+  measured). It now has its own `createIntervalSweeper` registration, its own
+  10-minute cadence and its own 20-minute tick timeout — the last derived from a
+  MEASURED ~8 s batch latency, not from mt#4212's ~45 s estimate, which was
+  sized on ~2KB payloads and is ~18x optimistic for real transcript turns. This does not change ADR-017's decision: the sweep remains
+  the BACKSTOP for ingest, and the watcher remains the primary capture path. It
+  gives the backfill a mechanism of its own rather than a slot inside someone
+  else's.
 
 Both compose with the mt#2051 MCP boot sweep and the mt#2192 SessionEnd
 fast-path; overlap is harmless (per-`turn_index` upsert + timestamp HWM). The

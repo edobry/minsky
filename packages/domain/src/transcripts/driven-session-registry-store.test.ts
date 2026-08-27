@@ -36,7 +36,7 @@ interface FakeRow {
   unrecoverableReason: string | null;
   pid: number | null;
   pidCmdline: string | null;
-  actuatorGeneration: number;
+  driverGeneration: number;
   startedAt: Date;
   updatedAt: Date;
 }
@@ -65,7 +65,7 @@ function toRawRow(row: FakeRow) {
     unrecoverable_reason: row.unrecoverableReason,
     pid: row.pid,
     pid_cmdline: row.pidCmdline,
-    actuator_generation: row.actuatorGeneration,
+    driver_generation: row.driverGeneration,
     started_at: row.startedAt,
     updated_at: row.updatedAt,
   };
@@ -188,10 +188,10 @@ describe("upsertDrivenSessionRecord", () => {
     expect((secondUpdatedAt as Date).getTime()).toBeGreaterThan((firstUpdatedAt as Date).getTime());
   });
 
-  test("defaults actuatorGeneration to 0 when omitted", async () => {
+  test("defaults driverGeneration to 0 when omitted", async () => {
     const stores = makeStores();
     await upsertDrivenSessionRecord(asPg(makeDb(stores)), BASE_INPUT);
-    expect(stores.rows[0]?.actuatorGeneration).toBe(0);
+    expect(stores.rows[0]?.driverGeneration).toBe(0);
   });
 });
 
@@ -208,7 +208,7 @@ describe("mapRawDrivenSessionRow", () => {
       unrecoverable_reason: null,
       pid: 1234,
       pid_cmdline: "claude -p ...",
-      actuator_generation: 2,
+      driver_generation: 2,
       model: null,
       started_at: new Date("2026-07-22T18:00:00.000Z"),
       updated_at: new Date("2026-07-22T18:05:00.000Z"),
@@ -216,7 +216,7 @@ describe("mapRawDrivenSessionRow", () => {
     expect(mapped.localId).toBe("local-1");
     expect(mapped.harnessSessionId).toBe("harness-1");
     expect(mapped.status).toBe("reconnecting");
-    expect(mapped.actuatorGeneration).toBe(2);
+    expect(mapped.driverGeneration).toBe(2);
   });
 });
 
@@ -240,7 +240,7 @@ describe("getDrivenSessionRecord", () => {
       unrecoverableReason: null,
       pid: null,
       pidCmdline: null,
-      actuatorGeneration: 1,
+      driverGeneration: 1,
       startedAt: new Date("2026-07-22T18:00:00.000Z"),
       updatedAt: new Date("2026-07-22T18:00:00.000Z"),
     };
@@ -283,7 +283,7 @@ describe("listNonTerminalDrivenSessions", () => {
         unrecoverableReason: null,
         pid: null,
         pidCmdline: null,
-        actuatorGeneration: 1,
+        driverGeneration: 1,
         startedAt: new Date(),
         updatedAt: new Date(),
       },
@@ -298,7 +298,7 @@ describe("listNonTerminalDrivenSessions", () => {
         unrecoverableReason: null,
         pid: 42,
         pidCmdline: "claude -p",
-        actuatorGeneration: 0,
+        driverGeneration: 0,
         startedAt: new Date(),
         updatedAt: new Date(),
       },

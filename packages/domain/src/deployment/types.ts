@@ -48,6 +48,19 @@ export interface DeploymentRecord {
   commitHash: string | null;
   /** Commit message deployed, when known. */
   commitMessage: string | null;
+  /**
+   * Container image digest deployed, when the platform reports one (mt#4583).
+   *
+   * Present for image-source services, which are exactly the ones where
+   * `commitHash` is null — the platform deploys a pushed image and never sees
+   * the commit. It does NOT identify which commit produced the image, so it is
+   * not a substitute for `commitHash`; it distinguishes a genuine release from
+   * a redeploy of the SAME image (mem#551), which is a different question.
+   *
+   * Railway already returns this inside the deployment's `meta` object; it was
+   * being dropped at the mapping boundary rather than being unavailable.
+   */
+  imageDigest: string | null;
   /** ISO8601 timestamp the deployment was created. */
   createdAt: string;
   /** ISO8601 timestamp the deployment reached a terminal state, when known. */
@@ -105,6 +118,25 @@ export interface WaitForLatestOptions {
    */
   onStatusObserved?: (record: DeploymentRecord) => void | Promise<void>;
   /**
+   * Optional transport-liveness callback (mt#1576), distinct from
+   * {@link WaitForLatestOptions.onStatusObserved} above.
+   *
+   * `onStatusObserved` reports a DEPLOYMENT OBSERVATION and only exists once a
+   * deployment is being tracked. This reports that the WAIT IS STILL ALIVE, and
+   * is invoked from the acquire phase too — the loop that runs BEFORE any
+   * deployment has been acquired, which `onStatusObserved` cannot reach.
+   *
+   * The distinction is load-bearing rather than stylistic: the transport
+   * underneath the MCP shim applies an IDLE timeout, so a wait that emits
+   * nothing is killed at roughly three minutes regardless of its own
+   * `timeoutSeconds`. A post-merge verification passing `notBefore` spends most
+   * of its life in the acquire phase, which emitted nothing at all until this.
+   *
+   * Best-effort, exactly like its sibling: adapters must not let a throwing
+   * callback abort the wait, and the CLI path omits it entirely.
+   */
+  onProgress?: (message: string) => void;
+  /**
    * ISO8601 lower bound on the deployment's `createdAt` (mt#3890). When set,
    * a deployment created BEFORE this instant is not accepted as the one being
    * waited for — the wait keeps polling for a newer one and throws
@@ -123,6 +155,20 @@ export interface WaitForLatestOptions {
    * carries no `commitHash` (verified on the reviewer service, whose working
    * deploys have a null hash while its older repo-source builds have one), so
    * commit comparison is not available on the path that matters.
+   *
+   * **That caveat is necessary and was not sufficient (mt#4583).** Bounding
+   * time does not identify WHICH change deployed, so on a busy branch a
+   * NEIGHBOURING merge's deployment lands inside the window and satisfies this
+   * bound — observed 2026-08-25: a deployment created ten seconds after a merge
+   * returned SUCCESS and belonged to the previous merge's workflow run.
+   *
+   * This bound alone cannot tell you whose deploy you got, and an adapter
+   * cannot tell you either: it reports what the platform says. Identity is a
+   * JUDGEMENT over that report, made by the caller — pass the merge commit to
+   * `deployment.wait-for-latest`'s `expectCommitSha` (or
+   * `session.pr.drive --postMerge`'s `mergedCommitSha`) and read the
+   * `buildIdentity` verdict those surfaces return. `assessBuildIdentity` in
+   * `./build-identity` is the shared classifier.
    */
   notBefore?: string;
 }

@@ -1,0 +1,64 @@
+{
+  "$comment": "Golden contract fixture for the MCP daemon's GET /health (mt#4322). Sibling of cockpit-health-shape.json (mt#2629), which pins the COCKPIT's health route — these are two different services with two different bodies and must not be conflated. Asserted by src/mcp/health-payload.test.ts against `buildMcpHealthResponse`, the same function `src/commands/mcp/start-command.ts`'s route calls. See contract/README.md.",
+  "endpoint": "GET /health",
+  "emittedBy": "src/mcp/health-payload.ts (buildMcpHealthResponse), served by src/commands/mcp/start-command.ts",
+  "consumedBy": [
+    "src/mcp/setup/local-http-apply.ts (classifyDaemonProbe — reads `ready`, falling back to `persistence.mode` for daemons built before mt#4297)",
+    "src/mcp/daemon/local-daemon.ts (adopt-or-fail — asserts `service: \"minsky-mcp\"` before adopting a port holder)",
+    "src/cockpit/widgets/mcp-server-status.ts (HOSTED_MCP_SERVICE — the hosted server's identity assertion)",
+    "docs/local-mcp-daemon.md (the operator-facing description of this surface)",
+    ".github/workflows/bundle-boot-smoke.yml (asserts a 200 within 30s; does NOT read this body)",
+    "cockpit-tray/src-tauri/src/supervisor/daemon_core.rs (probe_health / parse_health_body — reads `service` for identity and keeps the whole body for policy-specific fields; its `is_ours` deliberately does NOT key on the status code)",
+    "cockpit-tray/src-tauri/src/supervisor.rs (the DB-degraded policy and its DB_DEGRADED_POLL_THRESHOLD — cockpit-only until mt#4479 gave the MCP daemon a `db` field of the same shape; mt#4472 owns generalizing it)",
+    "src/mcp/daemon/control.ts (mt#4466's `minsky mcp status` — reads `db`/`dbCheck` when present and falls back to `ready` + `persistence.reason` when they are not)"
+  ],
+  "fields": {
+    "status": "string",
+    "service": "string",
+    "server": "string",
+    "transport": "string",
+    "timestamp": "string",
+    "persistence": "object",
+    "ready": "boolean"
+  },
+  "requiredFields": [
+    "status",
+    "service",
+    "server",
+    "transport",
+    "timestamp",
+    "persistence",
+    "ready"
+  ],
+  "conditionalFields": {
+    "db": "string",
+    "dbCheck": "object",
+    "dbRetry": "object"
+  },
+  "$dbRetryNote": "mt#4562 added `dbRetry` — connection-retry outcome counters (saturationRetries / staleConnectionRetries / retriesExhausted / lastRetryAt). It is listed as CONDITIONAL for a different reason than `db`/`dbCheck`: those are conditional on `persistence.mode === \"connected\"`, whereas this one is conditional only on the CALLER supplying the counters. The production route (src/commands/mcp/start-command.ts) always does, so in a deployed daemon the field is always present — including on `unconfigured` and `unavailable` bodies, deliberately, because monotonic counters describe events that already happened and suppressing them would hide exactly the history an operator diagnosing those states wants. The parameter is optional so that existing callers of buildMcpHealthResponse (its own tests) keep compiling; tightening it to required would break them, which is mt#3969's lesson. Named to sit beside the cockpit's `dbRecycle`: both are the outcome counters of a DB recovery mechanism whose failure mode is silence. TRAP: `saturationRetries: 0` is the EXPECTED steady state, not a health claim — mt#3497 established that pool exhaustion needs more concurrent clients than the transaction pooler production runs on will ever see, so a zero there is structural. `retriesExhausted` is the field that is a fault in either class.",
+  "dbCheckFields": {
+    "checkedAt": "string",
+    "durationMs": "number"
+  },
+  "persistenceFields": {
+    "mode": "string"
+  },
+  "sample": {
+    "status": "ok",
+    "service": "minsky-mcp",
+    "server": "Minsky MCP Server",
+    "transport": "http",
+    "timestamp": "2026-08-22T00:58:00.000Z",
+    "persistence": { "mode": "connected" },
+    "ready": true
+  },
+  "$readyFieldNote": "mt#4297 added `ready`; mt#4322 pinned it. `ready` answers READINESS ('can this daemon serve DB-backed work?'), which is a different question from the LIVENESS the status code answers ('did the process boot?'). They diverge in exactly one case and that divergence is deliberate: `persistence.mode === \"unconfigured\"` is reported HEALTHY (200, `status: \"ok\"`) because it is the expected local/dev/offline boot path AND the exact state `bundle-boot-smoke` asserts a 200 against — while `ready` is false, because every DB-backed call would fail. A consumer that infers readiness from the status code reintroduces the incident this field exists to make visible: a shared daemon served 200 with no persistence provider for 31 hours, and `minsky setup local-http` would have pointed every conversation at it, because 'a Minsky daemon answered' was the whole test. Do NOT derive the status code from `ready`, and do NOT derive readiness from the status code.",
+  "$conditionalFieldsNote": "mt#4479 added `db` and `dbCheck`. They are CONDITIONAL, not required — emitted only when `persistence.mode === \"connected\"`, so the `unconfigured` and `unavailable` bodies stay byte-identical to what they emitted before and the exact-key-set assertion above keeps holding for them. They are a MACHINE-READABLE rendering of the same `ReadinessResult` that decides `ready`; nothing here is new information, it is information that was only available as prose inside `persistence.reason`. The consumer that needs the difference is Rust in a 5s poll loop (cockpit-tray/src-tauri/src/supervisor.rs), which would otherwise regex a sentence written for a human. `db` uses the cockpit's own key name deliberately (contract/cockpit-health-shape.json): that file's DB-degraded policy is CockpitPolicy-only for exactly one stated reason — verbatim, 'only the cockpit's /api/health publishes a `db` field' — so matching the key is what lets one policy read both daemons. Only `ok` and `degraded` are emitted; the cockpit's third value `unreachable` is unrepresentable here because the `connected` precondition already means a provider is wired. TRAP, stated because the obvious reading is wrong: `dbCheck.checkedAt` ADVANCES on every poll, INCLUDING when a previous probe is still outstanding — `assessProbeOutcome` stamps it on all four branches. A stale `checkedAt` is therefore NOT a wedge signal. The wedge signal is `persistence.reason` (which names `outstandingForMs`) or `dbCheck.durationMs`.",
+  "$dbCheckDivergenceNote": "PR #3277 R1. `dbCheck` shares its NAME with the cockpit's (contract/cockpit-health-shape.json) and its MEMBERS do not mean the same things — a reader who assumes symmetry gets both wrong, so the divergence is stated here rather than left to be discovered. (1) `durationMs` is deliberately NOT named `latencyMs`: the cockpit's `latencyMs` is the round-trip of the last SUCCESSFUL probe and is not reset when a later probe fails, so it can sit non-null beside a degraded `db`, describing a last-good measurement rather than the current state; ours is how long THIS check took however it settled, including a timeout. A 43-second timeout emitted under the name `latencyMs` would read to a cross-daemon consumer as a healthy round-trip. A different meaning gets a different name. (2) `checkedAt` shares its name AND has the OPPOSITE behaviour: the cockpit deliberately does not restamp it while a probe is outstanding, so a stale value there IS the wedge signal, whereas `assessProbeOutcome` stamps it on all four branches here, so it always advances. Only `db` itself is safe to read symmetrically across the two daemons — `ok`/`degraded` mean the same thing on both, which is exactly what makes that shared key worth having.",
+  "$fieldGroupSplitNote": "PR #3277 R1 asked whether splitting the schema across `conditionalFields` and `dbCheckFields` is ad-hoc duplication. It follows this file's existing convention rather than inventing one: `persistenceFields` already declares the members of the `persistence` sub-object separately from the top-level `fields` map, and `dbCheckFields` does the same for `dbCheck`. Both ARE validated — src/mcp/health-payload.test.ts iterates `conditionalFields` and `dbCheckFields` and asserts each declared member's type against the emitted body, and a separate assertion pins the emitted key set to `fields` + `conditionalFields` in BOTH directions, so a field added to the emitter without updating this file fails here, and a field declared here that the emitter does not send fails too. `conditionalFields` has to be separate from `fields` for a mechanical reason: `fields` is asserted as an EXACT key set against the unconditional bodies, so listing a conditional field there would break the unconfigured and unavailable cases.",
+  "$readyProbeNote": "mt#4471 changed what `ready` is DERIVED FROM, without changing this shape — no field was added, renamed or retyped, so every consumer listed above is unaffected structurally. It was `persistence.mode === \"connected\"`, which is a claim about the provider's TYPE (`provider.getCapabilities().sql`, a static declaration); it is now that precondition AND an observed round trip against the pool, bounded at 1500ms. The change is that `ready` can now be FALSE while `mode` is `\"connected\"` — a value combination this body could not previously emit, and the one the 2026-08-23 outage needed: a SQL-capable provider whose pool had stopped serving, while /health answered `ready: true` twice across 45 minutes and three dead conversations. When that combination is emitted, `persistence.reason` carries the probe's explanation. The 1500ms bound is derived from the tray supervisor's own 2s HTTP request timeout (cockpit-tray/src-tauri/src/supervisor.rs), NOT from its 5s poll interval: a probe that outlives the request budget makes the daemon read as DOWN rather than NOT-READY, and those two states have opposite recoveries.",
+  "$readyFallbackNote": "mt#4297's consumer-side tolerance is load-bearing and must survive any change here. `classifyDaemonProbe` in src/mcp/setup/local-http-apply.ts reads `ready` WHEN PRESENT and falls back to `persistence.mode` otherwise, because keying on `ready` alone would classify EVERY daemon built before mt#4297 as not-ready — including during the rollout window, which turns a safety check into an outage. So `ready` is required in THIS fixture (the current emitter always sends it) while the consumer stays tolerant of its absence. Those are not in conflict: the fixture pins what this build EMITS, the fallback covers what an OLDER build emits, and a consumer talking to a daemon it did not build cannot assume they match.",
+  "$serviceFieldNote": "mt#3148: `service` is the uniform identity key every Minsky service emits, and it is what makes a health probe able to FAIL. Every Minsky service is built from the same monorepo, so a misconfigured build can put a DIFFERENT application on the host and it answers 200 exactly like the right one (mt#3142: the MCP server served the reviewer's host for ~1h while every reviewer route 404'd, and the status-code check stayed green throughout). Assert this field, not merely the status code. `server` (\"Minsky MCP Server\") is retained UNCHANGED alongside it rather than replaced: mt#3142's own diagnosis read `server`, and mem#704's probe recipe still cites it.",
+  "$transportFieldNote": "Hardcoded \"http\" and correct by construction: this route only exists on the HTTP transport, since the stdio transport serves no HTTP surface at all. It is NOT derived from the transport resolution mt#4322 single-sourced — a stdio process never reaches this code. Recorded because the constant looks like a candidate for that refactor and is deliberately not one.",
+  "$persistenceFieldNote": "`persistence.mode` is one of connected / unconfigured / unavailable (packages/domain/src/persistence/health.ts). `reason` is present ONLY when the assessment supplies one, so a consumer must treat it as optional — which is why it is absent from `persistenceFields` above rather than typed as a required string. `unavailable` is the only mode that flips the status code to 503: it means a Postgres connection WAS configured and initialization failed (a genuine outage), as distinct from `unconfigured`, which means none was configured at all."
+}

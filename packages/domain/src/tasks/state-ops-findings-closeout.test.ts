@@ -18,7 +18,7 @@ function makeTaskService(opts: {
   status?: string;
   spec?: string;
 }): TaskServiceInterface & { statusSpy: ReturnType<typeof mock> } {
-  const statusSpy = mock(async () => {});
+  const statusSpy = mock(async () => ({ recordsAffected: 1 }));
   const service = {
     getTask: mock(async () => ({
       id: "mt#9100",

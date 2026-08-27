@@ -5,7 +5,7 @@ import { cn } from "../lib/utils";
 import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useEntityIndex } from "../lib/use-entity-index";
-import { LinkifiedText } from "../lib/entity-linkifier";
+import { LinkifiedText } from "../components/LinkifiedText";
 
 interface MemorySearchResult {
   record: MemoryRecord;

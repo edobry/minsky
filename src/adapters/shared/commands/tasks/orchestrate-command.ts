@@ -2,12 +2,26 @@
  * Task Orchestrate Command
  *
  * Finds unblocked subtasks of a parent task and returns them ready for dispatch.
- * Composes TaskGraphService (children + deps) with task status resolution.
+ *
+ * The frontier computation itself lives in
+ * `@minsky/domain/tasks/umbrella-frontier` (mt#4571). It was extracted from this
+ * file so the unattended supervisor and this command answer "is this child
+ * blocked?" with ONE implementation — a supervisor that computed it differently
+ * from the command an operator inspects it with would dispatch blocked work and
+ * report that it had not.
+ *
+ * This command keeps its historical `["TODO"]` status default; the supervisor
+ * passes an explicit filter. That default is supplied HERE, at the command
+ * boundary, rather than in the shared function — see that module's docblock for
+ * why the shared function deliberately has none.
  */
 import { z } from "zod";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
-import { isTerminal } from "@minsky/domain/tasks/workflows";
+import {
+  computeUmbrellaFrontier,
+  type UmbrellaFrontierDeps,
+} from "@minsky/domain/tasks/umbrella-frontier";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 
@@ -24,12 +38,26 @@ const tasksOrchestrateParams = {
   },
 } satisfies CommandParameterMap;
 
-interface DispatchableSubtask {
-  taskId: string;
-  title: string;
-  status: string;
-  blockedBy: string[];
-  ready: boolean;
+/**
+ * Bind the shared frontier computation to the real graph + task services.
+ *
+ * Exported so the supervisor's production wiring builds its dependencies the
+ * same way rather than re-deriving which `TaskGraphService` method answers
+ * which half (mt#4571).
+ */
+export function createUmbrellaFrontierDeps(
+  graphService: TaskGraphService,
+  taskService: TaskServiceInterface
+): UmbrellaFrontierDeps {
+  return {
+    listChildren: (parentTaskId) => graphService.listChildren(parentTaskId),
+    getDependsRelationships: async (taskIds) =>
+      await graphService.getRelationshipsForTasks(taskIds, "depends"),
+    getTasks: async (taskIds) => {
+      const tasks = await taskService.getTasks(taskIds);
+      return tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }));
+    },
+  };
 }
 
 export function createTasksOrchestrateCommand(
@@ -52,12 +80,13 @@ export function createTasksOrchestrateCommand(
         statusFilter,
       });
 
-      const service = getTaskGraphService();
+      const frontier = await computeUmbrellaFrontier(
+        parentTaskId,
+        statusFilter,
+        createUmbrellaFrontierDeps(getTaskGraphService(), getTaskService())
+      );
 
-      // Step 1: Get children of the parent
-      const childIds = await service.listChildren(parentTaskId);
-
-      if (childIds.length === 0) {
+      if (frontier.total === 0 && frontier.filteredOut === 0) {
         return {
           success: true,
           parentTaskId,
@@ -67,61 +96,12 @@ export function createTasksOrchestrateCommand(
         };
       }
 
-      // Step 2: Get status + deps for each child
-      const taskService = getTaskService();
-
-      const allSubtasks: DispatchableSubtask[] = [];
-
-      for (const childId of childIds) {
-        let title = "(unknown)";
-        let status = "UNKNOWN";
-
-        try {
-          const task = await taskService.getTask(childId);
-          if (task) {
-            title = task.title;
-            status = task.status;
-          }
-        } catch {
-          // Task not found in backend — use defaults
-        }
-
-        // Skip tasks not in the target status filter
-        if (!statusFilter.includes(status)) {
-          continue;
-        }
-
-        // Check deps — which are unmet?
-        const deps = await service.listDependencies(childId);
-        const blockedBy: string[] = [];
-
-        for (const depId of deps) {
-          try {
-            const depTask = await taskService.getTask(depId);
-            if (depTask && !isTerminal(depTask.status)) {
-              blockedBy.push(depId);
-            }
-          } catch {
-            blockedBy.push(depId); // Can't resolve → assume blocking
-          }
-        }
-
-        allSubtasks.push({
-          taskId: childId,
-          title,
-          status,
-          blockedBy,
-          ready: blockedBy.length === 0,
-        });
-      }
-
-      const dispatchable = allSubtasks.filter((s) => s.ready);
-      const blocked = allSubtasks.filter((s) => !s.ready);
+      const { dispatchable, blocked } = frontier;
 
       // Format output
       const lines: string[] = [];
       lines.push(
-        `${parentTaskId}: ${dispatchable.length} of ${allSubtasks.length} subtask(s) ready for dispatch`
+        `${parentTaskId}: ${dispatchable.length} of ${frontier.total} subtask(s) ready for dispatch`
       );
 
       if (dispatchable.length > 0) {
@@ -162,7 +142,7 @@ export function createTasksOrchestrateCommand(
         parentTaskId,
         dispatchable,
         blocked,
-        total: allSubtasks.length,
+        total: frontier.total,
         output: lines.join("\n"),
       };
     },

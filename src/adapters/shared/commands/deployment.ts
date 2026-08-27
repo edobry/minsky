@@ -21,6 +21,8 @@ import {
   resolveAdapter,
   resolveDeploymentConfig,
   type DeploymentRecord,
+  type DeploymentWaitResult,
+  assessBuildIdentity,
   type LogLine,
 } from "@minsky/domain/deployment";
 // Side-effect import registers built-in adapters with the registry.
@@ -83,11 +85,49 @@ const serviceParam = {
   required: false,
 } as const;
 
+/**
+ * Parameters for the blocking deployment waits.
+ *
+ * ## `timeoutSeconds` over MCP — fixed by mt#1576, and why it was broken
+ *
+ * The transport underneath the MCP shim applies an IDLE timeout, so a command
+ * that holds a request open while emitting nothing is killed regardless of the
+ * budget requested here. Measured 2026-08-22: a `timeoutSeconds: 600` call
+ * failed at **~225 s** with
+ * `minsky mcp shim: daemon request failed: The operation timed out`.
+ *
+ * `context.onProgress?.()` (mt#2677) is the mechanism that defeats it — a
+ * progress notification is transport activity, which resets the idle clock.
+ * Until mt#1576 the emitters were only the PR-polling commands
+ * (`session.pr.checks`, `session.pr.wait-for-review`, and `session.pr.drive`
+ * through its delegation to the latter), and this command was not among them.
+ *
+ * **As of mt#1576 this command emits progress from BOTH of its waiting
+ * phases** — the acquire loop that polls for a deployment newer than
+ * `notBefore`, and the status-poll loop that tracks it to a terminal state.
+ * Both were needed: the acquire loop never reached `onStatusObserved` at all,
+ * and it is where a post-merge verification spends most of its life.
+ *
+ * **This was never the shim's `REQUEST_TIMEOUT_MS`** (`src/mcp/shim/client.ts`),
+ * which is an ABSOLUTE bound sized above the largest declared tool wait
+ * (mt#4455). Which layer actually holds the idle clock was never confirmed —
+ * see mt#1576 Occurrence 8, which says so explicitly — and the fix does not
+ * depend on knowing: progress defeats the clock wherever it lives.
+ *
+ * Correction (mt#1576): this docblock previously listed `session.migrate` among
+ * the emitters. It is not one. `migration-command.ts` has an `onProgress`, but
+ * it takes a `MigrationProgress` object rather than the MCP string message, and
+ * it is never threaded from a command context.
+ */
 const deploymentWaitParams = {
   service: serviceParam,
   timeoutSeconds: {
     schema: z.number().int().positive().optional(),
-    description: "Maximum time to block before timing out. Default: 600 (10 minutes).",
+    description:
+      "Maximum time to block before timing out. Default: 600 (10 minutes). " +
+      "Reachable over MCP as of mt#1576: this command emits progress from both " +
+      "its acquire and status-poll phases, so the transport's idle timeout no " +
+      "longer ends the call before this budget elapses.",
     required: false,
     defaultValue: 600,
   },
@@ -104,7 +144,21 @@ const deploymentWaitParams = {
       "instant will not satisfy the wait — the call keeps polling for a newer one and fails with " +
       "NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a " +
       "specific merge deployed: without it this returns whatever is latest, which can be an " +
-      "arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
+      "arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890). " +
+      "NECESSARY BUT NOT SUFFICIENT (mt#4583): this bounds TIME, and time does not identify WHICH " +
+      "change deployed — a neighbouring merge's deployment lands inside the window and passes. " +
+      "Pass expectCommitSha too.",
+    required: false,
+  },
+  expectCommitSha: {
+    schema: z.string().min(1).optional(),
+    description:
+      "The merge commit you are verifying deployed (mt#4583). When set, the result carries a " +
+      "`buildIdentity` verdict — 'confirmed' (the deployment names this commit), 'mismatch' (it " +
+      "names a different one, so a deploy happened but not yours), or 'indeterminate' (the record " +
+      "cannot answer; image-source services carry no commit hash at all). Read it: 'indeterminate' " +
+      "is NOT 'confirmed', and treating a bare SUCCESS as proof your change shipped is the defect " +
+      "this parameter exists to remove.",
     required: false,
   },
 };
@@ -211,7 +265,7 @@ export function registerDeploymentCommands(): void {
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "deployment.wait-for-latest",
-      category: CommandCategory.TOOLS,
+      category: CommandCategory.DEPLOYMENT,
       name: "wait-for-latest",
       description:
         "Block until the latest deployment for the configured service reaches a terminal state " +
@@ -219,7 +273,7 @@ export function registerDeploymentCommands(): void {
         "Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
       requiresSetup: false,
       parameters: deploymentWaitParams,
-      execute: async (params, ctx): Promise<DeploymentRecord> => {
+      execute: async (params, ctx): Promise<DeploymentWaitResult> => {
         const { service, config } = await resolveDeploymentConfig(
           params.service as string | undefined,
           undefined,
@@ -230,16 +284,28 @@ export function registerDeploymentCommands(): void {
           service,
           platform: config.platform,
         });
+        const expectCommitSha = params.expectCommitSha as string | undefined;
         const result = await adapter.waitForLatestDeployment({
           timeoutSeconds: params.timeoutSeconds as number,
           pollIntervalSeconds: params.pollIntervalSeconds as number,
           notBefore: params.notBefore as string | undefined,
           onStatusObserved: makeDeployBuildObserver(ctx?.container, service),
+          // mt#1576: keeps the MCP transport from reading this wait as idle.
+          // Separate from the observer above, which fires only once a
+          // deployment is being tracked — see WaitForLatestOptions.onProgress.
+          onProgress: ctx?.onProgress,
         });
+
+        // mt#4583: the status answers "did a deploy finish?"; this answers
+        // "was it MINE?". Logged alongside the status so an operator reading
+        // service logs sees both, not just the half that always looks fine.
+        const identity = assessBuildIdentity(result, expectCommitSha);
         log.info("deployment.wait-for-latest: complete", {
           service,
           deploymentId: result.id,
           status: result.status,
+          buildIdentity: identity.identity,
+          buildIdentityReason: identity.reason,
         });
 
         // Emit deploy.live / deploy.fail system event (best-effort, informational
@@ -247,7 +313,11 @@ export function registerDeploymentCommands(): void {
         const event = mapDeploymentRecordToEvent(result, service);
         await emitSystemEventBestEffort(ctx?.container, event);
 
-        return result;
+        return {
+          ...result,
+          buildIdentity: identity.identity,
+          buildIdentityReason: identity.reason,
+        };
       },
     })
   );
@@ -255,7 +325,7 @@ export function registerDeploymentCommands(): void {
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "deployment.status",
-      category: CommandCategory.TOOLS,
+      category: CommandCategory.DEPLOYMENT,
       name: "status",
       description:
         "Read-only snapshot of the latest deployment for the configured service. " +
@@ -277,7 +347,7 @@ export function registerDeploymentCommands(): void {
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "deployment.logs",
-      category: CommandCategory.TOOLS,
+      category: CommandCategory.DEPLOYMENT,
       name: "logs",
       description:
         "Fetch build or deploy logs for a specific deployment. Block-and-return; " +

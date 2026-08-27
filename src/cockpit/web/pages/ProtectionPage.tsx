@@ -88,15 +88,29 @@ function HealthBanner({
       </p>
     );
   }
-  if (health.kind === "unknown") {
+  // Two indeterminate facts, rendered as two sentences and, when both hold, both
+  // (mt#4605). The COUNTS drive this, not `kind` — a snapshot can carry both at
+  // once, and the single `unknown` sentence this replaces named only the
+  // transient cause. On 2026-08-25 that told the operator its history "wasn't
+  // available on the last refresh" while 81 of 149 checks had no history to be
+  // unavailable: a banner that cannot clear, wearing the wording of one that will.
+  if (health.sourceUnavailableCount > 0 || health.neverVerifiedCount > 0) {
     return (
-      <p
-        className="text-[12px] font-mono text-warn-amber border border-warn-amber/40 rounded px-2 py-1.5 m-0"
-        data-testid="protection-health-unknown"
-      >
-        Can&apos;t confirm the checks are working — that history wasn&apos;t available on the last
-        refresh. This is not the same as everything being fine.
-      </p>
+      <div className="text-[12px] font-mono text-warn-amber border border-warn-amber/40 rounded px-2 py-1.5 flex flex-col gap-1">
+        {health.sourceUnavailableCount > 0 ? (
+          <p className="m-0" data-testid="protection-health-source-unavailable">
+            {pluralize(health.sourceUnavailableCount, "check")} of {health.totalChecks} couldn&apos;t
+            be read on the last refresh — that history wasn&apos;t available.
+          </p>
+        ) : null}
+        {health.neverVerifiedCount > 0 ? (
+          <p className="m-0" data-testid="protection-health-never-verified">
+            {pluralize(health.neverVerifiedCount, "check")} of {health.totalChecks} have never been
+            verified — nothing has ever tested that they fire, and refreshing won&apos;t change that.
+          </p>
+        ) : null}
+        <p className="m-0">This is not the same as everything being fine.</p>
+      </div>
     );
   }
   // The calm line. One sentence, no chrome, no grid — see the module note.
@@ -191,9 +205,22 @@ function ClassRow({ cls }: { cls: ProtectionClassSummary }) {
           {pluralize(cls.degradedCount, "check")} here not working.
         </p>
       ) : null}
-      {cls.health === "unknown" ? (
+      {cls.sourceUnavailableCount > 0 ? (
         <p className="text-[10px] font-mono text-warn-amber mt-1 m-0">
-          Can&apos;t confirm these are working.
+          {pluralize(cls.sourceUnavailableCount, "check")} here couldn&apos;t be read on the last
+          refresh.
+        </p>
+      ) : null}
+      {/* Muted, not amber, and the colour carries meaning rather than emphasis:
+          amber is a LIVE problem (a read failed just now), and a standing gap is
+          not one. Rendered amber this line lands on nearly every row — measured
+          on the live corpus, 8 of 11 classes — which turns the page's alarm
+          colour into its background texture and re-creates choice 1's
+          all-green-grid failure from the other direction. The corpus banner
+          above already states the ratio once, loudly. */}
+      {cls.neverVerifiedCount > 0 ? (
+        <p className="text-[10px] font-mono text-muted-foreground mt-1 m-0">
+          {pluralize(cls.neverVerifiedCount, "check")} here have never been verified.
         </p>
       ) : null}
     </li>

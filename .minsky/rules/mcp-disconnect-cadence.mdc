@@ -13,7 +13,7 @@ The Minsky MCP server tracks disconnect, reconnect, and process-lifecycle
 events for both the local stdio server and the hosted HTTP server. Operators
 read the cadence via `mcp__minsky__debug_systemInfo` (under `mcpDisconnects`)
 and the persisted JSONL log at
-`~/.local/state/minsky/mcp-disconnect-log.json`.
+`~/.local/state/minsky/mcp-disconnect-log*.json`.
 
 > **Terminology (mt#2525).** Throughout this rule, **"session"** and
 > **"disconnect"** mean an **MCP transport connection** — a single MCP server
@@ -65,8 +65,38 @@ the tracker now distinguishes (mt#1682):
    (`"Minsky MCP Server"` / `"minsky-hosted"`) are unaffected. Routine clean
    exits (code 0, no signal — the common `staleness_exit` case) are
    deliberately NOT duplicated here; the inner already records those with a
-   more specific cause. **Counts toward escalation** (not by-design — an
-   external actor caused it).
+   more specific cause. **Escalation treatment splits by cause, and the split
+   is not obvious from this paragraph (corrected mt#4481):**
+   `signal_sigkill` and `proxy_observed_crash` **count toward escalation** —
+   they are absent from `SERVER_INITIATED_CAUSES`, and an external actor
+   caused them. But `signal_sigterm` / `signal_sigint` / `signal_sighup` are
+   **excluded** even when the proxy is the one recording them, because the
+   escalation predicate keys on the CAUSE, not on which process observed it,
+   and class 4 already excludes those three. This paragraph read as a blanket
+   "counts toward escalation" until mt#4481, which was right for two of its
+   five causes.
+7. **Signals with no dedicated taxonomy entry (mt#4481)** — the bare
+   `cause: "signal"`, emitted by `classifyExitForDisconnectLog`'s `default:`
+   branch (`src/mcp/stdio-proxy/proxy.ts`) for any signal outside
+   SIGKILL/SIGTERM/SIGINT/SIGHUP: SIGBUS, SIGSEGV, SIGABRT, SIGTRAP, and so
+   on. Like class 6 it is proxy-observed and carries
+   `serverName: "minsky-proxy"`. **Read `event.signal` for the actual signal
+   name** — this generic bucket exists so these do not collapse into
+   `"unknown"`, and the raw name is always recorded alongside.
+   **COUNTS toward escalation as of mt#4499** — these are runtime crashes, and
+   surfacing them is what the escalation signal is for. It was EXCLUDED until
+   then: `"signal"` sat in `SERVER_INITIATED_CAUSES`, placed there on
+   2026-05-08 by mt#1682 when the cause was a dormant backward-compat
+   placeholder with no producer and "a signal" meant SIGTERM / SIGINT /
+   SIGHUP. mt#2830 then adopted the dormant value for CRASH signals; the
+   meaning changed and the membership did not. Removing it reclassified no
+   historical record — no record ever carried the old meaning. Worth opening
+   when it appears: on the
+   principal's machine every one of the 156 such records was a runtime crash
+   of the inner server, including Bun panics whose `stderrTail` carries the
+   full crash report. This cause has been emitted since mt#2830 but went
+   undocumented here until mt#4481, so a reader classifying a cause
+   distribution had no entry for roughly 2% of it.
 
 ## Staleness-exit drain semantics (mt#2701, mt#2830)
 
@@ -148,6 +178,18 @@ The tracker emits `escalation: "none" | "session" | "daily"` in the
 "Escalation-eligible" means ALL of:
 - `kind: "disconnect"`
 - `cause ∉ {staleness_exit, signal_sigterm, signal_sigint, signal_sighup, server_close, idle_timeout}`
+  — this list must match `SERVER_INITIATED_CAUSES` in
+  **`src/mcp/disconnect-escalation.ts`** exactly, and
+  `disconnect-tracker.test.ts` asserts it. Note `signal_sigkill`,
+  `proxy_observed_crash` and (since mt#4499) the bare `signal` are deliberately
+  NOT in the set — they DO escalate.
+  *History, corrected:* mt#4481 said "the bare `signal` was added to the code by
+  mt#2830 and to this list by mt#4481." Wrong on the first half — `git blame`
+  puts it in the set on 2026-05-08 via mt#1682 (`32283680c7`), two months before
+  mt#2830 gave the cause a producer. mt#4499 removed it and moved the
+  definition out of `disconnect-tracker.ts` into a dependency-free module,
+  because a THIRD hand-copy in `src/cockpit/widgets/s3-gauges.ts` had been
+  disagreeing with both.
 - `uptimeMs >= 5_000` (or `uptimeMs` absent — legacy mt#1645 events without
   uptime are counted conservatively)
 - `processRole !== "helper"` (mt#1705 — helper sessions never escalate;
@@ -178,32 +220,228 @@ The legacy mt#1645 single-array JSON format is still readable on load
 (backward-compat migration). After upgrade, new events append as JSONL
 lines after the legacy array; both halves load on the next restart.
 
+### The legacy seam, and why a zero-row read is not silence (mt#4481)
+
+A log that predates the mt#1682 migration has a **hybrid** shape: a
+pretty-printed `[ … ]` array, then JSONL. Until mt#4481 the two halves were
+GLUED — the mt#1645 writer ended its file with `]` and no trailing newline,
+and `appendEvent` wrote only a trailing one, so the first appended record
+landed on the same line as the closing bracket:
+
+```
+]{"timestamp":"…","serverName":"…","kind":"process_start","cause":"process_start","pid":91211}
+```
+
+`appendEvent` now writes a leading newline when the file does not already end
+in one, so no new seam can form — but **a file that already carries one keeps
+it**, and the tracker's own loader tolerates it, so nothing repairs it for you.
+
+**What it breaks, and only this:** `jq` aborts a stream at its first parse
+error, and the seam line is the FIRST line a `"kind":"process_start"` grep
+matches (the legacy array is pretty-printed, so `"kind": "process_start"` with
+a space never matches the compact pattern). So the *restart* query — and no
+other — dies with `jq: parse error: Unmatched ']'` at **exit 5, emitting zero
+rows**. The `disconnect` recipes below are unaffected because that line is not
+a `disconnect`.
+
+**Do not read that zero as "the tracker stopped recording."** It is the shape
+that produced exactly that misreading on 2026-08-23, costing a task filed
+against a healthy subsystem. Two ways to tell in one command each:
+
+```bash
+# Is there a seam? Exactly one hit means yes; zero means the file is clean.
+grep -c '^\]' ~/.local/state/minsky/mcp-disconnect-log.json
+
+# Read it anyway: jq's slurp parser treats `]{` as two documents, so this
+# works with or without a seam. Slower (loads the whole file), always correct.
+jq -s -r '[.[] | if type=="array" then .[] else . end]
+  | map(select(type=="object" and .kind=="process_start"))
+  | sort_by(.timestamp) | .[-5:] | .[] | "\(.timestamp) pid=\(.pid)"' \
+  ~/.local/state/minsky/mcp-disconnect-log.json
+```
+
+To repair a seamed file in place — splitting the line, changing nothing else:
+
+```bash
+perl -0pi -e 's/\]\{/]\n{/' ~/.local/state/minsky/mcp-disconnect-log.json
+```
+
+Confirm with `jq -s length` before and after; the counts must match.
+
+### The hybrid itself is retired on this host (mt#4558)
+
+**This host's log is now uniform JSONL** — the legacy 65-record array was
+converted by `scripts/normalize-disconnect-log.ts`, so every non-blank line
+parses on its own and every recipe below works with no caveat. The seam
+described above is history HERE.
+
+**Everything above is kept anyway, because it is not history everywhere.**
+Another machine, a restored backup, or an old `~/.local/state/minsky` will
+still present the hybrid, and all four readers still handle it — the tracker's
+`loadFromDisk`, `disconnect-event-sweep.ts`, the cockpit's `s3-gauges.ts`
+widget, and `measure-escalation-blast-radius.ts`. The section above is how you
+RECOGNISE one; this section is how you retire it:
+
+```bash
+bun scripts/normalize-disconnect-log.ts              # preview: counts, no writes
+bun scripts/normalize-disconnect-log.ts --execute    # backup, convert, verify
+```
+
+It is a no-op on an already-uniform file, so it is safe to run blind.
+
+## The log is segmented by month, and the recipes glob (mt#4495)
+
+The corpus is no longer one file. The ACTIVE file keeps its exact name and path;
+completed months sit beside it:
+
+```
+mcp-disconnect-log.json           <- active, still the path every writer appends to
+mcp-disconnect-log-2026-07.json   <- one segment per calendar month, never deleted
+mcp-disconnect-log-2026-08.json
+```
+
+**Every census recipe below therefore globs — `mcp-disconnect-log*.json`.** Three
+properties make that a one-character change rather than a rewrite, and each was
+verified rather than assumed:
+
+- The recipes already use `grep -h`, which suppresses filename prefixes. That
+  flag was there for readability and turns out to be exactly what multi-file
+  needs.
+- **Shell expansion is already chronological, with the active file LAST.** `-`
+  (0x2D) sorts before `.` (0x2E), so `…log-2026-05.json` … `…log-2026-12.json`
+  precede `…log.json`. Nothing needs sorting.
+- The glob requires a `.json` suffix, so it excludes the normalizer's backups
+  (`…log.json.backup-<iso>`) and the sweep's `mcp-disconnect-sweep-hwm.json`.
+  Both would otherwise corrupt a census — the backup by double-counting.
+
+**A recipe that reads only `mcp-disconnect-log.json` now answers a question about
+the CURRENT MONTH, not about history.** That is the failure mode worth naming: it
+returns a clean, plausible number with no error, and the narrowing is invisible
+unless you knew to look. On the first day of a month it can approach zero. If you
+mean history, glob.
+
+The seam-detection and in-place repair commands above deliberately do NOT glob:
+`perl -0pi` rewrites one file, and `grep -c` over a glob prints per-file counts
+instead of one number. Run them per-segment if a hybrid ever turns up in one.
+
+**Retention: nothing is deleted, ever.** The decision and its measurement are in
+mt#4495. The short version is that the `system_events` projection of this log is
+not a substitute for it — 48% of the records, missing the first 57 days, and
+`kind` absent from every row (mt#4617) — so a deleted segment is unrecoverable.
+
+**Check uniformity with a line-by-line parse, never `jq -s`.** Slurp SUCCEEDS
+on a hybrid — that is how mt#4481 confirmed record counts across the repair —
+so it reports a clean pass on precisely the state you are trying to detect. A
+probe that cannot fail is not verification:
+
+```bash
+# Non-parsing lines. 0 = uniform. A pretty-printed array head shows ~392.
+awk 'NF' ~/.local/state/minsky/mcp-disconnect-log*.json \
+  | while IFS= read -r l; do printf '%s' "$l" | jq -e . >/dev/null 2>&1 || echo BAD; done | wc -l
+```
+
 Quick consumer commands:
 
 ```bash
 # Cause distribution today
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.cause' | sort | uniq -c
 
 # Role distribution today (mt#1705)
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.processRole // "legacy"' | sort | uniq -c
 
 # Eligible-only count (main_session long-lived harness closures)
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq 'select(.uptimeMs >= 5000 and .cause == "stdin_close" and .processRole == "main_session")'
 
 # Process count today
-grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
+grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log*.json
+
+# Most recent restarts (timestamp + pid) — the "why did the daemon go down?" query.
+# Correlate the newest pid against `minsky mcp status` to confirm it is the live one.
+# NOTE: this is the recipe the seam breaks. If it exits 5 with `Unmatched ']'`,
+# the file has a seam — see "The legacy seam" above; do NOT read it as silence.
+grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log*.json \
+  | jq -r '"\(.timestamp) pid=\(.pid)"' | tail -5
+
+# Restarts per day — the input to a cadence question (mt#4487). Report the
+# per-day counts, never a pooled average: this cadence is strongly bimodal
+# (quiet periods vs active src/ merging) and a mean describes neither regime.
+grep -h '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log*.json \
+  | jq -r '.timestamp[0:10]' | sort | uniq -c
 
 # Proxy-observed exits with full diagnostics (mt#2830) — SIGKILL/crash cases
-grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq '{timestamp, cause, exitCode, signal, stderrTail, lastTransportEvent}'
 
 # Unknown-cause share (the mt#2830 gap-analysis metric)
-grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log*.json \
   | jq -r '.cause' | sort | uniq -c | awk '$2=="unknown"{u=$1} {t+=$1} END{printf "%d/%d (%.1f%%)\n", u+0, t, 100*(u+0)/t}'
 ```
+
+## `unknown` on an HTTP session is a protocol default, not a classification gap (mt#4511)
+
+Before re-filing "most disconnects are unclassified", read this section — mt#4511 was filed on
+exactly that premise and the premise was wrong.
+
+**Every recipe above scopes itself to `"kind":"disconnect"`, and that is load-bearing.** A cause
+answers "why did a connection END?", so it is meaningful only for an ending. Until mt#4511
+`debug_systemInfo`'s `mcpDisconnects.byCause` did NOT apply that filter — it counted every event
+kind, including `reconnect` (whose cause defaulted to `unknown`) and `process_start` (whose cause
+repeats its kind). So the tool surface and these recipes answered the same question differently,
+and the tool's answer was the misleading one. Measured 2026-08-25T00:58Z: `byCause` reported 235
+of 289 events `unknown` (81%), of which **183 were reconnects**; over disconnects alone the figure
+was 56 of 86 (65%). `byCause` now filters like `byRole` and agrees with these recipes; reconnects
+now record the tautological cause `reconnect`.
+
+**Of the disconnects that remain `unknown`, most are HTTP sessions closing normally.**
+`server.ts` wires every per-session HTTP `Server` with `"unknown"` as its default cause, because
+the transport close event does not distinguish client-initiated from server-initiated closes at
+the protocol level. That is a property of the protocol, not a gap in this taxonomy — adding cause
+markers cannot reduce it. Treat a large `unknown` share as expected for HTTP and interrogate it
+only when the DISCONNECT COUNT itself moves.
+
+**`uptimeMs` on a disconnect is the SESSION's lifetime, not the process's (mt#4511).** They
+coincide for stdio (one process binds 1:1 with one session) and diverge sharply for HTTP, where
+many short sessions live inside one long-running daemon. Before mt#4511 it was always process
+uptime, so the `uptimeMs >= 5000` leg of the eligibility predicate — the one that exists to
+exclude short-lived probes — could not fire for any HTTP session, and routine ~60s poll churn
+counted toward escalation. That is why escalation sat at `daily`: not a reliability regression,
+but per-minute poll sessions each reporting the daemon's multi-hour age. When reading events
+recorded BEFORE mt#4511, remember their `uptimeMs` is process age and cannot tell you how long
+the session lived.
+
+Consequence for the `Eligible-only count` recipe above: it hard-codes `.cause == "stdin_close"`,
+so it describes the stdio population and silently excludes HTTP sessions entirely. That is a
+narrower question than `escalation` answers — do not read the two as the same number.
+
+### The ~60s runs are distinct poll sessions, not one process re-recording (mt#4511)
+
+You will see runs of `unknown` disconnects spaced **exactly 60s apart, with `uptimeMs`
+incrementing by exactly 60,000 ms**. Measured 2026-08-25: 20 of 56 unclassified disconnects sat in
+5 such runs, the longest 7 events (00:38:13Z → 00:44:13Z). It reads like one live process emitting
+a disconnect per minute. **It is not — do not re-open this as a duplicate-recording bug.**
+
+`processRole` is the discriminator, and it is decisive. `recordDisconnect` EVICTS the session's
+tool-call count, so a single session disconnecting repeatedly would classify as `helper` on every
+event after the first. The observed sequences do the opposite:
+
+```
+run of 3: main_session -> main_session -> main_session
+run of 4: helper -> main_session -> main_session -> main_session
+run of 7: main_session -> main_session -> main_session -> main_session -> helper -> main_session -> helper
+```
+
+**12 of the 15 non-first events are `main_session`**, which is only possible if a DISTINCT session
+made its own tool call after the previous eviction. These are separate HTTP sessions on a ~60s
+client poll cadence.
+
+The exactly-60,000 ms uptime delta was itself the pre-mt#4511 bug, not evidence of a loop: every
+session stamped the DAEMON's age, so N sessions 60s apart in one daemon necessarily showed uptimes
+60s apart. Post-mt#4511 these same sessions report their own short lifetimes and drop out of
+escalation. Reproduce the check by grouping `kind=="disconnect"` events on `(gap ≈ 60s AND uptime
+delta ≈ 60s)` and reading the `processRole` sequence within each run.
 
 ## Cross-references
 
@@ -225,6 +463,13 @@ grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
   fields this task adds are exactly the missing signal their diagnosis needs;
   neither task is closed by this work, but both should be revisited with the
   richer log now available.
+- `mt#4481` — the legacy→JSONL seam: `appendEvent` now writes a leading
+  newline when the file lacks one, the generic `signal` cause class (7) is
+  documented, and the restart-query recipes above are the ones the seam broke
+- `mt#4495` — the same file has no rotation: ~4.2 MB and growing, fully
+  re-parsed on every process start to retain 500 in-memory events
+- `mt#4487` — restart cadence per regime; consumes the `process_start` recipes
+  above and is the reason the per-day recipe warns against pooling
 - `src/mcp/disconnect-tracker.ts` — implementation
 - `src/mcp/stdio-proxy/proxy.ts` — proxy-side child-close observation,
   `classifyExitForDisconnectLog`, stderr-tail capture (mt#2830)

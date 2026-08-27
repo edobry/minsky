@@ -197,3 +197,120 @@ export function passCaretK(n: number, c: number, k: number): number {
   if (c < k) return 0;
   return nCr(c, k) / nCr(n, k);
 }
+
+// ---------------------------------------------------------------------------
+// Inter-rater agreement (Cohen's kappa)
+// ---------------------------------------------------------------------------
+
+/**
+ * The outcome of a Cohen's-kappa computation over two raters.
+ *
+ * A bare `number` is deliberately NOT the return type. Kappa has two
+ * degenerate cases whose natural numeric answers collide with legitimate
+ * results, and this benchmark exists precisely to detect a judge that has
+ * quietly stopped judging (mt#4616): an empty label set returning `0` is
+ * indistinguishable from two raters agreeing at exactly chance, and the
+ * single-category case is `0/0`. Both are surfaced explicitly instead.
+ */
+export interface CohensKappaResult {
+  /**
+   * Kappa itself, or `null` when it is mathematically undefined — read
+   * `degenerate` before reporting the number.
+   */
+  kappa: number | null;
+  /** Fraction of items the two raters labeled identically. */
+  observedAgreement: number;
+  /** Agreement expected from the two raters' marginal distributions alone. */
+  expectedAgreement: number;
+  /** Number of paired items scored. */
+  n: number;
+  /**
+   * Set when `kappa` is `null`.
+   *
+   * `single-category`: every item drew the same label from BOTH raters, so
+   * the marginals put all mass on one category, expected agreement is 1, and
+   * kappa is `0/0`. Observed agreement is 1 and the raters may genuinely be
+   * identical — but kappa cannot distinguish that from a rater stuck on a
+   * constant, which is the exact failure this benchmark guards against. The
+   * caller must report `observedAgreement` and the degeneracy, not a kappa.
+   */
+  degenerate?: "single-category";
+}
+
+/**
+ * Cohen's kappa for two raters over NOMINAL categories.
+ *
+ *   kappa = (po - pe) / (1 - pe)
+ *
+ * where `po` is observed agreement and `pe` is the agreement expected from
+ * the raters' independent marginal distributions.
+ *
+ * Categories are compared by string equality and are treated as unordered —
+ * no partial credit for "close" labels. That is the intended semantics for
+ * this benchmark's label set (`valid_blocking` / `valid_nonblocking` /
+ * `false_positive` / `cant_tell`): mapping them onto a 0-100% scale would
+ * silently make the statistic ordinal-over-nominal and inflate it, which is
+ * why mt#2746 stores labels as strings in `expected` rather than as
+ * Braintrust's percentage-valued categorical score.
+ *
+ * @throws if the two arrays differ in length, or if they are empty. Kappa
+ * over zero items is not a low score — it is the absence of a measurement,
+ * and returning a number for it would let an empty join read as a result.
+ */
+export function cohensKappa(raterA: string[], raterB: string[]): CohensKappaResult {
+  if (raterA.length !== raterB.length) {
+    throw new Error(
+      `cohensKappa: rater arrays must be the same length (got ${raterA.length} and ${raterB.length}); ` +
+        `a length mismatch means the join that produced them dropped or duplicated items`
+    );
+  }
+  const n = raterA.length;
+  if (n === 0) {
+    throw new Error(
+      "cohensKappa: cannot compute kappa over 0 paired items — an empty join is a missing measurement, not an agreement of 0"
+    );
+  }
+
+  let agreeCount = 0;
+  const marginalA = new Map<string, number>();
+  const marginalB = new Map<string, number>();
+  for (let i = 0; i < n; i++) {
+    const a = raterA[i] as string;
+    const b = raterB[i] as string;
+    if (a === b) agreeCount++;
+    marginalA.set(a, (marginalA.get(a) ?? 0) + 1);
+    marginalB.set(b, (marginalB.get(b) ?? 0) + 1);
+  }
+
+  const observedAgreement = agreeCount / n;
+
+  // Expected agreement sums over every category EITHER rater used. A category
+  // used by only one rater contributes 0 (the other's marginal is 0), so the
+  // union is the correct index set and omitting it would overstate pe.
+  let expectedAgreement = 0;
+  for (const category of new Set([...marginalA.keys(), ...marginalB.keys()])) {
+    const pA = (marginalA.get(category) ?? 0) / n;
+    const pB = (marginalB.get(category) ?? 0) / n;
+    expectedAgreement += pA * pB;
+  }
+
+  // pe === 1 only when both raters put all their mass on one shared category.
+  // Compare with a tolerance: pe is a sum of products of rationals and can
+  // land a few ulps below 1 for a large n.
+  if (Math.abs(1 - expectedAgreement) < Number.EPSILON * 8) {
+    return {
+      kappa: null,
+      observedAgreement,
+      expectedAgreement,
+      n,
+      degenerate: "single-category",
+    };
+  }
+
+  return {
+    kappa: (observedAgreement - expectedAgreement) / (1 - expectedAgreement),
+    observedAgreement,
+    expectedAgreement,
+    n,
+  };
+}

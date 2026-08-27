@@ -22,7 +22,8 @@
  * @see mt#3233 — the auto-resolve incident that motivated a confirm step at all
  */
 import { Card, CardContent } from "./ui/card";
-import { Button } from "./ui/button";
+import { PendingButton } from "./PendingButton";
+import { ErrorState } from "./ErrorState";
 import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import { composeResolvePayload, type AskItem } from "../widgets/AskDetail";
 import type { ResolveProposal } from "../lib/resolve-proposal";
@@ -72,6 +73,16 @@ export interface ResolveProposalCardProps {
   onConfirm: (optionLetter: string) => void;
   /** True while a resolve/defer/escalate is already in flight. */
   disabled: boolean;
+  /**
+   * True while THIS card's own confirm is the request in flight (mt#4503).
+   *
+   * Distinct from `disabled`, which is also true when the detail panel's option
+   * buttons are the ones saving. Only the control the operator actually clicked
+   * should claim to be working.
+   */
+  confirming?: boolean;
+  /** The confirm's failure, when it failed (mt#4503). */
+  error?: unknown;
 }
 
 export function ResolveProposalCard({
@@ -79,6 +90,8 @@ export function ResolveProposalCard({
   proposal,
   onConfirm,
   disabled,
+  confirming = false,
+  error,
 }: ResolveProposalCardProps) {
   const option = resolveProposalOption(ask, proposal.optionLetter);
 
@@ -130,18 +143,25 @@ export function ResolveProposalCard({
         </div>
 
         <div className="flex items-center gap-2 pt-1">
-          <Button
+          <PendingButton
             variant="outline"
             size="sm"
+            pending={confirming}
             disabled={disabled}
             onClick={() => onConfirm(proposal.optionLetter)}
           >
             Confirm and answer
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Nothing is committed until you confirm.
+          </PendingButton>
+          {/* The reassurance is only true while nothing has been sent. Once the
+              confirm is in flight the honest line is what is happening. */}
+          <span className="text-xs text-muted-foreground" role={confirming ? "status" : undefined}>
+            {confirming ? "Saving your response…" : "Nothing is committed until you confirm."}
           </span>
         </div>
+
+        {!confirming && error != null && (
+          <ErrorState prefix="Your response was not saved" error={error} className="text-xs" />
+        )}
       </CardContent>
     </Card>
   );

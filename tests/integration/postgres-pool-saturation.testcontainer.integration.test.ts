@@ -87,14 +87,32 @@ function makeNoOpWaitStrategy(defaultTimeoutMs: number): WaitStrategy {
   return strategy;
 }
 
-// Server-side max_connections. We bump above the strict minimum so that
-// Postgres background workers (autovacuum) and superuser_reserved_connections
-// don't squeeze the effective ceiling below what the test expects.
+// Server-side max_connections. Bumped above the strict minimum so that Postgres
+// background workers don't squeeze the effective ceiling below what the test
+// expects.
+//
+// Note this is the HARD ceiling for every test here: the harness connects as
+// `postgres`, a superuser, and PostgreSQL's superuser_reserved_connections
+// reserves slots FOR superusers rather than withholding them ("new connections
+// will be accepted only for superusers" —
+// https://www.postgresql.org/docs/16/runtime-config-connection.html). So that
+// setting cannot squeeze this harness's ceiling, and it was never the hazard
+// the 5→10 bump was defending against (mt#4347).
 const MAX_CONNECTIONS = 10;
 
-// poolSize the shared helper sees. It will hold POOL_SIZE long-lived clients
-// to consume the ceiling, then race POOL_SIZE+5 more that must retry —
-// saturation guaranteed even with a few connections held by background work.
+// poolSize the shared helper sees. NOT by itself the number of connections a
+// test holds — the two groups differ, see `saturatingClients` in the shared
+// helper for why. AT-1/AT-2 hold POOL_SIZE and race POOL_SIZE+5 consumers, so
+// their combined demand (21) far exceeds this ceiling; AT-3/AT-4 hold POOL_SIZE+5
+// and open one, so the held connections are their entire saturation mechanism.
+//
+// This comment previously read "it will hold POOL_SIZE long-lived clients to
+// consume the ceiling" — which was false from the moment MAX_CONNECTIONS was
+// decoupled from it: 8 held against a ceiling of 10 leaves two slots free, so
+// the single-consumer tests never had to retry. AT-4 failed its own vacuity
+// guard for 119 days and AT-3 reported green throughout. Keep POOL_SIZE BELOW
+// MAX_CONNECTIONS deliberately — the over-provisioning is what guarantees
+// saturation now, so the two constants no longer have to agree (mt#4347).
 const POOL_SIZE = 8;
 
 // Image with pgvector pre-installed so the AT-4 vector-storage path can run.

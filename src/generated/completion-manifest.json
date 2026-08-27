@@ -1310,7 +1310,7 @@
             },
             {
               "name": "freshness",
-              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited",
+              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was authored, flagging which changed before its last edit",
               "options": [
                 {
                   "flags": ["--repo"],
@@ -2434,6 +2434,59 @@
           "commandId": "tasks.orchestrate"
         },
         {
+          "name": "supervise",
+          "description": "Start walking an umbrella's task DAG unattended: the cockpit daemon dispatches each child as its dependencies clear, up to a WIP limit, with no further operator input. The supervisor dispatches only — it never merges, answers asks, or changes scope.",
+          "options": [
+            {
+              "flags": ["--status"],
+              "description": "Child statuses the supervisor treats as dispatchable (comma-separated). Default: TODO,READY. Stated explicitly rather than inherited from tasks_orchestrate's TODO-only default, which would silently skip every already-planned child.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--wip-limit"],
+              "description": "Maximum concurrently-dispatched children. Default 4, which is the observed maximum per-umbrella concurrency over the 60 days to 2026-08-25 (median 1, p90 1, p95 2, max 4).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--model"],
+              "description": "Dispatch model alias for the children (e.g. sonnet). Omitted -> the claude binary's own default.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Umbrella task ID to supervise (e.g. mt#4553)"
+            }
+          ],
+          "commandId": "tasks.supervise"
+        },
+        {
+          "name": "supervision-status",
+          "description": "Report an umbrella's supervision: what is dispatched right now, what the supervisor is waiting on, every child it has started and how each finished, and whether it has stalled.",
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Umbrella task ID"
+            }
+          ],
+          "commandId": "tasks.supervision-status"
+        },
+        {
+          "name": "supervise-stop",
+          "description": "Stop supervising an umbrella. Children already dispatched keep running — they are ordinary driven sessions doing real work, and killing them would discard uncommitted output. Stopping means the supervisor dispatches nothing further.",
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Umbrella task ID"
+            }
+          ],
+          "commandId": "tasks.supervise-stop"
+        },
+        {
           "name": "decompose",
           "description": "Gather task context and generate a decomposition prompt for creating subtasks",
           "options": [
@@ -2516,6 +2569,18 @@
                 }
               ],
               "commandId": "tasks.claims.list"
+            },
+            {
+              "name": "release",
+              "description": "Release this caller's presence claim on a task — record that you are done with it instead of waiting out the 15-minute TTL. Advisory only: a task with no claim is NOT thereby safe to act on, and nothing may gate a destructive action on a claim's absence.",
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "Task identifier (e.g. \"mt#4568\" or \"4568\")"
+                }
+              ],
+              "commandId": "tasks.claims.release"
             }
           ]
         }
@@ -4985,6 +5050,64 @@
                 }
               ],
               "commandId": "config.credentials.recheck"
+            },
+            {
+              "name": "request",
+              "description": "request commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request",
+                  "description": "Ask the principal for a credential you cannot read. Routes to a masked cockpit form; resolves when the credential is present. Never accepts or returns the value.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    },
+                    {
+                      "flags": ["--reason"],
+                      "description": "Why this credential is needed now, in the principal's terms. Shown on the request.",
+                      "takesValue": true
+                    },
+                    {
+                      "flags": ["--parent-task-id"],
+                      "description": "Task blocked by this request. Set it — the task is what holds the pending state when the requesting conversation ends.",
+                      "takesValue": true
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request"
+            },
+            {
+              "name": "request-status",
+              "description": "request-status commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request-status",
+                  "description": "Check a credential request filed with credentials.request. Returns pending / satisfied / declined / unanswered plus a status line. Never returns the credential.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "requestId",
+                      "required": true,
+                      "description": "The requestId returned by credentials.request."
+                    }
+                  ]
+                }
+              ],
+              "commandId": "credentials.request-status"
             }
           ]
         }
@@ -5635,7 +5758,7 @@
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Max seconds to wait (default 600; clamped to [1, 1800])",
+                  "description": "Max seconds to wait (default 600; clamped to [1, 1800]). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
@@ -5700,6 +5823,34 @@
                 }
               ],
               "commandId": "asks.edit"
+            },
+            {
+              "name": "repair",
+              "description": "Repair a non-terminal Ask's GRAPH fields — its parent task, or a routingTarget the router failed to persist (mt#4305). Distinct from asks_edit, which owns CONTENT: routing fields are mechanism-owned and deliberately not reachable there. State is never changed — a suspended Ask stays suspended and stays in the operator queue, so this is not a way to retire an ask (use asks_cancel). Terminal asks are rejected. `repairRoutingTarget` only FILLS an absent target, re-deriving the value from the router itself; an Ask that already carries one is rejected, and there is no parameter that can name a target. Every repair appends an editHistory provenance note carrying the touched fields, the editor, and the prior parent when one was replaced. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+              "options": [
+                {
+                  "flags": ["--parent-task-id"],
+                  "description": "Move the Ask to this parent task. The task must exist; a reparent to the parent it already has is rejected. State is never changed — reparenting is not a way to retire an ask (use asks_cancel for that).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repair-routing-target"],
+                  "description": "Fill an ABSENT routingTarget by re-deriving it from the router. Rejected when the Ask already carries a target — this fills a field the router failed to write, it does not re-route. There is deliberately no way to specify WHICH target."
+                },
+                {
+                  "flags": ["--editor"],
+                  "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID, unambiguous prefix, or ask#N short id) to repair"
+                }
+              ],
+              "commandId": "asks.repair"
             }
           ]
         },
@@ -6026,81 +6177,6 @@
               "commandId": "window.service"
             }
           ]
-        },
-        {
-          "name": "deployment",
-          "description": "deployment commands",
-          "subcommands": [
-            {
-              "name": "wait-for-latest",
-              "description": "Block until the latest deployment for the configured service reaches a terminal state (SUCCESS/FAILED/CANCELLED/CRASHED). Returns the final deployment record. Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
-              "options": [
-                {
-                  "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--timeout-seconds"],
-                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes).",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--poll-interval-seconds"],
-                  "description": "Poll cadence. Default: 10 seconds.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--not-before"],
-                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
-                  "takesValue": true
-                }
-              ],
-              "commandId": "deployment.wait-for-latest"
-            },
-            {
-              "name": "status",
-              "description": "Read-only snapshot of the latest deployment for the configured service. Does not block. Platform-neutral.",
-              "options": [
-                {
-                  "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
-                  "takesValue": true
-                }
-              ],
-              "commandId": "deployment.status"
-            },
-            {
-              "name": "logs",
-              "description": "Fetch build or deploy logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725 for the notification path).",
-              "options": [
-                {
-                  "flags": ["--type"],
-                  "description": "Log channel: 'build' (build-phase) or 'deploy' (runtime). Default: 'build'.",
-                  "takesValue": true,
-                  "values": ["build", "deploy"]
-                },
-                {
-                  "flags": ["--lines"],
-                  "description": "Maximum number of log lines to return. Default: 100.",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
-                  "takesValue": true
-                }
-              ],
-              "arguments": [
-                {
-                  "name": "deploymentId",
-                  "required": true,
-                  "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
-                }
-              ],
-              "commandId": "deployment.logs"
-            }
-          ]
         }
       ]
     },
@@ -6155,6 +6231,27 @@
               "commandId": "guard-events.ingest"
             }
           ]
+        },
+        {
+          "name": "reviewer-cost",
+          "description": "Report reviewer LLM spend from `review_timing`: total and per-day cost, the R1 vs R>=2 split, median input and uncached-input tokens, cache-hit ratio, and how many calls terminated at the tool-loop round cap. Reads through the daemon's existing database connection — no credential is passed by the caller and none appears in the output. Rows with iteration_index = 0 (pre-model skip paths) are excluded from every statistic and counted separately; rows with a null cached_tokens are counted separately because their cost is mis-priced (mt#3665) and a window containing them is not comparable.",
+          "options": [
+            {
+              "flags": ["--since"],
+              "description": "Only include calls created on/after this timestamp (ISO 8601, e.g. '2026-08-04T08:07:36Z'). Omit for no lower bound.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include calls created before this timestamp (ISO 8601). Omit for no upper bound.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Return the full structured report instead of the human-readable summary. mt#3654 needs to paste actual output into a findings section, so both shapes are supported."
+            }
+          ],
+          "commandId": "observability.reviewer-cost"
         },
         {
           "name": "smoke-test",
@@ -6421,7 +6518,7 @@
             },
             {
               "flags": ["--associations"],
-              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). See ADR-012 for type-string conventions.",
+              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). Allowed keys: tracksTask, relatedTask, originatesRule, originatesSkill, informsAsk, extractedFromSession, extractedFromTranscript, citedInReview. See ADR-012.",
               "takesValue": true
             },
             {
@@ -6496,7 +6593,7 @@
             },
             {
               "flags": ["--associations"],
-              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
+              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed. Non-empty values must use an ADR-012 type; any key may be set to [] to remove it.",
               "takesValue": true
             }
           ],
@@ -7140,6 +7237,86 @@
       ]
     },
     {
+      "name": "deployment",
+      "description": "DEPLOYMENT commands",
+      "subcommands": [
+        {
+          "name": "wait-for-latest",
+          "description": "Block until the latest deployment for the configured service reaches a terminal state (SUCCESS/FAILED/CANCELLED/CRASHED). Returns the final deployment record. Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
+          "options": [
+            {
+              "flags": ["--service"],
+              "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--timeout-seconds"],
+              "description": "Maximum time to block before timing out. Default: 600 (10 minutes). Reachable over MCP as of mt#1576: this command emits progress from both its acquire and status-poll phases, so the transport's idle timeout no longer ends the call before this budget elapses.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--poll-interval-seconds"],
+              "description": "Poll cadence. Default: 10 seconds.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--not-before"],
+              "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890). NECESSARY BUT NOT SUFFICIENT (mt#4583): this bounds TIME, and time does not identify WHICH change deployed — a neighbouring merge's deployment lands inside the window and passes. Pass expectCommitSha too.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--expect-commit-sha"],
+              "description": "The merge commit you are verifying deployed (mt#4583). When set, the result carries a `buildIdentity` verdict — 'confirmed' (the deployment names this commit), 'mismatch' (it names a different one, so a deploy happened but not yours), or 'indeterminate' (the record cannot answer; image-source services carry no commit hash at all). Read it: 'indeterminate' is NOT 'confirmed', and treating a bare SUCCESS as proof your change shipped is the defect this parameter exists to remove.",
+              "takesValue": true
+            }
+          ],
+          "commandId": "deployment.wait-for-latest"
+        },
+        {
+          "name": "status",
+          "description": "Read-only snapshot of the latest deployment for the configured service. Does not block. Platform-neutral.",
+          "options": [
+            {
+              "flags": ["--service"],
+              "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
+              "takesValue": true
+            }
+          ],
+          "commandId": "deployment.status"
+        },
+        {
+          "name": "logs",
+          "description": "Fetch build or deploy logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725 for the notification path).",
+          "options": [
+            {
+              "flags": ["--type"],
+              "description": "Log channel: 'build' (build-phase) or 'deploy' (runtime). Default: 'build'.",
+              "takesValue": true,
+              "values": ["build", "deploy"]
+            },
+            {
+              "flags": ["--lines"],
+              "description": "Maximum number of log lines to return. Default: 100.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--service"],
+              "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "deploymentId",
+              "required": true,
+              "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
+            }
+          ],
+          "commandId": "deployment.logs"
+        }
+      ]
+    },
+    {
       "name": "principal_corpus",
       "description": "PRINCIPAL_CORPUS commands",
       "subcommands": [
@@ -7501,7 +7678,7 @@
         },
         {
           "name": "call",
-          "description": "Call a specific MCP tool",
+          "description": "Call a specific MCP tool.\n\nArgument marshalling: --arg splits on the FIRST '=' only, so a value may itself contain '=' characters and is passed through whole. Every value is sent as a STRING, so a tool parameter typed as a number or boolean will fail schema validation (e.g. --arg 'limit=8' is rejected as \"expected number, received string\"); omit such parameters or use a native CLI command instead.\nFor long or structured content, prefer a native command with real options (e.g. 'minsky memory update <id> --content \"$(cat body.md)\"'). Run 'minsky <noun> --help' to see whether one exists before falling back to 'mcp call'.",
           "options": [
             {
               "flags": ["--repo"],
@@ -7510,7 +7687,7 @@
             },
             {
               "flags": ["--arg"],
-              "description": "Tool arguments in key=value format (can be used multiple times)",
+              "description": "Tool arguments in key=value format (can be used multiple times). Splits on the first '=' only; the value keeps any later '=' characters. Values are always sent as strings.",
               "takesValue": true
             },
             {
@@ -7587,6 +7764,22 @@
             }
           ],
           "commandId": "mcp.register"
+        },
+        {
+          "name": "status",
+          "description": "Report the local MCP daemon's liveness, including whether a query can currently get through its connection pool",
+          "commandId": "mcp.status"
+        },
+        {
+          "name": "restart",
+          "description": "Restart the local MCP daemon (the tray respawns it). Previews by default; pass --execute to act.",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Actually restart the daemon rather than previewing"
+            }
+          ],
+          "commandId": "mcp.restart"
         },
         {
           "name": "proxy",

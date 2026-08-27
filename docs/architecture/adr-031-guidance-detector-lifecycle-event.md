@@ -4,6 +4,28 @@
 
 **Accepted** (2026-07-31)
 
+**Amended 2026-08-25 (mt#4531): `wall-of-text-detector` is no longer text-only, and the
+classification below is now zero-of-eleven rather than one-of-eleven.** The table in §What the
+family actually is classifies that module as the family's ONE text-only member — served entirely by
+the `Stop`-recorded `last_assistant_message`, which the vendor documents as carrying "the text
+content of Claude's final response." mt#4531 changed what it measures: the over-budget leg now keys
+on the LARGEST assistant text block of the turn, not the final one, because the principal reads the
+whole turn and a wall in the first block was invisible by construction (mem#664 R7 — 854 words
+across four blocks, 597 in the first, measured as 110).
+
+`last_assistant_message` cannot supply a block that is not the final one, so that module now reads
+the transcript window for its earlier blocks — the same source sub-operation (3) already reads for
+tool calls.
+
+**The decision itself is unaffected, and this amendment does not reopen it.** Sub-operation (2)
+still prefers the recorded value for the FINAL block (`resolveFinalAssistantText` is unchanged), so
+the lag-tolerance this ADR bought is intact; the event assignment — anchor at `Stop`, detect and
+inject at `UserPromptSubmit` — is untouched. What changes is a supporting FACT, and it is worth
+naming because §Options rejected leans on it: option (c) ("split by detector — text-only detectors
+move to `Stop`") was rejected partly on "it moves **exactly one module**." That count is now zero,
+which strengthens the rejection rather than weakening it — there is no longer any module
+`last_assistant_message` could fully serve, so the split option has nothing left to buy.
+
 Task **mt#3292**. The event-axis sibling of **ADR-024** (which decides the detection _mechanism_
 — regex vs embedding vs learned — and deliberately does not touch the _event_). Read together:
 ADR-024 answers "how does a detector match?", this ADR answers "when does it look, and at what?"
@@ -49,19 +71,19 @@ patch.
 All eleven `extractLastAssistantTurn` callers register on `UserPromptSubmit`; none registers on
 `Stop`. Classified by the symbol each one's run path uses:
 
-| #   | Module                                     | Symbol evidence                                                                                | Verdict         |
-| --- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- | --------------- |
-| 1   | `wall-of-text-detector.ts`                 | `extractFinalAssistantText(turnLines)` only — the last assistant line carrying text            | **text-only**   |
-| 2   | `causal-premise-detector.ts`               | `extractToolUseNames(turnLines)` → `hasToolBacking`                                            | tool-inspecting |
-| 3   | `retrospective-trigger-scanner.ts`         | `hasRetrospectiveSkillInvocation` — scans `tool_use` blocks for `Skill{skill:"retrospective"}` | tool-inspecting |
-| 4   | `substrate-bypass-detector.ts`             | `extractToolUseNames(turnLines)` → `hasExecution`                                              | tool-inspecting |
-| 5   | `pre-narration-detector.ts`                | `extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS)` — a MULTI-turn window                | tool-inspecting |
-| 6   | `ask-routing-deferral-detector.ts`         | `turnHasAsksCreate` → `extractToolUseNames`                                                    | tool-inspecting |
-| 7   | `code-mechanism-assertion-detector.ts`     | read-class `tool_use` INPUTs + all `tool_result` CONTENT                                       | tool-inspecting |
-| 8   | `constructed-identifier-batch-detector.ts` | `extractToolUseBlocksByMessage` — `tool_use` blocks grouped per assistant message              | tool-inspecting |
-| 9   | `build-claim-injection-detector.ts`        | `findToolUseInputs` over file-edit + command tools; `*session_pr_merge` presence               | tool-inspecting |
-| 10  | `silent-stretch-detector.ts`               | counts `tool_use` blocks per run AND reads per-line `timestamp`s                               | tool-inspecting |
-| 11  | `operator-deferral-detector.ts`            | `findToolUseInputs(turnLines, "Bash"/"session_exec")` → `hasProbeEvidence`                     | tool-inspecting |
+| #   | Module                                     | Symbol evidence                                                                                | Verdict                                                                                                                                                                      |
+| --- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `wall-of-text-detector.ts`                 | `extractFinalAssistantText(turnLines)` only — the last assistant line carrying text            | text-only **at the time of writing; see the mt#4531 amendment in §Status — it now reads every assistant text block in the turn, so the family has no text-only member left** |
+| 2   | `causal-premise-detector.ts`               | `extractToolUseNames(turnLines)` → `hasToolBacking`                                            | tool-inspecting                                                                                                                                                              |
+| 3   | `retrospective-trigger-scanner.ts`         | `hasRetrospectiveSkillInvocation` — scans `tool_use` blocks for `Skill{skill:"retrospective"}` | tool-inspecting                                                                                                                                                              |
+| 4   | `substrate-bypass-detector.ts`             | `extractToolUseNames(turnLines)` → `hasExecution`                                              | tool-inspecting                                                                                                                                                              |
+| 5   | `pre-narration-detector.ts`                | `extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS)` — a MULTI-turn window                | tool-inspecting                                                                                                                                                              |
+| 6   | `ask-routing-deferral-detector.ts`         | `turnHasAsksCreate` → `extractToolUseNames`                                                    | tool-inspecting                                                                                                                                                              |
+| 7   | `code-mechanism-assertion-detector.ts`     | read-class `tool_use` INPUTs + all `tool_result` CONTENT                                       | tool-inspecting                                                                                                                                                              |
+| 8   | `constructed-identifier-batch-detector.ts` | `extractToolUseBlocksByMessage` — `tool_use` blocks grouped per assistant message              | tool-inspecting                                                                                                                                                              |
+| 9   | `build-claim-injection-detector.ts`        | `findToolUseInputs` over file-edit + command tools; `*session_pr_merge` presence               | tool-inspecting                                                                                                                                                              |
+| 10  | `silent-stretch-detector.ts`               | counts `tool_use` blocks per run AND reads per-line `timestamp`s                               | tool-inspecting                                                                                                                                                              |
+| 11  | `operator-deferral-detector.ts`            | `findToolUseInputs(turnLines, "Bash"/"session_exec")` → `hasProbeEvidence`                     | tool-inspecting                                                                                                                                                              |
 
 **Ten of eleven are tool-inspecting; exactly one is text-only.** `last_assistant_message` carries
 assistant TEXT only, so it can fully serve exactly one module. Module 10 is the hardest case under

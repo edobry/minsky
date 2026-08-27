@@ -116,6 +116,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "asks.edit": "mutates",
   "asks.respond": "mutates",
   "asks.reconcile": "mutates", // writes verdicts + fires wake sinks
+  "asks.repair": "mutates", // graph/routing field write + provenance note (mt#4305)
   "asks.get": "reads",
   "asks.list": "reads",
   "asks.wait-for-response": "reads",
@@ -137,10 +138,14 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "config.credentials.add": "mutates",
   "config.credentials.remove": "mutates",
   "config.credentials.recheck": "mutates", // records 401 invalidations
+  "credentials.request": "mutates", // creates an ask; may push the parent task (mt#4030)
+
   "config.doctor": "mutates", // fixMcpAuthTokenFromSecretsFile repairs config
   "config.set": "mutates", // writer.setConfigValue
   "config.unset": "mutates", // writer.unsetConfigValue
   "config.credentials.list": "reads",
+  "credentials.request-status": "reads", // classifies a filed request; never returns the value
+
   "config.get": "reads",
   "config.list": "reads",
   "config.show": "reads",
@@ -204,6 +209,19 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "knowledge.search": "reads",
   "knowledge.sources": "reads",
   "mcp.register": "mutates", // writes client configuration
+  "mcp.status": "reads", // reads the discovery record and probes /health (mt#4466)
+  // mt#4466. `mutates` here even though the command PREVIEWS by default: this
+  // table classifies what the tool can DO, and the `--execute` path SIGTERMs a
+  // daemon every conversation on the machine shares. Classifying on the safe
+  // default would be the argument-dependent trap this table's own `unclassified`
+  // category exists for, and erring toward `mutates` is the direction that
+  // cannot under-warn a reader.
+  //
+  // Deliberately NOT in the drift gate's `mutating: true` set — that set is
+  // scoped to irreversible/bulk/migrating effects (mt#3924), and a restart is
+  // transient and self-healing. See the command definition for why gating it
+  // would refuse the very recovery it exists to provide.
+  "mcp.restart": "mutates",
 
   // --- memory --------------------------------------------------------------
   "memory.create": "mutates",
@@ -219,6 +237,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
 
   // --- observability / persistence -----------------------------------------
   "observability.calibration-review": "mutates", // advances + persists watermarks
+  "observability.reviewer-cost": "reads", // SELECTs over review_timing; writes nothing
   "observability.smoke-test": "mutates", // sends a live event to Braintrust
   "persistence.migrate": "mutates",
   "persistence.check": "reads",
@@ -320,6 +339,12 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.spec.patch": "mutates",
   "tasks.spec.search_replace": "mutates",
   "tasks.status.set": "mutates",
+  // mt#4571: `supervise` writes a supervision row that causes the cockpit
+  // daemon to start spawning agents on this umbrella's children, so it mutates
+  // rather more than most — `supervise-stop` is what takes that back.
+  "tasks.supervise": "mutates",
+  "tasks.supervise-stop": "mutates",
+  "tasks.claims.release": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",
@@ -337,6 +362,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.spec.freshness": "reads",
   "tasks.spec.get": "reads",
   "tasks.status.get": "reads",
+  "tasks.supervision-status": "reads",
 
   // --- session workspace files (registered on the MCP surface, not the shared
   //     registry — `debug.listMethods` does not report these) ------------------

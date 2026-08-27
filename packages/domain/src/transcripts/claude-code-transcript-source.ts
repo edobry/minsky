@@ -112,6 +112,28 @@ export const MAX_SUBAGENT_TREE_DEPTH = 3;
 
 const JSONL_EXT = ".jsonl";
 
+/**
+ * `.jsonl` basenames under a session tree that are NOT conversations (mt#4480).
+ *
+ * The Workflow tool writes a run journal at
+ * `subagents/workflows/<wf-id>/journal.jsonl`, which `scanSubagentTree`'s
+ * deliberately-general recursion picks up like any other transcript. It then
+ * yields the literal `agentSessionId` `"journal"` — a value no harness ever
+ * mints, since Claude Code ids are UUIDs or `agent-`-prefixed hashes.
+ *
+ * The cost was not a failed ingest. It was a MEASUREMENT: `transcripts list
+ * --check-disk-coverage` reports on-disk sessions with no row, so three journal
+ * files read as three permanently-never-ingested conversations that no amount
+ * of backfilling would ever clear — a small standing false positive in exactly
+ * the surface that exists to prove ingest coverage is complete.
+ *
+ * Matched on the exact basename rather than on "looks like a UUID": subagent
+ * transcripts are legitimately named `agent-<hex>`, so a shape test would have
+ * to encode every id convention the harness uses and would silently drop real
+ * transcripts the day it adds another.
+ */
+const NON_CONVERSATION_BASENAMES = new Set(["journal"]);
+
 /** Loosely-typed parsed JSONL line (we narrow on `type`). */
 interface JsonlLine {
   type?: unknown;
@@ -160,7 +182,26 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
     }
   }
 
-  async *readSession(
+  /**
+   * Stream EVERY parsed line in the file, in file order, with no type filter
+   * (mt#4573).
+   *
+   * This is the unfiltered sibling of {@link readSession}, and it exists
+   * because `RETAINED_TYPES` below is not a neutral cleanup: measured
+   * 2026-08-25, the types it drops (`bridge-session`, `mode`, `custom-title`,
+   * `permission-mode`, `ai-title`, `agent-name`, `file-history-snapshot`) are
+   * ~24% of lines by count, and they are exactly the un-timestamped ones — so
+   * nothing downstream of the timestamp high-water-mark can ever see them.
+   * `transcript_lines` keys on position instead and therefore can.
+   *
+   * **Ordinal semantics.** The consumer's ordinal is the index of the yielded
+   * line among lines that were non-empty AND parsed. A line that fails to parse
+   * is skipped here exactly as it is in `readSession`, so it consumes no
+   * ordinal and cannot be reconstructed later. That is a real fidelity bound,
+   * and a narrow one: the harness writes well-formed JSON, and a line it
+   * mangled is not one we could store as `jsonb` anyway.
+   */
+  async *readSessionRaw(
     agentSessionId: AgentSessionId,
     jsonlPath?: string
   ): AsyncIterable<RawTurnLine> {
@@ -174,8 +215,26 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
       if (!trimmed) continue;
       const parsed = parseJsonlLine(trimmed);
       if (!parsed) continue;
-      if (typeof parsed.type !== "string" || !RETAINED_TYPES.has(parsed.type)) continue;
       yield parsed as RawTurnLine;
+    }
+  }
+
+  /**
+   * The harness-specific retention predicate, exposed so a caller iterating
+   * {@link readSessionRaw} can reproduce {@link readSession}'s filtering
+   * without knowing which types this source retains (mt#4573).
+   */
+  isRetainedLine(line: RawTurnLine): boolean {
+    return typeof line.type === "string" && RETAINED_TYPES.has(line.type);
+  }
+
+  async *readSession(
+    agentSessionId: AgentSessionId,
+    jsonlPath?: string
+  ): AsyncIterable<RawTurnLine> {
+    for await (const parsed of this.readSessionRaw(agentSessionId, jsonlPath)) {
+      if (!this.isRetainedLine(parsed)) continue;
+      yield parsed;
     }
   }
 
@@ -209,7 +268,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
    * Public sibling of {@link locateSessionFile} that returns the whole
    * {@link DiscoveredSession} rather than only its path (mt#3095).
    *
-   * Attaching an actuator to a conversation Minsky did not spawn needs the
+   * Attaching a session driver to a conversation Minsky did not spawn needs the
    * `cwd` as much as the path — `claude --resume` must run in the directory the
    * conversation belongs to. Discovery already resolves `cwd` for every session
    * it yields (see `yieldTranscripts`, which calls `recoverCwd`), so this
@@ -280,6 +339,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
   ): AsyncIterable<DiscoveredSession> {
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(JSONL_EXT)) continue;
+      if (NON_CONVERSATION_BASENAMES.has(basename(entry.name, JSONL_EXT))) continue;
       const jsonlPath = join(dir, entry.name);
       const stat = await safeStat(jsonlPath);
       if (!stat) continue;

@@ -22,8 +22,11 @@ import path from "path";
 import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
+import { getTranscriptBackfillJournalPath, readJournalSummary } from "../transcript-sweep-journal";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
+import { getSweepLivenessSnapshot } from "../sweepers";
+import { deriveHealthSweepLiveness } from "../health-sweep-liveness";
 import {
   getDbCheck,
   getDbHealth,
@@ -31,9 +34,16 @@ import {
   getDbStatus,
   refreshDbReachability,
 } from "../shared-persistence";
+// mt#4562: from the domain module directly. The retry helper is per-QUERY and
+// lives beside the provider, not in the cockpit's shared-persistence singleton
+// — re-exporting it through there would imply cockpit ownership of a counter
+// every process increments.
+import { getPgRetryCounters } from "@minsky/domain/persistence/postgres-retry";
 import { getSurvivedExceptions } from "../daemon-error-policy";
 import { getPrincipalChannelStatus } from "../principal-channel-launch";
 import { getSchemaReadiness } from "../schema-readiness";
+import { nextConsecutiveDegraded } from "../degraded-run-length";
+import { findRepoRoot } from "../web-dist";
 import type { WidgetModule } from "../types";
 
 const serverStartTime = Date.now();
@@ -139,11 +149,9 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
     // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
     // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
     const dbStatus = getDbStatus();
-    if (dbStatus === "ok") {
-      consecutiveDegradedCount = 0;
-    } else {
-      consecutiveDegradedCount++;
-    }
+    // mt#4598: the rule itself lives in `degraded-run-length.ts` so it can be
+    // replayed against a recorded failure sequence without driving this handler.
+    consecutiveDegradedCount = nextConsecutiveDegraded(consecutiveDegradedCount, dbStatus);
 
     res.json({
       status: "ok",
@@ -181,6 +189,15 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // count across polls is the recurrence signal that used to require log
       // spelunking (or a 40-minute outage) to see.
       dbRecycle: getDbRecycle(),
+      // mt#4562: the retry mechanism's sibling counters. `dbRecycle` covers the
+      // pool RECYCLE; this covers the per-query RETRY. Both are outcome counters
+      // of a DB recovery mechanism whose failure mode is silence, and both are
+      // read by the post-deploy monitor's check (d).
+      //
+      // `saturationRetries: 0` is the EXPECTED steady state, not a health claim
+      // — pool exhaustion is structurally near-unreachable on the transaction
+      // pooler (mt#3497). `retriesExhausted` is the fault signal.
+      dbRetry: getPgRetryCounters(),
       // mt#3826: WHY the DB is unusable, not just that it is. `db` above
       // collapses a half-open pool wedge and a network refusing the port into
       // the same "degraded", which is what let the 2026-08-07 incident spend
@@ -230,6 +247,45 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // invariant governs sub-objects that assert an operational state, and a
       // pid asserts none, so this owes no `lastAttemptAt` sibling.
       pid: process.pid,
+      // mt#4489: does this process's working directory still resolve a Minsky
+      // repo root?
+      //
+      // The daemon is spawned as `bun run src/cli.ts` with cwd set to a repo
+      // root, so cwd and the process's module-resolution root are the same tree.
+      // Delete that tree under a live process — a session clone that gets
+      // cleaned up — and the daemon keeps serving on already-loaded modules
+      // while every not-yet-loaded `import()` fails with ENOENT. On 2026-08-24
+      // an orphan daemon sat in exactly that state; nothing on this endpoint
+      // could express it, and it took a log grep 19 hours later to find.
+      //
+      // The cwd is a PROXY for the module root, not the thing itself — exact
+      // because of how the daemon is spawned, and worth revisiting if the
+      // command ever gains a `--cwd`-style flag that decouples them.
+      //
+      // A BOOLEAN, not the path (PR #3296 R1). This endpoint is unauthenticated,
+      // and every sibling field carries counts and ISO timestamps only — the
+      // redaction policy stated at `transcript-sweep-tracker.ts:18` and
+      // inherited by `routes/sweeps.ts:32`. An absolute path would publish the
+      // operator's username and directory layout to any unauthenticated caller,
+      // which nothing else on this surface does.
+      //
+      // Nothing operational is lost. The standing condition an operator needs is
+      // whether the cwd still resolves, which is exactly what this says; and
+      // `pid` is already on this payload, so `lsof -p <pid> -a -d cwd` recovers
+      // the actual path — from a caller who has already proven local access,
+      // rather than from the wire.
+      //
+      // Re-checked per request rather than cached at boot, because the whole
+      // point is that the answer CHANGES under a running process. Cheap: a
+      // bounded `existsSync` walk (MAX_ASCEND 12), no IO beyond stat.
+      //
+      // Carries `checkedAt` per mt#4186's liveness-dating invariant — this
+      // sub-object asserts an operational state, so it owes a timestamp saying
+      // when that assertion was made.
+      workspaceRoot: {
+        resolves: findRepoRoot([process.cwd()]) !== undefined,
+        checkedAt: new Date().toISOString(),
+      },
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
@@ -257,9 +313,58 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // green. `current: null` means the check could not run, and is
       // deliberately NOT reported as current.
       schema: getSchemaReadiness(),
-      transcriptSweep: sweepTracker.getSummary(),
+      // mt#4532: the tracker's counters are PROCESS-scoped and reset on every
+      // restart, which on a working day is a median 13.4 minutes — shorter than
+      // one sweep tick. `acrossRestarts` is the durable journal beside them, and
+      // it is nested here rather than made a top-level sibling deliberately: a
+      // reader asking "is the sweep working" must not be able to read the
+      // process-scoped counters WITHOUT the lifetime ones, which is exactly the
+      // misread `sweepLiveness`'s own field note had to warn about after being
+      // separated. `completionRate` is the one number that answers it.
+      //
+      // The read is memoized on the journal file's `(mtimeMs, size)`, so the
+      // steady-state cost here is one `stat` rather than a read plus a parse
+      // (PR #3357 R1). Keyed on file identity rather than a TTL, so it is never
+      // stale by construction — including when the writer is another daemon.
+      // Unlike the `db` probe above it is not out-of-band, and does not need to
+      // be: that one crosses the network and can wedge, this one cannot.
+      transcriptSweep: {
+        ...sweepTracker.getSummary(),
+        acrossRestarts: readJournalSummary(),
+        // mt#4601: the embedding backfill is its OWN sweep now, with its own
+        // journal file. Nested here rather than made a top-level sibling because
+        // the two are read together — "is transcript capture healthy" spans
+        // both, and the embed* fields in the block above are still produced by
+        // the backfill even though it no longer shares this sweep's tick.
+        backfill: {
+          acrossRestarts: readJournalSummary(undefined, getTranscriptBackfillJournalPath()),
+        },
+      },
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),
+      // mt#4384: the three sweep fields above are DOMAIN trackers, and a domain
+      // tracker records the outcome of work. An ABANDONED tick never completes, so
+      // it produces no outcome ever — which is why on 2026-08-21 `prodStateSweep`
+      // read `lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0`
+      // (indistinguishable from "in flight, fine") while `/api/sweeps` showed nine
+      // sweeps wedged with guards held.
+      //
+      // Until now this endpoint never read the liveness registry at all, so that
+      // state could not appear here BY CONSTRUCTION. This field is the aggregate
+      // projection; `/api/sweeps` remains the per-sweep authority.
+      //
+      // Deliberately does NOT change the top-level `status`. The tray restarts the
+      // daemon on an unhealthy status, and a restart is not a reliable remedy for
+      // this class — mem#1178 records an occurrence that self-cleared with no
+      // restart, and mt#4335's hard release means recovery can legitimately take 15
+      // minutes. Flipping `status` would trade a silent wedge for a restart loop
+      // against a condition that often heals itself. ADR-035 rule 5 asks for surface
+      // HONESTY, which the body carries; recovery is a separate obligation and is
+      // not this task's.
+      sweepLiveness: deriveHealthSweepLiveness(
+        getSweepLivenessSnapshot(),
+        new Date().toISOString()
+      ),
     });
   });
 

@@ -140,6 +140,62 @@ Environment variable: `GOOGLE_API_KEY` or `GOOGLE_AI_API_KEY`.
 
 Obtain a key at https://aistudio.google.com/apikey. Add via `minsky config credentials add google`.
 
+## Credentials
+
+Credentials live in `~/.config/minsky/config.yaml` at each provider's own `configPath`. Three entry
+points write them, and which one you use depends on who is asking.
+
+### A human adding a credential they already have
+
+```bash
+minsky config credentials add <provider>     # masked interactive prompt
+```
+
+Omit `--token` on the CLI to get the masked prompt. The cockpit's Settings → Credentials page is the
+same operation with a form.
+
+**Do not call `config.credentials.add` over MCP to acquire a credential.** Its `token` parameter
+exists for the scripted path, so an agent passing a value there writes the secret into its own
+tool-call input — which is the transcript. The masking is a CLI-only property.
+
+### An agent that needs a credential it cannot read
+
+```bash
+minsky credentials request --provider <id> --reason "<why this is needed now>" \
+  [--parent-task-id mt#NNNN]
+```
+
+Files a request the principal answers in a masked form on the ask itself. **The command has no
+parameter capable of carrying a value**, and never returns one. The value travels
+browser → cockpit server → `~/.config/minsky/config.yaml` and touches nothing else.
+
+If no provider is registered for the id, the command refuses at call time and names
+`packages/domain/src/credentials/providers/index.ts` — filing a request the principal has no way to
+satisfy is the failure mode this avoids.
+
+### Checking a filed request
+
+```bash
+minsky credentials request-status --request-id <id>
+```
+
+Returns one of:
+
+| Status          | Meaning                                                           | What the agent should do                     |
+| --------------- | ----------------------------------------------------------------- | -------------------------------------------- |
+| `pending`       | Still waiting on the principal                                    | Keep waiting                                 |
+| `satisfied`     | The credential is present; carries the provider's validation line | Proceed                                      |
+| `declined`      | The principal refused                                             | **Do not re-ask**                            |
+| `unanswered`    | Cancelled or expired without an answer                            | Re-file if still needed                      |
+| `policy-closed` | Auto-resolved by ask policy; the principal never saw it           | Escalate — no credential is coming (mt#3233) |
+
+`declined` and `policy-closed` are deliberately distinct: one is a decision, the other is a request
+that never reached a human. Treating the second as a refusal reports a choice the principal never made.
+
+**Resolution is by credential PRESENCE**, not by anything the principal clicks. So satisfying the
+request out-of-band — `minsky config credentials add <provider>` in a terminal, or having already set
+it — closes the same request, with no second place to enter the value.
+
 ## Postgres Persistence
 
 For Postgres-specific runtime settings — connection pool size (`persistence.postgres.maxConnections`,
@@ -195,6 +251,18 @@ reviewer:
 
 > Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
 > not require any token (the reviewer bot advertises it in its status comment).
+
+### Service-side configuration lives with the service
+
+Everything above is **operator→service** configuration: what you set locally to talk to the
+reviewer. The reviewer service's own environment — `REVIEWER_PROVIDER`, `REVIEWER_MODEL`, the
+network-call timeouts, the behavioural feature flags, and `REVIEWER_EXPERIMENT_MODEL` (the
+per-PR model A/B, mt#4569) — is documented in **`services/reviewer/README.md`**, and is set on
+the deployed service rather than in `~/.config/minsky/config.yaml`.
+
+Deliberately a pointer and not a copy: none of those variables are listed here today, so
+adding one would create a second, partial home for the set and leave a reader unable to tell
+whether an absent variable is undocumented or nonexistent.
 
 ## Cockpit Configuration
 

@@ -72,6 +72,8 @@ function snapshot(
 
 /** Class ids used across several cases — named so the fixtures cannot drift apart. */
 const UNREVIEWED_MERGE = "unreviewed-merge";
+/** The health kind, not the `CheckStatus` of the same spelling — see mt#4605. */
+const SOURCE_UNAVAILABLE = "source-unavailable";
 
 /**
  * First element, asserted present.
@@ -142,7 +144,7 @@ describe("deriveProtectionSummary — totals", () => {
   });
 });
 
-describe("deriveProtectionSummary — unknown is never zero, and never working", () => {
+describe("deriveProtectionSummary — indeterminate is never zero, never working, never conflated", () => {
   test("no measured duration yields timeMs null, NOT 0, with the fires recorded as unmeasured", () => {
     const summary = deriveProtectionSummary(
       snapshot([row({ guardName: "g", deny: 6, duration: null })]),
@@ -257,7 +259,7 @@ describe("deriveProtectionSummary — unknown is never zero, and never working",
     expect(summary.totals.unmeasuredFires).toBe(0);
   });
 
-  test("a failed canary source renders unknown, not working", () => {
+  test("a failed canary source is SOURCE-UNAVAILABLE, not working and not never-verified", () => {
     const summary = deriveProtectionSummary(
       snapshot([row({ guardName: "g", canary: { state: "passing" } })], {
         sourceFailures: ["canary"],
@@ -265,21 +267,55 @@ describe("deriveProtectionSummary — unknown is never zero, and never working",
       [{ guardName: "g", failureClasses: ["lost-signal"] }],
       QUESTIONS
     );
-    expect(summary.health.kind).toBe("unknown");
-    expect(onlyClass(summary.classes).health).toBe("unknown");
+    expect(summary.health.kind).toBe(SOURCE_UNAVAILABLE);
+    expect(summary.health.sourceUnavailableCount).toBe(1);
+    // The transient cause must not be reported as the permanent one — that
+    // conflation is what mt#4605 exists to end.
+    expect(summary.health.neverVerifiedCount).toBe(0);
+    expect(onlyClass(summary.classes).health).toBe(SOURCE_UNAVAILABLE);
+    expect(onlyClass(summary.classes).sourceUnavailableCount).toBe(1);
     expect(summary.health.degradedCount).toBe(0);
   });
 
-  test("a never-verified check is unknown, not working — it has not been shown to work", () => {
+  test("a never-verified check is NEVER-VERIFIED, not working and not source-unavailable", () => {
     const summary = deriveProtectionSummary(
       snapshot([row({ guardName: "g", canary: { state: "never-verified" } })]),
       [{ guardName: "g", failureClasses: ["lost-signal"] }],
       QUESTIONS
     );
-    expect(summary.health.kind).toBe("unknown");
+    expect(summary.health.kind).toBe("never-verified");
+    expect(summary.health.neverVerifiedCount).toBe(1);
+    // No refresh failed here; saying one did is the mt#4605 defect.
+    expect(summary.health.sourceUnavailableCount).toBe(0);
   });
 
-  test("one broken check makes its class degraded and outranks unknown at the corpus level", () => {
+  test("a snapshot carrying BOTH reports both counts, so neither stands in for the other", () => {
+    // The mix is representable without `sourceFailures` claiming the whole
+    // source died: one row's canary section is null (that row alone is
+    // unreadable), another has genuinely never been verified. A single `kind`
+    // cannot say this, which is why the counts are what a renderer reads.
+    const summary = deriveProtectionSummary(
+      snapshot([
+        row({ guardName: "unreadable", canary: null }),
+        row({ guardName: "untested-a", canary: { state: "never-verified" } }),
+        row({ guardName: "untested-b", canary: { state: "never-verified" } }),
+      ]),
+      [
+        { guardName: "unreadable", failureClasses: ["lost-signal"] },
+        { guardName: "untested-a", failureClasses: ["lost-signal"] },
+        { guardName: "untested-b", failureClasses: ["lost-signal"] },
+      ],
+      QUESTIONS
+    );
+    expect(summary.health.sourceUnavailableCount).toBe(1);
+    expect(summary.health.neverVerifiedCount).toBe(2);
+    // Precedence names the transient one — it is today's news — while the
+    // permanent count stays visible beside it rather than being erased.
+    expect(summary.health.kind).toBe(SOURCE_UNAVAILABLE);
+    expect(summary.health.totalChecks).toBe(3);
+  });
+
+  test("one broken check makes its class degraded and outranks both indeterminate states", () => {
     const summary = deriveProtectionSummary(
       snapshot([
         row({ guardName: "broken-one", canary: { state: "broken" } }),

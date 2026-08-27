@@ -43,29 +43,63 @@ import {
 // for per-process fan-out. That ceiling was never measured — it came from an
 // agent-authored memory, not from the vendor.
 //
-// MEASURED 2026-08-19: this project reports `max_connections = 60`, which
-// Supabase's published compute table maps to the Nano/Micro tier, whose pooler
-// ceiling is 200 CLIENT connections (both tiers are 200, so the tier ambiguity
-// does not change the number). At the old default of 15, FOURTEEN processes
-// saturate the pooler; the fleet was measured at 70-84 processes on 2026-08-18
-// and 33-40 on 2026-08-19. The budget was being oversubscribed several times
-// over.
+// MEASURED 2026-08-24 (mt#4360): this project reports `max_connections = 120`
+// (PostgreSQL 17.6, read through the transaction pooler on :6543). Supabase's
+// published compute table maps 120 direct connections to the MEDIUM tier, whose
+// pooler ceiling is 600 CLIENT connections:
+//   https://supabase.com/docs/guides/platform/compute-and-disk
+//   Nano/Micro 60 -> 200 | Small 90 -> 400 | Medium 120 -> 600 | Large 160 -> 800
+//
+// TO RE-CHECK, run this against the configured connection string — it is one
+// query and it is the whole provenance of this constant:
+//   select current_setting('max_connections')
+// then look the result up in the table above. Do NOT re-derive this from a
+// memory, a doc, or another comment; all three have been wrong here before.
+//
+// BOUND ON THE TIER CLAIM, stated because the constant depends on it: the
+// Supabase page calls these "recommended values [that] can be customized", so
+// `max_connections = 120` implies Medium via the published table rather than by
+// reading the tier itself. That is strong evidence, not a direct read. The
+// falsifier is the tier as reported by the Supabase dashboard or Management API.
+//
+// HISTORY, kept because the number moved twice for different reasons and the
+// next reader needs to tell a stale value from a wrong one:
+//   - Pre-mt#4308 the comment claimed a "practical ceiling in the thousands",
+//     sourced from an agent-authored memory (63fbc195) rather than the vendor.
+//     Never measured; simply false.
+//   - mt#4308 measured `max_connections = 60` on 2026-08-19 -> Nano/Micro -> 200.
+//     Correct then. mt#3497 independently measured 60 on 2026-08-05.
+//   - The project was upgraded to Medium between then and 2026-08-24, so 200 was
+//     STALE rather than wrong. This is the failure mode to expect here: a
+//     correctly-derived value quietly outliving its measurement.
 //
 // WHY DERIVED. mt#2224 set 15 correctly for the fleet IT measured, and nothing
 // re-examined it when the fleet grew by an order of magnitude, because the
 // assumption lived in prose rather than in code. Naming the three inputs makes
 // the assumption checkable: if any of them changes, the default follows, and a
 // reader can see WHICH one to re-measure.
-const POOLER_CLIENT_BUDGET = 200;
+const POOLER_CLIENT_BUDGET = 600;
 // Share of that budget this fleet's long-lived local pools may claim. The rest
 // is left for the hosted services (Railway MCP, reviewer, cockpit), ephemeral
-// probes, and burst headroom — all of which contend for the same 200.
+// probes, and burst headroom — all of which contend for the same 600.
 const POOL_BUDGET_FRACTION = 0.5;
 // How many processes are assumed to hold an OPEN pool at once. Grounded in
-// measurement, not process count: on 2026-08-18, 31 established connections came
-// from 8 distinct pids (~4 each) while 70-84 `bun` processes were alive — pools
-// open lazily, so holders are far fewer than processes. 12 carries ~50% headroom
-// over that observation. THIS is the number to re-measure when the fleet changes.
+// measurement, not process count — pools open lazily, so holders are far fewer
+// than processes. Re-measure with:
+//   lsof -nP -iTCP -sTCP:ESTABLISHED | awk '$9 ~ /:6543$/ {print $2}' | sort -u
+//
+//   2026-08-18 (mt#4308): 31 connections from 8 distinct pids, 70-84 processes.
+//   2026-08-24 (mt#4360): 32 connections from  2 distinct pids, 59 processes.
+//
+// HOLDERS FELL, AND THE VALUE IS DELIBERATELY NOT FOLLOWING IT DOWN. ADR-038
+// consolidated the fleet behind one shared local MCP daemon, so the 8 peer
+// holders became ~2 long-lived ones. Tracking that literally would put the
+// derived default at 150 and hand a single process a quarter of the tenant's
+// client budget — a large behavioural change bought with no evidence that
+// anything needs it. 12 is retained as HEADROOM against the consolidation
+// partially reversing (a second cockpit, a preview daemon, a burst of one-shot
+// CLI invocations), not as a claim that 12 pools exist. The measurement above is
+// what is true; this constant is what we are willing to provision for.
 const ASSUMED_CONCURRENT_POOL_HOLDERS = 12;
 // Floor: below this, a widget that fans out queues on itself. mt#2224 raised the
 // old value of 3 because it "starved widgets that fan out, e.g. the 4-parallel-
@@ -84,13 +118,44 @@ const DEFAULT_POSTGRES_MAX_CONNECTIONS = Math.max(
 
 // Upper bound matching the config schema's .max(100). The env-var path
 // (MINSKY_POSTGRES_MAX_CONNECTIONS) bypasses Zod validation, so this clamp is
-// the only thing bounding it. NOTE (mt#4308): this ceiling is NOT safe to use
-// fleet-wide — at 100 per process, THREE processes exceed the 200-client pooler
-// budget. It bounds a deliberate single-process override (a migration runner, a
+// the only thing bounding it. NOTE (mt#4308, renumbered mt#4360): this ceiling
+// is NOT safe to use fleet-wide — at 100 per process, SIX processes exceed the
+// 600-client pooler budget (it was THREE against the old 200-client figure).
+// It bounds a deliberate single-process override (a migration runner, a
 // one-off backfill), and the mt#2224-era claim that "the transaction pooler is
 // no longer easy to saturate" that previously justified it is false. Kept at 100
 // to stay consistent with the schema's .max(100) rather than because 100 is safe.
 const MAX_POSTGRES_MAX_CONNECTIONS = 100;
+
+/**
+ * Seconds `close()` gives postgres-js to drain gracefully before it force-terminates
+ * the pool's connections (mt#4515).
+ *
+ * WHY A BOUND EXISTS AT ALL. `sql.end()` with no argument defaults `timeout` to
+ * `null`, which means postgres-js never arms the internal timer that calls
+ * `destroy()` → `c.terminate()` on each connection
+ * (`node_modules/postgres/src/index.js:365-389`). Its only runner is then a
+ * `Promise.all` over per-connection `end()`, and on a half-open pool — the exact
+ * failure the cockpit's recycle exists to recover from — those never settle. The
+ * connections stay ESTABLISHED for the life of the process. Measured: 88 abandoned
+ * recycle closes and ZERO clean ones across every retained cockpit log rotation,
+ * and +8 sockets (one full pool at the then-max) across a single observed recycle.
+ *
+ * WHY 3, per `decision-defaults §Thresholds` — this is the CEILING case, so the
+ * value is derived from a budget declared elsewhere rather than from observed
+ * cadence. The binding constraint is the cockpit's own outer deadline,
+ * `RECYCLE_CLOSE_TIMEOUT_MS = 5_000` (`src/cockpit/shared-persistence.ts`), which
+ * abandons the close and moves on. This bound must fire STRICTLY FIRST or it is
+ * dead code: if the outer deadline wins, the recycle walks away before
+ * `terminate()` has run and nothing is released — which is precisely today's
+ * behaviour. 3s leaves ~2s of margin for the terminate round-trip.
+ *
+ * Raising this above the cockpit's 5s, or lowering that below this, re-creates the
+ * defect. `shared-persistence.test.ts` asserts the ordering so the two cannot drift
+ * apart silently — the domain layer must not import cockpit code, so the assertion
+ * lives on the cockpit side where both constants are in scope.
+ */
+export const CLOSE_TIMEOUT_SECONDS = 3;
 
 /**
  * mt#1763 (PR #1065 R1 BLOCKING #3) — pure-function predicate for the
@@ -585,8 +650,25 @@ export class PostgresPersistenceProvider
         createdSql = sql;
       }
 
-      // Create Drizzle instance
-      const db = drizzle(sql);
+      // Create Drizzle instance over the POOLER-GUARDED view, not the raw
+      // client (mt#4473). drizzle-orm's postgres-js driver issues every query
+      // through `client.unsafe(query, params)`
+      // (`drizzle-orm/postgres-js/session.js:58,68,90,128,131`), so handing it
+      // the raw instance here was the entirety of mt#2773's "drizzle bypasses
+      // the guard" carve-out — not a property of drizzle at all. With every
+      // DB-backed MCP tool on this path, that bypass is what let eight
+      // concurrent long-running calls saturate the pool and hang the daemon
+      // for ~45 minutes on 2026-08-23 with no error and no log line.
+      //
+      // Cached into `this.guardedSql` alongside `this.sql` below so
+      // `getGuardedSql()` hands out this SAME instance: the cap is a shared
+      // in-flight counter and a second wrap would double it (mt#4298).
+      const guardedSql = guardRawSqlAgainstPoolerWedge(sql);
+
+      // GuardedRawSql narrows `.unsafe()`'s return type, which makes it structurally
+      // incompatible with postgres-js `Sql` even though the Proxy IS that instance at runtime.
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- deliberate boundary cast, above
+      const db = drizzle(guardedSql as unknown as ReturnType<typeof postgres>);
 
       // Verify connection — retry on pool saturation (mt#1193). Skip when
       // reusing the factory's pre-validated client: it already ran SELECT 1
@@ -606,6 +688,10 @@ export class PostgresPersistenceProvider
       // initialize() must not see isInitialized=true while migrations are
       // still running (race window where they could read pre-migration schema).
       this.sql = sql;
+      // mt#4473: publish the guard built above rather than letting
+      // getGuardedSql() lazily build a SECOND one — two guards would each
+      // admit `max` concurrent queries and double the bound (mt#4298).
+      this.guardedSql = guardedSql;
       this.db = db;
       // mt#2973: ownership of a reused probed client transfers fully to
       // this.sql now (createdSql tracks it for failure cleanup); clear the
@@ -646,10 +732,15 @@ export class PostgresPersistenceProvider
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
-      // Clean up connection we created to prevent pool leaks
+      // Clean up connection we created to prevent pool leaks.
+      // Bounded (mt#4515, PR #3308 R1). This is a FAILURE path, so the client is
+      // more likely to be in a bad state here than anywhere else — an unbounded
+      // `end()` on a half-open connection never settles, and this one sits
+      // inside the catch of `initialize()`, so hanging here means the caller
+      // never sees the original error either.
       if (createdSql) {
         try {
-          await createdSql.end();
+          await createdSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch {
           /* ignore cleanup errors */
         }
@@ -708,23 +799,35 @@ export class PostgresPersistenceProvider
     // capacity wedge the Supavisor transaction pooler (connections destroyed
     // during ramp-up) and postgres-js never settles some of the destroyed
     // connection's promises. See raw-sql-pooler-guard.ts for the experiment
-    // matrix and rationale. The underlying `this.sql` (used by drizzle and
-    // sql.begin() transactions) is deliberately untouched.
-    return this.getGuardedSql(this.sql);
+    // matrix and rationale. As of mt#4473 the drizzle client is built over
+    // this SAME guarded instance, so both paths share one in-flight counter;
+    // only `sql.begin()` transactions still reach the raw instance untouched.
+    return this.getGuardedSql();
   }
 
   /**
-   * Memoized guarded view of `this.sql` (mt#2773; second consumer wired mt#4298).
+   * Memoized guarded view of `this.sql` (mt#2773; second consumer wired
+   * mt#4298; the drizzle client wired mt#4473).
    *
-   * Every `.unsafe()` consumer MUST come through here rather than wrapping
+   * Every guarded consumer MUST come through here rather than wrapping
    * `this.sql` itself. The guard's protection is a SHARED in-flight counter
    * bounded at the pool's `max`; two independently-constructed guards would
    * each admit `max` concurrent queries, so wrapping twice doubles the very
    * bound the cap exists to hold and reinstates the wedge it prevents.
+   *
+   * Takes no argument, deliberately (PR #3166 R1, carried via mt#4336): the
+   * memoization means a `sql` parameter would be silently discarded after the
+   * first call, so a caller could hand in a DIFFERENT client and receive a
+   * guard wrapped around the first one with nothing to indicate it — the
+   * wrong shape for an accessor whose entire purpose is that there is exactly
+   * one instance.
    */
-  protected getGuardedSql(sql: ReturnType<typeof postgres>): GuardedRawSql {
+  protected getGuardedSql(): GuardedRawSql {
+    if (!this.sql) {
+      throw new Error("Raw SQL connection not available");
+    }
     if (!this.guardedSql) {
-      this.guardedSql = guardRawSqlAgainstPoolerWedge(sql);
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
     }
     return this.guardedSql;
   }
@@ -839,10 +942,13 @@ export class PostgresPersistenceProvider
    */
   async close(): Promise<void> {
     try {
-      // Close the session-mode listen connection first (if created)
+      // Close the session-mode listen connection first (if created).
+      // Bounded like the others (mt#4515): this one is max:1, but a single
+      // wedged LISTEN socket is exactly as unsettleable as a pooled one, and it
+      // is FIRST — an unbounded wait here never reaches the primary pool below.
       if (this.listenSql) {
         try {
-          await this.listenSql.end();
+          await this.listenSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch (listenErr) {
           log.warn(
             `Error closing listen SQL connection: ${listenErr instanceof Error ? listenErr.message : String(listenErr)}`
@@ -855,14 +961,18 @@ export class PostgresPersistenceProvider
       // without initializing), end it here so the pool doesn't leak.
       if (!this.sql && this.preValidatedSql) {
         try {
-          await this.preValidatedSql.end();
+          await this.preValidatedSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch {
           /* ignore cleanup errors */
         }
         this.preValidatedSql = null;
       }
       if (this.sql) {
-        await this.sql.end();
+        // The primary pool. `{ timeout }` is what arms postgres-js's internal
+        // destroy → terminate path (mt#4515); omitting it defaults to `null`,
+        // which leaves an unsettleable await on a half-open pool and strands
+        // every socket for the life of the process.
+        await this.sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         this.sql = null;
         this.guardedSql = null;
         this.db = null;
@@ -991,9 +1101,10 @@ export class PostgresVectorPersistenceProvider
     // `this.sql` here left every tasks_search / *_similar / index write as
     // unguarded raw fan-out at the Supavisor transaction pooler, whose wedge
     // leaves postgres-js promises permanently unsettled — hangs with no error.
-    // The mt#2773 carve-out covers drizzle-driver traffic and sql.begin(), not
-    // this consumer.
-    return new PostgresVectorStorage(this.getGuardedSql(this.sql), this.db, dimension, {
+    // The mt#2773 carve-out covered drizzle-driver traffic and sql.begin(),
+    // not this consumer; as of mt#4473 the drizzle half is closed too and only
+    // sql.begin() remains outside the bound.
+    return new PostgresVectorStorage(this.getGuardedSql(), this.db, dimension, {
       tableName: config.tableName,
       idColumn: config.idColumn,
       embeddingColumn: config.vectorColumn,

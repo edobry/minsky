@@ -24,6 +24,7 @@ function mkDeployment(overrides: Partial<DeploymentRecord> = {}): DeploymentReco
     status: "SUCCESS",
     commitHash: "abc123",
     commitMessage: "test",
+    imageDigest: null,
     createdAt: "2026-07-07T00:00:00Z",
     finishedAt: "2026-07-07T00:05:00Z",
     durationMs: 300_000,
@@ -190,5 +191,159 @@ describe("sessionPrDrivePostMerge deployment bound (mt#3890)", () => {
     expect(result.skipped).toBe(true);
     expect(result.deployBoundApplied).toBe(true);
     expect(deps.waitCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-service build identity (mt#4583)
+// ---------------------------------------------------------------------------
+//
+// PR #3349 R1 caught the shape these guard: `mergedCommitSha` reached the
+// implementation but was dropped before it could affect anything, and typecheck
+// passed either way. A wiring assertion is the only thing that can see that.
+
+describe("sessionPrDrivePostMerge build identity (mt#4583)", () => {
+  const MERGE_SHA = "b65baf9402d64e78d368ae17e2a805fe29b55126";
+  const NEIGHBOUR_SHA = "ce9af92bf0432cf8059527f1f9d721441503878a";
+
+  test("mergedCommitSha reaches the verdict — confirmed when the deployment names it", async () => {
+    const deps = makeDeps([], {
+      reviewer: mkDeployment({ commitHash: MERGE_SHA }),
+    });
+
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer"], mergedCommitSha: MERGE_SHA },
+      deps
+    );
+
+    expect(result.results[0]?.buildIdentity).toBe("confirmed");
+  });
+
+  test("a neighbouring merge's deployment is a mismatch — the incident's shape, per service", async () => {
+    const deps = makeDeps([], {
+      reviewer: mkDeployment({ commitHash: NEIGHBOUR_SHA }),
+    });
+
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer"], mergedCommitSha: MERGE_SHA },
+      deps
+    );
+
+    // A deploy DID succeed — which is exactly why status alone was not enough.
+    expect(result.results[0]?.deployment.status).toBe("SUCCESS");
+    expect(result.results[0]?.buildIdentity).toBe("mismatch");
+    expect(result.results[0]?.buildIdentityReason).toContain("not yours");
+  });
+
+  test("indeterminate when no merge commit is supplied — omission is not a pass", async () => {
+    const deps = makeDeps([], { reviewer: mkDeployment({ commitHash: MERGE_SHA }) });
+
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer"] },
+      deps
+    );
+
+    expect(result.results[0]?.buildIdentity).toBe("indeterminate");
+  });
+
+  test("verdicts are per service — one can carry the merge while another serves a neighbour's build", async () => {
+    const deps = makeDeps([{ filename: "infra/index.ts", status: "modified" }], {
+      cockpit: mkDeployment({ commitHash: MERGE_SHA }),
+      reviewer: mkDeployment({ commitHash: NEIGHBOUR_SHA }),
+      site: mkDeployment({ commitHash: null }),
+    });
+
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, mergedCommitSha: MERGE_SHA },
+      deps
+    );
+
+    const byService = Object.fromEntries(result.results.map((r) => [r.service, r.buildIdentity]));
+    expect(byService).toEqual({
+      cockpit: "confirmed",
+      reviewer: "mismatch",
+      site: "indeterminate",
+    });
+  });
+});
+
+describe("sessionPrDrivePostMerge session resolution after cleanup (mt#4425)", () => {
+  /**
+   * Post-merge mode runs AFTER the merge, and a successful merge cleans the
+   * session up — so failing to resolve `--task` here is the ORDINARY state, not
+   * an exotic one. It used to surface as a bare `No session found for task ID`,
+   * which reads as a dead end at exactly the moment the caller is mid-deploy-
+   * verification and has two working alternatives available.
+   */
+  function depsWithNoSessionForTask(): SessionPrDrivePostMergeDependencies {
+    const deps = makeDeps([]);
+    // Both stubs are needed to reach the REAL failure. With `listSessions`
+    // missing the resolver dies on the mock's own shape instead, which would
+    // make these tests assert that the guard wraps any error — a weaker claim
+    // than the one under test, and one that would pass even if the genuine
+    // session-absent path stopped behaving this way.
+    Object.assign(deps.sessionDB as unknown as Record<string, unknown>, {
+      getSessionByTaskId: async () => null,
+      listSessions: async () => [],
+    });
+    return deps;
+  }
+
+  test("names the explicit-services alternative", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/services/);
+  });
+
+  test("names verify-deploy.ts, which needs no session at all", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/verify-deploy\.ts/);
+  });
+
+  test("says the failure is EXPECTED after a merge rather than implying a fault", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/EXPECTED/);
+  });
+
+  test("preserves the underlying resolution error rather than swallowing it", async () => {
+    await expect(
+      sessionPrDrivePostMerge({ task: "mt#4425" }, depsWithNoSessionForTask())
+    ).rejects.toThrow(/No session found for task ID/);
+  });
+
+  test("a non-not-found failure propagates unchanged rather than being relabelled", async () => {
+    // PR #3394 R1 BLOCKING: the guidance wrapper originally caught EVERY error,
+    // so a backend outage, an auth failure, or the ValidationError raised when a
+    // task matches multiple sessions all became "no session found" — sending
+    // callers that branch on error type, and observability, to the wrong cause.
+    const deps = makeDeps([]);
+    Object.assign(deps.sessionDB as unknown as Record<string, unknown>, {
+      getSessionByTaskId: async () => {
+        throw new Error("backend unavailable: connection refused");
+      },
+      listSessions: async () => [],
+    });
+
+    await expect(sessionPrDrivePostMerge({ task: "mt#4425" }, deps)).rejects.toThrow(
+      /backend unavailable/
+    );
+    // And it must NOT acquire the post-merge guidance, which would be actively
+    // misleading for a failure that has nothing to do with session cleanup.
+    await expect(sessionPrDrivePostMerge({ task: "mt#4425" }, deps)).rejects.not.toThrow(
+      /verify-deploy\.ts/
+    );
+  });
+
+  test("negative control: a resolvable session still auto-detects, no throw", async () => {
+    // Same code path, session present — so the guard above is specific to the
+    // resolution failure and is not swallowing the happy path.
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer"] },
+      makeDeps([])
+    );
+    expect(result.skipped).toBe(false);
+    expect(result.watchedServices).toEqual(["reviewer"]);
   });
 });

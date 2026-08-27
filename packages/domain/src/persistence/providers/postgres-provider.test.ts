@@ -7,6 +7,7 @@ import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
+  CLOSE_TIMEOUT_SECONDS,
   createBoundedSocket,
   resolveMigrationsFolder,
   resolveSocketTimeoutMs,
@@ -205,6 +206,40 @@ describe("PostgresPersistenceProvider", () => {
     expect((provider as unknown as { sql: unknown }).sql).toBeNull();
     expect((provider as unknown as { db: unknown }).db).toBeNull();
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(false);
+  });
+
+  test("close() arms postgres-js's own destroy timer by passing a timeout (mt#4515)", async () => {
+    // postgres-js's `end({ timeout })` races a `Promise.all` over each
+    // connection's `end()` against a timer that calls `destroy()` →
+    // `c.terminate()` (node_modules/postgres/src/index.js:365-389). With
+    // `timeout` omitted it defaults to `null`, the timer is NEVER created, and
+    // the race has one runner that on a half-open pool never settles.
+    //
+    // WHAT THIS TEST CAN AND CANNOT SHOW. The termination itself is postgres-js's
+    // behaviour, not ours — a mock `end()` cannot exhibit it, so a test that
+    // stubbed a never-settling `end()` would hang identically before and after
+    // the fix and prove nothing. What IS ours is the argument, and passing it is
+    // the entire change. So this asserts the argument; that connections are
+    // actually released is AT3, measured as a live socket count across a real
+    // recycle.
+    //
+    // Negative control: against the pre-fix tree `end()` is called with no
+    // arguments, so `endArgs?.[0]` is `undefined` and this fails immediately
+    // rather than by timeout.
+    const endMock = mock(() => Promise.resolve());
+    const localSqlFn = mock(() => Promise.resolve([]));
+    const localSql = Object.assign(localSqlFn, {
+      options: { parsers: {}, serializers: {} },
+      query: mock(() => Promise.resolve([])),
+      end: endMock,
+    });
+
+    await provider.initialize({ sqlClient: localSql as any });
+    await provider.close();
+
+    expect(endMock).toHaveBeenCalledTimes(1);
+    const endArgs = endMock.mock.calls[0] as unknown[] | undefined;
+    expect(endArgs?.[0]).toEqual({ timeout: CLOSE_TIMEOUT_SECONDS });
   });
 
   // mt#1201: connectTimeout/idleTimeout unit fix — values are seconds, not ms.
@@ -956,14 +991,21 @@ describe("per-process pool default (mt#4308)", () => {
       const { factory, getCapturedArgs } = makeMockPostgresFactory();
       buildPostgresClient({ connectionString: TEST_CONNECTION_STRING }, factory as any);
 
-      // floor(POOLER_CLIENT_BUDGET 200 * POOL_BUDGET_FRACTION 0.5 /
-      //       ASSUMED_CONCURRENT_POOL_HOLDERS 12) = 8, above the floor of 4.
+      // floor(POOLER_CLIENT_BUDGET 600 * POOL_BUDGET_FRACTION 0.5 /
+      //       ASSUMED_CONCURRENT_POOL_HOLDERS 12) = 25, above the floor of 4.
+      //
+      // Was 8 until mt#4360: the budget input moved 200 -> 600 because
+      // `max_connections` measured 120 (Medium tier) rather than the 60
+      // (Nano/Micro) mt#4308 measured on 2026-08-19. Only that one input moved
+      // — holders stayed at 12 deliberately, see the constant's comment.
       //
       // Asserting the NUMBER, not the formula: the point of mt#4308 is that the
       // value follows from measured inputs, so a future change to any input
       // should land here and force a reader to re-check the arithmetic rather
-      // than silently re-tune the fleet's connection demand.
-      expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(8);
+      // than silently re-tune the fleet's connection demand. That worked as
+      // designed here — this assertion failed with "Expected: 8, Received: 25"
+      // the moment the budget changed, which is the negative control for mt#4360.
+      expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(25);
     } finally {
       if (prior === undefined) delete process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
       else process.env.MINSKY_POSTGRES_MAX_CONNECTIONS = prior;

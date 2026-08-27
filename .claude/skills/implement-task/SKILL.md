@@ -167,11 +167,15 @@ parallel-agent graph this window is often hours, sometimes overnight (evidence: 
 eceb6092, mt#2752's spec authored before mt#2766/2767/2768, mt#2441, and mt#2756 all shipped).
 Immediately after fetching the spec, call `mcp__minsky__tasks_spec_freshness` with the task ID:
 
-- **`hasDrift: false`** → proceed silently. No ritual output — this is the common case and must
-  not interrupt the flow.
+- **`hasDrift: false`** → proceed silently, but read `baselineUsed` first (mt#4420). On
+  `"spec-authored"` this is the full check and a clean pass is real. On `"spec-last-edited"` no
+  authoring timestamp was available, so drift predating the spec's last edit was never compared —
+  the message says so, and it is weaker evidence than it looks. No ritual output either way; this
+  is the common case and must not interrupt the flow.
 - **`hasDrift: true`** → the tool returns a `drift` array, one entry per changed ref (`ref`,
-  `kind`, `currentStatus`, `refUpdatedAt`, `daysSinceSpecEdit`). Render it as a table to the user
-  and require an explicit disposition, recorded in the transcript, before writing any code:
+  `kind`, `currentStatus`, `refUpdatedAt`, `daysSinceSpecEdit`, `precedesLastSpecEdit`). Render it
+  as a table to the user and require an explicit disposition, recorded in the transcript, before
+  writing any code:
   - **Amend** — the drift changes what the spec should say (a cited dependency shipped, a blocker
     cleared, a stated assumption no longer holds). Call `mcp__minsky__tasks_spec_patch` to update
     the spec with the change and its basis; the amendment itself is the disposition record.
@@ -181,6 +185,19 @@ Immediately after fetching the spec, call `mcp__minsky__tasks_spec_freshness` wi
     change needed") and continue.
   - Rendering the drift table and then silently continuing past it — neither amending nor stating
     an acknowledgment — is a process violation of this step.
+
+**`precedesLastSpecEdit: true` is not a lesser finding — it is the class that used to be
+INVISIBLE (mt#4420).** It means the ref changed while the spec already existed but BEFORE the spec
+was last written, so whoever made that edit did not necessarily see the drift: editing one section
+silently vouched for the whole document. Until mt#4420 the baseline was the last edit, so every
+such ref was suppressed — measured on prod, that made **43% of all clean passes false**, and **71%
+of clean passes on specs authored in the last 7 days**, which is the population this step actually
+runs against. Give these entries the same disposition as any other row.
+
+**Do not read your OWN planning edits as the reason a check is clean.** `/plan-task` amends the
+spec repeatedly, and before mt#4420 that reset the baseline to minutes-wide — so a clean result
+here said more about your recent writes than about the world. The authoring floor is what removes
+that; `baselineUsed` tells you whether you actually got it.
 
 This is a mechanical, status-timestamp-only check (v1, per the mt#2826 spec's Scope) — it detects
 "something about this ref changed since the spec was written," not "the spec's specific claim
@@ -348,12 +365,14 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
    - **(e) Negative control on a bugfix (mt#3244, calibration-first).** If the PR is **bugfix-shaped** — a `fix(` conventional-commit type on the title, or a bound task whose spec describes a defect — and it **modifies an existing test file**, the `Execution evidence:` block should also record a **negative control**: the changed test run against the UN-FIXED tree, observed FAILING. Revert the fix (or stub the condition), run the test, paste the failure alongside the passing run. **Where the label goes (mt#3511, corrected mt#3584):** on its OWN line, NOT inside a code fence. That is the ONLY placement rule — the label is matched anywhere in the PR body, so it need not sit inside the `Execution evidence:` block (beside the run output just reads best). A fenced marker is treated as quoted text and will not match, which is the trap the original wording ("inside the evidence block") set. Accepted forms (case-insensitive): `Negative control: <what you reverted and what failed>`, `Negative control — <subject>` (em or en dash — use this when the PR has several, each with its own subject), `Failing-first:` in either form, or a Markdown heading naming either. A leading `-` bullet and surrounding `**bold**` are fine — and so is a CRITERION PREFIX (`sc3 — negative control:`, `AT4: negative control — <subject>`, or `sc3 — negative control.` with the run on the lines beneath). Prefixing is what writers do when tying each control to its criterion, and the matcher rejected every such form until mt#3778: the gate had logged 42 consecutive fires with ZERO passes, a quarter of the classifiable ones being real controls it could not see. The failing run itself MAY be fenced beneath the label. If it genuinely cannot be run pre-merge, use `[negative-control-deferred: mt#NNNN]` naming a tracking task — prose does not count. Log-only per the mt#2263 ladder. Override: `MINSKY_SKIP_TEST_FIRST_EVIDENCE=1`.
 
-     **What a negative control does NOT buy you.** It proves the probe CAN fail. That is worth having, and it is narrower than it feels. Two things it does not establish, each with its own incident:
+     **What a negative control does NOT buy you.** It proves the probe CAN fail. That is worth having, and it is narrower than it feels. Three things it does not establish, each with its own incident:
 
      - **Right system (mt#3574).** It does not prove the probe is observing the RIGHT SYSTEM — a control run in a substitute runtime is just as blind to a substrate mismatch as the passing run beside it. See item 8's **Substrate direction**.
      - **Right inputs (mt#3579) [tier: prose].** Prose is not the fallback here: whether a test covers a defect CLASS is not statically decidable, so no matcher can answer it and no deterministic mechanism is being deferred. The value is the question being asked beside the artifact it qualifies. It proves the test can fail for the ONE case you reverted. It establishes nothing about coverage of the defect CLASS. Before moving on, name the class in one line and ask which other members of it your tests actually reach — this is the PREVENTIVE form of item 10's class-not-instance scan, applied where it is cheapest and most likely to be skipped, because a red-to-green transition feels like completion. (mt#3539 / PR #2531: the control reverted one oversized value and three tests went red — a genuine control, reported as such. The reviewer then found a case the tests never reached, where the bulk was many small fields and long key names rather than one big value; writing THAT regression surfaced a SECOND defect, envelope overhead, inside the same class the control appeared to cover.)
 
-     The two are independent. mt#3539's control ran in the real runtime against the real code and satisfied the substrate axis completely, and was still blind on the class axis.
+     - **Right revert (mt#4512) [tier: prose].** Same reason as the bullet above — whether a revert restored the full pre-fix state depends on which lines constitute "the fix," which only the author knows, so no matcher can answer it. **The CONTROL is itself an artifact, and it can be built wrong exactly the way the test can.** A control that does NOT fire is two hypotheses, not one: the test is inert, or the control is unfaithful — and the passing run cannot tell them apart. Reverting only the line you believe is load-bearing leaves a system that is neither pre-fix nor post-fix, and another code path may independently produce the correct behaviour. **Restore the FULL pre-fix state before concluding the test is at fault.** (mt#4502: a control that moved one line passed, because the very method being reordered ALSO reset the counter the assertion read; the full revert then failed correctly and exposed a genuinely inert test underneath it. Two artifacts wrong, one masking the other.)
+
+     The three are independent. mt#3539's control ran in the real runtime against the real code and satisfied the substrate axis completely, and was still blind on the class axis; mt#4502's ran against the right system with the right inputs and was simply not a revert of the whole fix.
 
      **Why this is not redundant with (b).** (b) asks whether the test RAN; this asks whether it could have FAILED. A test written after the fix and shaped to it passes either way, so a passing run is compatible with the test having been incapable of failing (mem#704: a probe that returns the same result when the system is broken is not verification). Originating incident: three defects shipped in one session (mt#3228 / mt#3234 / mt#3238), each with a test written after the fix, every gate green — one test asserted the bug itself as the correct invariant and was reviewer-APPROVED.
 
@@ -690,6 +709,31 @@ CRASHED). Platform-neutral; the tool routes to the platform declared in
 candidates: Vercel, Cloudflare Pages, etc.). See
 `docs/deployment-platforms.md` for the abstraction.
 
+**The same three commands are on the CLI, so this capability does NOT vanish
+when MCP is down (mt#4425)** — which is exactly when you need it, since the CLI
+is the fallback:
+
+```
+minsky deployment wait-for-latest --service <svc> --not-before <merge-iso>
+minsky deployment status --service <svc>
+minsky deployment logs <deploymentId> --type build --service <svc>
+```
+
+They were reachable all along as `minsky tools deployment ...` and documented
+nowhere in that form, so `minsky deployment ...` returning `unknown command`
+read as "no CLI path exists". It now resolves at the top level. For the whole
+chain in one command — a deployment postdating the merge, the build-identity
+verdict, and a health probe asserting the body's `service` identity rather
+than the status code:
+
+```
+bun scripts/verify-deploy.ts <svc> --merged-at <merge-iso> --commit <merge-sha>
+```
+
+It exits non-zero on any failure, reads the Railway ids from
+`services/<svc>/deploy.config.ts`, and takes `--require-identity` to fail
+closed when WHICH change deployed could not be established.
+
 **ALWAYS pass `notBefore` — the merge's timestamp (mt#3890).** Without it,
 this call returns whatever deployment is newest, with no relationship to the
 merge you are verifying. That is not a theoretical weakness: from 2026-08-05
@@ -709,6 +753,43 @@ find out why the deploy did not fire, rather than waiting longer.
 it to every watched service. If you omit it there, the result carries
 `deployBoundApplied: false` and the text output says so — treat that as an
 unverified deploy, not a passing one.
+
+**`notBefore` is necessary and NOT sufficient — pass `expectCommitSha` too, and
+READ the verdict (mt#4583).** The bound above filters on the deployment's
+creation TIME, and time does not identify WHICH change deployed. On a busy main
+branch a NEIGHBOURING merge's deployment lands inside your window and satisfies
+the bound: observed 2026-08-25, when a deployment created **ten seconds** after
+a merge returned SUCCESS and belonged to the PREVIOUS merge's workflow run. The
+tell was arithmetic — ten seconds cannot build a Docker image — and the falsifier
+was a schema query showing the migration had not run. Passing `notBefore` did
+not prevent any of it.
+
+So pass BOTH, and read `buildIdentity` on the result:
+
+- **`confirmed`** — the deployment names your commit. This is the only value
+  that licenses "my change is deployed."
+- **`mismatch`** — it names a DIFFERENT commit. A deploy happened; it was not
+  yours. Do not wait for this one to change: go find your own.
+- **`indeterminate`** — the record cannot answer. Expected for an image-source
+  service (Railway deploys a pushed image and never sees the commit, so
+  `commitHash` is null by construction). **This is not a pass.** Fall through to
+  the two checks below.
+
+`session.pr.drive --postMerge` takes `mergedCommitSha` alongside `mergedAt` and
+reports `buildIdentity` per service — services deploy independently, so one can
+carry your merge while another still serves a neighbour's build.
+
+**When identity is `indeterminate`, escalate to a channel that CAN answer:**
+
+1. **Correlate the workflow run to your merge SHA** —
+   `forge_ci_run_list --workflow deploy-<svc>.yml`, match `head_sha` against the
+   merge commit, and require `conclusion: success` on THAT run. This is what
+   proved the 2026-08-25 deploy had not happened yet.
+2. **Assert something the CHANGE produces, not something the DEPLOY produces** —
+   the migrated column present in `information_schema`, the new route
+   responding, the new field in a payload. This is the strongest check available
+   and the one that actually settled the incident: it is immune to which
+   deployment record the wait happened to return.
 
 **Follow-ups for inspection (not for waiting):**
 

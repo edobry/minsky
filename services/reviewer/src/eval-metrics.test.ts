@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  cohensKappa,
   f1,
   falsePositiveRate,
   passAtK,
@@ -223,5 +224,96 @@ describe("passCaretK", () => {
 
   test("guards c out of range (c < 0) by returning NaN", () => {
     expect(Number.isNaN(passCaretK(5, -1, 2))).toBe(true);
+  });
+});
+
+describe("cohensKappa", () => {
+  /**
+   * Textbook 2x2 case, computed by hand from the documented formula.
+   *
+   * Confusion counts over n=50: both-yes 20, A-yes/B-no 5, A-no/B-yes 10,
+   * both-no 15.
+   *   po = (20 + 15) / 50 = 0.7
+   *   marginals: A yes 25/50 = 0.5, B yes 30/50 = 0.6, A no 0.5, B no 0.4
+   *   pe = 0.5*0.6 + 0.5*0.4 = 0.5
+   *   kappa = (0.7 - 0.5) / (1 - 0.5) = 0.4
+   */
+  test("matches a hand-computed 2x2 confusion matrix", () => {
+    const raterA = [
+      ...Array(20).fill("yes"),
+      ...Array(5).fill("yes"),
+      ...Array(10).fill("no"),
+      ...Array(15).fill("no"),
+    ];
+    const raterB = [
+      ...Array(20).fill("yes"),
+      ...Array(5).fill("no"),
+      ...Array(10).fill("yes"),
+      ...Array(15).fill("no"),
+    ];
+
+    const result = cohensKappa(raterA, raterB);
+
+    expect(result.n).toBe(50);
+    expect(result.observedAgreement).toBeCloseTo(0.7, 10);
+    expect(result.expectedAgreement).toBeCloseTo(0.5, 10);
+    expect(result.kappa).toBeCloseTo(0.4, 10);
+    expect(result.degenerate).toBeUndefined();
+  });
+
+  test("returns 1 for perfect agreement across two categories", () => {
+    // po = 1, pe = 0.5*0.5 + 0.5*0.5 = 0.5, kappa = (1 - 0.5) / 0.5 = 1
+    const result = cohensKappa(["v", "v", "n", "n"], ["v", "v", "n", "n"]);
+    expect(result.kappa).toBeCloseTo(1, 10);
+  });
+
+  test("returns 0 for exactly chance-level agreement", () => {
+    // po = 2/4 = 0.5; both marginals are 0.5/0.5 so pe = 0.5; kappa = 0
+    const result = cohensKappa(["v", "n", "v", "n"], ["v", "n", "n", "v"]);
+    expect(result.kappa).toBeCloseTo(0, 10);
+  });
+
+  test("goes negative when agreement is worse than chance", () => {
+    // po = 0, pe = 0.5 => kappa = (0 - 0.5) / 0.5 = -1
+    const result = cohensKappa(["v", "v", "n", "n"], ["n", "n", "v", "v"]);
+    expect(result.kappa).toBeCloseTo(-1, 10);
+  });
+
+  test("sums expected agreement over categories only one rater used", () => {
+    // A never says "n": pA(v)=1, pA(n)=0; B is 0.5/0.5.
+    // pe = 1*0.5 + 0*0.5 = 0.5, po = 0.5 => kappa = 0.
+    // Dropping B's unmatched category from the sum would give pe = 0.5 here
+    // too, so this asserts the union index set via the marginal instead.
+    const result = cohensKappa(["v", "v"], ["v", "n"]);
+    expect(result.expectedAgreement).toBeCloseTo(0.5, 10);
+    expect(result.kappa).toBeCloseTo(0, 10);
+  });
+
+  test("reports single-category degeneracy instead of a kappa", () => {
+    // Both raters constant: pe = 1, so kappa is 0/0. A rater stuck on one
+    // label is exactly the failure this benchmark exists to catch, so the
+    // result must not read as perfect agreement.
+    const result = cohensKappa(["v", "v", "v"], ["v", "v", "v"]);
+    expect(result.kappa).toBeNull();
+    expect(result.degenerate).toBe("single-category");
+    expect(result.observedAgreement).toBe(1);
+  });
+
+  test("treats the 4 human-review labels as unordered nominal categories", () => {
+    // valid_blocking vs valid_nonblocking is a full disagreement, not partial
+    // credit for being "close" — the property that keeps kappa nominal.
+    const result = cohensKappa(
+      ["valid_blocking", "valid_nonblocking", "false_positive", "cant_tell"],
+      ["valid_nonblocking", "valid_blocking", "false_positive", "cant_tell"]
+    );
+    expect(result.observedAgreement).toBeCloseTo(0.5, 10);
+  });
+
+  test("throws on a length mismatch rather than scoring a truncated join", () => {
+    expect(() => cohensKappa(["v", "n"], ["v"])).toThrow(/same length/);
+  });
+
+  test("throws on an empty pairing rather than returning 0", () => {
+    expect(() => cohensKappa([], [])).toThrow(/0 paired items/);
   });
 });

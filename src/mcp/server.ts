@@ -42,7 +42,9 @@ const IDENTITY_FALLBACK_REPORT_CAP = 256;
 import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import type { MCPClientCapabilityRegistry } from "./client-capabilities";
+import type { MCPConnectionTracker } from "./client-capabilities";
+import { SingleConnectionCapabilityRegistry } from "./client-capabilities";
+import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
@@ -152,7 +154,7 @@ export interface MinskyMCPServerOptions {
    * is disabled — the no-op registry in CLI composition suffices for those
    * code paths.
    */
-  clientCapabilityRegistry?: MCPClientCapabilityRegistry;
+  connectionTracker?: MCPConnectionTracker;
 
   /**
    * Optional static memory bundle to include in the SDK Server's `instructions`
@@ -201,6 +203,28 @@ const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 const CALIBRATION_REVIEW_TOOL_NAME = "observability.calibration-review";
 
 /**
+ * The tool whose ROW records caller identity for later delivery (mt#4476).
+ *
+ * A third reason, distinct from the two above: the other members read the caller's
+ * identity to decide something DURING the call, while this one persists it so an
+ * answer can be routed back to that conversation later. `Ask.filedByAgentId` is the
+ * only addressing key an ordinary ask has — a main-workspace conversation has no
+ * workspace session — and it has to be server-stamped rather than caller-supplied,
+ * because the adjacent caller-supplied field (`requestor`) demonstrates what happens
+ * otherwise: its docblock promises an AgentId and a live sample held `"claude-opus-5"`.
+ */
+const ASKS_CREATE_TOOL_NAME = "asks.create";
+
+/**
+ * `tasks.claims.release` scopes its delete to the CALLER's own presence claim,
+ * so without the injection below it resolves no identity over MCP and releases
+ * nothing — while working correctly over the CLI, whose process does carry the
+ * harness env vars. That asymmetry is the mt#4408 R4 shape (mem#1184): a
+ * mechanism verified on one invocation path is not verified. mt#4568.
+ */
+const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -209,16 +233,18 @@ const CALIBRATION_REVIEW_TOOL_NAME = "observability.calibration-review";
  * merely CONTAINS one of these cannot receive the param. Built once at module
  * load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now two tools wide and
+ * Why a set rather than a second `if`: the injection is now four tools wide and
  * the matching rule (exact, both aliases, server overwrites any caller-supplied
  * value) is the part that must not drift between them. One membership test
  * cannot disagree with itself.
  */
 const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
-  [DISPATCH_RECOVER_TOOL_NAME, CALIBRATION_REVIEW_TOOL_NAME].flatMap((name) => [
-    name,
-    toClaudeDesktopName(name),
-  ])
+  [
+    DISPATCH_RECOVER_TOOL_NAME,
+    CALIBRATION_REVIEW_TOOL_NAME,
+    ASKS_CREATE_TOOL_NAME,
+    CLAIMS_RELEASE_TOOL_NAME,
+  ].flatMap((name) => [name, toClaudeDesktopName(name)])
 );
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -260,7 +286,11 @@ export interface ToolDefinition {
    * connections that were still correctly polling within their own
    * server-side timeout).
    */
-  handler?: (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>;
+  handler?: (
+    args: Record<string, unknown>,
+    progress?: ToolProgressReporter,
+    callerCapabilities?: ClientCapabilityRegistry
+  ) => Promise<unknown>;
   /**
    * mt#1792: lazy handler thunk — defers handler-module loading until first
    * invocation. Mutually exclusive with `handler` at registration time: provide
@@ -272,7 +302,11 @@ export interface ToolDefinition {
    * `getHandler` is ignored — backward-compatible coexistence.
    */
   getHandler?: () => Promise<
-    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+    (
+      args: Record<string, unknown>,
+      progress?: ToolProgressReporter,
+      callerCapabilities?: ClientCapabilityRegistry
+    ) => Promise<unknown>
   >;
   /**
    * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
@@ -282,7 +316,11 @@ export interface ToolDefinition {
    * (so retry can occur). Internal; not part of the registration API.
    */
   __resolving?: Promise<
-    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+    (
+      args: Record<string, unknown>,
+      progress?: ToolProgressReporter,
+      callerCapabilities?: ClientCapabilityRegistry
+    ) => Promise<unknown>
   >;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
@@ -411,7 +449,7 @@ export class MinskyMCPServer {
   private wakeSessionResolver: WakeSessionResolver | undefined;
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
-  private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  private connectionTracker: MCPConnectionTracker | undefined;
   /**
    * mt#1751: DI initialization promise. When set via `setInitPromise`, every
    * CallTool dispatch awaits this promise before invoking the tool handler.
@@ -627,7 +665,7 @@ export class MinskyMCPServer {
 
     // mt#1457: capability registry for the Ask router. When provided, each
     // Server created via createConfiguredServer is registered.
-    this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+    this.connectionTracker = options.connectionTracker;
 
     // mt#1625: optional static memory bundle for the `instructions` field.
     // Must be set BEFORE createConfiguredServer is called below so the
@@ -819,7 +857,7 @@ export class MinskyMCPServer {
     // Capabilities are read live from the SDK Server (no caching), so registering
     // here pre-init is safe — the SDK populates getClientCapabilities() on
     // initialize. HTTP onclose / idle reaper / close() handle unregistration.
-    this.clientCapabilityRegistry?.registerServer(server);
+    this.connectionTracker?.registerServer(server);
 
     this.setupRequestHandlers(server, sessionKey);
     return server;
@@ -1014,6 +1052,24 @@ export class MinskyMCPServer {
       // at the protocol level.
       // mt#1705: pass the per-session sessionKey so the disconnect reads the
       // correct per-session tool-call count.
+      // mt#4511: stamp this session's start so its disconnect reports the SESSION's
+      // lifetime rather than the daemon's uptime. Many short HTTP sessions live inside
+      // one long-running process, so without this every one of them looked long-lived
+      // and the escalation filter's short-lived-probe exclusion could never fire.
+      //
+      // ORDER IS LOAD-BEARING (PR #3304 R1): this must precede `wireDisconnectHooks`,
+      // which installs the `onclose` handler that calls `recordDisconnect`. Stamping
+      // after the wiring leaves a window in which a close could be recorded with no
+      // start on file, silently falling back to process uptime — reintroducing exactly
+      // the defect this change removes, and in the hardest case to notice (a session
+      // that died immediately is the one most likely to be a probe). Stamping first
+      // makes the fallback unreachable for HTTP rather than merely unlikely.
+      //
+      // It also sits AFTER `server.connect(transport)` on purpose: a connect that
+      // throws never reaches here, so a failed session cannot leave an entry stranded
+      // in the map (nothing would ever evict it — eviction happens in
+      // `recordDisconnect`, which only runs for a session that actually wired hooks).
+      this.disconnectTracker.noteSessionStart(sessionKey);
       this.wireDisconnectHooks(server, "unknown", sessionKey);
       this.disconnectTracker.recordReconnect();
       const entry: {
@@ -1045,7 +1101,7 @@ export class MinskyMCPServer {
           }
           // mt#1457: unregister from the capability registry so a closed
           // connection's stale capabilities don't influence routing decisions.
-          this.clientCapabilityRegistry?.unregisterServer(server);
+          this.connectionTracker?.unregisterServer(server);
           // Only close the Server if no external initiator claimed ownership —
           // the initiator (reaper / MinskyMCPServer.close) is responsible for
           // closing the Server directly.
@@ -1146,7 +1202,7 @@ export class MinskyMCPServer {
       this.httpSessions.delete(id);
       // mt#1457: unregister from capability registry. Idempotent — safe even
       // if onclose also fires and unregisters again.
-      this.clientCapabilityRegistry?.unregisterServer(session.server);
+      this.connectionTracker?.unregisterServer(session.server);
       const idleMinutes = Math.floor((now - session.lastActiveAt) / 60_000);
       log.debug("Reaping idle HTTP session", { sessionId: id, idleMinutes });
       try {
@@ -1251,7 +1307,8 @@ export class MinskyMCPServer {
       });
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
-      const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
+      const callerIdentity = this.resolveCallerIdentity(server, extra as RequestExtras | undefined);
+      const agentId = callerIdentity.agentId;
 
       // mt#1884: per-tool dispatch latency instrumentation (flat Braintrust event).
       // Start timestamp captured at dispatch entry; the event is emitted once in the
@@ -1351,7 +1408,28 @@ export class MinskyMCPServer {
             request.params.arguments = injectedArgs;
           }
 
-          const result = await tool.handler(request.params.arguments || {}, progress);
+          // mt#4451: capabilities scoped to the connection that made THIS call.
+          // `server` is this handler's own connection — `setupRequestHandlers`
+          // takes it as a parameter and `createServer` registers the handler on
+          // the same instance it just built, so no plumbing is needed to obtain
+          // it. Built per request rather than per connection because the SDK
+          // populates `getClientCapabilities()` during `initialize`, which may
+          // not have completed when the connection was created.
+          //
+          // This replaces a process-wide lookup: under ADR-038's shared daemon
+          // every conversation registers into one process, so asking "does ANY
+          // connection support elicitation" let one connected client decide
+          // routing for asks filed by every other, and dispatch to an arbitrary
+          // one of them. `connectionTracker` still answers the fleet-wide
+          // question, under a name that says so.
+          const callerCapabilities: ClientCapabilityRegistry =
+            new SingleConnectionCapabilityRegistry(server);
+
+          const result = await tool.handler(
+            request.params.arguments || {},
+            progress,
+            callerCapabilities
+          );
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
           this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {
@@ -1410,6 +1488,14 @@ export class MinskyMCPServer {
           // memoryService is unset, or when the env-var kill switch is set
           // (used by the benchmark script). Errors and degraded results are
           // silently dropped — enrichment must never break the tool call.
+          // mt#4526 SC2 asks that EVERY awaited enrichment step on this path be bounded.
+          // This one already is, and deliberately not by us: `enrichToolResponse` races
+          // its own `MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS` deadline (5s default,
+          // `memory-enrichment.ts:83`) internally. Wrapping a SECOND, shorter bound around
+          // it would make that configurable timeout dead code and emit a duplicate late
+          // log after the request had already returned — the wrapper-below-inner-timeout
+          // corollary in `decision-defaults.mdc §Thresholds`, which this task cites about
+          // postgres-js and then nearly repeated here. Caught in PR #3301 review.
           const enrichmentBlock = await enrichToolResponse(
             request.params.name,
             request.params.arguments || {},
@@ -1423,11 +1509,19 @@ export class MinskyMCPServer {
           // carried no resolvable session arg, or there were no pending wakes.
           // Errors are logged at `wake.enrichment.failed` and suppressed —
           // enrichment failure must NEVER break the underlying tool call.
+          // mt#4476: also pass the caller's conversation-grain identity, so an
+          // answered ask reaches the conversation that filed it on ANY tool call
+          // rather than only on the five that carry a session argument. Layer 1 is
+          // withheld deliberately — it is a process hash, so every conversation on
+          // this server would resolve the same value and drain each other's wakes.
           const wakeBlock = await enrichWakeResponse(
             request.params.name,
             request.params.arguments || {},
             this.wakeService,
-            this.wakeSessionResolver
+            this.wakeSessionResolver,
+            {
+              callerAgentId: callerIdentity.layer === 1 ? undefined : callerIdentity.agentId,
+            }
           );
 
           // Return MCP-compliant tool response
@@ -1681,6 +1775,22 @@ export class MinskyMCPServer {
    * each session has its own Server and thus its own clientVersion.
    */
   private resolveCallerAgentId(server: Server, extras: RequestExtras | undefined): string {
+    return this.resolveCallerIdentity(server, extras).agentId;
+  }
+
+  /**
+   * As {@link resolveCallerAgentId}, but keeps the LAYER alongside the id.
+   *
+   * The layer is what tells a conversation-SCOPED identity (Layer 2/3 — declared in
+   * `_meta`, or stamped there by the stdio proxy) apart from an ascribed Layer 1
+   * process hash. Callers that address something to a conversation need that
+   * distinction; callers that only need a "who touched this last" label do not,
+   * which is why the plain wrapper above still exists.
+   */
+  private resolveCallerIdentity(
+    server: Server,
+    extras: RequestExtras | undefined
+  ): { agentId: string; layer: 1 | 2 | 3 } {
     let clientInfoName: string | undefined;
     try {
       const clientVersion = server.getClientVersion();
@@ -1688,12 +1798,13 @@ export class MinskyMCPServer {
     } catch {
       // getClientVersion() may throw if called before initialize completes
     }
-    return resolveAgentIdWithLayer({
+    const resolved = resolveAgentIdWithLayer({
       extras,
       clientInfo: clientInfoName ? { name: clientInfoName } : undefined,
       declaredKeys: buildDeclaredIdentityKeys(this.options.protocolConversationIdKey),
       onFallback: (event) => this.reportIdentityFallback(event),
-    }).agentId;
+    });
+    return { agentId: resolved.agentId, layer: resolved.layer };
   }
 
   /**
@@ -1972,11 +2083,14 @@ export class MinskyMCPServer {
         };
         if (persistence.getDatabaseConnection) {
           const rawDb = await persistence.getDatabaseConnection();
+          // No cast, and no shape check HERE (mt#4509; PR #3288 R1). `resolveProjectScope`
+          // takes `unknown` and validates the handle itself, so a bad one is classified and
+          // logged as `invalid-db-handle` in one place. Narrowing at this call site instead
+          // would SUPPRESS that log — the handle would silently fail the `if` and vanish,
+          // which is the failure mode this task exists to end.
+          // A null handle stays silent: persistence not being ready is not a defect.
           if (rawDb) {
-            const scope = await resolveProjectScope(
-              identity,
-              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-            );
+            const scope = await resolveProjectScope(identity, rawDb, "mcp.presence");
             const { isAllProjects } = await import("@minsky/domain/project/scope");
             // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
             if (!isAllProjects(scope)) {
@@ -2507,7 +2621,7 @@ export class MinskyMCPServer {
         for (const [sessionId, entry] of this.httpSessions.entries()) {
           (entry as typeof entry & { markExternalClose?: () => void }).markExternalClose?.();
           // mt#1457: unregister from capability registry on shutdown.
-          this.clientCapabilityRegistry?.unregisterServer(entry.server);
+          this.connectionTracker?.unregisterServer(entry.server);
           try {
             await entry.transport.close();
             log.debug("Closed HTTP transport", { sessionId });
@@ -2532,7 +2646,7 @@ export class MinskyMCPServer {
 
       // mt#1457: unregister the singleton stdio Server (HTTP sessions are
       // unregistered above). Idempotent for the http-mode path.
-      this.clientCapabilityRegistry?.unregisterServer(this.server);
+      this.connectionTracker?.unregisterServer(this.server);
 
       await this.server.close();
       log.debug("MCP Server closed");

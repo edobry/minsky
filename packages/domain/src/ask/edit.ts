@@ -36,6 +36,40 @@ export interface AskEditNote {
   editor: string;
   /** Which content fields the edit touched (param names, e.g. "question"). */
   fields: string[];
+  /**
+   * Prior values of the GRAPH fields a repair replaced (mt#4305). Absent on a
+   * content edit.
+   *
+   * `fields` above records WHICH fields changed and not what they said — the
+   * gap mem#1133 cost real work to discover, and which mt#4329 closed for
+   * content fields via {@link AskOriginalContent}. That mechanism deliberately
+   * captures the ORIGINAL only, once, because a question body is multi-KB and
+   * `asks.list`'s body size is a live constraint (mt#2748).
+   *
+   * A graph field is not that. A task id and a routing target are short
+   * strings, so recording the prior value on EVERY repair costs a few dozen
+   * bytes per note and no growth argument applies. And for a reparent the prior
+   * value is the whole point of the record: "this ask moved" without "from
+   * where" cannot be audited or reversed.
+   */
+  previous?: AskGraphPrevious;
+}
+
+/**
+ * Prior values of the graph fields a repair replaced (mt#4305).
+ *
+ * `parentTaskId` is the only member, and that follows from the repair rules
+ * rather than being an oversight: a `routingTarget` repair only ever fills an
+ * ABSENT target (see `repairAskGraph`), so there is never a prior value to
+ * record. An earlier revision declared a `routingTarget` key here "for a future
+ * widening"; PR #3263 R1 correctly flagged it as unpopulatable, and a field the
+ * code can never set is not future-proofing — it is a claim the type makes and
+ * the implementation does not honor. `repair.test.ts` pins the invariant
+ * instead, so a future re-route verb has to come back here deliberately rather
+ * than inherit a silently-empty slot.
+ */
+export interface AskGraphPrevious {
+  parentTaskId?: string;
 }
 
 /** Reserved metadata key carrying the append-only edit provenance notes. */

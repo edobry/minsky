@@ -58,21 +58,34 @@ never sees. That is why each failing tool result carries the cause itself.
 ### Default
 
 Each Minsky process opens a postgres-js connection pool whose **default maximum is derived, not
-hardcoded** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`). It currently evaluates to **8**.
+hardcoded** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`). It currently evaluates to **25**.
 
 Minsky runs as many concurrent processes — every Claude Code conversation runs its own MCP process,
 plus the Railway-hosted MCP server, the reviewer service, and the cockpit menu-bar app — all sharing
-one Supabase/Supavisor pooler. What that pooler rations is **client connections**, and the budget is
-small:
+one Supabase/Supavisor pooler. What that pooler rations is **client connections**, and that budget is
+finite and tier-dependent — not the "practical ceiling in the thousands" this document asserted until
+mt#4308:
 
-| Input                             | Value | Where it comes from                                                                                                                                |
-| --------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POOLER_CLIENT_BUDGET`            | 200   | Supabase's published compute table. `max_connections = 60` on this project pins the tier to Nano/Micro, and both carry a 200-client pooler ceiling |
-| `POOL_BUDGET_FRACTION`            | 0.5   | the remainder is left for hosted services, ephemeral probes, and burst                                                                             |
-| `ASSUMED_CONCURRENT_POOL_HOLDERS` | 12    | measured: 31 connections came from 8 distinct pids while 70-84 processes were alive — pools open lazily, so holders are far fewer than processes   |
+| Input                             | Value | Where it comes from                                                                                                                                                                                                                                               |
+| --------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POOLER_CLIENT_BUDGET`            | 600   | Supabase's published compute table. `max_connections = 120` measured 2026-08-24 pins the tier to Medium, whose pooler ceiling is 600 clients                                                                                                                      |
+| `POOL_BUDGET_FRACTION`            | 0.5   | the remainder is left for hosted services, ephemeral probes, and burst                                                                                                                                                                                            |
+| `ASSUMED_CONCURRENT_POOL_HOLDERS` | 12    | provisioned headroom, NOT the current reading — 2026-08-24 measured **2** holders across 59 processes (was 8 across 70-84 on 2026-08-18, before ADR-038 consolidated the fleet). See the constant's comment for why the value does not track the measurement down |
 
-`floor(200 × 0.5 / 12) = 8`, subject to a floor of 4 (`MIN_DERIVED_POOL_SIZE`) that preserves the
+`floor(600 × 0.5 / 12) = 25`, subject to a floor of 4 (`MIN_DERIVED_POOL_SIZE`) that preserves the
 fan-out width the default exists to buy.
+
+**Re-check the budget input directly — do not copy it from here.** It is one query plus a table
+lookup:
+
+```
+select current_setting('max_connections')
+```
+
+against the configured connection string, then look the result up in
+[Supabase's compute-and-disk table](https://supabase.com/docs/guides/platform/compute-and-disk)
+(Nano/Micro 60 → 200, Small 90 → 400, Medium 120 → 600, Large 160 → 800). This row has been wrong
+twice, both times by being copied rather than measured — see the history below.
 
 **History, because the previous version of this section was wrong in a way worth naming.** mt#1193
 set the default to **3** to keep the fleet under the session-mode pooler's hard 15-slot ceiling.
@@ -81,12 +94,23 @@ code comment it mirrored) claimed that ceiling was "effectively gone (practical 
 thousands)", so the value "no longer rations a scarce global budget" and could be sized purely for
 per-process fan-out. mt#2224 raised it to **15** on that basis.
 
-That ceiling was never measured — it came from an agent-authored memory, not from the vendor. The
-real ceiling for this project is **200 client connections**, at which **fourteen** processes running
-a pool of 15 saturate the pooler. mt#2224's reasoning was correct for the fleet it measured; nothing
-re-examined it when the fleet grew by an order of magnitude, because the assumption lived in prose
-rather than in code. Deriving the value is what makes it re-checkable — if the tier, the fleet, or
-the share changes, change the corresponding input and the default follows.
+That ceiling was never measured — it came from an agent-authored memory, not from the vendor.
+mt#4308 measured it: **200 client connections** (`max_connections = 60`, Nano/Micro), at which
+**fourteen** processes running a pool of 15 saturate the pooler. mt#2224's reasoning was correct for
+the fleet it measured; nothing re-examined it when the fleet grew by an order of magnitude, because
+the assumption lived in prose rather than in code. Deriving the value is what makes it re-checkable —
+if the tier, the fleet, or the share changes, change the corresponding input and the default follows.
+
+**Then the tier changed, and the derived value did not follow, because nothing re-ran the
+measurement (mt#4360).** The project was upgraded to Medium (`max_connections = 120` → a 600-client
+ceiling) sometime after 2026-08-19, and both 200 and the pool default of 8 it produced stayed put
+until 2026-08-24. Note the difference from the failure above it: the "thousands" claim was never
+true, while 200 was correct when written and simply outlived its measurement. **A derived constant
+converts a wrong number into a stale one; it does not make it self-updating**, so the value is only
+as fresh as the last time somebody ran the query. That is why the re-check command sits beside the
+table above and beside the constant in `postgres-provider.ts`, rather than the reading being quoted
+from one place to another — the 2026-08-24 recurrence happened by a stale reading being copied
+forward into a new document as if it were current.
 
 The per-process limit still sizes query **fan-out concurrency** (how many parallel queries one
 process issues without client-side queueing); the derivation just bounds it by what the pooler can
@@ -104,8 +128,8 @@ The pool size is resolved in priority order (highest wins):
 1. **Config file** — `persistence.postgres.maxConnections` in `.minsky/config.yaml` or
    `~/.config/minsky/config.yaml`
 2. **Environment variable** — `MINSKY_POSTGRES_MAX_CONNECTIONS`
-3. **Built-in default** — derived, currently **8** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`; see the
-   derivation table above)
+3. **Built-in default** — derived, currently **25** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`; see the
+   derivation table above, which is the single source for this number — do not restate it elsewhere)
 
 Example config override:
 
@@ -140,10 +164,20 @@ the one set on the provider via the config key or env var described above.
 ## Connection-Exhaustion Retry Policy
 
 When Supavisor, PgBouncer, or Postgres itself rejects a new connection because the pool is full,
-Minsky retries the operation automatically rather than failing immediately. Under the current
-**transaction-mode** pooler (`:6543`) this rejection is unlikely (practical ceiling in the
-thousands); the policy remains as defense-in-depth and is the primary guard when running against
-the **session-mode** pooler (`:5432`, 15-slot ceiling).
+Minsky retries the operation automatically rather than failing immediately.
+
+Under the current **transaction-mode** pooler (`:6543`) this rejection is unlikely, but **not for the
+reason this section used to give.** It claimed a "practical ceiling in the thousands" — the same
+unmeasured figure corrected at the top of this document (it originated in an agent-authored memory,
+not with the vendor). The real reason is that the tier's client ceiling is **600** and the fleet's
+measured demand is far below it: 2 pool holders at a derived default of 25 is ~50 connections, under
+10% of the budget.
+
+The distinction matters because the two claims fail differently. "Thousands" implies the ceiling can
+be ignored; 600 against measured demand is a headroom statement that stops being true if either
+number moves — so re-check both rather than treating exhaustion as impossible. The policy remains as
+defense-in-depth and is the primary guard when running against the **session-mode** pooler (`:5432`,
+15-slot ceiling), where the ceiling genuinely is tight.
 
 ### Conditions that trigger a retry
 
@@ -191,11 +225,112 @@ For example:
 If you see `[retry 2/3]` in your logs, the third attempt is the final one. If that attempt also
 fails, the error is propagated to the caller.
 
+### Counters — read these instead of grepping the log (mt#4562)
+
+The log line above was the ONLY record of a retry until mt#4562, which is why "is the retry
+mechanism still firing?" could not be answered without a log grep. `withPgPoolRetry` now keeps
+outcome counters, exported as `getPgRetryCounters()` and published as `dbRetry` on both the
+cockpit's `/api/health` and minsky-mcp's `/health`:
+
+```
+curl -s 127.0.0.1:3737/api/health | jq -c '.dbRetry'
+{"saturationRetries":0,"staleConnectionRetries":0,"retriesExhausted":0,"lastRetryAt":null}
+```
+
+They are split by the same two classes the log line's `pg pool saturation` /
+`pg stale connection` label already distinguished, because the classes have **opposite expected
+rates**:
+
+- `saturationRetries` is **near-zero by design** — mt#3497 established that exhaustion on the
+  transaction pooler needs far more concurrent clients than this fleet produces, so a zero is the
+  expected steady state rather than a health claim.
+- `staleConnectionRetries` is the class production actually hits (mt#3092, mem#597).
+- `retriesExhausted` is **the alarm** — the budget ran out and the error reached the caller. It is
+  the only field safe to read on its own, and it is what the post-deploy monitor keys on.
+
+Do not build a "retry rate dropped to zero" alert on these. Over a normally-zero signal such a
+rule cannot fail: it emits the same answer whether the mechanism is healthy or dead (mem#704).
+
 To investigate persistent pool saturation:
 
-1. Check how many Minsky MCP processes are running and their per-process pool size (default 15).
-2. Check the Supabase/Supavisor pooler's global connection limit.
-3. Consider reducing `maxConnections` per process or restarting idle MCP servers.
+1. **Count the actual pool HOLDERS, not the processes** — most processes never open a pool, so a
+   process count overstates demand by an order of magnitude:
+
+   ```
+   lsof -nP -iTCP -sTCP:ESTABLISHED | awk '$9 ~ /:6543$/ {print $2}' | sort | uniq -c
+   ```
+
+   That gives connections per pid. A pid holding more than the derived default is itself the
+   finding — it means something opened more than one pool (see mt#4515).
+
+2. **Read the pool size in force, rather than assuming the default applies** — a config or env
+   override may be in play: `debug_systemInfo` reports `poolerSaturation.limit`, which is the
+   pool's own `max`, alongside `inFlight` / `queued` / `peakQueued` / `refused`.
+
+3. **Check the pooler's client ceiling** with the query and table at the top of this document
+   (`select current_setting('max_connections')`) — do not carry a remembered figure into the
+   arithmetic; that is how this document was wrong twice.
+
+4. Then consider reducing `maxConnections` per process or restarting idle MCP servers.
+
+## In-process admission bound (mt#2773, extended mt#4473)
+
+Separate from the retry policy above, which handles a pooler that REFUSES a connection. This bounds
+what happens when the process's OWN pool is full.
+
+`postgres` (postgres.js) has no checkout timeout — with all `max` connections busy, a new query is
+either pipelined behind a running one or pushed onto an untimed queue, and in both cases it waits
+without bound. That is the mechanism behind the 2026-08-23 incident, where eight concurrent
+long-running MCP calls hung every subsequent DB-backed call for ~45 minutes with no error and no log
+line. Minsky therefore admits queries above the driver, in
+`packages/domain/src/persistence/raw-sql-pooler-guard.ts`.
+
+**What is bounded.** In-flight queries are capped at the pool's own `max`, and callers beyond the
+cap wait in an in-process FIFO for at most `POOL_ADMISSION_DEADLINE_MS` (30s) before being refused.
+Since mt#4473 this covers **drizzle traffic as well as `.unsafe()`** — drizzle's postgres-js driver
+issues every query through `client.unsafe()`, and the drizzle client is built over the same guarded
+instance, so both share one counter. `sql.begin()` transactions still bypass it.
+
+### Reading `debug_systemInfo.poolerSaturation`
+
+| Field                           | Means                                                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `limit` / `inFlight` / `queued` | The cap, what is executing now, and who is parked waiting now.                                                                 |
+| `peakInFlight` / `peakQueued`   | High-water marks for the process's lifetime — a burst is over by the time anyone looks.                                        |
+| `everSaturated`                 | The cap was reached at least once. Ordinary under load; not a fault on its own.                                                |
+| `refused` / `lastRefusedAt`     | **Read these first.** A caller waited the full admission deadline and got nothing. This is the outage shape, not a load level. |
+| `guardCount`                    | Should be `1`. Above 1 means something re-wrapped the client and the other fields understate demand.                           |
+
+Before mt#4473 these counters observed `.unsafe()` only, so a pool exhausted by drizzle traffic read
+all zeros. A zero reading is now meaningful for both paths (still not for `sql.begin()`).
+
+### `EPOOLADMISSIONTIMEOUT` / `PoolAdmissionTimeoutError`
+
+**This is not a database outage.** It means this process's pool was full and stayed full for the
+whole admission deadline — the queries holding it are long-running or wedged. The database is
+typically healthy throughout; the discriminator is that a CLI DB read (which opens its own
+connection) returns promptly while MCP calls hang.
+
+```bash
+minsky mcp status                # reports `db: degraded` for this condition
+minsky mcp restart --execute     # clears it; the tray respawns the daemon
+```
+
+Refusal is deliberately preferred over an unbounded wait: a bounded failure naming its cause is
+recoverable in seconds, and the unbounded one cost 45 minutes. A refusal under ORDINARY load would
+be a regression, not expected behaviour — `refused` climbing during normal use means the pool is
+undersized for real demand, which is a different question (mt#4360).
+
+### Checking the bound on a live system
+
+`scripts/verify-drizzle-pooler-bound.ts` exercises the real provider against whatever database is
+configured: it fires `3 x max` concurrent drizzle SELECTs and asserts they are counted, capped, and
+not refused. It is read-only, and it skips with exit 0 where no SQL-capable persistence is
+configured — which is also why CI does not run it (CI has no live pool to saturate).
+
+```bash
+bun scripts/verify-drizzle-pooler-bound.ts
+```
 
 ## Socket Inactivity Bound (mt#3592)
 
@@ -323,6 +458,12 @@ tests).
 
 Four acceptance tests are covered (mt#1205):
 
+Every test saturates the pool and then releases it ~300ms in so the consumer under test can
+succeed on a retry — but the two groups saturate it differently. Tests 1-2 hold `poolSize`
+connections and then RACE `poolSize + 5` more, so their combined demand exceeds the ceiling on its
+own. Tests 3-4 open a single consumer, which adds no pressure, so they HOLD `poolSize + 5` — the
+held connections are their entire saturation mechanism.
+
 1. **Concurrent retry** — `poolSize + 5` clients race to connect; all eventually succeed and at
    least one retry is observed.
 2. **CRUD idempotency** — a mutating `INSERT … ON CONFLICT DO NOTHING` issued concurrently from
@@ -331,6 +472,13 @@ Four acceptance tests are covered (mt#1205):
    saturation resolves; `getConnectionInfo()` shows `"connected"`.
 4. **Vector search backoff** — `PostgresVectorStorage.search()` returns results under saturation
    (skipped gracefully when `pgvector` is not installed on the branch).
+
+Tests 3 and 4 open a SINGLE consumer rather than racing many, so they are the two that depend on
+the ceiling being fully consumed. Both call `assertSaturated()` first — one more connection must
+be REFUSED — and log the denominator they achieved (`held 10/13, further connection refused
+(code=53300)`). Read that line before trusting a pass: until mt#4347 these two held exactly
+`poolSize`, which left free slots on the testcontainer target, and test 4 failed its elapsed-time
+guard for 119 days while test 3 reported green having exercised no retry at all.
 
 ### Provisioning a Supabase Preview Branch
 
@@ -389,9 +537,18 @@ Delete the branch via the dashboard or `mcp__supabase__delete_branch` when no lo
 **durable contract test** for the pool-saturation retry path: a single Postgres container
 (`pgvector/pgvector:pg16`) started with `max_connections = 10`, managed by Testcontainers, with
 the same `runSaturationSuite` helper from mt#1364 driving the four acceptance tests against the
-container's connection string. The shared helper holds 8 long-lived clients to consume the
-ceiling and races 13 more that must retry — saturation is guaranteed even with a few
-connections taken by Postgres background workers (autovacuum, superuser-reserved slots).
+container's connection string. Tests 1-2 hold 8 long-lived clients and race 13 more against that
+ceiling of 10; tests 3-4 hold 13 — establishing the 10 the server will give and discarding the
+overflow — and then open a single consumer. Either way the demand placed on the server exceeds its
+ceiling, which is what makes saturation guaranteed without the harness having to know that ceiling,
+so a background worker taking a slot cannot change the outcome.
+
+This corrects a claim that stood here from 2026-04-28 to mt#4347: "holds 8 long-lived clients to
+consume the ceiling." Holding 8 does not consume a ceiling of 10, and the constants only agreed
+until mt#1365's final review-response commit raised `max_connections` from 5 to 10 without
+raising `POOL_SIZE` past 8. Note that `superuser_reserved_connections` was never a hazard for this
+harness in the first place — it reserves slots FOR superusers, and the harness connects as
+`postgres`.
 
 ### Why this exists alongside the Supabase harness
 
