@@ -14,6 +14,7 @@
  */
 
 import { GitHubAppTokenProvider } from "../auth/github-app-token-provider";
+import type { TokenRole } from "../auth/token-provider";
 import { getErrorMessage } from "../errors/index";
 
 /**
@@ -83,4 +84,90 @@ export function formatAppCoverage(
     case "unknown":
       return `GitHub App: coverage could not be verified (${status.reason})`;
   }
+}
+
+/**
+ * The github.com settings page for ONE App installation (mt#4693).
+ *
+ * Introduced here rather than in `formatAppCoverage` because the grant REQUEST
+ * needs it first; mt#4695 applies it to the operator-facing message above.
+ *
+ * The id is the caller's to supply, read from configuration
+ * (`github.serviceAccount.installationId`, or `github.reviewer.serviceAccount`
+ * for the reviewer role) — NOT from the token provider, which holds it on a
+ * private field. That keeps this a pure function of its argument, so it is
+ * assertable without a provider, a network, or a config loader.
+ */
+export function installationSettingsUrl(installationId: number): string {
+  return `https://github.com/settings/installations/${installationId}`;
+}
+
+/** One App role, as the caller knows it from configuration. */
+export interface AppRoleDescriptor {
+  readonly role: TokenRole;
+  /** Display slug, e.g. `minsky-ai`. Named, never inferred — it appears in operator-facing text. */
+  readonly slug: string;
+  /** Installation id from config, when configured. Absent means no deep link is available. */
+  readonly installationId?: number;
+}
+
+/** One role's coverage verdict, plus what an operator-facing surface needs to name it. */
+export interface AppRoleCoverage extends AppRoleDescriptor {
+  readonly status: AppCoverageStatus;
+  /** Settings-page deep link, present iff `installationId` was supplied. */
+  readonly settingsUrl?: string;
+}
+
+/**
+ * Coverage for EVERY configured App role, not just the implementer (mt#4693 D6).
+ *
+ * **Why this exists, and why the single-role check above is not enough.**
+ * `checkAppCoverage` passes no role, and `getInstallationCoverage(role?)` defaults
+ * to the implementer App — so a configured-but-UNCOVERED `minsky-reviewer` was
+ * invisible at onboarding. In this project the reviewer bot's APPROVE is a merge
+ * gate, so that gap breaks the whole session → PR → review → merge loop with no
+ * onboarding signal at all.
+ *
+ * **The trap this deliberately avoids.** `clientForRole` falls back to the
+ * implementer client when the reviewer App is not configured, so asking for the
+ * reviewer's coverage unconditionally would return the IMPLEMENTER's coverage
+ * under a reviewer label — two identical verdicts, one of them a lie. Roles are
+ * therefore filtered through `isRoleConfigured` BEFORE their coverage is read.
+ */
+export async function checkAppRoleCoverage(
+  ownerRepo: string,
+  roles: readonly AppRoleDescriptor[],
+  deps: CheckAppCoverageDeps = {}
+): Promise<AppRoleCoverage[]> {
+  const provider = deps.provider;
+  if (!provider) {
+    return roles.map((r) => ({ ...r, status: { state: "no-app-configured" } as const }));
+  }
+
+  const results: AppRoleCoverage[] = [];
+  for (const descriptor of roles) {
+    if (!provider.isRoleConfigured(descriptor.role)) continue;
+
+    let status: AppCoverageStatus;
+    try {
+      const coverage = await provider.getInstallationCoverage(descriptor.role);
+      status =
+        coverage.selection === "all" || coverage.repositories.includes(ownerRepo.toLowerCase())
+          ? { state: "covered", repo: ownerRepo }
+          : { state: "not-covered", repo: ownerRepo, coveredCount: coverage.repositories.length };
+    } catch (error) {
+      // Same contract as `checkAppCoverage`: a probe that could not run is
+      // `unknown`, never `not-covered` — the remedies differ.
+      status = { state: "unknown", reason: getErrorMessage(error) };
+    }
+
+    results.push({
+      ...descriptor,
+      status,
+      ...(descriptor.installationId === undefined
+        ? {}
+        : { settingsUrl: installationSettingsUrl(descriptor.installationId) }),
+    });
+  }
+  return results;
 }
