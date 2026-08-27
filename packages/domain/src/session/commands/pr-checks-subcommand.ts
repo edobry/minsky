@@ -57,8 +57,14 @@ function isFailingOrPending(check: CheckRunResult): boolean {
 }
 
 /**
- * Trim a full `ChecksResult` down to the mt#2656 default payload for
- * `session.pr.drive`. Exported for unit tests and for the drive subcommand.
+ * Trim a full `ChecksResult` down to the mt#2656 default payload.
+ *
+ * Three callers as of mt#4657: `session.pr.drive`'s composition, the
+ * `session.pr.checks` adapter's structured branch, and unit tests. mt#2656
+ * shipped this for drive only and deliberately left `session.pr.checks` at
+ * full detail; mt#4657 reversed that on measured caller behaviour (see the
+ * comment at the `session.pr.checks` callsite). Both callers gate it on the
+ * same `fullBody` param, so the trimmed shape is one contract, not two.
  */
 export function trimChecksResult(result: ChecksResult): TrimmedChecksResult {
   if (result.allPassed) {

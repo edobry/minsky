@@ -804,6 +804,17 @@ export const sessionPrChecksCommandParams = {
     required: false,
     defaultValue: 30,
   },
+  fullBody: {
+    schema: z.boolean(),
+    description:
+      "When true, return the full per-check breakdown instead of the default trimmed payload " +
+      "(mt#2656 shape, extended to this command by mt#4657: summary counts always, plus " +
+      "failingChecks — the failed and still-pending entries — when not all checks passed). " +
+      "Defaults to false. Does not affect the CLI's text output, which always renders every " +
+      "check.",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
