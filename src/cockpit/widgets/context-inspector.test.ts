@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import { boundedUserTurnsExecute } from "../testing/bounded-user-turns-double";
 import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
@@ -201,6 +202,10 @@ function mockMultiTableDb(fixture: MultiTableFixture): PostgresJsDatabase {
         throw new Error("mockMultiTableDb: unexpected table in .from()");
       },
     }),
+    // mt#4655: the user-text read is no longer a `.select().from()` chain — it
+    // is a single raw statement carrying a per-session `row_number()` bound, so
+    // the double has to answer `execute` instead.
+    execute: boundedUserTurnsExecute(fixture.turns),
   } as unknown as PostgresJsDatabase;
 }
 

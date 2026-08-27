@@ -15,6 +15,9 @@ import {
   extractNegativeExistenceClaims,
   isSearchCall,
   isThinSearch,
+  isNarrowSearch,
+  isScopeNarrowSearch,
+  claimsQualifiedTo,
 } from "./negative-existence-claim";
 import type { SearchObservation } from "./negative-existence-claim";
 
@@ -202,5 +205,121 @@ describe("detectNegativeExistenceClaim", () => {
     });
     expect(result.thinSearches).toHaveLength(1);
     expect(result.thinSearches[0]?.toolName).toBe(TASKS_SEARCH);
+  });
+});
+
+/**
+ * The mt#4362 scope leg: a search narrow in TERRITORY but rich in HITS.
+ *
+ * The R11 fixture is real — implementing mt#4359 an agent wrote "truncateToCodePoints
+ * currently has NO call sites" into a durable docblock on the strength of
+ * `grep -rn "truncateToCodePoints" .minsky/hooks/`, which returned EIGHT hits.
+ * Repo-wide the symbol has 16. The conclusion happened to be true; the warrant
+ * was not, which is why no outcome-based check could ever have surfaced it.
+ */
+describe("scope leg (mt#4362)", () => {
+  const subtree = (hitCount: number, scopePath = ".minsky/hooks/"): SearchObservation => ({
+    toolName: "Bash",
+    hitCount,
+    scope: "subtree",
+    scopePath,
+  });
+  const repoWide = (hitCount: number): SearchObservation => ({
+    toolName: "Bash",
+    hitCount,
+    scope: "repo",
+  });
+
+  const UNQUALIFIED = "Checked mt#2677's helper: it has no call sites anywhere in the repo.";
+  const QUALIFIED = "Checked mt#2677's helper: it has no call sites under .minsky/hooks/.";
+
+  it("AT1 — a subtree search rich in hits fires on an unqualified claim", () => {
+    const result = detectNegativeExistenceClaim({
+      artifactProse: UNQUALIFIED,
+      searches: [subtree(8)],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    // Assert the claim leg matched FIRST, so a pass cannot be mistaken for the
+    // conjunction succeeding by some other route (mem#704).
+    expect(result.claims.length).toBeGreaterThan(0);
+    expect(result.matched).toBe(true);
+    expect(result.thinSearches).toHaveLength(1);
+    expect(result.thinSearches[0]?.scope).toBe("subtree");
+  });
+
+  it("AT2 — the SAME search at repo scope does not fire, so the leg is what admitted it", () => {
+    const result = detectNegativeExistenceClaim({
+      artifactProse: UNQUALIFIED,
+      searches: [repoWide(8)],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    // Identical hit count, identical prose, identical task — ONLY scope differs.
+    expect(result.claims.length).toBeGreaterThan(0);
+    expect(result.matched).toBe(false);
+  });
+
+  it("AT3 — a claim carrying the searched subtree as a qualifier does not fire", () => {
+    const result = detectNegativeExistenceClaim({
+      artifactProse: QUALIFIED,
+      searches: [subtree(8)],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    expect(result.claims.length).toBeGreaterThan(0);
+    expect(result.matched).toBe(false);
+  });
+
+  it("a qualifier naming a DIFFERENT subtree than the one searched still fires", () => {
+    const result = detectNegativeExistenceClaim({
+      artifactProse: "Checked mt#2677's helper: it has no call sites under src/cockpit/.",
+      searches: [subtree(8)],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    expect(result.matched).toBe(true);
+  });
+
+  it("AT4 — a count-thin search still fires unchanged, with no scope classified", () => {
+    const result = detectNegativeExistenceClaim({
+      artifactProse: UNQUALIFIED,
+      searches: [thin(TASKS_SEARCH)],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    expect(result.matched).toBe(true);
+    expect(result.thinSearches[0]?.scope).toBeUndefined();
+  });
+
+  it("AT4 — a count-thin search is NOT excused by a matching qualifier", () => {
+    // The SC5 test gates only the scope leg. A repo-wide search returning one
+    // hit is thin regardless of how the sentence is worded.
+    const result = detectNegativeExistenceClaim({
+      artifactProse: QUALIFIED,
+      searches: [{ toolName: "Bash", hitCount: 1, scope: "subtree", scopePath: ".minsky/hooks/" }],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    expect(result.matched).toBe(true);
+  });
+
+  it("an unscopable search never satisfies the scope leg", () => {
+    const result = detectNegativeExistenceClaim({
+      artifactProse: UNQUALIFIED,
+      searches: [{ toolName: TASKS_SEARCH, hitCount: 25, scope: "unscopable" }],
+      doneTaskIds: new Set(["mt#2677"]),
+    });
+    expect(result.matched).toBe(false);
+  });
+
+  it("an unclassified scope is not narrow — an adapter that did not label fails quiet", () => {
+    expect(isScopeNarrowSearch(wide("Grep"))).toBe(false);
+    expect(isNarrowSearch(wide("Grep"))).toBe(false);
+    expect(isNarrowSearch(subtree(8))).toBe(true);
+    expect(isNarrowSearch(thin())).toBe(true);
+  });
+
+  it("claimsQualifiedTo normalizes ./ and trailing slashes", () => {
+    const claims = extractNegativeExistenceClaims(QUALIFIED);
+    expect(claimsQualifiedTo(claims, "./.minsky/hooks")).toBe(true);
+    expect(claimsQualifiedTo(claims, ".minsky/hooks/")).toBe(true);
+    expect(claimsQualifiedTo(claims, "src/")).toBe(false);
+    expect(claimsQualifiedTo(claims, undefined)).toBe(false);
+    expect(claimsQualifiedTo([], ".minsky/hooks/")).toBe(false);
   });
 });

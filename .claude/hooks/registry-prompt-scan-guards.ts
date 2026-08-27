@@ -266,10 +266,15 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     calibrationLog: "negative-existence-claim",
     denyCapable: false,
     needsTranscript: true,
-    // MEASURED via `renderProbe`: 1559 saturated. Claim axis posed at its bound
+    // MEASURED via `renderProbe`: 1650 saturated (was 1559 / declared 1600
+    // before mt#4362 added the scope leg — the worst case now poses a SUBTREE
+    // search rendering a path at its 60-unit cap, which the old figure did not
+    // include). Raised to match the measurement rather than trimming the render:
+    // the declaration exists to describe the real worst case, and the mt#3479
+    // ceiling test is what caught the drift. Claim axis posed at its bound
     // (7 patterns); the DONE-task-id axis is UNCAPPED, so this is a sample, not
     // a ceiling — `render-probe-sample`, and a cap is owed before injection.
-    attentionCost: { denialMessageSizeChars: 1600, optionCount: 2 },
+    attentionCost: { denialMessageSizeChars: 1700, optionCount: 2 },
     // Calibration-first: the canary asserts `calibration`, not additionalContext,
     // so a later INJECTION_ENABLED flip gains an outcome rather than breaking it.
     // It cites mt#2677 — a really-DONE task — which makes it deterministic in

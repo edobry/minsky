@@ -83,17 +83,17 @@
  *     it) will start rendering here automatically once fixed, with zero
  *     further plumbing changes.
  */
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
-import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 import type { WorkspaceId } from "@minsky/domain/ids";
 import { pickBestConversationLink } from "../session-detail";
 // mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
 // shared command import the SAME mt#2770 precedence decision.
+import { fetchBoundedFirstUserTurns } from "../conversation-label-enrichment";
 import {
   computeConversationLabel,
   composeSubagentDescriptor,
@@ -332,21 +332,23 @@ export async function mergeConversationRows(
             .from(agentSpawnsTable)
             .where(inArray(agentSpawnsTable.childAgentSessionId, conversationIds))
         : Promise.resolve([]),
-      conversationIds.length > 0
-        ? db
-            .select({
-              agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-              turnIndex: agentTranscriptTurnsTable.turnIndex,
-              userText: agentTranscriptTurnsTable.userText,
-            })
-            .from(agentTranscriptTurnsTable)
-            .where(
-              and(
-                inArray(agentTranscriptTurnsTable.agentSessionId, conversationIds),
-                isNotNull(agentTranscriptTurnsTable.userText)
-              )
-            )
-        : Promise.resolve([]),
+      // mt#4655 — bounded to the earliest MAX_USER_TURN_CANDIDATES per session
+      // (the bound `pickSubstantiveUserText` already applies), and requested
+      // ONLY for conversations with no generated title.
+      //
+      // `labelFor` feeds `row.title` as `generatedTitle`, and
+      // `computeConversationLabel` short-circuits there (`if (generated) return
+      // generated;`) before it ever reads this text — and tier 1 is null by
+      // construction for these rows, per this module's own header. So for a
+      // titled conversation the text was fetched and discarded. 98.2% of
+      // conversations carry a title.
+      //
+      // `conversationRows` is awaited ABOVE this `Promise.all`, so the titles
+      // are already in hand here and this costs no extra round trip.
+      fetchBoundedFirstUserTurns(
+        db,
+        conversationRows.filter((r) => !r.title?.trim()).map((r) => r.agentSessionId)
+      ),
     ]);
 
     // --- (a) forward direction: best conversation link per VISIBLE workspace ---
