@@ -173,10 +173,101 @@ function finalAssistantTextBytes(filePath: string): number {
   return 0;
 }
 
+/**
+ * Slope of log(y) against log(x) — the exponent of a power law y ∝ x^k.
+ *
+ * Reported rather than assumed because the difference between k=1 and k=2 is
+ * the difference between "a long session costs proportionally more" and "a long
+ * session runs away", and those imply opposite remedies.
+ *
+ * Returns 0 when the fit is undefined (fewer than two distinct x, or a
+ * non-positive value, which `log` cannot take).
+ */
+function logLogSlope(xs: number[], ys: number[]): number {
+  const pts = xs
+    .map((x, i) => ({ x, y: ys[i] ?? 0 }))
+    .filter((p) => p.x > 0 && p.y > 0)
+    .map((p) => ({ x: Math.log(p.x), y: Math.log(p.y) }));
+  if (pts.length < 2) return 0;
+  const n = pts.length;
+  const sx = pts.reduce((a, p) => a + p.x, 0);
+  const sy = pts.reduce((a, p) => a + p.y, 0);
+  const sxx = pts.reduce((a, p) => a + p.x * p.x, 0);
+  const sxy = pts.reduce((a, p) => a + p.x * p.y, 0);
+  const denom = n * sxx - sx * sx;
+  if (denom === 0) return 0;
+  return (n * sxy - sx * sy) / denom;
+}
+
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
   return sorted[idx] ?? 0;
+}
+
+/**
+ * Bytes of `tool_result` content in a transcript, grouped by the tool that
+ * produced it.
+ *
+ * This is what decides whether an output-FILTERING mitigation is worth adopting.
+ * A filter that only sees shell output (RTK's scope) is worth its ongoing
+ * verification cost in proportion to how much of the context shell output
+ * actually is — a share nobody had measured, so the question was being settled
+ * by the vendor's headline compression ratio instead.
+ *
+ * Sizes only; the content is measured and discarded, never retained or emitted.
+ */
+function measureToolResultBytes(filePath: string): Map<string, { bytes: number; count: number }> {
+  const byTool = new Map<string, { bytes: number; count: number }>();
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch {
+    return byTool;
+  }
+
+  // A tool_result names the call it answers by id, and the NAME lives on the
+  // matching tool_use in an earlier assistant line — so the ids are collected
+  // first and resolved as results are met.
+  const toolNameByUseId = new Map<string, string>();
+  const lines = raw.split("\n");
+
+  for (const line of lines) {
+    if (line.length === 0) continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const entry = record as { type?: unknown; message?: unknown };
+    const content = (entry.message as { content?: unknown } | undefined)?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      const b = block as { type?: unknown; id?: unknown; name?: unknown; tool_use_id?: unknown };
+      if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+        toolNameByUseId.set(b.id, b.name);
+        continue;
+      }
+      if (b.type !== "tool_result") continue;
+      const useId = typeof b.tool_use_id === "string" ? b.tool_use_id : "";
+      const name = toolNameByUseId.get(useId) ?? "<unresolved>";
+      const payload = (b as { content?: unknown }).content;
+      let bytes = 0;
+      if (typeof payload === "string") {
+        bytes = Buffer.byteLength(payload);
+      } else if (Array.isArray(payload)) {
+        for (const part of payload) {
+          const p = part as { text?: unknown };
+          if (typeof p.text === "string") bytes += Buffer.byteLength(p.text);
+        }
+      }
+      const prev = byTool.get(name) ?? { bytes: 0, count: 0 };
+      byTool.set(name, { bytes: prev.bytes + bytes, count: prev.count + 1 });
+    }
+  }
+  return byTool;
 }
 
 function measureSessions(dir: string): SessionMeasurement[] {
@@ -264,7 +355,7 @@ function main(): void {
   // passed: the first version asked `args.length === 0`, so supplying
   // `--project` alone turned every section off and the run printed a corpus
   // header and nothing else — exit 0, no error, no output worth reading.
-  const SECTIONS = ["--tail", "--curve", "--subagents"] as const;
+  const SECTIONS = ["--tail", "--curve", "--subagents", "--tools"] as const;
   const selected = SECTIONS.filter((s) => args.includes(s));
   const wantAll = selected.length === 0 || args.includes("--all");
   const want = (flag: string): boolean => wantAll || args.includes(flag);
@@ -324,7 +415,19 @@ function main(): void {
         meanTokensPerRequest: reqs > 0 ? Math.round(uploaded / reqs) : 0,
       };
     }).filter((b) => b.sessions > 0);
-    payload.curve = bins;
+    // The exponent is the whole point of the curve, so it is computed here
+    // rather than left to a reader with a calculator. mt#3842 asserted upload
+    // "scales with the square of session length"; a log-log fit is what decides
+    // that, and it decided against it.
+    const uploadExp = logLogSlope(
+      bins.map((b) => b.meanRequests),
+      bins.map((b) => b.meanUploadedMTokens * 1e6)
+    );
+    const contextExp = logLogSlope(
+      bins.map((b) => b.meanRequests),
+      bins.map((b) => b.meanTokensPerRequest)
+    );
+    payload.curve = { bins, uploadExponent: uploadExp, perRequestContextExponent: contextExp };
     console.log("## Session-length curve — upload vs length");
     console.log("bin            sessions  mean reqs  mean upload (Mtok)  mean tok/req");
     for (const b of bins) {
@@ -332,6 +435,12 @@ function main(): void {
         `${b.bin.padEnd(14)} ${String(b.sessions).padStart(8)} ${String(b.meanRequests).padStart(10)} ${b.meanUploadedMTokens.toFixed(1).padStart(19)} ${String(b.meanTokensPerRequest).padStart(13)}`
       );
     }
+    console.log(
+      `\nupload exponent            ${uploadExp.toFixed(2)}   [1.0 linear, 2.0 quadratic]`
+    );
+    console.log(
+      `per-request context exponent ${contextExp.toFixed(2)}   [0 saturated, 1.0 still growing]`
+    );
     console.log("");
   }
 
@@ -367,6 +476,36 @@ function main(): void {
       console.log(`containment ratio    ${lever.containmentRatio.toFixed(0)}x`);
       console.log(`median return        ${lever.medianReturnedBytes} bytes\n`);
     }
+  }
+
+  if (want("--tools")) {
+    const totals = new Map<string, { bytes: number; count: number }>();
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith(".jsonl")) continue;
+      for (const [tool, m] of measureToolResultBytes(join(dir, name))) {
+        const prev = totals.get(tool) ?? { bytes: 0, count: 0 };
+        totals.set(tool, { bytes: prev.bytes + m.bytes, count: prev.count + m.count });
+      }
+    }
+    const grand = [...totals.values()].reduce((a, m) => a + m.bytes, 0);
+    const ranked = [...totals.entries()]
+      .map(([tool, m]) => ({
+        tool,
+        megabytes: m.bytes / 1e6,
+        calls: m.count,
+        sharePct: grand > 0 ? (m.bytes / grand) * 100 : 0,
+      }))
+      .sort((a, b) => b.megabytes - a.megabytes);
+    payload.toolResultBytes = { totalMegabytes: grand / 1e6, tools: ranked.slice(0, 15) };
+    console.log("## Tool-result bytes entering context, by tool");
+    console.log(`total ${(grand / 1e6).toFixed(1)} MB across ${sessions.length} sessions`);
+    console.log("tool                                   MB     calls    share");
+    for (const t of ranked.slice(0, 12)) {
+      console.log(
+        `${t.tool.slice(0, 36).padEnd(38)}${t.megabytes.toFixed(1).padStart(6)}${String(t.calls).padStart(10)}${`${t.sharePct.toFixed(1)}%`.padStart(9)}`
+      );
+    }
+    console.log("");
   }
 
   if (jsonOut !== undefined) {
