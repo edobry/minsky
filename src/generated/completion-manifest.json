@@ -3692,6 +3692,10 @@
                   "flags": ["--interval-seconds"],
                   "description": "Polling interval in seconds when --wait is enabled (default: 30)",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full per-check breakdown instead of the default trimmed payload (mt#2656 shape, extended to this command by mt#4657: summary counts always, plus failingChecks — the failed and still-pending entries — when not all checks passed). Defaults to false. Does not affect the CLI's text output, which always renders every check."
                 }
               ],
               "commandId": "session.pr.checks"
