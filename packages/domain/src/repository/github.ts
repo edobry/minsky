@@ -4,6 +4,7 @@ import { mkdir } from "fs/promises";
 import type { SessionProviderInterface } from "../session";
 import { execAsync } from "@minsky/shared/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
+import { parseGitHubOwnerRepo } from "../uri-utils";
 import { GitService } from "../git";
 import { execGitWithTimeout } from "../utils/git-exec";
 import { MinskyError } from "../errors/index";
@@ -147,14 +148,13 @@ export class GitHubBackend implements ForgeBackend {
     // Derive owner/repo from repoUrl when not explicitly provided
     if ((!this.owner || !this.repo) && this.repoUrl.includes("github.com")) {
       try {
-        // SSH: git@github.com:owner/repo.git
-        // HTTPS: https://github.com/owner/repo.git
-        const sshMatch = this.repoUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
-        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^.]+)\/([^.]+)/);
-        const match = sshMatch || httpsMatch;
-        if (match && match[1] && match[2]) {
-          this.owner = this.owner || match[1];
-          this.repo = this.repo || match[2].replace(/\.git$/, "");
+        // mt#4671: shared parser — repo AND owner may contain dots. This site
+        // previously captured the owner as `([^.]+)` too, so a dotted org broke
+        // as well.
+        const parsed = parseGitHubOwnerRepo(this.repoUrl);
+        if (parsed) {
+          this.owner = this.owner || parsed.owner;
+          this.repo = this.repo || parsed.repo;
         }
       } catch (_err) {
         // Ignore parsing errors; explicit config may still provide these later
