@@ -27,6 +27,7 @@ import {
   isSqlCapable,
 } from "@minsky/domain/persistence/types";
 import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
+import { runAppGrantRequestResolutionTick } from "./app-grant-request-sweep";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
   getCachedPersistenceProvider,
@@ -1302,6 +1303,13 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
               }
             : undefined
         );
+
+        // App-grant requests ride the same tick, for the same reasons and with
+        // the same isolation (mt#4693). It takes no task gate: an App grant
+        // blocks onboarding rather than a task, so there is no parent to
+        // release. Its own try/catch means neither resolution pass can mask the
+        // other's failures.
+        await runAppGrantRequestResolutionTick(repo);
 
         return { ok: true };
       } catch (err) {
