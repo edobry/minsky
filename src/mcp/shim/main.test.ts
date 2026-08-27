@@ -18,7 +18,8 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { handleLine } from "./main";
+import { handleLine, runShim } from "./main";
+import { AGENT_ID_META_KEY } from "./identity";
 import type { DaemonClient } from "./client";
 import type { JsonRpcMessage } from "./protocol";
 
@@ -254,5 +255,108 @@ describe("handleLine — capability narrowing (mt#4450)", () => {
 
     expect(sent[0]).toEqual(JSON.parse(TOOLS_LIST_REQUEST));
     expect(observed[0]).toEqual(JSON.parse(TOOLS_LIST_REQUEST));
+  });
+});
+
+/**
+ * The per-frame identity wiring (mt#4440).
+ *
+ * `handleLine` above is a pure function of the id it is HANDED, so every test
+ * in this file passes whether that id is recomputed per frame or frozen once at
+ * startup. That gap is exactly where the defect lived for five days: `runShim`
+ * resolved `CLAUDE_CODE_SESSION_ID` once and passed the same frozen value to
+ * every line, so a shim outliving a `/clear` stamped a conversation that had
+ * ended — while `identity.test.ts` and this file were both green.
+ *
+ * So the assertion has to be on `runShim`'s WIRING, not on the resolver and not
+ * on `handleLine`. `resolveAgentId` is injected (see `ShimDeps`) so the
+ * property is observable without patching a module `main.ts` reaches itself.
+ */
+describe("runShim — per-frame identity resolution (mt#4440)", () => {
+  const FIRST = "com.anthropic.claude-code:conv:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const SECOND = "com.anthropic.claude-code:conv:11111111-2222-4333-8444-555555555555";
+
+  /** Minimal stdin stand-in: records handlers, never emits `end`. */
+  function makeStdin(): {
+    on: (event: string, cb: (chunk: string) => void) => unknown;
+    emitData: (chunk: string) => void;
+  } {
+    const handlers: Record<string, Array<(chunk: string) => void>> = {};
+    const stdin = {
+      on(event: string, cb: (chunk: string) => void) {
+        (handlers[event] ??= []).push(cb);
+        return stdin;
+      },
+      emitData(chunk: string) {
+        for (const cb of handlers["data"] ?? []) cb(chunk);
+      },
+    };
+    return stdin;
+  }
+
+  test("re-resolves the stamped agentId on EVERY frame, not once at startup", async () => {
+    const sent: JsonRpcMessage[] = [];
+    const client = {
+      observeInbound: () => {},
+      send: async (msg: JsonRpcMessage) => {
+        sent.push(msg);
+        return [];
+      },
+    } as unknown as DaemonClient;
+
+    // The conversation SWITCHES between the two frames — the `/clear` case.
+    let current = FIRST;
+    const stdin = makeStdin();
+
+    runShim(
+      { url: "http://127.0.0.1:1/mcp", tokenPath: "/nonexistent/token" },
+      {
+        client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: { write: () => true } as unknown as NodeJS.WriteStream,
+        stderr: { write: () => true } as unknown as NodeJS.WriteStream,
+        resolveAgentId: () => current,
+      }
+    );
+
+    // Wait on the OBSERVABLE (a frame reaching the client), not on a fixed
+    // number of microtask ticks (PR #3403 R1). `runShim` dispatches each line
+    // with `void handleLine(...)`, so there is nothing to await directly — and a
+    // tick count is a guess about the callee's internals that silently passes
+    // with zero frames if it is ever wrong. This fails loudly instead.
+    // Bounded by ITERATIONS rather than a wall-clock deadline: `custom/no-real-
+    // fs-in-tests` reads a `Date.now()` in a test as unique-path creation, and
+    // this repo's lint gate admits no warnings. A fixed cap is the better shape
+    // here anyway — it cannot be made flaky by a slow machine's clock.
+    async function waitForFrames(n: number): Promise<void> {
+      for (let i = 0; i < 500 && sent.length < n; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      if (sent.length < n) {
+        throw new Error(`expected ${n} forwarded frame(s), saw ${sent.length}`);
+      }
+    }
+
+    stdin.emitData(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "tasks_get" } })}\n`
+    );
+    await waitForFrames(1);
+
+    // Only NOW switch, so the first frame provably resolved against FIRST.
+    current = SECOND;
+
+    stdin.emitData(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tasks_get" } })}\n`
+    );
+    await waitForFrames(2);
+
+    expect(sent.length).toBe(2);
+    const first = sent[0]?.params as { _meta?: Record<string, unknown> } | undefined;
+    const second = sent[1]?.params as { _meta?: Record<string, unknown> } | undefined;
+
+    expect(first?._meta?.[AGENT_ID_META_KEY]).toBe(FIRST);
+    // The frozen-at-startup shape stamps FIRST here too — that inequality is
+    // the whole assertion.
+    expect(second?._meta?.[AGENT_ID_META_KEY]).toBe(SECOND);
   });
 });

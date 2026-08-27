@@ -17,7 +17,12 @@
  * spec's BLOCKING section for why.
  */
 
-import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
+import {
+  injectAgentIdMeta,
+  resolveConversationAgentId,
+  resolveHarnessPid,
+  resolveLiveConversationAgentId,
+} from "./identity";
 import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
 import { DaemonClient, describeDaemonFailure } from "./client";
@@ -53,8 +58,29 @@ export function parseArgs(
 export interface ShimDeps {
   /** Injected for tests. */
   client?: DaemonClient;
-  /** Injected for tests — defaults to resolving CLAUDE_CODE_SESSION_ID. */
+  /**
+   * Injected for tests — defaults to resolving CLAUDE_CODE_SESSION_ID.
+   *
+   * This is the FALLBACK identity, not the stamped one: supplying it also
+   * declares that the caller is CONTROLLING identity, which suppresses the live
+   * pid-mapping lookup (see {@link ShimDeps.harnessPid}).
+   */
   conversationAgentId?: string | null;
+  /**
+   * Injected for tests — the harness-pid SEED for the live mapping lookup
+   * (mt#4440). Defaults to the ancestor walk, or to `null` when the caller
+   * supplied `conversationAgentId`.
+   */
+  harnessPid?: number | null;
+  /**
+   * Injected for tests — the PER-FRAME identity resolver (mt#4440).
+   *
+   * Exists so the property that actually broke — that the stamped id is
+   * recomputed per frame rather than frozen at startup — is observable without
+   * patching a module this file reaches itself. Defaults to the live resolver
+   * over {@link ShimDeps.harnessPid} and the spawn-time env fallback.
+   */
+  resolveAgentId?: () => string | null;
   stdin?: NodeJS.ReadStream;
   stdout?: NodeJS.WriteStream;
   stderr?: NodeJS.WriteStream;
@@ -75,10 +101,40 @@ export function runShim(options: ShimOptions, deps: ShimDeps = {}): DaemonClient
   const stdout = deps.stdout ?? process.stdout;
   const stderr = deps.stderr ?? process.stderr;
 
+  // The spawn-time env value. It is the FALLBACK, never the stamped id on its
+  // own: Claude Code freezes `CLAUDE_CODE_SESSION_ID` in this process's
+  // environment when it spawns us, and a `/clear` changes the conversation
+  // WITHOUT respawning MCP servers — so a long-lived shim keeps stamping a
+  // conversation that ended days ago (mt#4440).
   const conversationAgentId =
     deps.conversationAgentId !== undefined
       ? deps.conversationAgentId
       : resolveConversationAgentId();
+
+  // mt#4440: the harness-pid SEED for the live mapping lookup. The ancestor walk
+  // shells out to `ps`, and the pid cannot change for this process's lifetime,
+  // so it is resolved ONCE here and never per frame.
+  //
+  // A caller that supplied `conversationAgentId` explicitly is CONTROLLING
+  // identity — including `null` for "identity inactive" — so the mapping must
+  // not override it. Only the default path consults the mapping. Without this,
+  // a test asking for an inactive identity would still get one from whatever
+  // mapping happens to exist on the machine running the suite. Mirrors the
+  // stdio proxy's constructor rule exactly.
+  const harnessPid =
+    deps.harnessPid !== undefined
+      ? deps.harnessPid
+      : deps.conversationAgentId !== undefined
+        ? null
+        : resolveHarnessPid();
+
+  // Resolved PER FRAME rather than once, which is the whole fix: the mapping a
+  // SessionStart hook writes is what notices a `/clear`, and a value computed at
+  // startup structurally cannot. Reads are TTL-cached inside the resolver, so a
+  // burst of frames pays one file read between them.
+  const currentConversationAgentId =
+    deps.resolveAgentId ??
+    ((): string | null => resolveLiveConversationAgentId(harnessPid, conversationAgentId));
   const authToken = readAuthToken(options.tokenPath);
   const client =
     deps.client ??
@@ -105,7 +161,12 @@ export function runShim(options: ShimOptions, deps: ShimDeps = {}): DaemonClient
     for (const rawLine of lines) {
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       if (!line.trim()) continue;
-      void handleLine(line, { client, conversationAgentId, stdout, stderr });
+      void handleLine(line, {
+        client,
+        conversationAgentId: currentConversationAgentId(),
+        stdout,
+        stderr,
+      });
     }
   });
   stdin.on("end", shutdown);

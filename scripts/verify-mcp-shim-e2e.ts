@@ -57,6 +57,7 @@ import { createInterface } from "readline";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { readConversationMapping, resolveHarnessPid } from "@minsky/shared/conversation-pid-map";
 
 const AGENT_ID_META_KEY = "io.minsky/agent_id";
 /** The unprefixed `_meta` key MCP reserves for W3C Baggage (mt#3986). */
@@ -263,7 +264,14 @@ async function runIdentityCase(opts: {
   }
 }
 
-async function runAlreadySetCase(): Promise<CaseResult> {
+/**
+ * `expectedBaggage` is passed in rather than derived from the env constant
+ * (mt#4440): baggage carries whichever conversation the shim actually resolved,
+ * which since mt#4440 is the live mapping where one exists. The agent_id half of
+ * this assertion is unaffected — a caller-declared id is preserved regardless of
+ * where the conversation grain came from.
+ */
+async function runAlreadySetCase(expectedBaggage: string): Promise<CaseResult> {
   const port = await findFreePort();
   const { server } = startMockDaemon(port);
   const shim = spawnShim(`http://127.0.0.1:${port}/mcp`, { CLAUDE_CODE_SESSION_ID: TEST_UUID });
@@ -303,14 +311,14 @@ async function runAlreadySetCase(): Promise<CaseResult> {
     // byte-identical — baggage is decided independently, so the caller keeps
     // its declared grain AND the conversation crosses the wire as well.
     const agentIdPreserved = receivedMeta?.[AGENT_ID_META_KEY] === preDeclaredAgentId;
-    const baggageAdded = receivedMeta?.[BAGGAGE_META_KEY] === EXPECTED_BAGGAGE;
+    const baggageAdded = receivedMeta?.[BAGGAGE_META_KEY] === expectedBaggage;
     const pass = agentIdPreserved && baggageAdded;
     return {
       name: "already-set: pre-declared agent_id preserved, baggage still added (AT2)",
       pass,
       detail: pass
         ? "ok"
-        : `expected agent_id unchanged (${preDeclaredAgentId}) and baggage ${EXPECTED_BAGGAGE}, got: ${JSON.stringify(receivedMeta)}`,
+        : `expected agent_id unchanged (${preDeclaredAgentId}) and baggage ${expectedBaggage}, got: ${JSON.stringify(receivedMeta)}`,
     };
   } finally {
     shim.child.kill("SIGTERM");
@@ -388,45 +396,172 @@ async function runColdStartCase(): Promise<CaseResult> {
   }
 }
 
+/**
+ * Case 5 — the LIVE mapping beats a stale spawn-time env value (mt#4440, AT1).
+ *
+ * Every case above supplies `CLAUDE_CODE_SESSION_ID` and asserts the shim
+ * stamps it, which is exactly the behavior that was WRONG: the env value is
+ * frozen when Claude Code spawns the shim, and a `/clear` changes the
+ * conversation without a respawn. A shim that outlived a clear kept stamping a
+ * conversation that had ended, and nothing in this file could see it, because
+ * every case here agreed with the env by construction.
+ *
+ * So this case deliberately makes the two sources DISAGREE: it feeds the shim a
+ * stale UUID in the environment while the real `<harness pid> → conversation id`
+ * mapping on this machine names the current one, and asserts the mapping wins on
+ * the bytes the daemon actually received.
+ *
+ * It uses the REAL mapping and the REAL ancestor walk rather than a fixture:
+ * the shim resolves its harness pid by walking to the nearest `claude` process,
+ * and this script is itself a descendant of one when run from an agent session
+ * or a developer's terminal. That is the whole point — a fixture would re-test
+ * the unit tests, while this exercises the resolution path that actually ships.
+ *
+ * SKIPS (does not fail) where no harness ancestor or no mapping entry exists —
+ * CI, a bare shell, a container. The condition is reported rather than swallowed,
+ * so a skip can never be mistaken for a pass.
+ */
+async function runLiveMappingCase(): Promise<CaseResult> {
+  const name = "live mapping BEATS a stale spawn-time env value (mt#4440 AT1)";
+
+  const harnessPid = resolveHarnessPid();
+  if (harnessPid === null) {
+    return {
+      name,
+      pass: true,
+      detail:
+        "SKIP: no `claude` harness ancestor — the live mapping path cannot be exercised here (expected in CI)",
+    };
+  }
+
+  const liveConversationId = readConversationMapping(harnessPid);
+  if (liveConversationId === null) {
+    return {
+      name,
+      pass: true,
+      detail: `SKIP: harness pid ${harnessPid} has no mapping entry (no SessionStart hook has run for it)`,
+    };
+  }
+
+  // Deliberately NOT the live id: this is what a shim spawned before the last
+  // `/clear` would be holding.
+  const staleUuid = "00000000-1111-4222-8333-444444444444";
+  if (liveConversationId === staleUuid) {
+    return { name, pass: false, detail: "fixture collision: live id equals the stale sentinel" };
+  }
+
+  const expectedLiveAgentId = `com.anthropic.claude-code:conv:${liveConversationId}`;
+  const staleAgentId = `com.anthropic.claude-code:conv:${staleUuid}`;
+
+  const result = await runIdentityCase({
+    name,
+    env: { CLAUDE_CODE_SESSION_ID: staleUuid },
+    assert: (toolResp) => {
+      const receivedMeta = (
+        toolResp.result as { receivedMeta?: Record<string, unknown> } | undefined
+      )?.receivedMeta;
+      const received = receivedMeta?.[AGENT_ID_META_KEY];
+
+      if (received === staleAgentId) {
+        return `REPRODUCED THE DEFECT: the shim stamped the stale spawn-time id ${staleAgentId} instead of the live ${expectedLiveAgentId}`;
+      }
+      if (received !== expectedLiveAgentId) {
+        return `expected _meta[${AGENT_ID_META_KEY}] === ${expectedLiveAgentId} (from the live mapping for harness pid ${harnessPid}), got: ${JSON.stringify(receivedMeta)}`;
+      }
+      // The baggage entry must carry the same LIVE id — a reader resolving
+      // either key has to land on one conversation.
+      const expectedBaggage = `${GEN_AI_CONVERSATION_ID_KEY}=${liveConversationId}`;
+      if (receivedMeta?.[BAGGAGE_META_KEY] !== expectedBaggage) {
+        return `expected _meta[${BAGGAGE_META_KEY}] === ${expectedBaggage}, got: ${JSON.stringify(receivedMeta)}`;
+      }
+      return null;
+    },
+  });
+
+  return {
+    ...result,
+    detail:
+      result.detail === "ok"
+        ? `ok: harness pid ${harnessPid} -> ${expectedLiveAgentId} (env held ${staleAgentId})`
+        : result.detail,
+  };
+}
+
 async function main(): Promise<void> {
   const results: CaseResult[] = [];
 
+  // mt#4440: the env var is no longer the only source. The shim now prefers the
+  // live `<harness pid> → conversation id` mapping, so on a machine where one
+  // exists for this process's harness ancestor, the mapping is what crosses the
+  // wire — by design. Every case below is written against the source that
+  // actually wins here rather than assuming the env does, which is what these
+  // cases assumed when the shim was env-only.
+  //
+  // Resolved ONCE, with the same two calls the shim itself makes, so a case's
+  // expectation cannot drift from what the binary under test will do.
+  const ambientHarnessPid = resolveHarnessPid();
+  const ambientLiveId =
+    ambientHarnessPid !== null ? readConversationMapping(ambientHarnessPid) : null;
+  const expectedActiveId = ambientLiveId
+    ? `com.anthropic.claude-code:conv:${ambientLiveId}`
+    : EXPECTED_AGENT_ID;
+  const expectedActiveBaggage = ambientLiveId
+    ? `${GEN_AI_CONVERSATION_ID_KEY}=${ambientLiveId}`
+    : EXPECTED_BAGGAGE;
+  const ambientNote = ambientLiveId
+    ? `live mapping present (harness pid ${ambientHarnessPid})`
+    : "no live mapping — env is the only source";
+
   results.push(
     await runIdentityCase({
-      name: "active: UUID env stamps conv-scoped agent_id into tools/call, crosses the HTTP wire (AT1)",
+      name: `active: the live conv-scoped agent_id crosses the HTTP wire (AT1) [${ambientNote}]`,
       env: { CLAUDE_CODE_SESSION_ID: TEST_UUID },
       assert: (toolResp) => {
         const receivedMeta = (
           toolResp.result as { receivedMeta?: Record<string, unknown> } | undefined
         )?.receivedMeta;
-        if (!receivedMeta || receivedMeta[AGENT_ID_META_KEY] !== EXPECTED_AGENT_ID) {
-          return `expected _meta[${AGENT_ID_META_KEY}] === ${EXPECTED_AGENT_ID}, got: ${JSON.stringify(receivedMeta)}`;
+        if (!receivedMeta || receivedMeta[AGENT_ID_META_KEY] !== expectedActiveId) {
+          return `expected _meta[${AGENT_ID_META_KEY}] === ${expectedActiveId}, got: ${JSON.stringify(receivedMeta)}`;
         }
         // mt#3986: the same conversation id must ALSO cross the wire as the
         // W3C baggage entry, so a server reading either key resolves the same
         // identity. Asserted on the bytes the daemon actually received.
-        if (receivedMeta[BAGGAGE_META_KEY] !== EXPECTED_BAGGAGE) {
-          return `expected _meta[${BAGGAGE_META_KEY}] === ${EXPECTED_BAGGAGE}, got: ${JSON.stringify(receivedMeta)}`;
+        if (receivedMeta[BAGGAGE_META_KEY] !== expectedActiveBaggage) {
+          return `expected _meta[${BAGGAGE_META_KEY}] === ${expectedActiveBaggage}, got: ${JSON.stringify(receivedMeta)}`;
         }
         return null;
       },
     })
   );
 
-  results.push(
-    await runIdentityCase({
+  if (ambientLiveId) {
+    // A hookless environment is one with NO identity source at all. Where a live
+    // mapping exists it is a real source, so the condition cannot be simulated
+    // by unsetting the env var — the shim correctly stamps the mapped id, and
+    // asserting "no _meta" here would be asserting the defect. Reported as a
+    // skip rather than quietly dropped.
+    results.push({
       name: "hookless: absent env forwards tools/call without _meta agent_id key (AT3)",
-      env: { CLAUDE_CODE_SESSION_ID: undefined },
-      assert: (toolResp) => {
-        const receivedMeta = (toolResp.result as { receivedMeta?: unknown } | undefined)
-          ?.receivedMeta;
-        return receivedMeta ? `unexpected _meta present: ${JSON.stringify(receivedMeta)}` : null;
-      },
-    })
-  );
+      pass: true,
+      detail: `SKIP: cannot simulate hookless — a live mapping exists for harness pid ${ambientHarnessPid}, which is itself a valid identity source`,
+    });
+  } else {
+    results.push(
+      await runIdentityCase({
+        name: "hookless: absent env forwards tools/call without _meta agent_id key (AT3)",
+        env: { CLAUDE_CODE_SESSION_ID: undefined },
+        assert: (toolResp) => {
+          const receivedMeta = (toolResp.result as { receivedMeta?: unknown } | undefined)
+            ?.receivedMeta;
+          return receivedMeta ? `unexpected _meta present: ${JSON.stringify(receivedMeta)}` : null;
+        },
+      })
+    );
+  }
 
-  results.push(await runAlreadySetCase());
+  results.push(await runAlreadySetCase(expectedActiveBaggage));
   results.push(await runColdStartCase());
+  results.push(await runLiveMappingCase());
 
   const pass = results.every((r) => r.pass);
   process.stdout.write(

@@ -2,56 +2,68 @@
  * Conversation-identity injection for `minsky mcp shim` (mt#3812, ADR-006
  * Layer 3, ADR-038 §Question 1).
  *
- * Semantics are pinned to `src/mcp/stdio-proxy/conversation-identity.ts`'s
- * `resolveConversationAgentId` + `injectAgentIdMeta` — same env var, same
- * UUID validation, same "don't overwrite a caller-declared agent_id" rule.
- * The logic is DUPLICATED here rather than imported for one reason: that
- * module's top-level import of `@minsky/shared/conversation-pid-map`
- * (mt#3900's harness-pid live-mapping lookup, which shells out to `ps`) is
- * out of scope for the shim's v1 — the mt#3812 spec's Scope section names
- * only the `CLAUDE_CODE_SESSION_ID` env-var path — and importing that
- * module anyway would tie this file's footprint to a dependency it doesn't
- * use, exactly the class of "one careless import restores the weight"
- * regression the spec's BLOCKING section warns about.
+ * ## The resolution is SHARED now, not duplicated (mt#4440)
  *
- * `identity.test.ts`'s `parity with the stdio proxy writer` block asserts
- * behavioral parity against the stdio-proxy semantics so drift is caught
- * mechanically rather than trusted to review. That block is new in mt#3986:
- * this docblock claimed it existed from mt#3812 onward, but nothing in the
- * test file referenced the proxy until the two writers gained a second shared
- * behavior (`baggage` emission) and the claim had to become true.
+ * This docblock used to say the resolution logic was "DUPLICATED here rather
+ * than imported for one reason: that module's top-level import of
+ * `@minsky/shared/conversation-pid-map` (mt#3900's harness-pid live-mapping
+ * lookup, which shells out to `ps`) is out of scope for the shim's v1". That
+ * was an accurate record of mt#3812's scope and it had a cost the scope note
+ * did not anticipate: the proxy gained mt#3900's live mapping and the shim did
+ * not, so on the local-daemon transport — the path this repo's own MCP access
+ * actually uses — every `tools/call` frame carried the conversation id frozen
+ * in this process's environment at spawn.
+ *
+ * Measured 2026-08-27: a shim spawned five days and three `/clear`s earlier was
+ * still stamping the conversation from before the first of them, while the pid
+ * map held the correct current id and agreed with the live harness's start time
+ * exactly. Presence claims, session attachment, calibration claims and the
+ * `gen_ai.conversation.id` baggage entry all propagated it faithfully, so a
+ * session's own writes were attributed to a different live conversation.
+ *
+ * Both writers now call
+ * `@minsky/domain/agent-identity/live-conversation`, so the drift axis is gone
+ * rather than merely asserted over. `identity.test.ts`'s `parity with the stdio
+ * proxy writer` block still covers the message-shaped helpers below, which
+ * remain per-writer because each is typed against its own transport's
+ * `JsonRpcMessage`.
+ *
+ * ## Footprint
+ *
+ * The dependency this pulls in is small and node-builtin-only —
+ * `conversation-pid-map` imports `node:fs`, `node:path` and
+ * `@minsky/shared/paths` (itself `path` + `os`) — and `rss-budget.test.ts`
+ * measures the claim rather than trusting it: a PRIMARY deterministic
+ * bundle-size gate plus a SECONDARY live-RSS bound. That test is the reason
+ * this import can be made without re-litigating ADR-038's resource case.
  *
  * The W3C Baggage codec is IMPORTED rather than duplicated — unlike the
- * conversation-id resolution above, `@minsky/domain/agent-identity/baggage` is
- * a leaf module with no imports of its own, so it costs the bundle its own
- * ~1.3KB and nothing else.
+ * message helpers below, `@minsky/domain/agent-identity/baggage` is a leaf
+ * module with no imports of its own.
  *
- * @see src/mcp/stdio-proxy/conversation-identity.ts — the semantics source
+ * @see packages/domain/src/agent-identity/live-conversation.ts — the resolution
+ * @see src/mcp/stdio-proxy/conversation-identity.ts — the sibling writer
  * @see docs/architecture/adr-006-agent-identity.md §Layer 3
  */
 
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
-import { isValidAgentId, parseAgentId } from "@minsky/domain/agent-identity/format";
-import { KNOWN_KINDS } from "@minsky/domain/agent-identity/kinds";
+import { parseAgentId } from "@minsky/domain/agent-identity/format";
 import {
   BAGGAGE_META_KEY,
   GEN_AI_CONVERSATION_ID_KEY,
   appendBaggageEntry,
 } from "@minsky/domain/agent-identity/baggage";
+import {
+  CLAUDE_CODE_SESSION_ID_ENV,
+  resolveConversationAgentIdFromEnv,
+  resolveHarnessPid,
+  resolveLiveConversationAgentId,
+} from "@minsky/domain/agent-identity/live-conversation";
 import type { JsonRpcMessage } from "./protocol";
 
 export { AGENT_ID_META_KEY, BAGGAGE_META_KEY };
 
-/** Env var Claude Code sets on every spawned MCP server process. */
-export const CLAUDE_CODE_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID";
-
-/**
- * UUID shape check (RFC-4122 textual form, case-insensitive). Matches
- * conversation-identity.ts's UUID_RE exactly — accepts any RFC-4122 variant
- * rather than gating on v4, since Claude Code does not document a version
- * guarantee for its conversation ids.
- */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export { CLAUDE_CODE_SESSION_ID_ENV, resolveHarnessPid, resolveLiveConversationAgentId };
 
 /**
  * Resolve the conversation-scoped agentId from the process environment.
@@ -59,21 +71,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Returns `com.anthropic.claude-code:conv:<uuid>` when
  * `CLAUDE_CODE_SESSION_ID` holds a UUID, or null when the var is absent,
  * empty, or not UUID-shaped.
+ *
+ * This is the SPAWN-TIME value. It is the correct FALLBACK — and the only
+ * source at all in a hookless environment — but it is not what a writer should
+ * stamp on its own: see {@link resolveLiveConversationAgentId}, which prefers
+ * the live pid mapping and falls back to this.
  */
 export function resolveConversationAgentId(
   env: Record<string, string | undefined> = process.env
 ): string | null {
-  const raw = env[CLAUDE_CODE_SESSION_ID_ENV];
-  if (typeof raw !== "string") return null;
-
-  const sessionId = raw.trim();
-  if (!UUID_RE.test(sessionId)) return null;
-
-  const agentId = `${KNOWN_KINDS.CLAUDE_CODE}:conv:${sessionId.toLowerCase()}`;
-  // Defensive round-trip through the canonical validator, same as the
-  // stdio proxy — a drift in the format rules must never make the shim
-  // emit an id the reader rejects.
-  return isValidAgentId(agentId) ? agentId : null;
+  return resolveConversationAgentIdFromEnv(env);
 }
 
 /**
