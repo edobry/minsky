@@ -50,7 +50,16 @@ export interface FreezeProxy {
   freeze(): void;
   /** Resume forwarding and close-propagation. */
   unfreeze(): void;
-  /** Unfreeze, destroy every socket on both sides, then stop listening. */
+  /**
+   * Unfreeze, destroy every socket on both sides, then stop listening.
+   *
+   * IDEMPOTENT (PR #3413 R1, BLOCKING). Callers legitimately close twice — a
+   * mid-run teardown followed by the `finally` that must run whatever happened —
+   * and `net.Server.close()` is NOT idempotent: a second call passes
+   * `ERR_SERVER_NOT_RUNNING` to its callback. Making the second call a no-op
+   * here fixes every call site at once, rather than each of them tracking a
+   * `closed` flag and one of them eventually forgetting.
+   */
   close(): Promise<void>;
 }
 
@@ -96,6 +105,7 @@ export async function startFreezeProxy(upstream: {
   port: number;
 }): Promise<FreezeProxy> {
   let frozen = false;
+  let closed = false;
   const clientSockets = new Set<Socket>();
   const upstreamSockets = new Set<Socket>();
 
@@ -145,6 +155,8 @@ export async function startFreezeProxy(upstream: {
       frozen = false;
     },
     close: async () => {
+      if (closed) return; // idempotent — see the interface docblock
+      closed = true;
       frozen = false;
       for (const s of [...clientSockets, ...upstreamSockets]) {
         try {
@@ -153,7 +165,18 @@ export async function startFreezeProxy(upstream: {
           /* already gone */
         }
       }
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      // Propagate a GENUINE close failure, but tolerate ERR_SERVER_NOT_RUNNING
+      // — the caller's goal is "it is not listening", which that error already
+      // confirms. The previous form passed `() => resolve()`, discarding the
+      // error argument entirely, so any real failure here was swallowed and
+      // reported as a clean shutdown (mem#704: a teardown that cannot fail is
+      // not evidence the teardown happened).
+      await new Promise<void>((resolve, reject) => {
+        server.close((err?: Error) => {
+          if (err && (err as { code?: string }).code !== "ERR_SERVER_NOT_RUNNING") reject(err);
+          else resolve();
+        });
+      });
     },
   };
 }

@@ -3,6 +3,7 @@ import {
   parsePrometheusText,
   selectSamples,
   sumSamples,
+  deriveProjectRef,
   CLIENT_CONNECTIONS_METRIC,
 } from "./supavisor-metrics";
 
@@ -134,5 +135,61 @@ describe("sumSamples", () => {
     const zeroed = parsePrometheusText(`${CLIENT_CONNECTIONS_METRIC}{mode="transaction"} 0`);
     expect(sumSamples(zeroed, CLIENT_CONNECTIONS_METRIC, { mode: "transaction" })).toBe(0);
     expect(sumSamples(zeroed, CLIENT_CONNECTIONS_METRIC, { mode: "session" })).toBeUndefined();
+  });
+});
+
+/** This project's real ref, so the fixtures are the shapes actually in use. */
+const REF = "yvkkrpyjhoiilmizlnac";
+
+describe("deriveProjectRef", () => {
+  // The point of this function is that the gauge and the pool under test address
+  // the SAME project. A wrong answer here is a silently invalid measurement, so
+  // both real Supabase URL shapes are covered, and unparseable input returns
+  // null rather than a plausible guess.
+  const POOLER_HOST = "aws-0-us-west-2.pooler.supabase.com";
+
+  test("extracts the ref from a transaction-pooler URL (username after the dot)", () => {
+    expect(deriveProjectRef(`postgres://postgres.${REF}:pw@${POOLER_HOST}:6543/postgres`)).toBe(
+      REF
+    );
+  });
+
+  test("extracts the ref from a session-pooler URL on :5432", () => {
+    expect(deriveProjectRef(`postgres://postgres.${REF}:pw@${POOLER_HOST}:5432/postgres`)).toBe(
+      REF
+    );
+  });
+
+  test("extracts the ref from a direct-connection URL (host label after db.)", () => {
+    expect(deriveProjectRef(`postgres://postgres:pw@db.${REF}.supabase.co:5432/postgres`)).toBe(
+      REF
+    );
+  });
+
+  test("accepts the postgresql:// scheme spelling", () => {
+    expect(deriveProjectRef(`postgresql://postgres.${REF}:pw@${POOLER_HOST}:6543/postgres`)).toBe(
+      REF
+    );
+  });
+
+  test("survives a percent-encoded password containing @ and :", () => {
+    expect(
+      deriveProjectRef(`postgres://postgres.${REF}:p%40ss%3Aword@${POOLER_HOST}:6543/postgres`)
+    ).toBe(REF);
+  });
+
+  test("returns null for a non-Supabase Postgres rather than guessing", () => {
+    expect(deriveProjectRef("postgres://postgres:pw@localhost:5432/minsky")).toBeNull();
+    expect(deriveProjectRef("postgres://user:pw@db.internal.example.com:5432/app")).toBeNull();
+  });
+
+  test("returns null for an unparseable string", () => {
+    expect(deriveProjectRef("not a url")).toBeNull();
+    expect(deriveProjectRef("")).toBeNull();
+  });
+
+  test("does not mistake a short dotted username for a ref", () => {
+    // `postgres.local` is a username with a dot but no 16+ char ref after it.
+    expect(deriveProjectRef("postgres://postgres.local:pw@somehost:5432/db")).toBeNull();
   });
 });

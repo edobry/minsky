@@ -199,7 +199,7 @@ export async function resolveSupabaseAccessToken(): Promise<string | null> {
  */
 export async function fetchMetricsText(
   token: string,
-  projectRef: string = DEFAULT_PROJECT_REF,
+  projectRef: string,
   timeoutMs = 30_000
 ): Promise<string> {
   const url = `${MANAGEMENT_API_BASE}/v1/projects/${projectRef}/analytics/endpoints/metrics`;
@@ -222,6 +222,54 @@ export async function fetchMetricsText(
   return await res.text();
 }
 
+/**
+ * Derive the Supabase project ref from a connection string.
+ *
+ * WHY THIS EXISTS (PR #3413 R1, BLOCKING). The metrics endpoint is addressed by
+ * project ref while the pool under test is addressed by connection string. If
+ * those two disagree, the harness opens sockets against one project and reads
+ * the gauge from ANOTHER — a silently wrong measurement, which is precisely the
+ * failure class this whole task is about. Deriving the ref from the connection
+ * string makes the two agree by construction rather than by assumption.
+ *
+ * Both Supabase forms carry the ref, in different FIELDS of the URL. Described
+ * field-by-field rather than as example URLs on purpose: a literal
+ * `scheme://user:pw@host` line — even with placeholder text where the password
+ * goes — matches gitleaks' `database-url-credentials` rule and blocks the
+ * commit. Naming the field is also the more precise documentation.
+ *
+ *   - pooler form: the USERNAME is `postgres.<ref>`, so the ref is whatever
+ *     follows the first dot. Host is the regional `*.pooler.supabase.com`,
+ *     port 6543 (transaction) or 5432 (session).
+ *   - direct form: the USERNAME is plain `postgres` and the ref is instead the
+ *     first HOSTNAME label after `db.`, i.e. host `db.<ref>.supabase.co`.
+ *
+ * Returns `null` when neither shape matches — a self-hosted or proxied Postgres,
+ * say. A caller must then be given the ref explicitly rather than guessing.
+ */
+export function deriveProjectRef(connectionString: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(connectionString.replace(/^postgres(ql)?:/, "http:"));
+  } catch {
+    return null;
+  }
+
+  // Pooler form: username is `postgres.<ref>`.
+  const username = decodeURIComponent(parsed.username);
+  const dot = username.indexOf(".");
+  if (dot > 0) {
+    const candidate = username.slice(dot + 1);
+    if (/^[a-z0-9]{16,}$/i.test(candidate)) return candidate;
+  }
+
+  // Direct form: host is `db.<ref>.supabase.co`.
+  const hostMatch = /^db\.([a-z0-9]{16,})\.supabase\./i.exec(parsed.hostname);
+  if (hostMatch?.[1]) return hostMatch[1];
+
+  return null;
+}
+
 /** A single client-connection reading, with the wall-clock time it was taken. */
 export interface ClientConnectionReading {
   atIso: string;
@@ -241,13 +289,20 @@ export interface ClientConnectionReading {
 export async function readClientConnections(
   token: string,
   options: {
-    projectRef?: string;
+    /**
+     * REQUIRED, deliberately (PR #3413 R1, BLOCKING). A default here is what let
+     * a caller load one project's pooler while reading another project's gauge.
+     * `deriveProjectRef` exists so the ref can come from the same connection
+     * string as the pool under test; `DEFAULT_PROJECT_REF` remains exported for
+     * a caller that genuinely means the default and says so.
+     */
+    projectRef: string;
     mode?: "transaction" | "session";
     user?: string;
     nowIso: string;
   }
 ): Promise<ClientConnectionReading> {
-  const text = await fetchMetricsText(token, options.projectRef ?? DEFAULT_PROJECT_REF);
+  const text = await fetchMetricsText(token, options.projectRef);
   const samples = parsePrometheusText(text);
   const filter: Record<string, string> = {};
   if (options.mode) filter["mode"] = options.mode;

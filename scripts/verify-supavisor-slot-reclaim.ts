@@ -90,7 +90,8 @@
  * the token is reported by LENGTH, per
  * `terminal-command-best-practices.mdc §Secret handling`.
  */
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import {
   readPoolerConnectionString,
   upstreamTargetOf,
@@ -101,6 +102,7 @@ import {
 import {
   resolveSupabaseAccessToken,
   readClientConnections,
+  deriveProjectRef,
   DEFAULT_PROJECT_REF,
   CLIENT_CONNECTIONS_METRIC,
   type ClientConnectionReading,
@@ -174,7 +176,7 @@ if (!token) {
   );
   process.exit(2);
 }
-log(`token resolved (${token.length} chars); project ${DEFAULT_PROJECT_REF}`);
+log(`token resolved (${token.length} chars)`);
 
 // Re-bind both guarded values. Narrowing from the `process.exit` guards above
 // holds at module top level but NOT inside the function bodies below — a
@@ -182,6 +184,40 @@ log(`token resolved (${token.length} chars); project ${DEFAULT_PROJECT_REF}`);
 // every use site free of a non-null assertion.
 const POOLER_URL: string = connectionString;
 const ACCESS_TOKEN: string = token;
+
+// ── which project are we measuring? ─────────────────────────────────────────
+// Derived from the connection string, NOT defaulted (PR #3413 R1, BLOCKING).
+// The pool under test is addressed by connection string and the gauge by
+// project ref; if those disagree the harness loads one project and measures
+// another — silently, and in exactly the way this whole task is about. Deriving
+// makes them agree by construction. An explicit --project-ref still wins, for
+// the case where the connection string is a proxy we cannot parse.
+const refFlagIndex = args.indexOf("--project-ref");
+const explicitRef = refFlagIndex === -1 ? undefined : args[refFlagIndex + 1];
+const derivedRef = deriveProjectRef(POOLER_URL);
+if (explicitRef && derivedRef && explicitRef !== derivedRef) {
+  console.error(
+    `ERROR: --project-ref ${explicitRef} contradicts the ref derived from the configured ` +
+      `connection string (${derivedRef}). Refusing to measure one project while loading another.`
+  );
+  process.exit(1);
+}
+const resolvedRef = explicitRef ?? derivedRef;
+if (!resolvedRef) {
+  console.error(
+    "ERROR: could not derive a Supabase project ref from the configured connection string, " +
+      "and none was given. Pass --project-ref <ref>. Refusing to fall back to a default: " +
+      "reading the gauge from a project other than the one under test would be a silently " +
+      "wrong measurement."
+  );
+  process.exit(1);
+}
+// Re-bound for the same reason as POOLER_URL/ACCESS_TOKEN above: the guard's
+// narrowing does not reach the function bodies below.
+const PROJECT_REF: string = resolvedRef;
+if (derivedRef && PROJECT_REF !== DEFAULT_PROJECT_REF) {
+  log(`NOTE: measuring project ${PROJECT_REF}, which is not the default ${DEFAULT_PROJECT_REF}`);
+}
 
 /**
  * A reading whose gauge is known-present. Narrowing it in the TYPE is what lets
@@ -194,7 +230,11 @@ interface GaugeReading extends ClientConnectionReading {
 
 /** Read the client-connection gauge, failing loudly if the metric is absent. */
 async function readGauge(): Promise<GaugeReading> {
-  const reading = await readClientConnections(ACCESS_TOKEN, { mode: MODE, nowIso: nowIso() });
+  const reading = await readClientConnections(ACCESS_TOKEN, {
+    projectRef: PROJECT_REF,
+    mode: MODE,
+    nowIso: nowIso(),
+  });
   const { connections } = reading;
   if (connections === undefined) {
     throw new Error(
@@ -294,7 +334,8 @@ const results: Record<string, unknown> = {
   task: "mt#4547",
   metric: CLIENT_CONNECTIONS_METRIC,
   mode: MODE,
-  projectRef: DEFAULT_PROJECT_REF,
+  projectRef: PROJECT_REF,
+  projectRefSource: explicitRef ? "--project-ref" : "derived-from-connection-string",
   poolSize: POOL_SIZE,
   pollSeconds: POLL_SECONDS,
   scrapeResolutionNote:
@@ -309,6 +350,12 @@ const results: Record<string, unknown> = {
 async function writeResults(name: string): Promise<void> {
   results["finishedAt"] = nowIso();
   const path = `scripts/${name}`;
+  // mkdir -p first (PR #3413 R1, non-blocking). `scripts/` exists on a default
+  // checkout, so this is defensive rather than load-bearing today — but a run
+  // from another cwd, or a future change to the output path, would otherwise
+  // fail with an unhandled ENOENT *after* the measurement had completed, which
+  // is the worst possible moment to lose it.
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(results, null, 2)}\n`);
   log(`results written to ${path}`);
 }
