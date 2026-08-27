@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { DefaultCredentialResolver } from "@minsky/domain/configuration/credential-resolver";
 import { log } from "@minsky/shared/logger";
@@ -96,7 +96,7 @@ export const configListRegistration = defineCommand({
       };
     } catch (error) {
       log.error("Failed to load configuration", {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
       });
       return {
         success: false,
@@ -162,7 +162,7 @@ export const configShowRegistration = defineCommand({
       };
     } catch (error) {
       log.error("Failed to load configuration", {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
       });
       return {
         success: false,

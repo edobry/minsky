@@ -43,6 +43,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { cohensKappa, type CohensKappaResult } from "../src/eval-metrics";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Label taxonomy
@@ -337,7 +338,7 @@ if (import.meta.main) {
   try {
     main();
   } catch (error) {
-    console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`FAILED: ${getLoggableErrorSummary(error)}`);
     process.exit(1);
   }
 }

@@ -2,6 +2,7 @@ import type { CommandMapper } from "../../src/mcp/command-mapper.js";
 import { first } from "../../src/utils/array-safety";
 import { createMockFile, getMockFile } from "./session-edit-file-cursor-parity.integration.test";
 import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // Mock SessionPathResolver
 class MockSessionPathResolver {
@@ -228,7 +229,7 @@ Return the complete merged code:`;
     console.log("\n❌ MORPH API ERROR:");
     console.log("   Duration:", duration, "ms");
     console.log("   Error type:", error instanceof Error ? error.constructor.name : "unknown");
-    console.log("   Error message:", error instanceof Error ? error.message : String(error));
+    console.log("   Error message:", getLoggableErrorSummary(error));
     console.log("   Error stack:", error instanceof Error ? error.stack : undefined);
     console.log("=".repeat(80));
     console.log("🔚 END MORPH API ANALYSIS (ERROR)");
@@ -382,7 +383,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
         console.log("Mock session file edit failed", {
           session: args.sessionId,
           path: args.path,
-          error: error instanceof Error ? error.message : String(error),
+          error: getLoggableErrorSummary(error),
         });
 
         return {

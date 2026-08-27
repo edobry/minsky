@@ -80,6 +80,7 @@ import { resolveConfirmDeps } from "../../packages/domain/src/detectors/llm-conf
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 import { cappedEvidenceLines } from "./guard-feedback-format";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -1504,7 +1505,7 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(
-      `[retrospective-trigger-scanner] Assistant-turn detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[retrospective-trigger-scanner] Assistant-turn detection error: ${getLoggableErrorSummary(err)}`
     );
   }
 
@@ -1518,7 +1519,7 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(
-      `[retrospective-trigger-scanner] User-correction detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[retrospective-trigger-scanner] User-correction detection error: ${getLoggableErrorSummary(err)}`
     );
   }
 

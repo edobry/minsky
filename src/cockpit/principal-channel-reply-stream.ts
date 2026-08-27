@@ -47,6 +47,7 @@ import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { editTelegramMessage, type FetchFn } from "@minsky/domain/notify/telegram-transport";
 import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Gap between edits.
@@ -370,7 +371,7 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
           // Never let a streaming failure escape into the turn.
           degraded = true;
           log.warn("[principal-channel] streaming flush threw; settling with a plain send", {
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         });
     }, wait);

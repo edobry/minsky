@@ -50,6 +50,7 @@ import {
 import type { TranscriptSampling } from "../packages/domain/src/detectors/unasked-direction-analyzer";
 import type { ConversationId } from "../packages/domain/src/ids";
 import { extractSchemaIssuePaths } from "./lib/generate-object-failure";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface ReplayRow {
   conversationId: string;
@@ -167,9 +168,7 @@ async function buildCompletionService(): Promise<unknown | null> {
     requireAIProviders(resolved);
     return createCompletionService(resolved);
   } catch (err) {
-    console.log(
-      `note: completion service unavailable (${err instanceof Error ? err.message : String(err)})`
-    );
+    console.log(`note: completion service unavailable (${getLoggableErrorSummary(err)})`);
     return null;
   }
 }

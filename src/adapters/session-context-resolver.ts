@@ -6,7 +6,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { ValidationError } from "@minsky/domain/errors/index";
+import { ValidationError, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Session context resolution result
@@ -192,7 +192,7 @@ ${
       interfaceType,
       params,
       workingDir,
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     throw error;
   }

@@ -3,6 +3,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../errors/index";
 import { parsePrDescriptionFromCommitMessage } from "./session-utils";
 import type { SessionUpdateParameters } from "../schemas";
@@ -145,7 +146,7 @@ export async function refreshDependenciesIfLockfileChanged(
     postUpdateSha = (await gitService.execInRepository(workdir, "git rev-parse HEAD")).trim();
   } catch (error) {
     log.debug("Failed to resolve post-update HEAD for dependency-refresh check", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       workdir,
     });
     return { checked: false, changed: false, installed: false };
@@ -164,7 +165,7 @@ export async function refreshDependenciesIfLockfileChanged(
     changedFiles = diffOutput.trim().split("\n").filter(Boolean);
   } catch (error) {
     log.debug("Failed to diff pulled range for dependency-refresh check", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       workdir,
       preUpdateSha,
       postUpdateSha,
@@ -337,7 +338,7 @@ export async function updateSessionImpl(
         } catch (repairError) {
           log.warn("Failed to self-repair orphaned session", {
             sessionId,
-            error: repairError instanceof Error ? repairError.message : String(repairError),
+            error: getLoggableErrorSummary(repairError),
           });
         }
       }
@@ -369,7 +370,7 @@ export async function updateSessionImpl(
       preUpdateSha = (await deps.gitService.execInRepository(workdir, "git rev-parse HEAD")).trim();
     } catch (shaError) {
       log.debug("Failed to capture pre-update HEAD for dependency-refresh check", {
-        error: getErrorMessage(shaError),
+        error: getLoggableErrorSummary(shaError),
         workdir,
       });
     }
@@ -674,7 +675,7 @@ export async function updateSessionImpl(
               } catch (describeError) {
                 log.debug("Could not describe the parked stash for the conflict message", {
                   workdir,
-                  error: getErrorMessage(describeError),
+                  error: getLoggableErrorSummary(describeError),
                 });
                 // Still name the stash — an unenumerated warning beats silence,
                 // which is the defect this whole branch exists to fix.
@@ -699,7 +700,7 @@ export async function updateSessionImpl(
           log.debug("Forced merge completed");
         } catch (mergeError) {
           log.debug("Forced merge failed, but continuing due to force flag", {
-            error: getErrorMessage(mergeError),
+            error: getLoggableErrorSummary(mergeError),
           });
         }
       }
@@ -714,7 +715,7 @@ export async function updateSessionImpl(
         await refreshDependenciesIfLockfileChanged(workdir, deps.gitService, preUpdateSha);
       } catch (refreshError) {
         log.debug("Dependency-refresh check failed unexpectedly", {
-          error: getErrorMessage(refreshError),
+          error: getLoggableErrorSummary(refreshError),
           workdir,
         });
       }
@@ -773,7 +774,7 @@ export async function updateSessionImpl(
           log.debug("Restored stashed changes after error");
         } catch (stashError) {
           log.warn("Failed to restore stashed changes after error; they remain in stash@{0}", {
-            stashError: getErrorMessage(stashError),
+            stashError: getLoggableErrorSummary(stashError),
             workdir,
           });
         }
@@ -782,7 +783,7 @@ export async function updateSessionImpl(
     }
   } catch (error) {
     log.error("Session update failed", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       name: sessionId,
     });
     if (error instanceof MinskyError) {
@@ -828,7 +829,7 @@ export async function checkPrBranchExists(
     return remoteBranchExists;
   } catch (error) {
     log.debug("Error checking PR branch existence", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       prBranch,
       sessionId,
     });
@@ -1057,7 +1058,7 @@ export async function extractPrDescription(
     return parsePrDescriptionFromCommitMessage(commitMessage);
   } catch (error) {
     log.debug("Error extracting PR description", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       prBranch,
       sessionId,
     });

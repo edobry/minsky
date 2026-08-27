@@ -13,6 +13,7 @@ import {
   SessionConflictError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "@minsky/domain/errors/index";
 import { GitHubApiError } from "@minsky/domain/repository/index";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
@@ -452,7 +453,7 @@ export function createSessionPrCreateCommand(
       } catch (error) {
         log.debug(`Error in session.pr.create`, {
           params,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
         throw error;

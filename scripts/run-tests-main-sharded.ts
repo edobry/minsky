@@ -113,6 +113,7 @@ import { parseTestcases, type TestCase } from "./analyze-test-timing";
 import { discoverTestFiles } from "./run-tests-main";
 import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import { binPackFiles as binPackFilesCore } from "./run-tests-sharded-prototype";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Configuration (auto-detected, env-var overridable -- never hardcoded)
@@ -571,7 +572,7 @@ export function readDurationCache(path: string = DURATION_CACHE_PATH): DurationC
   } catch (err) {
     console.error(
       `run-tests-main-sharded: could not read/parse duration cache at ${path} ` +
-        `(${err instanceof Error ? err.message : String(err)}) -- ignoring and starting cold ` +
+        `(${getLoggableErrorSummary(err)}) -- ignoring and starting cold ` +
         "(round-robin fallback)."
     );
   }
@@ -585,7 +586,7 @@ export function writeDurationCache(cache: DurationCache, path: string = DURATION
   } catch (err) {
     console.error(
       `run-tests-main-sharded: failed to persist duration cache to ${path} ` +
-        `(${err instanceof Error ? err.message : String(err)}) -- next run falls back to ` +
+        `(${getLoggableErrorSummary(err)}) -- next run falls back to ` +
         "round-robin for files without history. Non-fatal."
     );
   }

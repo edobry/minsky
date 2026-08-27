@@ -141,6 +141,7 @@ import type {
   NominationDeps,
 } from "../../packages/domain/src/detectors/embedding-nomination";
 import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -1496,7 +1497,7 @@ export async function main(): Promise<void> {
     );
   } catch (err) {
     console.error(
-      `[knowledge-acquisition-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
+      `[knowledge-acquisition-detector] detection error: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }

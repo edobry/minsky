@@ -2,6 +2,7 @@ import path from "path";
 import { Command } from "commander";
 import { installDaemon } from "../../cockpit/launchd";
 import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createInstallCommand(): Command {
   const cmd = new Command("install");
@@ -19,7 +20,7 @@ export function createInstallCommand(): Command {
       try {
         port = resolveCockpitPort(options.port);
       } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getLoggableErrorSummary(error));
         process.exit(1);
       }
 

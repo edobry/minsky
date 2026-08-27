@@ -6,6 +6,7 @@ import {
   RESTART_CONFIRM_BUDGET_MS,
 } from "../../cockpit/daemon-restart";
 import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export function createRestartCommand(): Command {
   const cmd = new Command("restart");
@@ -43,7 +44,7 @@ ThrottleInterval 60. Under the tray it is typically a few seconds.`
     try {
       port = resolveCockpitPort(options.port);
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(getLoggableErrorSummary(error));
       process.exit(1);
     }
 

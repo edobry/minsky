@@ -1,5 +1,10 @@
 import { readFile } from "fs/promises";
-import { MinskyError, ValidationError, getErrorMessage } from "../errors/index";
+import {
+  MinskyError,
+  ValidationError,
+  getErrorMessage,
+  getLoggableErrorSummary,
+} from "../errors/index";
 import type { SessionPRParameters } from "../schemas";
 import { log } from "@minsky/shared/logger";
 import { type GitServiceInterface } from "../git";
@@ -115,7 +120,9 @@ export async function applyInReviewTransition(
     const current = await taskService.getTaskStatus(taskId);
     fromStatus = current ?? null;
   } catch (readError) {
-    log.warn(`Failed to read prior task status for ${taskId}: ${getErrorMessage(readError)}`);
+    log.warn(
+      `Failed to read prior task status for ${taskId}: ${getLoggableErrorSummary(readError)}`
+    );
   }
 
   try {
@@ -130,7 +137,7 @@ export async function applyInReviewTransition(
     };
   } catch (writeError) {
     const reason = `setTaskStatus threw: ${getErrorMessage(writeError)}`;
-    log.warn(`Failed to update task status: ${getErrorMessage(writeError)}`);
+    log.warn(`Failed to update task status: ${getLoggableErrorSummary(writeError)}`);
     return {
       from: fromStatus,
       to: TASK_STATUS.IN_REVIEW,
@@ -294,7 +301,9 @@ export async function sessionPrImpl(
         bodyToUse = bodyToUse || prDescription.body;
       }
     } catch (error) {
-      log.debug("Could not extract existing PR description", { error: getErrorMessage(error) });
+      log.debug("Could not extract existing PR description", {
+        error: getLoggableErrorSummary(error),
+      });
     }
 
     if (!titleToUse) {
@@ -473,7 +482,7 @@ Please provide a title for your pull request:
         }
       } catch (provenanceError) {
         log.warn(
-          `Failed to record provenance for PR #${prInfo.number}: ${getErrorMessage(provenanceError)}`
+          `Failed to record provenance for PR #${prInfo.number}: ${getLoggableErrorSummary(provenanceError)}`
         );
       }
     }

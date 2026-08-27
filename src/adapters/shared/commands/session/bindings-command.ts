@@ -25,6 +25,7 @@ import type {
 import { log } from "@minsky/shared/logger";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionBindingsRefreshCommandParams } from "./session-parameters";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export type SessionBindingsRefreshParams = InferParams<typeof sessionBindingsRefreshCommandParams>;
 
@@ -67,7 +68,7 @@ export async function executeSessionBindingsRefresh(
     if (db) repo = buildPresenceClaimRepository(db);
   } catch (err) {
     log.debug("[session.bindings.refresh] Failed to resolve presence-claim repository", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 

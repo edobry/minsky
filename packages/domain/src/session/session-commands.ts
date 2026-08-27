@@ -4,7 +4,7 @@
  * Session operations that accept session parameters.
  */
 
-import { MinskyError, NothingToCommitError } from "../errors/index";
+import { MinskyError, NothingToCommitError, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
 import { raceAgainstTimeout } from "@minsky/shared/timeout";
@@ -440,7 +440,7 @@ export async function pureSessionApprove(
     };
   } catch (error) {
     log.debug("Pure session approve failed", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
       session: params.session,
     });
     throw error;
@@ -637,9 +637,9 @@ export async function sessionCommit(
       // to actually be clean, the Ask emitted below is a benign false positive
       // for that rare path, but operators need visibility into why detection failed.
       log.warn(
-        `[session.commit] hasUncommittedChanges probe failed; proceeding with commit attempt: ${
-          probeErr instanceof Error ? probeErr.message : String(probeErr)
-        }`
+        `[session.commit] hasUncommittedChanges probe failed; proceeding with commit attempt: ${getLoggableErrorSummary(
+          probeErr
+        )}`
       );
     }
 
@@ -728,7 +728,7 @@ export async function sessionCommit(
           "sessionCommit: detection-time policy consult failed; falling back to Ask emission (best-effort)",
           {
             session: params.session,
-            error: policyErr instanceof Error ? policyErr.message : String(policyErr),
+            error: getLoggableErrorSummary(policyErr),
           }
         );
       }
@@ -752,7 +752,7 @@ export async function sessionCommit(
         } catch (askErr: unknown) {
           log.warn("sessionCommit: failed to emit authorization.approve Ask (best-effort)", {
             session: params.session,
-            error: askErr instanceof Error ? askErr.message : String(askErr),
+            error: getLoggableErrorSummary(askErr),
           });
         }
       }
@@ -933,7 +933,7 @@ export async function sessionCommit(
         } catch (closeErr: unknown) {
           log.debug("sessionCommit: failed to close commit-authorization Ask (best-effort)", {
             session: params.session,
-            error: closeErr instanceof Error ? closeErr.message : String(closeErr),
+            error: getLoggableErrorSummary(closeErr),
           });
         }
       }
@@ -1062,7 +1062,7 @@ export async function sessionCommit(
         // Never fail a landed commit over the stash check, but never hide it either.
         log.warn("Failed to restore update-parked stash after commit", {
           session: params.session,
-          error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+          error: getLoggableErrorSummary(restoreError),
         });
       }
 
@@ -1190,7 +1190,7 @@ export async function sessionCommit(
       };
     } catch (error) {
       log.debug("Session commit failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getLoggableErrorSummary(error),
         session: params.session,
       });
       throw error;
@@ -1236,7 +1236,7 @@ async function collectCommitMetadata(
     branch = await gitService.getCurrentBranch(workdir);
   } catch (err) {
     log.debug("Failed to get branch name", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -1282,7 +1282,7 @@ async function collectCommitMetadata(
     }
   } catch (err) {
     log.debug("Failed to read commit metadata", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -1313,7 +1313,7 @@ async function collectCommitMetadata(
     }
   } catch (err) {
     log.debug("Failed to parse diffstat", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 
@@ -1339,7 +1339,7 @@ async function collectCommitMetadata(
     });
   } catch (err) {
     log.debug("Failed to list changed files", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 

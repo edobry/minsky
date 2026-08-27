@@ -13,6 +13,7 @@
 
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export interface TranscriptProjectScopeContext {
   container?: AppContainerInterface;
@@ -62,7 +63,7 @@ export async function resolveTranscriptProjectScope(
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug("[transcripts] Project scope resolution failed; defaulting to all projects", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return undefined;
   }

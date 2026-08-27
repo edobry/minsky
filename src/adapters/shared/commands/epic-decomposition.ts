@@ -25,7 +25,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
@@ -214,7 +214,7 @@ async function resolveDb(container: AppContainerInterface | undefined): Promise<
     return db as AuditDb;
   } catch (err: unknown) {
     log.warn("epic-decomposition: could not initialize db connection", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -287,7 +287,7 @@ export function registerEpicDecompositionCommands(container?: AppContainerInterf
           return buildAuditResult(epicId, snapshots.length, candidates);
         } catch (error) {
           log.error("epic-decomposition.audit failed", {
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
             epicId,
           });
           throw error;

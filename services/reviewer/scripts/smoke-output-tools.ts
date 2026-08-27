@@ -13,6 +13,7 @@
 
 import OpenAI from "openai";
 import { callOpenAIWithClient } from "../src/providers";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
@@ -105,6 +106,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Smoke test error:", err instanceof Error ? err.message : String(err));
+  console.error("Smoke test error:", getLoggableErrorSummary(err));
   process.exit(1);
 });

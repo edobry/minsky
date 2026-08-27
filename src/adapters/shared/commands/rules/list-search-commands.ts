@@ -1,7 +1,7 @@
 /**
  * Rules list, search, and index-embeddings commands
  */
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
@@ -102,7 +102,7 @@ export function registerListSearchCommands(
           debug: params.debug,
         });
       } catch (error) {
-        log.error("Failed to list rules", { error: getErrorMessage(error) });
+        log.error("Failed to list rules", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },
@@ -156,7 +156,7 @@ export function registerListSearchCommands(
         };
       } catch (error) {
         log.error("Failed to search rules", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           query: params.query,
         });
         throw error;

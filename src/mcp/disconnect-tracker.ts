@@ -82,6 +82,7 @@ import {
   rollIfNeeded,
   TAIL_READ_BYTES,
 } from "./disconnect-log-segments";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The kind of event recorded.
@@ -1112,7 +1113,7 @@ export class DisconnectTracker {
     } catch (err) {
       log.warn("mcp_disconnect_tracker: failed to append event log", {
         path: this.persistPath,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }
@@ -1170,7 +1171,7 @@ export class DisconnectTracker {
     } catch (err) {
       log.debug("mcp_disconnect_tracker: failed to load event log from disk (non-fatal)", {
         path: this.persistPath,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }
@@ -1207,7 +1208,7 @@ export class DisconnectTracker {
       // intentional-swallow: a failed roll leaves the log exactly as it was,
       // which is the pre-mt#4495 status quo. Never fail a boot over rotation.
       log.debug("mcp_disconnect_tracker: segment roll skipped (non-fatal)", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

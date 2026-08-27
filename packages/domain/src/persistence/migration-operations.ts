@@ -9,7 +9,7 @@
  *   - postgres-migration-operations.ts
  */
 
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import {
@@ -58,7 +58,7 @@ export async function checkAndGenerateMigrations(): Promise<{
       log.cli(`📋 Loaded database config for backend: ${dbConfig.backend}`);
     } catch (error) {
       log.warn(
-        `Failed to load Minsky configuration, using environment variables as fallback: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to load Minsky configuration, using environment variables as fallback: ${getLoggableErrorSummary(error)}`
       );
       configuredEnv = { ...process.env };
     }

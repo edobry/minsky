@@ -4,7 +4,7 @@ import { join } from "path";
 import { execAsync } from "@minsky/shared/exec";
 import { type SessionProviderInterface } from "./session";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage, getErrorStack } from "./errors/index";
+import { getErrorStack, getLoggableErrorSummary } from "./errors/index";
 import { getSessionsDir } from "@minsky/shared/paths";
 import { getCurrentWorkingDirectory } from "@minsky/shared/process";
 
@@ -279,7 +279,7 @@ export async function getCurrentSessionContext(
   } catch (error) {
     log.error("Error fetching session record", {
       sessionId: sessionId,
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       stack: getErrorStack(error),
       cwd,
     });

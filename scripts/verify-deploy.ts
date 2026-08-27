@@ -80,6 +80,7 @@ import {
   describeHealthIdentityResult,
   identityForServiceDir,
 } from "@minsky/domain/deployment/health-identity";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const EXIT_OK = 0;
 const EXIT_CHECK_FAILED = 1;
@@ -232,7 +233,7 @@ async function main(): Promise<void> {
     ({ config } = await resolveDeploymentConfig(service));
   } catch (err) {
     console.error(`FAIL: could not load services/${service}/deploy.config.ts`);
-    console.error(`      ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`      ${getLoggableErrorSummary(err)}`);
     process.exit(EXIT_CANNOT_RUN);
   }
   console.log(`[1/3] config       OK — platform ${config.platform}`);

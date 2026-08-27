@@ -7,7 +7,7 @@
  */
 import { Command, InvalidArgumentError, type OptionValues } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * A subcommand's own options merged with its ancestors'.
@@ -77,7 +77,7 @@ export function createSetupCommand(): Command {
       if (typed.message) console.log(typed.message);
       if (!typed.success) process.exit(1);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });
@@ -122,7 +122,7 @@ function createSetupLocalHttpCommand(): Command {
       if (typed.message) console.log(typed.message);
       if (!typed.success) process.exit(1);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });
@@ -237,7 +237,7 @@ function createSetupDbCommand(): Command {
       if (typed.message) console.log(typed.message);
       if (!typed.success) process.exit(1);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });
@@ -320,7 +320,7 @@ function createSetupGithubAppCommand(): Command {
       if (typed.message) console.log(typed.message);
       if (!typed.success) process.exit(1);
     } catch (error: unknown) {
-      console.error(`Error: ${getErrorMessage(error)}`);
+      console.error(`Error: ${getLoggableErrorSummary(error)}`);
       process.exit(1);
     }
   });

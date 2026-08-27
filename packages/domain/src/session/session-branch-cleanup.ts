@@ -8,7 +8,7 @@
  * for post-merge local-branch cleanup.
  */
 
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { type GitServiceInterface } from "../git";
 
@@ -37,7 +37,7 @@ export async function cleanupLocalBranches(
         log.debug(`Successfully force-deleted local PR branch: ${prBranch}`);
       } catch (forceError) {
         log.debug(
-          `Failed to force-delete local PR branch ${prBranch}: ${getErrorMessage(forceError)}`
+          `Failed to force-delete local PR branch ${prBranch}: ${getLoggableErrorSummary(forceError)}`
         );
       }
     } else {
@@ -103,7 +103,7 @@ export async function cleanupLocalBranches(
             break; // Stop after successful force deletion
           } catch (forceError) {
             log.debug(
-              `Failed to force-delete local task branch ${branch}: ${getErrorMessage(forceError)}`
+              `Failed to force-delete local task branch ${branch}: ${getLoggableErrorSummary(forceError)}`
             );
           }
         } else {
@@ -113,6 +113,6 @@ export async function cleanupLocalBranches(
     }
   } catch (listError) {
     // If we can't list branches, fall back to trying common patterns (but only warn, don't error)
-    log.debug(`Could not list local branches for cleanup: ${getErrorMessage(listError)}`);
+    log.debug(`Could not list local branches for cleanup: ${getLoggableErrorSummary(listError)}`);
   }
 }

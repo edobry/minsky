@@ -70,6 +70,7 @@ import {
   MATCH_CONTEXT_MAX_CHARS,
 } from "./judged-input-capture";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Enforcement posture — quieted to log-only (mt#4286)
@@ -880,7 +881,7 @@ export async function main(): Promise<void> {
     lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   } catch (err) {
     console.error(
-      `[pre-narration-detector] Failed to read transcript: ${err instanceof Error ? err.message : String(err)}`
+      `[pre-narration-detector] Failed to read transcript: ${getLoggableErrorSummary(err)}`
     );
     process.exit(0);
   }
@@ -901,9 +902,7 @@ export async function main(): Promise<void> {
     const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
     detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
-    console.error(
-      `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`[pre-narration-detector] Detection error: ${getLoggableErrorSummary(err)}`);
     process.exit(0);
   }
 

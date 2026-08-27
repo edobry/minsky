@@ -62,6 +62,7 @@
 import { Octokit } from "@octokit/rest";
 import { resolveDiffScope } from "../src/incremental-diff-scope";
 import type { PrFileEntry, IncrementalDiffResult } from "../src/github-client";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const OWNER = "edobry";
 const REPO = "minsky";
@@ -328,6 +329,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err: unknown) => {
-    console.error("FAIL:", err instanceof Error ? err.message : String(err));
+    console.error("FAIL:", getLoggableErrorSummary(err));
     process.exit(1);
   });

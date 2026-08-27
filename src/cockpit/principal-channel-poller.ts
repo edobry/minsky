@@ -72,6 +72,7 @@ import { withDeadline } from "@minsky/domain/utils/deadline";
 // Value import, not a cycle: this module's only edge back from the session driver is
 // `import type` (erased at runtime), so nothing loads twice.
 import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-driver";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Long-poll seconds. 25s sits inside Telegram's own server-side ceiling while
@@ -593,7 +594,7 @@ async function recordSafely(
   } catch (err: unknown) {
     log.error("[principal-channel] failed to record the inbound audit event", {
       updateId: message.updateId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     // NOT "recorded" (mt#4252). Reporting a failure as a success is what let a
     // DB outage re-run the principal's messages once per backoff cycle: the
@@ -631,7 +632,7 @@ async function recordFailureOutcome(
   } catch (err: unknown) {
     log.error("[principal-channel] failed to record the failure outcome", {
       updateId: message.updateId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

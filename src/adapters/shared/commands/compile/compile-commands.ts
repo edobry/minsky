@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
@@ -164,7 +164,7 @@ export function registerCompileCommands(targetRegistry: {
         return result;
       } catch (error) {
         log.error("Failed to compile", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           target: params.target ?? "claude-skills",
         });
         throw error;

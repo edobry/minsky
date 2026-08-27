@@ -5,6 +5,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../schemas/common";
 import type { SessionStartParameters } from "../schemas";
@@ -640,7 +641,7 @@ async function executeMutations(
     // not behaviorally different (both leave resolvedProjectId undefined).
     const stage = dbForScopeResolution ? "project-scope resolution" : "fallback DB resolution";
     log.debug(`[session.start] ${stage} failed; session.project_id will be NULL`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   } finally {
     if (ownedPersistenceProvider) {
@@ -652,7 +653,7 @@ async function executeMutations(
         // and swallow.
         log.debug(
           "[session.start] Failed to close fallback persistence provider (best-effort, swallowed)",
-          { error: closeErr instanceof Error ? closeErr.message : String(closeErr) }
+          { error: getLoggableErrorSummary(closeErr) }
         );
       }
     }
@@ -733,8 +734,8 @@ async function executeMutations(
       } catch (cleanupError) {
         log.error("Failed to cleanup session record after git error", {
           sessionId,
-          gitError: getErrorMessage(gitError),
-          cleanupError: getErrorMessage(cleanupError),
+          gitError: getLoggableErrorSummary(gitError),
+          cleanupError: getLoggableErrorSummary(cleanupError),
         });
       }
     }
@@ -745,8 +746,8 @@ async function executeMutations(
       } catch (cleanupError) {
         log.error("Failed to cleanup session directory after git error", {
           sessionDir,
-          gitError: getErrorMessage(gitError),
-          cleanupError: getErrorMessage(cleanupError),
+          gitError: getLoggableErrorSummary(gitError),
+          cleanupError: getLoggableErrorSummary(cleanupError),
         });
       }
     }

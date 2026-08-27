@@ -49,6 +49,7 @@ import { log } from "@minsky/shared/logger";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import { getDisconnectLogPath } from "./disconnect-tracker";
 import { listCorpusPaths, monthOf } from "./disconnect-log-segments";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface HwmState {
   lastSweptTimestamp: string;
@@ -207,7 +208,7 @@ function writeHwm(timestamp: string, deps: DisconnectSweepFsDeps): void {
     deps.writeFileSync(getHwmPath(), JSON.stringify({ lastSweptTimestamp: timestamp } as HwmState));
   } catch (err) {
     log.warn("mcp-disconnect-sweep: failed to persist HWM (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }
@@ -500,7 +501,7 @@ export async function triggerMcpDisconnectEventSweep(
   } catch (err) {
     // Best-effort: a failed sweep must never affect MCP server boot.
     logDeps.warn("mcp-disconnect-sweep: sweep failed (best-effort, swallowed)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

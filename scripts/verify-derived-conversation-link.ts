@@ -37,6 +37,7 @@ import {
   conversationIdFromAgentId,
   resolveDerivedConversationLinks,
 } from "../src/cockpit/derived-conversation-link";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface SqlCapablePersistence {
   getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
@@ -189,6 +190,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err) => {
-    console.error(`FAIL: probe errored: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`FAIL: probe errored: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });

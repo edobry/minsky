@@ -340,7 +340,7 @@ export async function resolveOriginConversationId(
     return rows[0]?.agent_session_id ?? null;
   } catch (err) {
     log.warn(`entity-thread: origin-conversation lookup failed for ${parentSessionId}`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

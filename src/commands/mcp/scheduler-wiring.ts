@@ -10,7 +10,7 @@
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { KnowledgeSyncScheduler } from "@minsky/domain/knowledge/ingestion/scheduler";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Build and start a `KnowledgeSyncScheduler` from configured knowledge sources.
@@ -91,7 +91,7 @@ export async function buildAndStartScheduler(
         });
       } catch (err) {
         log.warn(
-          `[scheduler] Could not build provider for source "${src.name}": ${getErrorMessage(err)}`
+          `[scheduler] Could not build provider for source "${src.name}": ${getLoggableErrorSummary(err)}`
         );
         // Exclude this source from the scheduler but continue with others.
       }
@@ -119,7 +119,9 @@ export async function buildAndStartScheduler(
 
     return scheduler;
   } catch (err) {
-    log.warn(`[scheduler] Failed to start knowledge sync scheduler: ${getErrorMessage(err)}`);
+    log.warn(
+      `[scheduler] Failed to start knowledge sync scheduler: ${getLoggableErrorSummary(err)}`
+    );
     return null;
   }
 }

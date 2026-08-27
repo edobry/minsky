@@ -64,6 +64,7 @@
 import { log } from "@minsky/shared/logger";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** The check-run name the bundle-boot-smoke workflow reports (its `jobs.<id>.name`). */
 export const BUNDLE_BOOT_SMOKE_CHECK_NAME = "bundle-boot-smoke";
@@ -258,7 +259,7 @@ export async function triggerDeploySmokeSweep(
     return true;
   } catch (err) {
     log.warn("deploy-smoke-sweep: sweep failed (best-effort, swallowed)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return false;
   }

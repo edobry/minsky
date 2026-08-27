@@ -11,7 +11,7 @@ import type { RepositoryBackend, RepositoryBackendConfig } from "../repository/i
 import type { Changeset, CreateChangesetOptions } from "./types";
 import { getRepositoryBackendFromConfig } from "../session/repository-backend-detection";
 import type { SessionProviderInterface } from "../session/types";
-import { MinskyError, getErrorMessage } from "../errors/index";
+import { MinskyError, getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -179,7 +179,9 @@ export class MultiRepositoryChangesetService {
           });
         }
       } catch (error) {
-        log.debug(`Failed to search changesets in ${key}`, { error: getErrorMessage(error) });
+        log.debug(`Failed to search changesets in ${key}`, {
+          error: getLoggableErrorSummary(error),
+        });
         // Continue with other repositories
       }
     }
@@ -208,7 +210,7 @@ export class MultiRepositoryChangesetService {
           changesets,
         });
       } catch (error) {
-        log.debug(`Failed to list changesets in ${key}`, { error: getErrorMessage(error) });
+        log.debug(`Failed to list changesets in ${key}`, { error: getLoggableErrorSummary(error) });
         // Continue with other repositories
       }
     }

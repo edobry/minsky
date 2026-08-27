@@ -23,6 +23,7 @@ import {
   notifyPrincipal,
   createRealPrincipalChannelDeps,
 } from "@minsky/domain/notify/principal-channel";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const DEFAULT_MESSAGE =
   "Minsky principal channel is live. Reply to this message to exercise the inbound half.";
@@ -55,6 +56,6 @@ main().catch((err) => {
   // `notifyPrincipal` does not throw, so reaching here means a resolution-layer
   // fault. Its message can carry a Pulumi/CLI error but never the token, which
   // only ever exists inside the resolver.
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

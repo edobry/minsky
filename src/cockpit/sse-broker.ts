@@ -22,6 +22,7 @@
 import type { ChannelListener } from "@minsky/domain/mesh/postgres-channel-listener";
 import { matchesTopic } from "./topic-filter";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -191,9 +192,9 @@ export class SseBroker {
         await this.listener.unsubscribe(channel, handler);
       } catch (err) {
         log.warn(
-          `SseBroker: error unsubscribing channel ${channel} on close(): ${
-            err instanceof Error ? err.message : String(err)
-          }`
+          `SseBroker: error unsubscribing channel ${channel} on close(): ${getLoggableErrorSummary(
+            err
+          )}`
         );
       }
     }
@@ -236,9 +237,9 @@ export class SseBroker {
           client.send(event);
         } catch (err) {
           log.warn(
-            `SseBroker: error sending event ${event.id} to client ${client.id}: ${
-              err instanceof Error ? err.message : String(err)
-            }`
+            `SseBroker: error sending event ${event.id} to client ${client.id}: ${getLoggableErrorSummary(
+              err
+            )}`
           );
         }
       }

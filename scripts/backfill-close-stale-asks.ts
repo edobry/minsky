@@ -40,6 +40,7 @@ import type { Ask, AskState } from "@minsky/domain/ask/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { isTerminal } from "@minsky/domain/tasks/workflows";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Ask kinds this backfill is allowed to close. Everything else is untouched. */
 const TARGET_KINDS = new Set<string>(["authorization.approve", "quality.review"]);
@@ -230,8 +231,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(
-    `backfill-close-stale-asks failed: ${err instanceof Error ? err.message : String(err)}`
-  );
+  console.error(`backfill-close-stale-asks failed: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

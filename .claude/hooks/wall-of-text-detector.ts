@@ -237,6 +237,7 @@ import { captureArtifact } from "./judged-input-capture";
 // The same elision every turn-text capture uses. Imported rather than
 // re-implemented, as `negative-existence-claim-detector.ts` already does.
 import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
 
@@ -1755,9 +1756,7 @@ export async function main(): Promise<void> {
     // asymmetry PR #2175 R1 flagged on the transcript-resolution half.
     measurement = measureWallOfText(collectTurnProse(turnLines, finalText));
   } catch (err) {
-    console.error(
-      `[wall-of-text-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`[wall-of-text-detector] Measurement error: ${getLoggableErrorSummary(err)}`);
     process.exit(0);
   }
 

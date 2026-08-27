@@ -45,6 +45,7 @@ import { resolve } from "node:path";
 import { readBraintrustConfig } from "@minsky/domain/observability/braintrust";
 
 import type { CorpusRow } from "../src/eval-corpus";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // The blind payload
@@ -300,7 +301,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`FAILED: ${getLoggableErrorSummary(error)}`);
     process.exit(1);
   });
 }

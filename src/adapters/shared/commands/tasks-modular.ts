@@ -10,6 +10,7 @@ import { CommandCategory } from "../command-registry";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { createAllTaskCommands } from "./tasks/registry-setup";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Modular Tasks Command Manager
@@ -58,9 +59,7 @@ export class ModularTasksCommandManager {
 
       log.debug(`[ModularTasksCommandManager] Registered ${commands.length} task commands`);
     } catch (error) {
-      log.warn(
-        `Failed to register task commands: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.warn(`Failed to register task commands: ${getLoggableErrorSummary(error)}`);
     }
   }
 

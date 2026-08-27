@@ -8,7 +8,7 @@ import type { CommandMapper } from "../../mcp/command-mapper";
 import { SessionPathResolver } from "@minsky/domain/session/session-path-resolver";
 export { SessionPathResolver };
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   FileMoveSchema,
   FileRenameSchema,
@@ -128,7 +128,7 @@ export function registerSessionFileTools(
           session: typedArgs.sessionId,
           sourcePath: typedArgs.sourcePath,
           targetPath: typedArgs.targetPath,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
 
         return createErrorResponse(getErrorMessage(error), undefined, {
@@ -222,7 +222,7 @@ export function registerSessionFileTools(
           session: typedArgs.sessionId,
           path: typedArgs.path,
           newName: typedArgs.newName,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
 
         return createErrorResponse(getErrorMessage(error), undefined, {

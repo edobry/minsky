@@ -19,6 +19,7 @@ import type {
   PersistenceProvider,
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function buildAttachedSessionIdSet(
   getPersistenceProvider?: () => PersistenceProvider | undefined
@@ -40,7 +41,7 @@ async function buildAttachedSessionIdSet(
     return new Set(liveAttachments.map((a) => a.sessionId));
   } catch (err) {
     log.debug("[session attachment annotation] Failed to resolve stored attachments", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

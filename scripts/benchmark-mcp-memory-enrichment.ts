@@ -27,6 +27,7 @@
 
 import { enrichToolResponse } from "../src/mcp/middleware/memory-enrichment";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import "reflect-metadata";
 
 /**
@@ -220,7 +221,7 @@ async function main(): Promise<void> {
     console.error(
       "[mt#1588] failed to construct MemoryService — benchmark requires Postgres + embedding service:"
     );
-    console.error(`  ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`  ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   }
 

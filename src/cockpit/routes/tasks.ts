@@ -341,9 +341,9 @@ export function mountTaskRoutes(app: express.Express): void {
             : null;
         } catch (workspaceErr) {
           log.warn(
-            `[tasks] actions workspace probe failed for ${taskId}: ${
-              workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
-            }`
+            `[tasks] actions workspace probe failed for ${taskId}: ${getLoggableErrorSummary(
+              workspaceErr
+            )}`
           );
           return null;
         }
@@ -464,9 +464,7 @@ export function mountTaskRoutes(app: express.Express): void {
         }
       } catch (drivenErr) {
         log.warn(
-          `[tasks] driven-session probe failed for ${taskId}: ${
-            drivenErr instanceof Error ? drivenErr.message : String(drivenErr)
-          }`
+          `[tasks] driven-session probe failed for ${taskId}: ${getLoggableErrorSummary(drivenErr)}`
         );
       }
 

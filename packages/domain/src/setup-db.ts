@@ -18,7 +18,7 @@
  * config dir.
  */
 
-import { getErrorMessage } from "./errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "./errors/index";
 import { createConfigWriter, type ConfigWriter } from "./configuration/config-writer";
 import { verifyPostgresConnectivity } from "./persistence/validation-operations";
 import { maskConnectionString } from "./persistence/connection-string";
@@ -254,7 +254,7 @@ export async function runSetupDbConfigure(
       await provisionProjectRowFn(connectionString);
     } catch (err) {
       log.warn("[setup-db] project-row provisioning failed; setup db still succeeded", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
 

@@ -27,6 +27,7 @@ import { DrizzleEventEmitter } from "@minsky/domain/events/emitter";
 import type { SystemEventInput } from "@minsky/domain/events/emitter";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // DB connection helper (mirrors asks.ts pattern)
@@ -49,7 +50,7 @@ async function getDb(
     return db ?? null;
   } catch (err: unknown) {
     log.warn("events: could not resolve DB connection", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

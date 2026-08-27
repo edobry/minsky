@@ -49,6 +49,7 @@ const CHANNEL_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
 // the channels above, this one's producer is in-process (the cockpit sweep
 // itself), so the constant is imported from the producer rather than mirrored.
 import { CHANNEL_CONVERSATION_PRESENCE_CHANGED } from "../conversation-presence-sweep";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Canonical list of all Postgres NOTIFY channels this cockpit-server process
@@ -144,9 +145,9 @@ function dropSseBrokerOnEpochChange(): void {
   if (stale) {
     void stale.close().catch((err: unknown) => {
       log.warn(
-        `SseBroker: error closing broker from a previous persistence epoch: ${
-          err instanceof Error ? err.message : String(err)
-        }`
+        `SseBroker: error closing broker from a previous persistence epoch: ${getLoggableErrorSummary(
+          err
+        )}`
       );
     });
   }

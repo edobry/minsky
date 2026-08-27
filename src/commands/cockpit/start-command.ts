@@ -81,6 +81,7 @@ import {
   startPrincipalChannel,
 } from "../../cockpit/principal-channel-launch";
 import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // mt#3988: the local `DEFAULT_PORT = 3737` that used to live here is gone —
 // `DEFAULT_COCKPIT_PORT` in ./port is the single fallback, so this command, the
@@ -143,7 +144,7 @@ async function recordPortDisplacement(
     });
   } catch (err) {
     log.warn("cockpit.port_displaced: could not record the displacement", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }
@@ -402,7 +403,7 @@ export function createStartCommand(): Command {
       try {
         port = resolveCockpitPort(options.port);
       } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getLoggableErrorSummary(error));
         process.exit(1);
       }
 

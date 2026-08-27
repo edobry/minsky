@@ -12,6 +12,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
@@ -199,7 +200,7 @@ async function fetchTaskSpec(
     const result = await taskService.getTaskSpecContent(taskId);
     return result.content;
   } catch (error) {
-    log.debug(`Could not fetch task spec for ${taskId}: ${getErrorMessage(error)}`);
+    log.debug(`Could not fetch task spec for ${taskId}: ${getLoggableErrorSummary(error)}`);
     return null;
   }
 }
@@ -240,7 +241,9 @@ async function fetchReviewThreads(
 
     return await getPRReviewThreads(gh, prNumber);
   } catch (error) {
-    log.debug(`Could not fetch review threads for PR #${prNumber}: ${getErrorMessage(error)}`);
+    log.debug(
+      `Could not fetch review threads for PR #${prNumber}: ${getLoggableErrorSummary(error)}`
+    );
     return { threads: [], truncated: false };
   }
 }

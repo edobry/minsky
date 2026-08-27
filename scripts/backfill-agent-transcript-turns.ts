@@ -46,6 +46,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 
 import type { ExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Baseline zero-turn-row count measured 2026-07-20 (task spec §Summary). */
 const EXPECTED_BASELINE = 651;
@@ -212,8 +213,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(
-    `backfill-agent-transcript-turns failed: ${err instanceof Error ? err.message : String(err)}`
-  );
+  console.error(`backfill-agent-transcript-turns failed: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

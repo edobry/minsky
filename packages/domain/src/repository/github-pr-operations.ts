@@ -11,7 +11,12 @@
 
 import { Octokit } from "@octokit/rest";
 import { createTimeoutFetch } from "../github/octokit-timeout";
-import { GitOperationTimeoutError, MinskyError, getErrorMessage } from "../errors/index";
+import {
+  GitOperationTimeoutError,
+  MinskyError,
+  getErrorMessage,
+  getLoggableErrorSummary,
+} from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { execGitWithTimeout } from "../utils/git-exec";
 import type { TokenRole } from "../auth/token-provider";
@@ -414,7 +419,7 @@ export async function createPullRequest(
       } catch (labelError) {
         // Label failure is non-fatal — warn but don't block PR creation
         log.warn(
-          `Failed to apply authorship label to PR #${pr.number}: ${getErrorMessage(labelError)}`
+          `Failed to apply authorship label to PR #${pr.number}: ${getLoggableErrorSummary(labelError)}`
         );
       }
     }
@@ -1253,7 +1258,7 @@ export async function getPRReviewThreads(
     token = await gh.getToken();
   } catch (error) {
     log.debug(`getPRReviewThreads: failed to acquire token for PR #${prNumber}`, {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
     });
     return emptyResult;
   }
@@ -1276,7 +1281,7 @@ export async function getPRReviewThreads(
       });
     } catch (error) {
       log.debug(`getPRReviewThreads: GraphQL error for PR #${prNumber}`, {
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
       });
       return emptyResult;
     }

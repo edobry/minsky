@@ -19,6 +19,7 @@
 import { log } from "@minsky/shared/logger";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import { DEFAULT_DRIVEN_SESSION_MCP_SERVERS } from "./driven-session-mcp-config";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * The configured server names, or the default set.
@@ -40,7 +41,7 @@ export function drivenSessionMcpServerNames(): readonly string[] {
   } catch (err: unknown) {
     log.warn(
       "[driven-session] could not read cockpit.drivenSession.mcpServers; using the default set",
-      { error: err instanceof Error ? err.message : String(err) }
+      { error: getLoggableErrorSummary(err) }
     );
   }
   return DEFAULT_DRIVEN_SESSION_MCP_SERVERS;

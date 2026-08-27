@@ -1,5 +1,5 @@
 import { execSync as defaultExecSync } from "child_process";
-import { getErrorMessage, ValidationError } from "../errors/index";
+import { getErrorMessage, ValidationError, getLoggableErrorSummary } from "../errors/index";
 import { isInsideGitWorkTree } from "../utils/git-exec";
 import { log } from "@minsky/shared/logger";
 import {
@@ -83,7 +83,7 @@ export function detectRepositoryBackendType(
   } catch (error) {
     log.debug("Failed to detect repository backend type", {
       workdir,
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
     });
     throw new Error(
       `Could not detect repository backend type for workdir: ${workdir}. Error: ${getErrorMessage(error)}`
@@ -325,7 +325,7 @@ export function resolveRepositoryFromGitRemote(
   } catch (error) {
     log.debug("Failed to resolve repository from git remote", {
       cwd,
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
     });
     return { backend: "local" };
   }
@@ -425,7 +425,7 @@ export function extractGitHubInfoFromUrl(
   } catch (error) {
     log.debug("Failed to extract GitHub info from URL", {
       remoteUrl,
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
     });
     return null;
   }

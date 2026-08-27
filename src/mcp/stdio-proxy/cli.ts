@@ -20,7 +20,7 @@ import {
   resolveMemoryCeilingBytes,
 } from "../orphan-exit";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { exit } from "@minsky/shared/process";
 
 /**
@@ -176,7 +176,7 @@ export function createProxyCommand(): Command {
         });
       } catch (error) {
         log.error("[proxy-cli] Proxy exited with error", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
         exit(1);

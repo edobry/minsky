@@ -80,6 +80,7 @@ import { getSessionsDir } from "@minsky/shared/paths";
 import { log } from "@minsky/shared/logger";
 import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
 import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -626,7 +627,7 @@ export function writeDispatchWatchdogCache(
     return true;
   } catch (err) {
     log.warn("dispatch-watchdog: failed to write cache", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return false;
   }
@@ -785,7 +786,7 @@ export function parsePullRequestOpenState(
     log.warn(
       "dispatch-watchdog: unparseable pull_request JSON — treating as evidence of an " +
         "existing PR (state unknown) rather than degrading to no-evidence",
-      { subagentSessionId, error: err instanceof Error ? err.message : String(err) }
+      { subagentSessionId, error: getLoggableErrorSummary(err) }
     );
     return true;
   }
@@ -828,7 +829,7 @@ export async function refreshDispatchWatchdogCache(
   } catch (err) {
     DispatchWatchdogSweepTracker.getInstance().recordError(nowMs);
     log.warn("dispatch-watchdog: refresh failed", {
-      message: err instanceof Error ? err.message : String(err),
+      message: getLoggableErrorSummary(err),
     });
     return false;
   }

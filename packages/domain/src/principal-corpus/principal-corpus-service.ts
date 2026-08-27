@@ -28,6 +28,7 @@ import type {
   PrincipalCorpusSearchResponse,
   PrincipalCorpusSearchResult,
 } from "./types";
+import { getLoggableErrorSummary } from "../errors/index";
 
 export interface PrincipalCorpusServiceConfig {
   model?: string;
@@ -107,7 +108,7 @@ export class PrincipalCorpusService {
       return { results, backend: "embeddings", degraded: false };
     } catch (error) {
       log.warn("[principal-corpus] search failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getLoggableErrorSummary(error),
       });
       return {
         results: [],

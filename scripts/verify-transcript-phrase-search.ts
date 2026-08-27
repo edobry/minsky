@@ -25,6 +25,7 @@
 import "reflect-metadata";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ── Seed vocabulary ───────────────────────────────────────────────────────────
 
@@ -147,9 +148,7 @@ async function bootstrapDb(): Promise<PostgresJsDatabase | null> {
     if (!isSqlCapable(persistence)) return null;
     return await persistence.getDatabaseConnection();
   } catch (err) {
-    console.log(
-      `SKIP: could not reach Postgres — ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.log(`SKIP: could not reach Postgres — ${getLoggableErrorSummary(err)}`);
     return null;
   }
 }

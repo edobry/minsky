@@ -15,7 +15,11 @@ import {
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage, getErrorMessageWithCause } from "@minsky/domain/errors/index";
+import {
+  getErrorMessage,
+  getErrorMessageWithCause,
+  getLoggableErrorSummary,
+} from "@minsky/domain/errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
@@ -378,7 +382,7 @@ export function buildProgressReporter(
       params: { progressToken, progress, message },
     } satisfies ServerNotification).catch((err) => {
       log.debug("mt#2677: progress notification failed (non-blocking)", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     });
   };
@@ -1109,7 +1113,7 @@ export class MinskyMCPServer {
             server.close().catch((error) => {
               log.warn("Error closing per-session MCP Server", {
                 sessionId: closedId,
-                error: getErrorMessage(error),
+                error: getLoggableErrorSummary(error),
               });
             });
           }
@@ -1210,7 +1214,7 @@ export class MinskyMCPServer {
       } catch (error) {
         log.warn("Error closing idle HTTP transport", {
           sessionId: id,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
       }
       try {
@@ -1218,7 +1222,7 @@ export class MinskyMCPServer {
       } catch (error) {
         log.warn("Error closing idle per-session MCP Server", {
           sessionId: id,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     }
@@ -1434,7 +1438,7 @@ export class MinskyMCPServer {
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
           this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {
             log.debug("agentId session update failed (non-blocking)", {
-              error: getErrorMessage(err),
+              error: getLoggableErrorSummary(err),
               tool: request.params.name,
             });
           });
@@ -1446,7 +1450,7 @@ export class MinskyMCPServer {
           this.writeTaskClaim(request.params.arguments || {}, agentId, tool.readsPresence).catch(
             (err) => {
               log.debug("presence claim write failed (non-blocking)", {
-                error: getErrorMessage(err),
+                error: getLoggableErrorSummary(err),
                 tool: request.params.name,
               });
             }
@@ -1457,7 +1461,7 @@ export class MinskyMCPServer {
           // same resolution priority as writeAgentIdToSession.
           this.writeSessionAttachment(request.params.arguments || {}, agentId).catch((err) => {
             log.debug("session attachment write failed (non-blocking)", {
-              error: getErrorMessage(err),
+              error: getLoggableErrorSummary(err),
               tool: request.params.name,
             });
           });
@@ -1638,7 +1642,7 @@ export class MinskyMCPServer {
       } catch (error) {
         log.error("Resource read failed", {
           uri: request.params.uri,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         throw new Error(`Resource read failed: ${getErrorMessage(error)}`);
       }
@@ -1680,7 +1684,7 @@ export class MinskyMCPServer {
       } catch (error) {
         log.error("Prompt generation failed", {
           prompt: request.params.name,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
         });
         throw new Error(`Prompt generation failed: ${getErrorMessage(error)}`);
       }
@@ -2203,7 +2207,7 @@ export class MinskyMCPServer {
       log.debug("session attachment written", { sessionId, actorId, pid });
     } catch (err) {
       log.debug("session attachment write failed (non-blocking)", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
         sessionId,
       });
     }
@@ -2260,7 +2264,7 @@ export class MinskyMCPServer {
       })
       .catch((err) => {
         log.debug("Failed to send staleness notification (non-blocking)", {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       });
 
@@ -2401,7 +2405,7 @@ export class MinskyMCPServer {
         tracker.recordDisconnect(cause, { sessionKey: STDIO_SESSION_KEY });
       } catch (err) {
         log.debug("signal handler: recordDisconnect failed (non-blocking)", {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
       // Remove our own listener so we don't re-enter on the kernel-default
@@ -2598,7 +2602,7 @@ export class MinskyMCPServer {
 
       log.systemDebug("[MCP] Server start completed successfully");
     } catch (error) {
-      log.error("Failed to start MCP server", { error: getErrorMessage(error) });
+      log.error("Failed to start MCP server", { error: getLoggableErrorSummary(error) });
       log.systemDebug(`[MCP] Server start failed: ${getErrorMessage(error)}`);
       throw error;
     }
@@ -2628,7 +2632,7 @@ export class MinskyMCPServer {
           } catch (error) {
             log.warn("Error closing HTTP transport", {
               sessionId,
-              error: getErrorMessage(error),
+              error: getLoggableErrorSummary(error),
             });
           }
           try {
@@ -2637,7 +2641,7 @@ export class MinskyMCPServer {
           } catch (error) {
             log.warn("Error closing per-session MCP Server", {
               sessionId,
-              error: getErrorMessage(error),
+              error: getLoggableErrorSummary(error),
             });
           }
         }
@@ -2651,7 +2655,7 @@ export class MinskyMCPServer {
       await this.server.close();
       log.debug("MCP Server closed");
     } catch (error) {
-      log.error("Error closing MCP server", { error: getErrorMessage(error) });
+      log.error("Error closing MCP server", { error: getLoggableErrorSummary(error) });
       throw error;
     }
   }

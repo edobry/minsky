@@ -8,7 +8,7 @@ import {
   type CommandExecutionContext,
   type InferParams,
 } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
+import { MinskyError, getErrorMessage, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCloseCommandParams } from "./session-parameters";
@@ -144,7 +144,7 @@ export function createSessionPrCloseCommand(
       } catch (error) {
         log.debug(`Error in session.pr.close`, {
           params,
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
         throw error;

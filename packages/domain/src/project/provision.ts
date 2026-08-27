@@ -25,6 +25,7 @@ import { resolveProjectIdentity, type ProjectIdentity } from "./identity";
 import { deriveRemoteUrl } from "./slug";
 import { ensureProjectRow, type ProjectsRepositoryDb } from "./projects-repository";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Options for {@link provisionProjectRow}. Both fields are optional. */
 export interface ProvisionProjectRowOptions {
@@ -118,7 +119,7 @@ export async function provisionProjectRow(
     return { provisioned: true, slug: identity.slug };
   } catch (err) {
     log.warn(`[project-provision] Failed to ensure projects row for slug "${identity.slug}"`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return { provisioned: false, slug: identity.slug };
   } finally {

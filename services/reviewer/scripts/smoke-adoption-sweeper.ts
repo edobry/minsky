@@ -47,6 +47,7 @@
 
 import { Octokit } from "@octokit/rest";
 import { extractAdoptionSignals } from "@minsky/shared/adoption/signal-extraction";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Environment gate
@@ -355,6 +356,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("Smoke test error:", err instanceof Error ? err.message : String(err));
+  console.error("Smoke test error:", getLoggableErrorSummary(err));
   process.exit(1);
 });

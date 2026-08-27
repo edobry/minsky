@@ -16,6 +16,7 @@
 import type { AppContainerInterface } from "../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../persistence/types";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 // ---------------------------------------------------------------------------
 // Payload types
@@ -117,9 +118,7 @@ async function pgNotifyViaProvider(
     }
     sql = await provider.getRawSqlConnection();
   } catch (err) {
-    log.warn(
-      `window notify: could not obtain SQL connection — ${err instanceof Error ? err.message : String(err)}`
-    );
+    log.warn(`window notify: could not obtain SQL connection — ${getLoggableErrorSummary(err)}`);
     return;
   }
 
@@ -137,9 +136,7 @@ async function pgNotifyViaProvider(
     // Log but don't rethrow — NOTIFY failure must not kill the window open/close
     // operation itself. The window is opened/closed in-process; the NOTIFY is
     // a side-channel for Cockpit / external subscribers.
-    log.warn(
-      `window notify: pg_notify failed on ${channel} — ${err instanceof Error ? err.message : String(err)}`
-    );
+    log.warn(`window notify: pg_notify failed on ${channel} — ${getLoggableErrorSummary(err)}`);
   }
 }
 

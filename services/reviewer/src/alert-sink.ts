@@ -36,6 +36,7 @@
 import { log } from "./logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { sendTelegramMessage } from "@minsky/domain/notify/telegram-transport";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Alert severity. The circuit-breaker path emits `error`. */
 export type AlertSeverity = "info" | "warn" | "error";
@@ -193,7 +194,7 @@ export class WebhookAlertSink implements AlertSink {
         event: "sweeper.alert_sink_webhook_failed",
         severity,
         title,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

@@ -25,6 +25,7 @@ import {
   evaluateSkillListingBudget,
   type SkillListingEntry,
 } from "../packages/domain/src/compile/skill-listing-budget";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Assumed harness listing budget — midpoint of the mt#3487 feasible window
@@ -194,7 +195,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(getLoggableErrorSummary(error));
     process.exit(2);
   });
 }

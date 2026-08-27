@@ -20,6 +20,7 @@ import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archi
 import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevance-filter";
 import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
 import type { TweetRecord } from "@minsky/domain/principal-corpus/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Required inputs (one of the two must be set):
@@ -161,9 +162,7 @@ async function main() {
         }
       } catch (err) {
         failed++;
-        console.error(
-          `[ingest] embed FAIL ${tweet.id}: ${err instanceof Error ? err.message : String(err)}`
-        );
+        console.error(`[ingest] embed FAIL ${tweet.id}: ${getLoggableErrorSummary(err)}`);
       }
     }
   };

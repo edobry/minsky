@@ -47,6 +47,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { nextShortId } from "@minsky/domain/utils/short-id";
 import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Pure planning logic — unit-testable without a DB (asks-short-id-backfill
@@ -252,9 +253,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(
-      `backfill-ask-short-ids failed: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`backfill-ask-short-ids failed: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });
 }

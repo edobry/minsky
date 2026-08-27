@@ -4,6 +4,7 @@ import { suggestRules, groupRulesByType } from "../../rules/rule-suggestion-enha
 import { RuleSimilarityService } from "../../rules/rule-similarity-service";
 import { RuleService } from "../../rules";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 /**
  * Workspace Rules Component
@@ -70,7 +71,7 @@ export const WorkspaceRulesComponent: ContextComponent = {
           filteredBy = "enhanced-suggestion";
         } catch (error) {
           log.warn(
-            `Failed to apply enhanced rule filtering, falling back to simple filter: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to apply enhanced rule filtering, falling back to simple filter: ${getLoggableErrorSummary(error)}`
           );
           // Fall back to simple filtering by leaving filteredBy undefined
           filteredBy = undefined;
@@ -108,9 +109,7 @@ export const WorkspaceRulesComponent: ContextComponent = {
         originalToolCount: allRules.length, // For consistency with tool-schemas
       };
     } catch (error) {
-      log.warn(
-        `Failed to load workspace rules: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.warn(`Failed to load workspace rules: ${getLoggableErrorSummary(error)}`);
       return {
         requestableRules: [],
         totalRules: 0,

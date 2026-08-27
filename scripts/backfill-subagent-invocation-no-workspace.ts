@@ -46,6 +46,7 @@ import { and, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -227,7 +228,7 @@ async function main(): Promise<void> {
     console.error(
       "SKIP: failed to initialize DB connection — Postgres not available in this environment."
     );
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(0);
   }
 
@@ -324,9 +325,7 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main().catch((err) => {
     console.error(
-      `backfill-subagent-invocation-no-workspace failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`
+      `backfill-subagent-invocation-no-workspace failed: ${getLoggableErrorSummary(err)}`
     );
     process.exit(1);
   });

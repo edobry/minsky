@@ -35,6 +35,7 @@ import {
   parseStore,
   REAL_FS,
 } from "../packages/domain/src/deployment/merge-deploy-surface-record";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function main(): Promise<number> {
   const prNumbers = process.argv.slice(2).map((a) => Number.parseInt(a, 10));
@@ -128,6 +129,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err) => {
-    console.error(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`ERROR: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });

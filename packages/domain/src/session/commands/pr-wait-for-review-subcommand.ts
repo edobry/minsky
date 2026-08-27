@@ -40,6 +40,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { RepositoryBackend, ReviewListEntry } from "../../repository/index";
@@ -699,7 +700,7 @@ export async function fetchReviewerCheckRunState(
   } catch (checkRunError) {
     log.debug(
       `session_pr_wait_for_review: PR #${prNumber} final check-run-state fetch failed ` +
-        `(mt#2777 SC#1, best-effort). ${getErrorMessage(checkRunError)}`
+        `(mt#2777 SC#1, best-effort). ${getLoggableErrorSummary(checkRunError)}`
     );
     return null;
   }
@@ -1162,7 +1163,7 @@ export async function sessionPrWaitForReview(
         log.debug(
           `session_pr_wait_for_review: PR #${prNumber} final authoritative reviews-list ` +
             `re-read failed (mt#2777 SC#1, best-effort); reporting timeout from the last ` +
-            `successful poll instead. ${getErrorMessage(finalError)}`
+            `successful poll instead. ${getLoggableErrorSummary(finalError)}`
         );
       }
 

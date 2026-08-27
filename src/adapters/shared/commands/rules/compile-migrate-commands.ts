@@ -1,7 +1,7 @@
 /**
  * Rules compile and migrate commands
  */
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
@@ -216,7 +216,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
         return result;
       } catch (error) {
         log.error("Failed to compile rules", {
-          error: getErrorMessage(error),
+          error: getLoggableErrorSummary(error),
           target: params.target || "agents.md",
         });
         throw error;
@@ -242,7 +242,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
           force: params.force || false,
         });
       } catch (error) {
-        log.error("Failed to migrate rules", { error: getErrorMessage(error) });
+        log.error("Failed to migrate rules", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },

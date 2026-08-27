@@ -2,6 +2,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 export interface TestContextInputs extends ComponentInputs {
   framework: {
@@ -372,9 +373,7 @@ async function discoverTestFiles(workspacePath: string): Promise<TestContextInpu
     // Check for coverage configuration
     testFiles.coverage = await detectCoverageConfig(workspacePath);
   } catch (error) {
-    log.warn(
-      `Error discovering test files: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.warn(`Error discovering test files: ${getLoggableErrorSummary(error)}`);
   }
 
   return testFiles;

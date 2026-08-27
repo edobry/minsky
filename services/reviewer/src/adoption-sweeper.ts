@@ -91,6 +91,7 @@ import {
   buildGrepPattern,
 } from "@minsky/shared/adoption/signal-extraction";
 import type { AdoptionSignal } from "@minsky/shared/adoption/signal-extraction";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -610,7 +611,7 @@ async function checkTaskAdoption(
               event: "adoption_sweeper.event_emit_failed",
               parentTaskId: taskId,
               followUpTaskId: newId,
-              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+              error: getLoggableErrorSummary(emitErr),
             });
           }
         }

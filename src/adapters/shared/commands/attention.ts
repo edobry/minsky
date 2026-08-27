@@ -23,6 +23,7 @@ import {
 } from "@minsky/domain/ask/accounting/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -60,7 +61,7 @@ async function buildAskRepository(
     return new DrizzleAskRepository(db);
   } catch (err: unknown) {
     log.warn("attention: could not initialize AskRepository", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

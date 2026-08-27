@@ -43,7 +43,7 @@ import {
   hasNativeSubagentSupport,
 } from "@minsky/domain/runtime/harness-detection";
 import { log } from "@minsky/shared/logger";
-import { ValidationError } from "@minsky/domain/errors";
+import { ValidationError, getLoggableErrorSummary } from "@minsky/domain/errors";
 import { isDispatchModelId, DISPATCH_MODELS } from "@minsky/domain/ai/dispatch-models";
 import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 import {
@@ -305,7 +305,7 @@ export async function getTrackerForDispatch(
     return result === TIMEOUT_SENTINEL ? null : result;
   } catch (err: unknown) {
     log.debug("[tasks.dispatch] getTracker threw while resolving for Step 5", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -742,7 +742,7 @@ export function createTasksDispatchCommand(
               log.warn("[tasks.dispatch] current-invocation marker write threw unexpectedly", {
                 taskId,
                 sessionDir,
-                error: err instanceof Error ? err.message : String(err),
+                error: getLoggableErrorSummary(err),
               });
             }
           }

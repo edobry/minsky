@@ -21,7 +21,7 @@ import {
 import { getConfiguration } from "../configuration";
 import type { Configuration } from "../configuration/schemas/index";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Apply an edit pattern using fast-apply providers with fallback support.
@@ -201,7 +201,7 @@ Instructions:
       log.error(`Unexpected error during AI completion`, {
         provider,
         errorType: error instanceof Error ? error.constructor.name : "unknown",
-        errorMessage: getErrorMessage(error),
+        errorMessage: getLoggableErrorSummary(error),
       });
       throw error;
     }

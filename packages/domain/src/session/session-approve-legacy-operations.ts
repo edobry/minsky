@@ -28,6 +28,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../schemas/common";
 import { log } from "@minsky/shared/logger";
@@ -353,7 +354,7 @@ The task exists but has no associated session to approve.
         log.debug("Successfully cleaned up local branches after merge");
       } catch (cleanupError) {
         // Log but don't fail the operation if cleanup fails
-        log.debug(`Branch cleanup failed (non-critical): ${getErrorMessage(cleanupError)}`);
+        log.debug(`Branch cleanup failed (non-critical): ${getLoggableErrorSummary(cleanupError)}`);
       }
     }
 

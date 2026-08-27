@@ -44,6 +44,7 @@ import type {
   AnnotatedPresenceClaim,
 } from "../presence/index";
 import { isPidAlive as defaultIsPidAlive } from "./attachment";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * Tri-state, never a bare boolean (mt#3103 SC1). A boolean would collapse
@@ -225,7 +226,7 @@ export async function resolveSessionActor(
   } catch (err) {
     log.warn("resolveSessionActor: presence read failed — returning inconclusive", {
       sessionId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return {
       verdict: "inconclusive",
@@ -286,7 +287,7 @@ export async function presenceRepositoryFromProvider(
     return buildPresenceClaimRepository(db);
   } catch (err) {
     log.debug("presenceRepositoryFromProvider: failed to build repository", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }

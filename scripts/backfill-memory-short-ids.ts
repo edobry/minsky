@@ -58,6 +58,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { nextShortId } from "@minsky/domain/utils/short-id";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Advisory lock — serializes concurrent `--execute` runs (PR #2134 R1)
@@ -323,9 +324,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(
-      `backfill-memory-short-ids failed: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`backfill-memory-short-ids failed: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });
 }

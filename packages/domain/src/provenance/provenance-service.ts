@@ -34,6 +34,7 @@ import {
 import type { AgentTranscriptService } from "./transcript-service";
 import { log } from "@minsky/shared/logger";
 import { resolveConversationForWorkspace } from "../transcripts/conversation-link-resolver";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Maps a DB row to a typed ProvenanceRecord. */
 function toProvenanceRecord(row: typeof provenanceTable.$inferSelect): ProvenanceRecord {
@@ -298,7 +299,7 @@ export class ProvenanceService {
         summary.errors++;
         log.warn(`Failed to recompute tier for artifact ${record.artifactId}`, {
           sessionId,
-          error: error instanceof Error ? error.message : String(error),
+          error: getLoggableErrorSummary(error),
         });
       }
     }

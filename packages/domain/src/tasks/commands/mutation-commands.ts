@@ -23,7 +23,11 @@ import {
 } from "../taskService";
 import type { Task, StatusWriteOutcome } from "../types";
 import { StatusWriteDidNotPersistError } from "../types";
-import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
+import {
+  ValidationError,
+  ResourceNotFoundError,
+  getLoggableErrorSummary,
+} from "../../errors/index";
 import {
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
@@ -101,7 +105,7 @@ async function findIncompleteChildren(args: {
     childIds = await taskGraphService.listChildren(taskId);
   } catch (error) {
     log.warn(
-      `[findIncompleteChildren] listChildren failed for ${taskId}; failing open (treating as no children): ${getErrorMessage(error)}`
+      `[findIncompleteChildren] listChildren failed for ${taskId}; failing open (treating as no children): ${getLoggableErrorSummary(error)}`
     );
     return [];
   }
@@ -111,7 +115,7 @@ async function findIncompleteChildren(args: {
     children = await taskService.getTasks(childIds);
   } catch (error) {
     log.warn(
-      `[findIncompleteChildren] getTasks failed for children of ${taskId}; failing open (treating as no incomplete children): ${getErrorMessage(error)}`
+      `[findIncompleteChildren] getTasks failed for children of ${taskId}; failing open (treating as no incomplete children): ${getLoggableErrorSummary(error)}`
     );
     return [];
   }

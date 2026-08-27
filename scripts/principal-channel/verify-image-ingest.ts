@@ -29,6 +29,7 @@ import { deflateSync } from "node:zlib";
 
 import { createDrivenSessionDriver } from "../../src/cockpit/principal-channel-driver";
 import { DrivenSessionRegistry } from "../../src/cockpit/driven-session-host";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Magenta because it is unguessable: "white", "black", and "red" are all
@@ -162,9 +163,7 @@ async function main(): Promise<void> {
       images: [{ base64: MAGENTA_PNG_BASE64, mediaType: "image/png" }],
     });
   } catch (err) {
-    console.error(
-      `FAIL after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`FAIL after ${Date.now() - startedAt}ms: ${getLoggableErrorSummary(err)}`);
     await sessionDriver.reset();
     process.exit(1);
   }

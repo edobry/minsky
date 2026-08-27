@@ -21,6 +21,7 @@
  */
 
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Tools that declare a `mcpHidden` parameter, and the param each hides. */
 const EXPECTATIONS = [
@@ -175,9 +176,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(
-    "[verify-mcp-hidden-params] FAIL:",
-    err instanceof Error ? err.message : String(err)
-  );
+  console.error("[verify-mcp-hidden-params] FAIL:", getLoggableErrorSummary(err));
   process.exit(1);
 });

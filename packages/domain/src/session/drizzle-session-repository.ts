@@ -36,7 +36,7 @@ import { getMinskyStateDir } from "@minsky/shared/paths";
 
 import type { SessionProviderInterface, SessionRecord, SessionListOptions } from "./types";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import {
   postgresSessions,
   toPostgresInsert,
@@ -293,7 +293,9 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
         try {
           return fromPostgresSelect(record);
         } catch (mappingError) {
-          log.error(`Error mapping session record ${index}: ${getErrorMessage(mappingError)}`);
+          log.error(
+            `Error mapping session record ${index}: ${getLoggableErrorSummary(mappingError)}`
+          );
           throw mappingError;
         }
       });
@@ -307,7 +309,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     try {
       validatedTaskId = validateQualifiedTaskId(taskId);
     } catch (error) {
-      log.warn(`Task ID validation failed: ${getErrorMessage(error)}`);
+      log.warn(`Task ID validation failed: ${getLoggableErrorSummary(error)}`);
       return null;
     }
 
@@ -357,7 +359,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       }, "drizzle-session-repository.addSession");
       log.debug(`Session added successfully: ${record.sessionId}`);
     } catch (error) {
-      log.error(`Failed to add session '${record.sessionId}': ${getErrorMessage(error)}`);
+      log.error(`Failed to add session '${record.sessionId}': ${getLoggableErrorSummary(error)}`);
       throw error;
     }
   }
@@ -395,7 +397,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       }
       log.debug(`Session updated successfully: ${sessionId}`);
     } catch (error) {
-      log.error(`Failed to update session '${sessionId}': ${getErrorMessage(error)}`);
+      log.error(`Failed to update session '${sessionId}': ${getLoggableErrorSummary(error)}`);
       throw error;
     }
   }
@@ -444,7 +446,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       } catch (err) {
         log.debug("Failed to clear session attachment records on delete (non-blocking)", {
           sessionId: resolvedId,
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }

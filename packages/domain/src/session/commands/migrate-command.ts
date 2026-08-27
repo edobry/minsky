@@ -5,6 +5,7 @@ import {
   type MigrationReport,
 } from "../migration-command";
 import type { SessionProviderInterface } from "../types";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 /**
  * CLI parameters for session migration command
@@ -225,7 +226,7 @@ export async function sessionMigrate(
       }
     }
   } catch (error) {
-    log.error(`\n❌ Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.error(`\n❌ Migration failed: ${getLoggableErrorSummary(error)}`);
     throw error;
   }
 }
@@ -252,7 +253,7 @@ export async function sessionMigrateRollback(
       throw new Error("Rollback failed: invalid backup file path");
     }
   } catch (error) {
-    log.error(`❌ Rollback failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.error(`❌ Rollback failed: ${getLoggableErrorSummary(error)}`);
     throw error;
   }
 }

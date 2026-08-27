@@ -70,6 +70,7 @@ import "reflect-metadata";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Deliberately small: each row's `transcript` JSONB can be large (a full
@@ -267,9 +268,7 @@ async function main(): Promise<void> {
         }
       } catch (err) {
         failed++;
-        console.error(
-          `  error on ${row.agentSessionId}: ${err instanceof Error ? err.message : String(err)}`
-        );
+        console.error(`  error on ${row.agentSessionId}: ${getLoggableErrorSummary(err)}`);
       }
     }
 
@@ -284,9 +283,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(
-    `backfill-agent-transcripts-model failed: ${err instanceof Error ? err.message : String(err)}`
-  );
+  console.error(`backfill-agent-transcripts-model failed: ${getLoggableErrorSummary(err)}`);
   if (err instanceof Error && err.cause) {
     console.error("cause:", JSON.stringify(err.cause, Object.getOwnPropertyNames(err.cause)));
   }

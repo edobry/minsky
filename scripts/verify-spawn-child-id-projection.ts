@@ -38,6 +38,7 @@ import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/t
 // `agent_transcripts.agent_session_id` directly rather than re-normalizing.
 import { collectChildAgentSessionIds } from "@minsky/domain/transcripts/turn-extractor";
 import { parseIntFlag } from "./clear-ambiguous-spawn-links";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const DEFAULT_SAMPLE = 40;
 
@@ -180,7 +181,7 @@ async function main(): Promise<void> {
     db = await getDb();
   } catch (err) {
     console.error("SKIP: Postgres not available in this environment.");
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(0);
   }
 

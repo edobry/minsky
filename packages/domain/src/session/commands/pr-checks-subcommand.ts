@@ -13,6 +13,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  getLoggableErrorSummary,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { CheckRunResult, ChecksResult, RepositoryBackend } from "../../repository/index";
@@ -291,7 +292,7 @@ export async function sessionPrChecks(
           "mt#4182: could not read PR merge state; leaving the checks verdict as observed",
           {
             prNumber,
-            error: getErrorMessage(prReadError),
+            error: getLoggableErrorSummary(prReadError),
           }
         );
         return checks;

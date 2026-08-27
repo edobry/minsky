@@ -32,7 +32,7 @@ import { createRepositoryBackend, RepositoryBackendType } from "../../repository
 import type { RepositoryBackend } from "../../repository/index";
 import { extractGitHubInfoFromUrl } from "../../session/repository-backend-detection";
 import { type SessionProviderInterface } from "../../session/index";
-import { MinskyError, getErrorMessage } from "../../errors/index";
+import { MinskyError, getErrorMessage, getLoggableErrorSummary } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
@@ -202,7 +202,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       log.debug(
         "GitHubChangesetAdapter: configuration lookup failed while resolving the default " +
           "token provider; falling back to env-var-only resolution",
-        { error: getErrorMessage(error) }
+        { error: getLoggableErrorSummary(error) }
       );
     }
     return null;
@@ -329,7 +329,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       const reason = error instanceof GitHubTokenUnavailableError ? "no-token" : "unreachable";
       log.debug("GitHub adapter not available", {
         reason,
-        error: getErrorMessage(error),
+        error: getLoggableErrorSummary(error),
         owner: this.owner,
         repo: this.repo,
       });
@@ -773,7 +773,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         })
       ) as Promise<ChangesetReview[]>;
     } catch (error) {
-      log.debug(`Failed to get reviews for PR ${prNumber}`, { error: getErrorMessage(error) });
+      log.debug(`Failed to get reviews for PR ${prNumber}`, {
+        error: getLoggableErrorSummary(error),
+      });
       return [];
     }
   }
@@ -806,7 +808,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
           null,
       })) as ChangesetComment[];
     } catch (error) {
-      log.debug(`Failed to get comments for PR ${prNumber}`, { error: getErrorMessage(error) });
+      log.debug(`Failed to get comments for PR ${prNumber}`, {
+        error: getLoggableErrorSummary(error),
+      });
       return [];
     }
   }
@@ -836,7 +840,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         filesChanged: commit.files?.map((file) => file.filename) || [],
       }));
     } catch (error) {
-      log.debug(`Failed to get commits for PR ${prNumber}`, { error: getErrorMessage(error) });
+      log.debug(`Failed to get commits for PR ${prNumber}`, {
+        error: getLoggableErrorSummary(error),
+      });
       return [];
     }
   }

@@ -30,6 +30,7 @@
  * @see docs/architecture/presence-claims.md — the presence-claim subsystem this borrows
  */
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * The minimal provider shape this lookup needs — a `getDatabaseConnection`
@@ -111,7 +112,7 @@ export async function resolveLastPresenceActivityAtMs(
     log.warn(
       `[${logContext.source}] resolveLastPresenceActivityAtMs resolution failed unexpectedly ` +
         "(degrading to no presence signal)",
-      { subjectId, error: err instanceof Error ? err.message : String(err) }
+      { subjectId, error: getLoggableErrorSummary(err) }
     );
     return null;
   }

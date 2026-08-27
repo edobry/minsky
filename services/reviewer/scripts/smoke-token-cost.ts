@@ -32,6 +32,7 @@ import postgres from "postgres";
 import { createDb } from "../src/db/client";
 import { recordReviewTiming } from "../src/review-timing";
 import { timingTokenFields } from "../src/token-cost";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const url =
   process.env.MINSKY_PERSISTENCE_POSTGRES_URL ||
@@ -180,7 +181,7 @@ try {
     );
   }
 } catch (err) {
-  console.error("FAIL: smoke threw:", err instanceof Error ? err.message : String(err));
+  console.error("FAIL: smoke threw:", getLoggableErrorSummary(err));
   failed = true;
 } finally {
   await sql.end();

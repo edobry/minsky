@@ -42,6 +42,7 @@
 // requires a reflect polyfill" (mt#2768 finding, 2026-07-14).
 import "reflect-metadata";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function getDb(): Promise<PostgresJsDatabase> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
@@ -81,7 +82,7 @@ async function main(): Promise<void> {
     console.error(
       "SKIP: failed to initialize DB connection — Postgres not available in this environment."
     );
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(0);
   }
 
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error("Backfill crashed:", err instanceof Error ? err.message : String(err));
+    console.error("Backfill crashed:", getLoggableErrorSummary(err));
     process.exit(1);
   });
 }

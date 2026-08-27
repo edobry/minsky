@@ -19,6 +19,7 @@
 import { z } from "zod";
 import { generateObject, jsonSchema } from "ai";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -156,7 +157,7 @@ export class AnthropicNliClassifier implements NliClassifier {
       return parsed;
     } catch (error) {
       log.warn("[NliClassifier] Classification failed, defaulting to unrelated", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getLoggableErrorSummary(error),
       });
       // On error, default to "unrelated" — do not surface a false conflict
       return { verdict: "unrelated", rationale: "Classification failed; defaulting to unrelated." };

@@ -15,6 +15,7 @@ import path from "path";
 import os from "os";
 import { execSync } from "child_process";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -176,7 +177,7 @@ export function writeDaemonState(serverName: string, transport: "stdio" | "http"
     });
   } catch (err) {
     log.warn("daemon-state: failed to write daemon state file (non-fatal)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

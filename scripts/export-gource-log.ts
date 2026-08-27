@@ -46,6 +46,7 @@ import {
   computeConversationLabel,
   pickSubstantiveUserText,
 } from "@minsky/domain/transcripts/conversation-label";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function getDb(): Promise<PostgresJsDatabase | null> {
   try {
@@ -286,7 +287,7 @@ if (import.meta.main) {
       process.exit(0);
     })
     .catch((err) => {
-      console.error(err instanceof Error ? err.message : String(err));
+      console.error(getLoggableErrorSummary(err));
       process.exit(1);
     });
 }

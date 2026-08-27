@@ -9,7 +9,7 @@ import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync as nodeExistsSync } from "fs";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { serializeYamlFrontmatter } from "./utils/yaml-frontmatter";
 import type {
   Rule,
@@ -118,7 +118,7 @@ export class RuleService {
           } catch (error) {
             log.error("Error processing rule file", {
               file,
-              originalError: getErrorMessage(error),
+              originalError: getLoggableErrorSummary(error),
               stack: error instanceof Error ? error.stack : undefined,
             });
           }
@@ -128,7 +128,7 @@ export class RuleService {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
             format: options.format,
-            originalError: getErrorMessage(error),
+            originalError: getLoggableErrorSummary(error),
             stack: error instanceof Error ? error.stack : undefined,
           });
         }
@@ -188,7 +188,7 @@ export class RuleService {
           } catch (error) {
             log.error("Error processing rule file", {
               file,
-              originalError: getErrorMessage(error),
+              originalError: getLoggableErrorSummary(error),
               stack: error instanceof Error ? error.stack : undefined,
             });
           }
@@ -198,7 +198,7 @@ export class RuleService {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
             format,
-            originalError: getErrorMessage(error),
+            originalError: getLoggableErrorSummary(error),
             stack: error instanceof Error ? error.stack : undefined,
           });
         }
@@ -282,7 +282,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in requested format", {
             filePath,
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
         // Instead of failing immediately, try other formats below
@@ -378,7 +378,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in alternative format", {
             filePath,
-            error: getErrorMessage(error),
+            error: getLoggableErrorSummary(error),
           });
         }
         continue;
@@ -408,7 +408,7 @@ export class RuleService {
     } catch (error) {
       // Return null if rule is not found, instead of throwing
       if (options.debug) {
-        log.debug("Rule not found", { id, error: getErrorMessage(error) });
+        log.debug("Rule not found", { id, error: getLoggableErrorSummary(error) });
       }
       return null;
     }

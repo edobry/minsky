@@ -94,6 +94,7 @@ import {
 import { log } from "./logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -275,7 +276,7 @@ async function runPrWatchDomain(
     } catch (err: unknown) {
       log.warn("pr_watch_scheduler.wake_sink_init_error", {
         event: "pr_watch_scheduler.wake_sink_init_error",
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
     const wakeSink = new CompositeWakeSignalSink(sinks);

@@ -110,6 +110,7 @@ import { assertScrubGate } from "@minsky/domain/transcripts/gource-exporter";
 import { cspMiddleware } from "./csp";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export type { CredentialModuleOverride } from "./routes/credentials";
 
@@ -144,7 +145,7 @@ function resolveExtraAllowedHosts(override?: readonly string[]): string[] {
     return [...(getConfiguration().cockpit?.allowedHosts ?? [])];
   } catch (err) {
     log.warn("[cockpit] could not read cockpit.allowedHosts config; no extra hosts allowed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     return [];
   }

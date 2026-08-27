@@ -29,6 +29,7 @@ import {
   createRealPrincipalChannelDeps,
 } from "@minsky/domain/notify/principal-channel";
 import { getTelegramMe } from "@minsky/domain/notify/telegram-transport";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function main(): Promise<void> {
   const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
@@ -78,6 +79,6 @@ main().catch((err) => {
   // reaching here means a resolution-layer fault. The error can carry a
   // Pulumi/CLI error but never the token, which only ever exists inside the
   // resolver.
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`FAIL: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

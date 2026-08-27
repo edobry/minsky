@@ -168,6 +168,7 @@ import {
   type TaskClaimLivenessResult,
 } from "@minsky/domain/session/task-claim-liveness";
 import type { PromptType } from "@minsky/domain/session/prompt-generation";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Git-ops seam (mt#2831) — injectable so unit tests never spawn real git.
@@ -951,7 +952,7 @@ export function createTasksDispatchRecoverCommand(
               taskId,
               invocationId: latest.id,
               classification,
-              error: err instanceof Error ? err.message : String(err),
+              error: getLoggableErrorSummary(err),
             });
           }
         }
@@ -1201,7 +1202,7 @@ export function createTasksDispatchRecoverCommand(
           log.warn("[tasks.dispatch-recover] current-invocation marker write threw unexpectedly", {
             taskId,
             sessionDir,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }

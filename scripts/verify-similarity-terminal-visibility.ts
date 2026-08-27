@@ -27,6 +27,7 @@ import "reflect-metadata";
 
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** A task whose nearest neighbours are all terminal — the mt#3290 duplicate case. */
 const PROBE_TASK_ID = process.env.MINSKY_PROBE_TASK_ID ?? "mt#3271";
@@ -130,7 +131,7 @@ async function main(): Promise<void> {
       }
     }
   } catch (err) {
-    console.log(`\n=== Layer 2: skipped — ${err instanceof Error ? err.message : String(err)}`);
+    console.log(`\n=== Layer 2: skipped — ${getLoggableErrorSummary(err)}`);
   }
 
   console.log("\n=== Diagnosis ===");
@@ -216,6 +217,6 @@ async function main(): Promise<void> {
 main()
   .then(() => process.exit(0))
   .catch((err) => {
-    console.error(`FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`FAILED: ${getLoggableErrorSummary(err)}`);
     process.exit(1);
   });

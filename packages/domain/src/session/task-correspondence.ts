@@ -15,6 +15,7 @@
  * from commit refs — Seam 1 (mt#2515, the bind/advance spec-read guard) covers it.
  */
 
+import { getLoggableErrorSummary } from "../errors/index";
 /** Override env var: set to "1"/"true"/"yes" to skip the correspondence check. */
 export const TASK_HIJACK_OVERRIDE_ENV = "MINSKY_ACK_TASK_HIJACK";
 
@@ -141,9 +142,9 @@ export async function evaluateTaskCorrespondence(
     subjects = await deps.listCommitSubjects();
   } catch (err) {
     deps.log?.warn?.(
-      `task-correspondence: could not list PR commits (fail-open, allowing merge): ${
-        err instanceof Error ? err.message : String(err)
-      }`
+      `task-correspondence: could not list PR commits (fail-open, allowing merge): ${getLoggableErrorSummary(
+        err
+      )}`
     );
     return null;
   }

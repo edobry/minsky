@@ -126,6 +126,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { evaluationLogPath, logEvaluationRecord } from "./dispatcher";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — GRADUATED to injection (mt#3399)
@@ -846,9 +847,7 @@ export async function main(): Promise<void> {
     boundaries = findTurnBoundaryTimestamps(lines);
     measurement = measureSilentStretch(turnLines, boundaries.turnStartTimestamp);
   } catch (err) {
-    console.error(
-      `[silent-stretch-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error(`[silent-stretch-detector] Measurement error: ${getLoggableErrorSummary(err)}`);
     process.exit(0);
   }
 

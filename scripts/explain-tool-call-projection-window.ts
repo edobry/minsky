@@ -26,6 +26,7 @@ import "reflect-metadata";
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 async function bootstrapDb(): Promise<PostgresJsDatabase> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
@@ -103,8 +104,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(
-    `explain-tool-call-projection-window failed: ${err instanceof Error ? err.message : String(err)}`
-  );
+  console.error(`explain-tool-call-projection-window failed: ${getLoggableErrorSummary(err)}`);
   process.exit(1);
 });

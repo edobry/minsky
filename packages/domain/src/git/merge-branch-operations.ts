@@ -1,4 +1,4 @@
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
 
@@ -34,7 +34,7 @@ export async function mergeBranchImpl(
       log.debug("Merge completed successfully");
     } catch (err) {
       log.debug("Merge command failed, checking for conflicts", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
 
       // Check if there are merge conflicts
@@ -72,7 +72,7 @@ export async function mergeBranchImpl(
     return { workdir, merged, conflicts: false };
   } catch (err) {
     log.error("mergeBranch failed with error", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       workdir,
       branch,
     });

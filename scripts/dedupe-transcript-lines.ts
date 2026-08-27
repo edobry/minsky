@@ -38,7 +38,7 @@ import { eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 /** Canonical script DB bootstrap — mirrors scripts/backfill-minsky-session-links.ts. */
@@ -125,7 +125,7 @@ async function main() {
     db = await getDb();
   } catch (err) {
     console.error("SKIP: failed to initialize DB connection.");
-    console.error(getErrorMessage(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(0);
   }
 
@@ -160,7 +160,7 @@ async function main() {
       row = fetched[0];
     } catch (err) {
       errored++;
-      console.error(`  READ FAILED ${agentSessionId}: ${getErrorMessage(err)}`);
+      console.error(`  READ FAILED ${agentSessionId}: ${getLoggableErrorSummary(err)}`);
       continue;
     }
     if (!row) continue;
@@ -201,7 +201,7 @@ async function main() {
         }
       } catch (err) {
         errored++;
-        console.error(`  WRITE FAILED ${row.agentSessionId}: ${getErrorMessage(err)}`);
+        console.error(`  WRITE FAILED ${row.agentSessionId}: ${getLoggableErrorSummary(err)}`);
       }
     }
   }
@@ -232,7 +232,7 @@ async function main() {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(getErrorMessage(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(1);
   });
 }

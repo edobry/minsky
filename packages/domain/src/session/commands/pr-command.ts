@@ -3,7 +3,12 @@ import type { GitServiceInterface } from "../../git/types";
 import { sessionPrImpl } from "../session-pr-operations";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionPrResult, SessionProviderInterface } from "../types";
-import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../errors/index";
+import {
+  ResourceNotFoundError,
+  ValidationError,
+  getErrorMessage,
+  getLoggableErrorSummary,
+} from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { readTextFile } from "@minsky/shared/fs";
 import { isAbsolute, relative, resolve as resolvePath } from "path";
@@ -56,7 +61,7 @@ export async function resolvePrHeadSha(
     const sha = raw.trim();
     return sha.length > 0 ? sha : undefined;
   } catch (error) {
-    log.debug(`Could not resolve PR head sha after creation: ${getErrorMessage(error)}`);
+    log.debug(`Could not resolve PR head sha after creation: ${getLoggableErrorSummary(error)}`);
     return undefined;
   }
 }

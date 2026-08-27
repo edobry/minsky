@@ -26,6 +26,7 @@
 import "reflect-metadata";
 import { OpenAIModelFetcher } from "@minsky/domain/ai/model-cache/fetchers/openai-fetcher";
 import { fetchModelLimitsCatalog } from "@minsky/domain/ai/model-cache/model-limits-catalog";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Values the retired `startsWith` branches and generic fallback used to return. Their presence
@@ -58,9 +59,7 @@ async function resolveApiKey(): Promise<string | null> {
     // Surface WHY rather than swallowing into an indistinguishable "no key" — a config-init
     // failure and a genuinely absent key produce the same SKIP otherwise.
     console.error(
-      `note: config lookup for the OpenAI key failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
+      `note: config lookup for the OpenAI key failed: ${getLoggableErrorSummary(error)}`
     );
     return null;
   }

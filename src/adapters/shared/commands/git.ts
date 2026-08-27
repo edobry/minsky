@@ -20,6 +20,7 @@ import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Parameters for the commit command
@@ -452,7 +453,7 @@ export async function probeGitLogPathHistory(
   } catch (error) {
     log.debug("git.log path-history probe failed; result carries no path verdict", {
       path: params.path,
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
     return { checked: false, reason: "probe-unavailable" };
   }

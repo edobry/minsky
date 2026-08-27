@@ -32,6 +32,7 @@ import {
   DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
 } from "./conclude-review-guard";
 import { evaluateSubmitFindingCall, markUntrackedDeferral } from "./resolution-note-guard";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -1674,7 +1675,7 @@ export async function callOpenAIWithClient(
         mode: "post_loop_forced",
         fired_at_turn: totalRoundsUsed,
         finally_emitted: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }
@@ -1753,7 +1754,7 @@ export async function callOpenAIWithClient(
         reminder_count: 1,
         finally_emitted: false,
         gate_branch: gateBranch,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

@@ -36,6 +36,7 @@
 import { parsePositiveIntEnv } from "./config";
 import type { AlertSink } from "./alert-sink";
 import { log } from "./logger";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /**
  * Extract a numeric HTTP status from an Octokit RequestError-shaped value.
@@ -215,7 +216,7 @@ export const githubAuthHealth = new AuthHealthTracker(DEFAULT_AUTH_HEALTH_THRESH
     ).catch((sinkErr: unknown) => {
       log.warn("reviewer.auth_health_alert_sink_unhandled", {
         event: "reviewer.auth_health_alert_sink_unhandled",
-        error: sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
+        error: getLoggableErrorSummary(sinkErr),
       });
     });
   },

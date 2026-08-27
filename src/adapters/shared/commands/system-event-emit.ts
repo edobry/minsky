@@ -15,6 +15,7 @@
 import { log } from "@minsky/shared/logger";
 import type { SystemEventInput } from "@minsky/domain/events/emitter";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 /** Minimal DI-container shape these command seams expose. */
 interface ContainerLike {
@@ -52,7 +53,7 @@ export async function emitSystemEventBestEffort(
     await new DrizzleEventEmitter(db).emit(event);
   } catch (err: unknown) {
     log.warn(`${event.eventType}: system-event emission failed (best-effort, swallowed)`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

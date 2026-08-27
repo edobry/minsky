@@ -1,6 +1,6 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionPr } from "./session/session-pr-approval-operations";
-import { ResourceNotFoundError } from "./errors/index";
+import { ResourceNotFoundError, getLoggableErrorSummary } from "./errors/index";
 import { log } from "@minsky/shared/logger";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
@@ -93,7 +93,7 @@ describe("Session Approve", () => {
       const result = await approveSessionPr({ session: TEST_SESSION_NAME }, simpleDeps);
       expect(result.session).toBe(TEST_SESSION_NAME);
     } catch (error) {
-      log.debug(`Error details: ${error instanceof Error ? error.message : String(error)}`);
+      log.debug(`Error details: ${getLoggableErrorSummary(error)}`);
       throw error;
     }
   });

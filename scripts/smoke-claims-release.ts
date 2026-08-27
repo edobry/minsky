@@ -26,6 +26,7 @@
 import "reflect-metadata";
 
 import { selectOwnClaims } from "../src/adapters/shared/commands/tasks/claims-command";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
@@ -131,6 +132,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[smoke-claims-release] FAIL:", err instanceof Error ? err.message : String(err));
+  console.error("[smoke-claims-release] FAIL:", getLoggableErrorSummary(err));
   process.exit(1);
 });

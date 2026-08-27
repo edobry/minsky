@@ -42,6 +42,7 @@ import { homedir } from "os";
 import { join, resolve } from "path";
 import { detectTriggerPhrases as detectFromSource } from "../.minsky/hooks/retrospective-trigger-scanner";
 import { detectTriggerPhrases as detectFromGenerated } from "../.claude/hooks/retrospective-trigger-scanner";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const DEFAULT_FILE_COUNT = 60;
 
@@ -500,7 +501,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(getLoggableErrorSummary(error));
     process.exit(1);
   }
 );

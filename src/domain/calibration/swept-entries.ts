@@ -34,6 +34,7 @@ import {
   deriveCalibrationLogEntries,
   type CalibrationLogEntry,
 } from "./calibration-sweep";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 export async function buildSweptEntries(): Promise<CalibrationLogEntry[]> {
   try {
@@ -57,7 +58,7 @@ export async function buildSweptEntries(): Promise<CalibrationLogEntry[]> {
     log.warn(
       "[calibration] falling back to static CALIBRATION_LOG_REGISTRY — could not load the " +
         "shared declaration accessor (scripts/lib/calibration-log-declarations)",
-      { error: err instanceof Error ? err.message : String(err) }
+      { error: getLoggableErrorSummary(err) }
     );
     return CALIBRATION_LOG_REGISTRY;
   }

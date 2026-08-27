@@ -29,7 +29,7 @@
 
 import { Command } from "commander";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { runMinskyCompile } from "@minsky/domain/compile/compile";
 import {
   hasSizeBudgetFields,
@@ -157,7 +157,7 @@ export function createCompileCommand(): Command {
           log.cli(JSON.stringify(displayResult, null, 2));
         }
       } catch (error) {
-        log.error("Compile failed", { error: getErrorMessage(error) });
+        log.error("Compile failed", { error: getLoggableErrorSummary(error) });
         process.exit(1);
       }
     });

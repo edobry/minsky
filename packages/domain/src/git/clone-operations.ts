@@ -1,5 +1,5 @@
 import { join, dirname } from "node:path";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -82,7 +82,7 @@ export async function cloneImpl(
       });
     } catch (cloneErr) {
       log.error("git clone command failed", {
-        error: getErrorMessage(cloneErr),
+        error: getLoggableErrorSummary(cloneErr),
         command: cloneCmd,
       });
 
@@ -93,7 +93,7 @@ export async function cloneImpl(
       } catch (cleanupErr) {
         log.warn("Failed to cleanup session directory after git clone failure", {
           workdir,
-          error: getErrorMessage(cleanupErr),
+          error: getLoggableErrorSummary(cleanupErr),
         });
       }
 
@@ -118,13 +118,13 @@ export async function cloneImpl(
       } catch (err) {
         log.warn("Could not read clone directory", {
           workdir,
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     } catch (accessErr) {
       log.error(".git directory not found after clone", {
         workdir,
-        error: getErrorMessage(accessErr),
+        error: getLoggableErrorSummary(accessErr),
       });
       throw new Error("Git repository was not properly cloned: .git directory not found");
     }
@@ -135,7 +135,7 @@ export async function cloneImpl(
     };
   } catch (error) {
     log.error("Error during git clone", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       stack: error instanceof Error ? error.stack : undefined,
       repoUrl: options.repoUrl,
       workdir,

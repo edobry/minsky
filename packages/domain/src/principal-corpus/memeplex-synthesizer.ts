@@ -19,6 +19,7 @@ import { getConfiguration } from "../configuration";
 import type { ResolvedConfig, BackendConfig } from "../configuration/types";
 import type { TweetRecord, TweetMetadata } from "./types";
 import { log } from "@minsky/shared/logger";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Use a stronger model than the classifier — the synthesis is reasoning-heavy. */
 const SYNTHESIS_MODEL = "claude-sonnet-4-6";
@@ -166,7 +167,7 @@ Output ONLY a JSON array (no wrapper object, no markdown fences, no preamble). T
       validated.push(memeplexEntrySchema.parse(item));
     } catch (err) {
       log.warn("[memeplex-synth] dropped invalid memeplex entry", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
         item: JSON.stringify(item).slice(0, 200),
       });
     }

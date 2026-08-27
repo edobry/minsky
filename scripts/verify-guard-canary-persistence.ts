@@ -27,6 +27,7 @@
  * @see scripts/smoke-presence-claims.ts — the sibling smoke script this mirrors
  */
 
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import "reflect-metadata";
 
 const VERIFY_GUARD_NAME = "__mt4007_verify__";
@@ -76,7 +77,7 @@ async function main() {
           "migration 0093_low_scarlet_witch.sql has not been applied yet (expected " +
           "pre-merge; the unmerged-migration guard blocks applying it to the shared " +
           "DB before this PR merges). Skipping.\n" +
-          `  (${err instanceof Error ? err.message : String(err)})`
+          `  (${getLoggableErrorSummary(err)})`
       );
       await client.end();
       process.exit(0);

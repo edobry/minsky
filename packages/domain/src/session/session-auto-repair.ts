@@ -5,6 +5,7 @@ import type { SessionRecord, SessionProviderInterface } from "./types";
 import type { GitServiceInterface } from "../git";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
 import { isUuidSessionId, taskIdToBranchName } from "../tasks/task-id";
+import { getLoggableErrorSummary } from "../errors/index";
 
 export interface SessionAutoRepairDependencies {
   sessionDB: SessionProviderInterface;
@@ -65,7 +66,7 @@ export async function attemptSessionAutoRepair(
         log.warn("Failed to reconstruct session from directory", {
           sessionId,
           sessionDir,
-          error: error instanceof Error ? error.message : String(error),
+          error: getLoggableErrorSummary(error),
         });
         // Continue to next possible session ID
       }
@@ -217,7 +218,7 @@ async function reconstructSessionRecord(
     log.debug("Failed to reconstruct session record", {
       sessionId,
       sessionDir,
-      error: error instanceof Error ? error.message : String(error),
+      error: getLoggableErrorSummary(error),
     });
 
     return null;

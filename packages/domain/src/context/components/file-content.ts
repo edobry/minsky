@@ -3,6 +3,7 @@ import * as path from "path";
 import { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 export interface FileContentInputs extends ComponentInputs {
   relevantFiles: Array<{
@@ -177,9 +178,7 @@ async function discoverFiles(workspacePath: string, patterns: string[]): Promise
       const matchedFiles = await simpleGlob(workspacePath, pattern);
       matchedFiles.forEach((file) => files.add(file));
     } catch (error) {
-      log.warn(
-        `Failed to match pattern ${pattern}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.warn(`Failed to match pattern ${pattern}: ${getLoggableErrorSummary(error)}`);
     }
   }
 
@@ -345,9 +344,7 @@ async function readFileContents(filePaths: string[]): Promise<
         type,
       });
     } catch (error) {
-      log.warn(
-        `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.warn(`Failed to read file ${filePath}: ${getLoggableErrorSummary(error)}`);
     }
   }
 

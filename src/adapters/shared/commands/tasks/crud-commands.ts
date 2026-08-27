@@ -7,7 +7,11 @@
 import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 // Domain task functions are lazy-imported inside execute methods to avoid
 // loading the entire domain layer at command registration time.
-import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
+import {
+  ValidationError,
+  ResourceNotFoundError,
+  getLoggableErrorSummary,
+} from "@minsky/domain/errors/index";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { BaseTaskCommand } from "./base-task-command";
 import {
@@ -244,7 +248,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         // Best-effort — fall back to plain BLOCKED if ask enrichment fails.
         // Common cause: persistence provider lacks SQL capability.
         log.debug("[tasks.list] BLOCKED subtype enrichment skipped", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
@@ -267,7 +271,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
               } catch (rollupErr) {
                 log.debug("[tasks.list] attention rollup skipped for task", {
                   taskId: t.id,
-                  error: rollupErr instanceof Error ? rollupErr.message : String(rollupErr),
+                  error: getLoggableErrorSummary(rollupErr),
                 });
               }
             })
@@ -275,7 +279,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         }
       } catch (err) {
         log.debug("[tasks.list] attention rollup enrichment skipped", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
@@ -499,7 +503,7 @@ export class TasksGetCommand extends BaseTaskCommand<typeof tasksGetParams> {
           // Common cause: persistence provider lacks SQL capability.
           log.debug("[tasks.get] blockingAsk enrichment skipped", {
             taskId: validatedTaskId,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }

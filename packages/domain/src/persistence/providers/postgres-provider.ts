@@ -29,6 +29,7 @@ import {
   EMBEDDINGS_CONFIGS,
   type VectorDomain,
 } from "../../storage/schemas/embeddings-schema-factory";
+import { getLoggableErrorSummary } from "../../errors/index";
 
 // Per-process pool size, DERIVED from a measured budget rather than picked
 // (mt#4308). Minsky shares a single Supabase/Supavisor transaction-mode pooler
@@ -950,9 +951,7 @@ export class PostgresPersistenceProvider
         try {
           await this.listenSql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
         } catch (listenErr) {
-          log.warn(
-            `Error closing listen SQL connection: ${listenErr instanceof Error ? listenErr.message : String(listenErr)}`
-          );
+          log.warn(`Error closing listen SQL connection: ${getLoggableErrorSummary(listenErr)}`);
         }
         this.listenSql = null;
       }

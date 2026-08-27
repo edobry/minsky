@@ -24,7 +24,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { ARTIFACT_TYPES } from "@minsky/domain/provenance/types";
 import type { ArtifactType } from "@minsky/domain/provenance/types";
@@ -144,7 +144,7 @@ export function registerAuthorshipCommands(
 
         return result;
       } catch (error) {
-        log.error("authorship.get failed", { error: getErrorMessage(error) });
+        log.error("authorship.get failed", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },
@@ -233,7 +233,7 @@ export function registerAuthorshipCommands(
 
         return summary;
       } catch (error) {
-        log.error("authorship.recompute failed", { error: getErrorMessage(error) });
+        log.error("authorship.recompute failed", { error: getLoggableErrorSummary(error) });
         throw error;
       }
     },

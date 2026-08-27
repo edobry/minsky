@@ -7,7 +7,7 @@
 import { select, isCancel, cancel } from "@clack/prompts";
 import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 import { getTaskStatusFromParams, setTaskStatusFromParams } from "@minsky/domain/tasks";
-import { ValidationError } from "@minsky/domain/errors/index";
+import { ValidationError, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { TASK_STATUS } from "@minsky/domain/tasks/taskConstants";
 import { BaseTaskCommand } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
@@ -91,7 +91,7 @@ async function emitTaskStatusChangedEvent(
   } catch (err: unknown) {
     log.warn("task.status_changed: event emission failed (best-effort, swallowed)", {
       taskId: payload.taskId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   }
 }

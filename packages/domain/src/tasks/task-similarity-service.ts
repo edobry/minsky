@@ -10,6 +10,7 @@ import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-b
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "@minsky/shared/array-safety";
 import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "../project/scope";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /**
  * The one backend whose `score` is a DISTANCE (lower is closer) — cosine
@@ -265,7 +266,7 @@ export class TaskSimilarityService {
         },
         (err: unknown) => {
           log.debug("tasks searchByText pre-embed failed; deferring to search-service fallback", {
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
           return undefined;
         }
@@ -488,7 +489,7 @@ export class TaskSimilarityService {
     } catch (error) {
       // If we can't get spec content, fall back to basic task info
       log.debug(
-        `Failed to get spec content for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to get spec content for task ${task.id}: ${getLoggableErrorSummary(error)}`
       );
       if (task.spec) {
         parts.push(task.spec);

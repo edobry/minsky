@@ -9,6 +9,7 @@ import { DrizzleAskRepository } from "@minsky/domain/ask/repository";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
 import { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 let registry: TaskCommandRegistry | null = null;
 
@@ -78,7 +79,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       return new DrizzleAskRepository(db);
     } catch (err: unknown) {
       log.debug("[tasks] Could not initialize AskRepository for BLOCKED subtype enrichment", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }
@@ -132,7 +133,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       provider = container.get("persistence") as SqlCapablePersistenceProvider;
     } catch (err: unknown) {
       log.debug("[tasks] Could not initialize SubagentDispatchTracker (sync error)", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }
@@ -158,7 +159,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
           return _cachedTracker;
         } catch (err: unknown) {
           log.debug("[tasks] Could not initialize SubagentDispatchTracker", {
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
           return null;
         } finally {

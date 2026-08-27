@@ -63,6 +63,7 @@ import {
   buildSkippedBody,
   buildResolvedBody,
 } from "./status-comment";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 interface PullRequestPayload {
   pull_request: {
@@ -276,7 +277,7 @@ export function createApp(
             delivery_id: deliveryId,
             pr: prNumber,
             threadId: thread.id,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }
@@ -285,7 +286,7 @@ export function createApp(
         event: "resolve_command.thread_fetch_failed",
         delivery_id: deliveryId,
         pr: prNumber,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
 
@@ -317,7 +318,7 @@ export function createApp(
             delivery_id: deliveryId,
             pr: prNumber,
             reviewId: review.id,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
       }
@@ -326,7 +327,7 @@ export function createApp(
         event: "resolve_command.review_fetch_failed",
         delivery_id: deliveryId,
         pr: prNumber,
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     }
 
@@ -1328,7 +1329,7 @@ export function createApp(
           log.warn("webhook_verify_threw", {
             event: "webhook_verify_threw",
             delivery_id: deliveryId,
-            error: err instanceof Error ? err.message : String(err),
+            error: getLoggableErrorSummary(err),
           });
         }
 
@@ -1494,7 +1495,7 @@ if (import.meta.main) {
   } catch (err: unknown) {
     log.error("migration_error", {
       event: "migration_error",
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
     process.exit(1);
   }
@@ -1577,7 +1578,7 @@ if (import.meta.main) {
   }).catch((err: unknown) => {
     log.error("boot_recovery.unhandled_error", {
       event: "boot_recovery.unhandled_error",
-      error: err instanceof Error ? err.message : String(err),
+      error: getLoggableErrorSummary(err),
     });
   });
 
@@ -1603,7 +1604,7 @@ if (import.meta.main) {
         log.error("shutdown_error", {
           event: "shutdown_error",
           signal,
-          error: err instanceof Error ? err.message : String(err),
+          error: getLoggableErrorSummary(err),
         });
         process.exitCode = 1;
       })
@@ -1759,7 +1760,7 @@ if (import.meta.main) {
     pruneOldRows(db, webhookRetentionDays).catch((err: unknown) => {
       log.error("webhook_retention_prune_error", {
         event: "webhook_retention_prune_error",
-        error: err instanceof Error ? err.message : String(err),
+        error: getLoggableErrorSummary(err),
       });
     });
   }, PRUNE_INTERVAL_MS);

@@ -44,6 +44,7 @@
  * (mt#3188).
  */
 
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 interface SessionRow {
   agentSessionId: string;
   label: string;
@@ -263,7 +264,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(getLoggableErrorSummary(err));
     process.exit(1);
   });
 }

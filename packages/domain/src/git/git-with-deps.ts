@@ -1,4 +1,4 @@
-import { NothingToCommitError } from "../errors/index";
+import { NothingToCommitError, getLoggableErrorSummary } from "../errors/index";
 import { getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
@@ -251,7 +251,7 @@ export async function fetchDefaultBranchWithDepsImpl(
     return result;
   } catch (error) {
     log.error("Could not determine default branch, falling back to 'main'", {
-      error: getErrorMessage(error),
+      error: getLoggableErrorSummary(error),
       repoPath,
     });
     return "main";

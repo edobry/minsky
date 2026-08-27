@@ -39,6 +39,7 @@ import OpenAI from "openai";
 import { callOpenAIWithClient } from "../src/providers";
 import { buildCriticConstitution, buildReviewPrompt } from "../src/prompt";
 import type { ReviewPromptInput } from "../src/prompt";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
@@ -287,6 +288,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Test-shape eval error:", err instanceof Error ? err.message : String(err));
+  console.error("Test-shape eval error:", getLoggableErrorSummary(err));
   process.exit(1);
 });
