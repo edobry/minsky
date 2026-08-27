@@ -376,14 +376,31 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
   ) {
     const subject = ctx.prNumber
       ? `Pull request #${ctx.prNumber} was not found in ${ctx.owner}/${ctx.repo}.`
-      : `The repository ${ctx.owner}/${ctx.repo} was not found.`;
+      : `The repository ${ctx.owner}/${ctx.repo} was not found, or the Minsky GitHub App ` +
+        `installation does not cover it.`;
     const prSuffix = ctx.prNumber ? `/pull/${ctx.prNumber}` : "";
+
+    // mt#4680: a repo-level 404 has TWO indistinguishable causes on an
+    // App-authenticated call — the repository genuinely does not exist, or it
+    // exists and the installation was never granted access to it. GitHub
+    // returns the same 404 for both (it will not confirm the existence of a
+    // repo the caller cannot see), so the message must name both rather than
+    // asserting the first. Naming only "not found" sent an operator looking
+    // for a typo when the actual cause was a missing grant.
+    const appHint = ctx.prNumber
+      ? ""
+      : `  - Check whether the Minsky GitHub App installation covers ` +
+        `${ctx.owner}/${ctx.repo} — an ungranted repo returns this same 404.\n` +
+        `    Grant it under Settings -> Applications -> Installed GitHub Apps -> Repository access,\n` +
+        `    or run \`minsky setup\`, which now reports coverage.\n`;
+
     throw new GitHubApiError(
       `GitHub Not Found\n\n${subject}\n\n` +
         `To fix this:\n` +
         `  - Verify the repository/PR exists and is accessible\n` +
-        `  - Check if the repository is private and you have access\n\n` +
-        `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`,
+        `  - Check if the repository is private and you have access\n${
+          appHint
+        }\nhttps://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`,
       classOf("not-found", info),
       error
     );
