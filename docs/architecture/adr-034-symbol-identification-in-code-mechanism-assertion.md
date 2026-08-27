@@ -4,6 +4,11 @@
 
 Accepted — 2026-08-01. Decided under mt#3549.
 
+**REOPENED — 2026-08-27, under mt#4650.** Reopen condition 2 (measured FP rate above 10%) has
+fired: two classified windows at 73% and 77%. The Decision below stands as the record of what was
+chosen and why, and is NOT yet superseded — the replacement disposition is a principal decision,
+open at ask#10657. See `## Reopened` below for what the reopen does and does not license.
+
 ## Context
 
 `code-mechanism-assertion` fires when an agent asserts how a code mechanism behaves without having
@@ -124,6 +129,119 @@ Any ONE of:
    maintains one (mt#3334's ingest thread is the plausible source), the cost side of this decision
    changes and the positive-signal variant becomes cheap enough to re-evaluate.
 
+## Reopened — 2026-08-27 (mt#4650)
+
+### Condition 2 fired
+
+| Window     | Injected | Classified false | FP rate |
+| ---------- | -------- | ---------------- | ------- |
+| 2026-08-21 | 11       | 8                | **73%** |
+| 2026-08-26 | 13       | 10               | **77%** |
+
+Both from `/calibration-review` passes over
+`.minsky/code-mechanism-assertion-calibration.jsonl` — the measurement surface this ADR's own
+`## Consequences` names ("its FP rate is re-measured every sweep"). The bar is 10%; both windows sit
+~7x over it.
+
+**The "after the current exclusions" qualifier was checked, not assumed.** The newest exclusion is
+mt#4387's symbol-equals-its-own-predicate filter (`isArtifactPair`), merged `a28fa81e7` at
+2026-08-26T23:46Z — after both review watermarks (the 2026-08-26 sweep's sits at log line 1302,
+2026-08-26T21:37:44Z). Across every injected claim from 2026-08-21 to 2026-08-27T01:00Z exactly ONE
+has symbol == predicate (`raise / raise`, 2026-08-26T22:58Z), and it falls after that watermark. So
+the newest exclusion removes zero claims from either classified window and neither figure moves.
+
+**The other two conditions did NOT fire, and should not be cited.** Condition 1 (two exclusion
+rounds inside 5 days): round 6 is mt#4157, 2026-08-16 — 10 days before the filing. Condition 3 (a
+repo-wide identifier index existing for another reason): mt#3334 is DONE but ships guard/calibration
+stream ingest, not an identifier index, and an exact grep over `src`/`packages`/`scripts`/`.minsky`
+for `symbolIndex` / `SymbolIndex` / `identifierIndex` / `IdentifierIndex` / `buildSymbolIndex` /
+`exportedSymbols` returns zero files. `ts-morph` is a dependency; nothing builds an index from it.
+This reproduces mt#3549's `## Premise correction` 26 days on.
+
+### What the reopen does NOT license — the rate is detector-level, this ADR is not
+
+Condition 2 is written in terms of "the current mechanism failing its own bar", and the mechanism
+this ADR governs is exactly one sub-operation: symbol ADMISSION (`isPlausibleSymbol`). The measured
+73–77% is a DETECTOR-level rate. Attributing it to admission is an inference, and measurement does
+not support it.
+
+`buildClaims` runs five separable sub-operations, and only (3) is this ADR's:
+
+1. match a predicate from `PREDICATE_PATTERNS` against the prose
+2. collect symbols within `SYMBOL_PROXIMITY_CHARS` (= **100 characters**) of that match
+3. admit/reject each by SHAPE — `isPlausibleSymbol`, **this ADR's surface**
+4. pair symbol with predicate; drop artifact pairs (`isArtifactPair`, mt#4387)
+5. decide backing / suppression
+
+Attribution over the 45 injected claims from 2026-08-21 to 2026-08-27T01:00Z, reproducible via
+`bun scripts/measure-cma-fp-attribution.ts` (38 distinct symbols; buckets OVERLAP, so they do not
+sum):
+
+| Bucket                                 | Sub-op                   | Count       |
+| -------------------------------------- | ------------------------ | ----------- |
+| symbol not in repo                     | (3) admission            | 9           |
+| predicate crosses a sentence boundary  | (2)/(4) pairing          | 9           |
+| symbol == predicate                    | (4) artifact, shipped    | 1           |
+| **explained by ≥1 structural bucket**  |                          | **17 / 45** |
+| **residue: in-repo AND same-sentence** | (1)/(5) or true positive | **28 / 45** |
+
+Two readings follow, and both cut against a symbol-admission fix:
+
+- **Admission is a minority contributor, and its bucket is not all error.**
+  `pg_stat_statements_reset` is a Postgres function and `MouseExitDelay` a third-party config key —
+  the "Third-party API surface" row of the measurement table above, which this ADR deliberately
+  keeps IN scope. Subtract those and admission's real error share falls further.
+- **Pairing is the same size as admission, and is fixable.** Sub-operation (2) collects any symbol
+  within 100 characters, which routinely reaches across a sentence boundary — `environment.ts`
+  paired with a `drop` from the following sentence, `O_CREAT`/`O_EXCL` with an `overwrites` belonging
+  to `rename`. **mt#4675** owns it, with a sentence-scoped filter measured to remove 9 of 45 and lose
+  none of the known positives. (The stricter clause-scoped variant was measured and DECLINED by
+  mt#4387 because it lost `pr_watch / returns`.)
+
+### The allowlist rejection reproduces — now from the converse direction
+
+The Decision above rejected the repo-symbol allowlist because the TRUE positives are not in a TS
+index. Re-measuring on a 2026-08-27 corpus, with a membership test far broader than a TS index
+(content search across `src`/`packages`/`scripts`/`.minsky/hooks`), reproduces that and adds the
+other half:
+
+**10 of 45 claims are a bare lowercase word — and 10 of 10 score IN-REPO.**
+`unless`, `minsky`, `git`, `license`, `driver`, `feeds`, `rename`, `raise`, `workspace`.
+
+Neither discriminator separates this class. Shape cannot, because `driver` and `unless` are the same
+shape. Membership cannot either — and it is worse than inert here, because an ordinary English word
+appears somewhere under the repo roots essentially always, so it returns a confident "member" for
+precisely the tokens least likely to name a mechanism. The class contains a known TRUE positive
+(`driver`, a real Minsky concept) alongside obvious falses (`unless`, `license`, `workspace`).
+
+So consequence 1 of the Decision above — _"Coverage converges back on shape-matching"_ — now has a
+second, independent line of evidence, from a different corpus 26 days later, running in the opposite
+direction. **Do not re-propose the allowlist without engaging this measurement.**
+
+### Disposition — open, and the principal's
+
+Per the accepted RFC _The evaluation loop — auditing the regulators_
+(Notion `392937f0-3cb4-8188-aad6-d7d041de814b`, Accepted 2026-07-08 via ask `54334d49`), a guard
+exceeding its false-positive budget across consecutive reviews **requires a disposition decision**
+from {retire, consolidate, tune, affirm}, with _"affirm-by-default not among the allowed
+responses"_, packaged as an outlier in a principal-facing review. That is the record routing this
+decision, not any ADR-ratification convention.
+
+Open at **ask#10657**, with four options and a measurement behind each. The agent recommendation is
+(a) consolidate — leave admission as decided and spend the effort on pairing and the residue —
+on the attribution above.
+
+**Match / extend / deviate:**
+
+- Against **this ADR's own reasoning**: **EXTEND, not deviate.** The reopen ran the procedure this
+  ADR wrote for itself, and the new measurement CONFIRMS its central finding rather than
+  overturning it. What is new is scope: the ADR framed the FP rate as evidence about its own
+  mechanism, and the rate turns out to be mostly about other sub-operations.
+- Against the **evaluation-loop RFC**: **MATCH.** Its disposition set and its principal routing are
+  adopted as written. Phase placement: the RFC's Phase 3 is where guard-level dispositions run; this
+  one arrives out-of-band via this ADR's own reopen condition rather than via a scheduled
+  rationalization review, and coordinates with that cadence rather than bypassing it.
+
 ## References
 
 - mt#3549 — this decision. Its `## Premise correction` records the falsified feasibility claim
@@ -136,3 +254,18 @@ Any ONE of:
   measurable at review cadence.
 - mem#704 — a probe that returns the same result when the system is broken is not verification; the
   reason a cached index's staleness is treated as a cost rather than an implementation detail.
+
+Added by the 2026-08-27 reopen (mt#4650):
+
+- mt#4650 — the reopen. Carries the planning audit, the attribution, and the corrected reading of
+  what condition 2's measurement surface licenses.
+- mt#4675 — predicate PAIRING, the sub-operation this ADR does not reach and which the attribution
+  measures at the same size as admission.
+- mt#4387 — round-6-adjacent tune that shipped `isArtifactPair` and measured the clause-scoped
+  pairing variant as a negative result.
+- `scripts/measure-cma-fp-attribution.ts` — the re-runnable attribution measurement.
+- ask#10657 — the open disposition decision.
+- RFC _The evaluation loop — auditing the regulators_
+  (`https://app.notion.com/p/392937f03cb48188aad6d7d041de814b`, Accepted 2026-07-08) — defines the
+  four dispositions and requires one when a guard exceeds its FP budget. Not in the in-repo ADR
+  corpus, which is why the original filing's decision-record search did not reach it.
