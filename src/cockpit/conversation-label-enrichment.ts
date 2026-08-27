@@ -266,12 +266,16 @@ export async function fetchEnrichment(
     );
     const turns = await fetchBoundedFirstUserTurns(db, needsUserText);
 
-    // Tier 2: first-SUBSTANTIVE user-turn text per session. Sort ascending by
-    // turnIndex — pickSubstantiveUserText
-    // (mt#2784) scans only the earliest MAX_USER_TURN_CANDIDATES of those,
-    // skipping any that are harness markup only (e.g. a bare
-    // `<command-message>` slash-command invocation) in favor of the next
-    // real user turn.
+    // Tier 3: first-SUBSTANTIVE user-turn text per session. Sort ascending by
+    // turnIndex — pickSubstantiveUserText (mt#2784) scans only the earliest
+    // MAX_USER_TURN_CANDIDATES of those, skipping any that are harness markup
+    // only (e.g. a bare `<command-message>` slash-command invocation) in favor
+    // of the next real user turn.
+    //
+    // "Tier 3", not "Tier 2" (PR #3400 R2): the generated title took tier 2 when
+    // mt#3321 inserted it above this one, and this header was not renumbered
+    // then. The block above, and `computeConversationLabel`'s own ordering, both
+    // already call this tier 3.
     const userTurnCandidatesBySession = new Map<
       string,
       { turnIndex: number; userText: string }[]
