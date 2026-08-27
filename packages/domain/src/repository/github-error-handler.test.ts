@@ -525,3 +525,47 @@ describe("mt#3221 — a synthesized transport 5xx is not a GitHub outage", () =>
     expect(msg).not.toContain(NETWORK_HEADLINE);
   });
 });
+
+describe("handleOctokitError — repo-level 404 names the App-installation cause (mt#4680)", () => {
+  /** No prNumber — the shape `pulls.create` produces when the repo is unreachable. */
+  const REPO_CTX: ErrorContext = {
+    operation: "create pull request",
+    owner: "edobry",
+    repo: "peezombie.me",
+  };
+
+  function messageFor(ctx: ErrorContext): string {
+    try {
+      handleOctokitError(makeStatusError(404), ctx);
+    } catch (e) {
+      return (e as Error).message;
+    }
+    throw new Error("expected handleOctokitError to throw");
+  }
+
+  test("names BOTH causes — GitHub returns the same 404 for absent and ungranted", () => {
+    // The originating failure: an ungranted repo 404s identically to a
+    // nonexistent one, and the old message asserted only the first, sending
+    // the operator looking for a typo.
+    const msg = messageFor(REPO_CTX);
+    expect(msg).toContain("edobry/peezombie.me");
+    expect(msg).toContain("was not found");
+    expect(msg).toContain("GitHub App");
+    expect(msg).toMatch(/installation does not cover|installation covers/);
+  });
+
+  test("names the concrete remedy, not just the cause", () => {
+    const msg = messageFor(REPO_CTX);
+    expect(msg).toContain("Repository access");
+    expect(msg).toContain("minsky setup");
+  });
+
+  test("a PR-level 404 does NOT mention the App — that cause does not apply", () => {
+    // Reaching a PR at all means the repo was reachable, so the installation
+    // covers it; suggesting otherwise would be a false lead.
+    const msg = messageFor({ ...REPO_CTX, prNumber: 1988 });
+    expect(msg).toContain("Pull request #1988");
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain("Repository access");
+  });
+});

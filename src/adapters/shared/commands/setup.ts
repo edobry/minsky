@@ -23,6 +23,56 @@ import { ValidationError } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
 import { isInteractive } from "../../../utils/interactive";
 import { runInteractiveSetupDb } from "./setup-db";
+import { readFile } from "node:fs/promises";
+import { parse as yamlParse } from "yaml";
+import path from "node:path";
+import { getConfiguration } from "@minsky/domain/configuration";
+import { createTokenProvider } from "@minsky/domain/auth";
+import { GitHubAppTokenProvider } from "@minsky/domain/auth/github-app-token-provider";
+import { extractOwnerRepo } from "@minsky/domain/project/slug";
+import { checkAppCoverage, formatAppCoverage } from "@minsky/domain/setup/app-coverage";
+
+/**
+ * Onboarding-time GitHub App installation-coverage check (mt#4680).
+ *
+ * A repository the App installation does not cover otherwise announces itself
+ * as a bare 404 from `pulls.create`, after the branch has already been pushed
+ * and long after onboarding. Nothing in `init` or `setup` mentioned the App at
+ * all, so this is the first place the gap can surface.
+ *
+ * Best-effort by construction: every failure path returns a message rather than
+ * throwing, because a probe that cannot run must not fail a setup that
+ * otherwise succeeded.
+ */
+async function checkGitHubAppCoverageMessage(repoPath: string): Promise<string | null> {
+  try {
+    const configPath = path.join(repoPath, ".minsky", "config.yaml");
+    const raw = yamlParse(String(await readFile(configPath, "utf-8"))) as
+      | { repository?: { url?: string } }
+      | undefined;
+    const url = raw?.repository?.url;
+    if (!url) return null;
+
+    // Derive owner/repo from the canonical URL rather than the denormalized
+    // `repository.github.{owner,repo}` fields: those were written by whatever
+    // parser ran at `init` time, and before mt#4671 that parser truncated any
+    // repo name containing a dot.
+    const ownerRepo = extractOwnerRepo(url);
+    if (!ownerRepo) return null;
+
+    const cfg = getConfiguration();
+    const provider = createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? "");
+    const appProvider = provider instanceof GitHubAppTokenProvider ? provider : null;
+
+    const status = await checkAppCoverage(ownerRepo, { provider: appProvider });
+    // A configured-but-covered install is the uninteresting case; stay quiet.
+    if (status.state === "covered" || status.state === "no-app-configured") return null;
+    return formatAppCoverage(status);
+  } catch {
+    // intentional-swallow: coverage is advisory; setup must not fail on it.
+    return null;
+  }
+}
 
 const setupParams = composeParams(
   {
@@ -204,9 +254,14 @@ export function registerSetupCommands(deps: SetupCommandDeps = {}) {
           }
           const dbSuffix = dbMessages.length > 0 ? `\n${dbMessages.join("\n")}` : "";
 
+          // mt#4680: surface a missing App grant here rather than letting it
+          // appear as a 404 at PR-create time.
+          const coverageMessage = await checkGitHubAppCoverageMessage(repoPath);
+          const coverageSuffix = coverageMessage ? `\n${coverageMessage}` : "";
+
           return {
             success: result.success,
-            message: result.message + agentSettingsSuffix + dbSuffix,
+            message: result.message + agentSettingsSuffix + dbSuffix + coverageSuffix,
             localConfigPath: result.localConfigPath,
             harnessConfigPath: result.harnessConfigPath,
             client: result.client,
