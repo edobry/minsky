@@ -4,7 +4,20 @@
 
 ## Status
 
-Proposed
+**Proposed** — 2026-08-16, under mt#4170. Ratification is pending rather than assumed, and is
+routed to the principal as ask#10650.
+
+**Proposed is a merge-able state in this corpus**, so the children that have shipped against this
+ADR are not evidence it was accepted — ADR-041 states the same for itself, and ADR-037 and ADR-040
+are also on main in it. Acceptance is a separate operator step on the merged document, recorded in
+this line when it happens.
+
+**What acceptance is waiting on.** `documentation-taxonomy.mdc` makes an Accepted ADR
+**immutable** — later changes require a new superseding ADR rather than an edit — and this one is
+still absorbing row corrections: mt#4244 (twice), mt#4293 and mt#4544 have each amended it since
+2026-08-18. Ratifying now would force a superseding ADR for edits that are currently one-liners.
+The natural trigger to revisit is its last two rows landing (mt#4172, mt#4173) and the amendment
+rate falling.
 
 ## Context
 
