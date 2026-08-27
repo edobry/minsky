@@ -33,6 +33,7 @@
     "./resolve-proposal": "./src/resolve-proposal.ts",
     "./entity-thread-types": "./src/entity-thread-types.ts",
     "./tool-effect": "./src/tool-effect.ts",
-    "./credential-request": "./src/credential-request.ts"
+    "./credential-request": "./src/credential-request.ts",
+    "./app-grant-request": "./src/app-grant-request.ts"
   }
 }
