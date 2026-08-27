@@ -29,7 +29,7 @@
  * @see mt#3343 — this extraction (conversation page reads its OWN label)
  */
 
-import { and, inArray, isNotNull } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
@@ -41,6 +41,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { WorkspaceId } from "@minsky/domain/ids";
 import {
   composeSubagentDescriptor,
+  MAX_USER_TURN_CANDIDATES,
   pickSubstantiveUserText,
 } from "@minsky/domain/transcripts/conversation-label";
 import type { TaskTitleCache } from "./task-title-cache";
@@ -100,6 +101,88 @@ export function pickBestLinks(
   return result;
 }
 
+/** One user-turn candidate, in the shape `pickSubstantiveUserText` consumes. */
+export interface BoundedUserTurn {
+  agentSessionId: string;
+  turnIndex: number;
+  userText: string;
+}
+
+/**
+ * The earliest `MAX_USER_TURN_CANDIDATES` user-text turns per session (mt#4655).
+ *
+ * The single home for this read — both label call sites go through it, so the
+ * bound has exactly one definition and the two surfaces cannot drift into
+ * labelling the same conversation differently.
+ *
+ * **The bound is the consumer's own, not a chosen threshold.**
+ * `pickSubstantiveUserText` does `candidates.slice(0, MAX_USER_TURN_CANDIDATES)`,
+ * so anything past it is discarded anyway; dropping it here is label-identical
+ * by construction rather than by measurement.
+ *
+ * **`row_number()` PARTITIONED by session, never a global `LIMIT`.** `ids` is
+ * batch-shaped, and an unordered global limit returns an arbitrary N rows
+ * ACROSS conversations — omitting the early turns a label depends on and
+ * silently changing or blanking it (mt#3591).
+ *
+ * **Callers should also skip ids whose label resolves at a higher tier.**
+ * `computeConversationLabel` short-circuits at the generated title
+ * (`if (generated) return generated;`), and 98.2% of conversations carry one —
+ * so for most ids this text is fetched and discarded. This function bounds the
+ * read; only the caller knows which ids still need it.
+ */
+export async function fetchBoundedFirstUserTurns(
+  db: PostgresJsDatabase,
+  ids: string[]
+): Promise<BoundedUserTurn[]> {
+  if (ids.length === 0) return [];
+
+  // Column names taken from the schema, never spelled out (PR #3400 R3).
+  //
+  // The INNER query interpolates the drizzle column objects directly, which
+  // render as table-qualified identifiers. The OUTER select cannot: it reads
+  // from the derived table `ranked`, so a qualified name would reference a
+  // table that is not in scope there. These are the bare names for that side —
+  // still schema-derived, so a rename flows through both halves and the
+  // response mapping below.
+  //
+  // Worth the indirection because NOTHING would catch the drift: every test
+  // double replaces `execute` wholesale, so no test executes this statement.
+  // A renamed column would leave the suite green and fail in production.
+  const sessionIdName = agentTranscriptTurnsTable.agentSessionId.name;
+  const turnIndexName = agentTranscriptTurnsTable.turnIndex.name;
+  const userTextName = agentTranscriptTurnsTable.userText.name;
+  const sessionIdCol = sql.identifier(sessionIdName);
+  const turnIndexCol = sql.identifier(turnIndexName);
+  const userTextCol = sql.identifier(userTextName);
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    select ${sessionIdCol}, ${turnIndexCol}, ${userTextCol}
+    from (
+      select
+        ${agentTranscriptTurnsTable.agentSessionId},
+        ${agentTranscriptTurnsTable.turnIndex},
+        ${agentTranscriptTurnsTable.userText},
+        row_number() over (
+          partition by ${agentTranscriptTurnsTable.agentSessionId}
+          order by ${agentTranscriptTurnsTable.turnIndex} asc
+        ) as rn
+      from ${agentTranscriptTurnsTable}
+      where ${inArray(agentTranscriptTurnsTable.agentSessionId, ids)}
+        and ${agentTranscriptTurnsTable.userText} is not null
+    ) ranked
+    where rn <= ${MAX_USER_TURN_CANDIDATES}
+  `);
+  // Keyed by the SAME schema-derived names the statement selected — `db.execute`
+  // with a raw statement returns the driver's column names verbatim rather than
+  // drizzle's camelCase select aliases, so a rename has to flow through here
+  // too or the mapping silently yields undefined.
+  return rows.map((row) => ({
+    agentSessionId: row[sessionIdName] as string,
+    turnIndex: row[turnIndexName] as number,
+    userText: row[userTextName] as string,
+  }));
+}
+
 /**
  * Batch-fetch the enrichment inputs for the given agent session ids. Returns
  * an empty map (all tiers miss, callers fall back to the timestamp·cwd label)
@@ -110,9 +193,42 @@ export function pickBestLinks(
 export async function fetchEnrichment(
   db: PostgresJsDatabase,
   ids: string[],
-  titleCache: TaskTitleCache | null
+  titleCache: TaskTitleCache | null,
+  /**
+   * Generated title (`agent_transcripts.title`) per id, when the caller already
+   * has it (mt#4655). Supplying it lets this function SKIP the user-text read
+   * entirely for conversations whose label is already decided by a higher tier.
+   *
+   * Optional so existing call sites keep compiling; omitting it reproduces the
+   * previous behaviour of fetching user text for every id.
+   */
+  generatedTitleById?: ReadonlyMap<string, string | null>
 ): Promise<Map<string, RowEnrichment>> {
   if (ids.length === 0) return new Map();
+
+  // Keyed on the GENERATED TITLE ONLY — deliberately NOT on tier 1 as well
+  // (PR #3400 R2 BLOCKING).
+  //
+  // The obvious predicate also skips ids with a resolved link, since tier 1
+  // outranks tier 3. It is wrong. Tier 1 resolves on the linked task TITLE, and
+  // that title comes from `titleCache.getTitles(...)` — a lookup that can
+  // legitimately return nothing when the task backend is unavailable, or when
+  // the id resolves to no task. A found task id is not a title. So on a
+  // title-cache miss `computeConversationLabel` falls past tier 1 to tier 3 and
+  // finds the user text absent, degrading the label to the timestamp·cwd·id
+  // fallback exactly when the backend is already degraded — the worst moment
+  // for the surface to also lose its labels.
+  //
+  // The generated title has no such gap: it is a value already in hand, and it
+  // is the SAME value `computeConversationLabel` reads for tier 2. Nothing can
+  // fail between this check and its use, so the skip cannot diverge from the
+  // decision it predicts.
+  //
+  // Cost of the narrower predicate: a conversation with a resolvable linked
+  // task title AND no generated title still reads its user text unnecessarily.
+  // That is a subset of the 1.8% lacking a generated title — a rounding error
+  // against shipping a label regression.
+  const needsUserText = ids.filter((id) => !generatedTitleById?.get(id)?.trim());
 
   try {
     const [links, turns, spawns, invocations] = await Promise.all([
@@ -125,19 +241,10 @@ export async function fetchEnrichment(
         })
         .from(minskySessionLinksTable)
         .where(inArray(minskySessionLinksTable.agentSessionId, ids)),
-      db
-        .select({
-          agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-          turnIndex: agentTranscriptTurnsTable.turnIndex,
-          userText: agentTranscriptTurnsTable.userText,
-        })
-        .from(agentTranscriptTurnsTable)
-        .where(
-          and(
-            inArray(agentTranscriptTurnsTable.agentSessionId, ids),
-            isNotNull(agentTranscriptTurnsTable.userText)
-          )
-        ),
+      // Runs in THIS wave, not a later one: the predicate depends only on `ids`
+      // and the caller-supplied titles, both known before any query, so the
+      // conditional read costs no additional round trip.
+      fetchBoundedFirstUserTurns(db, needsUserText),
       db
         .select({
           childAgentSessionId: agentSpawnsTable.childAgentSessionId,
@@ -180,19 +287,21 @@ export async function fetchEnrichment(
       if (taskId) linkedTaskIdBySession.set(agentSessionId, taskId);
     }
 
-    // Tier 2: first-SUBSTANTIVE user-turn text per session. Collect every
-    // non-null-userText turn per session (already batch-fetched above, no
-    // extra query), then sort ascending by turnIndex — pickSubstantiveUserText
-    // (mt#2784) scans only the earliest MAX_USER_TURN_CANDIDATES of those,
-    // skipping any that are harness markup only (e.g. a bare
-    // `<command-message>` slash-command invocation) in favor of the next
-    // real user turn.
+    // Tier 3: first-SUBSTANTIVE user-turn text per session. Sort ascending by
+    // turnIndex — pickSubstantiveUserText (mt#2784) scans only the earliest
+    // MAX_USER_TURN_CANDIDATES of those, skipping any that are harness markup
+    // only (e.g. a bare `<command-message>` slash-command invocation) in favor
+    // of the next real user turn.
+    //
+    // "Tier 3", not "Tier 2" (PR #3400 R2): the generated title took tier 2 when
+    // mt#3321 inserted it above this one, and this header was not renumbered
+    // then. The block above, and `computeConversationLabel`'s own ordering, both
+    // already call this tier 3.
     const userTurnCandidatesBySession = new Map<
       string,
       { turnIndex: number; userText: string }[]
     >();
     for (const turn of turns) {
-      if (!turn.userText) continue;
       const list = userTurnCandidatesBySession.get(turn.agentSessionId) ?? [];
       list.push({ turnIndex: turn.turnIndex, userText: turn.userText });
       userTurnCandidatesBySession.set(turn.agentSessionId, list);
