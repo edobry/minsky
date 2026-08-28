@@ -115,6 +115,9 @@ const PERMISSION_DENIED_MSG = "GitHub Permission Denied";
  */
 const REPOSITORY_ACCESS_HINT = "Repository access";
 
+/** Same reason as {@link REPOSITORY_ACCESS_HINT} — repeated across 3+ repo-level-shape tests. */
+const CREATE_PR_OPERATION = "create pull request";
+
 describe("handleOctokitError — 5xx branch (mt#2890)", () => {
   test("500 surfaces 'GitHub API degraded/unavailable (HTTP 500)'", () => {
     expect(() => handleOctokitError(makeServerError(500), CTX)).toThrow(DEGRADED_HTTP_500);
@@ -557,7 +560,7 @@ describe("mt#3221 — a synthesized transport 5xx is not a GitHub outage", () =>
 describe("handleOctokitError — repo-level 404 names the App-installation cause (mt#4680)", () => {
   /** No prNumber — the shape `pulls.create` produces when the repo is unreachable. */
   const REPO_CTX: ErrorContext = {
-    operation: "create pull request",
+    operation: CREATE_PR_OPERATION,
     owner: "edobry",
     repo: "peezombie.me",
   };
@@ -665,7 +668,7 @@ describe("handleOctokitError — sub-resource 404s do not carry the App-coverage
     // this time with explicit path evidence rather than the no-evidence
     // fallback (covered separately above).
     const msg = messageForPath("/repos/edobry/minsky/pulls", {
-      operation: "create pull request",
+      operation: CREATE_PR_OPERATION,
       owner: "edobry",
       repo: "minsky",
     });
@@ -678,6 +681,33 @@ describe("handleOctokitError — sub-resource 404s do not carry the App-coverage
       operation: "get repository",
       owner: "edobry",
       repo: "minsky",
+    });
+    expect(msg).toContain("GitHub App");
+    expect(msg).toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("GitHub Enterprise Server shape — an /api/v3 mount prefix before /repos/... is still parsed correctly", () => {
+    // Octokit's own README (installed @octokit/core) documents this exact
+    // shape for GHE: `baseUrl: "https://HOSTNAME/api/v3"`, which puts
+    // /api/v3 BEFORE /repos/... in the resolved request URL. Anchoring the
+    // discriminator's regex at the start of the path would silently treat
+    // this as "no evidence" and fall through to the repo-level default,
+    // keeping the hint alive on GHE for the exact sub-resource shape this
+    // task exists to fix (mt#4692 PR #3421 R1).
+    const msg = messageForPath("/api/v3/repos/acme-inc/widget/actions/workflows/ci.yml/runs", {
+      operation: "list workflow runs",
+      owner: "acme-inc",
+      repo: "widget",
+    });
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("GitHub Enterprise Server shape — a repo-level request under /api/v3 still gets the hint", () => {
+    const msg = messageForPath("/api/v3/repos/acme-inc/widget/pulls", {
+      operation: CREATE_PR_OPERATION,
+      owner: "acme-inc",
+      repo: "widget",
     });
     expect(msg).toContain("GitHub App");
     expect(msg).toContain(REPOSITORY_ACCESS_HINT);
