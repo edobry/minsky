@@ -35,6 +35,28 @@
 // ADR-024's one-mechanism clause; this file is the adapter that segments the
 // transcript window and supplies the elider.
 //
+// ## Graduation contract (declared at ship time, per ADR-024 + RFC 3a0937f0)
+//
+// Both obligations bind through the `calibrationLog: "cross-turn-hedge"` field on
+// this guard's `GUARD_REGISTRY` entry — `scripts/lib/calibration-log-declarations.ts`
+// derives the producer set from that field, so nothing here needs hand-registering
+// and neither obligation can be silently skipped:
+//
+//   - **Coverage receipt** (ADR-024): at least one `source: "live"` true positive
+//     within 7 days of ship. Zero live fires in 7 days retroactively FAILS the gate
+//     and is surfaced for review — a detector that never fires is not "done".
+//     Enforced by `scripts/check-coverage-receipts.ts`.
+//   - **Disposition ask** (RFC 3a0937f0 Phase 2's contract, adopted here): flip /
+//     tune / retire is REQUIRED at whichever comes first of 25 logged fires or 30
+//     days post-ship. "Still calibrating" past that point is a failed gate, not a
+//     state. Enforced by the never-reviewed + days-since-first-fire cadence leg
+//     (mt#2896), which exists precisely so a low-volume log cannot stay invisible.
+//
+// The first review also owes two numbers this ship could not measure: the
+// `hedgeGapTurns` distribution behind the provisional `WINDOW_TURNS`, and the
+// per-leg / per-subject-kind false-positive split (`legCounts`, `subjectKinds` in
+// the evaluation record). Both are recorded on every evaluation for that reason.
+//
 // @see packages/domain/src/detectors/cross-turn-hedge.ts — the matcher
 // @see .minsky/hooks/pre-narration-detector.ts — the trailing-window precedent
 // @see .minsky/hooks/negative-existence-claim-detector.ts — sibling adapter shape
