@@ -43,6 +43,7 @@ import {
 } from "@minsky/domain/setup/app-grant-request";
 import { PENDING_REQUEST_STATES as PENDING_ASK_STATES } from "@minsky/domain/ask/presence-backed-request";
 import { buildAskRepository, createAskWithFormLint } from "./asks";
+import type { AskRepository } from "@minsky/domain/ask/repository";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -90,7 +91,10 @@ async function checkGitHubAppCoverageMessage(repoPath: string): Promise<string |
     // as a line in the setup output (mt#4693). `unknown` deliberately files
     // NOTHING: a probe that could not run is not a missing grant, and telling an
     // operator to grant access they already have wastes the trip.
-    const filed = uncovered.length > 0 ? await fileAppGrantRequests(uncovered) : [];
+    const filed =
+      uncovered.length > 0
+        ? await fileAppGrantRequests(uncovered, await buildAskRepository(undefined))
+        : [];
 
     const lines: string[] = [];
     for (const entry of [...uncovered, ...unknown]) {
@@ -153,9 +157,16 @@ function describeConfiguredAppRoles(cfg: {
  *
  * Returns the ids actually filed, so the caller reports what happened rather
  * than asserting it.
+ *
+ * Takes the repository rather than resolving one, so the two behaviours that
+ * are easy to get wrong — an `unknown` probe filing nothing, and a policy-closed
+ * ask not being counted as filed — are assertable against a fake instead of
+ * requiring the real persistence stack. Exported for that reason only.
  */
-async function fileAppGrantRequests(uncovered: AppRoleCoverage[]): Promise<string[]> {
-  const repo = await buildAskRepository(undefined);
+export async function fileAppGrantRequests(
+  uncovered: readonly AppRoleCoverage[],
+  repo: AskRepository | null
+): Promise<string[]> {
   if (!repo) return [];
 
   const existing = (
