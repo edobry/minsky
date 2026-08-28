@@ -21,7 +21,6 @@ const FULL_PAYLOAD: AppGrantRequestPayload = {
   role: "reviewer",
   slug: "minsky-reviewer",
   settingsUrl: "https://github.com/settings/installations/987654321",
-  parentEntryStatus: "IN-PROGRESS",
 };
 
 function askWith(payload: unknown) {

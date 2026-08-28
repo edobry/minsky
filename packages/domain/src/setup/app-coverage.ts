@@ -98,7 +98,12 @@ export function formatAppCoverage(
  * private field. That keeps this a pure function of its argument, so it is
  * assertable without a provider, a network, or a config loader.
  */
-export function installationSettingsUrl(installationId: number): string {
+export function installationSettingsUrl(installationId: number): string | null {
+  // Guarded rather than a bare interpolation (PR #3418 R1, non-blocking): a
+  // misconfigured id would otherwise render `.../NaN` or `.../-1` into an
+  // operator-facing link. `null` is the same answer as "no id configured", and
+  // every caller already omits the link on that — a wrong URL is worse than none.
+  if (!Number.isInteger(installationId) || installationId <= 0) return null;
   return `https://github.com/settings/installations/${installationId}`;
 }
 
@@ -161,12 +166,15 @@ export async function checkAppRoleCoverage(
       status = { state: "unknown", reason: getErrorMessage(error) };
     }
 
+    const settingsUrl =
+      descriptor.installationId === undefined
+        ? null
+        : installationSettingsUrl(descriptor.installationId);
+
     results.push({
       ...descriptor,
       status,
-      ...(descriptor.installationId === undefined
-        ? {}
-        : { settingsUrl: installationSettingsUrl(descriptor.installationId) }),
+      ...(settingsUrl === null ? {} : { settingsUrl }),
     });
   }
   return results;

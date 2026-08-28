@@ -145,6 +145,17 @@ describe("installationSettingsUrl (mt#4693)", () => {
       "https://github.com/settings/installations/125403046"
     );
   });
+
+  it("returns null for a malformed id rather than rendering a broken link", () => {
+    // A misconfigured value would otherwise reach an operator-facing link as
+    // `.../NaN` or `.../-1`. `null` is the same answer as "no id configured",
+    // which every caller already handles by omitting the link (PR #3418 R1).
+    expect(installationSettingsUrl(Number.NaN)).toBeNull();
+    expect(installationSettingsUrl(0)).toBeNull();
+    expect(installationSettingsUrl(-1)).toBeNull();
+    expect(installationSettingsUrl(1.5)).toBeNull();
+    expect(installationSettingsUrl(Number.POSITIVE_INFINITY)).toBeNull();
+  });
 });
 
 describe("checkAppRoleCoverage (mt#4693 D6)", () => {

@@ -91,26 +91,55 @@ async function checkGitHubAppCoverageMessage(repoPath: string): Promise<string |
     // as a line in the setup output (mt#4693). `unknown` deliberately files
     // NOTHING: a probe that could not run is not a missing grant, and telling an
     // operator to grant access they already have wastes the trip.
-    const filed =
+    const outcome: AppGrantFilingOutcome =
       uncovered.length > 0
         ? await fileAppGrantRequests(uncovered, await buildAskRepository(undefined))
-        : [];
+        : { filed: [], policyClosed: [] };
 
-    const lines: string[] = [];
-    for (const entry of [...uncovered, ...unknown]) {
-      lines.push(formatAppCoverage(entry.status, entry.slug));
-    }
-    if (filed.length > 0) {
-      lines.push(
-        `  Tracked as ${filed.length === 1 ? "an open request" : `${filed.length} open requests`} — Minsky will notice the grant on its own; nothing to confirm here.`
-      );
-    }
-
+    const lines = renderCoverageLines([...uncovered, ...unknown], outcome);
     return lines.length > 0 ? lines.join("\n") : null;
   } catch {
     // intentional-swallow: coverage is advisory; setup must not fail on it.
     return null;
   }
+}
+
+/**
+ * The operator-facing lines for one coverage pass.
+ *
+ * Pure, and exported, so the line that matters most is assertable: a
+ * POLICY-CLOSED request must be stated here rather than left in a log the
+ * operator never reads (PR #3418 R2). That outcome is the one that looks like
+ * success and is not — the row reads as settled, no human was asked, and
+ * because this resolves by coverage presence it will never resolve either. A
+ * `log.warn` plus an empty filed-list left `setup` looking like it had done
+ * something.
+ */
+export function renderCoverageLines(
+  reportable: readonly AppRoleCoverage[],
+  outcome: AppGrantFilingOutcome
+): string[] {
+  const lines: string[] = [];
+  for (const entry of reportable) {
+    lines.push(formatAppCoverage(entry.status, entry.slug));
+  }
+
+  if (outcome.filed.length > 0) {
+    lines.push(
+      `  Tracked as ${outcome.filed.length === 1 ? "an open request" : `${outcome.filed.length} open requests`} — Minsky will notice the grant on its own; nothing to confirm here.`
+    );
+  }
+
+  for (const entry of outcome.policyClosed) {
+    lines.push(
+      `  COULD NOT file a grant request for ${entry.slug} (${entry.role}): the ask router auto-closed it in policy, so nobody was asked and it will never resolve.`,
+      entry.settingsUrl
+        ? `    Grant access manually at ${entry.settingsUrl}, or adjust the ask policy and re-run \`minsky setup\`.`
+        : `    Grant access manually under Repository access, or adjust the ask policy and re-run \`minsky setup\`.`
+    );
+  }
+
+  return lines;
 }
 
 /**
@@ -163,17 +192,32 @@ function describeConfiguredAppRoles(cfg: {
  * ask not being counted as filed — are assertable against a fake instead of
  * requiring the real persistence stack. Exported for that reason only.
  */
+export interface AppGrantFilingOutcome {
+  /** Ask ids actually filed and routed to the operator. */
+  readonly filed: string[];
+  /**
+   * Roles whose ask the router auto-closed in policy, so no human was asked.
+   *
+   * Reported SEPARATELY from `filed` and surfaced in the setup output, because
+   * this is the one outcome that looks like success and is not: the row reads as
+   * settled, the request will never resolve, and onboarding would otherwise tell
+   * the operator a request exists that nobody will ever answer.
+   */
+  readonly policyClosed: AppRoleCoverage[];
+}
+
 export async function fileAppGrantRequests(
   uncovered: readonly AppRoleCoverage[],
   repo: AskRepository | null
-): Promise<string[]> {
-  if (!repo) return [];
+): Promise<AppGrantFilingOutcome> {
+  if (!repo) return { filed: [], policyClosed: [] };
 
   const existing = (
     await Promise.all(PENDING_ASK_STATES.map((state) => repo.listByState(state)))
   ).flat();
 
   const filed: string[] = [];
+  const policyClosed: AppRoleCoverage[] = [];
   for (const entry of uncovered) {
     if (entry.status.state !== "not-covered") continue;
 
@@ -207,12 +251,13 @@ export async function fileAppGrantRequests(
         repo: entry.status.repo,
         role: entry.role,
       });
+      policyClosed.push(entry);
       continue;
     }
 
     filed.push(ask.id);
   }
-  return filed;
+  return { filed, policyClosed };
 }
 
 const setupParams = composeParams(

@@ -85,31 +85,23 @@ describe("buildAppGrantRequestAsk (mt#4693)", () => {
     expect(draft.question).toContain("Nothing is broken");
   });
 
-  it("carries the payload, and the parent entry status only when there is a parent", () => {
-    const withParent = buildAppGrantRequestAsk({
+  it("carries no parent fields — this request is not task-scoped", () => {
+    // Onboarding files this BEFORE any task exists, so there is nothing to block
+    // and nothing to release. Mirroring the credential payload's parent fields
+    // would leave a field nothing sets and a release seam nothing calls, which
+    // reads as an oversight rather than a decision (PR #3418 R1).
+    const draft = buildAppGrantRequestAsk({
       repo: REPO,
       role: "reviewer",
       slug: "minsky-reviewer",
-      parentTaskId: "mt#1",
-      parentEntryStatus: "IN-PROGRESS",
-    });
-    expect(withParent.metadata[APP_GRANT_REQUEST_METADATA_KEY]).toEqual({
-      repo: REPO,
-      role: "reviewer",
-      slug: "minsky-reviewer",
-      parentEntryStatus: "IN-PROGRESS",
     });
 
-    // A stray entry status with no parent would hand the resolver a task id it
-    // does not have.
-    const orphan = buildAppGrantRequestAsk({
+    expect(draft.metadata[APP_GRANT_REQUEST_METADATA_KEY]).toEqual({
       repo: REPO,
       role: "reviewer",
       slug: "minsky-reviewer",
-      parentEntryStatus: "IN-PROGRESS",
     });
-    expect(orphan.metadata[APP_GRANT_REQUEST_METADATA_KEY]).not.toHaveProperty("parentEntryStatus");
-    expect(orphan).not.toHaveProperty("parentTaskId");
+    expect(draft).not.toHaveProperty("parentTaskId");
   });
 
   it("carries no field capable of holding a credential", () => {

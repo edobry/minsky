@@ -77,18 +77,19 @@ export interface BuildAppGrantRequestInput {
   readonly slug: string;
   /** Deep link to the installation's settings page, when the id is configured. */
   readonly settingsUrl?: string;
-  /** Task this request blocks, when there is one. */
-  readonly parentTaskId?: string;
-  /** The parent's status at the moment it was blocked — the caller reads it; this is pure. */
-  readonly parentEntryStatus?: string;
 }
 
-/** The ask-shaped result: exactly the fields a caller passes to ask creation. */
+/**
+ * The ask-shaped result: exactly the fields a caller passes to ask creation.
+ *
+ * No `parentTaskId`: this request is filed during onboarding, before any task
+ * exists — see the note beside `AppGrantRequestPayload` for why the parent
+ * fields are absent rather than mirrored from the credential payload.
+ */
 export interface AppGrantRequestAskDraft {
   readonly kind: AskKind;
   readonly title: string;
   readonly question: string;
-  readonly parentTaskId?: string;
   readonly metadata: Record<string, unknown>;
 }
 
@@ -114,14 +115,13 @@ export interface AppGrantRequestAskDraft {
  *   severity marker and only one holds here, so it must not read like an incident.
  */
 export function buildAppGrantRequestAsk(input: BuildAppGrantRequestInput): AppGrantRequestAskDraft {
-  const { repo, role, slug, settingsUrl, parentTaskId, parentEntryStatus } = input;
+  const { repo, role, slug, settingsUrl } = input;
 
   const payload: AppGrantRequestPayload = {
     repo,
     role,
     slug,
     ...(settingsUrl ? { settingsUrl } : {}),
-    ...(parentTaskId && parentEntryStatus ? { parentEntryStatus } : {}),
   };
 
   const question = [
@@ -140,7 +140,6 @@ export function buildAppGrantRequestAsk(input: BuildAppGrantRequestInput): AppGr
     kind: APP_GRANT_REQUEST_ASK_KIND,
     title: `Grant ${slug} access to ${repo}`,
     question,
-    ...(parentTaskId ? { parentTaskId } : {}),
     metadata: { [APP_GRANT_REQUEST_METADATA_KEY]: payload },
   };
 }

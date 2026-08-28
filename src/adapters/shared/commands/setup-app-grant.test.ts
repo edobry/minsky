@@ -19,7 +19,7 @@ import type { Ask } from "@minsky/domain/ask/types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { AppRoleCoverage } from "@minsky/domain/setup/app-coverage";
 import { APP_GRANT_REQUEST_METADATA_KEY } from "@minsky/domain/setup/app-grant-request";
-import { fileAppGrantRequests } from "./setup";
+import { fileAppGrantRequests, renderCoverageLines } from "./setup";
 
 const UNGRANTED_REPO = "edobry/peezombie.me";
 
@@ -83,14 +83,14 @@ describe("fileAppGrantRequests (mt#4693)", () => {
   test("files nothing when persistence is unavailable, rather than throwing", async () => {
     // `setup` is the command that CONFIGURES the database, and an operator can
     // decline that step — so this degrades to the printed message.
-    expect(await fileAppGrantRequests([UNCOVERED], null)).toEqual([]);
+    expect(await fileAppGrantRequests([UNCOVERED], null)).toEqual({ filed: [], policyClosed: [] });
   });
 
   test("a failed probe files NOTHING — `unknown` is not a missing grant", async () => {
     const { repo, created } = fakeRepo({});
-    const filed = await fileAppGrantRequests([UNKNOWN], repo);
+    const outcome = await fileAppGrantRequests([UNKNOWN], repo);
 
-    expect(filed).toEqual([]);
+    expect(outcome).toEqual({ filed: [], policyClosed: [] });
     expect(created).toEqual([]);
   });
 
@@ -99,7 +99,10 @@ describe("fileAppGrantRequests (mt#4693)", () => {
       existing: [openGrantAsk(UNGRANTED_REPO, "implementer")],
     });
 
-    expect(await fileAppGrantRequests([UNCOVERED], repo)).toEqual([]);
+    expect(await fileAppGrantRequests([UNCOVERED], repo)).toEqual({
+      filed: [],
+      policyClosed: [],
+    });
     expect(created).toEqual([]);
   });
 
@@ -108,7 +111,7 @@ describe("fileAppGrantRequests (mt#4693)", () => {
       existing: [openGrantAsk(UNGRANTED_REPO, "reviewer")],
     });
 
-    expect(await fileAppGrantRequests([UNCOVERED], repo)).toHaveLength(1);
+    expect((await fileAppGrantRequests([UNCOVERED], repo)).filed).toHaveLength(1);
     expect(created).toHaveLength(1);
   });
 
@@ -119,6 +122,58 @@ describe("fileAppGrantRequests (mt#4693)", () => {
     // would tell the operator a request exists that nobody will ever answer.
     const { repo } = fakeRepo({ routingTarget: "policy" });
 
-    expect(await fileAppGrantRequests([UNCOVERED], repo)).toEqual([]);
+    const outcome = await fileAppGrantRequests([UNCOVERED], repo);
+
+    // Not filed...
+    expect(outcome.filed).toEqual([]);
+    // ...and REPORTED, so the caller can say so in the operator's own output.
+    // Silently returning an empty list is what R2 flagged: setup would look
+    // successful while no actionable request existed.
+    expect(outcome.policyClosed).toHaveLength(1);
+    expect(outcome.policyClosed[0]?.slug).toBe("minsky-ai");
+  });
+});
+
+describe("renderCoverageLines (mt#4693, PR #3418 R2)", () => {
+  test("a POLICY-CLOSED request is stated in the operator's own output", () => {
+    // The finding this exists for: logging a warning and returning an empty
+    // filed-list left `setup` looking successful while no actionable request
+    // existed. The operator has to be told, where they are already reading.
+    const lines = renderCoverageLines([UNCOVERED], {
+      filed: [],
+      policyClosed: [UNCOVERED],
+    });
+    const text = lines.join("\n");
+
+    expect(text).toContain("COULD NOT file a grant request");
+    expect(text).toContain("minsky-ai");
+    expect(text).toContain("never resolve");
+    // ...and it tells them what to do instead.
+    expect(text).toContain("https://github.com/settings/installations/125403046");
+    expect(text).toContain("re-run");
+  });
+
+  test("degrades to prose guidance when no settings link is available", () => {
+    const noLink = { ...UNCOVERED, settingsUrl: undefined };
+    const text = renderCoverageLines([noLink], { filed: [], policyClosed: [noLink] }).join("\n");
+
+    expect(text).toContain("COULD NOT file a grant request");
+    expect(text).not.toContain("https://");
+    expect(text).toContain("Repository access");
+  });
+
+  test("a successfully filed request says so, and says there is nothing to confirm", () => {
+    const text = renderCoverageLines([UNCOVERED], {
+      filed: ["ask-1"],
+      policyClosed: [],
+    }).join("\n");
+
+    expect(text).toContain("Tracked as an open request");
+    expect(text).toContain("nothing to confirm");
+    expect(text).not.toContain("COULD NOT");
+  });
+
+  test("nothing reportable produces no lines at all — the common path stays quiet", () => {
+    expect(renderCoverageLines([], { filed: [], policyClosed: [] })).toEqual([]);
   });
 });

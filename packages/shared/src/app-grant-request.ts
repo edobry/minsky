@@ -44,12 +44,23 @@ export interface AppGrantRequestPayload {
    * is worse than none (mt#4695).
    */
   readonly settingsUrl?: string;
-  /**
-   * The parent task's status when the request blocked it, mirroring
-   * `credential-request`'s field of the same name. Absent means nothing to release.
-   */
-  readonly parentEntryStatus?: string;
 }
+
+/**
+ * **App-grant requests are NOT task-scoped, and carry no parent-release field.**
+ *
+ * The credential payload has `parentEntryStatus` because a credential request can
+ * block a task, and the resolver has to know where to return it. This one has no
+ * equivalent, deliberately: it is filed by `minsky setup` during ONBOARDING,
+ * before any task exists, so there is nothing to block and nothing to release.
+ *
+ * An earlier draft mirrored the credential payload's field without asking whether
+ * it applied — which would have left a payload field nothing ever set and a
+ * release seam nothing ever called, i.e. a silent divergence from the credential
+ * path that reads as an oversight rather than a decision. If a task-scoped caller
+ * ever appears, it should add the field and the release seam TOGETHER, as one
+ * coherent change.
+ */
 
 /**
  * The dedup identity of a request: one open ask per (repo, role).
@@ -107,15 +118,11 @@ export function readAppGrantRequest(
   if (typeof slug !== "string" || slug.length === 0) return null;
 
   const settingsUrl = (raw as { settingsUrl?: unknown }).settingsUrl;
-  const parentEntryStatus = (raw as { parentEntryStatus?: unknown }).parentEntryStatus;
 
   return {
     repo,
     role,
     slug,
     ...(typeof settingsUrl === "string" && settingsUrl.length > 0 ? { settingsUrl } : {}),
-    ...(typeof parentEntryStatus === "string" && parentEntryStatus.length > 0
-      ? { parentEntryStatus }
-      : {}),
   };
 }
