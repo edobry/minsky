@@ -77,6 +77,40 @@ export interface OctokitErrorInfo {
   ghErrorsText: string;
   /** GitHub response message (response.data.message) */
   ghMessage: string;
+  /**
+   * Path portion of the request that produced this error, when available
+   * (mt#4692).
+   *
+   * Sourced from `RequestError.request.url` — a DOCUMENTED public field
+   * (`@octokit/request-error`'s own README shows `error.request` alongside
+   * `.status`/`.response` as the intended inspection surface). Every
+   * `@octokit/request` error is constructed with it: both a real HTTP
+   * response (`throw new RequestError(toErrorMessage(data), status, {
+   * response, request: requestOptions })`) and a synthesized transport
+   * failure (`throw new RequestError(message, 500, { request:
+   * requestOptions })`) pass `request: requestOptions` — see
+   * `@octokit/request/dist-src/fetch-wrapper.js`. `undefined` for error
+   * shapes that never went through Octokit's request layer (a plain
+   * `Error`, or a hand-constructed status error in a test) — callers must
+   * treat that absence as "no evidence," not as "definitely repo-level" or
+   * "definitely sub-resource."
+   */
+  requestPath?: string;
+}
+
+/**
+ * Extract the pathname from an Octokit `RequestError.request.url`, when the
+ * value is a well-formed absolute URL. Returns `undefined` on anything else
+ * (not a string, empty, unparseable) rather than throwing — this is
+ * best-effort evidence, not a required field.
+ */
+function extractRequestPath(url: unknown): string | undefined {
+  if (typeof url !== "string" || url.length === 0) return undefined;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -94,6 +128,10 @@ interface OctokitErrorShape {
       errors?: Record<string, unknown>[];
     };
   };
+  /** Present on every `@octokit/request` `RequestError` — see `requestPath` above. */
+  request?: {
+    url?: unknown;
+  };
 }
 
 export function classifyOctokitError(error: unknown): OctokitErrorInfo {
@@ -109,6 +147,7 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   const ghErrorsText: string = `${ghMessage || ""} ${ghErrors
     .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" "))
     .join(" ")}`.toLowerCase();
+  const requestPath: string | undefined = extractRequestPath(anyErr?.request?.url);
 
   return {
     status,
@@ -118,6 +157,7 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
     ghErrors,
     ghErrorsText,
     ghMessage,
+    requestPath,
   };
 }
 
@@ -286,6 +326,42 @@ export interface ErrorContext {
   baseBranch?: string;
 }
 
+/**
+ * True when `requestPath` names a resource BENEATH the repository root —
+ * something with its own identity a 404 could independently be about (a
+ * workflow file, a branch name, a label, a file path) — rather than the
+ * repo container itself or a bare, identifier-less collection directly
+ * under it (mt#4692).
+ *
+ * `pulls.create`'s path is `/repos/{owner}/{repo}/pulls` — there is no PR
+ * number yet, so "pulls" is the ONLY thing in the path beyond owner/repo,
+ * and it is a fixed literal from Octokit's endpoint template, not a
+ * caller-supplied value. Nothing there can independently fail to resolve,
+ * so a 404 can only be explained by the repo/owner segment — genuinely
+ * "repo-level." A path one level deeper
+ * (`/actions/workflows/{workflow_id}/runs`, `/branches/{branch}/protection`,
+ * `/labels/{name}`) names a specific nested resource whose own
+ * non-existence explains the 404 — reaching that endpoint at all already
+ * proves the repo resolved, so App coverage is already disproven by the
+ * request that failed.
+ *
+ * Undetermined (no path evidence at all) returns `false` — i.e. "not
+ * sub-resource," the same as the exact-repo-root case. This is
+ * deliberately the SAME answer for two different reasons: it preserves
+ * mt#4680's original behavior (which had no path evidence and always
+ * showed the hint on a non-PR 404) for every error shape that carries no
+ * request info, and it only narrows the hint on POSITIVE evidence of a
+ * sub-resource path, never on the absence of evidence.
+ */
+function requestAddressesSubResource(requestPath: string | undefined): boolean {
+  if (!requestPath) return false;
+  const match = requestPath.match(/^\/repos\/[^/]+\/[^/]+(\/.*)?$/);
+  if (!match) return false;
+  const tail = (match[1] ?? "").replace(/^\/+|\/+$/g, "");
+  if (tail === "") return false;
+  return tail.includes("/");
+}
+
 // ── The main dispatcher ─────────────────────────────────────────────────
 
 /**
@@ -374,10 +450,19 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     info.messageLower.includes("404") ||
     info.messageLower.includes("not found")
   ) {
+    // mt#4692: reaching a SUB-RESOURCE endpoint (a workflow file, a branch,
+    // a label, ...) already proves the repo resolved — see
+    // `requestAddressesSubResource`. Only checked when there is no PR
+    // number, since the PR-level branch below is a separate, already-narrow
+    // carve-out.
+    const isSubResource404 = !ctx.prNumber && requestAddressesSubResource(info.requestPath);
+
     const subject = ctx.prNumber
       ? `Pull request #${ctx.prNumber} was not found in ${ctx.owner}/${ctx.repo}.`
-      : `The repository ${ctx.owner}/${ctx.repo} was not found, or the Minsky GitHub App ` +
-        `installation does not cover it.`;
+      : isSubResource404
+        ? `Could not ${ctx.operation} in ${ctx.owner}/${ctx.repo} — the resource was not found.`
+        : `The repository ${ctx.owner}/${ctx.repo} was not found, or the Minsky GitHub App ` +
+          `installation does not cover it.`;
     const prSuffix = ctx.prNumber ? `/pull/${ctx.prNumber}` : "";
 
     // mt#4680: a repo-level 404 has TWO indistinguishable causes on an
@@ -387,12 +472,18 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     // repo the caller cannot see), so the message must name both rather than
     // asserting the first. Naming only "not found" sent an operator looking
     // for a typo when the actual cause was a missing grant.
-    const appHint = ctx.prNumber
-      ? ""
-      : `  - Check whether the Minsky GitHub App installation covers ` +
-        `${ctx.owner}/${ctx.repo} — an ungranted repo returns this same 404.\n` +
-        `    Grant it under Settings -> Applications -> Installed GitHub Apps -> Repository access,\n` +
-        `    or run \`minsky setup\`, which now reports coverage.\n`;
+    //
+    // mt#4692: that argument does NOT hold for a sub-resource 404 — the
+    // request that failed already proves the repo/installation resolved, so
+    // naming App coverage there would be the exact false lead this hint
+    // exists to remove, one call site deeper.
+    const appHint =
+      ctx.prNumber || isSubResource404
+        ? ""
+        : `  - Check whether the Minsky GitHub App installation covers ` +
+          `${ctx.owner}/${ctx.repo} — an ungranted repo returns this same 404.\n` +
+          `    Grant it under Settings -> Applications -> Installed GitHub Apps -> Repository access,\n` +
+          `    or run \`minsky setup\`, which now reports coverage.\n`;
 
     throw new GitHubApiError(
       `GitHub Not Found\n\n${subject}\n\n` +
