@@ -13,6 +13,7 @@ import {
   readLogTailText,
   sessionHasLoggedKey,
   collectShortIdBindings,
+  windowSlice,
   DEFAULT_MAX_DEDUPE_READ_BYTES,
   type TranscriptLine,
 } from "./transcript";
@@ -1097,5 +1098,71 @@ describe("collectShortIdBindings (mt#4160)", () => {
       ),
     ] as never);
     expect(bindings.get("mem#1041")).toBe("536e44cb-7234-4f7a-a7f2-bef92ef1371d");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// windowSlice (mt#4701) — the trailing-turn window, hoisted from
+// pre-narration-detector.ts so a second consumer need not copy it.
+// ---------------------------------------------------------------------------
+
+describe("windowSlice", () => {
+  const threeTurns = (): TranscriptLine[] => [
+    userPrompt("turn 1"),
+    assistantText("a1"),
+    userPrompt("turn 2"),
+    assistantText("a2"),
+    userPrompt("turn 3"),
+    assistantText("a3"),
+  ];
+
+  test("returns the trailing N turns including the current one", () => {
+    const sliced = windowSlice(threeTurns(), 2);
+    expect(extractLastUserMessage(sliced)).toBe("turn 3");
+    expect(sliced).toHaveLength(4);
+    expect(findRealPromptIndices(sliced)).toHaveLength(2);
+  });
+
+  test("a window of 1 keeps only the current turn", () => {
+    expect(findRealPromptIndices(windowSlice(threeTurns(), 1))).toHaveLength(1);
+  });
+
+  test("a window larger than the transcript yields the whole transcript", () => {
+    const lines = threeTurns();
+    expect(windowSlice(lines, 99)).toHaveLength(lines.length);
+  });
+
+  test("tool_result lines do not split a turn", () => {
+    // The mt#2255 boundary rule: a tool_result is role=user but is not a prompt, so
+    // a turn spanning several tool round-trips stays one turn.
+    const lines: TranscriptLine[] = [
+      userPrompt("turn 1"),
+      assistantText("a1"),
+      userPrompt("turn 2"),
+      assistantText("calling"),
+      toolResult("t1"),
+      assistantText("more"),
+      toolResult("t2"),
+      assistantText("done"),
+    ];
+    const sliced = windowSlice(lines, 1);
+    expect(findRealPromptIndices(sliced)).toHaveLength(1);
+    expect(sliced).toHaveLength(6);
+  });
+
+  test("an empty transcript yields an empty slice", () => {
+    expect(windowSlice([], 3)).toEqual([]);
+  });
+
+  test("a non-positive window collapses to the LAST turn — the documented sharp edge", () => {
+    // Not the safe direction, and pinned deliberately rather than fixed. `boundaries
+    // >= windowTurns` is satisfied by the first boundary found walking backwards, so
+    // 0 and negatives return one turn, not the whole transcript. Behaviour is
+    // verbatim from the pre-narration original so the pending migration stays a
+    // deletion; callers pass >= 1, and this test is what stops a future reader from
+    // "fixing" it without noticing that it changes the other consumer.
+    const lines = threeTurns();
+    expect(findRealPromptIndices(windowSlice(lines, 0))).toHaveLength(1);
+    expect(findRealPromptIndices(windowSlice(lines, -5))).toHaveLength(1);
   });
 });
