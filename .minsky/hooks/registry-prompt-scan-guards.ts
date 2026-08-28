@@ -974,7 +974,7 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     calibrationLog: "cross-turn-hedge",
     denyCapable: false,
     needsTranscript: true,
-    // MEASURED via `renderProbe`: 619 chars saturated — both excerpts posed at
+    // MEASURED via `renderProbe`: 629 chars saturated — both excerpts posed at
     // their 240-char cap. Declared at 700 for headroom on the marker and subject
     // interpolations, which are short but unbounded in principle. The FINDING
     // COUNT is uncapped, so this is a `render-probe-sample` rather than a proved

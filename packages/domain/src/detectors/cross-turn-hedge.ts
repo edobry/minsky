@@ -113,17 +113,26 @@ export const SUBJECT_PATTERNS: readonly { kind: string; pattern: RegExp }[] = [
  * ratified via ask `755ddc6a`. This is the leg the RFC actually asked for: a label
  * the agent applied to its own claim, from a set the principal approved.
  *
- * `unknown` is deliberately ABSENT. It is a legitimate warrant label, and it is also
- * an ordinary English word that appears constantly in unrelated prose — admitting it
- * would import a precision problem the other five do not have. Its omission is a
- * measurable choice, not an oversight: if calibration shows real `unknown`-labelled
- * decay being missed, that is the evidence for adding it.
+ * `unknown` is present but **shape-constrained**, and the constraint is the whole
+ * reason it can be here at all (PR #3419 R1). It is a legitimate warrant label AND an
+ * ordinary English word — "the author is unknown" describes the world; `(unknown: no
+ * probe run)` labels a claim. Matching it bare would import a precision problem the
+ * other three do not have; omitting it would drop a label the vocabulary actually
+ * defines.
+ *
+ * So it matches only in LABEL POSITION, which is how `claim-confidence.mdc` writes
+ * warrants in the first place: its format is `[delivery state] — [warrant + basis]`,
+ * so a real warrant label is parenthesized, dash-led, or follows a `warrant:` /
+ * `confidence:` / `basis:` key. That is a shape test, not a phrase list — it does not
+ * widen with paraphrase, so it stays inside ADR-024's Rung 1 rather than starting the
+ * arms race its `## Context` exists to end.
  */
 export const WARRANT_VOCABULARY: readonly RegExp[] = [
   /\bstrong[-\s]evidence\b/i,
   /\binferred\b/i,
   /\bassumed\b/i,
   /\bunverified\b/i,
+  /(?:\(|\[|—\s*|--?\s+|\b(?:warrant|confidence|basis|status)\s*[:=]\s*)unknown\b|\bunknown\s*:/i,
 ];
 
 /**

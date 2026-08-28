@@ -5,8 +5,13 @@ import {
   findHedgeMarker,
   normalizeSubject,
   splitClaimUnits,
+  type HedgeLeg,
   type ScannedTurn,
 } from "./cross-turn-hedge";
+
+/** The two marker legs, named once so a rename cannot leave a stale literal behind. */
+const WARRANT_LEG: HedgeLeg = "warrant-vocabulary";
+const NATURAL_LEG: HedgeLeg = "natural-language";
 
 /**
  * Identity elider. Most cases are about the matcher, not about elision; the two
@@ -186,7 +191,7 @@ describe("detectCrossTurnHedgeDecay — reporting", () => {
       toolSubjectsByTurn: new Map(),
       elide: noElide,
     });
-    expect(warrant.findings[0]?.hedgeLeg).toBe("warrant-vocabulary");
+    expect(warrant.findings[0]?.hedgeLeg).toBe(WARRANT_LEG);
 
     const natural = detectCrossTurnHedgeDecay({
       priorTurns: [turn(1, "PR #3412 conflicts with our scope, though that may be wrong.")],
@@ -194,7 +199,7 @@ describe("detectCrossTurnHedgeDecay — reporting", () => {
       toolSubjectsByTurn: new Map(),
       elide: noElide,
     });
-    expect(natural.findings[0]?.hedgeLeg).toBe("natural-language");
+    expect(natural.findings[0]?.hedgeLeg).toBe(NATURAL_LEG);
     expect(natural.findings[0]?.subjectKind).toBe("changeset");
   });
 
@@ -273,11 +278,31 @@ describe("claim-unit splitting", () => {
 
 describe("hedge markers", () => {
   test("warrant vocabulary takes precedence over a natural-language hedge", () => {
-    expect(findHedgeMarker("This is inferred and may be wrong")?.leg).toBe("warrant-vocabulary");
+    expect(findHedgeMarker("This is inferred and may be wrong")?.leg).toBe(WARRANT_LEG);
   });
 
-  test("`unknown` is deliberately not a marker", () => {
-    expect(findHedgeMarker("the author is unknown")).toBeNull();
+  // PR #3419 R1: `unknown` is part of the ratified vocabulary and must be matched,
+  // but only in LABEL POSITION — bare, it is an ordinary English word.
+  test("`unknown` in label position IS a warrant marker", () => {
+    for (const text of [
+      "mem#1323's author (unknown: no discriminating probe run)",
+      "mem#1323 — unknown, pending a grep",
+      "warrant: unknown for mem#1323",
+      "mem#1323 authorship, confidence = unknown",
+      "unknown: whether mem#1323 was written here",
+    ]) {
+      expect(findHedgeMarker(text)?.leg, text).toBe(WARRANT_LEG);
+    }
+  });
+
+  test("`unknown` describing the world is NOT a marker", () => {
+    for (const text of [
+      "the author is unknown",
+      "an unknown actor holds the claim",
+      "this fails for unknown reasons",
+    ]) {
+      expect(findHedgeMarker(text), text).toBeNull();
+    }
   });
 
   test("ordinary confident prose carries no marker", () => {

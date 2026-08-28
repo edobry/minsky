@@ -111,6 +111,13 @@ export const EVALUATION_LOG = ".minsky/cross-turn-hedge-evaluation.jsonl";
  * back-reference, and how long a knowledge acquisition has to propagate. Calibration
  * is what replaces this number; the evaluation record carries `hedgeGapTurns` on
  * every fire precisely so the first review has the distribution to set it from.
+ *
+ * **Reconciled with the spec, not waived (PR #3419 R1).** The reviewer blocked on this value
+ * being provisional rather than measured — correct against the criterion as first written,
+ * which required a derivation from calibration data that only shipping this detector can
+ * produce. mt#4701's SC4 was amended to name that ordering defect and to move the measurement
+ * obligation onto the first calibration review, where SC6's graduation contract already binds
+ * it. Replacing this constant with a measured one is owed THERE; it is not optional.
  */
 export const WINDOW_TURNS = 8;
 
@@ -254,9 +261,11 @@ export function buildInjectionReminder(result: CrossTurnHedgeResult): string {
       "intervening call that looked at it:",
   ];
   for (const f of result.findings) {
+    // Name the hedge's turn: the operator's next question is always "how far back",
+    // and the gap is what makes the pair legible rather than two unrelated sentences.
     lines.push(
-      `  • ${f.subject} — hedged ${result.findings.length > 0 ? "" : ""}` +
-        `(“${f.hedgeMarker}”) then asserted: “${f.assertionExcerpt.slice(0, MAX_EXCERPT_CHARS)}”`
+      `  • ${f.subject} — hedged in turn ${f.hedgeTurnIndex} (“${f.hedgeMarker}”), ` +
+        `now asserted: “${f.assertionExcerpt.slice(0, MAX_EXCERPT_CHARS)}”`
     );
   }
   lines.push(
