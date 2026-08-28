@@ -135,7 +135,7 @@ function readLocalConfig(mockHandle: MockFsHandle): Record<string, unknown> {
 // ─── schema round-trip tests ─────────────────────────────────────────────────
 
 describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () => {
-  const clients = ["cursor", "claude-desktop", "codex", "vscode"] as const;
+  const clients = ["cursor", "claude-desktop", "claude-code", "codex", "vscode"] as const;
 
   for (const client of clients) {
     test(`--client ${client}: written YAML workspace section is accepted by workspaceConfigSchema`, async () => {

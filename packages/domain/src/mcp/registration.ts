@@ -122,6 +122,38 @@ export class ClaudeDesktopRegistrar extends McpServersJsonRegistrar {
 }
 
 /**
+ * Registrar for the Claude Code MCP client.
+ *
+ * Claude Code resolves MCP servers at three scopes — local (per-project,
+ * keyed under `projects.<path>` in `~/.claude.json`), project (`.mcp.json`
+ * in the repo, shared via git), and user (a top-level `mcpServers` key in
+ * `~/.claude.json`, shared across every project) — per
+ * https://code.claude.com/docs/en/mcp. This registrar targets USER scope:
+ * an agent opened in a repo Minsky has never initialized has no MCP tools of
+ * its own yet and cannot bootstrap onboarding through a per-project-only
+ * registration (mt#4700, absorbed into mt#4676).
+ *
+ * User scope is a single, platform-uniform path — unlike Claude Desktop's
+ * OS-specific config directory — so `configPath` does not branch on
+ * `process.platform`.
+ *
+ * `mergeConfig = true` because `~/.claude.json` is Claude Code's own live
+ * state file (settings, per-project history, OAuth credentials) — the
+ * `registerWithClient` merge path (JSON-parse, splice in `mcpServers`,
+ * write back) preserves everything else in the file rather than
+ * overwriting it, the same way `ClaudeDesktopRegistrar` does for
+ * `claude_desktop_config.json`.
+ */
+export class ClaudeCodeRegistrar extends McpServersJsonRegistrar {
+  readonly name = "claude-code";
+  override readonly mergeConfig = true;
+
+  configPath(_projectRoot: string): string {
+    return path.join(homedir(), ".claude.json");
+  }
+}
+
+/**
  * Registrar for the Windsurf editor MCP client.
  *
  * Windsurf stores MCP config globally at ~/.codeium/windsurf/mcp_config.json,
@@ -270,6 +302,8 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new CursorRegistrar();
     case "claude-desktop":
       return new ClaudeDesktopRegistrar();
+    case "claude-code":
+      return new ClaudeCodeRegistrar();
     case "vscode":
       return new VSCodeRegistrar();
     case "windsurf":
@@ -282,7 +316,7 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new OpenHandsRegistrar();
     default:
       throw new Error(
-        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie, codex, openhands`
+        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, claude-code, vscode, windsurf, junie, codex, openhands`
       );
   }
 }

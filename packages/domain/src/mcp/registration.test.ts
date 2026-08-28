@@ -12,6 +12,7 @@ const TOML_COMMAND_MINSKY = 'command = "minsky"';
 import {
   CursorRegistrar,
   ClaudeDesktopRegistrar,
+  ClaudeCodeRegistrar,
   McpServersJsonRegistrar,
   VSCodeRegistrar,
   WindsurfRegistrar,
@@ -148,6 +149,63 @@ describe("ClaudeDesktopRegistrar", () => {
 
   test("mergeConfig is true (shares global config file)", () => {
     expect(registrar.mergeConfig).toBe(true);
+  });
+});
+
+describe("ClaudeCodeRegistrar", () => {
+  const registrar = new ClaudeCodeRegistrar();
+
+  describe("generateConfig for claude-code — inherits McpServersJsonRegistrar logic", () => {
+    test("stdio transport produces minsky-server JSON entry", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      expect(parsed.mcpServers["minsky-server"].args).toEqual(["mcp", "start"]);
+    });
+
+    test("httpStream transport includes --http-stream args for claude-code", () => {
+      const content = registrar.generateConfig("httpStream", 3000, "localhost");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "start",
+        "--http-stream",
+        "--port",
+        "3000",
+        "--host",
+        "localhost",
+      ]);
+    });
+  });
+
+  describe("configPath for claude-code", () => {
+    test("returns a user-scope path, ignoring the passed project root", () => {
+      const configPath = registrar.configPath("/some-claude-code-project");
+      // Should be under the user's home directory, not under the project root
+      expect(configPath).not.toContain("/some-claude-code-project");
+      expect(configPath.startsWith(os.homedir())).toBe(true);
+    });
+
+    test("config path is ~/.claude.json, platform-uniform (no OS branching)", () => {
+      const configPath = registrar.configPath("/irrelevant-for-user-scope");
+      expect(configPath).toBe(path.join(os.homedir(), ".claude.json"));
+    });
+
+    test("configPath resolves to the same file for two different project roots", () => {
+      expect(registrar.configPath("/first-claude-code-project")).toBe(
+        registrar.configPath("/second-claude-code-project")
+      );
+    });
+  });
+
+  test("claude-code registrar merges rather than overwrites (shares Claude Code's own state file)", () => {
+    expect(registrar.mergeConfig).toBe(true);
+  });
+
+  test("ClaudeCodeRegistrar extends McpServersJsonRegistrar", () => {
+    expect(registrar).toBeInstanceOf(McpServersJsonRegistrar);
   });
 });
 
@@ -386,6 +444,12 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("claude-desktop");
   });
 
+  test("returns ClaudeCodeRegistrar for 'claude-code'", () => {
+    const r = getRegistrar("claude-code");
+    expect(r).toBeInstanceOf(ClaudeCodeRegistrar);
+    expect(r.name).toBe("claude-code");
+  });
+
   test("returns VSCodeRegistrar for 'vscode'", () => {
     const r = getRegistrar("vscode");
     expect(r).toBeInstanceOf(VSCodeRegistrar);
@@ -416,9 +480,9 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("openhands");
   });
 
-  test("throws descriptive error for unsupported client listing all 7 clients", () => {
+  test("throws descriptive error for unsupported client listing all 8 clients", () => {
     expect(() => getRegistrar("unknown")).toThrow(
-      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie, codex, openhands'
+      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, claude-code, vscode, windsurf, junie, codex, openhands'
     );
   });
 });
@@ -528,6 +592,83 @@ describe("registerWithClient", () => {
       const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
       expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
       expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
+    });
+  });
+
+  describe("claude-code config merging (mt#4676)", () => {
+    const registrar = new ClaudeCodeRegistrar();
+
+    test("creates new file if config file does not exist", async () => {
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
+
+      const configPath = registrar.configPath("/any-root");
+      expect(mockFs.files.has(configPath)).toBe(true);
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+    });
+
+    test("merges minsky-server into an existing ~/.claude.json preserving the projects key", async () => {
+      // ~/.claude.json carries Claude Code's own state (per-project local-scope
+      // entries under `projects`, settings, etc.) -- registering the user-scope
+      // entry must not clobber any of it.
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig = JSON.stringify({
+        mcpServers: {
+          "other-server": { command: "other", args: ["run"] },
+        },
+        projects: {
+          "/some/other/project": { mcpServers: { "local-scoped-server": { command: "local" } } },
+        },
+        someOtherKey: "preserved",
+      });
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
+
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
+      // Existing user-scope server preserved
+      expect(parsed.mcpServers["other-server"]).toBeDefined();
+      // Minsky server added at the top-level (user-scope) mcpServers key
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      // Local-scope (per-project) entries untouched
+      expect(parsed.projects["/some/other/project"].mcpServers["local-scoped-server"]).toEqual({
+        command: "local",
+      });
+      // Other top-level keys preserved
+      expect(parsed.someOtherKey).toBe("preserved");
+    });
+
+    test("overwrites an existing user-scope minsky-server entry when merging", async () => {
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig = JSON.stringify({
+        mcpServers: { "minsky-server": { command: "old-command", args: ["old-args"] } },
+      });
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient(
+        "/any-root",
+        { transport: "httpStream", port: 4242 },
+        "claude-code",
+        mockFs
+      );
+
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
+      expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
+      expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
+    });
+
+    test("configPath is identical across two different projectRoots (user scope)", async () => {
+      await registerWithClient("/project-a", { transport: "stdio" }, "claude-code", mockFs);
+      // A second registration from a different project root must resolve to
+      // the SAME file -- this is what "user scope" means.
+      await registerWithClient("/project-b", { transport: "stdio" }, "claude-code", mockFs, true);
+
+      const configPath = registrar.configPath("/project-a");
+      expect(configPath).toBe(registrar.configPath("/project-b"));
+      expect(mockFs.files.has(configPath)).toBe(true);
     });
   });
 

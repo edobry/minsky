@@ -20,10 +20,15 @@ export type AgentHarness = "claude-code" | "cursor" | "standalone";
  * but is intentionally excluded from `detectInstalledClients()` auto-detection
  * (no reliable filesystem signature; it's an agent framework rather than a
  * user-installed app). Callers must opt in explicitly.
+ *
+ * `claude-code` (mt#4676) is registered at USER scope (`~/.claude.json`'s
+ * top-level `mcpServers` key), not per-project — see `ClaudeCodeRegistrar`
+ * in `../mcp/registration.ts` for why.
  */
 export type ManagedClient =
   | "cursor"
   | "claude-desktop"
+  | "claude-code"
   | "vscode"
   | "windsurf"
   | "junie"
@@ -97,20 +102,40 @@ export function hasNativeSubagentSupport(): boolean {
 }
 
 /**
+ * Injectable dependency for `detectInstalledClients()` — lets tests supply a
+ * deterministic path-existence check instead of probing the real filesystem
+ * (per `testing-standards.mdc §Testable Design`: inject the collaborator
+ * rather than patching `fs.existsSync` in place).
+ */
+export interface DetectInstalledClientsDeps {
+  /** Returns whether a filesystem path exists. Defaults to `fs.existsSync`. */
+  pathExists?: (path: string) => boolean;
+}
+
+/**
  * Probe the filesystem for installed MCP client applications.
  * Only returns clients that are actually present on this machine.
  *
  * Detection heuristics:
  * - cursor: ~/.cursor/ directory exists
  * - claude-desktop: config directory exists (platform-specific)
+ * - claude-code: ~/.claude/ directory exists (created on first run; holds
+ *   settings, credentials, conversation history — same signature class as
+ *   cursor's ~/.cursor/)
  * - vscode: TODO
  */
-export function detectInstalledClients(): ManagedClient[] {
+export function detectInstalledClients(deps: DetectInstalledClientsDeps = {}): ManagedClient[] {
+  const pathExists = deps.pathExists ?? existsSync;
   const clients: ManagedClient[] = [];
 
   // Cursor: check for ~/.cursor/ directory
-  if (existsSync(path.join(homedir(), ".cursor"))) {
+  if (pathExists(path.join(homedir(), ".cursor"))) {
     clients.push("cursor");
+  }
+
+  // Claude Code: check for ~/.claude/ directory
+  if (pathExists(path.join(homedir(), ".claude"))) {
+    clients.push("claude-code");
   }
 
   // Claude Desktop: check for platform-specific config directory
@@ -126,27 +151,27 @@ export function detectInstalledClients(): ManagedClient[] {
   } else {
     claudeConfigDir = path.join(home, ".config", "Claude");
   }
-  if (existsSync(claudeConfigDir)) {
+  if (pathExists(claudeConfigDir)) {
     clients.push("claude-desktop");
   }
 
   // VS Code: check for ~/.vscode/ directory
-  if (existsSync(path.join(homedir(), ".vscode"))) {
+  if (pathExists(path.join(homedir(), ".vscode"))) {
     clients.push("vscode");
   }
 
   // Windsurf: check for ~/.codeium/ directory
-  if (existsSync(path.join(homedir(), ".codeium"))) {
+  if (pathExists(path.join(homedir(), ".codeium"))) {
     clients.push("windsurf");
   }
 
   // Junie (JetBrains): check for ~/.junie/ directory (created by Junie CLI)
-  if (existsSync(path.join(homedir(), ".junie"))) {
+  if (pathExists(path.join(homedir(), ".junie"))) {
     clients.push("junie");
   }
 
   // Codex: check for ~/.codex/ directory
-  if (existsSync(path.join(homedir(), ".codex"))) {
+  if (pathExists(path.join(homedir(), ".codex"))) {
     clients.push("codex");
   }
 
@@ -154,4 +179,34 @@ export function detectInstalledClients(): ManagedClient[] {
   // OpenHands is an agent framework, not typically installed as a user app.
 
   return clients;
+}
+
+/**
+ * Resolve which MCP client `minsky init` should register with and record as
+ * this workspace's `harness` (mt#4676).
+ *
+ * Prefers the environment-reported harness (`detectAgentHarness()`) — the
+ * running agent's own signal about what it currently IS — over filesystem
+ * installed-ness (`detectInstalledClients()`), which only proves an
+ * application is present on this machine, not that it is the one driving
+ * `init` right now. `detectInstalledClients()` is consulted only as a
+ * fallback, when the environment gives no signal at all (`standalone`) —
+ * mirroring the interactive `setup` command's own multi-client fallback
+ * (`src/adapters/shared/commands/setup.ts`), minus the interactive prompt:
+ * the first detected client wins, or `cursor` when none are detected
+ * (preserving `init`'s pre-mt#4676 default).
+ *
+ * `harness` and `installedClients` are accepted as parameters — defaulting
+ * to the real detectors — rather than read internally, so the exact
+ * ambiguous case this function exists to resolve (an env signal AND a
+ * filesystem signal both present, and disagreeing) is testable without
+ * mutating `process.env` or the filesystem.
+ */
+export function resolveInitClient(
+  harness: AgentHarness = detectAgentHarness(),
+  installedClients: ManagedClient[] = detectInstalledClients()
+): ManagedClient {
+  if (harness === "claude-code") return "claude-code";
+  if (harness === "cursor") return "cursor";
+  return installedClients[0] ?? "cursor";
 }
