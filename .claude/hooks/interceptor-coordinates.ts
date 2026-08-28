@@ -444,6 +444,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // it graduates, its interventions gain `injectAgent` alongside `recordReview`
   // (the silent-stretch-detector shape).
   ["context-fill-gauge", structuralRecorder],
+  ["cross-turn-hedge-detector", lexicalRecorder],
   [
     "duplicate-check-search-provenance",
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },

@@ -284,6 +284,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
         "context-fill-gauge",
+        "cross-turn-hedge-detector",
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
@@ -403,6 +404,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "build-claim-injection-detector": "capped", // deploySurfaceFiles.slice(0, 6)
   "causal-premise-detector": RENDER_PROBE_SAMPLE, // one line per phrase, uncapped
   "constructed-identifier-batch-detector": RENDER_PROBE_SAMPLE, // one line per match, uncapped
+  // mt#4701. Both EXCERPTS are capped (240 chars each, `MAX_EXCERPT_CHARS`), but
+  // the FINDING COUNT is not — one line per decayed subject — so this is a sample
+  // of a realistic worst case, not a proved ceiling. A cap on the finding count is
+  // owed before any INJECTION_ENABLED flip, and the registration says so too.
+  "cross-turn-hedge-detector": RENDER_PROBE_SAMPLE,
   "knowledge-acquisition-detector": RENDER_PROBE_SAMPLE, // researchTools joined, uncapped
   "operator-deferral-detector": "capped", // <=3 matches x 240-char contexts
   "operator-deferral-ask-surface": "capped", // same module, same renderer
