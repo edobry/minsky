@@ -63,6 +63,34 @@ export async function showGitHubStatus(
     return resolveHas("tasks.backend") ? resolveGet<string>("tasks.backend") : undefined;
   }
 
+  /**
+   * Reads the backend-specific config block (status labels etc. for the `github-issues`
+   * task backend). Guarded the same way as `getTaskBackend()` and for the same reason
+   * (mt#4679 PR #3422 R1): an absent `backendConfig` — the normal state for a project that
+   * doesn't use the `github-issues` task backend at all — must read as "nothing configured",
+   * not as a check FAILURE. `resolveGet` unguarded would throw `Configuration path
+   * 'backendConfig' not found` for that entirely ordinary case, which the Step 2 catch below
+   * would then misclassify as `hadFailure`.
+   */
+  function getBackendConfig(): Record<string, { statusLabels?: Record<string, string> }> {
+    return resolveHas("backendConfig")
+      ? (resolveGet("backendConfig") as Record<string, { statusLabels?: Record<string, string> }>)
+      : {};
+  }
+
+  /**
+   * Reads the explicit `github` config block (organization/repository/baseUrl overrides).
+   * Same guard, same reason: no explicit `github` config is the common case (most projects
+   * rely on git-remote auto-detection instead), not a failure.
+   */
+  function getExplicitGithubConfig():
+    | { organization?: string; repository?: string; baseUrl?: string }
+    | undefined {
+    return resolveHas("github")
+      ? resolveGet<{ organization?: string; repository?: string; baseUrl?: string }>("github")
+      : undefined;
+  }
+
   try {
     log.cli("📊 GitHub Backend Status\n");
 
@@ -83,7 +111,7 @@ export async function showGitHubStatus(
     // Step 2: Check configuration
     try {
       const taskBackend = getTaskBackend();
-      const backendConfig = resolveGet("backendConfig");
+      const backendConfig = getBackendConfig();
 
       log.cli(`\n📋 Configuration:`);
       log.cli(`   Task backend: ${taskBackend || "Not configured"}`);
@@ -144,9 +172,7 @@ export async function showGitHubStatus(
 
     // Step 4: Check GitHub config from configuration system
     try {
-      const githubConfig = resolveGet<
-        { organization?: string; repository?: string; baseUrl?: string } | undefined
-      >("github");
+      const githubConfig = getExplicitGithubConfig();
 
       log.cli(`\n⚙️  GitHub Configuration:`);
 
@@ -211,7 +237,8 @@ export async function showGitHubStatus(
 
       if (!isConfigured) {
         log.cli("   2. Configure backend in .minsky/config.yaml:");
-        log.cli('      backend: "github-issues"');
+        log.cli("      tasks:");
+        log.cli('        backend: "github-issues"');
       }
 
       if (!hasRepo) {

@@ -1,7 +1,7 @@
 /**
- * Tests for `showGitHubStatus` (mt#4679).
+ * Tests for `showGitHubStatus` (mt#4679, R1 fixes from PR #3422 review round 1).
  *
- * Covers two defects:
+ * Covers three defects:
  *
  * 1. `get("backend")` queried the deprecated top-level `backend` alias for
  *    `tasks.backend` (`packages/domain/src/configuration/schemas/backend.ts`:
@@ -13,6 +13,14 @@
  * 2. Even a genuinely unexpected config-loading failure should produce a clean,
  *    handled message and a non-zero exit — never the generic
  *    "Unhandled error in CLI: ..." wrapper.
+ * 3. R1 — the MIRROR of defect 1: the initial fix for (1) left `backendConfig` and
+ *    `github` reads unguarded. An entirely unconfigured project (no `tasks.backend`, no
+ *    `backendConfig`, no `github` block — an ordinary, common, INFORMATIONAL state, not
+ *    a failure) threw on the `backendConfig` lookup inside Step 2's try, and that catch
+ *    set `hadFailure = true` — turning a correct "needs setup" ⚠️ summary (which should
+ *    exit 0) into a false non-zero exit. Same defect class as the bug this task fixes,
+ *    sign flipped: a false FAILURE instead of a false SUCCESS. Fixed by guarding
+ *    `backendConfig` and `github` reads with `has()`, exactly like `tasks.backend`.
  *
  * Hermetic — injects fakes via `ShowGitHubStatusDeps` (the DI seam this task added).
  * `mock.module()` is banned repo-wide by `custom/no-global-module-mocks`.
@@ -61,10 +69,11 @@ function makeConfigStore(data: Record<string, unknown>): Pick<ShowGitHubStatusDe
 
 describe("showGitHubStatus", () => {
   test(
-    "config lacking the queried key ('tasks.backend' absent): handled failure, " +
-      "no raw 'Configuration path' exception escapes the function",
+    "R1: fully unconfigured project (no tasks.backend, no backendConfig, no github " +
+      "block): this is INFORMATIONAL — nothing is broken, it just needs setup — so it " +
+      "must NOT be misclassified as a failure",
     async () => {
-      const store = makeConfigStore({}); // no tasks.backend, no backendConfig, no github
+      const store = makeConfigStore({}); // nothing configured anywhere — the common case
 
       const result = await showGitHubStatus(
         {},
@@ -75,8 +84,39 @@ describe("showGitHubStatus", () => {
         }
       );
 
-      // The function must not throw (asserted implicitly: no `await expect(...).rejects`
-      // needed — an unhandled throw here would fail the test directly) and must signal
+      // The function must not throw (asserted implicitly — an unhandled throw here
+      // would fail the test directly) AND must report success, because nothing
+      // actually FAILED: task backend isn't github-issues, that's it. mt#4679's whole
+      // point is that the exit code tells the truth in both directions.
+      expect(result).toBe(true);
+    }
+  );
+
+  test(
+    "genuinely broken configuration provider (has()/get() themselves throw, not just " +
+      "an absent optional key): handled failure, no raw exception escapes the function",
+    async () => {
+      const brokenStore: Pick<ShowGitHubStatusDeps, "get" | "has"> = {
+        has: () => {
+          throw new Error("configuration provider unavailable");
+        },
+        get: (() => {
+          throw new Error("configuration provider unavailable");
+        }) as ShowGitHubStatusDeps["get"],
+      };
+
+      const result = await showGitHubStatus(
+        {},
+        {
+          getConfiguration: () => FAKE_CONFIG_WITH_TOKEN,
+          getGitHubBackendConfig: () => FAKE_REPO_CONFIG,
+          ...brokenStore,
+        }
+      );
+
+      // Distinguishes "config system is actually broken" (a real failure) from "a key
+      // is merely absent" (informational, the case above) — only the former sets
+      // hadFailure. The function must not throw (asserted implicitly) and must signal
       // failure via its return value so the caller can set a non-zero exit code.
       expect(result).toBe(false);
     }
