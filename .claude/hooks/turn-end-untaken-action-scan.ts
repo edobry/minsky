@@ -1010,6 +1010,22 @@ export const TASK_ADVANCING_TOOLS = new Set([
 ]);
 
 /**
+ * Input keys an advancing tool may carry its task id under (PR #3420 R1).
+ *
+ * Checked against every member of {@link TASK_ADVANCING_TOOLS} at the time of writing: the four
+ * `session_*` tools take `task`, and `tasks_spec_patch` / `tasks_spec_search_replace` /
+ * `tasks_dispatch` take `taskId`. So `id` and `parentTaskId` are not reached by today's set —
+ * they are here because the FAILURE MODE is silent and asymmetric, which is what makes this
+ * blocking rather than cosmetic. This set and `TASK_ADVANCING_TOOLS` are two hand-maintained
+ * lists that must agree; adding a tool that names its id differently would not error, it would
+ * quietly stop crediting that tool as advancing and turn every one of its turns into a fire.
+ *
+ * `advancing-tool-key-parity.test` pins the pairing, so drift is a deliberate edit with a visible
+ * diff — the same defense `ARMED_WAIT_TOOLS` documents for its own hand-maintained set.
+ */
+export const TASK_ID_INPUT_KEYS = ["task", "taskId", "id", "parentTaskId"] as const;
+
+/**
  * The non-terminal statuses, as an ALLOWLIST rather than "everything that is not DONE/CLOSED".
  *
  * The complement form looks equivalent and is not: the regex below matches an uppercase token in
@@ -1036,7 +1052,64 @@ const NON_TERMINAL_TASK_STATUSES = new Set([
  * read, `newStatus` on a set) — `previousStatus` is excluded by the leading quote in the class.
  */
 const TASK_ID_WITH_STATUS =
-  /"(?:ref|id|taskId)"\s*:\s*"(mt#\d+)"[^}]{0,400}?"(?:status|newStatus)"\s*:\s*"([A-Z][A-Z-]*)"/g;
+  /"(?:ref|id|taskId)"\s*:\s*"(mt#\d+)"[^}]{0,2000}?"(?:status|newStatus)"\s*:\s*"([A-Z][A-Z-]*)"/g;
+
+const TASK_ID_RE = /^mt#\d+$/;
+
+/** Keys a result object may carry a task id / status under. */
+const RESULT_ID_KEYS = ["ref", "id", "taskId"] as const;
+const RESULT_STATUS_KEYS = ["status", "newStatus"] as const;
+
+/**
+ * Walk a parsed result for objects carrying BOTH a task id and a status, recording each pair.
+ *
+ * Structural, so there is no positional window to get wrong (PR #3420 R1). The regex fallback
+ * below pairs an id with the next status inside the same `{...}`, which needs a length bound, and
+ * any bound is a silent recall cliff: `tasks_get` with a spec attached puts kilobytes between the
+ * id and the status, so a 400-char window quietly dropped exactly the largest results. Parsing
+ * removes the question rather than re-tuning the number.
+ */
+function collectFromJson(value: unknown, out: Map<string, string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectFromJson(item, out);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const obj = value as Record<string, unknown>;
+
+  const id = RESULT_ID_KEYS.map((k) => obj[k]).find(
+    (v): v is string => typeof v === "string" && TASK_ID_RE.test(v)
+  );
+  const status = RESULT_STATUS_KEYS.map((k) => obj[k]).find(
+    (v): v is string => typeof v === "string"
+  );
+  if (id && status && NON_TERMINAL_TASK_STATUSES.has(status)) out.set(id, status);
+
+  for (const nested of Object.values(obj)) collectFromJson(nested, out);
+}
+
+/**
+ * Task ids with a non-terminal status in one tool result.
+ *
+ * Parse first; fall back to the bounded regex only when the body is not JSON — a tool result is
+ * usually a JSON document but is not guaranteed to be one, and a text result should degrade to
+ * partial recall rather than to a throw.
+ */
+function collectTaskStatuses(resultText: string, out: Map<string, string>): void {
+  try {
+    collectFromJson(JSON.parse(resultText), out);
+    return;
+  } catch {
+    // intentional-swallow: a non-JSON result body is expected, not exceptional — fall through to
+    // the regex path below, which is what handles it.
+  }
+  TASK_ID_WITH_STATUS.lastIndex = 0; // `lastIndex` persists on a /g regex across calls
+  let m: RegExpExecArray | null;
+  while ((m = TASK_ID_WITH_STATUS.exec(resultText)) !== null) {
+    const [, id, status] = m;
+    if (id && status && NON_TERMINAL_TASK_STATUSES.has(status)) out.set(id, status);
+  }
+}
 
 /** Task ids the closing message actually names. */
 function taskIdsNamedIn(text: string): Set<string> {
@@ -1095,21 +1168,14 @@ export function detectStrandedTaskState(
 
   for (const call of calls) {
     if (TASK_ADVANCING_TOOLS.has(call.toolName)) {
-      for (const key of ["task", "taskId"]) {
+      for (const key of TASK_ID_INPUT_KEYS) {
         const value = call.input[key];
-        if (typeof value === "string" && /^mt#\d+$/.test(value)) advanced.add(value);
+        if (typeof value === "string" && TASK_ID_RE.test(value)) advanced.add(value);
       }
     }
 
     if (!TASK_STATUS_READ_TOOLS.has(call.toolName) || !call.hasResult) continue;
-    // `lastIndex` persists on a /g regex across calls; reset before each result body.
-    TASK_ID_WITH_STATUS.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = TASK_ID_WITH_STATUS.exec(call.resultText)) !== null) {
-      const [, id, status] = m;
-      if (!id || !status || !NON_TERMINAL_TASK_STATUSES.has(status)) continue;
-      nonTerminal.set(id, status);
-    }
+    collectTaskStatuses(call.resultText, nonTerminal);
   }
 
   const stranded: UntakenActionMatch[] = [];

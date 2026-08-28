@@ -31,7 +31,7 @@
  * itself destined for a PR body (`claim-confidence.mdc`: enumerate the egress channels before
  * writing an "emits only aggregates" claim; stdout is the only one here — no network, no files).
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -40,7 +40,28 @@ import {
 } from "../.minsky/hooks/turn-end-untaken-action-scan";
 import type { TranscriptLine } from "../.claude/hooks/transcript";
 
-const PROJECT_DIR = join(homedir(), ".claude", "projects", "-Users-edobry-Projects-minsky");
+/**
+ * Claude Code stores a project's transcripts under `~/.claude/projects/<cwd with / replaced by ->`.
+ * Derived rather than hardcoded (PR #3420 R1) so this runs for any developer and in CI.
+ *
+ * Takes an explicit directory as argv[2], which is what you want from a SESSION workspace: cwd is
+ * then the session clone, whose own project dir holds only that session's transcripts rather than
+ * the corpus you mean to replay against. The script prints the directory it used and exits
+ * non-zero if it is absent, so a wrong path is a loud failure and not a confident zero.
+ */
+function resolveProjectDir(): string {
+  const explicit = process.argv[2];
+  if (explicit) return explicit;
+  return join(homedir(), ".claude", "projects", process.cwd().replace(/\//g, "-"));
+}
+
+const PROJECT_DIR = resolveProjectDir();
+if (!existsSync(PROJECT_DIR)) {
+  console.error(`No transcript directory at ${PROJECT_DIR}`);
+  console.error(`Pass one explicitly: bun scripts/replay-untaken-action-arm.ts <dir>`);
+  process.exit(1);
+}
+console.log(`transcript dir      : ${PROJECT_DIR}`);
 
 /** A real prompt, as opposed to the user-role line Claude Code records for a tool_result. */
 function isRealPrompt(line: TranscriptLine): boolean {

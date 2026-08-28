@@ -19,6 +19,8 @@ import {
   detectArmedWatcherEvidence,
   detectStrandedTaskState,
   STRANDED_TASK_FAMILY,
+  TASK_ADVANCING_TOOLS,
+  TASK_ID_INPUT_KEYS,
   turnKeyForMessage,
   CONDITIONAL_WAIT_TOOL,
   ARMED_WAIT_TOOLS,
@@ -1259,6 +1261,8 @@ describe("suppressions run over ELIDED text (PR #2976 R1)", () => {
 
 describe("tool-call-state match arm (mt#4697)", () => {
   const REFS_STATUS = "mcp__minsky__refs_status";
+  const SESSION_COMMIT = "mcp__minsky__session_commit";
+  const OK_RESULT = '{"success":true}';
   let armStore: string;
   beforeEach(() => {
     armStore = mkdtempSync(join(tmpdir(), "untaken-arm-"));
@@ -1349,7 +1353,7 @@ describe("tool-call-state match arm (mt#4697)", () => {
     "mt#4324 is the unblocked successor but sits at TODO, so it needs /plan-task first.";
   const OCC3_CTX = (): DispatchContext =>
     ctxOf(
-      ...call("c1", "mcp__minsky__tasks_spec_patch", { taskId: "mt#4323" }, '{"success":true}'),
+      ...call("c1", "mcp__minsky__tasks_spec_patch", { taskId: "mt#4323" }, OK_RESULT),
       ...call("c2", REFS_STATUS, { refs: ["mt#4323", "mt#4324"] }, OCC3_REFS_RESULT)
     );
 
@@ -1443,7 +1447,7 @@ describe("tool-call-state match arm (mt#4697)", () => {
     });
     const c = ctxOf(
       ...call("c1", REFS_STATUS, { refs: ["mt#500"] }, result),
-      ...call("c2", "mcp__minsky__session_commit", { task: "mt#500" }, '{"success":true}')
+      ...call("c2", SESSION_COMMIT, { task: "mt#500" }, OK_RESULT)
     );
     expect(detectStrandedTaskState("mt#500 is coming along.", turnLinesOf(c))).toEqual([]);
   });
@@ -1479,6 +1483,56 @@ describe("tool-call-state match arm (mt#4697)", () => {
     const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#900"] }, result));
     const matches = detectStrandedTaskState("mt#900 and mt#901 both matter.", turnLinesOf(c));
     expect(matches.map((m) => m.matchedPhrase)).toEqual(["mt#901 (READY)"]);
+  });
+
+  // -- PR #3420 R1: the advancing-tool key set -----------------------------
+  test("advancing-tool-key-parity — both hand-maintained sets are pinned", () => {
+    // The blocking finding's structural defense. These two lists must agree, and a mismatch is
+    // SILENT: a tool naming its id differently simply stops being credited as advancing, turning
+    // every one of its turns into a fire. Pinning both makes drift a visible diff, which is the
+    // same defense ARMED_WAIT_TOOLS documents for itself.
+    expect([...TASK_ID_INPUT_KEYS]).toEqual(["task", "taskId", "id", "parentTaskId"]);
+    expect([...TASK_ADVANCING_TOOLS].sort()).toEqual([
+      SESSION_COMMIT,
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__session_pr_merge",
+      "mcp__minsky__session_start",
+      "mcp__minsky__tasks_dispatch",
+      "mcp__minsky__tasks_spec_patch",
+      "mcp__minsky__tasks_spec_search_replace",
+    ]);
+  });
+
+  test("an advancing call carrying its id as `id` is credited", () => {
+    // Not reached by today's tool set — every member takes `task` or `taskId` — so this pins the
+    // BEHAVIOUR the widened key list buys, rather than leaving it as an untested claim.
+    const result = JSON.stringify({ results: [{ ref: "mt#510", id: "mt#510", status: "READY" }] });
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#510"] }, result),
+      ...call("c2", SESSION_COMMIT, { id: "mt#510" }, OK_RESULT)
+    );
+    expect(detectStrandedTaskState("mt#510 is moving.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a result far longer than any positional window still yields its status", () => {
+    // The old regex bounded the id->status span at 400 chars, which silently dropped exactly the
+    // largest results (a `tasks_get` with a spec attached). The JSON walk has no such window.
+    const result = JSON.stringify({
+      task: { id: "mt#520", spec: "x".repeat(20000), status: "PLANNING" },
+    });
+    const c = ctxOf(...call("c1", "mcp__minsky__tasks_get", { taskId: "mt#520" }, result));
+    expect(detectStrandedTaskState("mt#520 still needs planning.", turnLinesOf(c))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#520 (PLANNING)" },
+    ]);
+  });
+
+  test("a non-JSON result body degrades to the regex path rather than throwing", () => {
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#530"] }, 'plain text {"id":"mt#530","status":"TODO"}')
+    );
+    expect(detectStrandedTaskState("mt#530 is next.", turnLinesOf(c))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#530 (TODO)" },
+    ]);
   });
 
   // -- SC3: the existing armed-watcher suppression covers the arm -----------
