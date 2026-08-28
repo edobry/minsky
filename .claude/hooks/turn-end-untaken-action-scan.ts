@@ -971,12 +971,24 @@ export const STRANDED_TASK_FAMILY = "stranded-task-state";
  * exactly as much evidence as a read returning the same value — a turn that moves a task to
  * PLANNING and then ends has established a non-terminal status just as surely as one that looked
  * it up. Occurrence 2 below is that case.
+ *
+ * `tasks_list` and `tasks_search` are deliberately OUT, and this is the single largest precision
+ * lever in the arm. A BULK query returns every task matching a filter, so a turn that lists the
+ * backlog has "read" a hundred non-terminal statuses without having looked at any one of them —
+ * naming one in a status report would then fire. The conjunct is meant to establish that the turn
+ * LOOKED AT this task, and only a targeted query does that.
+ *
+ * **Measured, and it is NOT the noise lever it was expected to be:** removing `tasks_list` moved
+ * the arm's fire rate from 8.94% to 8.88% of replayed turns (1001 -> 994 of 11,196). The
+ * exclusion is kept because the reasoning above is sound on its own, but the honest record is
+ * that it bought almost nothing — a batch `refs_status` is the dominant read shape in this repo
+ * and is nearly as weak a signal of "looked at THIS task". That is why the arm ships log-only;
+ * see the PR body and `## SC6` in the spec.
  */
 export const TASK_STATUS_READ_TOOLS = new Set([
   "mcp__minsky__refs_status",
   "mcp__minsky__tasks_status_get",
   "mcp__minsky__tasks_get",
-  "mcp__minsky__tasks_list",
   "mcp__minsky__tasks_status_set",
 ]);
 
@@ -997,8 +1009,23 @@ export const TASK_ADVANCING_TOOLS = new Set([
   "mcp__minsky__tasks_dispatch",
 ]);
 
-/** The two terminal statuses; everything else in the state machine is non-terminal. */
-const TERMINAL_TASK_STATUSES = new Set(["DONE", "CLOSED"]);
+/**
+ * The non-terminal statuses, as an ALLOWLIST rather than "everything that is not DONE/CLOSED".
+ *
+ * The complement form looks equivalent and is not: the regex below matches an uppercase token in
+ * a status-shaped position, and a tool result can carry one that is not a task status at all. The
+ * first replay produced a `COMPLETED` — no such member exists in this state machine — which the
+ * complement form would have accepted as non-terminal and fired on. An allowlist keyed to the real
+ * enum cannot do that.
+ */
+const NON_TERMINAL_TASK_STATUSES = new Set([
+  "TODO",
+  "PLANNING",
+  "READY",
+  "IN-PROGRESS",
+  "IN-REVIEW",
+  "BLOCKED",
+]);
 
 /**
  * A task id joined to the status the same JSON object reports for it.
@@ -1080,7 +1107,7 @@ export function detectStrandedTaskState(
     let m: RegExpExecArray | null;
     while ((m = TASK_ID_WITH_STATUS.exec(call.resultText)) !== null) {
       const [, id, status] = m;
-      if (!id || !status || TERMINAL_TASK_STATUSES.has(status)) continue;
+      if (!id || !status || !NON_TERMINAL_TASK_STATUSES.has(status)) continue;
       nonTerminal.set(id, status);
     }
   }
@@ -1141,6 +1168,13 @@ export function run(
     (m) => !flagged.has(flagKey(turnKey, m.family, m.matchedPhrase))
   );
   if (newMatches.length === 0) return null;
+
+  // mt#4697 SC6: split the new matches by side. BOTH reach the calibration record — the arm is
+  // being measured, and a fire that is not recorded cannot be classified — but only the phrase
+  // side may reach `additionalContext`. See the note on `additionalContext` for the measurement
+  // that put the arm on the log-only rung.
+  const strandedNew = newMatches.filter((m) => m.family === STRANDED_TASK_FAMILY);
+  const injectable = newMatches.filter((m) => m.family !== STRANDED_TASK_FAMILY);
 
   for (const m of newMatches) {
     flagged.add(flagKey(turnKey, m.family, m.matchedPhrase));
@@ -1314,10 +1348,25 @@ export function run(
       // only on that path, so the next calibration pass can measure this
       // decision separately from an ordinary fire rather than inferring it.
       ...(harnessCommandDeclined.length > 0 ? { harnessCommandDeclined } : {}),
+      // mt#4697 SC6: the tool-call-state arm's own fires, named so a calibration pass can classify
+      // them without having to separate them from the phrase side by hand.
+      ...(strandedNew.length > 0
+        ? { strandedTaskArm: strandedNew.map((m) => m.matchedPhrase), strandedArmLogOnly: true }
+        : {}),
     },
     // The overlap flag selects the DIRECTIVE, not just the calibration field
     // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
     // the silenced sibling's remedy and not only its speaking slot.
-    additionalContext: buildReminder(newMatches, deferralOverlap.length > 0),
+    //
+    // mt#4697 SC6: the arm ships LOG-ONLY, so its matches reach the calibration record above but
+    // NOT the injection. Measured over 11,196 replayed turns: the arm fires on 994 (8.88%) against
+    // the shipped phrase side's 345 (3.08%) — nearly TRIPLE the volume, on a detector that is
+    // already live. mt#3560's tail-window safety argument does not transfer to a state-keyed arm,
+    // which is exactly what SC6 exists to establish, and ADR-024's ladder wants a calibration pass
+    // to classify those 994 before any of them interrupt an agent. `injectable` is empty when the
+    // arm was the ONLY thing that matched, and then this whole call yields undefined — a recorded
+    // fire with no injection, which is what log-only means here.
+    additionalContext:
+      injectable.length > 0 ? buildReminder(injectable, deferralOverlap.length > 0) : undefined,
   };
 }

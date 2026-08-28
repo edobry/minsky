@@ -1308,7 +1308,10 @@ describe("tool-call-state match arm (mt#4697)", () => {
   }
 
   function families(out: GuardOutcome | null): string[] {
-    return (out?.calibration?.matches ?? []).map((m: { family: string }) => m.family);
+    // `calibration` is an open record on GuardOutcome, so `matches` arrives as `{}`; narrow at the
+    // read rather than widening the shared type for a test helper.
+    const raw = (out?.calibration?.matches ?? []) as Array<{ family: string }>;
+    return raw.map((m) => m.family);
   }
 
   function turnLinesOf(c: DispatchContext): TranscriptLine[] {
@@ -1355,10 +1358,28 @@ describe("tool-call-state match arm (mt#4697)", () => {
     expect(matches).toEqual([{ family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#4324 (TODO)" }]);
   });
 
-  test("occurrence 3 reaches run() and injects", () => {
+  test("occurrence 3 reaches run() and is RECORDED — log-only, not injected (SC6)", () => {
     const out = runOn(OCC3_MESSAGE, OCC3_CTX(), "occ3-fire");
+    // Recorded: the match is in the calibration payload, under its own field so a calibration
+    // pass can classify arm fires without separating them from the phrase side by hand.
     expect(families(out)).toContain(STRANDED_TASK_FAMILY);
-    expect(out?.additionalContext).toContain("mt#4324 (TODO)");
+    expect(out?.calibration?.strandedTaskArm).toEqual(["mt#4324 (TODO)"]);
+    expect(out?.calibration?.strandedArmLogOnly).toBe(true);
+    // NOT injected: this message matches nothing on the phrase side, so the arm was the only
+    // match and the turn gets no advisory. That is the log-only rung, asserted rather than
+    // assumed — measured at 994 fires vs the phrase side's 345 over 11,196 replayed turns.
+    expect(out?.calibration?.suppressionReasons).toEqual([]);
+    expect(out?.additionalContext).toBeUndefined();
+  });
+
+  test("a phrase-side match in the SAME turn still injects, and the arm rides along recorded", () => {
+    // The log-only rung silences the ARM, not the guard: a turn that also trips a commitment
+    // pattern must keep its advisory, or this change would have quietly weakened the live half.
+    const msg = `${OCC3_MESSAGE} Say the word and I'll pick it up.`;
+    const out = runOn(msg, OCC3_CTX(), "occ3-mixed");
+    expect(out?.additionalContext).toBeDefined();
+    expect(out?.additionalContext).not.toContain(STRANDED_TASK_FAMILY);
+    expect(out?.calibration?.strandedTaskArm).toEqual(["mt#4324 (TODO)"]);
   });
 
   test("occurrence 3 INERTNESS CONTROL — silent with the arm unreachable", () => {
