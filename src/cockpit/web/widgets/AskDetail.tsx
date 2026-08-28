@@ -24,6 +24,8 @@ import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import { resolveChosenOption } from "../lib/ask-response";
 import { readCredentialRequest } from "@minsky/shared/credential-request";
 import { CredentialRequestForm } from "./CredentialRequestForm";
+import { readAppGrantRequest } from "@minsky/shared/app-grant-request";
+import { AppGrantRequestPanel } from "./AppGrantRequestPanel";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -586,6 +588,14 @@ export function AskDetail(props: AskDetailProps) {
    */
   const credentialRequest = readCredentialRequest(ask);
 
+  /**
+   * The second payload kind (mt#4693). Its own key, its own branch, sharing
+   * nothing with the credential form above — which is the point: that one is a
+   * masked INPUT because a credential has a value, and this one is a status
+   * card and a link because an App grant has none.
+   */
+  const appGrantRequest = readAppGrantRequest(ask);
+
   const hasOptions =
     (ask.options && ask.options.length > 0) ||
     ask.kind === "authorization.approve" ||
@@ -598,7 +608,9 @@ export function AskDetail(props: AskDetailProps) {
   // lettered choices does this ask have".
   const optionCount = credentialRequest
     ? 0
-    : ask.options
+    : appGrantRequest
+      ? 0
+      : ask.options
       ? Math.min(ask.options.length, letters.length)
       : hasOptions
         ? 2
@@ -783,6 +795,23 @@ export function AskDetail(props: AskDetailProps) {
             {credentialRequest && actions && (
               <CredentialRequestForm
                 providerId={credentialRequest.provider}
+                declining={isResolvingOption(actions.acting, "B")}
+                blocked={actions.acting !== null}
+                onDecline={() => actions.onResolve(ask, "B")}
+              />
+            )}
+
+            {/* An App-grant request renders a status card and a link rather than
+                a form: the grant happens on github.com and there is no value to
+                supply here. Decline remains the ask's own B) resolution, so a
+                refusal stays distinguishable from an unanswered request. */}
+            {appGrantRequest && actions && (
+              <AppGrantRequestPanel
+                repo={appGrantRequest.repo}
+                slug={appGrantRequest.slug}
+                {...(appGrantRequest.settingsUrl
+                  ? { settingsUrl: appGrantRequest.settingsUrl }
+                  : {})}
                 declining={isResolvingOption(actions.acting, "B")}
                 blocked={actions.acting !== null}
                 onDecline={() => actions.onResolve(ask, "B")}

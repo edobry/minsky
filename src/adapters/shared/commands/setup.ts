@@ -30,7 +30,21 @@ import { getConfiguration } from "@minsky/domain/configuration";
 import { createTokenProvider } from "@minsky/domain/auth";
 import { GitHubAppTokenProvider } from "@minsky/domain/auth/github-app-token-provider";
 import { extractOwnerRepo } from "@minsky/domain/project/slug";
-import { checkAppCoverage, formatAppCoverage } from "@minsky/domain/setup/app-coverage";
+import {
+  checkAppRoleCoverage,
+  formatAppCoverage,
+  type AppRoleCoverage,
+  type AppRoleDescriptor,
+} from "@minsky/domain/setup/app-coverage";
+import {
+  buildAppGrantRequestAsk,
+  hasOpenAppGrantRequest,
+  isPolicyResolved,
+} from "@minsky/domain/setup/app-grant-request";
+import { PENDING_REQUEST_STATES as PENDING_ASK_STATES } from "@minsky/domain/ask/presence-backed-request";
+import { buildAskRepository, createAskWithFormLint } from "./asks";
+import type { AskRepository } from "@minsky/domain/ask/repository";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Onboarding-time GitHub App installation-coverage check (mt#4680).
@@ -64,14 +78,186 @@ async function checkGitHubAppCoverageMessage(repoPath: string): Promise<string |
     const provider = createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? "");
     const appProvider = provider instanceof GitHubAppTokenProvider ? provider : null;
 
-    const status = await checkAppCoverage(ownerRepo, { provider: appProvider });
-    // A configured-but-covered install is the uninteresting case; stay quiet.
-    if (status.state === "covered" || status.state === "no-app-configured") return null;
-    return formatAppCoverage(status);
+    // Every CONFIGURED role, not just the implementer (mt#4693 D6). A
+    // configured-but-uncovered reviewer App breaks the review loop with no
+    // onboarding signal at all, and the single-role check could not see it.
+    const roles = describeConfiguredAppRoles(cfg);
+    const coverage = await checkAppRoleCoverage(ownerRepo, roles, { provider: appProvider });
+
+    const uncovered = coverage.filter((entry) => entry.status.state === "not-covered");
+    const unknown = coverage.filter((entry) => entry.status.state === "unknown");
+
+    // Turn the detection into a durable, pollable request rather than leaving it
+    // as a line in the setup output (mt#4693). `unknown` deliberately files
+    // NOTHING: a probe that could not run is not a missing grant, and telling an
+    // operator to grant access they already have wastes the trip.
+    const outcome: AppGrantFilingOutcome =
+      uncovered.length > 0
+        ? await fileAppGrantRequests(uncovered, await buildAskRepository(undefined))
+        : { filed: [], policyClosed: [] };
+
+    const lines = renderCoverageLines([...uncovered, ...unknown], outcome);
+    return lines.length > 0 ? lines.join("\n") : null;
   } catch {
     // intentional-swallow: coverage is advisory; setup must not fail on it.
     return null;
   }
+}
+
+/**
+ * The operator-facing lines for one coverage pass.
+ *
+ * Pure, and exported, so the line that matters most is assertable: a
+ * POLICY-CLOSED request must be stated here rather than left in a log the
+ * operator never reads (PR #3418 R2). That outcome is the one that looks like
+ * success and is not — the row reads as settled, no human was asked, and
+ * because this resolves by coverage presence it will never resolve either. A
+ * `log.warn` plus an empty filed-list left `setup` looking like it had done
+ * something.
+ */
+export function renderCoverageLines(
+  reportable: readonly AppRoleCoverage[],
+  outcome: AppGrantFilingOutcome
+): string[] {
+  const lines: string[] = [];
+  for (const entry of reportable) {
+    lines.push(formatAppCoverage(entry.status, entry.slug));
+  }
+
+  if (outcome.filed.length > 0) {
+    lines.push(
+      `  Tracked as ${outcome.filed.length === 1 ? "an open request" : `${outcome.filed.length} open requests`} — Minsky will notice the grant on its own; nothing to confirm here.`
+    );
+  }
+
+  for (const entry of outcome.policyClosed) {
+    lines.push(
+      `  COULD NOT file a grant request for ${entry.slug} (${entry.role}): the ask router auto-closed it in policy, so nobody was asked and it will never resolve.`,
+      entry.settingsUrl
+        ? `    Grant access manually at ${entry.settingsUrl}, or adjust the ask policy and re-run \`minsky setup\`.`
+        : `    Grant access manually under Repository access, or adjust the ask policy and re-run \`minsky setup\`.`
+    );
+  }
+
+  return lines;
+}
+
+/**
+ * The App roles this installation actually has configured, with the display
+ * slug and installation id each operator-facing surface needs.
+ *
+ * The installation id comes from CONFIG rather than from the token provider,
+ * which holds it on a private field — the same source mt#4695 uses for the
+ * deep link in the CLI message.
+ */
+function describeConfiguredAppRoles(cfg: {
+  github?: {
+    serviceAccount?: { installationId?: number };
+    reviewer?: { serviceAccount?: { installationId?: number } };
+  };
+}): AppRoleDescriptor[] {
+  const roles: AppRoleDescriptor[] = [];
+  const implementerId = cfg.github?.serviceAccount?.installationId;
+  roles.push({
+    role: "implementer",
+    slug: "minsky-ai",
+    ...(implementerId === undefined ? {} : { installationId: implementerId }),
+  });
+
+  const reviewerId = cfg.github?.reviewer?.serviceAccount?.installationId;
+  if (cfg.github?.reviewer?.serviceAccount) {
+    roles.push({
+      role: "reviewer",
+      slug: "minsky-reviewer",
+      ...(reviewerId === undefined ? {} : { installationId: reviewerId }),
+    });
+  }
+  return roles;
+}
+
+/**
+ * File one durable grant request per uncovered role, skipping any that already
+ * has one open.
+ *
+ * **Best-effort by construction.** Persistence may legitimately be unavailable
+ * at this point — `setup` is the command that CONFIGURES the database, and an
+ * operator can decline that step — so a missing ask repository degrades to the
+ * printed message rather than failing a setup that otherwise succeeded.
+ *
+ * Returns the ids actually filed, so the caller reports what happened rather
+ * than asserting it.
+ *
+ * Takes the repository rather than resolving one, so the two behaviours that
+ * are easy to get wrong — an `unknown` probe filing nothing, and a policy-closed
+ * ask not being counted as filed — are assertable against a fake instead of
+ * requiring the real persistence stack. Exported for that reason only.
+ */
+export interface AppGrantFilingOutcome {
+  /** Ask ids actually filed and routed to the operator. */
+  readonly filed: string[];
+  /**
+   * Roles whose ask the router auto-closed in policy, so no human was asked.
+   *
+   * Reported SEPARATELY from `filed` and surfaced in the setup output, because
+   * this is the one outcome that looks like success and is not: the row reads as
+   * settled, the request will never resolve, and onboarding would otherwise tell
+   * the operator a request exists that nobody will ever answer.
+   */
+  readonly policyClosed: AppRoleCoverage[];
+}
+
+export async function fileAppGrantRequests(
+  uncovered: readonly AppRoleCoverage[],
+  repo: AskRepository | null
+): Promise<AppGrantFilingOutcome> {
+  if (!repo) return { filed: [], policyClosed: [] };
+
+  const existing = (
+    await Promise.all(PENDING_ASK_STATES.map((state) => repo.listByState(state)))
+  ).flat();
+
+  const filed: string[] = [];
+  const policyClosed: AppRoleCoverage[] = [];
+  for (const entry of uncovered) {
+    if (entry.status.state !== "not-covered") continue;
+
+    // Idempotency: re-running `minsky setup` on an uncovered repo must not file
+    // a second ask (mt#4693; RFC 390937f0 names escalation spam as a threat).
+    if (hasOpenAppGrantRequest(existing, { repo: entry.status.repo, role: entry.role })) continue;
+
+    const draft = buildAppGrantRequestAsk({
+      repo: entry.status.repo,
+      role: entry.role,
+      slug: entry.slug,
+      ...(entry.settingsUrl ? { settingsUrl: entry.settingsUrl } : {}),
+    });
+
+    const { ask } = await createAskWithFormLint(repo, {
+      kind: draft.kind,
+      title: draft.title,
+      question: draft.question,
+      requestor: "minsky:setup",
+      metadata: draft.metadata,
+    } as Parameters<typeof createAskWithFormLint>[1]);
+
+    // The router can auto-resolve `authorization.approve` in-policy and close it
+    // without a human ever seeing it (mt#3233). Because this resolves by COVERAGE
+    // PRESENCE, that produces a request which never resolves while reading as
+    // settled — so surface it rather than reporting a grant request nobody was
+    // asked for.
+    if (isPolicyResolved(ask)) {
+      log.warn("setup: app-grant request was resolved in-policy, not routed to the operator", {
+        askId: ask.id,
+        repo: entry.status.repo,
+        role: entry.role,
+      });
+      policyClosed.push(entry);
+      continue;
+    }
+
+    filed.push(ask.id);
+  }
+  return { filed, policyClosed };
 }
 
 const setupParams = composeParams(
