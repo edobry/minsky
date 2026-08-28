@@ -17,6 +17,10 @@ import {
   SUPPRESSION_FILED_BY_DESIGN_HALT,
   SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
   detectArmedWatcherEvidence,
+  detectStrandedTaskState,
+  STRANDED_TASK_FAMILY,
+  TASK_ADVANCING_TOOLS,
+  TASK_ID_INPUT_KEYS,
   turnKeyForMessage,
   CONDITIONAL_WAIT_TOOL,
   ARMED_WAIT_TOOLS,
@@ -1242,5 +1246,311 @@ describe("suppressions run over ELIDED text (PR #2976 R1)", () => {
       storeDir
     );
     expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_DESTRUCTIVE_ACTION_HALT]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4697 — the tool-call-state match arm.
+//
+// SC4 requires each attested miss the trigger claims to cover to appear as a NAMED fixture with
+// its date, and each one it does NOT cover to be listed explicitly. SC5 requires every one of
+// those fixtures to be shown FIRING with the arm reachable and SILENT with it unreachable —
+// because `[]` is what "nothing matched" and "never reached the matcher" both return, so a green
+// negative assertion is not evidence on its own.
+// ---------------------------------------------------------------------------
+
+describe("tool-call-state match arm (mt#4697)", () => {
+  const REFS_STATUS = "mcp__minsky__refs_status";
+  const SESSION_COMMIT = "mcp__minsky__session_commit";
+  const OK_RESULT = '{"success":true}';
+  let armStore: string;
+  beforeEach(() => {
+    armStore = mkdtempSync(join(tmpdir(), "untaken-arm-"));
+  });
+  afterEach(() => {
+    rmSync(armStore, { recursive: true, force: true });
+  });
+
+  function up(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+
+  /** One tool call, optionally joined to the result body the arm reads. */
+  function call(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    result?: string
+  ): TranscriptLine[] {
+    const lines: TranscriptLine[] = [
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+      } as unknown as TranscriptLine,
+    ];
+    if (result !== undefined) {
+      lines.push({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: id, content: result }],
+        },
+      } as unknown as TranscriptLine);
+    }
+    return lines;
+  }
+
+  function ctxOf(...lines: TranscriptLine[]): DispatchContext {
+    return { transcriptLines: [up("go"), ...lines] } as unknown as DispatchContext;
+  }
+
+  function runOn(msg: string, c: DispatchContext, session: string): GuardOutcome | null {
+    return run({ session_id: session, last_assistant_message: msg } as never, c, armStore);
+  }
+
+  function families(out: GuardOutcome | null): string[] {
+    // `calibration` is an open record on GuardOutcome, so `matches` arrives as `{}`; narrow at the
+    // read rather than widening the shared type for a test helper.
+    const raw = (out?.calibration?.matches ?? []) as Array<{ family: string }>;
+    return raw.map((m) => m.family);
+  }
+
+  function turnLinesOf(c: DispatchContext): TranscriptLine[] {
+    return (c as unknown as { transcriptLines: TranscriptLine[] }).transcriptLines;
+  }
+
+  // -- Occurrence 3, 2026-08-21T20:34:28Z (the originating miss) ------------
+  // Verbatim shape: `refs_status` returned mt#4323 DONE and mt#4324 TODO; the turn advanced
+  // mt#4323 (spec patch) and merely NAMED mt#4324 at the close. Settled against the transcript
+  // and the event ledger during this task's planning pass — mt#4324 went TODO -> PLANNING eight
+  // hours LATER, so TODO is what the turn actually saw.
+  const OCC3_REFS_RESULT = JSON.stringify({
+    success: true,
+    results: [
+      {
+        ref: "mt#4323",
+        kind: "task",
+        id: "mt#4323",
+        found: true,
+        outcome: "found",
+        status: "DONE",
+      },
+      {
+        ref: "mt#4324",
+        kind: "task",
+        id: "mt#4324",
+        found: true,
+        outcome: "found",
+        status: "TODO",
+      },
+    ],
+  });
+  const OCC3_MESSAGE =
+    "mt#4323 is merged, deployed, and verified. " +
+    "mt#4324 is the unblocked successor but sits at TODO, so it needs /plan-task first.";
+  const OCC3_CTX = (): DispatchContext =>
+    ctxOf(
+      ...call("c1", "mcp__minsky__tasks_spec_patch", { taskId: "mt#4323" }, OK_RESULT),
+      ...call("c2", REFS_STATUS, { refs: ["mt#4323", "mt#4324"] }, OCC3_REFS_RESULT)
+    );
+
+  test("occurrence 3 (2026-08-21) FIRES on the stranded task, not the advanced one", () => {
+    const matches = detectStrandedTaskState(OCC3_MESSAGE, turnLinesOf(OCC3_CTX()));
+    expect(matches).toEqual([{ family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#4324 (TODO)" }]);
+  });
+
+  test("occurrence 3 reaches run() and is RECORDED — log-only, not injected (SC6)", () => {
+    const out = runOn(OCC3_MESSAGE, OCC3_CTX(), "occ3-fire");
+    // Recorded: the match is in the calibration payload, under its own field so a calibration
+    // pass can classify arm fires without separating them from the phrase side by hand.
+    expect(families(out)).toContain(STRANDED_TASK_FAMILY);
+    expect(out?.calibration?.strandedTaskArm).toEqual(["mt#4324 (TODO)"]);
+    expect(out?.calibration?.strandedArmLogOnly).toBe(true);
+    // NOT injected: this message matches nothing on the phrase side, so the arm was the only
+    // match and the turn gets no advisory. That is the log-only rung, asserted rather than
+    // assumed — measured at 994 fires vs the phrase side's 345 over 11,196 replayed turns.
+    expect(out?.calibration?.suppressionReasons).toEqual([]);
+    expect(out?.additionalContext).toBeUndefined();
+  });
+
+  test("a phrase-side match in the SAME turn still injects, and the arm rides along recorded", () => {
+    // The log-only rung silences the ARM, not the guard: a turn that also trips a commitment
+    // pattern must keep its advisory, or this change would have quietly weakened the live half.
+    const msg = `${OCC3_MESSAGE} Say the word and I'll pick it up.`;
+    const out = runOn(msg, OCC3_CTX(), "occ3-mixed");
+    expect(out?.additionalContext).toBeDefined();
+    expect(out?.additionalContext).not.toContain(STRANDED_TASK_FAMILY);
+    expect(out?.calibration?.strandedTaskArm).toEqual(["mt#4324 (TODO)"]);
+  });
+
+  test("occurrence 3 INERTNESS CONTROL — silent with the arm unreachable", () => {
+    // Same message, no turn state for the arm to read. If this also fired, the fire above would
+    // be the prose patterns and would say nothing about the arm.
+    expect(detectStrandedTaskState(OCC3_MESSAGE, [])).toEqual([]);
+    const out = runOn(OCC3_MESSAGE, ctxOf(), "occ3-inert");
+    expect(families(out)).not.toContain(STRANDED_TASK_FAMILY);
+  });
+
+  // -- Occurrence 2, 2026-08-16 --------------------------------------------
+  // The turn SET mt#4183 to PLANNING and closed by naming what would happen once PR #3039 merged,
+  // without advancing it. `tasks_status_set` counts as establishing the state, which is why it is
+  // in TASK_STATUS_READ_TOOLS and NOT in TASK_ADVANCING_TOOLS.
+  const OCC2_SET_RESULT = JSON.stringify({
+    success: true,
+    taskId: "mt#4183",
+    previousStatus: "TODO",
+    newStatus: "PLANNING",
+  });
+  const OCC2_MESSAGE = "once PR #3039 merges, re-running the gate on mt#4183 picks it up";
+  const OCC2_CTX = (): DispatchContext =>
+    ctxOf(
+      ...call(
+        "c1",
+        "mcp__minsky__tasks_status_set",
+        { taskId: "mt#4183", status: "PLANNING" },
+        OCC2_SET_RESULT
+      )
+    );
+
+  test("occurrence 2 (2026-08-16) FIRES — a status_set to PLANNING is the stranding", () => {
+    expect(detectStrandedTaskState(OCC2_MESSAGE, turnLinesOf(OCC2_CTX()))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#4183 (PLANNING)" },
+    ]);
+  });
+
+  test("occurrence 2 INERTNESS CONTROL — silent with the arm unreachable", () => {
+    expect(detectStrandedTaskState(OCC2_MESSAGE, [])).toEqual([]);
+    const out = runOn(OCC2_MESSAGE, ctxOf(), "occ2-inert");
+    expect(families(out)).not.toContain(STRANDED_TASK_FAMILY);
+  });
+
+  // -- Occurrence 1, 2026-08-01 — EXPLICITLY OUT OF REACH -------------------
+  test("occurrence 1 (2026-08-01) is NOT covered by this arm, by design", () => {
+    // A first-person commitment with no task or PR state in the turn at all. The phrase side owns
+    // it; SC4 requires this to be stated rather than implied.
+    const msg = "Let me pull the current state and see where that leaves the queue.";
+    expect(detectStrandedTaskState(msg, turnLinesOf(ctxOf()))).toEqual([]);
+  });
+
+  // -- Precision: each conjunct is load-bearing -----------------------------
+  test("named but NEVER READ does not fire — a status report is not a stranding", () => {
+    const msg = "Remaining: mt#4321 and mt#4322, both wanting a design pass.";
+    expect(detectStrandedTaskState(msg, turnLinesOf(ctxOf()))).toEqual([]);
+  });
+
+  test("read and named but ADVANCED does not fire", () => {
+    const result = JSON.stringify({
+      results: [{ ref: "mt#500", id: "mt#500", status: "IN-PROGRESS" }],
+    });
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#500"] }, result),
+      ...call("c2", SESSION_COMMIT, { task: "mt#500" }, OK_RESULT)
+    );
+    expect(detectStrandedTaskState("mt#500 is coming along.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a TERMINAL status does not fire", () => {
+    const result = JSON.stringify({ results: [{ ref: "mt#600", id: "mt#600", status: "DONE" }] });
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#600"] }, result));
+    expect(detectStrandedTaskState("mt#600 is finished.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("read as non-terminal but NOT named at the close does not fire", () => {
+    const result = JSON.stringify({ results: [{ ref: "mt#700", id: "mt#700", status: "READY" }] });
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#700"] }, result));
+    expect(detectStrandedTaskState("All set; nothing outstanding.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a call with no correlated result contributes nothing", () => {
+    // `hasResult` distinguishes "returned empty" from "never returned"; the arm must not read a
+    // still-in-flight call as a status of any kind.
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#800"] }));
+    expect(detectStrandedTaskState("mt#800 is next.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("the row bound holds — row N's id is never paired with row N+1's status", () => {
+    // mt#900 has no status field at all. Without the `[^}]` object bound the lazy span would run
+    // on and pair it with mt#901's READY.
+    const result = JSON.stringify({
+      results: [
+        { ref: "mt#900", outcome: "unavailable" },
+        { ref: "mt#901", id: "mt#901", status: "READY" },
+      ],
+    });
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#900"] }, result));
+    const matches = detectStrandedTaskState("mt#900 and mt#901 both matter.", turnLinesOf(c));
+    expect(matches.map((m) => m.matchedPhrase)).toEqual(["mt#901 (READY)"]);
+  });
+
+  // -- PR #3420 R1: the advancing-tool key set -----------------------------
+  test("advancing-tool-key-parity — both hand-maintained sets are pinned", () => {
+    // The blocking finding's structural defense. These two lists must agree, and a mismatch is
+    // SILENT: a tool naming its id differently simply stops being credited as advancing, turning
+    // every one of its turns into a fire. Pinning both makes drift a visible diff, which is the
+    // same defense ARMED_WAIT_TOOLS documents for itself.
+    expect([...TASK_ID_INPUT_KEYS]).toEqual(["task", "taskId", "id", "parentTaskId"]);
+    expect([...TASK_ADVANCING_TOOLS].sort()).toEqual([
+      SESSION_COMMIT,
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__session_pr_merge",
+      "mcp__minsky__session_start",
+      "mcp__minsky__tasks_dispatch",
+      "mcp__minsky__tasks_spec_patch",
+      "mcp__minsky__tasks_spec_search_replace",
+    ]);
+  });
+
+  test("an advancing call carrying its id as `id` is credited", () => {
+    // Not reached by today's tool set — every member takes `task` or `taskId` — so this pins the
+    // BEHAVIOUR the widened key list buys, rather than leaving it as an untested claim.
+    const result = JSON.stringify({ results: [{ ref: "mt#510", id: "mt#510", status: "READY" }] });
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#510"] }, result),
+      ...call("c2", SESSION_COMMIT, { id: "mt#510" }, OK_RESULT)
+    );
+    expect(detectStrandedTaskState("mt#510 is moving.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a result far longer than any positional window still yields its status", () => {
+    // The old regex bounded the id->status span at 400 chars, which silently dropped exactly the
+    // largest results (a `tasks_get` with a spec attached). The JSON walk has no such window.
+    const result = JSON.stringify({
+      task: { id: "mt#520", spec: "x".repeat(20000), status: "PLANNING" },
+    });
+    const c = ctxOf(...call("c1", "mcp__minsky__tasks_get", { taskId: "mt#520" }, result));
+    expect(detectStrandedTaskState("mt#520 still needs planning.", turnLinesOf(c))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#520 (PLANNING)" },
+    ]);
+  });
+
+  test("a non-JSON result body degrades to the regex path rather than throwing", () => {
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#530"] }, 'plain text {"id":"mt#530","status":"TODO"}')
+    );
+    expect(detectStrandedTaskState("mt#530 is next.", turnLinesOf(c))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#530 (TODO)" },
+    ]);
+  });
+
+  // -- SC3: the existing armed-watcher suppression covers the arm -----------
+  test("SC3 — an armed watcher suppresses an arm fire, with no duplicate check in the arm", () => {
+    const c = ctxOf(
+      ...call(
+        "c1",
+        REFS_STATUS,
+        { refs: ["mt#4324"] },
+        JSON.stringify({ results: [{ ref: "mt#4324", id: "mt#4324", status: "TODO" }] })
+      ),
+      ...call("c2", "mcp__minsky__pr_watch_run", {}, '{"ok":true}')
+    );
+    // The arm itself still matches — it does not know about watchers.
+    expect(detectStrandedTaskState("mt#4324 is next.", turnLinesOf(c))).toHaveLength(1);
+    // run() suppresses it downstream, which is what SC3 asks to be asserted rather than assumed.
+    const out = runOn("mt#4324 is next.", c, "sc3-armed");
+    expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_ARMED_WATCHER_EVIDENCE]);
+    expect(out?.additionalContext).toBeUndefined();
   });
 });
