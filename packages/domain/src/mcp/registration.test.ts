@@ -21,6 +21,7 @@ import {
   OpenHandsRegistrar,
   getRegistrar,
   registerWithClient,
+  detectJsonIndent,
 } from "./registration";
 import { createMockFs } from "../interfaces/mock-fs";
 import type { MockFs } from "../interfaces/mock-fs";
@@ -431,6 +432,24 @@ describe("McpServersJsonRegistrar (abstract base)", () => {
   });
 });
 
+describe("detectJsonIndent (PR #3423 R1)", () => {
+  test("returns 2 as the default when no indent can be matched", () => {
+    expect(detectJsonIndent("{}")).toBe(2);
+  });
+
+  test("detects a 2-space indented document", () => {
+    expect(detectJsonIndent('{\n  "mcpServers": {}\n}')).toBe(2);
+  });
+
+  test("detects a 4-space indented document", () => {
+    expect(detectJsonIndent('{\n    "mcpServers": {}\n}')).toBe(4);
+  });
+
+  test("detects a tab-indented document and returns the tab verbatim (not collapsed to a width)", () => {
+    expect(detectJsonIndent('{\n\t"mcpServers": {}\n}')).toBe("\t");
+  });
+});
+
 describe("getRegistrar", () => {
   test("returns CursorRegistrar for 'cursor'", () => {
     const r = getRegistrar("cursor");
@@ -669,6 +688,27 @@ describe("registerWithClient", () => {
       const configPath = registrar.configPath("/project-a");
       expect(configPath).toBe(registrar.configPath("/project-b"));
       expect(mockFs.files.has(configPath)).toBe(true);
+    });
+
+    test("preserves a non-default (4-space) indentation from the existing ~/.claude.json (PR #3423 R1)", async () => {
+      // ~/.claude.json is a vendor-owned, operator-live state file -- forcing
+      // JSON.stringify's default 2-space indent on every write would reformat
+      // the whole file (a surprising diff) regardless of how it was written.
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig =
+        '{\n    "mcpServers": {\n        "other-server": {\n            "command": "other"\n        }\n    }\n}';
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
+
+      const written = mockFs.files.get(configPath) ?? "";
+      // 4-space indentation preserved -- NOT collapsed to JSON.stringify's default of 2.
+      expect(written).toContain('    "mcpServers"');
+      expect(written.startsWith('{\n  "')).toBe(false);
+      const parsed = JSON.parse(written);
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["other-server"]).toBeDefined();
     });
   });
 

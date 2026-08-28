@@ -322,6 +322,33 @@ export function getRegistrar(client: string): ClientRegistrar {
 }
 
 /**
+ * Indentation of an existing JSON document, defaulting to 2.
+ *
+ * Re-serializing a large, operator-owned config file (`~/.claude.json`,
+ * `claude_desktop_config.json`) with the wrong indent rewrites the WHOLE
+ * file rather than just the entry being changed — a surprising diff for a
+ * file the operator never asked to be reformatted, and for `~/.claude.json`
+ * specifically a file that also carries real OAuth credentials and
+ * per-project history (PR #3423 R1).
+ *
+ * Same mechanism as `detectIndent()` in `src/mcp/setup/local-http-config.ts`
+ * — duplicated here rather than imported, since `packages/domain` does not
+ * depend on `src/` (Clean Architecture: Domain → Adapters, not the reverse).
+ *
+ * Returns the whitespace VERBATIM for a tab-indented document rather than a
+ * width — `JSON.stringify` accepts a string indent as readily as a number,
+ * and collapsing tabs to a numeric default would itself reformat every line
+ * of a tab-indented config, the exact hazard this function exists to avoid.
+ */
+export function detectJsonIndent(raw: string): string | number {
+  const match = raw.match(/\n(\s+)"/);
+  const indent = match?.[1];
+  if (indent === undefined) return 2;
+  if (indent.includes("\t")) return indent;
+  return indent.length;
+}
+
+/**
  * Orchestrates registering Minsky as an MCP server with the given client.
  *
  * For clients with mergeConfig=true (e.g. Claude Desktop), reads the existing
@@ -375,7 +402,14 @@ export async function registerWithClient(
           ...newServers,
         },
       };
-      await fileSystem.writeFile(filePath, JSON.stringify(merged, undefined, 2));
+      // Preserve the existing file's indentation rather than forcing 2 spaces
+      // (PR #3423 R1) — a vendor-owned state file re-serialized with a
+      // different indent is a whole-file diff for a change the operator
+      // never asked for.
+      await fileSystem.writeFile(
+        filePath,
+        JSON.stringify(merged, undefined, detectJsonIndent(existing))
+      );
     }
   } else {
     await createFileIfNotExists(filePath, newConfigJson, overwrite, fileSystem);

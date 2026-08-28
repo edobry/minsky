@@ -182,6 +182,42 @@ export function detectInstalledClients(deps: DetectInstalledClientsDeps = {}): M
 }
 
 /**
+ * Declared priority order for `resolveInitClient()`'s standalone fallback —
+ * which detected client wins when multiple are installed and the
+ * environment gives no signal at all (PR #3423 R1).
+ *
+ * Deliberately decoupled from `detectInstalledClients()`'s internal probe
+ * order: that order is an implementation detail of ITS OWN probes (cursor
+ * first, then claude-code, then claude-desktop, ...), not a considered
+ * ranking. Picking `installedClients[0]` would have made the fallback
+ * silently follow whatever order a future edit to those probes happened to
+ * use — reordering them for readability would silently change which client
+ * `init` picks, with nothing to catch it. This list is the single place
+ * that ranking is decided, and the tests below pin it directly (arrays
+ * constructed in orders that do NOT match this list, to prove the resolver
+ * uses the declared priority rather than array position).
+ *
+ * Order rationale:
+ * - `cursor` first: this was `init`'s hardcoded client before mt#4676 —
+ *   keeping it top-priority means an existing multi-client machine's
+ *   standalone `init` behavior is unchanged by this task.
+ * - `claude-code` second: the next most common Minsky-development harness,
+ *   and the one this task adds support for.
+ * - The remainder preserve `detectInstalledClients()`'s existing probe
+ *   order, which carries no considered ranking beyond "already there";
+ *   revisit if a real preference emerges.
+ */
+export const STANDALONE_CLIENT_PRIORITY: readonly ManagedClient[] = [
+  "cursor",
+  "claude-code",
+  "claude-desktop",
+  "vscode",
+  "windsurf",
+  "junie",
+  "codex",
+];
+
+/**
  * Resolve which MCP client `minsky init` should register with and record as
  * this workspace's `harness` (mt#4676).
  *
@@ -192,8 +228,9 @@ export function detectInstalledClients(deps: DetectInstalledClientsDeps = {}): M
  * `init` right now. `detectInstalledClients()` is consulted only as a
  * fallback, when the environment gives no signal at all (`standalone`) —
  * mirroring the interactive `setup` command's own multi-client fallback
- * (`src/adapters/shared/commands/setup.ts`), minus the interactive prompt:
- * the first detected client wins, or `cursor` when none are detected
+ * (`src/adapters/shared/commands/setup.ts`), minus the interactive prompt.
+ * The fallback picks the highest-priority detected client per
+ * `STANDALONE_CLIENT_PRIORITY`, or `cursor` when none are detected
  * (preserving `init`'s pre-mt#4676 default).
  *
  * `harness` and `installedClients` are accepted as parameters — defaulting
@@ -208,5 +245,10 @@ export function resolveInitClient(
 ): ManagedClient {
   if (harness === "claude-code") return "claude-code";
   if (harness === "cursor") return "cursor";
-  return installedClients[0] ?? "cursor";
+
+  const installed = new Set(installedClients);
+  for (const candidate of STANDALONE_CLIENT_PRIORITY) {
+    if (installed.has(candidate)) return candidate;
+  }
+  return "cursor";
 }

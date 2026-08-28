@@ -9,6 +9,7 @@ import {
   hasNativeSubagentSupport,
   detectInstalledClients,
   resolveInitClient,
+  STANDALONE_CLIENT_PRIORITY,
 } from "./harness-detection";
 
 const CLAUDE_AND_CURSOR_ENV_VARS = [
@@ -217,6 +218,45 @@ describe("resolveInitClient (mt#4676)", () => {
 
   test("standalone with nothing installed: defaults to cursor (preserves init's pre-mt#4676 default)", () => {
     expect(resolveInitClient("standalone", [])).toBe("cursor");
+  });
+
+  describe("standalone fallback uses the DECLARED priority order, not array position (PR #3423 R1)", () => {
+    test("STANDALONE_CLIENT_PRIORITY is the declared, documented order", () => {
+      expect(STANDALONE_CLIENT_PRIORITY).toEqual([
+        "cursor",
+        "claude-code",
+        "claude-desktop",
+        "vscode",
+        "windsurf",
+        "junie",
+        "codex",
+      ]);
+    });
+
+    test("cursor wins even when listed SECOND in the passed array", () => {
+      // If the resolver picked installedClients[0] (the pre-R1 behavior),
+      // this would return "vscode". The declared priority ranks cursor
+      // first regardless of where it sits in the passed array.
+      expect(resolveInitClient("standalone", ["vscode", "cursor"])).toBe("cursor");
+    });
+
+    test("claude-code outranks claude-desktop and vscode even when listed last", () => {
+      expect(resolveInitClient("standalone", ["vscode", "claude-desktop", "claude-code"])).toBe(
+        "claude-code"
+      );
+    });
+
+    test("falls through to a lower-priority client when higher-priority ones are absent", () => {
+      expect(resolveInitClient("standalone", ["codex", "junie"])).toBe("junie");
+    });
+
+    test("openhands is never picked by the standalone fallback (not in the priority list)", () => {
+      // openhands is deliberately excluded from detectInstalledClients()'s
+      // auto-detection (no reliable filesystem signature); confirm the
+      // priority list agrees and the fallback still resolves via cursor.
+      expect(STANDALONE_CLIENT_PRIORITY).not.toContain("openhands");
+      expect(resolveInitClient("standalone", ["openhands"])).toBe("cursor");
+    });
   });
 
   test("defaults to the real detectors when called with no arguments", () => {
