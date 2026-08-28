@@ -434,6 +434,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_ACK_CAUSAL_PREMISE: "operator-override", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
   MINSKY_ACK_CODE_MECHANISM_ASSERTION: "operator-override", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
   MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM: "operator-override", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
+  MINSKY_ACK_CROSS_TURN_HEDGE: "operator-override", // .claude/hooks/cross-turn-hedge-detector.ts (mt#4701) — override for the hedge-decay detector (a claim hedged in one turn, asserted in a later one)
   MINSKY_SKIP_SPEC_CRITERION_CLAIM: "operator-override", // .claude/hooks/spec-criterion-claim-detector.ts (mt#4153) — override for the spec-criterion unverified-assertion / invented-precondition detector
   MINSKY_SKIP_SECRET_REQUEST_IN_CHAT: "operator-override", // .claude/hooks/secret-request-in-chat-detector.ts (mt#2428) — override for the secret-request-in-chat detector
   MINSKY_ACK_ASK_ROUTING_DEFERRAL: "operator-override", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection

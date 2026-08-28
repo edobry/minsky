@@ -59,10 +59,10 @@ larger than a subtraction from 60 suggests.
 
 | Bucket         | Count   |
 | -------------- | ------- |
-| already-domain | 11      |
+| already-domain | 12      |
 | movable        | 89      |
 | immovable      | 82      |
-| **total**      | **182** |
+| **total**      | **183** |
 
 Of the 89 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
@@ -127,7 +127,7 @@ decision inline — `code-mechanism-assertion-detector.ts` does exactly that acr
 domain call covers one of its surfaces rather than its decision. Recording it as already-domain would
 overstate the baseline in exactly the way this document exists to correct.
 
-## already-domain (11)
+## already-domain (12)
 
 The hook module parses, calls, and relays; the verdict is a domain function. This is the shape
 mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "the thin adapter".
@@ -136,6 +136,7 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | -------------------------------------- | ---------------- | -------------------------------------------------------------------- | --------------------------------------------- | ----- |
 | `block-github-mcp-pr-writes.ts`        | standalone-hook  | `checkToolDenial (detectors/github-mcp-pr-write-denial)`             | decides-only (derived: no fs write, no spawn) | plant |
 | `block-nested-fork-dispatch.ts`        | standalone-hook  | `decideNestedForkDispatchGate (detectors/nested-fork-dispatch-gate)` | decides-only (derived: no fs write, no spawn) | plant |
+| `cross-turn-hedge-detector.ts`         | dispatcher-guard | `detectCrossTurnHedgeDecay (detectors/cross-turn-hedge)`             | side-effecting (recorder)                     | plant |
 | `dispatch-intent-write-gate.ts`        | standalone-hook  | `decideDispatchIntentGate (detectors/dispatch-intent-gate)`          | decides-only (derived: no fs write, no spawn) | plant |
 | `drive-pr-to-convergence.ts`           | standalone-hook  | `decidePrConvergenceReminder (detectors/pr-convergence-reminder)`    | decides-only (derived: no fs write, no spawn) | plant |
 | `flakiness-control-detector.ts`        | dispatcher-guard | `detectFlakinessAttribution (detectors/flakiness-attribution)`       | side-effecting (injector+recorder)            | plant |
@@ -407,6 +408,7 @@ a change to the generator's naming cannot silently add or drop rows here.
 | `check-task-spec-read.ts`                     | movable        | no          |
 | `code-mechanism-assertion-detector.ts`        | movable        | yes         |
 | `constructed-identifier-batch-detector.ts`    | movable        | yes         |
+| `cross-turn-hedge-detector.ts`                | already-domain | —           |
 | `deploy-surface-detector.ts`                  | immovable      | —           |
 | `domain-bootstrap.ts`                         | immovable      | —           |
 | `duplicate-signature-scan.ts`                 | movable        | yes         |

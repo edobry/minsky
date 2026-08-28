@@ -1098,6 +1098,37 @@
       "sourceFile": "coverage-claim-path-detector"
     },
     {
+      "guardName": "cross-turn-hedge-detector",
+      "description": "Records a claim the agent HEDGED in an earlier turn and then restated as fact in a later one, with no tool call naming that subject in between. Gives claim-confidence.mdc's warrant vocabulary a falsifier — until now nothing matched on it. Subjects are decidable entity refs only; the hedge turn's OWN lookup is deliberately not counted as resolving, since it is usually what produced the hedge. Log-only.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/cross-turn-hedge-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "cross-turn-hedge-detector"
+    },
+    {
       "guardName": "denier",
       "description": "Not an interceptor. A synthetic name from a deny-path scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
       "failureClasses": ["blind-enforcement"],

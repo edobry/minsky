@@ -656,6 +656,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "cross-turn-hedge-detector",
+    {
+      description:
+        "Records a claim the agent HEDGED in an earlier turn and then restated as fact in a later one, with no tool call naming that subject in between. Gives claim-confidence.mdc's warrant vocabulary a falsifier — until now nothing matched on it. Subjects are decidable entity refs only; the hedge turn's OWN lookup is deliberately not counted as resolving, since it is usually what produced the hedge. Log-only.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("cross-turn-hedge-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "secret-request-in-chat-detector",
     {
       description:
