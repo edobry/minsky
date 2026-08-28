@@ -293,6 +293,79 @@ describe("AskDetail — credential-request render mode (mt#4030)", () => {
   });
 });
 
+describe("AskDetail — app-grant-request render mode (mt#4693)", () => {
+  /**
+   * The THIRD payload consumer on the same seam, and the one that shows the
+   * dispatch is genuinely per-payload rather than credential-shaped: this one
+   * renders a link, not a form, because an App grant carries no value.
+   */
+  const APP_GRANT_ASK: Partial<AskItem> = {
+    kind: "authorization.approve",
+    state: "routed",
+    title: "Grant minsky-ai access to edobry/peezombie.me",
+    question: "The installation does not cover this repository.",
+    metadata: {
+      appGrantRequest: {
+        repo: "edobry/peezombie.me",
+        role: "implementer",
+        slug: "minsky-ai",
+        settingsUrl: "https://github.com/settings/installations/125403046",
+      },
+    },
+  };
+
+  test("renders the grant link instead of approve/deny", () => {
+    renderAsk(baseAsk(APP_GRANT_ASK));
+
+    const link = screen.getByTestId("app-grant-request-link");
+    expect(link.getAttribute("href")).toBe("https://github.com/settings/installations/125403046");
+
+    // An "A) Approve" here would settle the ask without the grant ever being
+    // made, and the presence-based resolver would never reconcile it.
+    expect(screen.queryByRole("button", { name: /^A\) Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^B\) Deny/ })).toBeNull();
+  });
+
+  test("keeps Decline, so a refusal stays distinguishable from silence", () => {
+    renderAsk(baseAsk(APP_GRANT_ASK));
+    expect(screen.getByTestId("app-grant-request-decline")).toBeTruthy();
+  });
+
+  test("omits the link rather than guessing when no installation id is configured", () => {
+    renderAsk(
+      baseAsk({
+        ...APP_GRANT_ASK,
+        metadata: {
+          appGrantRequest: { repo: "edobry/peezombie.me", role: "implementer", slug: "minsky-ai" },
+        },
+      })
+    );
+
+    expect(screen.getByTestId("app-grant-request")).toBeTruthy();
+    expect(screen.queryByTestId("app-grant-request-link")).toBeNull();
+  });
+
+  test("negative control: a plain authorization.approve ask renders no grant panel", () => {
+    renderAsk(baseAsk({ kind: "authorization.approve", state: "routed", metadata: {} }));
+
+    expect(screen.queryByTestId("app-grant-request")).toBeNull();
+    expect(screen.getByRole("button", { name: /^A\) Approve/ })).toBeTruthy();
+  });
+
+  test("negative control: a credential request does NOT render the grant panel", () => {
+    // The two payload kinds share a dispatch point and nothing else; a branch
+    // that fired on both would be the framework the seam decision declined.
+    renderAsk(
+      baseAsk({
+        kind: "authorization.approve",
+        state: "routed",
+        metadata: { credentialRequest: { provider: "supabase-service-role" } },
+      })
+    );
+    expect(screen.queryByTestId("app-grant-request")).toBeNull();
+  });
+});
+
 describe("AskDetail — the in-flight action is visible and named (mt#4503)", () => {
   const TWO_OPTIONS = {
     state: "routed" as const,
