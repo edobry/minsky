@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  WARRANT_VOCABULARY,
   detectCrossTurnHedgeDecay,
   extractSubjects,
   findHedgeMarker,
@@ -302,6 +303,22 @@ describe("hedge markers", () => {
       "this fails for unknown reasons",
     ]) {
       expect(findHedgeMarker(text), text).toBeNull();
+    }
+  });
+
+  // PR #3419 R2: the vocabulary leg must contain EXACTLY the four ratified labels, so
+  // its fire rate means "the ratified labels are decaying" and not something vaguer.
+  test("the vocabulary leg is exactly claim-confidence.mdc's four labels", () => {
+    expect(WARRANT_VOCABULARY).toHaveLength(4);
+    for (const [text, leg] of [
+      ["mem#1323 is inferred", WARRANT_LEG],
+      ["mem#1323 is assumed", WARRANT_LEG],
+      ["mem#1323 — strong-evidence only", WARRANT_LEG],
+      ["mem#1323 (unknown: no probe)", WARRANT_LEG],
+      // A real hedge, but NOT a ratified label — measured on the other leg.
+      ["mem#1323's author is unverified", NATURAL_LEG],
+    ] as const) {
+      expect(findHedgeMarker(text)?.leg, text).toBe(leg);
     }
   });
 

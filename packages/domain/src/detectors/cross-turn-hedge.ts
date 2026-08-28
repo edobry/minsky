@@ -126,12 +126,19 @@ export const SUBJECT_PATTERNS: readonly { kind: string; pattern: RegExp }[] = [
  * `confidence:` / `basis:` key. That is a shape test, not a phrase list — it does not
  * widen with paraphrase, so it stays inside ADR-024's Rung 1 rather than starting the
  * arms race its `## Context` exists to end.
+ *
+ * The set is CLOSED and is exactly the four labels `claim-confidence.mdc` defines for
+ * this axis — nothing else belongs here, however hedge-like it reads. `unverified`
+ * was in this list until PR #3419 R2 and is not one of them; it now sits in
+ * {@link NATURAL_LANGUAGE_HEDGES}, where it is still matched but measured
+ * separately. That distinction is the whole point of the two-leg split: the
+ * vocabulary leg's fire rate has to mean "the ratified labels are decaying", and one
+ * smuggled-in synonym makes it mean something vaguer instead.
  */
 export const WARRANT_VOCABULARY: readonly RegExp[] = [
   /\bstrong[-\s]evidence\b/i,
   /\binferred\b/i,
   /\bassumed\b/i,
-  /\bunverified\b/i,
   /(?:\(|\[|—\s*|--?\s+|\b(?:warrant|confidence|basis|status)\s*[:=]\s*)unknown\b|\bunknown\s*:/i,
 ];
 
@@ -146,6 +153,10 @@ export const WARRANT_VOCABULARY: readonly RegExp[] = [
 export const NATURAL_LANGUAGE_HEDGES: readonly RegExp[] = [
   /\b(?:may|might|could)\s+be\s+wrong\b/i,
   /\bnot\s+(?:yet\s+)?verified\b/i,
+  // Moved here from WARRANT_VOCABULARY in PR #3419 R2 — a real hedge, but not one of
+  // the four ratified labels, so it is measured on this leg instead of inflating the
+  // vocabulary leg's rate.
+  /\bunverified\b/i,
   /\bunconfirmed\b/i,
   /\bI\s+(?:inferred|am\s+inferring|'m\s+inferring)\b/i,
   /\bI\s+(?:am\s+assuming|'m\s+assuming)\b/i,
