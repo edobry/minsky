@@ -42,7 +42,12 @@ import { createHash } from "node:crypto";
 import { cappedEvidenceLines } from "./guard-feedback-format";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
-import { extractFinalTurn, extractToolUseNames, findToolUseInputs } from "./transcript";
+import {
+  extractFinalTurn,
+  extractToolUseNames,
+  findToolCallsWithResults,
+  findToolUseInputs,
+} from "./transcript";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
 
@@ -953,6 +958,138 @@ export function turnKeyForMessage(finalMessage: string): string {
   return sha1Short(finalMessage);
 }
 
+/** The match family the tool-call-state arm reports under (mt#4697). */
+export const STRANDED_TASK_FAMILY = "stranded-task-state";
+
+/**
+ * Calls whose RESULT carries a task's current status.
+ *
+ * `tasks_status_set` is deliberately IN this set. It is a write, but the state it leaves behind is
+ * exactly as much evidence as a read returning the same value — a turn that moves a task to
+ * PLANNING and then ends has established a non-terminal status just as surely as one that looked
+ * it up. Occurrence 2 below is that case.
+ */
+export const TASK_STATUS_READ_TOOLS = new Set([
+  "mcp__minsky__refs_status",
+  "mcp__minsky__tasks_status_get",
+  "mcp__minsky__tasks_get",
+  "mcp__minsky__tasks_list",
+  "mcp__minsky__tasks_status_set",
+]);
+
+/**
+ * Calls that ADVANCE a task, so a non-terminal status on it is work in progress rather than work
+ * left stranded. Matched against each call's INPUT (`task` / `taskId`), not its result.
+ *
+ * `tasks_status_set` is NOT here, per the note above: moving a task to a non-terminal status is
+ * the stranding signal itself, not a defense against it.
+ */
+export const TASK_ADVANCING_TOOLS = new Set([
+  "mcp__minsky__session_start",
+  "mcp__minsky__session_commit",
+  "mcp__minsky__session_pr_create",
+  "mcp__minsky__session_pr_merge",
+  "mcp__minsky__tasks_spec_patch",
+  "mcp__minsky__tasks_spec_search_replace",
+  "mcp__minsky__tasks_dispatch",
+]);
+
+/** The two terminal statuses; everything else in the state machine is non-terminal. */
+const TERMINAL_TASK_STATUSES = new Set(["DONE", "CLOSED"]);
+
+/**
+ * A task id joined to the status the same JSON object reports for it.
+ *
+ * `[^}]` bounds the join to ONE object, which is what makes this safe on a multi-row `refs_status`
+ * payload: without it a lazy any-char span would happily pair row N's id with row N+1's status.
+ * The id key varies by tool (`ref` / `id` / `taskId`) and so does the status key (`status` on a
+ * read, `newStatus` on a set) — `previousStatus` is excluded by the leading quote in the class.
+ */
+const TASK_ID_WITH_STATUS =
+  /"(?:ref|id|taskId)"\s*:\s*"(mt#\d+)"[^}]{0,400}?"(?:status|newStatus)"\s*:\s*"([A-Z][A-Z-]*)"/g;
+
+/** Task ids the closing message actually names. */
+function taskIdsNamedIn(text: string): Set<string> {
+  return new Set(text.match(/mt#\d+/g) ?? []);
+}
+
+/**
+ * The tool-call-state match arm (mt#4697): a task this turn READ, whose status came back
+ * NON-TERMINAL, which the closing message NAMES, and which the turn never ADVANCED.
+ *
+ * ## Why this is not another phrase family
+ *
+ * Every one of this guard's ten `COMMITMENT_PATTERNS` families needs a first-person subject or a
+ * fixed idiom, so a turn that names its next action impersonally matches nothing. That axis is
+ * measurably closed: `going-to`, the last family added, fired 0 times in the 252 calibration
+ * records logged in the 19 days after it shipped, and five of the ten families have never fired at
+ * all. ADR-024 §Context names serial regex-family additions as the arms race the ladder exists to
+ * end, and `detectArmedWatcherEvidence` already made this exact move on the SUPPRESSION side
+ * (mt#4063): drop the language axis, read the tool calls. This is that move on the MATCH side.
+ *
+ * It is NOT a Rung-2 climb. Whether a turn left work stranded is a fact about its tool calls, not
+ * a language question, so reading it directly REMOVES the paraphrase axis rather than buying
+ * recall along it.
+ *
+ * ## Why all three conjuncts
+ *
+ * The obvious predicate — "a non-terminal task named in the closing message" — is noisy by
+ * construction, because a status report legitimately names tasks it is not working. Both other
+ * conjuncts are what make this precise instead:
+ *
+ * - **READ this turn** excludes a message that merely mentions ids the turn never queried. The
+ *   turn has to have LOOKED, which is what makes the non-terminal status something it knows.
+ * - **Never ADVANCED** is the spec's own "on which the turn took no action", made decidable: a
+ *   task this turn committed to, opened a PR for, or patched the spec of is work in progress.
+ *
+ * ## Coverage, against the three attested misses
+ *
+ * - 2026-08-21 (occurrence 3, the originating case): `refs_status` returned mt#4324 = `TODO`; the
+ *   closing message named it (*"the unblocked successor but sits at TODO"*); the turn advanced
+ *   mt#4323 instead. **Fires.**
+ * - 2026-08-16 (occurrence 2): the turn SET mt#4183 to PLANNING and named PR #3039 at the close
+ *   without advancing it. **Fires.**
+ * - 2026-08-01 (occurrence 1): a first-person commitment with no task or PR state in the turn at
+ *   all. **Does not fire, and is not meant to** — that is the phrase half.
+ */
+export function detectStrandedTaskState(
+  finalMessage: string,
+  turnLines: Parameters<typeof findToolUseInputs>[0]
+): UntakenActionMatch[] {
+  const named = taskIdsNamedIn(finalMessage);
+  if (named.size === 0) return [];
+
+  const calls = findToolCallsWithResults(turnLines);
+  const advanced = new Set<string>();
+  const nonTerminal = new Map<string, string>();
+
+  for (const call of calls) {
+    if (TASK_ADVANCING_TOOLS.has(call.toolName)) {
+      for (const key of ["task", "taskId"]) {
+        const value = call.input[key];
+        if (typeof value === "string" && /^mt#\d+$/.test(value)) advanced.add(value);
+      }
+    }
+
+    if (!TASK_STATUS_READ_TOOLS.has(call.toolName) || !call.hasResult) continue;
+    // `lastIndex` persists on a /g regex across calls; reset before each result body.
+    TASK_ID_WITH_STATUS.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = TASK_ID_WITH_STATUS.exec(call.resultText)) !== null) {
+      const [, id, status] = m;
+      if (!id || !status || TERMINAL_TASK_STATUSES.has(status)) continue;
+      nonTerminal.set(id, status);
+    }
+  }
+
+  const stranded: UntakenActionMatch[] = [];
+  for (const [id, status] of nonTerminal) {
+    if (!named.has(id) || advanced.has(id)) continue;
+    stranded.push({ family: STRANDED_TASK_FAMILY, matchedPhrase: `${id} (${status})` });
+  }
+  return stranded;
+}
+
 /**
  * Guard-dispatcher entry point (GuardModule contract). `storeDir` is a test
  * seam for the dedup store location; the dispatcher never passes it.
@@ -981,7 +1118,17 @@ export function run(
   const finalMessage = input.last_assistant_message ?? "";
   if (!finalMessage) return null;
 
-  const matches = detectUntakenAction(finalMessage);
+  // mt#4697 SC2: the turn is resolved BEFORE the early return, and the tool-call-state arm is
+  // unioned with the phrase matches. Both halves of that ordering are load-bearing — the arm's
+  // whole purpose is to fire on a turn whose prose matches NOTHING, so computing it after
+  // `matches.length === 0` would make it permanently unreachable on exactly its target case.
+  // `extractFinalTurn` was already being called further down for the suppression predicates; it
+  // is hoisted here rather than called twice.
+  const { turnLines, openingPrompt } = extractFinalTurn(ctx.transcriptLines ?? []);
+  const matches = [
+    ...detectUntakenAction(finalMessage),
+    ...(turnLines.length > 0 ? detectStrandedTaskState(finalMessage, turnLines) : []),
+  ];
   if (matches.length === 0) return null;
 
   const sessionId = input.session_id ?? "unknown";
@@ -1088,7 +1235,9 @@ export function run(
   // Recorded, not silent, per the same mt#3207 contract as the suppression
   // above: the failure worth catching is this predicate swallowing a TRUE
   // positive, and a suppression that returns null cannot be measured.
-  const { turnLines, openingPrompt } = extractFinalTurn(ctx.transcriptLines ?? []);
+  // `turnLines` / `openingPrompt` are resolved above the early return (mt#4697), so the arm can be
+  // unioned into `matches`. This suppression is unchanged and still runs AFTER the match
+  // computation — which is what makes SC3 hold without a duplicate armed-wait check inside the arm.
   const armedWatcher = turnLines.length > 0 ? detectArmedWatcherEvidence(turnLines) : [];
   if (armedWatcher.length > 0) {
     return suppressed(SUPPRESSION_ARMED_WATCHER_EVIDENCE, "armedWatcherEvidence", armedWatcher);
