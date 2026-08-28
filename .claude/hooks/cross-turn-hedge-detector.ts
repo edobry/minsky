@@ -72,6 +72,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
 import {
+  MAX_EXCERPT_CHARS,
   detectCrossTurnHedgeDecay,
   extractSubjects,
   type CrossTurnHedgeResult,
@@ -121,8 +122,16 @@ export const EVALUATION_LOG = ".minsky/cross-turn-hedge-evaluation.jsonl";
  */
 export const WINDOW_TURNS = 8;
 
-/** Cap on a single injected reminder's excerpt, mirroring the sibling detectors. */
-export const MAX_EXCERPT_CHARS = 240;
+/**
+ * Cap on a single rendered excerpt.
+ *
+ * RE-EXPORTED from the matcher rather than redeclared (PR #3419 R2 non-blocking). The
+ * matcher already truncates to this width when it builds a finding; the adapter slices
+ * to it again on the calibration record and the reminder. Two `= 240` literals in two
+ * packages are one edit away from disagreeing, and the failure would be silent — a
+ * record whose excerpt is longer than the declared `attentionCost` budget assumes.
+ */
+export { MAX_EXCERPT_CHARS };
 
 function isOverridden(): string | undefined {
   const raw = process.env[OVERRIDE_ENV_VAR];
