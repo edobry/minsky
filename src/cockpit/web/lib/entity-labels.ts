@@ -21,13 +21,25 @@
  * view (e.g. a task tab left open from before the operator switched
  * projects).
  *
- * Resolution reuses the SAME TanStack Query keys as the surfaces that already
- * fetch each entity family (`agents` widget, `attention` cohort,
- * `memories-list`, `changesets` list, context-inspector conversation rows) so
- * tab labels ride existing caches instead of adding fetch load. Every
- * resolution degrades to the caller's existing fallback label (the shortened
- * id) while data is loading or the entity is outside the fetched window —
- * labels enrich, never block.
+ * Resolution reuses SOME of the SAME TanStack Query keys as sibling surfaces
+ * — cache sharing where it is still correct post-mt#4731, not a blanket
+ * claim about every channel below:
+ *   - `agents` (`["agents"]`) and `context-inspector`/`sessions`
+ *     (`["context-inspector","sessions"]`) — still genuinely shared with
+ *     `use-entity-index.ts`'s identical, equally-global queries.
+ *   - `memories-list` (`["widget","memories-list","","",true]`) — still
+ *     shared with `use-entity-index.ts`'s identical query, but NO LONGER with
+ *     the `MemoriesList`/`CommandPalette` widgets, which now append
+ *     `selectedSlug` to their own keys (mt#4731) so their cache diverges
+ *     even in the unscoped (`null`) case.
+ *   - `attention` (`["attention"]`) and `changeset-label-index` below are
+ *     each this module's OWN dedicated key — `attention` used to be shared
+ *     with the `Attention` widget's identical bare key; that widget now
+ *     scopes to `["attention", selectedSlug]` (mt#4731), so this channel
+ *     fetches independently rather than riding a shared cache entry.
+ * Every resolution degrades to the caller's existing fallback label (the
+ * shortened id) while data is loading or the entity is outside the fetched
+ * window — labels enrich, never block.
  */
 import { useQuery } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "./widget-client";

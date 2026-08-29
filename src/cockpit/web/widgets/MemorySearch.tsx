@@ -216,11 +216,12 @@ export function MemorySearch({
     queryKey: ["widget", "memories-search", debouncedQuery, selectedSlug],
     // Params go through fetchWidgetData's params argument — embedding them in
     // the id segment misses the widget route and returns the SPA fallback (mt#2443).
-    queryFn: () =>
-      fetchWidgetData("memories-search", {
-        ...(debouncedQuery.trim() ? { q: debouncedQuery.trim() } : {}),
-        ...queryParam,
-      }),
+    queryFn: () => {
+      const params: Record<string, string> = {};
+      if (debouncedQuery.trim()) params.q = debouncedQuery.trim();
+      if (queryParam) params.project = queryParam.project;
+      return fetchWidgetData("memories-search", params);
+    },
     staleTime: 20_000,
     enabled: true, // always enabled so empty state renders
   });

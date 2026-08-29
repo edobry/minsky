@@ -131,7 +131,12 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     expect(requestedUrls.some((u) => u.includes("altitude=rollup"))).toBe(true);
     expect(requestedUrls.some((u) => u.includes("altitude=actionable"))).toBe(true);
 
-    // Distinct cache entries under distinct keys — no collision
+    // Distinct cache entries under distinct keys — no collision. The `null`
+    // here (not `undefined`) is load-bearing, not an assumption: `useProject`
+    // types `selectedSlug` as `string | null` (project-context.tsx), and its
+    // `useState<string | null>(loadPersistedSlug)` initializer always returns
+    // a `string | null` — never `undefined` — including in this jsdom test
+    // environment's empty localStorage.
     const rollupCached = queryClient.getQueryData(workstreamsQueryKey("rollup", null));
     const actionableCached = queryClient.getQueryData(workstreamsQueryKey("actionable", null));
     expect(rollupCached).toBeDefined();
