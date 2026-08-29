@@ -6,6 +6,7 @@ import type { MemoryRecord, MemoryType, MemoryScope } from "@minsky/domain/memor
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { LinkifiedText } from "../components/LinkifiedText";
+import { useProject } from "../lib/project-context";
 import {
   Select,
   SelectContent,
@@ -315,13 +316,25 @@ export function MemoriesList({
     excludeSuperseded: true,
   });
 
+  const { selectedSlug, queryParam: projectParam } = useProject();
+
   const queryParams: Record<string, string> = {};
   if (filter.type) queryParams.type = filter.type;
   if (filter.scope) queryParams.scope = filter.scope;
   if (filter.excludeSuperseded) queryParams.excludeSuperseded = "true";
+  if (projectParam) queryParams.project = projectParam.project;
 
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["widget", "memories-list", filter.type, filter.scope, filter.excludeSuperseded],
+    // mt#4731: selectedSlug in the key so switching projects invalidates and
+    // refetches.
+    queryKey: [
+      "widget",
+      "memories-list",
+      filter.type,
+      filter.scope,
+      filter.excludeSuperseded,
+      selectedSlug,
+    ],
     // Params go through fetchWidgetData's params argument — embedding them in
     // the id segment puts the "?" before "/data" and the request falls through
     // to the SPA fallback (mt#2443).

@@ -10,6 +10,7 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DigestPage } from "./DigestPage";
+import { ProjectProvider } from "../lib/project-context";
 
 const originalFetch = globalThis.fetch;
 
@@ -28,7 +29,9 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <DigestPage />
+        <ProjectProvider>
+          <DigestPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

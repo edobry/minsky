@@ -59,7 +59,7 @@ import {
 import { cn } from "../lib/utils";
 import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import {
-  fetchAsks,
+  fetchAsksScoped,
   fetchTerminalAsks,
   resolveAsk,
   deferAsk,
@@ -71,6 +71,7 @@ import {
   type AskItem,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import { useProject } from "../lib/project-context";
 import {
   Select,
   SelectContent,
@@ -611,12 +612,17 @@ export function AsksPage() {
    */
   const [view, setView] = useState<AskView>("pending");
   const resolvedView = view === "resolved";
+  const { selectedSlug, queryParam } = useProject();
 
   const query = useQuery<AsksListResponse, Error>({
-    // A SEPARATE cache key from ["asks"] — that one is shared with the home
-    // TriageBand, which must keep seeing only pending asks.
-    queryKey: resolvedView ? ["asks", "terminal"] : ["asks"],
-    queryFn: () => (resolvedView ? fetchTerminalAsks() : fetchAsks()),
+    // The pending-view key is ["asks", selectedSlug] — the SAME key
+    // TriageBand.tsx's home band uses, so the console and the radiator
+    // always agree (mt#4092's original invariant, now project-scoped in
+    // lockstep per mt#4731). The resolved/terminal view gets its OWN key so
+    // the home band can never be poisoned with closed asks.
+    queryKey: resolvedView ? ["asks", "terminal", selectedSlug] : ["asks", selectedSlug],
+    queryFn: () =>
+      resolvedView ? fetchTerminalAsks(undefined, queryParam) : fetchAsksScoped(queryParam),
     staleTime: resolvedView ? 60_000 : 10_000,
     // A record does not change under you; polling it every 10s buys nothing.
     refetchInterval: resolvedView ? false : 10_000,

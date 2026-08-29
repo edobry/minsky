@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server SystemEvent shape
@@ -65,7 +66,8 @@ interface ActivityListResponse {
 
 async function fetchActivity(
   eventType: string,
-  showInformational: boolean
+  showInformational: boolean,
+  queryParam?: { project: string }
 ): Promise<ActivityListResponse> {
   const params = new URLSearchParams();
   if (eventType !== "all") {
@@ -77,7 +79,8 @@ async function fetchActivity(
     params.set("category", "actionable");
   }
   params.set("limit", "100");
-  const url = `/api/activity${params.toString() ? `?${params}` : ""}`;
+  if (queryParam) params.set("project", queryParam.project);
+  const url = `/api/activity?${params.toString()}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch activity (${res.status})`);
   return res.json() as Promise<ActivityListResponse>;
@@ -292,10 +295,14 @@ export function ActivityPage() {
   // Default read-scope is the actionable category; informational/trajectory
   // events are persisted but hidden until the operator opts in (mt#2340).
   const [showInformational, setShowInformational] = useState(false);
+  // mt#4731: `/api/activity` does not yet READ `?project=` server-side (out
+  // of this task's scope, matching mt#4727's boundary) — this wiring is
+  // forward-compatible with that follow-up landing.
+  const { selectedSlug, queryParam } = useProject();
 
   const query = useQuery<ActivityListResponse, Error>({
-    queryKey: ["activity", filterType, showInformational],
-    queryFn: () => fetchActivity(filterType, showInformational),
+    queryKey: ["activity", filterType, showInformational, selectedSlug],
+    queryFn: () => fetchActivity(filterType, showInformational, queryParam),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });

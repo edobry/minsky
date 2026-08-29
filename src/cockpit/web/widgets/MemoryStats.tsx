@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { useProject } from "../lib/project-context";
 
 interface MemoriesStatsPayload {
   total: number;
@@ -112,9 +113,12 @@ function MemoryStatsBody({ query }: { query: UseQueryResult<WidgetData, Error> }
 // ---------------------------------------------------------------------------
 
 export function MemoryStats({ variant = "card", title = "Memory Stats" }: MemoryStatsProps = {}) {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["widget", "memories-stats"],
-    queryFn: () => fetchWidgetData("memories-stats"),
+    // mt#4731: selectedSlug in the key so switching projects invalidates and
+    // refetches.
+    queryKey: ["widget", "memories-stats", selectedSlug],
+    queryFn: () => fetchWidgetData("memories-stats", queryParam),
     staleTime: 55_000,
     refetchInterval: 60_000,
   });

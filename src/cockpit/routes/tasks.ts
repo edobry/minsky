@@ -14,8 +14,10 @@ import {
   getServerTaskService,
   getServerTaskDetailDeps,
   getServerSessionProvider,
+  getDefaultChangesetRepoRef,
   describeServerPersistenceUnavailability,
 } from "../db-providers";
+import { changesetIdFor } from "@minsky/shared/changeset-id";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 // Static, matching `widgets/agents.ts`'s use of the same registry: the host
 // module is dependency-light by design, and a deployment that never spawns a
@@ -370,7 +372,14 @@ export function mountTaskRoutes(app: express.Express, opts: TaskRoutesOptions = 
           if (!sessionProvider) return null;
           const existing = await sessionProvider.getSessionByTaskId(taskId);
           return existing
-            ? { sessionId: existing.sessionId, prNumber: existing.pullRequest?.number ?? null }
+            ? {
+                sessionId: existing.sessionId,
+                prNumber: existing.pullRequest?.number ?? null,
+                // repoUrl (mt#4731 added scope): the session's own repo, used
+                // below to qualify the changeset id (mt#4724) when this task's
+                // PR lives in a non-default project's repository.
+                repoUrl: existing.repoUrl ?? null,
+              }
             : null;
         } catch (workspaceErr) {
           log.warn(
@@ -460,6 +469,17 @@ export function mountTaskRoutes(app: express.Express, opts: TaskRoutesOptions = 
         drivenSessionId?: string;
         /** PR number — set on "view-pr" when known. */
         prNumber?: number;
+        /**
+         * Qualified changeset id (mt#4724 `owner/repo#N` form) — set on
+         * "view-pr" whenever the PR's repo is resolvable, so the client can
+         * navigate to `/changeset/<changesetId>` instead of re-deriving a
+         * bare PR number that another project could equally claim (mt#4731
+         * added scope; the same defect mt#4724's PR body flagged in
+         * ChangesetsPage before that route grew its own `changesetId`
+         * field). Bare (unqualified) when the PR belongs to the default
+         * project — see `changesetIdFor`.
+         */
+        changesetId?: string;
         /** Secondary explanation rendered under the control (honesty layer). */
         note?: string;
       }
@@ -541,9 +561,18 @@ export function mountTaskRoutes(app: express.Express, opts: TaskRoutesOptions = 
             actions.push({ kind: "start" });
           }
         } else if (isAwaitingReview(status)) {
+          const prNumber = existingWorkspace?.prNumber ?? undefined;
           actions.push({
             kind: "view-pr",
-            prNumber: existingWorkspace?.prNumber ?? undefined,
+            prNumber,
+            changesetId:
+              prNumber != null
+                ? changesetIdFor(
+                    existingWorkspace?.repoUrl ?? null,
+                    prNumber,
+                    await getDefaultChangesetRepoRef()
+                  )
+                : undefined,
           });
         } else if (status === "BLOCKED") {
           actions.push({

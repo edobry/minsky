@@ -15,6 +15,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemorySearch } from "./MemorySearch";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
+import { ProjectProvider } from "../lib/project-context";
 
 const originalFetch = global.fetch;
 
@@ -74,7 +75,9 @@ async function renderAndSearch(records: MemoryRecord[]) {
   const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <MemorySearch />
+        <ProjectProvider>
+          <MemorySearch />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

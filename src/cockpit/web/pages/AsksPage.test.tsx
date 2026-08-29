@@ -16,6 +16,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AsksPage, GroupSubjectBadge } from "./AsksPage";
 import type { AskItem } from "../widgets/AskDetail";
+import { ProjectProvider } from "../lib/project-context";
 
 const originalFetch = global.fetch;
 
@@ -171,7 +172,9 @@ function renderAsksPageWithViews(pending: AskItem[], terminal: AskItem[]) {
   const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -266,11 +269,15 @@ describe("AsksPage resolved view (mt#4092)", () => {
     switchTo("Resolved");
     await waitFor(() => expect(screen.getByText("already decided")).toBeDefined());
 
-    // ["asks"] is shared with the home TriageBand. If the resolved view wrote
-    // through it, the home page would start showing closed asks as things that
-    // need the principal — the exact signal degradation this task must not
-    // cause, and one no assertion about THIS page would catch.
-    const shared = queryClient.getQueryData(["asks"]) as { asks: AskItem[] } | undefined;
+    // ["asks", selectedSlug] is shared with the home TriageBand (mt#4731:
+    // selectedSlug joined the key, null here since no project is selected in
+    // this test's ProjectProvider). If the resolved view wrote through it,
+    // the home page would start showing closed asks as things that need the
+    // principal — the exact signal degradation this task must not cause, and
+    // one no assertion about THIS page would catch.
+    const shared = queryClient.getQueryData(["asks", null]) as
+      | { asks: AskItem[] }
+      | undefined;
     expect(shared?.asks.map((a) => a.id)).toEqual([pending.id]);
   });
 
@@ -295,7 +302,9 @@ function renderAsksPage(asks: AskItem[]) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -508,7 +517,9 @@ function renderAsksPageWithTaskIds(asks: AskItem[], ids: string[]) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -616,7 +627,9 @@ describe("AsksPage expanded row renders the question as Markdown (mt#3639)", () 
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <AsksPage />
+          <ProjectProvider>
+            <AsksPage />
+          </ProjectProvider>
         </MemoryRouter>
       </QueryClientProvider>
     );
@@ -661,7 +674,9 @@ function renderAsksPageWithResolve(asks: AskItem[], status: number, body: unknow
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

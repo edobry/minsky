@@ -7,6 +7,19 @@
  * Extracted from ConversationView (mt#2518/mt#2374) so every prose render site
  * can share one index without each widget re-implementing the fetch wiring.
  *
+ * DELIBERATELY GLOBAL, not project-scoped (mt#4731 decision). Every id-set and
+ * label channel in this file (task ids, agent sessions, memories, changesets,
+ * conversations, asks) feeds LINKIFICATION — resolving a bare `mt#N`/`mem#N`/
+ * `ws#N` reference typed anywhere into a working link. A memory filed under
+ * project A may legitimately reference a task in project B, and that
+ * cross-project reference must still resolve regardless of which project the
+ * operator currently has selected in the shell — scoping this to the
+ * selection would make some already-valid references stop linkifying the
+ * moment a project filter is applied. CommandPalette.tsx's SEARCH sources
+ * (a different concern — "what does ⌘K find right now") are scoped
+ * separately, with their own dedicated fetchers, precisely so they don't
+ * inherit this file's global posture.
+ *
  * IMPORTANT: these queries use DISTINCT cache keys from CommandPalette's queries
  * to prevent cache poisoning. CommandPalette's tasks key ("command-palette-tasks")
  * caches PaletteTask[] (objects with a `type` field); entity-index fetches only
