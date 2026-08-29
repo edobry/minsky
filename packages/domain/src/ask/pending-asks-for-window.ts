@@ -38,6 +38,7 @@
 import type { Ask, AskKind } from "./types";
 import type { AskRepository } from "./repository";
 import { PAGE_THRESHOLD_MS } from "./router";
+import type { ProjectScope } from "../project/scope";
 
 // ---------------------------------------------------------------------------
 // Kind-priority ordering (spec: stuck.unblock > authorize > decide > review > notify)
@@ -159,12 +160,16 @@ export function compareAskPriority(a: Ask, b: Ask): number {
  * @param repo      Ask repository (injectable — real or fake for tests).
  * @param windowKey The key of the window that just opened.
  * @param nowMs     Current timestamp (injectable for tests; defaults to Date.now()).
+ * @param projectScope  Project scope for filtering (mt#4727). Defaults to
+ *   ALL_PROJECTS when omitted, matching every `AskRepository.listByState`
+ *   caller's existing default.
  * @returns         Sorted array of eligible Asks (may be empty).
  */
 export async function pendingAsksForWindow(
   repo: AskRepository,
   windowKey: string,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  projectScope?: ProjectScope
 ): Promise<Ask[]> {
   // Fetch all non-terminal pending asks (both "routed" and "suspended").
   // We need both because:
@@ -172,8 +177,8 @@ export async function pendingAsksForWindow(
   //   - "routed" is included for deadline-bound asks that may have been
   //     routed but not yet dispatched (edge case after restart).
   const [routed, suspended] = await Promise.all([
-    repo.listByState("routed"),
-    repo.listByState("suspended"),
+    repo.listByState("routed", projectScope),
+    repo.listByState("suspended", projectScope),
   ]);
 
   const candidates = [...routed, ...suspended];
