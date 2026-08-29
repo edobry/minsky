@@ -10,12 +10,16 @@
  *
  * The base key stays prefixed ["workstreams", ...] so SSE invalidation
  * (sse-invalidation.ts prefix matching) can invalidate every altitude at once.
+ * The selected project's slug is now part of the key too (mt#4731), after
+ * `altitude`, so an SSE invalidation on the ["workstreams"] prefix still
+ * catches every (altitude, project) combination.
  *
  * Altitude names are semantic (full / rollup / actionable), not persona-named —
  * lenses (mt#2372) are user-definable and must not be hardcoded here.
  */
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
+import { useProject } from "./project-context";
 
 export type WorkstreamAltitude = "full" | "rollup" | "actionable";
 
@@ -30,16 +34,24 @@ export function parseAltitude(raw: string | null | undefined): WorkstreamAltitud
 /** Matches the server widget's 30s polling cadence (workstreams.ts updateMode). */
 const WORKSTREAMS_REFETCH_MS = 30_000;
 
-export function workstreamsQueryKey(altitude: WorkstreamAltitude): readonly unknown[] {
-  return ["workstreams", altitude];
+export function workstreamsQueryKey(
+  altitude: WorkstreamAltitude,
+  selectedSlug: string | null
+): readonly unknown[] {
+  return ["workstreams", altitude, selectedSlug];
 }
 
 export function useWorkstreamsData(
   altitude: WorkstreamAltitude
 ): UseQueryResult<WidgetData, Error> {
+  const { selectedSlug, queryParam } = useProject();
   return useQuery<WidgetData, Error>({
-    queryKey: workstreamsQueryKey(altitude),
-    queryFn: () => fetchWidgetData("workstreams", altitude === "full" ? undefined : { altitude }),
+    queryKey: workstreamsQueryKey(altitude, selectedSlug),
+    queryFn: () =>
+      fetchWidgetData("workstreams", {
+        ...(altitude === "full" ? {} : { altitude }),
+        ...queryParam,
+      }),
     staleTime: WORKSTREAMS_REFETCH_MS,
     refetchInterval: WORKSTREAMS_REFETCH_MS,
   });

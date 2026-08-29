@@ -14,6 +14,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoriesList } from "./MemoriesList";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
+import { ProjectProvider } from "../lib/project-context";
 
 const originalFetch = global.fetch;
 
@@ -65,7 +66,9 @@ function renderList(records: MemoryRecord[]) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <MemoriesList />
+        <ProjectProvider>
+          <MemoriesList />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

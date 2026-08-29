@@ -13,6 +13,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomePage, countFleet, isSubsystemAnomalous } from "./HomePage";
 import type { WidgetData } from "../lib/widget-client";
+import { ProjectProvider } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Pure predicates
@@ -162,7 +163,9 @@ function renderHome() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <HomePage />
+        <ProjectProvider>
+          <HomePage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

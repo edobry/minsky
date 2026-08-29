@@ -18,6 +18,7 @@ import {
   parseAltitude,
   type WorkstreamAltitude,
 } from "../lib/use-workstreams-data";
+import { ProjectProvider } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Fixtures — one workstream; the rollup slice strips children, the actionable
@@ -106,8 +107,10 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     render(
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
-          <WorkstreamsInstance altitude="rollup" />
-          <WorkstreamsInstance altitude="actionable" />
+          <ProjectProvider>
+            <WorkstreamsInstance altitude="rollup" />
+            <WorkstreamsInstance altitude="actionable" />
+          </ProjectProvider>
         </QueryClientProvider>
       </MemoryRouter>
     );
@@ -129,8 +132,8 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     expect(requestedUrls.some((u) => u.includes("altitude=actionable"))).toBe(true);
 
     // Distinct cache entries under distinct keys — no collision
-    const rollupCached = queryClient.getQueryData(workstreamsQueryKey("rollup"));
-    const actionableCached = queryClient.getQueryData(workstreamsQueryKey("actionable"));
+    const rollupCached = queryClient.getQueryData(workstreamsQueryKey("rollup", null));
+    const actionableCached = queryClient.getQueryData(workstreamsQueryKey("actionable", null));
     expect(rollupCached).toBeDefined();
     expect(actionableCached).toBeDefined();
     expect(rollupCached).not.toEqual(actionableCached);
@@ -149,7 +152,9 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     render(
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
-          <WorkstreamsInstance altitude="full" />
+          <ProjectProvider>
+            <WorkstreamsInstance altitude="full" />
+          </ProjectProvider>
         </QueryClientProvider>
       </MemoryRouter>
     );
