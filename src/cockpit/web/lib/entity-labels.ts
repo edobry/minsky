@@ -2,21 +2,32 @@
  * Shared entity-label resolver (mt#2883 — cockpit identity legibility).
  *
  * ONE place that turns an entity reference into a human-legible display label
- * plus its canonical anchor, consumed by the TabBar (working-set strip), the
- * CommandPalette (via the shared task-index fetcher), and ask requestor cells.
- * The product rule it implements is /product-thinking principle 10 — "derived
- * identity over raw internals": canonical anchors (`mt#X`, `#N`, short ids)
- * stay visible per cockpit-design's entity-ID conventions, but a raw internal
- * string (an id hash, an ascribed `unknown:hash:` actor, prompt text) never
- * stands ALONE as a surface's primary identity.
+ * plus its canonical anchor, consumed by the TabBar (working-set strip) and
+ * ask requestor cells. (Historical note, mt#4731: CommandPalette used to ride
+ * this module's `fetchTaskIndex`/`TASK_INDEX_QUERY_KEY` for its own task
+ * search; it now has its own dedicated, project-scoped fetcher — see that
+ * file's DECIDE comment — so this module's task-label channel below is its
+ * only remaining consumer besides tab labels.) The product rule this
+ * implements is /product-thinking principle 10 — "derived identity over raw
+ * internals": canonical anchors (`mt#X`, `#N`, short ids) stay visible per
+ * cockpit-design's entity-ID conventions, but a raw internal string (an id
+ * hash, an ascribed `unknown:hash:` actor, prompt text) never stands ALONE as
+ * a surface's primary identity.
+ *
+ * DELIBERATELY GLOBAL, not project-scoped (mt#4731 decision) — for the same
+ * reason as `use-entity-index.ts` (see that file's header): a tab's label
+ * must resolve regardless of which project is currently selected, since the
+ * tab itself may reference an entity from a project other than the one in
+ * view (e.g. a task tab left open from before the operator switched
+ * projects).
  *
  * Resolution reuses the SAME TanStack Query keys as the surfaces that already
- * fetch each entity family (palette task index, `agents` widget, `attention`
- * cohort, `memories-list`, `changesets` list, context-inspector conversation
- * rows) so tab labels ride existing caches instead of adding fetch load.
- * Every resolution degrades to the caller's existing fallback label (the
- * shortened id) while data is loading or the entity is outside the fetched
- * window — labels enrich, never block.
+ * fetch each entity family (`agents` widget, `attention` cohort,
+ * `memories-list`, `changesets` list, context-inspector conversation rows) so
+ * tab labels ride existing caches instead of adding fetch load. Every
+ * resolution degrades to the caller's existing fallback label (the shortened
+ * id) while data is loading or the entity is outside the fetched window —
+ * labels enrich, never block.
  */
 import { useQuery } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
