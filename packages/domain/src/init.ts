@@ -12,6 +12,7 @@ import {
 } from "./session/repository-backend-detection";
 import { performSetup } from "./setup";
 import { provisionObservabilityHooks } from "./setup/hook-provisioning";
+import { resolveInitClient } from "./runtime/harness-detection";
 import { log } from "./utils/logger";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
@@ -165,7 +166,10 @@ export async function initializeProject(
   // performSetup() writes .minsky/config.local.yaml (with harness field) and
   // registers Minsky with the MCP client (e.g. .cursor/mcp.json).
   if (mcp?.enabled !== false) {
-    await performSetup({ repoPath, client: "cursor", overwrite }, fileSystem);
+    // mt#4676: resolve the harness from the environment (CLAUDECODE=1, etc.)
+    // before falling back to filesystem installed-ness, rather than
+    // hardcoding "cursor" regardless of what is actually running `init`.
+    await performSetup({ repoPath, client: resolveInitClient(), overwrite }, fileSystem);
 
     // Install the observability baseline so this project's conversations are
     // visible to cockpit attach + presence (mt#3499). Automatic, per ask#6671.
