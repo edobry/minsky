@@ -146,8 +146,14 @@ export function ChangesetsPage() {
   });
 
   function handleRowClick(item: ChangesetItem) {
-    if (item.pr.number != null) {
-      navigate(`/changeset/${encodeURIComponent(String(item.pr.number))}`);
+    // Prefer the server-supplied `changesetId` (mt#4724): it is bare for the
+    // default project and `owner/repo#N` for any other, so a row from a second
+    // project navigates to ITS PR rather than to the default project's PR of
+    // the same number. Falls back to the bare number for payloads that predate
+    // the field.
+    const id = item.changesetId ?? (item.pr.number != null ? String(item.pr.number) : null);
+    if (id) {
+      navigate(`/changeset/${encodeURIComponent(id)}`);
     }
   }
 

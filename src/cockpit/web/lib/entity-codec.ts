@@ -37,7 +37,9 @@
  * @see mt#2518 — this task
  * @see mt#2536 — PR/changeset linkification (this task)
  * @see mt#2769 — added "conversation" (web-route only)
+ * @see mt#4724 — the changeset id's two forms (bare / `owner/repo#N`)
  */
+import { isChangesetId } from "@minsky/shared/changeset-id";
 
 /**
  * Entity types that have a routable cockpit detail page.
@@ -169,11 +171,19 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   id = id.replace(TRAILING_PROSE_PUNCTUATION, "");
   if (!id) return null;
 
-  // `changeset` ids are PR numbers — enforce digits-only so a malformed
-  // `minsky://changeset/abc` does not parse and route to a nonexistent
-  // `/changeset/abc`. The rule/docs pin `changeset id == PR number` (positive
-  // integer); other entity types keep their free-form id shape. (mt#2536 R1)
-  if (rawType === "changeset" && !/^\d+$/.test(id)) return null;
+  // `changeset` ids are validated so a malformed `minsky://changeset/abc` does
+  // not parse and route to a nonexistent `/changeset/abc` (mt#2536 R1); other
+  // entity types keep their free-form id shape.
+  //
+  // Two forms are accepted (mt#4724). A BARE PR number — what every
+  // already-emitted link carries, resolved server-side against the default
+  // project, which is what it has always meant. And a QUALIFIED
+  // `owner/repo#N`, which names its own repository, because a PR number is
+  // unique only per-repo: `changeset` is the one routable entity type without
+  // a global id-space. The qualified form survives this path unchanged —
+  // `entityToMinskyUri` percent-encodes `/` and `#`, so the decode above
+  // returns it intact.
+  if (rawType === "changeset" && !isChangesetId(id)) return null;
 
   return { type: rawType as RoutableEntityType, id };
 }
