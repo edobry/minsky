@@ -35,6 +35,25 @@ function makeStatusError(status: number, message = `HTTP ${status}`): Error & { 
 }
 
 /**
+ * A 404 carrying the request-path evidence a real Octokit `RequestError`
+ * always attaches (mt#4692) — `error.request.url`, the fully-resolved URL
+ * Octokit actually dispatched. `requestPath` is the path portion only
+ * (e.g. `/repos/owner/repo/pulls`); the origin is fixed to
+ * `https://api.github.com` since only the path matters to the
+ * discriminator.
+ */
+function makeStatusErrorWithRequestPath(
+  status: number,
+  requestPath: string,
+  message = `HTTP ${status}`
+): Error & { status: number; request: { url: string } } {
+  const err = new Error(message) as Error & { status: number; request: { url: string } };
+  err.status = status;
+  err.request = { url: `https://api.github.com${requestPath}` };
+  return err;
+}
+
+/**
  * A GitHub-RESPONDED error: status plus a `response`, the shape
  * `@octokit/request` throws when GitHub actually sent the status
  * (`fetch-wrapper.js` passes `response: octokitResponse` on every such path).
@@ -86,6 +105,18 @@ const CTX: ErrorContext = {
 };
 
 const PERMISSION_DENIED_MSG = "GitHub Permission Denied";
+
+/**
+ * The App-coverage hint's remedy line (mt#4680/mt#4692) — factored out
+ * because it's asserted present/absent across many cases in both the
+ * repo-level and sub-resource describe blocks below, and the
+ * no-magic-string-duplication lint rule (minLength 15) flags 3+ inline
+ * repeats of a string this long.
+ */
+const REPOSITORY_ACCESS_HINT = "Repository access";
+
+/** Same reason as {@link REPOSITORY_ACCESS_HINT} — repeated across 3+ repo-level-shape tests. */
+const CREATE_PR_OPERATION = "create pull request";
 
 describe("handleOctokitError — 5xx branch (mt#2890)", () => {
   test("500 surfaces 'GitHub API degraded/unavailable (HTTP 500)'", () => {
@@ -529,7 +560,7 @@ describe("mt#3221 — a synthesized transport 5xx is not a GitHub outage", () =>
 describe("handleOctokitError — repo-level 404 names the App-installation cause (mt#4680)", () => {
   /** No prNumber — the shape `pulls.create` produces when the repo is unreachable. */
   const REPO_CTX: ErrorContext = {
-    operation: "create pull request",
+    operation: CREATE_PR_OPERATION,
     owner: "edobry",
     repo: "peezombie.me",
   };
@@ -556,7 +587,7 @@ describe("handleOctokitError — repo-level 404 names the App-installation cause
 
   test("names the concrete remedy, not just the cause", () => {
     const msg = messageFor(REPO_CTX);
-    expect(msg).toContain("Repository access");
+    expect(msg).toContain(REPOSITORY_ACCESS_HINT);
     expect(msg).toContain("minsky setup");
   });
 
@@ -566,6 +597,155 @@ describe("handleOctokitError — repo-level 404 names the App-installation cause
     const msg = messageFor({ ...REPO_CTX, prNumber: 1988 });
     expect(msg).toContain("Pull request #1988");
     expect(msg).not.toContain("GitHub App");
-    expect(msg).not.toContain("Repository access");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("with NO request-path evidence at all, the hint still fires (mt#4680 default preserved)", () => {
+    // `makeStatusError` carries no `.request` — the shape a hand-constructed
+    // test error, or any non-Octokit error, produces. Absence of evidence
+    // must not be read as "sub-resource"; only a POSITIVELY identified
+    // sub-resource path narrows the hint (mt#4692).
+    const msg = messageFor(REPO_CTX);
+    expect(msg).toContain("GitHub App");
+    expect(msg).toContain(REPOSITORY_ACCESS_HINT);
+  });
+});
+
+describe("handleOctokitError — sub-resource 404s do not carry the App-coverage hint (mt#4692)", () => {
+  const REPO_CTX: ErrorContext = {
+    operation: "list workflow runs",
+    owner: "edobry",
+    repo: "minsky",
+  };
+
+  function messageForPath(requestPath: string, ctx: ErrorContext = REPO_CTX): string {
+    try {
+      handleOctokitError(makeStatusErrorWithRequestPath(404, requestPath), ctx);
+    } catch (e) {
+      return (e as Error).message;
+    }
+    throw new Error("expected handleOctokitError to throw");
+  }
+
+  test("workflow-runs shape — a 404 from a nonexistent workflow file names neither cause", () => {
+    // The originating incident: `forge_ci_run_list --workflow deploy-mcp.yml`
+    // against `edobry/minsky` (the one repo the App installation is
+    // confirmed to cover) 404s because the WORKFLOW FILE doesn't exist —
+    // reaching this endpoint already proves the repo/installation resolved.
+    const msg = messageForPath("/repos/edobry/minsky/actions/workflows/deploy-mcp.yml/runs");
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+    // The subject itself must not claim the repo wasn't found either —
+    // that claim is exactly as false as the App-coverage hint here.
+    expect(msg).not.toContain("was not found, or the Minsky GitHub App");
+    expect(msg).toContain("edobry/minsky");
+  });
+
+  test("branch-protection shape — an unprotected branch is a normal 404, not an App-coverage gap", () => {
+    const msg = messageForPath("/repos/edobry/minsky/branches/main/protection", {
+      operation: "get branch protection",
+      owner: "edobry",
+      repo: "minsky",
+    });
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("label shape — a renamed/missing label is a normal 404, not an App-coverage gap", () => {
+    const msg = messageForPath("/repos/edobry/minsky/labels/nonexistent-label", {
+      operation: "update label",
+      owner: "edobry",
+      repo: "minsky",
+    });
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("repo-level shape (pulls.create) — the hint still fires when the path has explicit evidence", () => {
+    // `/repos/{owner}/{repo}/pulls` has nothing beyond owner/repo but a
+    // fixed literal ("pulls") — no caller-supplied identifier, so the 404
+    // can only be explained by the repo/App. mt#4680's originating case,
+    // this time with explicit path evidence rather than the no-evidence
+    // fallback (covered separately above).
+    const msg = messageForPath("/repos/edobry/minsky/pulls", {
+      operation: CREATE_PR_OPERATION,
+      owner: "edobry",
+      repo: "minsky",
+    });
+    expect(msg).toContain("GitHub App");
+    expect(msg).toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("repo-root shape (repos.get) — the hint still fires", () => {
+    const msg = messageForPath("/repos/edobry/minsky", {
+      operation: "get repository",
+      owner: "edobry",
+      repo: "minsky",
+    });
+    expect(msg).toContain("GitHub App");
+    expect(msg).toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("GitHub Enterprise Server shape — an /api/v3 mount prefix before /repos/... is still parsed correctly", () => {
+    // Octokit's own README (installed @octokit/core) documents this exact
+    // shape for GHE: `baseUrl: "https://HOSTNAME/api/v3"`, which puts
+    // /api/v3 BEFORE /repos/... in the resolved request URL. Anchoring the
+    // discriminator's regex at the start of the path would silently treat
+    // this as "no evidence" and fall through to the repo-level default,
+    // keeping the hint alive on GHE for the exact sub-resource shape this
+    // task exists to fix (mt#4692 PR #3421 R1).
+    const msg = messageForPath("/api/v3/repos/acme-inc/widget/actions/workflows/ci.yml/runs", {
+      operation: "list workflow runs",
+      owner: "acme-inc",
+      repo: "widget",
+    });
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("GitHub Enterprise Server shape — a repo-level request under /api/v3 still gets the hint", () => {
+    const msg = messageForPath("/api/v3/repos/acme-inc/widget/pulls", {
+      operation: CREATE_PR_OPERATION,
+      owner: "acme-inc",
+      repo: "widget",
+    });
+    expect(msg).toContain("GitHub App");
+    expect(msg).toContain(REPOSITORY_ACCESS_HINT);
+  });
+
+  test("a PR-level 404 (prNumber set) skips the sub-resource check entirely — no App mention either way", () => {
+    // The PR-level branch is a separate, already-narrow carve-out (mt#4680);
+    // it takes precedence over the sub-resource discriminator regardless of
+    // what the request path looks like.
+    const msg = messageForPath("/repos/edobry/minsky/pulls/1988", {
+      operation: "merge pull request",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 1988,
+    });
+    expect(msg).toContain("Pull request #1988");
+    expect(msg).not.toContain("GitHub App");
+    expect(msg).not.toContain(REPOSITORY_ACCESS_HINT);
+  });
+});
+
+describe("classifyOctokitError — requestPath extraction (mt#4692)", () => {
+  test("extracts the pathname from a well-formed request.url", () => {
+    const info = classifyOctokitError(
+      makeStatusErrorWithRequestPath(404, "/repos/edobry/minsky/actions/runs")
+    );
+    expect(info.requestPath).toBe("/repos/edobry/minsky/actions/runs");
+  });
+
+  test("is undefined when the error carries no .request at all", () => {
+    const info = classifyOctokitError(makeStatusError(404));
+    expect(info.requestPath).toBeUndefined();
+  });
+
+  test("is undefined when .request.url is not a well-formed URL", () => {
+    const err = makeStatusError(404) as Error & { status: number; request: { url: string } };
+    err.request = { url: "not-a-url" };
+    const info = classifyOctokitError(err);
+    expect(info.requestPath).toBeUndefined();
   });
 });
