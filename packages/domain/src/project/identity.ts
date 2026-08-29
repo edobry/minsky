@@ -188,7 +188,17 @@ export function resolveProjectIdentity(
 
   if (configSlug) {
     // Cross-check with git remote — emit a warning if they disagree (config wins).
-    const remoteSlugForCrossCheck = resolveRemoteSlug(repoPath, params, deps);
+    //
+    // Deliberately NOT resolveRemoteSlug()/params.remoteUrl here (PR #3466 R1
+    // BLOCKING): this check's whole point is "does the repo ACTUALLY checked
+    // out at repoPath match the declared config", so it must read the repo's
+    // real current git remote — not a caller-supplied URL describing what
+    // WILL be cloned there (session.start's pre-clone case) or what some
+    // other caller intends. Using remoteUrl here could compare configSlug
+    // against an unrelated URL (e.g. a fork the config intentionally
+    // diverges from) and warn to "update .minsky/config.yaml", which is
+    // backwards advice for that scenario.
+    const remoteSlugForCrossCheck = deriveSlugFromGitRemote(repoPath, deps);
     if (remoteSlugForCrossCheck && remoteSlugForCrossCheck !== configSlug) {
       log.warn(
         `[project-identity] Config slug "${configSlug}" differs from git-remote-derived ` +
@@ -223,17 +233,22 @@ export function resolveProjectIdentity(
 export { deriveSlugFromGitRemote, extractOwnerRepo } from "./slug";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Remote-slug resolution (tier 4 + the config/remote cross-check)
+// Remote-slug resolution (tier 4 only — the tier-3 cross-check deliberately
+// always reads the live repoPath remote; see its call site's comment)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Resolve the git-remote-derived slug for tier 4 (and the tier-3 cross-check).
+ * Resolve the git-remote-derived slug for tier 4.
  *
  * When `params.remoteUrl` is supplied, the slug is parsed directly from it via
  * `extractOwnerRepo()` — no shell exec, no filesystem read, so it works even
  * when `repoPath` has no `.git` yet (mt#4734: `session.start` resolves
- * identity BEFORE the clone). Otherwise falls back to the original
- * `deriveSlugFromGitRemote(repoPath, deps)` behavior.
+ * identity BEFORE the clone). If `remoteUrl` fails to parse (malformed URL),
+ * falls back to `deriveSlugFromGitRemote(repoPath, deps)` rather than giving
+ * up outright (PR #3466 R1 non-blocking finding) — a typo in a caller-
+ * supplied URL should not regress resolution for a caller whose `repoPath`
+ * DOES have a usable git remote. When `remoteUrl` is absent entirely, this is
+ * exactly the original `deriveSlugFromGitRemote(repoPath, deps)` behavior.
  */
 function resolveRemoteSlug(
   repoPath: string,
@@ -241,7 +256,8 @@ function resolveRemoteSlug(
   deps: ProjectIdentityDeps
 ): string | null {
   if (params.remoteUrl) {
-    return extractOwnerRepo(params.remoteUrl);
+    const parsed = extractOwnerRepo(params.remoteUrl);
+    if (parsed) return parsed;
   }
   return deriveSlugFromGitRemote(repoPath, deps);
 }
