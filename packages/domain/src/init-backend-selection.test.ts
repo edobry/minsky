@@ -175,3 +175,71 @@ describe("Init System Backend Selection", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// mt#4714 — rule-format → output-directory mapping
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Init rule-format output directory (mt#4714)", () => {
+  const testRepo = "/tmp/test-repo";
+  let mockFileSystem: MockFs;
+
+  beforeEach(() => {
+    mockFileSystem = createMockFs();
+  });
+
+  async function runInit(ruleFormat: "cursor" | "generic" | "minsky"): Promise<void> {
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat,
+        // MCP disabled so the run stays inside the filesystem — no client
+        // registration, no daemon, no DB resolution.
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem
+    );
+  }
+
+  const dir = (...parts: string[]): string => path.join(testRepo, ...parts);
+
+  test("ruleFormat 'minsky' scaffolds into .minsky/rules, not .ai/rules", async () => {
+    await runInit("minsky");
+
+    // The defect: init's two-way ternary sent every non-cursor format to
+    // `.ai/rules`, so `minsky` landed in the `generic` location.
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
+    expect(mockFileSystem.directories.has(dir(".ai", "rules"))).toBe(false);
+    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(false);
+  });
+
+  test("ruleFormat 'cursor' still scaffolds into .cursor/rules", async () => {
+    await runInit("cursor");
+
+    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
+    expect(mockFileSystem.directories.has(dir(".ai", "rules"))).toBe(false);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+  });
+
+  test("ruleFormat 'generic' still scaffolds into .ai/rules", async () => {
+    await runInit("generic");
+
+    expect(mockFileSystem.directories.has(dir(".ai", "rules"))).toBe(true);
+    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(false);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+  });
+
+  test("the .minsky config directory is created for every format", async () => {
+    // Guards the discriminator the first test depends on: `.minsky` itself is
+    // always created (config.yaml lives there), so "minsky format worked" can
+    // only be read off `.minsky/rules` specifically — never off `.minsky`.
+    for (const format of ["cursor", "generic", "minsky"] as const) {
+      mockFileSystem.files.clear();
+      mockFileSystem.directories.clear();
+      await runInit(format);
+      expect(mockFileSystem.directories.has(dir(".minsky"))).toBe(true);
+    }
+  });
+});

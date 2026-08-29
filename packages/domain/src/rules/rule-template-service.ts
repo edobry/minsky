@@ -8,6 +8,7 @@ import { injectable } from "tsyringe";
 import * as fs from "fs";
 import * as path from "path";
 import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
+import { RULE_FORMAT_OUTPUT_DIR } from "./types";
 import {
   createTemplateContext,
   type RuleGenerationConfig,
@@ -290,14 +291,11 @@ export class RuleTemplateService {
    * @returns Output directory path
    */
   private getOutputDir(config: RuleGenerationConfig): string {
-    // Use configured output directory if provided
-    const outputDir =
-      config.outputDir ||
-      (config.ruleFormat === "cursor"
-        ? ".cursor/rules"
-        : config.ruleFormat === "generic"
-          ? ".ai/rules"
-          : ".minsky/rules");
+    // Use configured output directory if provided; otherwise the shared
+    // format→directory mapping (mt#4714 — `RULE_FORMAT_OUTPUT_DIR` in
+    // ./types is the single source of truth; do not restate it here or in
+    // any caller).
+    const outputDir = config.outputDir || RULE_FORMAT_OUTPUT_DIR[config.ruleFormat];
 
     // If output dir is absolute, use it as-is
     if (path.isAbsolute(outputDir)) {
