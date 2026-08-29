@@ -4354,7 +4354,7 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4394,7 +4394,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4434,7 +4434,7 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4485,7 +4485,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format for file system organization (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true,
               "values": ["cursor", "generic", "minsky"]
             },
@@ -4541,7 +4541,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4593,7 +4593,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -8025,7 +8025,7 @@
         },
         {
           "flags": ["--rule-format"],
-          "description": "Rule format (cursor or generic)",
+          "description": "Format of the rule file (cursor, generic, minsky)",
           "takesValue": true
         },
         {

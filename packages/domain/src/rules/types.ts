@@ -14,7 +14,7 @@ export interface Rule {
   alwaysApply?: boolean; // From frontmatter, whether this rule is always applied
   tags?: string[]; // From frontmatter, optional tags for categorization
   content: string; // The rule content (without frontmatter)
-  format: RuleFormat; // cursor or generic
+  format: RuleFormat; // see RuleFormat for the accepted values
   path: string; // Full path to the rule file
   formatNote?: string; // Optional format conversion notice
 }
@@ -55,6 +55,26 @@ export const RULE_FORMAT_OUTPUT_DIR: Record<RuleFormat, string> = {
   generic: ".ai/rules",
   minsky: ".minsky/rules",
 };
+
+/**
+ * Every accepted {@link RuleFormat}, for surfaces that must ENUMERATE the
+ * formats rather than map over them — principally CLI/MCP help text (mt#4741).
+ *
+ * Derived from {@link RULE_FORMAT_OUTPUT_DIR} rather than written out again, so
+ * it inherits that constant's exhaustiveness: adding a member to `RuleFormat`
+ * is already a compile error there until its directory is decided, and the new
+ * member then flows into every help string automatically. The cast is safe by
+ * construction — a `Record<RuleFormat, string>` has exactly the union's keys.
+ *
+ * The bug this prevents is the one `RULE_FORMAT_OUTPUT_DIR`'s own docblock
+ * describes, one surface over. `minsky` was added to `RuleFormat` on
+ * 2026-04-01 (mt#588) and every `--rule-format` help string went on saying
+ * "cursor or generic" for five months, because a hand-written description is
+ * coupled to nothing and so nothing fails when it goes stale. Restating the
+ * value set in a string literal is what created that gap; do not reintroduce
+ * one — derive from here.
+ */
+export const RULE_FORMAT_VALUES = Object.keys(RULE_FORMAT_OUTPUT_DIR) as RuleFormat[];
 
 export interface RuleOptions {
   format?: RuleFormat;
