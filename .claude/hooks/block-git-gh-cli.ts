@@ -48,11 +48,61 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readInput, writeOutput, findRepoRoot, deriveHookRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
-import { recordFireLogEntry } from "./fire-log";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
 import { recordGuardDenial } from "./two-strikes-record";
 
 /** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
 const GUARD_NAME = "block-git-gh-cli";
+
+/**
+ * The ADR-028 D3 unified override env var (mt#4750).
+ *
+ * This guard is NOT dispatcher-routed (mt#3802 — see the `recordAndExit`
+ * comment near the entry point), so `dispatcher.ts`'s `checkOverride()` never
+ * runs for it; the guard reads `MINSKY_HOOK_OVERRIDE` itself instead, the same
+ * way every other standalone (non-`GUARD_REGISTRY`) guard in this tree does
+ * (e.g. `stamp-ask-conversation.ts`'s `isOverridden()`). The literal name is
+ * duplicated rather than imported from `dispatcher.ts`, matching that
+ * convention — this guard does not participate in the dispatcher module.
+ */
+const HOOK_OVERRIDE_ENV_VAR = "MINSKY_HOOK_OVERRIDE";
+
+/**
+ * Whether a `MINSKY_HOOK_OVERRIDE` value names this guard (or `"all"`).
+ * Case-insensitive, comma-separated, whitespace-trimmed — the D3 convention
+ * every sibling override-reader (dispatcher's `checkOverride()`,
+ * `stamp-ask-conversation.ts`'s `isOverridden()`) applies identically.
+ */
+function overrideValueNamesThisGuard(raw: string | undefined): boolean {
+  if (!raw) return false;
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .some((name) => name === "all" || name === GUARD_NAME);
+}
+
+/**
+ * Whether THIS guard's own process environment carries an overriding
+ * `MINSKY_HOOK_OVERRIDE` (mt#4750).
+ *
+ * This is the channel every sibling guard reads — but for a Bash/
+ * session_exec-MATCHED guard like this one, it is reachable only when the
+ * var is already set in the harness's own launch-time environment. A
+ * `MINSKY_HOOK_OVERRIDE=block-git-gh-cli the-actual-command` prefix an agent
+ * writes into a single `Bash`/`session_exec` call sets that var for the
+ * SHELL THAT WOULD RUN `the-actual-command` — never for this hook's own
+ * sibling subprocess, which the harness spawns separately with its own
+ * environment (`dispatcher.ts`'s `checkOverride()` doc comment records the
+ * identical constraint for dispatcher-routed guards: "a Bash-set env var
+ * never propagates to the sibling hook subprocess"). See
+ * `findCommandStringOverrideValue` for the channel that IS reachable from a
+ * single tool call — this function exists so a persistently-configured
+ * override (set in the harness's actual environment, not per-invocation)
+ * still works, matching SC1's "process-env form."
+ */
+export function isProcessEnvOverridden(env: NodeJS.ProcessEnv = process.env): boolean {
+  return overrideValueNamesThisGuard(env[HOOK_OVERRIDE_ENV_VAR]);
+}
 
 /**
  * Appended to every agent-facing denial (mt#4257).
@@ -820,6 +870,12 @@ export function splitOnShellOperators(command: string): string[] {
 export interface ParsedCommand {
   binary: "git" | "gh";
   args: string[]; // tokens after the binary
+  /**
+   * The value of a leading `MINSKY_HOOK_OVERRIDE=<value>` assignment on THIS
+   * segment, if present (mt#4750) — see `findCommandStringOverrideValue`.
+   * Undefined when this segment carried no such assignment.
+   */
+  overrideValue?: string;
 }
 
 /**
@@ -828,6 +884,7 @@ export interface ParsedCommand {
  */
 export function parseSegment(segment: string): ParsedCommand | null {
   const tokens = segment.split(/\s+/).filter((t) => t.length > 0);
+  const overrideValue = findCommandStringOverrideValue(tokens);
   const stripped = stripEnvVarAssignments(tokens);
   if (stripped.length === 0) return null;
   const binary = stripped[0];
@@ -835,6 +892,7 @@ export function parseSegment(segment: string): ParsedCommand | null {
   return {
     binary: binary as "git" | "gh",
     args: stripped.slice(1),
+    ...(overrideValue !== undefined ? { overrideValue } : {}),
   };
 }
 
@@ -849,6 +907,77 @@ export function parseCommands(command: string): ParsedCommand[] {
     if (parsed) result.push(parsed);
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// MINSKY_HOOK_OVERRIDE — command-string channel (mt#4750)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan a segment's LEADING env-var-assignment tokens — the same prefix
+ * `stripEnvVarAssignments` consumes — for a `MINSKY_HOOK_OVERRIDE=<value>`
+ * assignment, and return its value if present.
+ *
+ * This is the channel actually reachable from a single `Bash`/`session_exec`
+ * call (mt#4750): this guard parses the command STRING rather than executing
+ * it, so a leading assignment is visible here even though — per
+ * `isProcessEnvOverridden`'s doc comment — it never reaches this process's
+ * real `process.env` when the shell actually runs the command. Reading it is
+ * not a bypass: nothing here executes the shell, so nothing is skipped by
+ * treating the plain text as the self-declared override request the denial
+ * text (`REDIRECT_UNAVAILABLE_ESCAPE`) already promises.
+ *
+ * Only the LEADING run of assignments counts, matching shell semantics — a
+ * `MINSKY_HOOK_OVERRIDE=x` appearing after the binary is an argument to that
+ * command, not an env-var assignment governing it.
+ */
+export function findCommandStringOverrideValue(tokens: string[]): string | undefined {
+  const prefix = `${HOOK_OVERRIDE_ENV_VAR}=`;
+  for (const token of tokens) {
+    if (!ENV_VAR_RE.test(token)) break;
+    if (token.startsWith(prefix)) {
+      return stripSurroundingQuotes(token.slice(prefix.length));
+    }
+  }
+  return undefined;
+}
+
+/** Which channel decided a `checkGuardOverride` result. */
+export type OverrideChannel = "process-env" | "command-string";
+
+/** Discriminated so `channel` narrows to defined exactly when `overridden` is true. */
+export type GuardOverrideResult =
+  | { overridden: true; channel: OverrideChannel }
+  | { overridden: false };
+
+/**
+ * Whether `MINSKY_HOOK_OVERRIDE` permits `parsed` despite a denial match —
+ * checked via both reachable channels (mt#4750 SC1): this guard's own
+ * process environment (`isProcessEnvOverridden`), then a leading env-prefix
+ * assignment on this specific parsed segment
+ * (`findCommandStringOverrideValue`). The env channel is checked first
+ * because it is invocation-wide (set once, in the harness's real
+ * environment) rather than scoped to one segment.
+ */
+export function checkGuardOverride(
+  parsed: ParsedCommand,
+  env: NodeJS.ProcessEnv = process.env
+): GuardOverrideResult {
+  if (isProcessEnvOverridden(env)) return { overridden: true, channel: "process-env" };
+  if (overrideValueNamesThisGuard(parsed.overrideValue)) {
+    return { overridden: true, channel: "command-string" };
+  }
+  return { overridden: false };
+}
+
+/**
+ * The stderr audit line emitted when `checkGuardOverride` permits an
+ * otherwise-denied command (mt#4750 AT1/AT2) — a pure builder, matching this
+ * file's `buildDenialReason` convention, so the exact text is unit-testable
+ * without spying on `process.stderr`.
+ */
+export function buildOverrideAuditLine(channel: OverrideChannel, reason: string): string {
+  return `[block-git-gh-cli] OVERRIDE via ${channel}: MINSKY_HOOK_OVERRIDE names ${GUARD_NAME} — would have denied: ${reason}\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,9 +1193,13 @@ if (import.meta.main) {
   // mt#2597 (evaluation-loop Phase 1): fire-log this invocation exactly
   // once, regardless of how many parsed sub-commands were checked — "one
   // enforcement point firing" maps to one hook invocation, not one
-  // sub-command. No documented override env-var for this guard (denials are
-  // absolute — no MINSKY_SKIP_*/MINSKY_ACK_* escape hatch), so no override
-  // fields are ever populated here.
+  // sub-command. mt#4750: this guard's denial text promises a
+  // `MINSKY_HOOK_OVERRIDE=block-git-gh-cli` escape hatch, and it now actually
+  // works (see `checkGuardOverride`); `overrideChannel`, set below when a
+  // would-be denial is overridden, populates the override fields here so a
+  // permitted-via-override fire is distinguishable in the log from an
+  // ordinary allow.
+  let overrideChannel: OverrideChannel | undefined;
   const recordAndExit = (decision: "allow" | "deny"): never => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
@@ -1087,6 +1220,12 @@ if (import.meta.main) {
       agentType: input.agent_type,
       agentTypeObserved: classifyAgentTypeObservation(input),
       sessionId: input.session_id,
+      ...(overrideChannel !== undefined
+        ? {
+            overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
+            overrideClassification: classifyOverride(HOOK_OVERRIDE_ENV_VAR),
+          }
+        : {}),
     });
     process.exit(0);
   };
@@ -1140,6 +1279,22 @@ if (import.meta.main) {
     }
     const reason = checkDenial(parsed, context);
     if (reason) {
+      // mt#4750: MINSKY_HOOK_OVERRIDE names this guard (or "all") — permit
+      // despite the match, audit-logged via a stderr line (this guard's
+      // established carve-out-audit convention, matching the git-add and
+      // scope carve-outs above) plus the fire-log override fields populated
+      // in `recordAndExit`. `channel` records which of the two reachable
+      // forms decided (see `checkGuardOverride`'s doc comment): a real env
+      // var on this process, or a leading `MINSKY_HOOK_OVERRIDE=` assignment
+      // on the command string itself — the only channel actually reachable
+      // from a single Bash/session_exec call, since a Bash-set env var never
+      // propagates to this sibling hook subprocess.
+      const override = checkGuardOverride(parsed);
+      if (override.overridden) {
+        overrideChannel = override.channel;
+        process.stderr.write(buildOverrideAuditLine(override.channel, reason));
+        continue;
+      }
       // mt#3802: this guard is NOT yet migrated onto the dispatcher (ADR-028
       // Phase 5), so the dispatcher's central deny-branch recording cannot see
       // it — and this is the guard from the originating incident, where four
