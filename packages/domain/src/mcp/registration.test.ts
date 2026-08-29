@@ -156,28 +156,46 @@ describe("ClaudeDesktopRegistrar", () => {
 describe("ClaudeCodeRegistrar", () => {
   const registrar = new ClaudeCodeRegistrar();
 
-  describe("generateConfig for claude-code — inherits McpServersJsonRegistrar logic", () => {
-    test("stdio transport produces minsky-server JSON entry", () => {
+  describe("generateConfig for claude-code — emits the SHIM form, not the inherited stdio-spawn form (PR #3423 R2)", () => {
+    test("produces the shim invocation: mcp shim --url <daemon-url>", () => {
       const content = registrar.generateConfig("stdio");
       const parsed = JSON.parse(content);
 
       expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
-      expect(parsed.mcpServers["minsky-server"].args).toEqual(["mcp", "start"]);
-    });
-
-    test("httpStream transport includes --http-stream args for claude-code", () => {
-      const content = registrar.generateConfig("httpStream", 3000, "localhost");
-      const parsed = JSON.parse(content);
-
       expect(parsed.mcpServers["minsky-server"].args).toEqual([
         "mcp",
-        "start",
-        "--http-stream",
-        "--port",
-        "3000",
-        "--host",
-        "localhost",
+        "shim",
+        "--url",
+        "http://127.0.0.1:48765/mcp",
       ]);
+    });
+
+    test("never emits the legacy stdio-spawn form (no bare 'mcp start')", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+      expect(parsed.mcpServers["minsky-server"].args).not.toContain("start");
+    });
+
+    test("ignores transport/port/host -- those describe THIS project's minsky mcp start, not the daemon endpoint", () => {
+      const stdioContent = registrar.generateConfig("stdio");
+      const httpStreamContent = registrar.generateConfig("httpStream", 3000, "localhost");
+      const sseContent = registrar.generateConfig("sse", 4000, "0.0.0.0");
+
+      // All three produce byte-identical output -- the shim entry does not
+      // vary with the args that would change a stdio-spawn's own bind config.
+      expect(stdioContent).toBe(httpStreamContent);
+      expect(stdioContent).toBe(sseContent);
+    });
+
+    test("command is 'minsky', which resolves through the bin wrapper that can reach 'mcp shim' (local-http-config.ts:106-119)", () => {
+      // `mcp shim` is not a normal CLI subcommand -- only an invocation
+      // through scripts/cli-entry.ts's bin wrapper can reach it. `command:
+      // "minsky"` is that invocation; `bun dist/minsky.js` or `bun
+      // src/cli.ts` forms would NOT be (measured, not this file's job to
+      // re-verify at runtime).
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
     });
   });
 
@@ -617,13 +635,19 @@ describe("registerWithClient", () => {
   describe("claude-code config merging (mt#4676)", () => {
     const registrar = new ClaudeCodeRegistrar();
 
-    test("creates new file if config file does not exist", async () => {
+    test("creates new file if config file does not exist, in shim form", async () => {
       await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
 
       const configPath = registrar.configPath("/any-root");
       expect(mockFs.files.has(configPath)).toBe(true);
       const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
       expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "shim",
+        "--url",
+        "http://127.0.0.1:48765/mcp",
+      ]);
     });
 
     test("merges minsky-server into an existing ~/.claude.json preserving the projects key", async () => {
@@ -659,7 +683,7 @@ describe("registerWithClient", () => {
       expect(parsed.someOtherKey).toBe("preserved");
     });
 
-    test("overwrites an existing user-scope minsky-server entry when merging", async () => {
+    test("overwrites an existing user-scope minsky-server entry when merging, with the shim form regardless of transport/port passed (PR #3423 R2)", async () => {
       const configPath = registrar.configPath("/any-root");
       const existingConfig = JSON.stringify({
         mcpServers: { "minsky-server": { command: "old-command", args: ["old-args"] } },
@@ -667,6 +691,9 @@ describe("registerWithClient", () => {
       mockFs.files.set(configPath, existingConfig);
       mockFs.directories.add(path.dirname(configPath));
 
+      // transport/port are supplied (as a real caller's .minsky/config.yaml
+      // mcp section would) to prove they are ignored -- the shim entry does
+      // not vary with them.
       await registerWithClient(
         "/any-root",
         { transport: "httpStream", port: 4242 },
@@ -675,8 +702,15 @@ describe("registerWithClient", () => {
       );
 
       const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
-      expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
-      expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "shim",
+        "--url",
+        "http://127.0.0.1:48765/mcp",
+      ]);
+      // The old stdio-spawn entry is gone, not merged with -- overwritten.
+      expect(parsed.mcpServers["minsky-server"].args).not.toContain("old-args");
     });
 
     test("configPath is identical across two different projectRoots (user scope)", async () => {

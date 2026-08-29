@@ -17,10 +17,19 @@
  * What this script does:
  *   1. Reports what `detectAgentHarness()` / `detectInstalledClients()` /
  *      `resolveInitClient()` resolve to in the CURRENT live environment.
- *   2. Dry-run (default): reads the real `~/.claude.json` and reports
- *      whether a user-scope `minsky-server` entry already exists — no
- *      writes.
- *   3. `--execute`: actually registers Minsky at Claude Code's user scope
+ *   2. Dry-run (default): reads the real `~/.claude.json`, reports whether a
+ *      user-scope `minsky-server` entry already exists, and previews the
+ *      exact entry `--execute` would write (the SHIM form — PR #3423 R2;
+ *      `ClaudeCodeRegistrar` no longer emits the raw stdio-spawn `mcp start`
+ *      form the base registrar class defaults to) — no writes.
+ *   3. Probes the local daemon's `/health` endpoint (best-effort, 2s
+ *      timeout) and reports whether it is reachable. The shim entry this
+ *      script previews/writes CONNECTS to that daemon; if it is not running,
+ *      every MCP tool call through the shim retries for up to
+ *      `RETRY_WINDOW_MS` (15s, `src/mcp/shim/client.ts`) before returning a
+ *      clear JSON-RPC error naming the condition — not a hang, not a silent
+ *      failure, but a real per-call latency cost until the daemon starts.
+ *   4. `--execute`: actually registers Minsky at Claude Code's user scope
  *      via the real `registerWithClient()` + `ClaudeCodeRegistrar`, against
  *      the real filesystem, then re-reads the file and asserts the entry
  *      landed with the expected shape.
@@ -61,6 +70,23 @@ function fail(reason: string): never {
   process.exit(1);
 }
 
+/**
+ * Best-effort check of whether the local MCP daemon is answering — the
+ * daemon the shim entry above connects to. Read-only, short timeout (2s):
+ * this script's job is to REPORT the condition honestly, not to wait it out
+ * the way the shim's own 15s retry window does.
+ */
+async function probeDaemonHealth(): Promise<boolean> {
+  try {
+    const res = await fetch("http://127.0.0.1:48765/health", {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function main(): Promise<void> {
   const harness = detectAgentHarness();
   const installed = detectInstalledClients();
@@ -94,6 +120,28 @@ async function main(): Promise<void> {
   }
 
   console.log(`Existing user-scope "minsky-server" entry present: ${hadEntry}`);
+
+  const previewConfig = registrar.generateConfig("stdio");
+  const previewEntry = (JSON.parse(previewConfig) as { mcpServers: Record<string, unknown> })
+    .mcpServers["minsky-server"];
+  console.log(`\nEntry that would be written (shim form, PR #3423 R2):`);
+  console.log(`  ${JSON.stringify(previewEntry)}`);
+
+  const daemonReachable = await probeDaemonHealth();
+  console.log(
+    `\nLocal daemon health (http://127.0.0.1:48765/health): ${
+      daemonReachable ? "reachable" : "NOT reachable"
+    }`
+  );
+  if (!daemonReachable) {
+    console.log(
+      "  The shim entry above connects to this daemon. Until it is running, every " +
+        "MCP tool call through it will retry for up to 15s (RETRY_WINDOW_MS) then fail " +
+        "with a clear error naming the condition (not a hang or a silent failure) — " +
+        "run `minsky mcp start --http --local-daemon` (or `minsky setup local-http " +
+        "--execute`, which also ensures the daemon) to start it."
+    );
+  }
 
   if (!EXECUTE) {
     console.log(
