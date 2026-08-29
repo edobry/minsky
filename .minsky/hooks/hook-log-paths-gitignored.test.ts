@@ -132,11 +132,22 @@ function derivedLogPaths(): string[] {
   for (const entry of readdirSync(HOOKS_DIR)) {
     if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
     const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    for (const m of src.matchAll(/EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g)) {
+    // The optional `[A-Z0-9_]*` prefix is DELIBERATE, not decoration
+    // (PR #3480 R2). A constant is not always named exactly
+    // `CALIBRATION_LOG_NAME` — `substrate-bypass-detector` declares
+    // `OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME`, because that file writes a
+    // stream whose name does not match its own. An unanchored regex happened to
+    // match that identifier's suffix, so coverage was correct by ACCIDENT; this
+    // makes it correct on purpose, and the test below pins it.
+    for (const m of src.matchAll(
+      /[A-Z0-9_]*EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g
+    )) {
       const n = m[1];
       if (n) names.add(`.minsky/${n}-evaluations.jsonl`);
     }
-    for (const m of src.matchAll(/CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g)) {
+    for (const m of src.matchAll(
+      /[A-Z0-9_]*CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g
+    )) {
       const n = m[1];
       if (n) names.add(`.minsky/${n}-calibration.jsonl`);
     }
@@ -220,6 +231,16 @@ describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
     // is that the docblock case above is already gone by the time we match.
     const src = "const X = `.minsky/tmpl.jsonl`;";
     expect(stripComments(src)).toContain(".minsky/tmpl.jsonl");
+  });
+
+  it("sees a PREFIXED log-name constant, not just the bare one (PR #3480 R2)", () => {
+    // `substrate-bypass-detector` declares `OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME`.
+    // Measured across the tree: 27 `*_LOG_NAME` constants, all covered — but one
+    // of them only because an unanchored regex matched its suffix. This pins the
+    // prefix as intended behaviour so a future rename cannot quietly drop it.
+    const re = /[A-Z0-9_]*CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g;
+    const src = 'const OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME = "operator-instruction-trigger";';
+    expect([...src.matchAll(re)].map((m) => m[1])).toEqual(["operator-instruction-trigger"]);
   });
 
   it("sees both calibrationLog declaration forms (PR #3480 R1)", () => {
