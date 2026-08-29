@@ -42,7 +42,17 @@ function resultWith(
       verdict: "classifiable",
       evidenceFields: ["matches"],
       recordsAssessed,
-      judgedText: { recoverability, capturedRecords, recordsAssessed },
+      // mt#4465: `recoverableRecords` is what the PARTIAL line now bounds the
+      // rate to. It equals `capturedRecords` here because these fixtures model
+      // a marker-only log — the two diverge exactly when a detector carries
+      // judged text under its own key, which `calibration-judged-text.test.ts`
+      // covers against parsed records.
+      judgedText: {
+        recoverability,
+        capturedRecords,
+        recoverableRecords: capturedRecords,
+        recordsAssessed,
+      },
     },
   } as unknown as CalibrationLogResult;
 }
@@ -53,10 +63,13 @@ describe("formatResult — judged-text recoverability", () => {
     // The pair is the point: reporting only the left-hand answer is the gap.
     expect(text).toContain("Classifiable:           yes");
     expect(text).toContain(`${JUDGED_TEXT_LABEL}            GONE`);
-    expect(text).toContain("311 record(s) carry no capture");
+    // Names BOTH conditions (PR #3432 R1): the old "carry no capture" wording
+    // asserted the marker-absence-is-unrecoverable equivalence that mt#4465
+    // removed from the derivation.
+    expect(text).toContain("311 record(s) carry neither a capture marker nor readable judged text");
   });
 
-  test("a partial log reports the captured count so a rate can be bounded", () => {
+  test("a partial log reports the recoverable count so a rate can be bounded", () => {
     const text = formatResult([resultWith("partial", 133, 375)], []);
     expect(text).toContain(`${JUDGED_TEXT_LABEL}            PARTIAL — 133 of 375`);
   });

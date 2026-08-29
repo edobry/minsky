@@ -71,6 +71,7 @@ describe("computeReviewDueLogs (mt#2896)", () => {
         judgedText: {
           recoverability: "no-records" as const,
           capturedRecords: 0,
+          recoverableRecords: 0,
           recordsAssessed: 0,
         },
       },
