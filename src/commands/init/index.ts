@@ -8,6 +8,7 @@
 import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
+import { RULE_FORMAT_DESCRIPTION } from "../../utils/option-descriptions";
 
 export function createInitCommand(): Command {
   const cmd = new Command("init");
@@ -20,7 +21,7 @@ export function createInitCommand(): Command {
   cmd.option("--workspace-path <path>", "Workspace path");
   cmd.option("--github-owner <string>", "GitHub repository owner");
   cmd.option("--github-repo <string>", "GitHub repository name");
-  cmd.option("--rule-format <string>", "Rule format (cursor or generic)");
+  cmd.option("--rule-format <string>", RULE_FORMAT_DESCRIPTION);
   cmd.option("--mcp <string>", "Enable/disable MCP configuration");
   cmd.option("--mcp-transport <string>", "MCP transport type (stdio, sse, httpStream)");
   cmd.option("--mcp-port <string>", "Port for MCP network transports");

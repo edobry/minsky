@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from "bun:test";
 import * as descriptions from "./option-descriptions";
+import { RULE_FORMAT_VALUES, type RuleFormat } from "@minsky/domain/rules/types";
+import completionManifest from "../generated/completion-manifest.json";
 import { setupTestMocks } from "./test-utils/mocking";
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -98,5 +100,46 @@ describe("Option Descriptions", () => {
     expect(descriptions.RULE_NAME_DESCRIPTION).toBeTruthy();
     expect(descriptions.RULE_FORMAT_DESCRIPTION).toBeTruthy();
     expect(descriptions.RULE_TAGS_DESCRIPTION).toBeTruthy();
+  });
+});
+
+/**
+ * mt#4741 — the advertised value set of `--rule-format` must equal the accepted
+ * set. `minsky` was added to `RuleFormat` on 2026-04-01 (mt#588) and every help
+ * string went on saying "cursor or generic" for five months, because a
+ * hand-written description is coupled to nothing.
+ */
+describe("--rule-format advertises exactly the accepted RuleFormat values", () => {
+  it("advertises every accepted format", () => {
+    for (const format of RULE_FORMAT_VALUES) {
+      expect(descriptions.RULE_FORMAT_DESCRIPTION).toContain(format);
+    }
+  });
+
+  it("derives the advertised set from the type rather than restating it", () => {
+    // A `Record<RuleFormat, true>` rather than a plain array on purpose: adding a
+    // member to `RuleFormat` makes THIS LINE a compile error, so the expectation
+    // cannot silently drift out of step with the union the way a hand-written
+    // list can — which is the exact failure this test exists to catch.
+    const everyFormat: Record<RuleFormat, true> = { cursor: true, generic: true, minsky: true };
+    const expected = Object.keys(everyFormat) as RuleFormat[];
+    expect([...RULE_FORMAT_VALUES].sort()).toEqual(expected.sort());
+  });
+
+  it("no longer carries the stale two-value phrasing", () => {
+    expect(descriptions.RULE_FORMAT_DESCRIPTION).not.toContain("cursor or generic");
+  });
+
+  it("does not leave the stale phrasing in the committed completion manifest", () => {
+    // The manifest is generated from these descriptions; a stale string here means
+    // it was not regenerated after the source changed.
+    //
+    // Asserted as a BOOLEAN, not via `expect(json).not.toContain(...)`: the manifest
+    // serializes to ~300KB, and a failing `toContain` prints the whole thing as its
+    // diff, which buries the result it is meant to report. Observed while running
+    // this file's own negative control.
+    const manifestCarriesStalePhrase =
+      JSON.stringify(completionManifest).includes("cursor or generic");
+    expect(manifestCarriesStalePhrase).toBe(false);
   });
 });
