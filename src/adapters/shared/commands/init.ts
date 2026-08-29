@@ -15,6 +15,7 @@ import {
   type ResolvedRepositoryConfig,
 } from "@minsky/domain/init";
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
+import { resolveInitClient } from "@minsky/domain/runtime/harness-detection";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
@@ -198,8 +199,16 @@ export function registerInitCommands() {
           let ruleFormat = params.ruleFormat;
           if (!ruleFormat) {
             if (!isInteractive()) {
-              // Default to cursor in non-interactive mode
-              ruleFormat = "cursor";
+              // mt#4715: derive the default from the harness actually running
+              // init, not a fixed "cursor". This is the AGENT path — an agent
+              // never sees the prompt below — and it was the one place the
+              // wrong default actually bit. Claude Code reads neither
+              // `.cursor/rules` nor `.ai/rules`; it reads `CLAUDE.md` and
+              // `.claude/rules`, which the compile pipeline emits FROM
+              // `.minsky/rules` sources. So a Claude Code project scaffolds
+              // sources in the canonical `minsky` location and
+              // `initializeProject` compiles them for that harness.
+              ruleFormat = resolveInitClient() === "claude-code" ? "minsky" : "cursor";
             } else {
               const selectedFormat = await select({
                 message: "Select rule format:",
