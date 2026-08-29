@@ -559,7 +559,7 @@ describe("startSessionImpl - project_id stamping resolves from repoUrl before th
 
   it("stamps project_id for a foreign (non-default) project even though the session directory has not been cloned yet", async () => {
     const db = makeProjectDb([{ id: FOREIGN_PROJECT_ID }]);
-    const deps: StartSessionDependencies = {
+    const deps: StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> } = {
       ...createDeps(FOREIGN_REPO_URL),
       db,
     };
@@ -574,7 +574,7 @@ describe("startSessionImpl - project_id stamping resolves from repoUrl before th
 
   it("leaves project_id undefined (fail-open) when no project row matches the repo's slug", async () => {
     const db = makeProjectDb([]); // no matching project row
-    const deps: StartSessionDependencies = {
+    const deps: StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> } = {
       ...createDeps(FOREIGN_REPO_URL),
       db,
     };
