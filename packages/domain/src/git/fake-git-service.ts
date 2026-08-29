@@ -2,7 +2,7 @@
  * FakeGitService — in-memory test double for GitServiceInterface.
  *
  * Follows the canonical FakeX pattern established in
- * `src/domain/persistence/fake-persistence-provider.ts` and continued
+ * `packages/domain/src/persistence/fake-persistence-provider.ts` and continued
  * in `fake-task-service.ts` and `fake-session-provider.ts`.
  *
  * This fake is more elaborate than the others because:
@@ -36,9 +36,9 @@
  *   - hasUncommittedChanges → false
  *   - fetchDefaultBranch → "main"
  *
- * @see src/domain/persistence/fake-persistence-provider.ts
- * @see src/domain/tasks/fake-task-service.ts
- * @see src/domain/session/fake-session-provider.ts
+ * @see packages/domain/src/persistence/fake-persistence-provider.ts
+ * @see packages/domain/src/tasks/fake-task-service.ts
+ * @see packages/domain/src/session/fake-session-provider.ts
  */
 
 import type {

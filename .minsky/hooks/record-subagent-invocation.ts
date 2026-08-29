@@ -10,8 +10,8 @@
 //
 // @see mt#1737 — this file
 // @see src/mcp/subagent-dispatch-tracker.ts — DB write layer
-// @see src/domain/subagent/workspace-classifier.ts — workspace state
-// @see src/domain/subagent/transcript-metrics.ts — transcript metrics
+// @see packages/domain/src/subagent/workspace-classifier.ts — workspace state
+// @see packages/domain/src/subagent/transcript-metrics.ts — transcript metrics
 // @see mt#2649 — metrics read the wrong file for background-dispatched subagents
 // @see .claude/hooks/transcript.ts — resolveTranscriptCandidates (mt#2637 / PR #1806)
 // @see mt#2796 — actual_model writer (extractActualModel, transcript-metrics.ts)
