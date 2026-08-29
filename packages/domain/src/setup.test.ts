@@ -16,6 +16,7 @@ import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import { performSetup } from "./setup";
 import { workspaceConfigSchema } from "./configuration/schemas";
+import { mcpConfigSchema } from "./configuration/schemas/mcp";
 import type { FsLike } from "./interfaces/fs-like";
 import { PERSISTENCE_CONNECTION_STRING_KEY, type ResolveExistingConnectionDeps } from "./setup-db";
 import type { ProvisionProjectRowDeps } from "./project/provision";
@@ -142,9 +143,10 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
       const mockFs = makeMockFs();
       await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs, NO_DB_DEPS);
 
-      // config.local.yaml only contains the workspace overlay — validate that
-      // sub-object against workspaceConfigSchema rather than the full root schema
-      // (which accepts any partial config because all its fields are optional).
+      // Validate the `workspace` sub-object against workspaceConfigSchema rather
+      // than the full root schema (which accepts any partial config because all
+      // its fields are optional). Note config.local.yaml now ALSO carries an
+      // `mcp` section (mt#4699) — it has its own round-trip test below.
       const parsed = readLocalConfig(mockFs);
       const result = workspaceConfigSchema.safeParse(parsed.workspace);
 
@@ -173,6 +175,125 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
       expect(workspace?.harness).toBe(client);
     });
   }
+});
+
+// ─── mcp section moved to the local overlay (mt#4699) ────────────────────────
+
+describe("performSetup — mcp lands in config.local.yaml, not config.yaml (mt#4699)", () => {
+  test("writes an mcp section into the local overlay", async () => {
+    const mockFs = makeMockFs();
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const mcp = readLocalConfig(mockFs).mcp as Record<string, unknown> | undefined;
+    expect(mcp).toBeDefined();
+    expect(mcp?.transport).toBe("stdio");
+  });
+
+  test("falls back to stdio when NOTHING supplies a transport", async () => {
+    // Deliberately not the fixture, which carries `mcp: transport: stdio` of its
+    // own — with it in place the assertion above passes by reading the project
+    // config, not by exercising the default. This is the default's own test.
+    const mockFs = makeMockFs();
+    await mockFs.writeFile(CONFIG_YAML_PATH, `\ntasks:\n  backend: minsky\n`);
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    expect((readLocalConfig(mockFs).mcp as Record<string, unknown>).transport).toBe("stdio");
+  });
+
+  test("the written mcp section is accepted by mcpConfigSchema", async () => {
+    // mt#1939's lesson: config.local.yaml is schema-validated, so a section
+    // written in the wrong shape is rejected at load time rather than here.
+    const mockFs = makeMockFs();
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", overwrite: true, mcp: { transport: "stdio" } },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const result = mcpConfigSchema.safeParse(readLocalConfig(mockFs).mcp);
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error(
+        `mcp config validation failed:\n${result.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("\n")}`
+      );
+    }
+  });
+
+  test("explicitly-passed options carry transport, port and host through", async () => {
+    const mockFs = makeMockFs();
+    await performSetup(
+      {
+        repoPath: REPO_PATH,
+        client: "claude-code",
+        overwrite: true,
+        mcp: { transport: "httpStream", port: 9999, host: "127.0.0.1" },
+      },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const mcp = readLocalConfig(mockFs).mcp as Record<string, unknown>;
+    expect(mcp.transport).toBe("httpStream");
+    expect(mcp.port).toBe(9999);
+    expect(mcp.host).toBe("127.0.0.1");
+  });
+
+  test("port and host are omitted entirely when not supplied", async () => {
+    const mockFs = makeMockFs();
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const mcp = readLocalConfig(mockFs).mcp as Record<string, unknown>;
+    expect("port" in mcp).toBe(false);
+    expect("host" in mcp).toBe(false);
+  });
+
+  test("BACK-COMPAT: a pre-mt#4699 config.yaml carrying mcp is still honoured", async () => {
+    // Projects initialized before this change still have `mcp` in the committed
+    // config. performSetup must keep reading it when nothing is passed
+    // explicitly, or those projects would silently fall back to stdio.
+    const mockFs = makeMockFs();
+    // Replaces the fixture rather than appending: MINIMAL_PROJECT_CONFIG is
+    // itself just an `mcp` block, so appending would duplicate the key.
+    await mockFs.writeFile(CONFIG_YAML_PATH, `\nmcp:\n  transport: sse\n  port: 4321\n`);
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const mcp = readLocalConfig(mockFs).mcp as Record<string, unknown>;
+    expect(mcp.transport).toBe("sse");
+    expect(mcp.port).toBe(4321);
+  });
+
+  test("explicit options WIN over a config.yaml mcp section", async () => {
+    const mockFs = makeMockFs();
+    await mockFs.writeFile(CONFIG_YAML_PATH, `\nmcp:\n  transport: sse\n`);
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", overwrite: true, mcp: { transport: "stdio" } },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    expect((readLocalConfig(mockFs).mcp as Record<string, unknown>).transport).toBe("stdio");
+  });
 });
 
 describe("performSetup — baseline behaviour", () => {
