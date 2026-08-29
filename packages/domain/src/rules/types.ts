@@ -29,7 +29,31 @@ export interface RuleMeta {
   [key: string]: unknown; // Allow for additional custom fields from frontmatter
 }
 
-export type RuleFormat = "cursor" | "generic" | "minsky";
+/**
+ * Every accepted rule format, in the order help text presents them. **This is
+ * the single source of truth for the value set** (mt#4741); {@link RuleFormat}
+ * is derived from it, not declared alongside it.
+ *
+ * A `readonly` tuple rather than `Object.keys(RULE_FORMAT_OUTPUT_DIR)` so that
+ * neither the ORDER nor the ELEMENT TYPE is implicit: key order is a runtime
+ * property of the object literal that is not type-encoded, and a
+ * `Object.keys(...) as RuleFormat[]` assertion would keep type-checking if the
+ * mapping were ever refactored away from a `Record<RuleFormat, string>`. Here
+ * the order is declared and the type needs no assertion (PR #3469 review).
+ *
+ * Adding a format is still gated: it goes here, and {@link RULE_FORMAT_OUTPUT_DIR}
+ * then fails to compile until its directory is decided. The help strings pick it
+ * up with no further edit.
+ *
+ * The bug this exists to prevent: `minsky` was added on 2026-04-01 (mt#588) and
+ * every `--rule-format` help string went on saying "cursor or generic" for five
+ * months, because a hand-written description is coupled to nothing and so
+ * nothing fails when it goes stale. Do not restate this set in a literal —
+ * derive from here.
+ */
+export const RULE_FORMAT_VALUES = ["cursor", "generic", "minsky"] as const;
+
+export type RuleFormat = (typeof RULE_FORMAT_VALUES)[number];
 
 /**
  * The rules directory each {@link RuleFormat} writes to, relative to the
@@ -55,26 +79,6 @@ export const RULE_FORMAT_OUTPUT_DIR: Record<RuleFormat, string> = {
   generic: ".ai/rules",
   minsky: ".minsky/rules",
 };
-
-/**
- * Every accepted {@link RuleFormat}, for surfaces that must ENUMERATE the
- * formats rather than map over them — principally CLI/MCP help text (mt#4741).
- *
- * Derived from {@link RULE_FORMAT_OUTPUT_DIR} rather than written out again, so
- * it inherits that constant's exhaustiveness: adding a member to `RuleFormat`
- * is already a compile error there until its directory is decided, and the new
- * member then flows into every help string automatically. The cast is safe by
- * construction — a `Record<RuleFormat, string>` has exactly the union's keys.
- *
- * The bug this prevents is the one `RULE_FORMAT_OUTPUT_DIR`'s own docblock
- * describes, one surface over. `minsky` was added to `RuleFormat` on
- * 2026-04-01 (mt#588) and every `--rule-format` help string went on saying
- * "cursor or generic" for five months, because a hand-written description is
- * coupled to nothing and so nothing fails when it goes stale. Restating the
- * value set in a string literal is what created that gap; do not reintroduce
- * one — derive from here.
- */
-export const RULE_FORMAT_VALUES = Object.keys(RULE_FORMAT_OUTPUT_DIR) as RuleFormat[];
 
 export interface RuleOptions {
   format?: RuleFormat;

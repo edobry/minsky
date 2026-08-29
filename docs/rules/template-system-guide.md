@@ -89,7 +89,8 @@ minsky tasks list [--all <value>] [--status <value>]
 ```bash
 --interface <mode>     # cli, mcp, or hybrid (required)
 --rules <list>         # Comma-separated list of specific templates
---output-dir <path>    # Custom output directory (default: .cursor/rules)
+--output-dir <path>    # Custom output directory (default: the selected format's
+                       #   directory — .cursor/rules, .ai/rules, or .minsky/rules)
 --dry-run             # Preview generation without creating files
 --overwrite           # Overwrite existing rule files
 ```
@@ -97,7 +98,7 @@ minsky tasks list [--all <value>] [--status <value>]
 ### Advanced Options
 
 ```bash
---format <format>      # Rule format: cursor or openai (default: cursor)
+--format <format>      # Rule format: cursor, generic, or minsky (default: cursor)
 --prefer-mcp          # In hybrid mode, prefer MCP over CLI commands
 --mcp-transport <type> # MCP transport: stdio or http (default: stdio)
 ```
