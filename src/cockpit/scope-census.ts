@@ -75,7 +75,8 @@ const SCOPE_EVIDENCE_PATTERN = /resolveCockpitProjectScope|ctx\.projectScope|req
 // in `widgets/<id>.ts`.
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727/mt#4728):
-// agents, attention, context-inspector (mt#4746), memories-list, memories-search,
+// agents, attention, context-inspector (mt#4746), driven-session-cost (mt#4746,
+// task→project resolution — see its own docblock), memories-list, memories-search,
 // memories-stats, reviewer-bot-status (mt#4746, PARTIAL — see its own docblock's
 // "Project scope" section: reviewer_webhook_events carries no owner/repo column,
 // so 4 of its ~15 queries stay global even when scoped), task-graph, task-list,
@@ -89,12 +90,6 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "credentials",
     reason: "not project-attributable: credentials are stored globally, not per-project.",
-  },
-  {
-    id: "driven-session-cost",
-    reason:
-      "deferred: queries drivenSessionCostTable unfiltered; scoping requires a " +
-      "task→project resolution step not yet built. Tracked at mt#4746.",
   },
   {
     id: "embeddings-health",
