@@ -1605,7 +1605,7 @@ How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec dis
 
 When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
-These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
+These fail silently in three shapes. The first two are identical from outside: the feature exists, its tests pass, it produces nothing. The third inverts them — the mechanism was working, and a change stops it.
 
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
