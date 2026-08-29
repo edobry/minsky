@@ -785,6 +785,40 @@ describe("viewWorkflowJobLog (mt#4749)", () => {
     const spooledContent = await Bun.file(spooledPath).text();
     expect(spooledContent).toBe(hugeLog);
   });
+
+  test("two oversized spools with the same label do not collide (PR #3478 R1)", async () => {
+    // Reviewer finding: the spooled filename was `<label>-<Date.now()>.log`
+    // with no collision-avoidance suffix, so two spools in the same
+    // millisecond (a real shape now that viewFailedJobLogs fetches jobs in
+    // parallel) would silently overwrite each other. Same job id twice, same
+    // label, back-to-back — the second write must not clobber the first.
+    const first = "a".repeat(MAX_INLINE_LOG_BYTES + 1000);
+    const second = "b".repeat(MAX_INLINE_LOG_BYTES + 1000);
+    const oct = jobLogOctokit({ 123: first });
+
+    const firstResult = await viewWorkflowJobLog(
+      TEST_GH,
+      123,
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+    const octSecond = jobLogOctokit({ 123: second });
+    const secondResult = await viewWorkflowJobLog(
+      TEST_GH,
+      123,
+      {},
+      octSecond as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+
+    const firstPath = extractSpooledPath(firstResult);
+    const secondPath = extractSpooledPath(secondResult);
+
+    expect(firstPath).not.toBe(secondPath);
+    const firstContent = await Bun.file(firstPath).text();
+    const secondContent = await Bun.file(secondPath).text();
+    expect(firstContent).toBe(first);
+    expect(secondContent).toBe(second);
+  });
 });
 
 describe("listWorkflowRunJobs (mt#4749)", () => {

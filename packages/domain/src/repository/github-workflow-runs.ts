@@ -375,7 +375,14 @@ function spoolLogToFile(text: string, label: string): string {
   const dir = join(getMinskyStateDir(), SPOOL_SUBDIR);
   mkdirSync(dir, { recursive: true });
   const safeLabel = label.replace(/[^a-zA-Z0-9_-]+/g, "-");
-  const fileName = `${safeLabel}-${Date.now()}.log`;
+  // A timestamp alone collides when two oversized fetches spool in the same
+  // millisecond (e.g. viewFailedJobLogs fetching several failed jobs' logs
+  // back-to-back, or two concurrent MCP calls) — the second write silently
+  // overwrites the first. The random suffix matches the collision-avoidance
+  // scheme already used at the transport layer (src/mcp/shim/response-bound.ts,
+  // src/mcp/response-size-guard.ts). PR #3478 R1.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const fileName = `${safeLabel}-${Date.now()}-${suffix}.log`;
   const filePath = join(dir, fileName);
   writeFileSync(filePath, text, "utf8");
   return filePath;
@@ -584,11 +591,17 @@ export async function viewFailedJobLogs(
     (j) => j.conclusion !== null && j.conclusion !== "success" && j.conclusion !== "skipped"
   );
 
-  const results: FailedJobLog[] = [];
-  for (const job of failedJobs) {
-    const logs = await viewWorkflowJobLog(gh, job.id, options, octokit);
-    results.push({ id: job.id, name: job.name, conclusion: job.conclusion, logs });
-  }
+  // Fetched in parallel (PR #3478 R1 non-blocking finding) rather than one at
+  // a time — a run with several failed jobs no longer pays N sequential
+  // round trips to GitHub's per-job log endpoint. `Promise.all` preserves the
+  // input order, so the returned `jobs` array still lines up with
+  // `failedJobs` positionally.
+  const results = await Promise.all(
+    failedJobs.map(async (job) => {
+      const logs = await viewWorkflowJobLog(gh, job.id, options, octokit);
+      return { id: job.id, name: job.name, conclusion: job.conclusion, logs };
+    })
+  );
 
   return { jobs: results, jobCount: results.length };
 }
