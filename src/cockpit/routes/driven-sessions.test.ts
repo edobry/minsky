@@ -274,6 +274,19 @@ describe("POST /api/driven-session — task-bound", () => {
     expect(record?.minskySessionId).toBe(WORKSPACE_ID);
   });
 
+  // mt#4732: the resolved workspace's projectId must reach the registry
+  // record — the production-wiring half of the agents-widget fix
+  // (spliceDrivenSessions's own tests cover the widget-side classification).
+  test("mt#4732: threads the resolved workspace's projectId onto the registry record", async () => {
+    const PROJECT_ID = "cccc3333-0000-0000-0000-00000000CCCC";
+    const h = await makeHarness({ resolveTaskWorkspace: fakeResolver(PROJECT_ID) });
+    const res = await post(h.url, { taskId: TASK_ID });
+    expect(res.status).toBe(201);
+
+    const record = h.registry.get(res.body.sessionId);
+    expect(record?.projectId).toBe(PROJECT_ID);
+  });
+
   test("fires the init-link observer once the child's init event arrives (spawn-time identity)", async () => {
     const h = await makeHarness({ resolveTaskWorkspace: fakeResolver() });
     const res = await post(h.url, { taskId: TASK_ID });

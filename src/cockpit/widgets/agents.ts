@@ -33,6 +33,7 @@ import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index"
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
+import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "@minsky/domain/project/scope";
 import { resolveDerivedConversationLinks } from "../derived-conversation-link";
 import { describeWidgetDegradedReason } from "../db-providers";
 import {
@@ -146,12 +147,17 @@ export interface AgentRow {
    * `agent_transcripts.project_id` via the run-merge join — see
    * `run-merge.ts`'s `StandaloneRunRow.projectId` doc comment for the
    * NULL-attribution rule (never hidden, shown under every filter) and the
-   * synthetic-group aggregation carve-out. `null` for a `driven-session`
-   * row — driven-session project attribution is not tracked (out of this
-   * task's scope; the driven-session registry doesn't carry a projectId
-   * today). This field exists so a future frontend pass CAN render a
-   * project badge/distinction; this task does not add that rendering
-   * (sibling mt#4729).
+   * synthetic-group aggregation carve-out. For a `driven-session` row
+   * (mt#4732), `DrivenSessionSnapshot.projectId` — resolved at launch time
+   * from the bound workspace when one exists, `null` for an unbound launch
+   * (scratch/explicit-cwd/principal-channel/entity-thread) or a
+   * daemon-restart rehydration (see that field's doc comment). Unlike the
+   * conversation-derived NULL rule above, a driven session's `null` is
+   * folded into the SAME `unattributed-summary` aggregate under a specific
+   * project filter rather than kept as its own top-level row — see
+   * `spliceDrivenSessions`. This field exists so a future frontend pass CAN
+   * render a project badge/distinction; this task does not add that
+   * rendering (sibling mt#4729).
    */
   projectId: string | null;
 }
@@ -170,6 +176,18 @@ export interface DrivenSessionSnapshot {
   taskId: string | null;
   minskySessionId: string | null;
   harnessSessionId: string | null;
+  /**
+   * Project attribution (mt#4732), sourced from
+   * `DrivenSessionRecord.projectId` — resolved by the launch-time caller from
+   * the bound workspace's own `SessionRecord.projectId` when one exists (see
+   * that field's doc comment in `../driven-session-host.ts`). `null` for a
+   * launch with no bound workspace (scratch, explicit cwd, the ambient
+   * principal channel, entity threads) and for a session rehydrated from the
+   * `driven_sessions` table after a daemon restart (the schema doesn't
+   * persist this column) — an honest "not tracked for this row", not a
+   * guess. See `spliceDrivenSessions`'s NULL-attribution handling below.
+   */
+  projectId: string | null;
 }
 
 /** Full payload returned by this widget when state === "ok" */
@@ -349,17 +367,58 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
   };
 }
 
+/** `unattributed-summary` row title, matching run-merge.ts's exact wording. */
+function unattributedSummaryTitle(count: number): string {
+  return `${count} unattributed conversation${count === 1 ? "" : "s"}`;
+}
+
+/** Newest-first timestamp across a current value plus a group of entries (mirrors run-merge.ts's `latestTimestamp`). */
+function latestActivityAcross(current: string | null, entries: SubagentEntry[]): string {
+  let latest = current;
+  for (const e of entries) {
+    if (e.startedAt && (!latest || e.startedAt > latest)) latest = e.startedAt;
+  }
+  return latest ?? new Date(0).toISOString();
+}
+
 /**
  * Splice driven-session registry snapshots into the merged row list
- * (mt#2752): a driven session whose `minskySessionId` matches a visible
- * workspace row ANNOTATES that row (`row.driven`); every other driven
- * session (untasked scratch, or workspace not in view) becomes its own
- * `kind: "driven-session"` row addressed by the driven-session local id.
+ * (mt#2752): a driven session whose `minskySessionId` matches a VISIBLE
+ * workspace row ANNOTATES that row (`row.driven`) unconditionally — a match
+ * confirms it's running against a workspace that already passed project
+ * filtering upstream, so there is nothing further to check. Every other
+ * driven session (untasked scratch, explicit-cwd, or a `minskySessionId`
+ * whose workspace fell OUT of view under the current filter) is classified
+ * by its OWN `projectId` (mt#4732):
+ *
+ *   - `ALL_PROJECTS` scope: unchanged pre-mt#4732 behavior — every unmatched
+ *     entry becomes its own `kind: "driven-session"` row, now carrying real
+ *     attribution in `projectId` instead of a hardcoded `null`.
+ *   - A specific project scoped, `projectId` confirmed DIFFERENT: hidden
+ *     (SC1) — mirrors the strict `eq()`-only semantics a `dispatched-agent`
+ *     row already gets from `listSessions`'s project filter. Unlike
+ *     `agent_transcripts.project_id` (best-effort, nullable-by-design at
+ *     ingest — see run-merge.ts's NULL-attribution rule), a driven session's
+ *     `projectId` is either resolved from an authoritative workspace record
+ *     or genuinely unknown; there is no "ingest gap" middle state to excuse
+ *     a mismatch.
+ *   - A specific project scoped, `projectId` confirmed SAME: a real
+ *     standalone row, same as ALL_PROJECTS.
+ *   - A specific project scoped, `projectId` unresolvable (`null` — no bound
+ *     workspace, or a workspace with no `projectId` of its own): folded into
+ *     the SAME `unattributed-summary` aggregate mt#4733 introduced for
+ *     NULL-attribution conversations (SC3/AT2), rather than shown as a full
+ *     top-level peer under every foreign filter. `rows` may already contain
+ *     that row (produced by `mergeConversationRows` upstream) — appended to
+ *     when present, created fresh with the identical `unattributed:<scope>`
+ *     id scheme otherwise, so the two sources always converge on one row.
+ *
  * Exported for direct unit testing.
  */
 export function spliceDrivenSessions(
   rows: AgentRow[],
-  driven: DrivenSessionSnapshot[]
+  driven: DrivenSessionSnapshot[],
+  projectScope: ProjectScope = ALL_PROJECTS
 ): AgentRow[] {
   if (driven.length === 0) return rows;
 
@@ -368,7 +427,10 @@ export function spliceDrivenSessions(
     if (row.kind === "dispatched-agent") byWorkspaceId.set(row.sessionId, row);
   }
 
+  const collapseScoped = !isAllProjects(projectScope);
+  const unattributedEntries: SubagentEntry[] = [];
   const standalone: AgentRow[] = [];
+
   for (const record of driven) {
     const workspaceRow = record.minskySessionId
       ? byWorkspaceId.get(record.minskySessionId)
@@ -379,6 +441,31 @@ export function spliceDrivenSessions(
       workspaceRow.driven = { sessionId: record.localId, status: record.status };
       continue;
     }
+
+    if (collapseScoped) {
+      if (record.projectId != null && record.projectId !== projectScope) {
+        continue; // confirmed different project — hidden (SC1)
+      }
+      if (record.projectId == null) {
+        const cwdTail = record.cwd.split("/").filter(Boolean).pop() ?? record.cwd;
+        unattributedEntries.push({
+          conversationId: record.harnessSessionId ?? `driven:${record.localId}`,
+          label: record.taskId ? cwdTail : `Scratch: ${cwdTail}`,
+          cwd: record.cwd,
+          startedAt: record.startedAt,
+          // Driven-session status doesn't carry a terminal timestamp the way
+          // agent_transcripts.endedAt does (see DrivenSessionSnapshot's own
+          // doc comment) — left null (renders as "still running") rather
+          // than guessed.
+          endedAt: null,
+          model: null,
+        });
+        continue;
+      }
+      // record.projectId === projectScope: confirmed same-project data,
+      // falls through to the ordinary standalone-row construction below.
+    }
+
     const cwdTail = record.cwd.split("/").filter(Boolean).pop() ?? record.cwd;
     standalone.push({
       sessionId: record.localId,
@@ -409,13 +496,50 @@ export function spliceDrivenSessions(
       attachState: null,
       // Not a Minsky workspace session -- no iTerm-tab binding question applies (mt#1628).
       interfaceBinding: null,
-      // mt#4728: driven-session project attribution is not tracked today
-      // (the driven-session registry snapshot carries no projectId) —
-      // explicit unknown, same posture as `model: null` above.
-      projectId: null,
+      // mt#4732: real attribution when resolvable. Under ALL_PROJECTS this is
+      // whatever the launch resolved (possibly null); under a specific scope
+      // this branch is only reached when it's confirmed equal to projectScope.
+      projectId: record.projectId,
     });
   }
-  return [...rows, ...standalone];
+
+  let result: AgentRow[] = [...rows, ...standalone];
+
+  if (collapseScoped && unattributedEntries.length > 0) {
+    const existing = result.find((r) => r.kind === "unattributed-summary");
+    if (existing) {
+      existing.subagents.push(...unattributedEntries);
+      existing.lastActivityAt = latestActivityAcross(existing.lastActivityAt, unattributedEntries);
+      existing.title = unattributedSummaryTitle(existing.subagents.length);
+    } else {
+      result = [
+        ...result,
+        {
+          sessionId: `unattributed:${projectScope}`,
+          kind: "unattributed-summary",
+          shortId: null,
+          title: unattributedSummaryTitle(unattributedEntries.length),
+          liveness: null,
+          taskId: null,
+          taskTitle: null,
+          prNumber: null,
+          prStatus: null,
+          lastActivityAt: latestActivityAcross(null, unattributedEntries),
+          agentId: null,
+          conversationId: null,
+          cwd: null,
+          subagents: unattributedEntries,
+          model: null,
+          driven: null,
+          attachState: null,
+          interfaceBinding: null,
+          projectId: null,
+        },
+      ];
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -694,7 +818,11 @@ export function createAgentsWidget(
             drivenSnapshots = [];
           }
         }
-        const merged = spliceDrivenSessions([...workspaceRows, ...standaloneRows], drivenSnapshots);
+        const merged = spliceDrivenSessions(
+          [...workspaceRows, ...standaloneRows],
+          drivenSnapshots,
+          projectScope
+        );
         const totalCount = merged.length;
         const agents = isPaginated ? merged.slice(offset ?? 0, (offset ?? 0) + limit) : merged;
 
@@ -798,6 +926,9 @@ function defaultDrivenSessionsFactory(): DrivenSessionSnapshot[] {
     taskId: record.taskId,
     minskySessionId: record.minskySessionId,
     harnessSessionId: record.harnessSessionId,
+    // mt#4732 — resolved by the launch-time caller; see
+    // DrivenSessionRecord.projectId's doc comment for what null means here.
+    projectId: record.projectId,
   }));
 }
 
