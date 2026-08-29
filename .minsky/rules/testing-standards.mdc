@@ -58,9 +58,83 @@ Structure source code so tests don't need complex mocking:
   shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
   §Console Output`), enforced by `custom/no-spy-patching`.
 
+### The clock is injected, never read at the point of use
+
+`Date.now()` / `new Date()` reached from inside the code under test is a **time bomb**: the test
+passes the day it is written and fails on a date nobody chose. This is a convention rather than a
+case-by-case call because the per-site tier demonstrably does not contain it — three per-site fixes
+shipped in eight weeks (mt#2654 2026-07-07, mt#2839 2026-07-15, mt#4721 2026-08-29), in three
+different files, and the class detonated again after each. Two of those detonations turned `main`
+red for **every open PR**.
+
+**1. The seam is an optional trailing parameter with a real default.**
+
+```typescript
+// ❌ Time bomb — the window is computed against whatever day the suite happens to run on
+export function pruneExpired(entries: Entry[]): Entry[] {
+  const now = Date.now();
+  // ...
+}
+
+// ✅ Injectable — production callers pass nothing, tests pass a fixed value
+export function pruneExpired(entries: Entry[], nowMs: number = Date.now()): Entry[] {
+  // ...
+}
+```
+
+Name it `nowMs` for epoch millis and `now` for a `Date`. Put it last, so no existing caller changes.
+
+**This is NOT the `deps?.x ?? createX()` fallback that [ADR-026](mdc:docs/architecture/adr-026-dependency-injection-convention.md)
+rule 3 bans.** That ban targets a fallback which CONSTRUCTS A SERVICE — it "silently connects tests
+to real infrastructure when a caller forgets to inject a fake." A clock default supplies a
+**primitive**, constructs nothing, and reaches no infrastructure.
+[ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) §Decision
+rule 2 settles the question in as many words: *"an optional `deps` parameter with a real default
+counts as no change, per ADR-026 rule 2."* Expect to be asked this; it is the first thing that looks
+wrong about the shape.
+
+**2. Public entry points thread the parameter, or say why they do not.**
+
+A seam nothing reaches is not a seam. When a module exposes an injectable clock, every exported
+entry point above it either forwards the parameter or carries a comment saying it deliberately does
+not. This is the half mt#4721 failed on: `readAskConversationMap(mapPath, nowMs = Date.now())` was
+already injectable and its docblock already said why — *"`nowMs` is injected rather than read from
+the clock at each call site so the retention behaviour stays deterministic under test"* — but the
+test reached that subsystem through `run()`, which passes nothing. So the test got the real clock
+and took a fixed-date shortcut instead, and detonated seven days later.
+
+**3. Fixtures anchor to the SAME value the test injects.**
+
+Pinning the clock while fixtures still call the real one is a NEW bug, not a fix: a fixture meaning
+"20 days ago" lands before or after the frozen `now` unpredictably, depending on the day the suite
+runs.
+
+```typescript
+// ❌ The injected clock and the fixtures disagree
+const NOW = Date.parse("2026-01-01T00:00:00Z");
+const stale = { at: new Date(Date.now() - 20 * DAY).toISOString() }; // real clock!
+
+// ✅ One reference, used by both
+const NOW = Date.parse("2026-01-01T00:00:00Z");
+const daysAgo = (n: number) => new Date(NOW - n * DAY).toISOString();
+const stale = { at: daysAgo(20) };
+```
+
+Never anchor a fixture to an absolute literal date that a `Date.now()`-relative window will later be
+compared against — that is the `BASE_DATE` shape mt#2654 fixed.
+
+**Enforcement: none. This is discipline-tier, and saying so is the point.** No lint rule checks it
+and none is planned as a general rule: a bare `Date.now()` is usually the correct construct in
+production code, and the population is far too large for a repo-wide ban — compare
+`custom/no-silent-catch` (1462 pre-existing sites) and `custom/require-subprocess-network-timeout`
+(542), both registered `off` for exactly that reason. The backstop is **mt#4726**, a scheduled run
+with the clock shifted forward, which DETECTS violations rather than preventing them. If a lint rule
+is ever wanted, the tractable slice is the decidable one: a defaulted clock parameter that a public
+entry point in the same file fails to thread (rule 2 above).
+
 ## Test Data
 
-- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky.
+- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky. For dates specifically this is not just a flakiness concern — an absolute fixture compared against a real-clock window fails on a future date rather than intermittently. See §Testable Design → *The clock is injected, never read at the point of use* for the seam shape and the fixture-anchoring rule.
 - Create fixtures with helper functions; keep setup visually separate from assertions.
 - Reset state between tests — never rely on ordering or cross-test side effects.
 

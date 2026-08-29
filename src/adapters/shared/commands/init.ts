@@ -16,6 +16,7 @@ import {
 } from "@minsky/domain/init";
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import { resolveInitClient } from "@minsky/domain/runtime/harness-detection";
+import { RULE_FORMAT_DESCRIPTION } from "../../../utils/option-descriptions";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
@@ -49,7 +50,7 @@ const initParams = composeParams(
     },
     ruleFormat: {
       schema: z.string().optional(),
-      description: "Rule format (cursor or generic)",
+      description: RULE_FORMAT_DESCRIPTION,
       required: false,
     },
     mcp: {
