@@ -28,6 +28,7 @@
  *   - `getServerAskRepository` / `getServerTaskDetailDeps` retry the probe
  *     on EVERY call until the first success (`cacheNegative: false`).
  */
+import { createHash } from "node:crypto";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
@@ -817,6 +818,23 @@ export async function getDefaultChangesetRepoRef(): Promise<ChangesetRepoRef | n
 }
 
 /**
+ * A stable, non-reversible fingerprint of the GitHub credential currently in
+ * config — used only as part of a cache key (PR #3455 R1).
+ *
+ * Hashes the credential rather than storing or comparing any part of it: a
+ * digest cannot be turned back into a token, whereas a prefix or a tail would
+ * be a partial leak the moment this key reached a log line. Nothing emits this
+ * value; it exists so a rotation changes the key.
+ */
+function credentialFingerprint(cfg: { github?: Record<string, unknown> }): string {
+  const gh = cfg.github ?? {};
+  return createHash("sha256")
+    .update(JSON.stringify([gh["token"] ?? "", gh["appId"] ?? "", gh["installationId"] ?? ""]))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
  * Resolve a project slug to the repo its changesets live in (mt#4724).
  *
  * The `projects` row is the CANONICAL home for a project's repo url
@@ -862,13 +880,23 @@ async function getChangesetReadDeps(
   // an unresolvable default) has no adapter to build.
   if (!target) return null;
 
-  const key = `${target.owner}/${target.repo}`.toLowerCase();
-  const cached = _changesetReadDepsByRepo.get(key);
-  if (cached) return cached;
-
   const { getConfiguration } = await import("@minsky/domain/configuration/index");
   const { createTokenProvider } = await import("@minsky/domain/auth");
   const cfg = getConfiguration();
+
+  // Keyed by repo AND credential (PR #3455 R1). The cached entry holds a
+  // TokenProvider built from the github config captured at construction, so a
+  // rotated credential — a new App installation, a swapped PAT — would keep
+  // being served from a provider bound to the old one until the process
+  // restarted. Folding a credential fingerprint into the key makes a rotation
+  // produce a fresh entry instead. (The old singleton had the same staleness;
+  // per-repo keying multiplies the number of entries that can hold it.)
+  //
+  // A DIGEST, never a prefix or a tail: `${K:0:4}` is a partial leak, and this
+  // value is only ever compared, never emitted.
+  const key = `${`${target.owner}/${target.repo}`.toLowerCase()}|${credentialFingerprint(cfg)}`;
+  const cached = _changesetReadDepsByRepo.get(key);
+  if (cached) return cached;
 
   const deps: ChangesetReadDeps = {
     repoUrl: repoUrlFromRepoRef(target),

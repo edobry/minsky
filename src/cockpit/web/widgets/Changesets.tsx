@@ -202,7 +202,14 @@ export function Changesets({ items, onRowClick }: ChangesetsProps) {
   return (
     <div className="space-y-1.5">
       {items.map((item) => {
-        const key = item.pr.number != null ? `pr-${item.pr.number}` : item.session.sessionId;
+        // Keyed by the UNAMBIGUOUS changeset id, not `pr-${number}` (mt#4724
+        // PR #3455 R1): a PR number is unique only per-repository, so two
+        // projects both open on PR #1 produced DUPLICATE React keys — React
+        // then reconciles the two rows as one and can carry the wrong row's
+        // DOM state across a re-render. The session id is the fallback, and is
+        // itself unique per row, so a payload predating `changesetId` is still
+        // collision-free.
+        const key = item.changesetId ?? item.session.sessionId;
         return (
           <ChangesetRow
             key={key}

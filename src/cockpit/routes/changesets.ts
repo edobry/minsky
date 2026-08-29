@@ -89,10 +89,29 @@ export function mountChangesetRoutes(app: express.Express): void {
       // it has always meant and what keeps already-emitted
       // `minsky://changeset/<n>` links resolving (ADR-029 fixes that form).
       const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
-      const projectRepo =
-        projectParam && projectParam !== ALL_PROJECTS_PARAM
-          ? await getProjectRepoRefBySlug(projectParam)
-          : null;
+      const projectQualified = Boolean(projectParam) && projectParam !== ALL_PROJECTS_PARAM;
+      const projectRepo = projectQualified
+        ? await getProjectRepoRefBySlug(projectParam as string)
+        : null;
+
+      // An UNRESOLVABLE explicit qualifier must not fall through to the default
+      // project (PR #3455 R1). The fail-open posture `resolveCockpitProjectScope`
+      // takes is right for the LIST route, where degrading to ALL_PROJECTS shows
+      // MORE rows and the caller can see what it got. Here it would silently
+      // return a DIFFERENT PR — the caller asked for project X's PR N and would
+      // be handed the default project's PR N, indistinguishable from a correct
+      // answer. That is the exact substitution this task exists to remove, so
+      // this branch fails closed.
+      if (projectQualified && !projectRepo) {
+        res.status(404).json({
+          error:
+            `No repository for project "${projectParam}" — it is not a known project ` +
+            `and its slug is not an owner/repo pair, so changeset ${changesetId} cannot ` +
+            `be resolved within it.`,
+        });
+        return;
+      }
+
       const request = resolveChangesetRepoSource({
         changesetId,
         projectRepo,

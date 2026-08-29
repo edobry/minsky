@@ -261,6 +261,20 @@ describe("GET /api/changeset/:id project-qualified ids (mt#4724)", () => {
     expect([200, 404]).toContain(res.status);
   });
 
+  test("an UNRESOLVABLE ?project= fails closed rather than answering with another project's PR", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    // `not-a-project` is not a known project row and is not an owner/repo pair,
+    // so no repo resolves for it. Falling through to the default project would
+    // hand the caller the default project's PR #1 — a different PR, and
+    // indistinguishable from a correct answer (PR #3455 R1).
+    const res = await fetch(`${url}/api/changeset/1?project=not-a-project`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("not-a-project");
+  });
+
   test("a malformed qualified id is still a 400", async () => {
     const { url, close } = await startTestServer();
     closeServer = close;
