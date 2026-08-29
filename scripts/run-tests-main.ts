@@ -80,6 +80,13 @@ export const ROOTS = [
   "./tests/mcp",
   "./tests/dev-tooling",
   "./tests/architecture",
+  // mt#3934: `tests/utils` ran in NO suite either — not this gate, not any
+  // `test:*` script, not CI. Two `generateDiffSummary` assertions inside it had
+  // silently disagreed with the implementation since mt#3071 replaced the
+  // positional diff with a prefix/suffix trim; nothing failed, because nothing
+  // ran them. mt#1084 closed the `./scripts` half of this hole and deferred
+  // this half here, because the directory could not be added while it was red.
+  "./tests/utils",
   "./packages/domain",
   "./packages/shared/src",
 ];
