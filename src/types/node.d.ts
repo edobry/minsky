@@ -58,6 +58,15 @@ declare const process: {
   pid: number;
   platform: string;
   version: string;
+  /**
+   * Per-component version map, present in both Node and Bun. Values are
+   * optional because which keys exist depends on the runtime: `versions.bun`
+   * is defined ONLY under Bun, which makes it the runtime discriminator used
+   * by `debug.systemInfo` (mt#4718). Note `process.version` is NOT a reliable
+   * runtime identifier — Bun shims it to the Node version it claims
+   * compatibility with.
+   */
+  versions: Record<string, string | undefined>;
   stdin: {
     isTTY?: boolean;
     read(): any;
