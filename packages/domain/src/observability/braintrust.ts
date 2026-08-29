@@ -13,13 +13,13 @@
  * - **Graceful degradation:** missing config, malformed YAML, SDK failure, network
  *   failure all result in silent skip. Instrumentation never blocks the caller.
  * - **Env-var precedence** over config-file values for portable, overrideable
- *   credentials (matches `environmentMappings` in `src/domain/configuration/sources/environment.ts`).
+ *   credentials (matches `environmentMappings` in `packages/domain/src/configuration/sources/environment.ts`).
  * - **YAML kill-switch:** `observability.providers.braintrust.enabled: false` disables
  *   emission even when an env-var apiKey is present.
  *
  * @see mt#1813 — original inline implementation (memory-search hook Phase 1a)
  * @see mt#1778 — this extraction
- * @see mt#1791 — observability config schema (`src/domain/configuration/schemas/observability.ts`)
+ * @see mt#1791 — observability config schema (`packages/domain/src/configuration/schemas/observability.ts`)
  */
 
 /**
@@ -56,7 +56,7 @@ export interface BraintrustEvent {
  */
 export async function readBraintrustConfig(): Promise<BraintrustConfig | null> {
   // Env vars take precedence over YAML values for the same fields (matches the
-  // `environmentMappings` table in src/domain/configuration/sources/environment.ts).
+  // `environmentMappings` table in packages/domain/src/configuration/sources/environment.ts).
   let apiKey: string | undefined = process.env.BRAINTRUST_API_KEY;
   let projectName: string | undefined = process.env.BRAINTRUST_PROJECT_NAME;
   let appUrl: string | undefined = process.env.BRAINTRUST_API_URL;

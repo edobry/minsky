@@ -2,7 +2,7 @@
  * FakeTaskService — in-memory test double for TaskServiceInterface.
  *
  * Follows the canonical FakeX pattern established in
- * `src/domain/persistence/fake-persistence-provider.ts`: a real class
+ * `packages/domain/src/persistence/fake-persistence-provider.ts`: a real class
  * implementing the typed DI interface, holding state in memory, with
  * zero external I/O.
  *
@@ -20,7 +20,7 @@
  *   - getWorkspacePath → "/fake/workspace"
  *   - getBackendForTask → "minsky"
  *
- * @see src/domain/persistence/fake-persistence-provider.ts
+ * @see packages/domain/src/persistence/fake-persistence-provider.ts
  */
 
 import type {

@@ -5,7 +5,7 @@
  * the command-layer (child 2) and the importer script (child 3) share the
  * same logic without duplication.
  *
- * @see src/domain/memory/validation.ts
+ * @see packages/domain/src/memory/validation.ts
  */
 
 export { checkDerivation, type DerivationIssue } from "@minsky/domain/memory/validation";

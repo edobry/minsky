@@ -14,9 +14,9 @@
  *
  * Together these cover acceptance tests #1 and #4 from the mt#1510 spec.
  * The remaining acceptance tests are covered by unit tests in
- * `src/domain/repository/github-pr-review.test.ts` (resolveReviewerRole,
+ * `packages/domain/src/repository/github-pr-review.test.ts` (resolveReviewerRole,
  * assertReviewerRoleAvailable) and by typed-error coverage in
- * `src/domain/auth/token-provider.test.ts` (isRoleConfigured).
+ * `packages/domain/src/auth/token-provider.test.ts` (isRoleConfigured).
  *
  * Why a smoke script and not just unit tests: identity routing is enforced
  * server-side by GitHub at review-creation time. No unit test can verify
