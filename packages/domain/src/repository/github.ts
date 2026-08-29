@@ -72,10 +72,16 @@ import type { ReviewListEntry, PrChangedFile, PostedReviewComment } from "./inde
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 import {
   listWorkflowRuns as listWorkflowRunsImpl,
+  listWorkflowRunJobs as listWorkflowRunJobsImpl,
   viewWorkflowRunLogs as viewWorkflowRunLogsImpl,
+  viewWorkflowJobLog as viewWorkflowJobLogImpl,
+  viewFailedJobLogs as viewFailedJobLogsImpl,
   rerunWorkflowRun as rerunWorkflowRunImpl,
   type WorkflowRun,
   type ListWorkflowRunsOptions,
+  type RunJobSummary,
+  type ViewLogsOptions,
+  type ViewFailedJobLogsResult,
   type RerunWorkflowRunOptions,
   type RerunWorkflowRunResult,
 } from "./github-workflow-runs";
@@ -911,11 +917,35 @@ Repository: https://github.com/${this.owner}/${this.repo}
         return listWorkflowRunsImpl(gh, options ?? {}, octokit);
       },
 
-      viewLogs: async (runId: number): Promise<string> => {
+      listJobs: async (runId: number): Promise<RunJobSummary[]> => {
         const gh = this.requireGitHubContext();
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
-        return viewWorkflowRunLogsImpl(gh, runId, octokit);
+        return listWorkflowRunJobsImpl(gh, runId, octokit);
+      },
+
+      viewLogs: async (runId: number, options?: ViewLogsOptions): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewWorkflowRunLogsImpl(gh, runId, options ?? {}, octokit);
+      },
+
+      viewJobLog: async (jobId: number, options?: ViewLogsOptions): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewWorkflowJobLogImpl(gh, jobId, options ?? {}, octokit);
+      },
+
+      viewFailedJobLogs: async (
+        runId: number,
+        options?: ViewLogsOptions
+      ): Promise<ViewFailedJobLogsResult> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewFailedJobLogsImpl(gh, runId, options ?? {}, octokit);
       },
 
       rerun: async (
