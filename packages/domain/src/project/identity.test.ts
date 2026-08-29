@@ -301,6 +301,79 @@ describe("resolveProjectIdentity — precedence chain", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// remoteUrl param — tier 4 without a cloned repo (mt#4734)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveProjectIdentity — remoteUrl param (mt#4734)", () => {
+  // The exact pre-fix failure: session.start calls resolveProjectIdentity()
+  // with repoPath pointing at a directory that has not been cloned into yet
+  // (no .git). git-remote auto-detect against such a path always fails.
+  const UNCLONED_SESSION_DIR = "/not/yet/cloned/session-dir";
+  const FOREIGN_REMOTE_URL = "https://github.com/edobry/peezombie.me.git";
+
+  test("negative control: without remoteUrl, an uncloned repoPath (git exec fails) is unidentified — a NON-DEFAULT project, not just the default", () => {
+    const deps = makeDeps({
+      existsSync: () => false, // no .minsky/config.yaml either — nothing was cloned yet
+      execSync: () => {
+        throw new Error("fatal: not a git repository (or any of the parent directories): .git");
+      },
+    });
+    const result = resolveProjectIdentity({ repoPath: UNCLONED_SESSION_DIR }, deps);
+    expect(result.kind).toBe("unidentified");
+  });
+
+  test("remoteUrl resolves tier 4 even when repoPath has no .git yet (the session.start pre-clone case)", () => {
+    const deps = makeDeps({
+      existsSync: () => false, // sessionDir doesn't exist / has no config yet
+      execSync: () => {
+        throw new Error("fatal: not a git repository (or any of the parent directories): .git");
+      },
+    });
+    const result = resolveProjectIdentity(
+      {
+        repoPath: UNCLONED_SESSION_DIR,
+        remoteUrl: FOREIGN_REMOTE_URL,
+      },
+      deps
+    );
+    expect(result).toEqual({
+      kind: "resolved",
+      slug: "edobry/peezombie.me",
+      source: "git-remote",
+    });
+  });
+
+  test("remoteUrl is ignored when explicit flag or env var is present (precedence unchanged)", () => {
+    const deps = makeDeps({
+      getEnvVar: (name) => (name === PROJECT_IDENTITY_ENV_VAR ? "from-env" : undefined),
+    });
+    const result = resolveProjectIdentity({ remoteUrl: FOREIGN_REMOTE_URL }, deps);
+    expect(result).toEqual({ kind: "resolved", slug: "from-env", source: "env-var" });
+  });
+
+  test("config slug still wins over remoteUrl when both are present", () => {
+    const deps = makeDeps({
+      existsSync: () => true,
+      readFileSync: () => configWithSlug("edobry/minsky"),
+    });
+    const result = resolveProjectIdentity(
+      { repoPath: "/repo", remoteUrl: FOREIGN_REMOTE_URL },
+      deps
+    );
+    expect(result).toEqual({ kind: "resolved", slug: "edobry/minsky", source: "config-slug" });
+  });
+
+  test("an unparseable remoteUrl falls through to unidentified (no repoPath fallback attempted)", () => {
+    const deps = makeDeps({ existsSync: () => false });
+    const result = resolveProjectIdentity(
+      { repoPath: UNCLONED_SESSION_DIR, remoteUrl: "not-a-url" },
+      deps
+    );
+    expect(result.kind).toBe("unidentified");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Edge cases
 // ─────────────────────────────────────────────────────────────────────────────
 
