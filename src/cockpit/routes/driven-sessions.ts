@@ -212,6 +212,9 @@ export function mountDrivenSessionRoutes(
       let cwd: string;
       let taskId: string | null = null;
       let minskySessionId: string | null = null;
+      // mt#4732: project attribution, resolved only on the task-bound branch
+      // below (the only branch with a workspace to read one from).
+      let projectId: string | null = null;
       let onHarnessSessionLinked = opts.onHarnessSessionLinked;
       // mt#2753: cost capture applies to every driven session regardless of
       // launch shape — success criterion 1 is "every driven session", not
@@ -239,10 +242,19 @@ export function mountDrivenSessionRoutes(
         const workspace = await resolve(taskId);
         cwd = workspace.sessionDir;
         minskySessionId = workspace.minskySessionId;
+        projectId = workspace.projectId;
       } else if (hasCwd) {
         cwd = cwdRaw as string;
+        // mt#4732: `projectId` stays at its `null` initial value here —
+        // deliberately, not an oversight. An explicit-cwd launch has no
+        // Minsky workspace to read a projectId from, so there is nothing to
+        // resolve. The agents widget treats this the same as any other
+        // unresolvable driven-session attribution (folded into the
+        // unattributed-summary aggregate under a specific project filter).
       } else {
         cwd = opts.scratchCwd ?? process.cwd();
+        // mt#4732: same "nothing to resolve" reasoning as the `hasCwd`
+        // branch above — a scratch launch has no bound workspace either.
       }
 
       const { record } = startDrivenSession({
@@ -252,6 +264,7 @@ export function mountDrivenSessionRoutes(
         model,
         taskId,
         minskySessionId,
+        projectId,
         onHarnessSessionLinked,
         onResultSummary,
         onStateChange,

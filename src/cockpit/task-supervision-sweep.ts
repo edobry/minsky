@@ -150,6 +150,7 @@ export async function dispatchSupervisedChild(
     cwd: workspace.sessionDir,
     taskId: input.taskId,
     minskySessionId: workspace.minskySessionId,
+    projectId: workspace.projectId,
     ...(input.model ? { model: input.model } : {}),
     // The same three observers POST /api/driven-session wires for every driven
     // session — cost capture, durable persistence, and the spawn-time identity
