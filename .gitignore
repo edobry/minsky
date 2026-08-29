@@ -73,6 +73,14 @@ services/reviewer/eval/results/*
 # `silent-stretch-evaluations.jsonl` was committed as the only tracked
 # .minsky/*.jsonl before anyone noticed it was local telemetry.
 **/.minsky/*-evaluations.jsonl
+# Backups Minsky's own MCP config writer takes before modifying .mcp.json
+# (mt#2492). Same class as the logs above — a tool writing into the working tree
+# with nothing ignoring it — but a different producer and directory, so it gets
+# its own line rather than being folded into the globs. Note .mcp.json itself is
+# gitignored with ZERO commits, so its git history is NOT a backup: these files
+# are the only prior copies of that config that exist. Ignore them; do not
+# delete them.
+.mcp.json.minsky-backup-*
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
 # Sweep-time claims on a calibration log (mt#4164) — the same class of local
