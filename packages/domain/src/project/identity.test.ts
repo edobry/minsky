@@ -301,6 +301,119 @@ describe("resolveProjectIdentity — precedence chain", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// remoteUrl param — tier 4 without a cloned repo (mt#4734)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveProjectIdentity — remoteUrl param (mt#4734)", () => {
+  // The exact pre-fix failure: session.start calls resolveProjectIdentity()
+  // with repoPath pointing at a directory that has not been cloned into yet
+  // (no .git). git-remote auto-detect against such a path always fails.
+  const UNCLONED_SESSION_DIR = "/not/yet/cloned/session-dir";
+  const FOREIGN_REMOTE_URL = "https://github.com/edobry/peezombie.me.git";
+
+  test("negative control: without remoteUrl, an uncloned repoPath (git exec fails) is unidentified — a NON-DEFAULT project, not just the default", () => {
+    const deps = makeDeps({
+      existsSync: () => false, // no .minsky/config.yaml either — nothing was cloned yet
+      execSync: () => {
+        throw new Error("fatal: not a git repository (or any of the parent directories): .git");
+      },
+    });
+    const result = resolveProjectIdentity({ repoPath: UNCLONED_SESSION_DIR }, deps);
+    expect(result.kind).toBe("unidentified");
+  });
+
+  test("remoteUrl resolves tier 4 even when repoPath has no .git yet (the session.start pre-clone case)", () => {
+    const deps = makeDeps({
+      existsSync: () => false, // sessionDir doesn't exist / has no config yet
+      execSync: () => {
+        throw new Error("fatal: not a git repository (or any of the parent directories): .git");
+      },
+    });
+    const result = resolveProjectIdentity(
+      {
+        repoPath: UNCLONED_SESSION_DIR,
+        remoteUrl: FOREIGN_REMOTE_URL,
+      },
+      deps
+    );
+    expect(result).toEqual({
+      kind: "resolved",
+      slug: "edobry/peezombie.me",
+      source: "git-remote",
+    });
+  });
+
+  test("remoteUrl is ignored when explicit flag or env var is present (precedence unchanged)", () => {
+    const deps = makeDeps({
+      getEnvVar: (name) => (name === PROJECT_IDENTITY_ENV_VAR ? "from-env" : undefined),
+    });
+    const result = resolveProjectIdentity({ remoteUrl: FOREIGN_REMOTE_URL }, deps);
+    expect(result).toEqual({ kind: "resolved", slug: "from-env", source: "env-var" });
+  });
+
+  test("config slug still wins over remoteUrl when both are present", () => {
+    const deps = makeDeps({
+      existsSync: () => true,
+      readFileSync: () => configWithSlug("edobry/minsky"),
+    });
+    const result = resolveProjectIdentity(
+      { repoPath: "/repo", remoteUrl: FOREIGN_REMOTE_URL },
+      deps
+    );
+    expect(result).toEqual({ kind: "resolved", slug: "edobry/minsky", source: "config-slug" });
+  });
+
+  test("an unparseable remoteUrl with no usable repoPath remote falls through to unidentified", () => {
+    const deps = makeDeps({ existsSync: () => false }); // execSync default returns ""
+    const result = resolveProjectIdentity(
+      { repoPath: UNCLONED_SESSION_DIR, remoteUrl: "not-a-url" },
+      deps
+    );
+    expect(result.kind).toBe("unidentified");
+  });
+
+  // PR #3466 R1 non-blocking finding: a malformed remoteUrl used to make
+  // resolveRemoteSlug() give up outright, even when repoPath DOES have a
+  // usable git remote. A typo in a caller-supplied URL must not regress
+  // resolution for a caller whose repoPath is a real, already-cloned repo.
+  test("a malformed remoteUrl falls back to repoPath-based git-remote detection when repoPath IS a real repo (PR #3466 R1 non-blocking)", () => {
+    const deps = makeDeps({
+      existsSync: () => false, // no config.yaml
+      execSync: () => GITHUB_SSH_URL, // repoPath has a real, resolvable git remote
+    });
+    const result = resolveProjectIdentity({ repoPath: "/repo", remoteUrl: "not-a-url" }, deps);
+    expect(result).toEqual({ kind: "resolved", slug: "edobry/minsky", source: "git-remote" });
+  });
+
+  // PR #3466 R1 BLOCKING finding: the tier-3 config/remote cross-check must
+  // read repoPath's ACTUAL current git remote, never the caller-supplied
+  // remoteUrl — otherwise a session.start pre-clone call (or a future caller
+  // starting from a fork) could compare the config slug against an unrelated
+  // URL and emit a misleading "update .minsky/config.yaml" warning. Since the
+  // cross-check's outcome doesn't affect the RETURNED slug (config always
+  // wins), the discriminating observable is which resolution mechanism ran:
+  // pre-fix, resolveRemoteSlug() short-circuited on remoteUrl and never
+  // called execSync at all.
+  test("config/remote cross-check consults the live repoPath remote (execSync), never remoteUrl", () => {
+    let execSyncCalled = false;
+    const deps = makeDeps({
+      existsSync: () => true,
+      readFileSync: () => configWithSlug("edobry/minsky"),
+      execSync: () => {
+        execSyncCalled = true;
+        return GITHUB_SSH_URL; // edobry/minsky
+      },
+    });
+    const result = resolveProjectIdentity(
+      { repoPath: "/repo", remoteUrl: "https://github.com/some-fork/minsky.git" },
+      deps
+    );
+    expect(result).toEqual({ kind: "resolved", slug: "edobry/minsky", source: "config-slug" });
+    expect(execSyncCalled).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Edge cases
 // ─────────────────────────────────────────────────────────────────────────────
 
