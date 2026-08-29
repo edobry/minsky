@@ -13,6 +13,7 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 import { describeWidgetDegradedReason } from "../db-providers";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored in TaskList.tsx (no server imports on frontend)
@@ -25,6 +26,17 @@ export interface TaskListItem {
   kind: string;
   tags: string[];
   parentId: string | null;
+  /**
+   * Owning project's SLUG (mt#4729 SC1 — "a project identifier: slug or
+   * displayName", not the internal uuid FK), or null for a
+   * legacy/unscoped row. Resolved server-side from `tasksTable.projectId`
+   * via ONE `listProjects()` lookup per fetch (not per task, and skipped
+   * entirely when no task in the result carries a projectId) — see
+   * `resolveProjectSlugMap` below. The all-projects view further resolves
+   * this slug against the shell's `/api/projects` list (already fetched by
+   * `ProjectProvider`) to prefer a `displayName` when one is set.
+   */
+  project: string | null;
 }
 
 export interface TaskListPayload {
@@ -64,6 +76,65 @@ export interface TaskListDeps {
    * that ambient, cross-file, load-order-sensitive state entirely.
    */
   getDb?: () => Promise<ScopeResolverDb | null>;
+  /**
+   * Optional test seam (mt#4729): overrides the projects-list lookup used
+   * to resolve each task's `projectId` (uuid FK) to its `slug` for the
+   * payload (see `TaskListItem.project`). Production callers never set
+   * this — the default factory omits it, so `resolveProjectSlugMap` falls
+   * back to `defaultListProjects` (the real `getContextInspectorDb()` +
+   * `@minsky/domain/project/projects-repository`'s `listProjects`).
+   */
+  listProjects?: () => Promise<Array<{ id: string; slug: string }>>;
+}
+
+// ---------------------------------------------------------------------------
+// Project-slug resolution (mt#4729 SC1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default `listProjects` implementation — reaches the same
+ * `getContextInspectorDb()` singleton `resolveCockpitProjectScope`'s own
+ * `defaultGetDb` uses (see `TaskListDeps.getDb`'s doc comment), and the
+ * real domain `listProjects` reader. A `null` db (no SQL-capable
+ * persistence provider configured) resolves to an empty list, which
+ * `resolveProjectSlugMap` below treats identically to any other lookup
+ * failure — fail-open, never a widget-down error.
+ */
+async function defaultListProjects(): Promise<Array<{ id: string; slug: string }>> {
+  const { getContextInspectorDb } = await import("../db-providers");
+  const db = await getContextInspectorDb();
+  if (!db) return [];
+  const { listProjects } = await import("@minsky/domain/project/projects-repository");
+  // getContextInspectorDb's return type is a narrower SQL-capability probe
+  // shape; the real object is a full drizzle db satisfying
+  // ProjectsRepositoryDb's select().from().orderBy() chain (same cast
+  // pattern scope-resolver.ts documents for this same singleton).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return listProjects(db as any);
+}
+
+/**
+ * Resolve a task's `projectId` (uuid FK) to its `slug`, via ONE lookup for
+ * the whole fetch rather than per task. Fully fail-open (mirrors
+ * `resolveCockpitProjectScope`'s contract, PR #2056 R1): any failure —
+ * `listProjectsFn` throwing, a dynamic-import failure — degrades to an
+ * empty map (every row's `project` becomes null) rather than taking the
+ * widget down.
+ */
+async function resolveProjectSlugMap(
+  listProjectsFn: () => Promise<Array<{ id: string; slug: string }>>
+): Promise<Map<string, string>> {
+  try {
+    const rows = await listProjectsFn();
+    return new Map(rows.map((r) => [r.id, r.slug]));
+  } catch (err) {
+    log.warn(
+      `[cockpit] project-slug lookup failed for task-list; every row's project will read null ` +
+        `(a lookup failure must never take a widget down)`,
+      { error: err instanceof Error ? err.message : String(err) }
+    );
+    return new Map();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +149,7 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
 
     async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
-        const { taskService, getDb } = await getDeps();
+        const { taskService, getDb, listProjects } = await getDeps();
         // Project scope (mt#2418): ?project=<slug> resolved to a project
         // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
         // resolution rules as every other cockpit project-scoped read.
@@ -92,6 +163,15 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
         const projectScope = await resolveCockpitProjectScope(ctx.query?.project, { getDb });
         const tasks = await taskService.listTasks({ projectScope });
 
+        // mt#4729 SC1: resolve each task's projectId (uuid FK) to its slug —
+        // one lookup for the whole fetch, and skipped entirely when no task
+        // in the result carries a projectId (the common single-project or
+        // legacy-row case costs nothing extra).
+        const needsProjectLookup = tasks.some((t) => t.projectId);
+        const projectSlugById = needsProjectLookup
+          ? await resolveProjectSlugMap(listProjects ?? defaultListProjects)
+          : new Map<string, string>();
+
         const items: TaskListItem[] = tasks.map((t) => ({
           id: formatTaskIdForDisplay(t.id),
           title: t.title,
@@ -99,6 +179,7 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
           kind: t.kind ?? "implementation",
           tags: t.tags ?? [],
           parentId: t.parentTaskId ? formatTaskIdForDisplay(t.parentTaskId) : null,
+          project: t.projectId ? (projectSlugById.get(t.projectId) ?? null) : null,
         }));
 
         const payload: TaskListPayload = { tasks: items };

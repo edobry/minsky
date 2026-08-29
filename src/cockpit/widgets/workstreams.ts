@@ -24,6 +24,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { isTerminal } from "@minsky/domain/tasks/workflows";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,14 @@ export interface WorkstreamsPayload {
 export interface WorkstreamsDeps {
   taskService: TaskServiceInterface;
   taskGraphService: TaskGraphService;
+  /**
+   * Optional test seam (mt#4727, mirrors task-list.ts's mt#3016 seam):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch. Production
+   * callers never set this — the default factory omits it, so
+   * `resolveCockpitProjectScope` falls back to its own `defaultGetDb` (the
+   * real `getContextInspectorDb()` singleton).
+   */
+  getDb?: () => Promise<ScopeResolverDb | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,15 +247,28 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
     async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
         const altitude = parseAltitude(ctx.query?.["altitude"]);
-        const { taskService, taskGraphService } = await getDeps();
+        const { taskService, taskGraphService, getDb } = await getDeps();
 
-        // Fetch all tasks (no limit — we want the full picture)
-        const tasks = await taskService.listTasks({});
+        // Project scope (mt#4727): ?project=<slug> resolved to a project
+        // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
+        // resolution rules as every other cockpit project-scoped read
+        // (mt#2418 pattern, task-list.ts:91-93). resolveCockpitProjectScope
+        // owns its own db-fetch and never throws (fail-open to ALL_PROJECTS
+        // on any resolution failure — PR #2056 R1), so a scoping problem can
+        // never take this widget down.
+        const { resolveCockpitProjectScope } = await import("../project-scope");
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.["project"], { getDb });
+
+        // Fetch all tasks in scope (no limit — we want the full picture)
+        const tasks = await taskService.listTasks({ projectScope });
 
         // Build a map from task ID → task for quick lookup and orphan filtering
         const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
-        // Fetch all parent relationships.
+        // Fetch all parent relationships. NOT project-scoped itself — the
+        // orphan filter just below (both endpoints must be present in the
+        // already-scoped `taskMap`) is what confines the rendered cards to
+        // the resolved project, same double-duty as task-graph.ts (mt#4727).
         // Edge semantics: fromTaskId = child, toTaskId = parent
         // (same as task-graph-service.ts addParent: "edge direction is child→parent")
         const parentRelationships = await taskGraphService.getAllRelationships("parent");

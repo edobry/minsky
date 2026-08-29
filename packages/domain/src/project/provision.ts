@@ -22,16 +22,24 @@
  */
 
 import { resolveProjectIdentity, type ProjectIdentity } from "./identity";
-import { deriveRemoteUrl } from "./slug";
+import { deriveRemoteUrl, deriveDisplayNameFromSlug } from "./slug";
 import { ensureProjectRow, type ProjectsRepositoryDb } from "./projects-repository";
 import { log } from "@minsky/shared/logger";
 
-/** Options for {@link provisionProjectRow}. Both fields are optional. */
+/** Options for {@link provisionProjectRow}. All fields are optional. */
 export interface ProvisionProjectRowOptions {
   /** Repo path used to resolve identity + git-remote URL. Defaults to `process.cwd()`. */
   repoPath?: string;
   /** Explicit repo URL override. Defaults to the git-remote `origin` URL at `repoPath`. */
   repoUrl?: string;
+  /**
+   * Explicit display-name override (mt#4729). Defaults to
+   * `deriveDisplayNameFromSlug(identity.slug)` — see `ensureProjectRow`'s
+   * doc comment (`./projects-repository.ts`) for the full "where displayName
+   * gets set" decision. Only applied on first insert for a fresh slug; a
+   * re-run against an already-provisioned project never touches it.
+   */
+  displayName?: string;
 }
 
 /** Result of a {@link provisionProjectRow} call. */
@@ -111,10 +119,11 @@ export async function provisionProjectRow(
   }
 
   const repoUrl = options.repoUrl ?? deriveRemoteUrlFn(options.repoPath) ?? undefined;
+  const displayName = options.displayName ?? deriveDisplayNameFromSlug(identity.slug);
 
   const { db, close } = await connect(connectionString);
   try {
-    await ensureProjectRow(identity.slug, { repoUrl }, db);
+    await ensureProjectRow(identity.slug, { repoUrl, displayName }, db);
     return { provisioned: true, slug: identity.slug };
   } catch (err) {
     log.warn(`[project-provision] Failed to ensure projects row for slug "${identity.slug}"`, {

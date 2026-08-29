@@ -383,4 +383,49 @@ describe("pendingAsksForWindow", () => {
     const result = await pendingAsksForWindow(repo, WINDOW_KEY, BASE_NOW_MS);
     expect(result.length).toBe(1);
   });
+
+  // -------------------------------------------------------------------------
+  // projectScope (mt#4727) — two-project fixture
+  // -------------------------------------------------------------------------
+
+  describe("projectScope", () => {
+    const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const PROJECT_B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+    beforeEach(() => {
+      repo._seedAtState(
+        makeSuspendedAsk({
+          id: "ask-project-a",
+          serviceStrategy: "scheduled",
+          windowKey: WINDOW_KEY,
+          state: "suspended",
+          projectId: PROJECT_A_ID,
+        })
+      );
+      repo._seedAtState(
+        makeSuspendedAsk({
+          id: "ask-project-b",
+          serviceStrategy: "scheduled",
+          windowKey: WINDOW_KEY,
+          state: "suspended",
+          projectId: PROJECT_B_ID,
+        })
+      );
+    });
+
+    it("omitted projectScope: both projects' eligible asks are returned", async () => {
+      const result = await pendingAsksForWindow(repo, WINDOW_KEY, BASE_NOW_MS);
+      expect(result.map((a) => a.id).sort()).toEqual(["ask-project-a", "ask-project-b"]);
+    });
+
+    it("projectScope=A: only project A's eligible ask is returned", async () => {
+      const result = await pendingAsksForWindow(repo, WINDOW_KEY, BASE_NOW_MS, PROJECT_A_ID);
+      expect(result.map((a) => a.id)).toEqual(["ask-project-a"]);
+    });
+
+    it("projectScope=B: only project B's eligible ask is returned", async () => {
+      const result = await pendingAsksForWindow(repo, WINDOW_KEY, BASE_NOW_MS, PROJECT_B_ID);
+      expect(result.map((a) => a.id)).toEqual(["ask-project-b"]);
+    });
+  });
 });
