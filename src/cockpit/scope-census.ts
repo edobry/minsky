@@ -75,20 +75,13 @@ const SCOPE_EVIDENCE_PATTERN = /resolveCockpitProjectScope|ctx\.projectScope|req
 // in `widgets/<id>.ts`.
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727/mt#4728):
-// agents, attention, memories-list, memories-search, memories-stats, task-graph,
-// task-list, workstreams.
+// agents, attention, context-inspector (mt#4746), memories-list, memories-search,
+// memories-stats, task-graph, task-list, workstreams.
 // ---------------------------------------------------------------------------
 export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "basic-health",
     reason: "not project-attributable: daemon process health (uptime, widget count).",
-  },
-  {
-    id: "context-inspector",
-    reason:
-      "deferred: its picker source queries agentTranscriptsTable (which DOES carry " +
-      "projectId — the same column session-film.ts already filters on), but scoping " +
-      "was never threaded. Tracked at mt#4746.",
   },
   {
     id: "credentials",

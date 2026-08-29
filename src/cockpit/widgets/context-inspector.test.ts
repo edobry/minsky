@@ -16,6 +16,7 @@ import { subagentInvocationsTable } from "@minsky/domain/storage/schemas/subagen
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 import { postgresSessions } from "@minsky/domain/storage/schemas/session-schema";
 import type { TaskProviderLike } from "../task-title-cache";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { createContextInspectorWidget, type ContextInspectorPayload } from "./context-inspector";
 
 const WIDGET_ID = "context-inspector";
@@ -40,17 +41,48 @@ interface SelectRow {
 
 /** Build a minimal Drizzle-shaped mock that resolves the widget's query chain. */
 function mockDbReturning(rows: SelectRow[]): PostgresJsDatabase {
-  // The widget calls db.select(...).from(...).orderBy(...).limit(...) — each
-  // step needs to return an object that responds to the next call and
+  // The widget calls db.select(...).from(...).where(...).orderBy(...).limit(...)
+  // — each step needs to return an object that responds to the next call and
   // ultimately resolves to the rows array (PromiseLike).
   const chain = {
     from: () => chain,
+    where: () => chain,
     orderBy: () => chain,
     limit: () => Promise.resolve(rows),
     then: (
       onFulfilled: (rows: SelectRow[]) => unknown,
       onRejected?: (reason: unknown) => unknown
     ) => Promise.resolve(rows).then(onFulfilled, onRejected),
+  };
+  return {
+    select: () => chain,
+  } as unknown as PostgresJsDatabase;
+}
+
+/**
+ * Two-project-fixture mock (mt#4746, mirrors mt#4727's pattern): the `.where()`
+ * step records the condition it was called with (so tests can assert whether
+ * a project filter was actually applied) and partitions `rows` accordingly.
+ * A real Drizzle `and(eq(...))` expression isn't inspectable by identity, so
+ * this fake keys off whether `.where()` was called with a truthy argument at
+ * all (mirrors the production code's own `conditions.length > 0 ? and(...) :
+ * undefined` branch) and lets the caller supply the already-partitioned rows
+ * per branch instead of trying to parse the drizzle SQL expression.
+ */
+function mockDbScopedBy(allRows: SelectRow[], scopedRows: SelectRow[]): PostgresJsDatabase {
+  let wasScoped = false;
+  const chain = {
+    from: () => chain,
+    where: (cond: unknown) => {
+      wasScoped = cond !== undefined;
+      return chain;
+    },
+    orderBy: () => chain,
+    limit: () => Promise.resolve(wasScoped ? scopedRows : allRows),
+    then: (
+      onFulfilled: (rows: SelectRow[]) => unknown,
+      onRejected?: (reason: unknown) => unknown
+    ) => Promise.resolve(wasScoped ? scopedRows : allRows).then(onFulfilled, onRejected),
   };
   return {
     select: () => chain,
@@ -181,7 +213,9 @@ function mockMultiTableDb(fixture: MultiTableFixture): PostgresJsDatabase {
       from: (table: unknown) => {
         if (table === agentTranscriptsTable) {
           return {
-            orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
+            where: () => ({
+              orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
+            }),
           };
         }
         if (table === minskySessionLinksTable) {
@@ -397,5 +431,92 @@ describe("context-inspector widget — conversation labeling (mt#2770)", () => {
     if (result.state !== "ok") return;
     const s = firstSession(result.payload as ContextInspectorPayload);
     expect(s.label).toContain("8e586448");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746 — two-project fixture, mirrors mt#4727's pattern)
+// ---------------------------------------------------------------------------
+
+describe("context-inspector widget — project scope (mt#4746)", () => {
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const PROJECT_A_SLUG = "edobry/minsky";
+
+  const SESSION_A: SelectRow = {
+    agentSessionId: "aaaaaaaa-0000-0000-0000-000000000001",
+    harness: "claude_code",
+    startedAt: new Date("2026-08-01T00:00:00.000Z"),
+    endedAt: null,
+    cwd: "/repo-a",
+  };
+  const SESSION_B: SelectRow = {
+    agentSessionId: "bbbbbbbb-0000-0000-0000-000000000002",
+    harness: "claude_code",
+    startedAt: new Date("2026-08-01T00:00:00.000Z"),
+    endedAt: null,
+    cwd: "/repo-b",
+  };
+
+  /** Fake scope-resolver db, shaped `select().from().where().limit()` (mirrors task-list.test.ts). */
+  function makeScopeResolverDb(rows: Array<{ id: string; slug: string }>): ScopeResolverDb {
+    return {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                return {
+                  limit() {
+                    return Promise.resolve(rows);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  test("no ?project= returns sessions from both projects (ALL_PROJECTS, unscoped)", async () => {
+    const db = mockDbScopedBy([SESSION_A, SESSION_B], [SESSION_A]);
+    const widget = createContextInspectorWidget(async () => db);
+
+    const result = await widget.fetch({ id: WIDGET_ID });
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as ContextInspectorPayload;
+    expect(payload.sessions).toHaveLength(2);
+  });
+
+  test("?project=<project A slug> resolves to project A's uuid and filters to project A's sessions only", async () => {
+    const db = mockDbScopedBy([SESSION_A, SESSION_B], [SESSION_A]);
+    const widget = createContextInspectorWidget(
+      async () => db,
+      undefined,
+      async () => makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }])
+    );
+
+    const result = await widget.fetch({ id: WIDGET_ID, query: { project: PROJECT_A_SLUG } });
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as ContextInspectorPayload;
+    expect(payload.sessions).toHaveLength(1);
+    expect(payload.sessions[0]?.agentSessionId).toBe(SESSION_A.agentSessionId);
+  });
+
+  test("?project=<unresolvable slug> fails open to ALL_PROJECTS (both projects' sessions returned)", async () => {
+    const db = mockDbScopedBy([SESSION_A, SESSION_B], [SESSION_A]);
+    const widget = createContextInspectorWidget(
+      async () => db,
+      undefined,
+      async () => null
+    );
+
+    const result = await widget.fetch({ id: WIDGET_ID, query: { project: "unknown/repo" } });
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as ContextInspectorPayload;
+    expect(payload.sessions).toHaveLength(2);
   });
 });
