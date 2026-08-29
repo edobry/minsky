@@ -241,15 +241,19 @@ describe("readGrantStore + appendGrant (in-memory fake fs)", () => {
     const expired = makeGrant({
       taskId: "mt#1111",
       issuedAt: new Date(NOW - 10 * 60 * 1000).toISOString(),
-      ttlMs: 60 * 1000, // expired long before "now" (real Date.now())
+      ttlMs: 60 * 1000, // issued 10min before NOW with a 1min TTL — expired AT NOW
     });
     const fakeFs = makeFakeFs({ [MOCK_STORE_PATH]: JSON.stringify({ grants: [expired] }) });
 
-    // appendGrant uses Date.now() internally for pruning, so we can't force
-    // "NOW" — instead assert the real-world-fresh grant survives and the
-    // clearly-long-expired one (relative to the real current time) is pruned.
-    const freshGrant = makeGrant({ taskId: "mt#2651", issuedAt: new Date().toISOString() });
-    appendGrant(MOCK_STORE_PATH, freshGrant, fakeFs);
+    // mt#2840: `appendGrant` now takes its prune clock as an injected `nowMs`
+    // (mirroring `findValidGrant(grants, ctx, nowMs)`), so this pins it to the
+    // same NOW every fixture above is anchored to. Until that seam existed this
+    // test could not force "now" and had to date the fresh grant off the REAL
+    // clock — the acknowledged workaround mt#2840 was filed on, and rule 3 of
+    // `testing-standards.mdc §Testable Design → The clock is injected` in
+    // miniature: a pinned clock with real-clock fixtures is a new bug, not a fix.
+    const freshGrant = makeGrant({ taskId: "mt#2651" });
+    appendGrant(MOCK_STORE_PATH, freshGrant, fakeFs, NOW);
 
     const result = readGrantStore(MOCK_STORE_PATH, fakeFs);
     expect(result.status).toBe("ok");
@@ -257,6 +261,80 @@ describe("readGrantStore + appendGrant (in-memory fake fs)", () => {
       const taskIds = result.grants.map((g) => g.taskId);
       expect(taskIds).toContain("mt#2651");
       expect(taskIds).not.toContain("mt#1111");
+    }
+  });
+
+  // A grant dated far enough ahead that NO real wall clock this code will ever
+  // run under can consider it expired. That is the whole trick below: it makes
+  // the injected clock and the real clock DISAGREE, which is the only way an
+  // assertion can distinguish them.
+  const FAR_FUTURE = Date.parse("2400-01-01T00:00:00.000Z");
+
+  it("appendGrant prunes against the INJECTED clock, not the real wall clock", () => {
+    // The seam's own test, and it has to be built carefully to be worth anything.
+    //
+    // The obvious version — a grant anchored at NOW with a short TTL, pruned
+    // with a nowMs a year past NOW — is INERT: NOW is 2026-07-07, already in the
+    // past, so the real clock calls that grant expired too and the assertion
+    // passes whether or not `nowMs` is wired to anything. That version was
+    // written first here and its negative control did not fire, which is exactly
+    // how mem#704 describes a probe that cannot fail.
+    //
+    // So the fixture is dated in the FAR future instead: unexpired under any
+    // real clock, expired under the injected one. Now only a wired `nowMs`
+    // produces the expected verdict.
+    const storedFarFuture = makeGrant({
+      taskId: "mt#1111",
+      issuedAt: new Date(FAR_FUTURE).toISOString(),
+      ttlMs: 30 * 60 * 1000,
+    });
+    const fakeFs = makeFakeFs({
+      [MOCK_STORE_PATH]: JSON.stringify({ grants: [storedFarFuture] }),
+    });
+
+    const oneYearPastFarFuture = FAR_FUTURE + 365 * 24 * 60 * 60 * 1000;
+    appendGrant(MOCK_STORE_PATH, makeGrant({ taskId: "mt#2651" }), fakeFs, oneYearPastFarFuture);
+
+    const result = readGrantStore(MOCK_STORE_PATH, fakeFs);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      // Expired relative to the INJECTED clock only. Under the real clock this
+      // grant is still ~374 years from issuance and would survive.
+      expect(result.grants.map((g) => g.taskId)).not.toContain("mt#1111");
+    }
+  });
+
+  it("appendGrant defaults nowMs to the real clock, so production callers are unchanged", () => {
+    // Rule 1 of the convention: the seam is OPTIONAL with a real default, so the
+    // existing two- and three-argument production call shapes keep working —
+    // `scripts/grant-subagent-merge.ts` calls this with two.
+    //
+    // This is the one place in this file that anchors a fixture to the REAL
+    // clock on purpose, and it is not a violation of the fixture-anchoring rule:
+    // the DEFAULT's identity is the thing under test, so the assertion has to be
+    // stated in terms of the real clock. The far-future date makes it survive
+    // that prune no matter when the suite runs.
+    const fakeFs = makeFakeFs({
+      [MOCK_STORE_PATH]: JSON.stringify({
+        grants: [
+          {
+            taskId: "mt#1111",
+            issuedAt: new Date(FAR_FUTURE).toISOString(),
+            ttlMs: 30 * 60 * 1000,
+          },
+        ],
+      }),
+    });
+
+    appendGrant(MOCK_STORE_PATH, makeGrant({ taskId: "mt#2651" }), fakeFs);
+
+    const result = readGrantStore(MOCK_STORE_PATH, fakeFs);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      // Kept, because the default clock is the real one and the real clock is
+      // nowhere near 2400. Had the default been dropped for a required
+      // parameter, or defaulted to something else, this would prune.
+      expect(result.grants.map((g) => g.taskId)).toContain("mt#1111");
     }
   });
 
