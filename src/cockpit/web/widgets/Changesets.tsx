@@ -17,6 +17,7 @@ import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { relativeTime, changesetRecencyIso } from "../lib/format";
 import { changesetDisplayTitle } from "../lib/changeset-title";
+import { ProjectBadge } from "../components/ProjectBadge";
 import type { SessionPrRef, SessionDetailMeta } from "../../session-detail";
 
 // ---------------------------------------------------------------------------
@@ -69,9 +70,15 @@ function prStateChip(state: string): { label: string; cls: string } {
 interface ChangesetRowProps {
   item: ChangesetItem;
   onClick: () => void;
+  /**
+   * Whether to render the project badge — suppressed when a single project
+   * is selected or only one is known (mt#4729; see
+   * `shouldShowProjectIndicator`, `../lib/project-context`).
+   */
+  showProjectBadge?: boolean;
 }
 
-export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
+export function ChangesetRow({ item, onClick, showProjectBadge = false }: ChangesetRowProps) {
   const { pr, session } = item;
   const chip = prStateChip(pr.state);
   // Age reflects the same recency proxy the /api/changesets sort + the page's
@@ -86,6 +93,10 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
   const title = changesetDisplayTitle(pr, session);
   const taskId = session.taskId;
   const branch = pr.headBranch ?? session.branch ?? "—";
+  // mt#4729: session/changeset rows already carry repoName (unlike tasks,
+  // no uuid->label lookup needed) — render it directly when the indicator
+  // is worth showing at all.
+  const projectLabel = showProjectBadge ? session.repoName : null;
   const approvedText = pr.approved == null ? "—" : pr.approved ? "Approved" : "Pending";
   const approvedCls =
     pr.approved == null
@@ -118,7 +129,7 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
       {/* Title + task id */}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground truncate">{title}</p>
-        {(taskId || branch) && (
+        {(taskId || branch || projectLabel) && (
           <div className="flex items-center gap-2 mt-0.5">
             {taskId && (
               <Link
@@ -132,6 +143,7 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
             {branch && (
               <span className="text-xs text-muted-foreground truncate max-w-[160px]">{branch}</span>
             )}
+            {projectLabel && <ProjectBadge label={projectLabel} className="flex-shrink-0" />}
           </div>
         )}
       </div>
@@ -185,9 +197,11 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
 interface ChangesetsProps {
   items: ChangesetItem[];
   onRowClick: (item: ChangesetItem) => void;
+  /** See `ChangesetRowProps.showProjectBadge` (mt#4729). */
+  showProjectBadge?: boolean;
 }
 
-export function Changesets({ items, onRowClick }: ChangesetsProps) {
+export function Changesets({ items, onRowClick, showProjectBadge = false }: ChangesetsProps) {
   if (items.length === 0) {
     return (
       <div className="py-12 text-center">
@@ -215,6 +229,7 @@ export function Changesets({ items, onRowClick }: ChangesetsProps) {
             key={key}
             item={item}
             onClick={() => onRowClick(item)}
+            showProjectBadge={showProjectBadge}
           />
         );
       })}

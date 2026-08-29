@@ -418,16 +418,17 @@ describe("performSetup — project-row provisioning (mt#2934)", () => {
 
   function makeFakeProjectsDb(): {
     db: ProjectsRepositoryDb;
-    inserted: Array<{ slug: string; repoUrl: string | null }>;
+    inserted: Array<{ slug: string; repoUrl: string | null; displayName?: string | null }>;
   } {
-    const inserted: Array<{ slug: string; repoUrl: string | null }> = [];
+    const inserted: Array<{ slug: string; repoUrl: string | null; displayName?: string | null }> =
+      [];
     const db: ProjectsRepositoryDb = {
       select() {
         throw new Error("not used by ensureProjectRow");
       },
       insert() {
         return {
-          values(v: { slug: string; repoUrl: string | null }) {
+          values(v: { slug: string; repoUrl: string | null; displayName?: string | null }) {
             return {
               onConflictDoNothing() {
                 inserted.push(v);
@@ -461,8 +462,14 @@ describe("performSetup — project-row provisioning (mt#2934)", () => {
     );
 
     expect(connectCalls).toEqual([TEST_CONNECTION_STRING]);
+    // displayName (mt#4729): auto-derived from the slug when no explicit
+    // override is given — see deriveDisplayNameFromSlug (./project/slug.ts).
     expect(inserted).toEqual([
-      { slug: "acme/widgets", repoUrl: "https://github.com/acme/widgets.git" },
+      {
+        slug: "acme/widgets",
+        repoUrl: "https://github.com/acme/widgets.git",
+        displayName: "Widgets",
+      },
     ]);
   });
 

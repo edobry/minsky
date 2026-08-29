@@ -31,6 +31,7 @@ function task(overrides: Partial<TaskListItem> & Pick<TaskListItem, "id" | "stat
     kind: "implementation",
     tags: [],
     parentId: null,
+    project: null,
     ...overrides,
   };
 }
@@ -115,7 +116,19 @@ describe("taskSortFn", () => {
 
 const originalFetch = globalThis.fetch;
 
-function stubTasks(tasks: TaskListItem[]) {
+interface StubProject {
+  id: string;
+  slug: string;
+  displayName: string | null;
+}
+
+/**
+ * `projects` defaults to `[]` — an empty list keeps the selector hidden and
+ * selectedSlug at "All projects", matching this suite's pre-mt#2418
+ * unscoped-fetch assertions. Tests exercising the mt#4729 project-badge
+ * states pass 2+ fixtures explicitly.
+ */
+function stubTasks(tasks: TaskListItem[], projects: StubProject[] = []) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/api/widget/task-list/data")) {
@@ -124,11 +137,9 @@ function stubTasks(tasks: TaskListItem[]) {
         headers: { "Content-Type": "application/json" },
       });
     }
-    // ProjectProvider (mt#2418) fetches /api/projects on mount — an empty
-    // list keeps the selector hidden and selectedSlug at "All projects",
-    // matching this suite's pre-mt#2418 unscoped-fetch assertions.
+    // ProjectProvider (mt#2418) fetches /api/projects on mount.
     if (url.includes("/api/projects")) {
-      return new Response(JSON.stringify({ projects: [] }), {
+      return new Response(JSON.stringify({ projects }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -177,5 +188,66 @@ describe("TaskList component", () => {
     renderList();
     await waitFor(() => expect(screen.getByText("Task mt#100")).toBeDefined());
     expect(screen.queryByLabelText("Filter by COMPLETED")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Component — project badge states (mt#4729)
+// ---------------------------------------------------------------------------
+
+const MINSKY_PROJECT: StubProject = { id: "p-minsky", slug: "edobry/minsky", displayName: "Minsky" };
+const PEEZOMBIE_PROJECT: StubProject = { id: "p-peezombie", slug: "edobry/peezombie", displayName: null };
+
+describe("TaskList project badge", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    cleanup();
+  });
+
+  test("renders a project badge per row when 2+ projects exist and none is selected", async () => {
+    stubTasks(
+      [
+        task({ id: "mt#100", status: "TODO", title: "Minsky task", project: "edobry/minsky" }),
+        task({ id: "mt#200", status: "TODO", title: "Peezombie task", project: "edobry/peezombie" }),
+      ],
+      [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
+    );
+    renderList();
+    await waitFor(() => expect(screen.getByText("Minsky task")).toBeDefined());
+
+    // displayName wins for Minsky; peezombie's null displayName falls back
+    // to its slug (mirrors ProjectSelector's own fallback).
+    expect(screen.getByText("Minsky")).toBeDefined();
+    expect(screen.getByText("edobry/peezombie")).toBeDefined();
+  });
+
+  test("suppresses the project badge when only one project is known", async () => {
+    stubTasks(
+      [task({ id: "mt#100", status: "TODO", title: "Solo task", project: "edobry/minsky" })],
+      [MINSKY_PROJECT]
+    );
+    renderList();
+    await waitFor(() => expect(screen.getByText("Solo task")).toBeDefined());
+    expect(screen.queryByText("Minsky")).toBeNull();
+  });
+
+  test("suppresses the project badge when a single project is explicitly selected", async () => {
+    try {
+      localStorage.setItem("cockpit.project.v1", "edobry/minsky");
+    } catch {
+      /* jsdom/happy-dom always provides localStorage; ignore if not */
+    }
+    stubTasks(
+      [task({ id: "mt#100", status: "TODO", title: "Scoped task", project: "edobry/minsky" })],
+      [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
+    );
+    renderList();
+    await waitFor(() => expect(screen.getByText("Scoped task")).toBeDefined());
+    expect(screen.queryByText("Minsky")).toBeNull();
+    try {
+      localStorage.removeItem("cockpit.project.v1");
+    } catch {
+      /* ignore */
+    }
   });
 });

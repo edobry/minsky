@@ -1,6 +1,12 @@
 import { describe, it, expect } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { listProjects, ensureProjectRow, type ProjectsRepositoryDb } from "./projects-repository";
+import {
+  listProjects,
+  ensureProjectRow,
+  setProjectDisplayNameIfUnset,
+  type ProjectsRepositoryDb,
+  type ProjectsUpdateDb,
+} from "./projects-repository";
 import { resolveProjectScope } from "./scope-resolver";
 import { ALL_PROJECTS } from "./scope";
 import type { ProjectIdentity } from "./identity";
@@ -103,7 +109,8 @@ const pgDialect = new PgDialect();
  * the tests below exercise the real round trip: provision → resolve, and
  * provision-twice → no duplicate row.
  */
-function makeStatefulFakeDb(): ProjectsRepositoryDb & { rows: () => ProjectRecord[] } {
+function makeStatefulFakeDb(): ProjectsRepositoryDb &
+  ProjectsUpdateDb & { rows: () => ProjectRecord[] } {
   const rowsBySlug = new Map<string, ProjectRecord>();
   let idCounter = 1;
 
@@ -123,7 +130,22 @@ function makeStatefulFakeDb(): ProjectsRepositoryDb & { rows: () => ProjectRecor
     return row ? [row] : [];
   }
 
-  const db: ProjectsRepositoryDb = {
+  // mt#4729: renders setProjectDisplayNameIfUnset's
+  // `and(eq(slug, ...), isNull(displayName))` condition and extracts the
+  // slug param — mirrors evalSlugEquality's real-dialect-render approach.
+  function evalUnsetDisplayNameCondition(cond: unknown): string {
+    const { sql, params } = pgDialect.sqlToQuery(cond as any);
+    const normalized = sql.trim().toLowerCase();
+    if (
+      !normalized.includes('"projects"."slug" = $1') ||
+      !normalized.includes('"projects"."display_name" is null')
+    ) {
+      throw new Error(`evalUnsetDisplayNameCondition: unrecognized WHERE pattern: ${sql}`);
+    }
+    return params[0] as string;
+  }
+
+  const db: ProjectsRepositoryDb & ProjectsUpdateDb = {
     select() {
       return {
         from() {
@@ -143,7 +165,7 @@ function makeStatefulFakeDb(): ProjectsRepositoryDb & { rows: () => ProjectRecor
     },
     insert() {
       return {
-        values(v: { slug: string; repoUrl?: string | null }) {
+        values(v: { slug: string; repoUrl?: string | null; displayName?: string | null }) {
           return {
             onConflictDoNothing() {
               // ON CONFLICT (slug) DO NOTHING — a pre-existing row for this
@@ -153,11 +175,33 @@ function makeStatefulFakeDb(): ProjectsRepositoryDb & { rows: () => ProjectRecor
                   id: `id-${idCounter++}`,
                   slug: v.slug,
                   repoUrl: v.repoUrl ?? null,
-                  displayName: null,
+                  displayName: v.displayName ?? null,
                   createdAt: new Date(),
                 });
               }
               return Promise.resolve([]);
+            },
+          };
+        },
+      };
+    },
+    update() {
+      return {
+        set(values: { displayName: string }) {
+          return {
+            where(cond: unknown) {
+              return {
+                returning() {
+                  const slug = evalUnsetDisplayNameCondition(cond);
+                  const row = rowsBySlug.get(slug);
+                  if (row && row.displayName === null) {
+                    const updated = { ...row, displayName: values.displayName };
+                    rowsBySlug.set(slug, updated);
+                    return Promise.resolve([{ id: updated.id }]);
+                  }
+                  return Promise.resolve([]);
+                },
+              };
             },
           };
         },
@@ -221,6 +265,66 @@ describe("ensureProjectRow — idempotent provisioning (mt#2934)", () => {
     await ensureProjectRow("acme/widgets", {}, db);
 
     expect(db.rows()[0]?.repoUrl).toBeNull();
+  });
+
+  it("seeds displayName on first insert (mt#4729)", async () => {
+    const db = makeStatefulFakeDb();
+    await ensureProjectRow("acme/widgets", { displayName: "Widgets" }, db);
+
+    expect(db.rows()[0]?.displayName).toBe("Widgets");
+  });
+
+  it("a conflict (existing row) never touches displayName, even a differing one (mt#4729)", async () => {
+    const db = makeStatefulFakeDb();
+    await ensureProjectRow("acme/widgets", { displayName: "Widgets" }, db);
+    await ensureProjectRow("acme/widgets", { displayName: "Something Else" }, db);
+
+    const rows = db.rows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.displayName).toBe("Widgets");
+  });
+
+  it("omitting displayName stores null, matching the nullable schema column", async () => {
+    const db = makeStatefulFakeDb();
+    await ensureProjectRow("acme/widgets", {}, db);
+
+    expect(db.rows()[0]?.displayName).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setProjectDisplayNameIfUnset (mt#4729 SC4) — the sanctioned backfill path
+// for a project row that predates ensureProjectRow's auto-derived default.
+// ---------------------------------------------------------------------------
+
+describe("setProjectDisplayNameIfUnset", () => {
+  it("sets displayName and returns true when the column is currently null", async () => {
+    const db = makeStatefulFakeDb();
+    await ensureProjectRow("edobry/peezombie", {}, db);
+
+    const updated = await setProjectDisplayNameIfUnset("edobry/peezombie", "Peezombie", db);
+
+    expect(updated).toBe(true);
+    expect(db.rows()[0]?.displayName).toBe("Peezombie");
+  });
+
+  it("does not clobber an already-set displayName, and returns false", async () => {
+    const db = makeStatefulFakeDb();
+    await ensureProjectRow("edobry/minsky", { displayName: "Minsky" }, db);
+
+    const updated = await setProjectDisplayNameIfUnset("edobry/minsky", "Some Other Name", db);
+
+    expect(updated).toBe(false);
+    expect(db.rows()[0]?.displayName).toBe("Minsky");
+  });
+
+  it("returns false for a slug naming no known project", async () => {
+    const db = makeStatefulFakeDb();
+
+    const updated = await setProjectDisplayNameIfUnset("no/such-project", "Anything", db);
+
+    expect(updated).toBe(false);
+    expect(db.rows()).toHaveLength(0);
   });
 });
 
