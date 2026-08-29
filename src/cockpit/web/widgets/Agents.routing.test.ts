@@ -96,4 +96,22 @@ describe("resolveGoToAction — non-dispatched-agent kinds", () => {
     if (action.type !== "disabled") throw new Error("expected disabled");
     expect(action.reason).toMatch(/expand/i);
   });
+
+  // mt#4733 — the collapsed NULL-attribution aggregate is the same
+  // "synthetic collapsed container" shape as subagent-group above; this
+  // guards against it silently falling through to the dispatched-agent
+  // attachState switch (which would report a misleading "Attachment status
+  // unavailable" reason, since attachState is always null for this kind).
+  test("unattributed-summary -> disabled with an 'expand' reason, never the dispatched-agent attachState fallback", () => {
+    const row = makeRow({
+      kind: "unattributed-summary",
+      sessionId: "unattributed:project-1",
+      attachState: null,
+    });
+    const action = resolveGoToAction(row);
+    expect(action.type).toBe("disabled");
+    if (action.type !== "disabled") throw new Error("expected disabled");
+    expect(action.reason).toMatch(/expand/i);
+    expect(action.reason).not.toMatch(/unavailable/i);
+  });
 });
