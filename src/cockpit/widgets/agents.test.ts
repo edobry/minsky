@@ -610,6 +610,26 @@ describe("spliceDrivenSessions — project scoping (mt#4732)", () => {
     expect(summary.subagents.map((s) => s.conversationId)).toContain("conv-unresolvable");
   });
 
+  test("mt#4732 R1: a rehydrated session (taskId present, projectId null) folds into unattributed-summary and is NOT mislabeled 'Scratch'", () => {
+    // A session rehydrated from the driven_sessions table after a daemon
+    // restart: taskId/minskySessionId are persisted and carried over, but
+    // projectId is not (see DrivenSessionRecord.projectId's doc comment) —
+    // this must not be confused with a genuinely-untasked scratch launch.
+    const snapshot = makeDrivenSnapshot({
+      projectId: null,
+      taskId: "mt#1234",
+      minskySessionId: "rehydrated-workspace-id",
+      cwd: "/fixture-state/sessions/rehydrated-workspace-id",
+    });
+    const result = spliceDrivenSessions([], [snapshot], PROJECT_B);
+
+    const summary = result.find((r) => r.kind === UNATTRIBUTED_SUMMARY_KIND);
+    if (!summary) throw new Error("expected the unattributed-summary row to be present");
+    expect(summary.subagents.length).toBe(1);
+    expect(summary.subagents[0]?.label).toBe("rehydrated-workspace-id");
+    expect(summary.subagents[0]?.label).not.toContain("Scratch");
+  });
+
   test("folds into an EXISTING unattributed-summary row already produced by the conversation merge, rather than creating a second one", () => {
     const existingSummaryRow: AgentRow = {
       sessionId: `unattributed:${PROJECT_B}`,
@@ -655,6 +675,55 @@ describe("spliceDrivenSessions — project scoping (mt#4732)", () => {
       "conv-new-driven",
     ]);
     expect(summaries[0]?.title).toBe("2 unattributed conversations");
+  });
+
+  test("mt#4732 R1: does NOT fold into an unattributed-summary row belonging to a DIFFERENT scope", () => {
+    const wrongScopeSummaryRow: AgentRow = {
+      sessionId: `unattributed:${PROJECT_A}`, // a different scope's row
+      kind: UNATTRIBUTED_SUMMARY_KIND,
+      shortId: null,
+      title: "1 unattributed conversation",
+      liveness: null,
+      taskId: null,
+      taskTitle: null,
+      prNumber: null,
+      prStatus: null,
+      lastActivityAt: "2026-08-20T00:00:00.000Z",
+      agentId: null,
+      conversationId: null,
+      cwd: null,
+      subagents: [
+        {
+          conversationId: "conv-other-scope",
+          label: "x",
+          cwd: null,
+          startedAt: null,
+          endedAt: null,
+          model: null,
+        },
+      ],
+      model: null,
+      driven: null,
+      attachState: null,
+      interfaceBinding: null,
+      projectId: null,
+    };
+    const snapshot = makeDrivenSnapshot({
+      projectId: null,
+      minskySessionId: null,
+      harnessSessionId: "conv-this-scope",
+    });
+    // Scoped to PROJECT_B, while the pre-existing row in `rows` is scoped to
+    // PROJECT_A — matching by kind alone (the pre-fix behavior) would fold
+    // "conv-this-scope" into the WRONG scope's row.
+    const result = spliceDrivenSessions([wrongScopeSummaryRow], [snapshot], PROJECT_B);
+
+    const summaries = result.filter((r) => r.kind === UNATTRIBUTED_SUMMARY_KIND);
+    expect(summaries.length).toBe(2);
+    const wrongScope = summaries.find((r) => r.sessionId === `unattributed:${PROJECT_A}`);
+    expect(wrongScope?.subagents.map((s) => s.conversationId)).toEqual(["conv-other-scope"]);
+    const rightScope = summaries.find((r) => r.sessionId === `unattributed:${PROJECT_B}`);
+    expect(rightScope?.subagents.map((s) => s.conversationId)).toEqual(["conv-this-scope"]);
   });
 
   test("AT3: under ALL_PROJECTS scope, an unmatched driven session still becomes its own standalone row and now carries real projectId", () => {

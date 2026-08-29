@@ -382,6 +382,23 @@ function latestActivityAcross(current: string | null, entries: SubagentEntry[]):
 }
 
 /**
+ * Whether a driven session is bound to a task/workspace, for label purposes
+ * (mt#4732 R1 — reviewer-bot round 1 BLOCKING finding #2). Checks BOTH
+ * `taskId` and `minskySessionId` rather than `taskId` alone: a session
+ * rehydrated from the `driven_sessions` table after a daemon restart, or a
+ * hypothetical workspace-linked launch whose `taskId` is for some reason
+ * absent, would otherwise be mislabeled "Scratch" even though it is plainly
+ * tied to a real workspace. Shared by both the collapsed-aggregate label and
+ * the standalone-row title below so the two paths can never diverge on this
+ * judgment.
+ */
+function isTaskBoundDrivenSession(
+  record: Pick<DrivenSessionSnapshot, "taskId" | "minskySessionId">
+): boolean {
+  return record.taskId != null || record.minskySessionId != null;
+}
+
+/**
  * Splice driven-session registry snapshots into the merged row list
  * (mt#2752): a driven session whose `minskySessionId` matches a VISIBLE
  * workspace row ANNOTATES that row (`row.driven`) unconditionally — a match
@@ -450,7 +467,7 @@ export function spliceDrivenSessions(
         const cwdTail = record.cwd.split("/").filter(Boolean).pop() ?? record.cwd;
         unattributedEntries.push({
           conversationId: record.harnessSessionId ?? `driven:${record.localId}`,
-          label: record.taskId ? cwdTail : `Scratch: ${cwdTail}`,
+          label: isTaskBoundDrivenSession(record) ? cwdTail : `Scratch: ${cwdTail}`,
           cwd: record.cwd,
           startedAt: record.startedAt,
           // Driven-session status doesn't carry a terminal timestamp the way
@@ -475,7 +492,7 @@ export function spliceDrivenSessions(
       shortId: null,
       // SC3: an untasked scratch session is "clearly labeled" — the kind
       // badge carries "Driven"; the title marks it scratch when unbound.
-      title: record.taskId ? cwdTail : `Scratch: ${cwdTail}`,
+      title: isTaskBoundDrivenSession(record) ? cwdTail : `Scratch: ${cwdTail}`,
       liveness: null,
       taskId: record.taskId,
       taskTitle: null,
@@ -506,7 +523,16 @@ export function spliceDrivenSessions(
   let result: AgentRow[] = [...rows, ...standalone];
 
   if (collapseScoped && unattributedEntries.length > 0) {
-    const existing = result.find((r) => r.kind === "unattributed-summary");
+    // mt#4732 R1 — reviewer-bot round 1 BLOCKING finding #1: match by the
+    // scope-derived sessionId, not by kind alone. `unattributed:<scope>` is
+    // the SAME deterministic id run-merge.ts's mergeConversationRows uses,
+    // so this is the row for THIS projectScope specifically — matching on
+    // kind alone would risk folding into a stale row from a different scope
+    // if more than one such row were ever present in `rows`.
+    const existingSessionId = `unattributed:${projectScope}`;
+    const existing = result.find(
+      (r) => r.kind === "unattributed-summary" && r.sessionId === existingSessionId
+    );
     if (existing) {
       existing.subagents.push(...unattributedEntries);
       existing.lastActivityAt = latestActivityAcross(existing.lastActivityAt, unattributedEntries);
@@ -515,7 +541,7 @@ export function spliceDrivenSessions(
       result = [
         ...result,
         {
-          sessionId: `unattributed:${projectScope}`,
+          sessionId: existingSessionId,
           kind: "unattributed-summary",
           shortId: null,
           title: unattributedSummaryTitle(unattributedEntries.length),

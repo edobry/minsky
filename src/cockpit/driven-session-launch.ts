@@ -183,12 +183,31 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
   // `projectId` (only the persisted `SessionRecord` does), so re-read the
   // record we just created. One extra provider call on the create-only path
   // (the far less common branch — most launches reuse an existing workspace).
-  const created = await sessionProvider.getSession(session.sessionId);
+  //
+  // mt#4732 R1 — reviewer-bot round 1 non-blocking: this read is a BEST-EFFORT
+  // enrichment, not a precondition of the launch — the workspace itself was
+  // already created successfully above. A transient failure here (a dropped
+  // connection, a momentary pool exhaustion) must degrade to `projectId: null`
+  // rather than fail the whole driven-session launch; the caller already has
+  // everything it needs (minskySessionId, sessionDir) to proceed, and a null
+  // projectId is exactly the "unresolvable" case spliceDrivenSessions already
+  // handles safely (folds into the unattributed-summary aggregate rather than
+  // being hidden or mis-scoped).
+  let resolvedProjectId: string | null = null;
+  try {
+    const created = await sessionProvider.getSession(session.sessionId);
+    resolvedProjectId = created?.projectId ?? null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(
+      `[driven-session] could not re-read projectId for newly-created workspace ${session.sessionId}: ${message}`
+    );
+  }
   return {
     minskySessionId: session.sessionId,
     sessionDir,
     reused: false,
-    projectId: created?.projectId ?? null,
+    projectId: resolvedProjectId,
   };
 }
 

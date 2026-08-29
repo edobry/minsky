@@ -245,8 +245,16 @@ export function mountDrivenSessionRoutes(
         projectId = workspace.projectId;
       } else if (hasCwd) {
         cwd = cwdRaw as string;
+        // mt#4732: `projectId` stays at its `null` initial value here —
+        // deliberately, not an oversight. An explicit-cwd launch has no
+        // Minsky workspace to read a projectId from, so there is nothing to
+        // resolve. The agents widget treats this the same as any other
+        // unresolvable driven-session attribution (folded into the
+        // unattributed-summary aggregate under a specific project filter).
       } else {
         cwd = opts.scratchCwd ?? process.cwd();
+        // mt#4732: same "nothing to resolve" reasoning as the `hasCwd`
+        // branch above — a scratch launch has no bound workspace either.
       }
 
       const { record } = startDrivenSession({
