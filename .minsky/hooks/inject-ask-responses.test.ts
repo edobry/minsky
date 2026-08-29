@@ -37,7 +37,31 @@ import type { ClaudeHookInput } from "./types";
 
 const CONVERSATION_ID = "c8fc3ca9-c3d6-4916-bbfe-99917f4ae596";
 const ASK_A = "2422ee3c-7e28-49d0-88f2-bbabbed6c65e";
-const NOW = "2026-08-22T12:00:00.000Z";
+// Derived from the wall clock, never a pinned literal (mt#4721).
+//
+// `run()` reads the attribution map through `readAskConversationMap`, which prunes entries
+// older than `ENTRY_MAX_AGE_MS` (7 days) against the REAL clock — production passes no
+// `nowMs`. A pinned date therefore does not stay "a recorded attribution": it silently
+// becomes "an expired one" the moment the wall clock crosses the window. The literal this
+// replaced was `2026-08-22T12:00:00.000Z`, so it expired at 2026-08-29T12:00:00Z and turned
+// a green suite red on unchanged code — CI passed on `main` at 08:45Z and failed at 13:49Z
+// the same day, blocking every merge in the repo until this fix.
+//
+// Note the failure mode, because it is why this went unnoticed for seven days: with the
+// entry pruned, nothing is injected and `additionalContext` is `undefined`, so the
+// assertion throws a TYPE error rather than reporting a value mismatch. A test whose
+// failure mode is a type error is one whose subject silently vanished.
+//
+// The entry's AGE is not the subject of any test in this file — these cover injection and
+// watermark behaviour, and need the attribution to be simply PRESENT. Seeding it as
+// recently-recorded states that directly, and is shift-invariant: the same distance from
+// the cutoff at every wall-clock time. Tests that DO exercise retention belong with the
+// sibling suites (`ask-conversation-map.test.ts`, `stamp-ask-conversation.test.ts`), which
+// stay deterministic by injecting `nowMs` explicitly, per that function's own documented
+// convention.
+const NOW = new Date(Date.now() - 60_000).toISOString();
+/** A later answer than {@link NOW}, for the re-answer case — must differ, to change the marker. */
+const LATER = new Date(Date.now() - 30_000).toISOString();
 const STATE_DIR_ENV = "MINSKY_STATE_DIR";
 const MAP_FILE = "ask-conversation-map.json";
 const ASK_TITLE = "Pick a merge policy";
@@ -190,7 +214,7 @@ describe("selectSettledAsks", () => {
     const before = { found: true as const, state: "responded", open: false, respondedAt: NOW };
     const firstMarker = selectSettledAsks([ASK_A], cache({ [ASK_A]: before }), {})[0]!.marker;
 
-    const after = { ...before, respondedAt: "2026-08-23T09:00:00.000Z", chosen: "new answer" };
+    const after = { ...before, respondedAt: LATER, chosen: "new answer" };
     const second = selectSettledAsks([ASK_A], cache({ [ASK_A]: after }), { [ASK_A]: firstMarker });
     expect(second).toHaveLength(1);
   });
