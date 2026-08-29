@@ -54,16 +54,17 @@
  * @see docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md
  */
 
-import { existsSync, appendFileSync, mkdirSync } from "node:fs";
-import { resolve, dirname, isAbsolute, relative } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve, isAbsolute, relative } from "node:path";
 import { findUnresolvedCoverageClaims } from "./coverage-claim-path";
 import { findRepoRoot, deriveHookRepoRoot, readInput } from "./types";
 import { deriveSessionWorkspaceRoot } from "./require-session-for-main-workspace-edits";
 import type { ClaudeHookInput } from "./types";
+import { logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 /** This detector's calibration log — declared in `.minsky/hooks/registry.ts`. */
-const CALIBRATION_LOG = ".minsky/coverage-claim-path-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "coverage-claim-path";
 
 /**
  * Record-shape version (mt#3607 convention).
@@ -253,10 +254,14 @@ function appendCalibrationRecord(record: Record<string, unknown>): void {
     // done-gate. mt#3393 lost 22 calibration records exactly that way.
     // `deriveHookRepoRoot()` walks up from this module's own directory instead,
     // and the executing copy is always the one checked into the main workspace.
-    const logPath = resolve(deriveHookRepoRoot(), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
+    //
+    // mt#4752: routed through the shared helper so the FILENAME is derived from
+    // the stream name, while the ROOT stays exactly what this comment argues
+    // for. It goes in the `projectDir` tier deliberately — that tier outranks
+    // both `CLAUDE_PROJECT_DIR` and any raw cwd, which is the only placement
+    // that preserves the mt#3393 fix. Passing it as `fallbackCwd` would let
+    // `CLAUDE_PROJECT_DIR` win and put the log back in the session workspace.
+    logCalibrationRecord(CALIBRATION_LOG_NAME, record, { projectDir: deriveHookRepoRoot() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(
