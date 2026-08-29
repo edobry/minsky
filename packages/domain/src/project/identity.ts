@@ -12,7 +12,10 @@
  *
  * ## Slug derivation
  * The default slug is `owner/repo` (e.g. `edobry/minsky`), derived from the
- * `origin` remote URL via `deriveSlugFromGitRemote()`. This slug changes when
+ * `origin` remote URL via `deriveSlugFromGitRemote()` — or, when the caller
+ * passes `params.remoteUrl` (a repo not yet cloned to `repoPath`), via a
+ * direct `extractOwnerRepo()` parse of that URL string (mt#4734). This slug
+ * changes when
  * the repo is forked (the fork gets a different `owner/repo`). For stability
  * across forks, stamp a fixed slug into `.minsky/config.yaml` (tier 3) or
  * pass `--project <slug>` (tier 1). UUID-based slug keying is a possible
@@ -41,7 +44,7 @@ import { join, resolve } from "path";
 import { execSync as defaultExecSync } from "child_process";
 import { parse as yamlParse } from "yaml";
 import { log } from "@minsky/shared/logger";
-import { deriveSlugFromGitRemote } from "./slug";
+import { deriveSlugFromGitRemote, extractOwnerRepo } from "./slug";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -103,6 +106,24 @@ export interface ResolveProjectIdentityParams {
    * `project` parameter).  When present, this wins over all other sources.
    */
   explicitSlug?: string;
+  /**
+   * Pre-known remote URL for the repo, consulted ONLY by tier 4 (git-remote
+   * auto-detect) via `extractOwnerRepo()` — pure string parsing, no shell
+   * exec and no filesystem read.
+   *
+   * Set this when `repoPath` does not (yet) contain a cloned repo — the
+   * canonical case is `session.start`, which resolves the new session's
+   * project identity BEFORE the clone happens (ADR-021/mt#2416 stamping).
+   * Without `remoteUrl`, tier 4 falls through to
+   * `deriveSlugFromGitRemote(repoPath, deps)`, which runs `git remote
+   * get-url origin` in `repoPath` — against a directory with no `.git` yet,
+   * that always fails, silently degrading every resolution to
+   * `{ kind: "unidentified" }` and leaving `project_id` NULL regardless of
+   * which repo is being cloned (mt#4734).
+   *
+   * When absent, tier 4 behavior is unchanged from before this param existed.
+   */
+  remoteUrl?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -167,11 +188,11 @@ export function resolveProjectIdentity(
 
   if (configSlug) {
     // Cross-check with git remote — emit a warning if they disagree (config wins).
-    const remoteSlug = deriveSlugFromGitRemote(repoPath, deps);
-    if (remoteSlug && remoteSlug !== configSlug) {
+    const remoteSlugForCrossCheck = resolveRemoteSlug(repoPath, params, deps);
+    if (remoteSlugForCrossCheck && remoteSlugForCrossCheck !== configSlug) {
       log.warn(
         `[project-identity] Config slug "${configSlug}" differs from git-remote-derived ` +
-          `slug "${remoteSlug}". Using config slug (config wins). ` +
+          `slug "${remoteSlugForCrossCheck}". Using config slug (config wins). ` +
           `If this is intentional (e.g. after forking), update .minsky/config.yaml ` +
           `to silence this warning.`
       );
@@ -180,7 +201,7 @@ export function resolveProjectIdentity(
   }
 
   // ── Tier 4: git-remote auto-detect ────────────────────────────────────────
-  const remoteSlug = deriveSlugFromGitRemote(repoPath, deps);
+  const remoteSlug = resolveRemoteSlug(repoPath, params, deps);
   if (remoteSlug) {
     return { kind: "resolved", slug: remoteSlug, source: "git-remote" };
   }
@@ -200,6 +221,30 @@ export function resolveProjectIdentity(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { deriveSlugFromGitRemote, extractOwnerRepo } from "./slug";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Remote-slug resolution (tier 4 + the config/remote cross-check)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the git-remote-derived slug for tier 4 (and the tier-3 cross-check).
+ *
+ * When `params.remoteUrl` is supplied, the slug is parsed directly from it via
+ * `extractOwnerRepo()` — no shell exec, no filesystem read, so it works even
+ * when `repoPath` has no `.git` yet (mt#4734: `session.start` resolves
+ * identity BEFORE the clone). Otherwise falls back to the original
+ * `deriveSlugFromGitRemote(repoPath, deps)` behavior.
+ */
+function resolveRemoteSlug(
+  repoPath: string,
+  params: ResolveProjectIdentityParams,
+  deps: ProjectIdentityDeps
+): string | null {
+  if (params.remoteUrl) {
+    return extractOwnerRepo(params.remoteUrl);
+  }
+  return deriveSlugFromGitRemote(repoPath, deps);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config helpers
