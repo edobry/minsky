@@ -9,6 +9,7 @@ import { FakeGitService } from "../git/fake-git-service";
 import { FakeTaskService } from "../tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
 import { first } from "@minsky/shared/array-safety";
+import type { ScopeResolverDb } from "../project/scope-resolver";
 
 // mt#3106: the --recover path now routes through the guarded delete, whose
 // live-actor gate would fail-closed in these provider-less fixtures. Existing
@@ -523,5 +524,65 @@ describe("startSessionImpl - --recover routes through the guarded delete (mt#310
     // ask#6273 branch 3: no claim on record → abstain → the recovery proceeds.
     expect(result.sessionId).not.toBe(ABANDONED_SESSION_ID);
     expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).toBeNull();
+  });
+});
+
+// mt#4734: session.start's ADR-021 project_id stamping resolved identity via
+// resolveProjectIdentity({ repoPath: sessionDir }) BEFORE the clone happens —
+// sessionDir has no .git yet at that point, so git-remote auto-detect always
+// missed and every session (not just a foreign-repo one) stamped project_id
+// NULL. The fix threads `remoteUrl: repoUrl` through so identity resolves
+// from the URL string directly, with no dependency on the clone having
+// happened yet. This suite exercises the REAL default resolveProjectIdentity
+// deps (no injected execSync/existsSync) through the full startSessionImpl
+// path — the same shape production runs — rather than unit-testing the
+// resolver in isolation (identity.test.ts already covers that).
+//
+// A fluent stub whose terminal `limit()` resolves with `rows` — mirrors the
+// established ADR-021 fake-DB pattern (scope-resolver.test.ts's
+// makeQueryingDb / session-start-recover-guarded-delete's emptyClaimsDb).
+function makeProjectDb(rows: Array<{ id: string }>): ScopeResolverDb {
+  return {
+    select: () => ({
+      from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }),
+    }),
+  };
+}
+
+describe("startSessionImpl - project_id stamping resolves from repoUrl before the session dir is cloned (mt#4734)", () => {
+  // A NON-DEFAULT project — the exact shape of the originating incident
+  // (ws#815, edobry/peezombie.me): the spec explicitly calls for a
+  // non-default-project regression, since a fix that only worked for the
+  // repo Minsky happens to run in would have hidden this exact bug.
+  const FOREIGN_REPO_URL = "https://github.com/edobry/peezombie.me.git";
+  const FOREIGN_PROJECT_ID = "2ef29b41-413e-4ecf-a61b-e695697e7d82";
+
+  it("stamps project_id for a foreign (non-default) project even though the session directory has not been cloned yet", async () => {
+    const db = makeProjectDb([{ id: FOREIGN_PROJECT_ID }]);
+    const deps: StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> } = {
+      ...createDeps(FOREIGN_REPO_URL),
+      db,
+    };
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(added.projectId).toBe(FOREIGN_PROJECT_ID);
+    expect(added.repoName).toContain("peezombie");
+  });
+
+  it("leaves project_id undefined (fail-open) when no project row matches the repo's slug", async () => {
+    const db = makeProjectDb([]); // no matching project row
+    const deps: StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> } = {
+      ...createDeps(FOREIGN_REPO_URL),
+      db,
+    };
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(added.projectId).toBeUndefined();
   });
 });

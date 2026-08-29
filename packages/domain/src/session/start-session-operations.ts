@@ -629,7 +629,13 @@ async function executeMutations(
       const { resolveProjectIdentity } = await import("../project/identity");
       const { resolveProjectScope } = await import("../project/scope-resolver");
       const { isAllProjects } = await import("../project/scope");
-      const identity = resolveProjectIdentity({ repoPath: sessionDir });
+      // mt#4734: this resolution runs BEFORE `deps.gitService.clone()` below,
+      // so `sessionDir` has no `.git` yet — `repoPath`-based tier-4 detection
+      // (`git remote get-url origin` at sessionDir) always misses, regardless
+      // of which repo is being cloned, and every session silently stamped
+      // project_id NULL. `remoteUrl: repoUrl` lets tier 4 parse the slug
+      // directly from the URL string instead (no exec, no filesystem read).
+      const identity = resolveProjectIdentity({ repoPath: sessionDir, remoteUrl: repoUrl });
       const scope = await resolveProjectScope(identity, dbForScopeResolution, "session.start");
       resolvedProjectId = isAllProjects(scope) ? undefined : scope;
     }
