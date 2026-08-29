@@ -26,6 +26,17 @@ import type { SessionPrRef, SessionDetailMeta } from "../../session-detail";
 export interface ChangesetItem {
   pr: SessionPrRef;
   session: SessionDetailMeta;
+  /**
+   * The routable changeset id (mt#4724) — bare for the default project,
+   * `owner/repo#N` for any other. Server-supplied, because only the server
+   * knows which project is the default; optional so a fixture or an older
+   * payload still renders (callers fall back to the bare PR number).
+   *
+   * Do NOT re-derive a bare number from `pr.number` for navigation: a PR
+   * number is unique only per-repository, so two projects both open on PR #1
+   * would link to the same detail route.
+   */
+  changesetId?: string | null;
 }
 
 export interface ChangesetsListResponse {
