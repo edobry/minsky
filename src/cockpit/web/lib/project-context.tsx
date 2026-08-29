@@ -53,7 +53,17 @@ async function fetchProjects(): Promise<ProjectSummary[]> {
 // false-positives on the `*KEY = "<string>"` shape (mirrors lib/tabs.tsx).
 const STORAGE_KEY = "cockpit.project.v1"; // gitleaks:allow
 
-function loadPersistedSlug(): string | null {
+/**
+ * Read the persisted project selection directly, bypassing React context.
+ *
+ * Exported (mt#4730) so `lib/api-client.ts`'s `apiFetch` can default-append
+ * `?project=` to every request without needing a hook call — `apiFetch` is a
+ * plain async function usable from non-component code (event handlers,
+ * other lib modules), so it cannot call `useProject()` itself. This is the
+ * SAME source of truth `ProjectProvider` reads on mount; the two never
+ * diverge because there is only one persisted value.
+ */
+export function loadPersistedSlug(): string | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return typeof raw === "string" && raw.trim() !== "" ? raw : null;

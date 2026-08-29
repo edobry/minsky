@@ -60,6 +60,7 @@ import { fileURLToPath } from "url";
 import { cockpitWebDistDir, cockpitIndexHtml } from "./web-dist";
 import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
+import { createProjectScopeMiddleware } from "./project-scope";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
@@ -589,6 +590,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       });
     });
   }
+
+  // mt#4730 — structural enforcement: resolve `?project=` to a ProjectScope
+  // ONCE per request, ahead of every route mount below, so a handler reads
+  // `req.projectScope` directly instead of each remembering to import and
+  // call `resolveCockpitProjectScope` itself. Also feeds the widget
+  // dispatcher (mountHealthRoutes' `/api/widget/:id/data`), which forwards
+  // it onto `WidgetContext.projectScope`. See ./project-scope.ts and
+  // ./scope-census.ts (the census backstop + deliberately-global allowlist).
+  app.use(createProjectScopeMiddleware());
 
   // --- API endpoints (per-domain route modules) ---
   //

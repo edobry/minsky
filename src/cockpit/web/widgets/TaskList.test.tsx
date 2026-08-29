@@ -25,7 +25,9 @@ import {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function task(overrides: Partial<TaskListItem> & Pick<TaskListItem, "id" | "status">): TaskListItem {
+function task(
+  overrides: Partial<TaskListItem> & Pick<TaskListItem, "id" | "status">
+): TaskListItem {
   return {
     title: `Task ${overrides.id}`,
     kind: "implementation",
@@ -91,10 +93,7 @@ describe("taskSortFn", () => {
   });
 
   test("status key descending reverses the priority order", () => {
-    const items = [
-      task({ id: "mt#1", status: "TODO" }),
-      task({ id: "mt#2", status: "IN-REVIEW" }),
-    ];
+    const items = [task({ id: "mt#1", status: "TODO" }), task({ id: "mt#2", status: "IN-REVIEW" })];
     const sorted = [...items].sort((a, b) => taskSortFn(a, b, "status", "desc"));
     expect(sorted.map((t) => t.status)).toEqual(["TODO", "IN-REVIEW"]);
   });
@@ -195,8 +194,16 @@ describe("TaskList component", () => {
 // Component — project badge states (mt#4729)
 // ---------------------------------------------------------------------------
 
-const MINSKY_PROJECT: StubProject = { id: "p-minsky", slug: "edobry/minsky", displayName: "Minsky" };
-const PEEZOMBIE_PROJECT: StubProject = { id: "p-peezombie", slug: "edobry/peezombie", displayName: null };
+const MINSKY_PROJECT: StubProject = {
+  id: "p-minsky",
+  slug: "edobry/minsky",
+  displayName: "Minsky",
+};
+const PEEZOMBIE_PROJECT: StubProject = {
+  id: "p-peezombie",
+  slug: "edobry/peezombie",
+  displayName: null,
+};
 
 describe("TaskList project badge", () => {
   afterEach(() => {
@@ -208,7 +215,12 @@ describe("TaskList project badge", () => {
     stubTasks(
       [
         task({ id: "mt#100", status: "TODO", title: "Minsky task", project: "edobry/minsky" }),
-        task({ id: "mt#200", status: "TODO", title: "Peezombie task", project: "edobry/peezombie" }),
+        task({
+          id: "mt#200",
+          status: "TODO",
+          title: "Peezombie task",
+          project: "edobry/peezombie",
+        }),
       ],
       [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
     );
@@ -232,22 +244,34 @@ describe("TaskList project badge", () => {
   });
 
   test("suppresses the project badge when a single project is explicitly selected", async () => {
+    // Guaranteed cleanup (mt#4730 PR #3471 R2): the prior version removed this
+    // key only after the assertions below, so a thrown assertion left it set
+    // for the rest of the shared `bun test` process — `localStorage` is a
+    // single global installed once by dom-setup.ts, not reset per file. That
+    // was harmless before mt#4730's apiFetch() started default-appending the
+    // CURRENT selection to every fetch; afterward it broke
+    // widget-client.test.ts's exact-URL assertions in CI, where this file
+    // (under widgets/) runs before lib/widget-client.test.ts. try/finally
+    // guarantees the leak cannot happen regardless of assertion outcome.
     try {
       localStorage.setItem("cockpit.project.v1", "edobry/minsky");
     } catch {
       /* jsdom/happy-dom always provides localStorage; ignore if not */
     }
-    stubTasks(
-      [task({ id: "mt#100", status: "TODO", title: "Scoped task", project: "edobry/minsky" })],
-      [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
-    );
-    renderList();
-    await waitFor(() => expect(screen.getByText("Scoped task")).toBeDefined());
-    expect(screen.queryByText("Minsky")).toBeNull();
     try {
-      localStorage.removeItem("cockpit.project.v1");
-    } catch {
-      /* ignore */
+      stubTasks(
+        [task({ id: "mt#100", status: "TODO", title: "Scoped task", project: "edobry/minsky" })],
+        [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
+      );
+      renderList();
+      await waitFor(() => expect(screen.getByText("Scoped task")).toBeDefined());
+      expect(screen.queryByText("Minsky")).toBeNull();
+    } finally {
+      try {
+        localStorage.removeItem("cockpit.project.v1");
+      } catch {
+        /* ignore */
+      }
     }
   });
 });
