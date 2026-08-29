@@ -223,7 +223,14 @@ export async function showGitHubStatus(
 
     const hasToken = !!githubToken;
     const isConfigured = getTaskBackend() === "github-issues";
-    const hasRepo = !!resolveGitHubBackendConfig(process.cwd());
+    // Reuse repoConfig from Step 3 (mt#4679 PR #3422 R2) — process.cwd() here is the exact
+    // same value as `workdir` in Step 3, so a second unguarded call was both redundant and a
+    // fresh exposure to the same class of bug this task fixes: if it ever DID throw, it would
+    // abort the whole Summary (unlike Step 3's own guarded call), landing in the outer catch
+    // instead of the informational report. repoConfig already reflects "not detected" (null)
+    // in both the ordinary case and the failure case, so reusing it is strictly safer, not
+    // just shorter.
+    const hasRepo = !!repoConfig;
 
     if (hasToken && isConfigured && hasRepo) {
       log.cli("🎉 GitHub Issues backend is ready to use!");

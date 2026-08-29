@@ -21,6 +21,14 @@
  *    exit 0) into a false non-zero exit. Same defect class as the bug this task fixes,
  *    sign flipped: a false FAILURE instead of a false SUCCESS. Fixed by guarding
  *    `backendConfig` and `github` reads with `has()`, exactly like `tasks.backend`.
+ * 4. R2 — the R1 fix guarded one call site and missed a second: Step 5's Summary
+ *    section called `getGitHubBackendConfig(process.cwd())` again — the EXACT same
+ *    call Step 3 already made and stored in `repoConfig` (`process.cwd()` ===
+ *    Step 3's `workdir`) — unguarded by any try/catch, sitting in the outer try only.
+ *    Fixed by reusing `repoConfig` instead of recomputing it — this is not just DRY,
+ *    it removes the second unguarded exposure entirely rather than adding a third
+ *    try/catch. Full sweep of every getter call site in this file and test.ts
+ *    performed for this round; see PR #3422 body for the enumerated list.
  *
  * Hermetic — injects fakes via `ShowGitHubStatusDeps` (the DI seam this task added).
  * `mock.module()` is banned repo-wide by `custom/no-global-module-mocks`.
@@ -201,4 +209,38 @@ describe("showGitHubStatus", () => {
 
     expect(result).toBe(false);
   });
+
+  test(
+    "R2: getGitHubBackendConfig is called exactly once per run, not twice — Step 5's " +
+      "Summary reuses Step 3's repoConfig instead of recomputing it (redundant AND " +
+      "unguarded in the R1 code)",
+    async () => {
+      const store = makeConfigStore({
+        tasks: { backend: "minsky" },
+        backendConfig: {},
+        github: {},
+      });
+      let callCount = 0;
+
+      const result = await showGitHubStatus(
+        {},
+        {
+          getConfiguration: () => FAKE_CONFIG_WITH_TOKEN,
+          getGitHubBackendConfig: () => {
+            callCount += 1;
+            return FAKE_REPO_CONFIG;
+          },
+          ...store,
+        }
+      );
+
+      expect(result).toBe(true);
+      // Under the R1 code this was 2 (Step 3's detection call, plus Step 5's
+      // unguarded re-fetch for `hasRepo`). A getter that throws on the SECOND call
+      // but not the first would have passed every other test in this file while
+      // still carrying the R2 defect — call-count is the only assertion that
+      // actually pins the call site down to one.
+      expect(callCount).toBe(1);
+    }
+  );
 });
