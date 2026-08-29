@@ -356,17 +356,18 @@ export interface ErrorContext {
  * **Locates `/repos/{owner}/{repo}` rather than anchoring at the start of
  * the path (mt#4692 PR #3421 R1).** `createOctokit` here always talks to
  * github.com, but `error.request.url` is a general Octokit contract — the
- * client accepts a `baseUrl` override, and Octokit's own docs use exactly
- * this shape for GitHub Enterprise Server: `new Octokit({ baseUrl:
- * "https://HOSTNAME/api/v3" })`, which puts an `/api/v3` (or any other
- * host-specific mount path) BEFORE `/repos/...` in the resolved URL.
- * Anchoring the match at the start of the path would silently fall through
- * to "no evidence" for every GHE request — the exact false-positive class
- * this task exists to remove, reappearing on a deployment shape the tests
- * never exercised. Scanning for the segment wherever it occurs handles a
- * GHE mount prefix, or any other proxy/gateway prefix, without needing to
- * enumerate them — the same "no hardcoded list to drift" reasoning as the
- * rest of this discriminator (see the file-level doc comment above).
+ * client accepts a configurable API root, and per @octokit/core's own
+ * README ("When using with GitHub Enterprise Server"), a GHE-configured
+ * client mounts the whole REST surface under `/api/v3` on the enterprise
+ * host — that host-specific mount path lands BEFORE `/repos/...` in the
+ * resolved URL. Anchoring the match at the start of the path would silently
+ * fall through to "no evidence" for every GHE request — the exact
+ * false-positive class this task exists to remove, reappearing on a
+ * deployment shape the tests never exercised. Scanning for the segment
+ * wherever it occurs handles a GHE mount prefix, or any other proxy/gateway
+ * prefix, without needing to enumerate them — the same "no hardcoded list
+ * to drift" reasoning as the rest of this discriminator (see the
+ * file-level doc comment above).
  */
 function requestAddressesSubResource(requestPath: string | undefined): boolean {
   if (!requestPath) return false;
