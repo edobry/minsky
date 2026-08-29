@@ -15,24 +15,25 @@
  * pointing at the indexing cadence (mt#2234) instead of a silent empty
  * `results: []`.
  *
- * ## Deliberately NOT project-scoped (mt#4727)
+ * ## Project scope (mt#4727)
  *
- * Unlike task-list.ts / agents.ts / asks.ts / changesets.ts, this route does
- * NOT thread `?project=` through to `resolveCockpitProjectScope()`. This
- * matches an existing, VERIFIED architectural decision for the whole
- * transcripts_* subsystem (mt#2818 R1, recorded in
- * `TranscriptListService.listConversations`'s docblock): ADR-021's
- * user-facing-behavior table enumerates exactly five scoped operations
- * (`tasks.list`, `session.list`, `memory.list`, `memory.search`,
- * `asks.list`) and does not include any `transcripts_*` tool. Neither
- * `TranscriptFtsService.searchText` nor `TranscriptSimilarityService.search`
- * accept a project filter today, and a harness conversation is not reliably
- * attributable to one Minsky project (it may span checkouts or be a
- * non-project chat) — the same reason ADR-021 left this subsystem out.
- * Adding scoping here alone would leave this route inconsistent with its
- * five transcripts_* siblings; per the mt#2818 R1 precedent, that should be
- * done as a coordinated ADR-021 amendment covering all of them, not one at a
- * time. See this task's spec `## Outcome` for the recorded decision.
+ * `?project=<slug>` resolves via `resolveCockpitProjectScope()` (mt#2418
+ * pattern) and is passed as `projectId` to `TranscriptFtsService.searchText`
+ * / `TranscriptSimilarityService.search`, both of which already accept it
+ * (mt#2417 Phase 1.4 — `agentTranscriptsTable.projectId`, resolved and
+ * stamped at ingest time from the transcript's own `cwd`, same resolver as
+ * the CLI/stdio MCP project supplier). `assessWindowCoverage`'s
+ * unindexed-session count is intentionally left UNSCOPED — it is a
+ * project-agnostic informational signal about indexing lag, not part of the
+ * result set the AT requires to be scoped.
+ *
+ * (An earlier revision of this comment claimed the whole transcripts_*
+ * subsystem was deliberately unscoped, generalizing a docblock on
+ * `TranscriptListService.listConversations` — a DIFFERENT, narrower listing
+ * method — to the whole subsystem. That was wrong: `TranscriptFtsService`
+ * and `TranscriptSimilarityService` already carry `projectId` scoping
+ * support; this route just wasn't threading it through. Caught by
+ * `minsky-reviewer[bot]` on this PR's first review round.)
  *
  * @see mt#2523 — this endpoint
  * @see packages/domain/src/transcripts/transcript-search-filters.ts — the
@@ -153,6 +154,25 @@ export function mountConversationSearchRoutes(
         return;
       }
 
+      // Project scope (mt#4727): ?project=<slug> resolved to a project uuid,
+      // defaulting to ALL_PROJECTS when omitted/"all" — same resolution
+      // rules as every other cockpit project-scoped read (mt#2418 pattern,
+      // task-list.ts:91-93). resolveCockpitProjectScope owns its own
+      // db-fetch and never throws (fail-open — PR #2056 R1). `undefined`
+      // (ALL_PROJECTS) is exactly what TranscriptFtsSearchOptions.projectId /
+      // TranscriptSearchOptions.projectId already treat as unscoped. Reuses
+      // this route's own `getDb` (a real PostgresJsDatabase structurally
+      // satisfies the narrower ScopeResolverDb interface) rather than
+      // resolveCockpitProjectScope's separate default getter, so a single
+      // injected fake db serves both slug resolution and the search itself
+      // in tests — production behavior is unchanged (same real singleton
+      // connection either way).
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const { isAllProjects } = await import("@minsky/domain/project/scope");
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam, { getDb });
+      const projectId = isAllProjects(projectScope) ? undefined : projectScope;
+
       const { assessWindowCoverage, buildSearchResponse } = await import(
         "@minsky/domain/transcripts/transcript-search-filters"
       );
@@ -168,13 +188,13 @@ export function mountConversationSearchRoutes(
           "@minsky/domain/transcripts/transcript-similarity-service"
         );
         const svc = new TranscriptSimilarityService(db, embeddingService);
-        results = await svc.search(query, { limit, dateRange });
+        results = await svc.search(query, { limit, dateRange, projectId });
       } else {
         const { TranscriptFtsService } = await import(
           "@minsky/domain/transcripts/transcript-fts-service"
         );
         const svc = new TranscriptFtsService(db);
-        results = await svc.searchText(query, { limit, dateRange, mode: textMode });
+        results = await svc.searchText(query, { limit, dateRange, mode: textMode, projectId });
       }
 
       const coverage = await assessWindowCoverage(db, dateRange);

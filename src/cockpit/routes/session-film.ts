@@ -119,8 +119,19 @@ export interface SessionFilmRouteOptions {
   /**
    * Test seam: override the picker's session list. Production code never
    * sets this — the real implementation is {@link defaultListSessions}.
+   * `projectId` mirrors `defaultListSessions`'s own param (mt#4727): a
+   * resolved project uuid, or `undefined` for ALL_PROJECTS.
    */
-  overrideListSessions?: () => Promise<SessionFilmPickerRow[]>;
+  overrideListSessions?: (projectId?: string) => Promise<SessionFilmPickerRow[]>;
+  /**
+   * Test seam (mt#4727): overrides `resolveCockpitProjectScope`'s own
+   * db-fetch for the `/sessions` route's `?project=` resolution. Production
+   * callers never set this — `resolveCockpitProjectScope` falls back to its
+   * own real `getContextInspectorDb()`-backed default.
+   */
+  getProjectScopeDb?: () => Promise<
+    import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
+  >;
   /**
    * Test seam: override the content fetch entirely (bypasses DB + snapshot
    * conversion). Returns `null` for "no such conversation". Production code
@@ -265,18 +276,21 @@ export async function fetchConversationBlocks(
 }
 
 /**
- * Deliberately NOT project-scoped (mt#4727). This picker queries
- * `agentTranscriptsTable` directly — the same substrate
- * `TranscriptListService.listConversations` reads, whose docblock records
- * the verified mt#2818 R1 decision that the whole transcripts_* subsystem
- * stays outside ADR-021's five scoped operations (`tasks.list`,
- * `session.list`, `memory.list`, `memory.search`, `asks.list`). A harness
- * conversation is not reliably attributable to one Minsky project, and
- * scoping this picker alone would leave it inconsistent with
- * `routes/conversation-search.ts` and the other transcripts_* readers. See
- * this task's spec `## Outcome` for the recorded decision.
+ * Project scope (mt#4727): `projectId` — a resolved project uuid, or
+ * `undefined` for ALL_PROJECTS — filters directly on
+ * `agentTranscriptsTable.projectId`. That column is a real uuid FK (mt#2417
+ * Phase 1.4), resolved and stamped at ingest time from the transcript's own
+ * `cwd` via the same resolver the CLI/stdio MCP project supplier uses — it
+ * is NOT the `projectDir` text column (a raw path, used only as a
+ * JSONL-file-locate optimization elsewhere in this codebase). An earlier
+ * revision of this comment claimed this picker was deliberately unscoped by
+ * generalizing a docblock about a DIFFERENT, narrower method
+ * (`TranscriptListService.listConversations`) to the whole transcripts_*
+ * subsystem; that was wrong (caught by `minsky-reviewer[bot]` on this PR's
+ * first review round) — `agentTranscriptsTable.projectId` already exists and
+ * is exactly what `routes/conversation-search.ts` threads through too.
  */
-async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
+async function defaultListSessions(projectId?: string): Promise<SessionFilmPickerRow[]> {
   const db = await getContextInspectorDb();
   if (!db) return [];
 
@@ -286,6 +300,11 @@ async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
   const { isNotNull } = await import("drizzle-orm");
   const { deriveFallbackLabel } = await import("@minsky/domain/transcripts/conversation-label");
 
+  const conditions = [isNotNull(agentTranscriptsTable.agentSessionId)];
+  if (projectId) {
+    conditions.push(eq(agentTranscriptsTable.projectId, projectId));
+  }
+
   const rows = await db
     .select({
       agentSessionId: agentTranscriptsTable.agentSessionId,
@@ -294,7 +313,7 @@ async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
       ingestedAt: agentTranscriptsTable.ingestedAt,
     })
     .from(agentTranscriptsTable)
-    .where(and(isNotNull(agentTranscriptsTable.agentSessionId)))
+    .where(and(...conditions))
     .orderBy(desc(agentTranscriptsTable.startedAt))
     .limit(MAX_PICKER_SESSIONS);
 
@@ -323,10 +342,26 @@ export function mountSessionFilmRoutes(
   /**
    * GET /api/cockpit/session-film/sessions — picker source: filmable
    * conversations, newest first.
+   *
+   * `?project=<slug>` (mt#4727): resolved via `resolveCockpitProjectScope()`
+   * (mt#2418 pattern) into a project uuid, or `undefined` for ALL_PROJECTS —
+   * fail-open on any resolution failure, same as every other cockpit
+   * project-scoped read.
    */
-  app.get("/api/cockpit/session-film/sessions", async (_req, res) => {
+  app.get("/api/cockpit/session-film/sessions", async (req, res) => {
     try {
-      const sessions = await withBoundedTimeout(listSessions(), EVENTS_ASSEMBLY_TIMEOUT_MS);
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const { isAllProjects } = await import("@minsky/domain/project/scope");
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam, {
+        getDb: opts.getProjectScopeDb,
+      });
+      const projectId = isAllProjects(projectScope) ? undefined : projectScope;
+
+      const sessions = await withBoundedTimeout(
+        listSessions(projectId),
+        EVENTS_ASSEMBLY_TIMEOUT_MS
+      );
       res.json({ sessions });
     } catch (err) {
       logInternal("GET /api/cockpit/session-film/sessions", err);

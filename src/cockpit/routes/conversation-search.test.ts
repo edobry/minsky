@@ -118,4 +118,29 @@ describe("GET /api/conversations/search", () => {
     const res = await fetch(`${url}/api/conversations/search?q=hello&from=not-a-date`);
     expect(res.status).toBe(503);
   });
+
+  // mt#4727 — this route's ?project= wiring. The route's own `getDb` (via
+  // `overrideConversationSearch`) is also reused for
+  // `resolveCockpitProjectScope`'s db-fetch (see conversation-search.ts's
+  // comment), so with `getDb: async () => null` project-scope resolution
+  // fails open to ALL_PROJECTS the same way the search itself degrades to
+  // 503 — a `?project=` param must not change that outcome or crash the
+  // request. The actual `projectId` filtering this resolution feeds into
+  // (`eq(agentTranscriptsTable.projectId, ...)`) is proven with a real
+  // two-project fixture at the domain layer:
+  // `transcript-fts-service.project-scope.test.ts` and the pre-existing
+  // `transcript-similarity-service.project-scope.test.ts` (mt#2417).
+  test("?project=<slug> is accepted without crashing the request (still the same 503)", async () => {
+    const url = await server();
+    const res = await fetch(
+      `${url}/api/conversations/search?q=hello&project=${encodeURIComponent("edobry/minsky")}`
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test("?project=all (explicit ALL_PROJECTS sentinel) is accepted without crashing (still the same 503)", async () => {
+    const url = await server();
+    const res = await fetch(`${url}/api/conversations/search?q=hello&project=all`);
+    expect(res.status).toBe(503);
+  });
 });
