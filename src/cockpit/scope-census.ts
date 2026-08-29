@@ -139,8 +139,12 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727):
 // activity, follow-ups (both mt#4746, documented partial-filter semantics via
 // relatedTaskId — see packages/domain/src/events/query.ts's and
-// packages/domain/src/scheduler/follow-up-service.ts's docblocks), asks,
-// changesets, conversation-search, session-film, tasks.
+// packages/domain/src/scheduler/follow-up-service.ts's docblocks),
+// driven-sessions (mt#4746, list endpoint only — filters directly on each
+// registry record's projectId, already stamped at spawn time by mt#4732; the
+// mutation endpoints remain not-project-attributable by design, per this
+// module's own docblock), asks, changesets, conversation-search, session-film,
+// tasks.
 // ---------------------------------------------------------------------------
 export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
   {
@@ -180,16 +184,6 @@ export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "credentials",
     reason: "not project-attributable: credentials are stored globally, not per-project.",
-  },
-  {
-    id: "driven-sessions",
-    reason:
-      "deferred (list endpoint only): GET /api/driven-session scans an in-memory " +
-      "process registry with no project concept; would need a task→project " +
-      "resolution per entry. The mutation endpoints (create/attach/stop) act on one " +
-      "already-identified session id and are not project-attributable at all. " +
-      "Tracked at mt#4746. (Distinct from mt#4319/mt#3274/mt#3325/mt#3363, which own " +
-      "this same file for the console/attach/WS-transport feature.)",
   },
   {
     id: "embeddings",
