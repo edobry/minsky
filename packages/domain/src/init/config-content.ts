@@ -45,13 +45,19 @@ export interface ProjectSlugOptions {
 export function getMinskyConfigContentYaml(
   backend: z.infer<typeof enumSchemas.backendType>,
   repository?: ResolvedRepositoryConfig,
-  mcp?: McpOptions,
   projectSlugOptions?: ProjectSlugOptions
 ): string {
   const config: Record<string, unknown> = {
+    // `tasks.strictIds` is deliberately NOT emitted (mt#4699). It had no
+    // production consumer anywhere in the repo — a census found 11 occurrences,
+    // all of them definitions, defaults, or test fixtures, and none reading it
+    // to make a decision. Writing an unimplemented flag into every new
+    // project's committed config gave operators a knob that does nothing. The
+    // schema keeps its `false` default (`configuration/schemas/tasks.ts`), so
+    // existing configs still parse and `config set tasks.strictIds` still
+    // works; only the emission stops.
     tasks: {
       backend: backend,
-      strictIds: false,
     },
     persistence: {
       // Postgres is the sole supported backend (ADR-018 / mt#2349). Set
@@ -77,18 +83,15 @@ export function getMinskyConfigContentYaml(
     config.repository = repoSection;
   }
 
-  if (mcp) {
-    const mcpSection: Record<string, unknown> = {
-      transport: mcp.transport ?? "stdio",
-    };
-    if (mcp.port !== undefined) {
-      mcpSection.port = mcp.port;
-    }
-    if (mcp.host !== undefined) {
-      mcpSection.host = mcp.host;
-    }
-    config.mcp = mcpSection;
-  }
+  // The `mcp` section is deliberately NOT emitted here (mt#4699). Transport,
+  // port and host are MACHINE scope, not project scope: `mcp start` never reads
+  // them (`resolveMcpTransport` in `src/cli-discriminators.ts` derives transport
+  // from CLI flags alone), and their only readers are the local
+  // client-registration path — `performSetup` and `mcp register`. Committing
+  // them meant two developers on one repo could not differ. `performSetup` now
+  // writes them to the gitignored `.minsky/config.local.yaml` overlay instead;
+  // it still reads this file's `mcp` section when present, so projects
+  // initialized before this change keep working.
 
   // Stamp project.slug (mt#2414). Try explicit option first, then auto-derive
   // from git remote.

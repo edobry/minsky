@@ -156,7 +156,10 @@ export async function initializeProject(
       : undefined;
   // Pass repoPath so getMinskyConfigContentYaml can auto-derive the project slug
   // from the git remote (mt#2414). Falls back gracefully when no remote exists.
-  const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig, {
+  // `mcpForConfig` is NOT passed here any more (mt#4699) — it now goes to
+  // performSetup below, which writes it to the machine-local overlay instead of
+  // the committed config.
+  const configContent = getMinskyConfigContentYaml(backend, repository, {
     repoPath,
   });
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
@@ -169,7 +172,14 @@ export async function initializeProject(
     // mt#4676: resolve the harness from the environment (CLAUDECODE=1, etc.)
     // before falling back to filesystem installed-ness, rather than
     // hardcoding "cursor" regardless of what is actually running `init`.
-    await performSetup({ repoPath, client: resolveInitClient(), overwrite }, fileSystem);
+    // mt#4699: hand the MCP options straight to performSetup rather than
+    // routing them through the committed config.yaml it used to read them
+    // back out of. They land in `.minsky/config.local.yaml`, which is where
+    // machine-scope settings belong.
+    await performSetup(
+      { repoPath, client: resolveInitClient(), overwrite, mcp: mcpForConfig },
+      fileSystem
+    );
 
     // Install the observability baseline so this project's conversations are
     // visible to cockpit attach + presence (mt#3499). Automatic, per ask#6671.

@@ -54,7 +54,7 @@ describe("Init System Backend Selection", () => {
     }
   });
 
-  test("should include mcp section in config when MCP is enabled", async () => {
+  test("routes the mcp section to the LOCAL overlay, not the committed config (mt#4699)", async () => {
     const testRepo = "/tmp/test-repo";
 
     await initializeProject(
@@ -71,9 +71,16 @@ describe("Init System Backend Selection", () => {
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
     expect(mockFileSystem.files.has(configPath)).toBe(true);
 
+    // Committed config no longer carries transport/port/host — they are machine
+    // scope (mt#4699). This assertion is the inverse of what it was before.
     const config = yamlParse(mockFileSystem.files.get(configPath) ?? "");
-    expect(config.mcp).toBeDefined();
-    expect(config.mcp.transport).toBe("stdio");
+    expect(config.mcp).toBeUndefined();
+
+    // ...and they land in the gitignored overlay instead.
+    const localPath = path.join(testRepo, ".minsky", "config.local.yaml");
+    const local = yamlParse(mockFileSystem.files.get(localPath) ?? "");
+    expect(local.mcp).toBeDefined();
+    expect(local.mcp.transport).toBe("stdio");
   });
 
   test("should include mcp section with port and host for SSE transport", async () => {
@@ -92,10 +99,15 @@ describe("Init System Backend Selection", () => {
 
     const configPath = path.join(testRepo, ".minsky", "config.yaml");
     const config = yamlParse(mockFileSystem.files.get(configPath) ?? "");
-    expect(config.mcp).toBeDefined();
-    expect(config.mcp.transport).toBe("sse");
-    expect(config.mcp.port).toBe(3000);
-    expect(config.mcp.host).toBe("0.0.0.0");
+    expect(config.mcp).toBeUndefined();
+
+    // Port and host follow transport into the local overlay (mt#4699) — a port
+    // is as machine-specific as a transport, so they move together.
+    const localPath = path.join(testRepo, ".minsky", "config.local.yaml");
+    const local = yamlParse(mockFileSystem.files.get(localPath) ?? "");
+    expect(local.mcp.transport).toBe("sse");
+    expect(local.mcp.port).toBe(3000);
+    expect(local.mcp.host).toBe("0.0.0.0");
   });
 
   test("should create appropriate files for each backend type", async () => {
