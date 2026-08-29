@@ -385,13 +385,27 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     if (judged.recoverability === "recoverable") {
       lines.push(`  Judged text:            recoverable — all ${judged.recordsAssessed} record(s)`);
     } else if (judged.recoverability === "partial") {
+      // mt#4465: bound the rate to the RECOVERABLE records, not the
+      // marker-carrying ones. Those were the same number while recoverability
+      // derived from the marker alone; they are not any more, and this line is
+      // the one a reviewer acts on.
       lines.push(
-        `  Judged text:            PARTIAL — ${judged.capturedRecords} of ${judged.recordsAssessed} record(s); bound any rate to the captured ones`
+        `  Judged text:            PARTIAL — ${judged.recoverableRecords} of ${judged.recordsAssessed} record(s); bound any rate to the recoverable ones`
       );
     } else if (judged.recoverability === "unrecoverable") {
       lines.push(
         `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry no capture; you can rate what matched, not whether it was right in context`
       );
+      // mt#4465 SC4: distinguish "the text is gone" from "the sweep has no
+      // mapping for this detector". Both render GONE above, and only the second
+      // is fixable by adding a line to `JUDGED_TEXT_FIELDS` — so a NEW detector
+      // that writes judged text under its own key says so here instead of
+      // looking identical to a log whose text really is unrecoverable.
+      if (judged.unmappedDetector) {
+        lines.push(
+          `                          ...and no judged-text field is mapped for "${judged.unmappedDetector}" — this GONE may be the map, not the data`
+        );
+      }
     } else {
       lines.push(`  Judged text:            n/a — no un-reviewed records to assess`);
     }

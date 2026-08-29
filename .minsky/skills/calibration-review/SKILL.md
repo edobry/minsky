@@ -318,23 +318,47 @@ Originating incident (2026-08-03, mem#827): a sweep dispositioned `wall-of-text`
 `trigger` at the top level of the same output. The false premise propagated into
 an Accepted ADR and two task specs before anyone checked the log.
 
-### A record without `captureSchema` is un-auditable, not clean (mt#3607)
+### A record with no judged text is un-auditable, not clean (mt#3607, corrected mt#4465)
 
-Records carry a `captureSchema` field once their writer started snapshotting the
-input it judged. **Absence is not a neutral fact — it means the judged text is
-unrecoverable, so that record can never be re-classified**, and any rate computed
-over a population containing them is a rate over records you cannot check.
+**Bound the FP rate to the records whose judged text you can actually read.** A
+record you cannot re-read is not evidence of correct behavior; it is evidence of
+nothing, which is a different thing and must not be averaged in.
 
-Split the population before computing anything:
+**`captureSchema` is one way a record carries judged text, not the only one — do
+not equate its absence with unrecoverable (mt#4465).** This section used to say
+absence "means the judged text is unrecoverable, so that record can never be
+re-classified." That was measurably false for four logs at once, and the sweep
+made the same understatement, so a reviewer trusting either was told to HOLD over
+text sitting in every record. Measured 2026-08-29: `untaken-action` carried
+`final_message_tail` on **390 of 390** records with zero `captureSchema`;
+`negative-existence-claim` carried a populated `claims[].excerpt` on **90 of 90**;
+`wall-of-text` carried `excerpt` on 433 of 620.
+
+Absence of the marker means the writer **did not adopt the shared capture
+contract** — which is what `capturedRecords` reports, and which is still worth
+fixing. It does not, by itself, mean the text is gone.
+
+**Read `judgedText.recoverability` and `recoverableRecords`; do not derive the
+split by hand from `captureSchema`.** The sweep now checks the marker AND each
+detector's own judged-text field (`JUDGED_TEXT_FIELDS` in
+`src/domain/calibration/calibration-sweep.ts`), at both record levels:
 
 ```
-jq -c 'select(.captureSchema != null)' .minsky/<name>-calibration.jsonl | wc -l   # auditable
-jq -c 'select(.captureSchema == null)' .minsky/<name>-calibration.jsonl | wc -l   # not
+# What to bound the rate to — the sweep's own numbers:
+#   Judged text: PARTIAL — <recoverableRecords> of <recordsAssessed>
 ```
 
-Report both counts in the disposition, and bound the FP rate to the auditable
-half. The pre-capture records are not evidence of correct behavior; they are
-evidence of nothing, which is a different thing and must not be averaged in.
+If you do split by hand, split on the field that log actually uses, not on
+`captureSchema`:
+
+```
+jq -c 'select(.final_message_tail != "")' .minsky/untaken-action-calibration.jsonl | wc -l
+```
+
+**If the output says no judged-text field is mapped for a detector, that GONE is
+about the MAP, not the data.** Check the raw JSONL for a field the sweep has not
+been told about, and add it to `JUDGED_TEXT_FIELDS` rather than dispositioning
+the log unratable.
 
 This matters most where the judged artifact is MUTABLE. For a PR-body surface,
 re-fetching the body and re-running the matchers answers "what would the detector

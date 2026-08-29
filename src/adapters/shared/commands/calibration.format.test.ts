@@ -42,7 +42,17 @@ function resultWith(
       verdict: "classifiable",
       evidenceFields: ["matches"],
       recordsAssessed,
-      judgedText: { recoverability, capturedRecords, recordsAssessed },
+      // mt#4465: `recoverableRecords` is what the PARTIAL line now bounds the
+      // rate to. It equals `capturedRecords` here because these fixtures model
+      // a marker-only log — the two diverge exactly when a detector carries
+      // judged text under its own key, which `calibration-judged-text.test.ts`
+      // covers against parsed records.
+      judgedText: {
+        recoverability,
+        capturedRecords,
+        recoverableRecords: capturedRecords,
+        recordsAssessed,
+      },
     },
   } as unknown as CalibrationLogResult;
 }
@@ -56,7 +66,7 @@ describe("formatResult — judged-text recoverability", () => {
     expect(text).toContain("311 record(s) carry no capture");
   });
 
-  test("a partial log reports the captured count so a rate can be bounded", () => {
+  test("a partial log reports the recoverable count so a rate can be bounded", () => {
     const text = formatResult([resultWith("partial", 133, 375)], []);
     expect(text).toContain(`${JUDGED_TEXT_LABEL}            PARTIAL — 133 of 375`);
   });
