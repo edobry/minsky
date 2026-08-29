@@ -510,6 +510,44 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       expect(first(result.rules).content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
 
+    test("preset outputDir is DERIVED from ruleFormat, not hardcoded (mt#4714 R1)", async () => {
+      const template: RuleTemplate = {
+        id: "preset-test",
+        name: "Preset Test",
+        description: "Tests configuration presets",
+        generateContent: (context) => context.helpers.command("tasks.list"),
+      };
+      service.registerTemplate(template);
+
+      // The defect this replaced: `outputDir: options.outputDir || ".minsky/rules"`
+      // paired with a `ruleFormat` default, so a caller naming a DIFFERENT format
+      // and no directory got `.minsky/rules` — format and directory disagreeing,
+      // the same shape as mt#4714's headline bug one level down.
+      const cursor = await service.generateCliRules({
+        selectedRules: ["preset-test"],
+        dryRun: true,
+        ruleFormat: "cursor",
+      });
+      expect(cursor.config?.outputDir).toBe(".cursor/rules");
+
+      // Unchanged for the default format.
+      const defaulted = await service.generateCliRules({
+        selectedRules: ["preset-test"],
+        dryRun: true,
+      });
+      expect(defaulted.config?.outputDir).toBe(".minsky/rules");
+
+      // An explicit outputDir still wins over the derivation — `getOutputDir`'s
+      // documented override precedence is preserved.
+      const explicit = await service.generateCliRules({
+        selectedRules: ["preset-test"],
+        dryRun: true,
+        ruleFormat: "cursor",
+        outputDir: "/custom/rules",
+      });
+      expect(explicit.config?.outputDir).toBe("/custom/rules");
+    });
+
     test("generateMcpRules uses MCP configuration", async () => {
       const template: RuleTemplate = {
         id: "preset-test",
