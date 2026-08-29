@@ -19,7 +19,7 @@ import {
   parseGitHubRepoRef,
   sameRepoRef,
   type ChangesetRepoRef,
-} from "./changeset-id";
+} from "@minsky/shared/changeset-id";
 
 /** How the repository for a changeset request was determined. */
 export type ChangesetRepoSource = "qualified-id" | "project-param" | "default";

@@ -16,7 +16,7 @@ import {
   describeServerPersistenceUnavailability,
 } from "../db-providers";
 import { resolveCockpitProjectScope, ALL_PROJECTS_PARAM } from "../project-scope";
-import { changesetIdFor, isChangesetId } from "../changeset-id";
+import { changesetIdFor, isChangesetId } from "@minsky/shared/changeset-id";
 import { resolveChangesetRepoSource, selectSessionForChangeset } from "../changeset-resolution";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";

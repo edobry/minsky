@@ -39,7 +39,7 @@
  * @see mt#2769 — added "conversation" (web-route only)
  * @see mt#4724 — the changeset id's two forms (bare / `owner/repo#N`)
  */
-import { isChangesetId } from "../../changeset-id";
+import { isChangesetId } from "@minsky/shared/changeset-id";
 
 /**
  * Entity types that have a routable cockpit detail page.

@@ -36,7 +36,7 @@ import {
   getServerChecksReader,
   getDefaultChangesetRepoRef,
 } from "../src/cockpit/db-providers";
-import { parseChangesetId } from "../src/cockpit/changeset-id";
+import { parseChangesetId } from "@minsky/shared/changeset-id";
 
 const DEFAULT_PR = "2222";
 

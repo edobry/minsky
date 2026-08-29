@@ -29,13 +29,41 @@
  * `#` → `%23`), `matchEntityRoute`'s `^/changeset/([^/]+)$` still matches the
  * single encoded segment, and `parseMinskyUri` decodes it back.
  *
+ * ## Why it lives in `packages/shared`
+ *
+ * It is shared by the cockpit's express routes (Bun) and by its SPA
+ * (`src/cockpit/web/lib/entity-codec.ts`, browser bundle), and TWO independent
+ * constraints pin where such a module may live. `packages/shared/src` is the
+ * only place that satisfies both — it is the browser-safe home mt#3239
+ * established for exactly this purpose (`ask-closure.ts`, `ask-approval.ts` are
+ * the precedents).
+ *
+ * **1. The image build's file set.** This started at
+ * `src/cockpit/changeset-id.ts`, which resolves locally and FAILS in the image:
+ * `services/cockpit/Dockerfile`'s builder stage copies each workspace's `src`
+ * plus `src/cockpit/web` — not the rest of `src/cockpit` — so Rollup could not
+ * resolve it (`docker-build-smoke`, PR #3455). Every other SPA import from
+ * `src/cockpit/*` is an `import type`, which esbuild erases; this was the first
+ * VALUE import across that boundary, and the Dockerfile states the rule
+ * directly — value imports need the source present, type-only ones do not.
+ *
+ * **2. The browser-safety guard.** `packages/domain` also satisfies (1), and is
+ * still wrong: `custom/no-node-import-in-cockpit-web` bans `@minsky/domain` as a
+ * whole PREFIX from cockpit web files, because any domain submodule may reach
+ * `@minsky/shared/logger` (whose top-level code touches Node) transitively. Its
+ * allowlist exists but its own docblock warns that an allowlisted module which
+ * LATER grows a Node import is not caught — so taking the escape hatch trades a
+ * build-time failure for a runtime one.
+ *
+ * mt#1207 wants this same `owner/repo#N` convention for the provenance
+ * subsystem's identical collision; that is domain code, and domain may import
+ * from shared, so one source of truth still serves both.
+ *
  * ## Purity contract
  *
- * This module has **no imports**. It is shared by the express routes (Bun) and
- * by `web/lib/entity-codec.ts` (browser bundle), and the root tsconfig excludes
- * `src/cockpit/web` while the web tsconfig only `include`s that directory — an
- * import-only edge is how both projects reach a module that belongs to neither.
- * Anything node-only added here would break the browser build.
+ * This module has **no imports**, and must keep none: it is bundled into the
+ * browser, so anything Node-only added here breaks the SPA build — which is the
+ * very hazard constraint (2) exists to prevent.
  */
 
 /** A GitHub repository coordinate. */

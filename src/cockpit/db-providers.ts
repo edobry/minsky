@@ -43,7 +43,7 @@ import {
   repoRefFromProjectSlug,
   repoUrlFromRepoRef,
   type ChangesetRepoRef,
-} from "./changeset-id";
+} from "@minsky/shared/changeset-id";
 // Static (not dynamic) per `no-dynamic-imports`: this module is types + a pure
 // string builder, so it carries none of the weight that keeps PersistenceService
 // behind the dynamic import in getCachedPersistenceProvider below.
