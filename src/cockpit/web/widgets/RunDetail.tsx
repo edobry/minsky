@@ -311,6 +311,14 @@ function WorkspaceOverviewBody({ fields }: { fields: WorkspaceOverviewFields }) 
           </span>
         </MetaItem>
         <MetaItem label="Status">{session.status ?? "—"}</MetaItem>
+        {/* mt#4729: session.repoName was declared on this payload but never
+            rendered — the detail page is where the project a run belongs to
+            is unambiguous identity info, independent of the shell's current
+            project filter (unlike the all-projects list rows, this is not
+            gated by shouldShowProjectIndicator). */}
+        <MetaItem label="Project">
+          <span className="truncate">{session.repoName ?? "—"}</span>
+        </MetaItem>
         <MetaItem label="Branch">
           <span className="font-mono text-xs">{session.branch ?? "—"}</span>
         </MetaItem>

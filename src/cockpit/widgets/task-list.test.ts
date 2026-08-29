@@ -163,6 +163,86 @@ describe("createTaskListWidget — project-scope wiring (mt#2418)", () => {
     expect(isAllProjects(projectScope)).toBe(false);
   });
 
+  // mt#4729 SC1: TaskListItem carries a project IDENTIFIER (slug), not the
+  // internal uuid FK — resolved server-side via a listProjects() lookup.
+  test("resolves a task's projectId (uuid FK) to its slug via listProjects", async () => {
+    const PROJECT_ID = "33333333-3333-3333-3333-333333333333";
+    const scopedTask: Task = { ...TASK, id: "mt#2", projectId: PROJECT_ID };
+    let listProjectsCallCount = 0;
+    const deps: TaskListDeps = {
+      taskService: makeCapturingTaskService([scopedTask], () => {}),
+      listProjects: async () => {
+        listProjectsCallCount++;
+        return [{ id: PROJECT_ID, slug: "edobry/peezombie" }];
+      },
+    };
+    const widget = createTaskListWidget(async () => deps);
+
+    const data = await widget.fetch({ id: "task-list" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const [item] = (data.payload as TaskListPayload).tasks;
+    expect(item?.project).toBe("edobry/peezombie");
+    // One lookup per fetch, not per task.
+    expect(listProjectsCallCount).toBe(1);
+  });
+
+  test("defaults TaskListItem.project to null for a legacy/unscoped task row, and never calls listProjects", async () => {
+    let listProjectsCallCount = 0;
+    const deps: TaskListDeps = {
+      // TASK has no projectId set (undefined) — mirrors a pre-ADR-021 row.
+      taskService: makeCapturingTaskService([TASK], () => {}),
+      listProjects: async () => {
+        listProjectsCallCount++;
+        return [];
+      },
+    };
+    const widget = createTaskListWidget(async () => deps);
+
+    const data = await widget.fetch({ id: "task-list" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const [item] = (data.payload as TaskListPayload).tasks;
+    expect(item?.project).toBeNull();
+    // The lookup is skipped entirely when no task in the result carries a
+    // projectId — the common single-project/legacy-row case costs nothing.
+    expect(listProjectsCallCount).toBe(0);
+  });
+
+  test("resolves to null (fail-open) when the project-slug lookup itself throws", async () => {
+    const scopedTask: Task = { ...TASK, id: "mt#3", projectId: "some-uuid" };
+    const deps: TaskListDeps = {
+      taskService: makeCapturingTaskService([scopedTask], () => {}),
+      listProjects: async () => {
+        throw new Error("connection dropped");
+      },
+    };
+    const widget = createTaskListWidget(async () => deps);
+
+    const data = await widget.fetch({ id: "task-list" });
+    // A lookup failure must never take the widget down (PR #2056 R1 fail-open
+    // posture, same contract resolveCockpitProjectScope already carries).
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const [item] = (data.payload as TaskListPayload).tasks;
+    expect(item?.project).toBeNull();
+  });
+
+  test("a projectId absent from the resolved project list degrades to null", async () => {
+    const scopedTask: Task = { ...TASK, id: "mt#4", projectId: "unknown-uuid" };
+    const deps: TaskListDeps = {
+      taskService: makeCapturingTaskService([scopedTask], () => {}),
+      listProjects: async () => [{ id: "some-other-uuid", slug: "edobry/minsky" }],
+    };
+    const widget = createTaskListWidget(async () => deps);
+
+    const data = await widget.fetch({ id: "task-list" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const [item] = (data.payload as TaskListPayload).tasks;
+    expect(item?.project).toBeNull();
+  });
+
   // PR #2056 R1 BLOCKING 2 / NON-BLOCKING 2: a thrown db-getter (module import
   // failure, connection error, etc.) must degrade project-scope resolution to
   // ALL_PROJECTS — NOT the whole widget to `state: "degraded"`. That contract

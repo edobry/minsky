@@ -84,6 +84,46 @@ export function isKnownSlug(projects: ProjectSummary[], slug: string | null): bo
   return projects.some((p) => p.slug === slug);
 }
 
+// ---------------------------------------------------------------------------
+// Project-badge helpers (mt#4729) — shared by TaskList / Changesets /
+// RunDetail row rendering, so the "when to show" rule and the "what label"
+// rule each live in exactly one place rather than being reimplemented per
+// widget.
+// ---------------------------------------------------------------------------
+
+/**
+ * True when a project indicator is worth rendering: the all-projects view
+ * (no project explicitly selected) AND 2+ projects actually exist. A single
+ * known project, or an explicit selection, makes a per-row badge pure noise
+ * — there is nothing left to distinguish (mission-control density: no
+ * indicator with no useful state to convey). Mirrors the same threshold
+ * `ProjectSelector` already uses to decide whether to render itself at all.
+ */
+export function shouldShowProjectIndicator(
+  projects: ProjectSummary[],
+  selectedSlug: string | null
+): boolean {
+  return selectedSlug === null && projects.length >= 2;
+}
+
+/**
+ * Resolve a project slug (as carried on e.g. `TaskListItem.project`, or a
+ * session/changeset row's `repoName`) to a human-readable label —
+ * `displayName` when the shell knows a project by that slug, else the slug
+ * itself (which is already a valid identifier per mt#4729 SC1 — no reason
+ * to degrade to null just because `/api/projects` hasn't resolved a nicer
+ * name for it yet, e.g. a race with that fetch, or a project the shell's
+ * list doesn't (yet) include).
+ */
+export function projectLabelBySlug(
+  projects: ProjectSummary[],
+  slug: string | null
+): string | null {
+  if (!slug) return null;
+  const project = projects.find((p) => p.slug === slug);
+  return project?.displayName ?? slug;
+}
+
 interface ProjectContextValue {
   /** Every known project (empty while loading, or when none exist). */
   projects: ProjectSummary[];

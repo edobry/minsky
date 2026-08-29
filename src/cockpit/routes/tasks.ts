@@ -9,6 +9,7 @@
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import {
   getServerTaskService,
   getServerTaskDetailDeps,
@@ -23,6 +24,7 @@ import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host"
 import { ServerTimingRecorder } from "../server-timing";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
+import { resolveCockpitProjectScope } from "../project-scope";
 
 /**
  * Pick the driven session an operator should be returned to for a task
@@ -158,8 +160,31 @@ export function parseTaskMetaIds(rawIds: unknown): string[] {
     .filter((s) => s.length > 0);
 }
 
+export interface TaskRoutesOptions {
+  /**
+   * Test seam (mt#4727, mirrors `asks.ts`'s `askRepoOverride` /
+   * `conversation-search.ts`'s `getDb` options): overrides `getServerTaskService()`
+   * for `/api/tasks` and `/api/tasks/ids` so project-scope wiring can be
+   * tested with a real, injectable `TaskServiceInterface` (e.g. an
+   * in-memory fake seeded with two-project fixtures) rather than the real
+   * DB-backed singleton. Production callers never set this.
+   */
+  taskServiceOverride?: TaskServiceInterface;
+  /**
+   * Test seam (mt#4727, mirrors `widgets/agents.ts`'s `getProjectScopeDb`):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch for `/api/tasks`
+   * and `/api/tasks/ids`'s `?project=` resolution. Production callers never
+   * set this — `resolveCockpitProjectScope` falls back to its own
+   * `defaultGetDb` (the real `getContextInspectorDb()` singleton).
+   */
+  getProjectScopeDb?: () => Promise<
+    import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
+  >;
+}
+
 /** Mount the /api/tasks* routes on `app`. */
-export function mountTaskRoutes(app: express.Express): void {
+export function mountTaskRoutes(app: express.Express, opts: TaskRoutesOptions = {}): void {
+  const { taskServiceOverride, getProjectScopeDb } = opts;
   /**
    * GET /api/tasks/meta?ids=mt%231,mt%232 — batch task-label channel (mt#3174).
    *
@@ -211,7 +236,7 @@ export function mountTaskRoutes(app: express.Express): void {
    */
   app.get("/api/tasks/ids", async (req, res) => {
     try {
-      const taskService = await getServerTaskService();
+      const taskService = taskServiceOverride ?? (await getServerTaskService());
       if (!taskService) {
         res.status(503).json({
           error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -219,8 +244,16 @@ export function mountTaskRoutes(app: express.Express): void {
         return;
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+      // Project scope (mt#4727): ?project=<slug>, same resolution rules as
+      // every other cockpit project-scoped read (mt#2418 pattern). Absent/"all"
+      // resolves to ALL_PROJECTS, preserving the pre-mt#4727 comprehensive
+      // id-set behavior this endpoint's docblock promises the linkifier.
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam, {
+        getDb: getProjectScopeDb,
+      });
       // Fetch ALL tasks regardless of status (no 500 cap, no sort needed — ids only).
-      const tasks = await taskService.listTasks({ all: true });
+      const tasks = await taskService.listTasks({ all: true, projectScope });
       const ids = tasks.map((t) => formatTaskIdForDisplay(t.id));
       res.json({ ids });
     } catch (err) {
@@ -583,7 +616,8 @@ export function mountTaskRoutes(app: express.Express): void {
     timing.attachTo(res);
 
     try {
-      const taskService = await timing.time("service", () => getServerTaskService());
+      const taskService =
+        taskServiceOverride ?? (await timing.time("service", () => getServerTaskService()));
       if (!taskService) {
         res.status(503).json({
           error: `Task service unavailable — ${await describeServerPersistenceUnavailability()}`,
@@ -596,7 +630,18 @@ export function mountTaskRoutes(app: express.Express): void {
       // linkifier in ConversationView — mt#2518). Without this flag the backend
       // default hides terminal-status tasks, leaving most transcript refs unlinkified.
       const includeAll = req.query.all === "true";
-      const tasks = await timing.time("list", () => taskService.listTasks({ all: includeAll }));
+      // Project scope (mt#4727): ?project=<slug>, same resolution rules as
+      // every other cockpit project-scoped read (mt#2418 pattern). Absent/"all"
+      // resolves to ALL_PROJECTS. resolveCockpitProjectScope owns its own
+      // db-fetch and never throws (fail-open — PR #2056 R1), so a scoping
+      // failure can never take this route down.
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam, {
+        getDb: getProjectScopeDb,
+      });
+      const tasks = await timing.time("list", () =>
+        taskService.listTasks({ all: includeAll, projectScope })
+      );
       const taskList = sortTasksByRecency(tasks)
         .slice(0, 500)
         .map((t) => ({

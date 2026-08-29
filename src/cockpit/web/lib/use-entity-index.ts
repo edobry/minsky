@@ -158,6 +158,12 @@ function extractMemoryShortIds(data: WidgetData | undefined): ShortIdAlias[] {
  * header's "Only TASKS need a new server channel" note). Returns [] on
  * error — fail-open so a changeset-endpoint hiccup doesn't break transcript
  * linkification for every other entity type.
+ *
+ * The id is the server-supplied `changesetId` (mt#4724), NOT `String(pr.number)`.
+ * A PR number is unique only per-repository, so keying by the bare number
+ * collapsed PR #42 in two projects onto one entry — whichever arrived last won
+ * both the id-set gate and the label. The server qualifies non-default-project
+ * rows as `owner/repo#N`, so the two now occupy distinct keys.
  */
 async function fetchChangesetEntries(): Promise<
   { id: string; title: string | null; state: string }[]
@@ -169,7 +175,11 @@ async function fetchChangesetEntries(): Promise<
     if (!Array.isArray(data?.changesets)) return [];
     return data.changesets
       .filter((c) => c.pr.number != null)
-      .map((c) => ({ id: String(c.pr.number), title: c.pr.title, state: c.pr.state }));
+      .map((c) => ({
+        id: c.changesetId ?? String(c.pr.number),
+        title: c.pr.title,
+        state: c.pr.state,
+      }));
   } catch {
     return [];
   }

@@ -9,8 +9,18 @@
  * instead. Data-layer correctness (the actual label resolution) is covered
  * by `../task-title-cache.test.ts`'s `getTaskMeta` suite.
  */
-import { describe, test, expect } from "bun:test";
-import { collectReferencedTaskIds, parseTaskMetaIds, selectLiveDrivenSession } from "./tasks";
+import { describe, test, expect, afterEach } from "bun:test";
+import type { Server } from "http";
+import express from "express";
+import {
+  collectReferencedTaskIds,
+  parseTaskMetaIds,
+  selectLiveDrivenSession,
+  mountTaskRoutes,
+} from "./tasks";
+import type { Task, TaskListOptions } from "@minsky/domain/tasks/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 
 describe("collectReferencedTaskIds", () => {
   const ok = <T>(value: T): PromiseSettledResult<T> => ({ status: "fulfilled", value });
@@ -260,5 +270,153 @@ describe("selectLiveDrivenSession (mt#3400)", () => {
     ];
     selectLiveDrivenSession(records, "mt#3400", normalize, isTerminal);
     expect(records.map((r) => r.localId)).toEqual(["ds-old", "ds-new"]);
+  });
+});
+
+/**
+ * GET /api/tasks and GET /api/tasks/ids project-scope wiring (mt#4727).
+ *
+ * Two-project fixture: two distinct in-memory task lists, one per project
+ * uuid. The fake `TaskServiceInterface` returns whichever list matches the
+ * resolved `projectScope` (or the concatenation for ALL_PROJECTS), so a real
+ * end-to-end HTTP request against `?project=<slug>` proves BOTH halves of
+ * the wiring: the route resolves the slug to the right uuid via the injected
+ * `getProjectScopeDb` fake, and passes that uuid through to `listTasks()`.
+ */
+describe("GET /api/tasks & /api/tasks/ids — project-scope wiring (mt#4727)", () => {
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const PROJECT_B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const PROJECT_A_SLUG = "edobry/minsky";
+  const PROJECT_B_SLUG = "edobry/peezombie.me";
+
+  const TASK_A: Task = { id: "mt#1", title: "Project A task", status: "TODO" };
+  const TASK_B: Task = { id: "pz#1", title: "Project B task", status: "TODO" };
+
+  /** Fake task service partitioned by project id — the two-project fixture. */
+  function makeTwoProjectTaskService(): TaskServiceInterface {
+    return {
+      listTasks: async (options?: TaskListOptions) => {
+        const scope = options?.projectScope;
+        if (scope === PROJECT_A_ID) return [TASK_A];
+        if (scope === PROJECT_B_ID) return [TASK_B];
+        // ALL_PROJECTS (or any other sentinel/omitted value): every project's rows.
+        return [TASK_A, TASK_B];
+      },
+      getTask: async () => null,
+      getTaskStatus: async () => undefined,
+      setTaskStatus: async () => ({ recordsAffected: 1 }),
+      createTaskFromTitleAndSpec: async () => {
+        throw new Error("not implemented in fake");
+      },
+      deleteTask: async () => false,
+      getTasks: async () => [],
+      getTaskSpecContent: async () => {
+        throw new Error("not implemented in fake");
+      },
+      getWorkspacePath: () => "/fake/workspace",
+    };
+  }
+
+  /**
+   * Fake scope-resolver db resolving exactly the given slug->uuid rows.
+   * `resolveProjectScope` builds its own drizzle WHERE predicate internally
+   * (`eq(projectsTable.slug, slug)`) and always reads `rows[0]` — this fake
+   * cannot see which slug the predicate encodes, so (mirroring
+   * `task-list.test.ts`'s `makeScopeResolverDb`) each call site supplies
+   * only the row(s) relevant to what it's testing, keeping `rows[0]`
+   * unambiguous.
+   */
+  function makeScopeResolverDb(rows: Array<{ id: string; slug: string }>): ScopeResolverDb {
+    return {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                return {
+                  limit() {
+                    return Promise.resolve(rows);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  const servers: Server[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      servers
+        .splice(0)
+        .map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+    );
+  });
+
+  async function makeHarness(scopeDbRows: Array<{ id: string; slug: string }>): Promise<{
+    url: string;
+  }> {
+    const app = express();
+    mountTaskRoutes(app, {
+      taskServiceOverride: makeTwoProjectTaskService(),
+      getProjectScopeDb: async () => makeScopeResolverDb(scopeDbRows),
+    });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("no ephemeral port");
+    return { url: `http://127.0.0.1:${address.port}` };
+  }
+
+  test("GET /api/tasks with no ?project= returns every project's tasks (ALL_PROJECTS default)", async () => {
+    const { url } = await makeHarness([]);
+    const res = await fetch(`${url}/api/tasks`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: { id: string }[] };
+    expect(body.tasks.map((t) => t.id).sort()).toEqual(["mt#1", "pz#1"]);
+  });
+
+  test("GET /api/tasks?project=<project A slug> returns only project A's tasks", async () => {
+    const { url } = await makeHarness([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }]);
+    const res = await fetch(`${url}/api/tasks?project=${encodeURIComponent(PROJECT_A_SLUG)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: { id: string }[] };
+    expect(body.tasks.map((t) => t.id)).toEqual(["mt#1"]);
+  });
+
+  test("GET /api/tasks?project=<project B slug> returns only project B's tasks", async () => {
+    const { url } = await makeHarness([{ id: PROJECT_B_ID, slug: PROJECT_B_SLUG }]);
+    const res = await fetch(`${url}/api/tasks?project=${encodeURIComponent(PROJECT_B_SLUG)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: { id: string }[] };
+    expect(body.tasks.map((t) => t.id)).toEqual(["pz#1"]);
+  });
+
+  test("GET /api/tasks/ids?project=<project A slug> returns only project A's ids", async () => {
+    const { url } = await makeHarness([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }]);
+    const res = await fetch(`${url}/api/tasks/ids?project=${encodeURIComponent(PROJECT_A_SLUG)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ids: string[] };
+    expect(body.ids).toEqual(["mt#1"]);
+  });
+
+  test("GET /api/tasks/ids with no ?project= returns every project's ids", async () => {
+    const { url } = await makeHarness([]);
+    const res = await fetch(`${url}/api/tasks/ids`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ids: string[] };
+    expect(body.ids.sort()).toEqual(["mt#1", "pz#1"]);
+  });
+
+  test("GET /api/tasks?project=all falls back to ALL_PROJECTS (explicit sentinel)", async () => {
+    const { url } = await makeHarness([]);
+    const res = await fetch(`${url}/api/tasks?project=all`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: { id: string }[] };
+    expect(body.tasks.map((t) => t.id).sort()).toEqual(["mt#1", "pz#1"]);
   });
 });

@@ -340,6 +340,43 @@ describe("changeset id numeric enforcement (mt#2536 R1)", () => {
   });
 });
 
+describe("project-qualified changeset ids (mt#4724)", () => {
+  // A PR number is unique only per-REPOSITORY — `changeset` is the one routable
+  // entity type without a global id-space. The qualified `owner/repo#N` form
+  // (mt#1207's convention) names its repo; the bare form still means "the
+  // default project's PR N", which is what every already-emitted
+  // `minsky://changeset/<n>` link says and what ADR-029 fixes in place.
+  const QUALIFIED = "edobry/peezombie.me#1";
+
+  test("a qualified id round-trips through URI and path", () => {
+    const uri = entityToMinskyUri("changeset", QUALIFIED);
+    expect(uri).toBe("minsky://changeset/edobry%2Fpeezombie.me%231");
+    expect(parseMinskyUri(uri)).toEqual({ type: "changeset", id: QUALIFIED });
+    expect(entityToPath("changeset", QUALIFIED)).toBe("/changeset/edobry%2Fpeezombie.me%231");
+    expect(minskyUriToPath(uri)).toBe("/changeset/edobry%2Fpeezombie.me%231");
+  });
+
+  test("the path segment survives matchEntityRoute (the `/` stays encoded)", () => {
+    expect(matchEntityRoute(entityToPath("changeset", QUALIFIED))?.entityId).toBe(QUALIFIED);
+  });
+
+  test("bare ids are unchanged — every already-emitted link still parses", () => {
+    expect(parseMinskyUri("minsky://changeset/3423")).toEqual({ type: "changeset", id: "3423" });
+  });
+
+  test("two projects' PR #1 produce DISTINCT URIs", () => {
+    expect(entityToMinskyUri("changeset", QUALIFIED)).not.toBe(
+      entityToMinskyUri("changeset", "edobry/minsky#1")
+    );
+  });
+
+  test("still rejects malformed qualified ids", () => {
+    expect(parseMinskyUri("minsky://changeset/edobry%2Fpeezombie.me")).toBeNull();
+    expect(parseMinskyUri("minsky://changeset/edobry%2Fpeezombie.me%23abc")).toBeNull();
+    expect(parseMinskyUri("minsky://changeset/%2Frepo%231")).toBeNull();
+  });
+});
+
 describe("interceptor type (mt#4010)", () => {
   // The id is a `guardName` — kebab-case, already URL-safe, and NOT a uuid.
   const NAME = "turn-end-bare-ref-scan";

@@ -21,6 +21,8 @@ import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask } from "@minsky/domain/ask/types";
+import type { ProjectScope } from "@minsky/domain/project/scope";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import {
   pendingAsksForWindow,
   compareAskPriority,
@@ -116,12 +118,20 @@ function toAttentionAsk(ask: Ask): AttentionAsk {
  *      `pendingAsksForWindow` — same query as the CLI sibling (mt#1491).
  *   2. Otherwise fall back to all `suspended` asks routed to "operator",
  *      sorted by priority.
+ *
+ * @param projectScope  Project scope for filtering (mt#4727). Defaults to
+ *   ALL_PROJECTS when omitted, matching `AskRepository.listByState`'s own
+ *   default.
  */
-export async function loadCohort(repo: AskRepository, windowKey: string | null): Promise<Ask[]> {
+export async function loadCohort(
+  repo: AskRepository,
+  windowKey: string | null,
+  projectScope?: ProjectScope
+): Promise<Ask[]> {
   const nowMs = Date.now();
 
   if (windowKey) {
-    return pendingAsksForWindow(repo, windowKey, nowMs);
+    return pendingAsksForWindow(repo, windowKey, nowMs, projectScope);
   }
 
   // Fallback: pending operator asks (no active window).
@@ -133,8 +143,8 @@ export async function loadCohort(repo: AskRepository, windowKey: string | null):
   // window closed — windows are open 30-60 minutes a day, so this branch is the
   // widget's normal state and the ask would be invisible until the next one.
   const [routed, suspended] = await Promise.all([
-    repo.listByState("routed"),
-    repo.listByState("suspended"),
+    repo.listByState("routed", projectScope),
+    repo.listByState("suspended", projectScope),
   ]);
   const operatorAsks = [...routed, ...suspended].filter(
     (a) => a.routingTarget === "operator" && !isTerminal(a.state)
@@ -151,6 +161,14 @@ export interface AttentionDeps {
   repo: AskRepository;
   /** Currently open window key — null if no window is open. */
   activeWindowKey: string | null;
+  /**
+   * Optional test seam (mt#4727, mirrors task-list.ts's mt#3016 seam):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch. Production
+   * callers never set this — the default factory omits it, so
+   * `resolveCockpitProjectScope` falls back to its own `defaultGetDb` (the
+   * real `getContextInspectorDb()` singleton).
+   */
+  getDb?: () => Promise<ScopeResolverDb | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,15 +186,25 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
     id: "attention",
     title: "Attention",
     updateMode: { type: "polling", intervalMs: 10_000 },
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
-        const { repo, activeWindowKey } = await getDeps();
+        const { repo, activeWindowKey, getDb } = await getDeps();
+
+        // Project scope (mt#4727): ?project=<slug> resolved to a project
+        // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
+        // resolution rules as every other cockpit project-scoped read
+        // (mt#2418 pattern, task-list.ts:91-93). resolveCockpitProjectScope
+        // owns its own db-fetch and never throws (fail-open to ALL_PROJECTS
+        // on any resolution failure — PR #2056 R1), so a scoping problem can
+        // never take this widget down.
+        const { resolveCockpitProjectScope } = await import("../project-scope");
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, { getDb });
 
         // Load cohort for the active window (or fallback all-operator asks)
-        const cohort = await loadCohort(repo, activeWindowKey);
+        const cohort = await loadCohort(repo, activeWindowKey, projectScope);
 
         // Total pending: all suspended asks routed to operator (for header counter)
-        const allSuspended = await repo.listByState("suspended");
+        const allSuspended = await repo.listByState("suspended", projectScope);
         const totalPending = allSuspended.filter(
           (a) => a.routingTarget === "operator" && !isTerminal(a.state)
         ).length;
