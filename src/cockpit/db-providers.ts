@@ -35,6 +35,14 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+// Static: a pure, import-free string module (mt#4724), shared with the browser
+// bundle — it carries none of the weight the dynamic imports below guard against.
+import {
+  parseGitHubRepoRef,
+  repoRefFromProjectSlug,
+  repoUrlFromRepoRef,
+  type ChangesetRepoRef,
+} from "./changeset-id";
 // Static (not dynamic) per `no-dynamic-imports`: this module is types + a pure
 // string builder, so it carries none of the weight that keeps PersistenceService
 // behind the dynamic import in getCachedPersistenceProvider below.
@@ -546,7 +554,7 @@ let _cachedServerAskRepo: AskRepository | null = null;
  * the service singletons (`_cachedServerAskRepo`, `_cachedTaskService`, …)
  * wrap a db handle captured at construction — a bumped epoch means that
  * handle belongs to a torn-down pool, so every service cache drops together.
- * (`_cachedChangesetReadDeps` is deliberately exempt: it caches GitHub
+ * (`_changesetReadDepsByRepo` is deliberately exempt: it caches GitHub
  * repo/token resolution, which does not touch the DB pool.)
  */
 let _serviceCachesEpoch = -1;
@@ -744,44 +752,131 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
 
 interface ChangesetReadDeps {
   repoUrl: string;
+  repo: ChangesetRepoRef;
   tokenProvider: TokenProvider;
 }
 
-let _cachedChangesetReadDeps: ChangesetReadDeps | null = null;
+/**
+ * Deps keyed by canonical `owner/repo` (mt#4724).
+ *
+ * This used to be a single module-level `ChangesetReadDeps | null`, which
+ * pinned EVERY changeset/PR/check-runs read in the cockpit to the one repo this
+ * daemon's own Minsky config names — so a second project's PRs were invisible
+ * and a second project's head SHA was queried against the wrong repository
+ * (which returns an empty check-run set, i.e. an unearned "no checks" rather
+ * than an error). The repo is now an input; the cache is per-repo.
+ */
+const _changesetReadDepsByRepo = new Map<string, ChangesetReadDeps>();
 
-async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
-  if (_cachedChangesetReadDeps) return _cachedChangesetReadDeps;
+/**
+ * The repo the cockpit's own Minsky config points at, resolved once.
+ * `undefined` = not resolved yet; `null` = resolved and there isn't one.
+ */
+let _defaultChangesetRepo: ChangesetRepoRef | null | undefined;
 
-  const { getRepositoryBackendFromConfig } = await import(
-    "@minsky/domain/session/repository-backend-detection"
-  );
-  const { repoUrl, github } = await getRepositoryBackendFromConfig();
+/**
+ * The DEFAULT project's repo — what a BARE changeset id (`minsky://changeset/3423`)
+ * resolves against (mt#4724).
+ *
+ * ADR-029 fixes the emitted `minsky://changeset/<n>` form, so already-stored
+ * links cannot be re-pointed; keeping the bare number bound to the configured
+ * repository is what makes every one of them keep resolving to the PR it always
+ * did. Returns null when no GitHub repo is configured (in which case a bare id
+ * has nothing to resolve against and the caller degrades).
+ */
+export async function getDefaultChangesetRepoRef(): Promise<ChangesetRepoRef | null> {
+  if (_defaultChangesetRepo !== undefined) return _defaultChangesetRepo;
 
-  // `getRepositoryBackendFromConfig` has TWO return shapes, and this resolution
-  // must survive both:
-  //   1. Project-config path — `repository.url` plus an OPTIONAL
-  //      `repository.github` sub-object ({owner, repo}). This project sets both.
-  //   2. Auto-detection fallback — taken when `getConfiguration()` throws
-  //      (notably "Configuration not initialized", i.e. any process that hasn't
-  //      bootstrapped config). It returns `repoUrl` only, with NO `github`.
-  // So neither field alone is safe to gate on: prefer `repoUrl`, and compose one
-  // from `github` when only that is present.
-  const resolvedUrl =
-    repoUrl || (github ? `https://github.com/${github.owner}/${github.repo}.git` : "");
+  try {
+    const { getRepositoryBackendFromConfig } = await import(
+      "@minsky/domain/session/repository-backend-detection"
+    );
+    const { repoUrl, github } = await getRepositoryBackendFromConfig();
 
-  // Mirrors GitHubChangesetAdapterFactory.canHandle — a non-GitHub remote has
-  // no adapter to build.
-  if (!resolvedUrl.includes("github.com")) return null;
+    // `getRepositoryBackendFromConfig` has TWO return shapes, and this resolution
+    // must survive both:
+    //   1. Project-config path — `repository.url` plus an OPTIONAL
+    //      `repository.github` sub-object ({owner, repo}). This project sets both.
+    //   2. Auto-detection fallback — taken when `getConfiguration()` throws
+    //      (notably "Configuration not initialized", i.e. any process that hasn't
+    //      bootstrapped config). It returns `repoUrl` only, with NO `github`.
+    // So neither field alone is safe to gate on: prefer `repoUrl`, and compose one
+    // from `github` when only that is present.
+    _defaultChangesetRepo =
+      parseGitHubRepoRef(repoUrl) ??
+      (github?.owner && github?.repo ? { owner: github.owner, repo: github.repo } : null);
+  } catch (err) {
+    log.debug(
+      `[cockpit] default changeset repo unresolved: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    _defaultChangesetRepo = null;
+  }
+  return _defaultChangesetRepo;
+}
+
+/**
+ * Resolve a project slug to the repo its changesets live in (mt#4724).
+ *
+ * The `projects` row is the CANONICAL home for a project's repo url
+ * (`projects-schema.ts` says so explicitly; sessions keep a denormalized cache
+ * for the clone/push hot path), so the row is consulted first. The slug itself
+ * is the fallback: it is `owner/repo` for GitHub-backed projects, which is
+ * enough to address the repo when the row's `repo_url` is null (the column is
+ * nullable) or the db is unreachable.
+ *
+ * Never throws — scoping is a view convenience and must not be able to take the
+ * changeset detail route down (the `resolveCockpitProjectScope` posture).
+ */
+export async function getProjectRepoRefBySlug(slug: string): Promise<ChangesetRepoRef | null> {
+  const fromSlug = repoRefFromProjectSlug(slug);
+  try {
+    const db = await getContextInspectorDb();
+    if (!db) return fromSlug;
+    const { listProjects } = await import("@minsky/domain/project/projects-repository");
+    const row = (await listProjects(db)).find((p) => p.slug === slug);
+    return parseGitHubRepoRef(row?.repoUrl) ?? fromSlug;
+  } catch (err) {
+    log.debug(
+      `[cockpit] project repo lookup for "${slug}" degraded to slug derivation: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return fromSlug;
+  }
+}
+
+/**
+ * Resolve read deps for ONE repository.
+ *
+ * @param repo The repository to read from. `null`/omitted means "the default
+ *   project's repo" — the pre-mt#4724 behavior, preserved for bare changeset
+ *   ids and for the verification script's default-repo probe.
+ */
+async function getChangesetReadDeps(
+  repo?: ChangesetRepoRef | null
+): Promise<ChangesetReadDeps | null> {
+  const target = repo ?? (await getDefaultChangesetRepoRef());
+  // Mirrors GitHubChangesetAdapterFactory.canHandle — a non-GitHub remote (or
+  // an unresolvable default) has no adapter to build.
+  if (!target) return null;
+
+  const key = `${target.owner}/${target.repo}`.toLowerCase();
+  const cached = _changesetReadDepsByRepo.get(key);
+  if (cached) return cached;
 
   const { getConfiguration } = await import("@minsky/domain/configuration/index");
   const { createTokenProvider } = await import("@minsky/domain/auth");
   const cfg = getConfiguration();
 
-  _cachedChangesetReadDeps = {
-    repoUrl: resolvedUrl,
+  const deps: ChangesetReadDeps = {
+    repoUrl: repoUrlFromRepoRef(target),
+    repo: target,
     tokenProvider: createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? ""),
   };
-  return _cachedChangesetReadDeps;
+  _changesetReadDepsByRepo.set(key, deps);
+  return deps;
 }
 
 /**
@@ -792,9 +887,11 @@ async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
  * Octokit directly and needs no `sessionProvider`. (Mutation methods and
  * `getDetails` would additionally require one; the cockpit does not call them.)
  */
-export async function getServerChangesetService(): Promise<ChangesetService | null> {
+export async function getServerChangesetService(
+  repo?: ChangesetRepoRef | null
+): Promise<ChangesetService | null> {
   try {
-    const deps = await getChangesetReadDeps();
+    const deps = await getChangesetReadDeps(repo);
     if (!deps) {
       log.debug("[cockpit] changeset service unavailable — no GitHub repository configured");
       return null;
@@ -827,28 +924,24 @@ export async function getServerChangesetService(): Promise<ChangesetService | nu
  * the caller can distinguish "CI genuinely has no checks" from "we could not
  * find out" — which is what keeps the UI from rendering an unearned green.
  */
-export async function getServerChecksReader(): Promise<
-  ((headSha: string) => Promise<ChecksResult>) | null
-> {
+export async function getServerChecksReader(
+  repo?: ChangesetRepoRef | null
+): Promise<((headSha: string) => Promise<ChecksResult>) | null> {
   try {
-    const deps = await getChangesetReadDeps();
+    const deps = await getChangesetReadDeps(repo);
     if (!deps) {
       log.debug("[cockpit] checks reader unavailable — no GitHub repository configured");
-      return null;
-    }
-    const { extractGitHubInfoFromUrl } = await import(
-      "@minsky/domain/session/repository-backend-detection"
-    );
-    const gh = extractGitHubInfoFromUrl(deps.repoUrl);
-    if (!gh) {
-      log.debug(`[cockpit] checks reader unavailable — unparseable repo URL`);
       return null;
     }
     const { createOctokit } = await import("@minsky/domain/repository/github-pr-operations");
     const { getCheckRunsForRef } = await import("@minsky/domain/repository/github-pr-checks");
     const octokit = createOctokit(await deps.tokenProvider.getServiceToken());
+    // `deps.repo` is the SAME repo the changeset itself was read from — a head
+    // SHA queried against a different repository returns an empty check-run set
+    // rather than an error, so a mismatch here renders an unearned "no checks"
+    // (mt#4724). It is carried on the deps rather than re-derived from the url.
     return (headSha: string) =>
-      getCheckRunsForRef({ owner: gh.owner, repo: gh.repo }, headSha, octokit);
+      getCheckRunsForRef({ owner: deps.repo.owner, repo: deps.repo.repo }, headSha, octokit);
   } catch (err) {
     log.debug(
       `[cockpit] checks reader construction failed: ${
@@ -899,6 +992,7 @@ export function __resetDbProvidersForTests(): void {
   _cachedTaskService = null;
   _cachedTaskDetailDeps = null;
   _cachedServerSessionProvider = null;
-  _cachedChangesetReadDeps = null;
+  _changesetReadDepsByRepo.clear();
+  _defaultChangesetRepo = undefined;
   _serviceCachesEpoch = -1;
 }
