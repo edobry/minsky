@@ -27,6 +27,10 @@ import {
   findGhApiPrMergeEndpointToken,
   stripSurroundingQuotes,
   SESSION_EXEC_TOOL_NAME,
+  isProcessEnvOverridden,
+  findCommandStringOverrideValue,
+  checkGuardOverride,
+  buildOverrideAuditLine,
 } from "./block-git-gh-cli";
 import reviewerAgent from "../agents/reviewer/agent";
 import auditorAgent from "../agents/auditor/agent";
@@ -1910,6 +1914,9 @@ describe("isCwdScopedInvocation — what the external carve-out may cover (PR #2
 /** The override the escape must name — asserted in several places below. */
 const OVERRIDE_DIRECTIVE = "MINSKY_HOOK_OVERRIDE=block-git-gh-cli";
 
+/** The bare env-var name, shared with mt#4750's override tests below. */
+const OVERRIDE_ENV_VAR_NAME = "MINSKY_HOOK_OVERRIDE";
+
 /**
  * Ceiling on the escape's length. Test-local on purpose: nothing at runtime
  * reads it, so it has no business being exported from the guard (PR #3405 R2).
@@ -1956,7 +1963,7 @@ describe("REDIRECT_UNAVAILABLE_ESCAPE (mt#4257)", () => {
     // rule — so the calibration record (which stores the base `reason`) stays
     // groupable by redirect. If a rule string ever embeds it, this fails.
     for (const rule of [...gitDenials, ...ghDenials]) {
-      expect(rule.reason).not.toContain("MINSKY_HOOK_OVERRIDE");
+      expect(rule.reason).not.toContain(OVERRIDE_ENV_VAR_NAME);
     }
   });
 });
@@ -1984,7 +1991,7 @@ describe("buildDenialReason (mt#4257, PR #3405 R1)", () => {
   it("NEGATIVE CONTROL: the base reason handed to the calibration record is unchanged", () => {
     // Calibration groups by redirect, so the escape must NOT reach the record.
     const base = SAMPLE_REDIRECT;
-    expect(base).not.toContain("MINSKY_HOOK_OVERRIDE");
+    expect(base).not.toContain(OVERRIDE_ENV_VAR_NAME);
     expect(buildDenialReason(base)).not.toBe(base);
   });
 
@@ -2001,5 +2008,147 @@ describe("buildDenialReason (mt#4257, PR #3405 R1)", () => {
       ...[...gitDenials, ...ghDenials].map((r) => buildDenialReason(r.reason ?? "").length)
     );
     expect(worst).toBeLessThan(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4750 — MINSKY_HOOK_OVERRIDE=block-git-gh-cli actually works
+//
+// The denial text (REDIRECT_UNAVAILABLE_ESCAPE, above) has always promised
+// this escape hatch; before this task the code never read the env var at
+// all, so passing it — via either reachable channel — still denied.
+// ---------------------------------------------------------------------------
+
+const DENIED_GH_ARGS = "run view --job 123 --log";
+const DENIED_GH_COMMAND = `gh ${DENIED_GH_ARGS}`;
+// GUARD_UNDER_TEST mirrors the guard's own private GUARD_NAME constant — it
+// cannot be imported (not exported from the guard), so it is retyped once,
+// here, rather than at each call site below.
+const GUARD_UNDER_TEST = "block-git-gh-cli";
+
+/** Parse and assert non-null via control-flow narrowing (no `!` assertion). */
+function mustParse(segment: string): NonNullable<ReturnType<typeof parseSegment>> {
+  const parsed = parseSegment(segment);
+  if (!parsed) throw new Error(`parseSegment returned null for: ${segment}`);
+  return parsed;
+}
+
+describe("findCommandStringOverrideValue — command-string channel", () => {
+  const overrideAssignment = `${OVERRIDE_DIRECTIVE} ${DENIED_GH_COMMAND}`;
+  const multiEnvPrefix = "FOO=bar MINSKY_HOOK_OVERRIDE=all BAZ=qux gh run view";
+  const trailingAssignment = `gh run view ${OVERRIDE_DIRECTIVE}`;
+  const cases: Array<[string, string[], string | undefined]> = [
+    ["leading assignment", overrideAssignment.split(" "), GUARD_UNDER_TEST],
+    ["among multiple leading assignments", multiEnvPrefix.split(" "), "all"],
+    ["quoted value", ['MINSKY_HOOK_OVERRIDE="block-git-gh-cli"', "gh", "run"], GUARD_UNDER_TEST],
+    ["no assignment present", `FOO=bar ${DENIED_GH_COMMAND}`.split(" "), undefined],
+    ["assignment after the binary (not a prefix)", trailingAssignment.split(" "), undefined],
+    ["empty token list", [], undefined],
+  ];
+
+  for (const [label, tokens, expected] of cases) {
+    it(label, () => {
+      const actual = findCommandStringOverrideValue(tokens);
+      if (expected === undefined) {
+        expect(actual).toBeUndefined();
+      } else {
+        expect(actual).toBe(expected);
+      }
+    });
+  }
+});
+
+describe("isProcessEnvOverridden — process-env channel", () => {
+  const cases: Array<[string, string | undefined, boolean]> = [
+    ["names this guard exactly", GUARD_UNDER_TEST, true],
+    ["all wildcard", "all", true],
+    ["comma-separated list", "some-other-guard, block-git-gh-cli", true],
+    ["case-insensitive guard name", "BLOCK-GIT-GH-CLI", true],
+    ["case-insensitive wildcard", "ALL", true],
+    ["unset", undefined, false],
+    ["names a different guard only", "some-other-guard", false],
+  ];
+
+  for (const [label, raw, expected] of cases) {
+    it(label, () => {
+      expect(isProcessEnvOverridden(raw === undefined ? {} : { MINSKY_HOOK_OVERRIDE: raw })).toBe(
+        expected
+      );
+    });
+  }
+});
+
+// Both channels' happy paths are exercised end-to-end in the AT1 tests below
+// (via checkGuardOverride through checkDenial); this covers the precedence
+// rule those don't: which channel wins when both fire.
+describe("checkGuardOverride — channel precedence", () => {
+  it("prefers process-env over command-string when both are present", () => {
+    const result = checkGuardOverride(mustParse(`${OVERRIDE_DIRECTIVE} ${DENIED_GH_COMMAND}`), {
+      MINSKY_HOOK_OVERRIDE: "all",
+    });
+    expect(result.overridden).toBe(true);
+    expect(result.overridden && result.channel).toBe("process-env");
+  });
+
+  it("a command-string override naming a different guard does not override this one", () => {
+    const result = checkGuardOverride(
+      mustParse(`MINSKY_HOOK_OVERRIDE=some-other-guard ${DENIED_GH_COMMAND}`),
+      {}
+    );
+    expect(result.overridden).toBe(false);
+  });
+});
+
+describe("buildOverrideAuditLine", () => {
+  it("names the guard, the channel, and the would-be denial reason", () => {
+    const line = buildOverrideAuditLine("command-string", "some denial reason");
+    expect(line).toContain(GUARD_UNDER_TEST);
+    expect(line).toContain(OVERRIDE_ENV_VAR_NAME);
+    expect(line).toContain("command-string");
+    expect(line).toContain("some denial reason");
+  });
+});
+
+describe("mt#4750 acceptance tests — the exact denial-text scenario", () => {
+  // Reproduces the incident verbatim: `MINSKY_HOOK_OVERRIDE=block-git-gh-cli
+  // gh run view --job <id> --log`, previously denied despite the override.
+
+  it("AT1: command-string form permits the invocation and yields an audit line", () => {
+    const parsed = mustParse(`${OVERRIDE_DIRECTIVE} ${DENIED_GH_COMMAND}`);
+    const reason = checkDenial(parsed); // would deny absent the override
+    expect(reason).not.toBeNull();
+
+    const override = checkGuardOverride(parsed, {});
+    expect(override.overridden).toBe(true);
+    const auditLine = override.overridden
+      ? buildOverrideAuditLine(override.channel, reason ?? "")
+      : "";
+    expect(auditLine).toContain("OVERRIDE via command-string");
+    expect(auditLine).toContain("MINSKY_HOOK_OVERRIDE names block-git-gh-cli");
+  });
+
+  it("AT1: process-env form permits the invocation and yields an audit line", () => {
+    const parsed = mustParse(DENIED_GH_COMMAND);
+    const reason = checkDenial(parsed);
+    expect(reason).not.toBeNull();
+
+    const override = checkGuardOverride(parsed, { MINSKY_HOOK_OVERRIDE: GUARD_UNDER_TEST });
+    expect(override.overridden).toBe(true);
+    const auditLine = override.overridden
+      ? buildOverrideAuditLine(override.channel, reason ?? "")
+      : "";
+    expect(auditLine).toContain("OVERRIDE via process-env");
+  });
+
+  it("AT2: without the override, the same invocation still denies", () => {
+    const parsed = mustParse(DENIED_GH_COMMAND);
+    expect(checkDenial(parsed)).not.toBeNull();
+    expect(checkGuardOverride(parsed, {}).overridden).toBe(false);
+  });
+
+  it("AT2: naming an unrelated guard still denies", () => {
+    const parsed = mustParse(`MINSKY_HOOK_OVERRIDE=some-other-guard ${DENIED_GH_COMMAND}`);
+    expect(checkDenial(parsed)).not.toBeNull();
+    expect(checkGuardOverride(parsed, {}).overridden).toBe(false);
   });
 });
