@@ -122,6 +122,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Entry-point rule (mt#4740): `appendGrant` exposes an injectable `nowMs`, and
+  // this caller deliberately does NOT thread one. It is an operator-invoked
+  // one-shot script whose whole job is to issue a grant against the real present
+  // moment; there is no caller above it with a clock to pass down, and pruning
+  // against anything but the real clock here would be wrong rather than merely
+  // untestable. Documented rather than silent, per `testing-standards.mdc
+  // §Testable Design → The clock is injected` rule 2.
   appendGrant(storePath, grant);
   console.log(
     `Granted subagent merge capability: task=${grant.taskId} scope=${grant.agentScope} ` +

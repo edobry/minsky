@@ -251,6 +251,17 @@ Before writing any code:
   (mt#3631) and the \`no-jest-patterns\` lint rule's \`jestSpyOn\` message (mt#3565/mt#3632). If
   you proceed with a patch anyway, record in the PR body which collaborator and why extraction
   wasn't the right call for this case.
+- **Clock checkpoint (mt#4740), when you write \`Date.now()\` or \`new Date()\` in code a test will
+  exercise.** Give the function an optional trailing clock parameter with a real default —
+  \`nowMs: number = Date.now()\` (or \`now: Date = new Date()\`) — and thread it from every public
+  entry point above it, or comment why you deliberately do not. Then anchor the test's
+  date-relative fixtures to the SAME value it injects, never to the real clock. Full convention,
+  worked examples, and why this is not the DI fallback ADR-026 rule 3 bans:
+  \`testing-standards.mdc §Testable Design → The clock is injected, never read at the point of use\`.
+  **This is stated here because that rule is scoped to \`**/*.test.ts\` and does not attach while you
+  are editing production code** — which is where the seam and the entry-point threading live, and
+  where three of this class's detonations were actually authored. Discipline-tier: nothing lints it;
+  mt#4726 is the detection backstop.
 - Add tests for new functionality
 - Commit regularly with \`mcp__minsky__session_commit\`:
   - Use meaningful messages referencing the task ID
