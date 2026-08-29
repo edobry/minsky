@@ -7,11 +7,13 @@
  * IN-REVIEW) in one round-trip rather than three separate hooks polling the
  * same endpoint independently.
  *
- * Query key: ["vitals", "work-loop-counts"]
+ * Query key: ["vitals", "work-loop-counts", selectedSlug] (mt#4731 —
+ * selectedSlug in the key so switching projects invalidates and refetches).
  * staleTime: 30s, refetchInterval: 60s (breath-clock cadence, matching
  * useReadyCount / useTaskBacklogCounts).
  */
 import { useQuery } from "@tanstack/react-query";
+import { useProject } from "../lib/project-context";
 
 interface TaskListItem {
   id: string;
@@ -29,8 +31,9 @@ export interface WorkLoopCounts {
   inReview: number;
 }
 
-async function fetchWorkLoopCounts(): Promise<WorkLoopCounts> {
-  const res = await fetch("/api/tasks");
+async function fetchWorkLoopCounts(queryParam?: { project: string }): Promise<WorkLoopCounts> {
+  const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+  const res = await fetch(`/api/tasks${qs}`);
   if (!res.ok) throw new Error(`tasks API: ${res.status}`);
   const body = (await res.json()) as TaskListResponse;
   let ready = 0;
@@ -45,9 +48,10 @@ async function fetchWorkLoopCounts(): Promise<WorkLoopCounts> {
 }
 
 export function useWorkLoopCounts() {
+  const { selectedSlug, queryParam } = useProject();
   return useQuery({
-    queryKey: ["vitals", "work-loop-counts"],
-    queryFn: fetchWorkLoopCounts,
+    queryKey: ["vitals", "work-loop-counts", selectedSlug],
+    queryFn: () => fetchWorkLoopCounts(queryParam),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });

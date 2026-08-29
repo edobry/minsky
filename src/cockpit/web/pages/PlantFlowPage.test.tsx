@@ -28,6 +28,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, useLocation } from "react-router-dom";
 import { PlantFlowPage } from "./PlantFlowPage";
 import { plantRoutes } from "../App";
+import { ProjectProvider } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Suppress known JSDOM/react-flow canvas compat errors
@@ -88,7 +89,9 @@ function renderPlantFlow() {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <PlantFlowPage />
+        <ProjectProvider>
+          <PlantFlowPage />
+        </ProjectProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -794,10 +797,12 @@ describe("plant route convergence (App.tsx plantRoutes)", () => {
     return render(
       <MemoryRouter initialEntries={[initialPath]}>
         <QueryClientProvider client={queryClient}>
-          <LocationProbe />
-          <Suspense fallback={null}>
-            <Routes>{plantRoutes}</Routes>
-          </Suspense>
+          <ProjectProvider>
+            <LocationProbe />
+            <Suspense fallback={null}>
+              <Routes>{plantRoutes}</Routes>
+            </Suspense>
+          </ProjectProvider>
         </QueryClientProvider>
       </MemoryRouter>
     );

@@ -19,6 +19,7 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { VitalsPage } from "./VitalsPage";
+import { ProjectProvider } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -38,7 +39,9 @@ function renderVitalsPage() {
   return render(
     <MemoryRouter initialEntries={["/vitals"]}>
       <QueryClientProvider client={queryClient}>
-        <VitalsPage />
+        <ProjectProvider>
+          <VitalsPage />
+        </ProjectProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );

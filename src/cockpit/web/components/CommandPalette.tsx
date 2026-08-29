@@ -43,7 +43,8 @@ import {
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { entityToPath } from "../lib/entity-codec";
 import { extractConversationRows } from "../lib/conversations-source";
-import { fetchTaskIndex, TASK_INDEX_QUERY_KEY } from "../lib/entity-labels";
+import type { TaskIndexRow } from "../lib/entity-labels";
+import { useProject } from "../lib/project-context";
 import { useNewConversation } from "../hooks/useNewConversation";
 import {
   NEW_CONVERSATION_DESCRIPTION,
@@ -211,6 +212,29 @@ function extractSessions(data: WidgetData | undefined): PaletteSession[] {
 }
 
 /**
+ * The palette's OWN task index — a dedicated, project-scoped fetch (mt#4731),
+ * distinct from `entity-labels.ts`'s `fetchTaskIndex` / `TASK_INDEX_QUERY_KEY`.
+ * That shared fetcher backs cross-entity LINKIFICATION (tab labels, the
+ * entity-index id-set) and stays deliberately global — resolving a bare
+ * `mt#N` reference must work regardless of which project is selected. Palette
+ * SEARCH is a different concern: typing into ⌘K while a project is selected
+ * should search that project's tasks, so it gets its own key + query param
+ * rather than sharing the global cache.
+ */
+async function fetchPaletteTasks(queryParam?: { project: string }): Promise<TaskIndexRow[]> {
+  try {
+    const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+    const res = await fetch(`/api/tasks${qs}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { tasks?: TaskIndexRow[] };
+    if (!Array.isArray(data.tasks)) return [];
+    return data.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * The palette's ask index — pending AND terminal (mt#4095).
  *
  * Sourced from `GET /api/asks?state=...&summary=true`, not from the attention
@@ -220,14 +244,14 @@ function extractSessions(data: WidgetData | undefined): PaletteSession[] {
  * resolved — which is precisely when someone reaches for search.
  *
  * Preloaded and filtered client-side by cmdk, matching how the palette already
- * treats tasks (`fetchTaskIndex` loads the full list). `summary=true` is what
- * makes that affordable: a full row carries its question body and options at
- * ~3.3 KB, a summary row is scalars.
+ * treats tasks (`fetchPaletteTasks` loads the full list). `summary=true` is
+ * what makes that affordable: a full row carries its question body and
+ * options at ~3.3 KB, a summary row is scalars.
  *
  * Fails open to `[]` — an asks-endpoint hiccup must not break palette search
  * for the other entity types.
  */
-async function fetchPaletteAsks(): Promise<PaletteAsk[]> {
+async function fetchPaletteAsks(queryParam?: { project: string }): Promise<PaletteAsk[]> {
   try {
     const params = new URLSearchParams({
       // Both halves in one request. `suspended` is the pending queue; the
@@ -236,6 +260,7 @@ async function fetchPaletteAsks(): Promise<PaletteAsk[]> {
       state: "suspended,terminal",
       summary: "true",
       limit: "2000",
+      ...(queryParam ? { project: queryParam.project } : {}),
     });
     const res = await fetch(`/api/asks?${params.toString()}`);
     if (!res.ok) return [];
@@ -361,19 +386,24 @@ export function CommandPalette() {
     }
   }, [open]);
 
-  // Data queries — only active when palette is open. The task index rides
-  // the shared fetcher + key from lib/entity-labels.ts (mt#2883) so palette
-  // search and tab labels serve from ONE cache with ONE row shape.
+  // Data queries — only active when palette is open. mt#4731: all four
+  // entity-search sources below are project-scoped via useProject(), with
+  // their OWN dedicated keys — distinct from lib/entity-labels.ts's /
+  // lib/use-entity-index.ts's shared, deliberately-global fetchers (tab
+  // labels and cross-project linkification must resolve a bare id
+  // regardless of the selected project; palette SEARCH should not).
+  const { selectedSlug, queryParam } = useProject();
+
   const tasksQuery = useQuery({
-    queryKey: TASK_INDEX_QUERY_KEY,
-    queryFn: fetchTaskIndex,
+    queryKey: ["palette", "tasks", selectedSlug],
+    queryFn: () => fetchPaletteTasks(queryParam),
     enabled: open,
     staleTime: 30_000,
   });
 
   const agentsQuery = useQuery<WidgetData, Error>({
-    queryKey: ["agents"],
-    queryFn: () => fetchWidgetData("agents"),
+    queryKey: ["agents", selectedSlug],
+    queryFn: () => fetchWidgetData("agents", queryParam),
     enabled: open,
     staleTime: 30_000,
   });
@@ -381,15 +411,15 @@ export function CommandPalette() {
   // Distinct key from ["attention"] — that one is the radiator widget's
   // payload and carries pending asks only (mt#4095).
   const asksQuery = useQuery<PaletteAsk[], Error>({
-    queryKey: ["palette", "asks"],
-    queryFn: fetchPaletteAsks,
+    queryKey: ["palette", "asks", selectedSlug],
+    queryFn: () => fetchPaletteAsks(queryParam),
     enabled: open,
     staleTime: 30_000,
   });
 
   const memoriesQuery = useQuery<WidgetData, Error>({
-    queryKey: ["widget", "memories-list", "", "", true],
-    queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
+    queryKey: ["palette", "memories-list", selectedSlug],
+    queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true", ...queryParam }),
     enabled: open,
     staleTime: 30_000,
   });

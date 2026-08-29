@@ -18,6 +18,7 @@ import {
   MIN_N_FOR_DISTRIBUTION,
 } from "./TriageBand";
 import type { AskItem } from "./AskDetail";
+import { ProjectProvider } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -112,7 +113,9 @@ function renderBand() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <TriageBand />
+        <ProjectProvider>
+          <TriageBand />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

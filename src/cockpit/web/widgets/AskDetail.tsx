@@ -177,6 +177,20 @@ export async function fetchAsks(): Promise<AsksListResponse> {
 }
 
 /**
+ * Project-scoped variant of {@link fetchAsks} (mt#4731). Deliberately NOT a
+ * parameter added to `fetchAsks` itself — see the decision recorded just
+ * below on `fetchTerminalAsks`, which applies equally here: `fetchAsks` is
+ * passed directly as a `queryFn` reference in three widgets (TriageBand,
+ * Agents, Workstreams), so an optional-params signature there would receive
+ * TanStack's `QueryFunctionContext` positionally instead. AsksPage owns its
+ * query and wraps this in an arrow function, so it can take a real parameter.
+ */
+export async function fetchAsksScoped(queryParam?: { project: string }): Promise<AsksListResponse> {
+  const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+  return getAsksList(`/api/asks${qs}`);
+}
+
+/**
  * Terminal asks — closed, cancelled, or expired (mt#4092).
  *
  * A SEPARATE function rather than an optional parameter on `fetchAsks`, because
@@ -189,10 +203,19 @@ export async function fetchAsks(): Promise<AsksListResponse> {
  *
  * The endpoint expands `terminal` to every terminal state: an operator looking
  * for an ask they resolved does not know which of the three it landed in.
+ *
+ * `queryParam` (mt#4731) is safe to add here despite the warning above:
+ * `fetchTerminalAsks` is never passed as a bare `queryFn` reference anywhere
+ * (only AsksPage calls it, via its own arrow-function wrapper), so there is no
+ * `QueryFunctionContext` call site to collide with.
  */
-export async function fetchTerminalAsks(limit?: number): Promise<AsksListResponse> {
+export async function fetchTerminalAsks(
+  limit?: number,
+  queryParam?: { project: string }
+): Promise<AsksListResponse> {
   const query = new URLSearchParams({ state: "terminal" });
   if (limit !== undefined) query.set("limit", String(limit));
+  if (queryParam) query.set("project", queryParam.project);
   return getAsksList(`/api/asks?${query.toString()}`);
 }
 

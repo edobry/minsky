@@ -88,6 +88,15 @@ describe("TaskActions (mt#2986)", () => {
     expect(link.getAttribute("href")).toBe("/changeset/2090");
   });
 
+  // mt#4731 (added scope) — the qualified `owner/repo#N` form (mt#4724) takes
+  // precedence over the bare PR number, which is ambiguous once a second
+  // project can claim the same number.
+  test("view-pr action with a qualified changesetId links to the qualified changeset path", () => {
+    renderActions([{ kind: "view-pr", prNumber: 1, changesetId: "edobry/peezombie.me#1" }]);
+    const link = screen.getByRole("link", { name: /View PR #1/ });
+    expect(link.getAttribute("href")).toBe("/changeset/edobry%2Fpeezombie.me%231");
+  });
+
   test("view-pr without a PR number renders nothing (never a dead control)", () => {
     const { container } = renderActions([{ kind: "view-pr" }]);
     expect(screen.queryByRole("link")).toBeNull();

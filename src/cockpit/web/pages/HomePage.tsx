@@ -33,6 +33,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Fleet strip — liveness counts over the unified run list.
@@ -104,9 +105,13 @@ function FleetGauge({ dotClass, count, unit }: { dotClass: string; count: number
 }
 
 function FleetStrip() {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["agents"],
-    queryFn: () => fetchWidgetData("agents"),
+    // mt#4731: selectedSlug in the key so switching projects invalidates
+    // and refetches — the home fleet strip previously ignored the selected
+    // project entirely, unlike its own /agents page.
+    queryKey: ["agents", selectedSlug],
+    queryFn: () => fetchWidgetData("agents", queryParam),
     staleTime: 10_000,
     refetchInterval: 15_000,
   });
@@ -223,8 +228,12 @@ const SUBSTRATE_WIDGETS: {
 ];
 
 function useSubstrateHealth(): SubsystemHealth[] {
-  // Same query keys the widgets themselves use — one cache, whether the data
-  // renders as a calm-line mention or as the expanded card.
+  // Deliberately-global (mt#4731, not project-scoped): the MCP server, the
+  // reviewer bot, and the embeddings pipeline are each ONE process serving
+  // every project — there is no per-project MCP server or reviewer instance
+  // to scope this to. Same query keys the widgets themselves use — one
+  // cache, whether the data renders as a calm-line mention or as the
+  // expanded card.
   const mcp = useQuery<WidgetData, Error>({
     queryKey: ["widget", "mcp-server-status"],
     queryFn: () => fetchWidgetData("mcp-server-status"),
