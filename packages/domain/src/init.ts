@@ -6,6 +6,7 @@ import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
+import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
@@ -126,11 +127,23 @@ export async function initializeProject(
       throw new Error(`Backend "${backend}" is not supported.`);
   }
 
-  // Create rule file directory
-  const rulesDirPath =
-    ruleFormat === "cursor"
-      ? path.join(repoPath, ".cursor", "rules")
-      : path.join(repoPath, ".ai", "rules");
+  // Create rule file directory.
+  //
+  // mt#4714: the format→directory mapping is `RULE_FORMAT_OUTPUT_DIR` — the SAME
+  // constant `RuleTemplateService.getOutputDir` uses, so init can no longer
+  // disagree with it. This was a two-way ternary (`=== "cursor" ? .cursor/rules
+  // : .ai/rules`), which sent `ruleFormat: "minsky"` to `.ai/rules` — the
+  // `generic` location — while every other consumer resolved it to
+  // `.minsky/rules`.
+  //
+  // The resolved path is still passed to `generateRulesWithTemplateSystem` as an
+  // explicit `outputDir` rather than letting the service resolve it. That is
+  // deliberate and NOT the override the bug was about: the mapping is now shared,
+  // so the explicit value cannot diverge. Dropping the argument entirely would
+  // also require reshaping that function, which derives the service's
+  // `workspacePath` from this very path (`path.dirname` twice) — mt#4715 reworks
+  // this call path and is the right place for it.
+  const rulesDirPath = path.join(repoPath, ...RULE_FORMAT_OUTPUT_DIR[ruleFormat].split("/"));
   await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
   // Generate rules using template system (tolerate missing command registry in tests)
