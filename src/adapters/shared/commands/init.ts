@@ -219,12 +219,12 @@ export function registerInitCommands() {
               const selectedFormat = await select({
                 message: "Select rule format:",
                 options: [
-                  { value: "cursor", label: "Cursor (optimized for the Cursor editor)" },
+                  { value: "cursor", label: "Cursor (.cursor/rules; for the Cursor editor)" },
                   {
                     value: "minsky",
                     label: "Minsky (.minsky/rules sources; compiles to CLAUDE.md for Claude Code)",
                   },
-                  { value: "generic", label: "Generic (for other editors)" },
+                  { value: "generic", label: "Generic (.ai/rules; for other editors)" },
                 ],
                 initialValue: harnessDefaultRuleFormat,
               });
