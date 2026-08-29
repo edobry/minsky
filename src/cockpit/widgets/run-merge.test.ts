@@ -313,14 +313,28 @@ describe("mergeConversationRows (mt#2767)", () => {
 // ---------------------------------------------------------------------------
 
 describe("mergeConversationRows — project scoping (mt#4728)", () => {
+  // mt#4728 negative control (mt#3244): a first version of these two tests
+  // asserted only `.resolves.toBeDefined()` against a mock shaped so the
+  // WRONG branch would throw. That is not a discriminating assertion —
+  // `mergeConversationRows` wraps its whole body in a top-level try/catch
+  // that swallows ANY error into `EMPTY_RESULT`, which is itself "defined".
+  // Forcing the ALL_PROJECTS branch unconditionally (simulating the
+  // pre-mt#4728 code) left both tests GREEN. Rewritten below to spy on
+  // which branch actually ran, so a caught exception can no longer read as
+  // a pass.
   test("ALL_PROJECTS (default): the query never calls .where() — exact pre-mt#4728 shape", async () => {
-    // No `where` key at all: if the code mistakenly called `.where()` on the
-    // ALL_PROJECTS path, this would throw "where is not a function".
+    let sawWhere = false;
     const db = {
       select: () => ({
         from: (table: unknown) => {
           if (table === agentTranscriptsTable) {
-            return { orderBy: () => ({ limit: () => Promise.resolve([]) }) };
+            return {
+              where: () => {
+                sawWhere = true;
+                return { orderBy: () => ({ limit: () => Promise.resolve([]) }) };
+              },
+              orderBy: () => ({ limit: () => Promise.resolve([]) }),
+            };
           }
           if (table === minskySessionLinksTable) {
             return {
@@ -337,19 +351,28 @@ describe("mergeConversationRows — project scoping (mt#4728)", () => {
 
     // Explicit ALL_PROJECTS and the omitted (default) form both take the
     // no-`.where()` branch.
-    await expect(mergeConversationRows(db, [], ALL_PROJECTS)).resolves.toBeDefined();
-    await expect(mergeConversationRows(db, [])).resolves.toBeDefined();
+    await mergeConversationRows(db, [], ALL_PROJECTS);
+    expect(sawWhere).toBe(false);
+    await mergeConversationRows(db, []);
+    expect(sawWhere).toBe(false);
   });
 
   test("a specific project scope: the query calls .where() before .orderBy() — never the direct pre-mt#4728 shape", async () => {
-    // No direct `orderBy` on `.from()`'s return: if the code mistakenly took
-    // the ALL_PROJECTS branch, this would throw "orderBy is not a function".
+    let sawWhere = false;
+    let sawDirectOrderBy = false;
     const db = {
       select: () => ({
         from: (table: unknown) => {
           if (table === agentTranscriptsTable) {
             return {
-              where: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }),
+              where: () => {
+                sawWhere = true;
+                return { orderBy: () => ({ limit: () => Promise.resolve([]) }) };
+              },
+              orderBy: () => {
+                sawDirectOrderBy = true;
+                return { limit: () => Promise.resolve([]) };
+              },
             };
           }
           if (table === minskySessionLinksTable) {
@@ -365,7 +388,9 @@ describe("mergeConversationRows — project scoping (mt#4728)", () => {
       execute: boundedUserTurnsExecute([]),
     } as unknown as PostgresJsDatabase;
 
-    await expect(mergeConversationRows(db, [], PROJECT_A)).resolves.toBeDefined();
+    await mergeConversationRows(db, [], PROJECT_A);
+    expect(sawWhere).toBe(true);
+    expect(sawDirectOrderBy).toBe(false);
   });
 
   test("AT1: a standalone principal-conversation row surfaces its own resolved projectId, and NULL-attribution rows are never excluded by JS-level logic", async () => {
