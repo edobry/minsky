@@ -69,6 +69,13 @@ export interface TaskAction {
   /** Driven-session local id — set on "drive" (mt#3400). */
   drivenSessionId?: string;
   prNumber?: number;
+  /**
+   * Qualified changeset id (mt#4724 `owner/repo#N` form; mt#4731 added
+   * scope) — prefer this over `prNumber` when navigating, since a bare PR
+   * number is ambiguous across projects. Bare (== `String(prNumber)`) when
+   * the PR belongs to the default project.
+   */
+  changesetId?: string;
   note?: string;
 }
 
@@ -304,13 +311,22 @@ function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAct
           <Link to={`/agents/${encodeURIComponent(action.sessionId)}`}>Open session</Link>
         </Button>
       );
-    case "view-pr":
+    case "view-pr": {
       if (action.prNumber === undefined || action.prNumber === null) return null;
+      // mt#4731 (added scope): prefer the server-qualified changesetId
+      // (mt#4724's `owner/repo#N` form) over the bare PR number — a bare
+      // number is ambiguous once a second project can claim the same PR
+      // number, the exact defect mt#4724's PR body flagged here. Falls back
+      // to the bare number for a payload that predates the field.
+      const changesetId = action.changesetId ?? String(action.prNumber);
       return (
         <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs">
-          <Link to={`/changeset/${action.prNumber}`}>View PR #{action.prNumber}</Link>
+          <Link to={`/changeset/${encodeURIComponent(changesetId)}`}>
+            View PR #{action.prNumber}
+          </Link>
         </Button>
       );
+    }
     default:
       return null;
   }
