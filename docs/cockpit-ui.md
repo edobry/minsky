@@ -249,6 +249,30 @@ defined in `src/cockpit/web/index.css` and documented in
 [`docs/brand-system.md`](brand-system.md) §2. They follow the brand system's
 semantic-token discipline — no raw hex on the surface.
 
+## Agents / unified run list (`/agents`, mt#2767, mt#4733)
+
+The Agents page merges every kind of active work into one list — Minsky workspace
+sessions, standalone harness conversations, and collapsed subagent/unattributed
+groups — instead of separate pages per kind (mt#2767, "unified run list"). Each row
+carries a **Kind** badge, and the control bar's **Kind** dropdown filters to one:
+
+| Kind badge       | Row represents                                                                                                                                                                                                                                                                                                      | Click behavior                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent**        | A dispatched Minsky workspace session (`kind: "dispatched-agent"`).                                                                                                                                                                                                                                                 | Opens the workspace detail route.                                                                                                                                 |
+| **Conversation** | A standalone harness conversation with no workspace link and no spawn parent (`kind: "principal-conversation"`) — e.g. the operator's own chat.                                                                                                                                                                     | Opens the conversation route.                                                                                                                                     |
+| **Subagent**     | One or more subagent conversations collapsed under a parent that isn't in the current view (`kind: "subagent-group"`). Synthetic — not a real entity.                                                                                                                                                               | Not a link; expands to reveal the nested conversations, each of which links individually.                                                                         |
+| **Drivable**     | An app-started driven session (mt#2752) — the input-capable surface at `/driven/:id`.                                                                                                                                                                                                                               | Opens the drive view.                                                                                                                                             |
+| **Unattributed** | The collapsed aggregate of every NULL-project-attribution conversation (and NULL-attributed subagent whose out-of-view parent can't be resolved) under a **specific** project filter (mt#4733). Synthetic — not a real entity, and only ever appears when `?project=` names one project rather than "All projects". | Not a link; expands to reveal the individual unattributed conversations, each of which links individually — same collapsed-container shape as **Subagent** above. |
+
+**Why "Unattributed" exists:** `agent_transcripts.project_id` is resolved
+best-effort at ingest and is nullable by design, so a specific project filter's
+window query includes every NULL-attribution conversation alongside the filtered
+project's own rows (never silently hiding one whose attribution failed to
+resolve). Rendering each as its own peer row floods a narrow filter — live-measured
+at a 45:2 ratio against one project's own activity — so they collapse into this
+one row instead. Full mechanism: `src/cockpit/widgets/run-merge.ts`'s module
+header ("Collapsed rendering under a narrow filter").
+
 ## Driven sessions (`/driven/:id`, mt#2750–mt#2752)
 
 The drive surface of the harness-host ladder (umbrella mt#2230): the cockpit
@@ -607,5 +631,7 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
   §Driven sessions surface)
 - mt#2397 / mt#2604 / mt#3700 — the rail: persistent spine, mobile drawer, desktop collapse
   (the §The rail surface)
+- mt#2767 / mt#4728 / mt#4733 — Agents unified run list, project-scoped filtering, the
+  NULL-attribution collapse (the §Agents / unified run list surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`
