@@ -76,6 +76,16 @@ export interface ResolvedTaskWorkspace {
   sessionDir: string;
   /** True when an existing workspace was reused; false when freshly created. */
   reused: boolean;
+  /**
+   * The workspace's own resolved project (mt#4732), read from
+   * `SessionRecord.projectId` — the SAME field the agents widget already
+   * reads for a `dispatched-agent` row (`toAgentRow` in
+   * `../widgets/agents.ts`). `null` when the session record has none (a
+   * workspace created before project scoping existed, or one whose project
+   * could not be resolved at creation time) — the same "unknown, not
+   * excluded" posture as every other nullable project field in this system.
+   */
+  projectId: string | null;
 }
 
 /**
@@ -116,7 +126,12 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
     log.info(
       `[driven-session] reusing existing workspace ${existing.sessionId} for ${taskId} (${sessionDir})`
     );
-    return { minskySessionId: existing.sessionId, sessionDir, reused: true };
+    return {
+      minskySessionId: existing.sessionId,
+      sessionDir,
+      reused: true,
+      projectId: existing.projectId ?? null,
+    };
   }
 
   const taskService = await getServerTaskService();
@@ -164,7 +179,17 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
 
   const sessionDir = await resolveSessionDirectory(session.sessionId, sessionProvider);
   log.info(`[driven-session] created workspace ${session.sessionId} for ${taskId} (${sessionDir})`);
-  return { minskySessionId: session.sessionId, sessionDir, reused: false };
+  // mt#4732: `service.start()`'s `Session` return shape doesn't carry
+  // `projectId` (only the persisted `SessionRecord` does), so re-read the
+  // record we just created. One extra provider call on the create-only path
+  // (the far less common branch — most launches reuse an existing workspace).
+  const created = await sessionProvider.getSession(session.sessionId);
+  return {
+    minskySessionId: session.sessionId,
+    sessionDir,
+    reused: false,
+    projectId: created?.projectId ?? null,
+  };
 }
 
 /**

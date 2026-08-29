@@ -151,8 +151,15 @@ const SCRATCH_CWD = realDir("scratch-checkout");
 const EXPLICIT_CWD = realDir("explicit");
 const HARNESS_ID = "aaaaaaaa-0000-0000-0000-000000000001";
 
-function fakeResolver(): (taskId: string) => Promise<ResolvedTaskWorkspace> {
-  return async () => ({ minskySessionId: WORKSPACE_ID, sessionDir: SESSION_DIR, reused: false });
+function fakeResolver(
+  projectId: string | null = null
+): (taskId: string) => Promise<ResolvedTaskWorkspace> {
+  return async () => ({
+    minskySessionId: WORKSPACE_ID,
+    sessionDir: SESSION_DIR,
+    reused: false,
+    projectId,
+  });
 }
 
 // ---------------------------------------------------------------------------

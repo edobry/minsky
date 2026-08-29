@@ -212,6 +212,9 @@ export function mountDrivenSessionRoutes(
       let cwd: string;
       let taskId: string | null = null;
       let minskySessionId: string | null = null;
+      // mt#4732: project attribution, resolved only on the task-bound branch
+      // below (the only branch with a workspace to read one from).
+      let projectId: string | null = null;
       let onHarnessSessionLinked = opts.onHarnessSessionLinked;
       // mt#2753: cost capture applies to every driven session regardless of
       // launch shape — success criterion 1 is "every driven session", not
@@ -239,6 +242,7 @@ export function mountDrivenSessionRoutes(
         const workspace = await resolve(taskId);
         cwd = workspace.sessionDir;
         minskySessionId = workspace.minskySessionId;
+        projectId = workspace.projectId;
       } else if (hasCwd) {
         cwd = cwdRaw as string;
       } else {
@@ -252,6 +256,7 @@ export function mountDrivenSessionRoutes(
         model,
         taskId,
         minskySessionId,
+        projectId,
         onHarnessSessionLinked,
         onResultSummary,
         onStateChange,

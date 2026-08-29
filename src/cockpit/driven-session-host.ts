@@ -636,6 +636,20 @@ export interface DrivenSessionRecord {
   readonly taskId: string | null;
   /** The Minsky workspace sessionId the session was launched against (see taskId). */
   readonly minskySessionId: string | null;
+  /**
+   * Project attribution (mt#4732), resolved by the CALLER at launch time from
+   * the bound workspace's own `SessionRecord.projectId` when `minskySessionId`
+   * is known and resolvable — this module never resolves it itself (the
+   * "no domain-layer lookups" invariant this file's docblock states holds;
+   * see ../driven-session-launch.ts's `resolveTaskWorkspace`). `null` for
+   * every launch shape with no bound workspace (scratch sessions, explicit
+   * `cwd` launches, the ambient principal-conversation driver, entity
+   * threads) and for a session rehydrated from the `driven_sessions` table
+   * after a daemon restart — `driven_sessions` does not persist this column,
+   * so a rehydrated/attached record's project is unknown by construction,
+   * not merely unresolved (same "not tracked" posture as `model` below).
+   */
+  readonly projectId: string | null;
   status: DrivenSessionStatus;
   /** Set only when `status === "unrecoverable"` (mt#3038 R1 delta #2). */
   unrecoverableReason: string | null;
@@ -863,6 +877,12 @@ export interface StartDrivenSessionOptions {
   /** Workspace-session binding recorded on the record (mt#2752) — opaque to this module. */
   minskySessionId?: string | null;
   /**
+   * Project attribution recorded on the record (mt#4732) — opaque to this
+   * module, resolved by the caller (see `DrivenSessionRecord.projectId`'s
+   * doc comment). Omitted/`null` when the launch has no bound workspace.
+   */
+  projectId?: string | null;
+  /**
    * The `--model` argument for the spawned binary (a resolved dispatch alias,
    * e.g. "fable"; mt#3040). When set, appended to the spawn argv so the genuine
    * `claude` binary runs on the principal-selected model. Omitted → the CLI's
@@ -1009,6 +1029,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       permissionMode,
       taskId: opts.taskId ?? null,
       minskySessionId: opts.minskySessionId ?? null,
+      projectId: opts.projectId ?? null,
       status: "unrecoverable",
       unrecoverableReason: reason,
       driverGeneration: 0,
@@ -1034,6 +1055,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     startedAt: new Date().toISOString(),
     taskId: opts.taskId ?? null,
     minskySessionId: opts.minskySessionId ?? null,
+    projectId: opts.projectId ?? null,
     status: "spawned",
     unrecoverableReason: null,
     harnessSessionId: null,
@@ -1209,6 +1231,13 @@ export interface DrivenSessionResumeSource {
   harnessSessionId: string;
   taskId: string | null;
   minskySessionId: string | null;
+  /**
+   * Project attribution (mt#4732) — carried forward from the record being
+   * resumed. Optional so a caller building `previous` by hand (rather than
+   * passing a live `DrivenSessionRecord` through structurally) doesn't need
+   * to name it; defaults to `null` in {@link resumeDrivenSession}.
+   */
+  projectId?: string | null;
   /** Preserved from the ORIGINAL spawn — stable across every swap (see schema docblock). */
   startedAt: string;
   /** The PRE-swap generation counter; the new record's is `previous.driverGeneration + 1`. */
@@ -1299,6 +1328,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
       permissionMode: previous.permissionMode,
       taskId: previous.taskId,
       minskySessionId: previous.minskySessionId,
+      projectId: previous.projectId ?? null,
       status: "unrecoverable",
       unrecoverableReason: reason,
       driverGeneration: previous.driverGeneration,
@@ -1324,6 +1354,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     startedAt: previous.startedAt,
     taskId: previous.taskId,
     minskySessionId: previous.minskySessionId,
+    projectId: previous.projectId ?? null,
     status: "spawned",
     unrecoverableReason: null,
     harnessSessionId: previous.harnessSessionId,
@@ -1385,6 +1416,14 @@ export interface ReconnectingRecordInput {
   permissionMode: PermissionMode;
   taskId: string | null;
   minskySessionId: string | null;
+  /**
+   * Project attribution (mt#4732). Optional — the two external reconnect
+   * callers (a persisted `driven_sessions` row at boot, an attach-from-disk)
+   * build this from a schema/shape that doesn't carry it, so it defaults to
+   * `null` in {@link buildReconnectingDrivenSessionRecord} rather than
+   * forcing every call site to pass it explicitly.
+   */
+  projectId?: string | null;
   /** Only these two persisted-only statuses ever reach this builder — a
    * `spawned`/`running`/`exited`/`crashed` row belongs to a live or
    * genuinely-terminal session driver, never a boot-time placeholder. */
@@ -1419,6 +1458,7 @@ export function buildReconnectingDrivenSessionRecord(
     startedAt: input.startedAt,
     taskId: input.taskId,
     minskySessionId: input.minskySessionId,
+    projectId: input.projectId ?? null,
     status: input.status,
     unrecoverableReason: input.unrecoverableReason,
     harnessSessionId: input.harnessSessionId,
