@@ -75,8 +75,7 @@ import {
   type CrossTurnHedgeResult,
   type ScannedTurn,
 } from "../../packages/domain/src/detectors/cross-turn-hedge";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 /** Calibration-first per ADR-024: evaluate and record, inject nothing. */
@@ -84,8 +83,23 @@ export const INJECTION_ENABLED = false;
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_CROSS_TURN_HEDGE";
 
-/** Evaluation stream — every window scanned, fired or not. */
-export const EVALUATION_LOG = ".minsky/cross-turn-hedge-evaluation.jsonl";
+/**
+ * Evaluation stream — every window scanned, fired or not.
+ *
+ * mt#3745: the logical stream NAME, not a path — `logEvaluationRecord` /
+ * `evaluationLogPath` derive `.minsky/<name>-evaluations.jsonl` from it, the
+ * same name/path split the registry's `calibrationLog` uses.
+ *
+ * This detector shipped with a hand-written path constant instead
+ * (`.minsky/cross-turn-hedge-evaluation.jsonl`), which cost two things and is
+ * why mt#2492 migrated it. The filename was SINGULAR where all 31 siblings are
+ * plural, so `.gitignore`'s `**` + `/.minsky/*-evaluations.jsonl` glob missed it
+ * and the log sat untracked for weeks; deriving the name makes that
+ * unspellable. And the writer rooted on a raw `cwd`, the exact pattern mt#3745
+ * removed elsewhere after it scattered 12 stray logs across 6 session
+ * workspaces — the helper resolves `findRepoRoot()` instead.
+ */
+const EVALUATION_LOG_NAME = "cross-turn-hedge";
 
 /**
  * Trailing-window size in TURNS.
@@ -137,17 +151,14 @@ function isOverridden(): string | undefined {
   return v === "1" || v === "true" || v === "yes" ? raw : undefined;
 }
 
-function appendJsonl(cwd: string, relPath: string, record: Record<string, unknown>): void {
-  try {
-    const abs = resolve(cwd, relPath);
-    const dir = dirname(abs);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(abs, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch {
-    // Fail-open: a detector that cannot write its log must not break the turn.
-    // Deliberate swallow — there is no channel to report to from here, and the
-    // alternative (throwing) would take down a prompt over a logging failure.
-  }
+/**
+ * Append one evaluation record. Fail-open by way of the shared helper, which
+ * swallows its own write errors: a measurement stream must never be able to
+ * break the guard whose behavior it measures.
+ */
+function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -338,7 +349,7 @@ export async function run(
   if (!evaluated) return null;
 
   const cwd = input.cwd ?? process.cwd();
-  appendJsonl(cwd, EVALUATION_LOG, {
+  appendEvaluationRecord(cwd, {
     ...evaluated.evaluation,
     session_id: input.session_id,
   });
@@ -425,7 +436,7 @@ export async function main(): Promise<void> {
   if (!evaluated) process.exit(0);
 
   const cwd = input.cwd ?? process.cwd();
-  appendJsonl(cwd, EVALUATION_LOG, {
+  appendEvaluationRecord(cwd, {
     ...evaluated.evaluation,
     session_id: input.session_id,
   });
