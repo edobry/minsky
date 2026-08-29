@@ -92,6 +92,30 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
     stream: "execution-evidence-test-first",
     guardName: "require-execution-evidence-before-merge",
   },
+  // mt#4752: the execution-evidence ladder has FIVE tiers, not two. These three
+  // were writing to disk and reaching no ingest at all — the manifest listed
+  // only the two above, so `guard_events` has never held a record from them.
+  //
+  // Found while enumerating writers, not by anything watching: a stream absent
+  // from this file produces no error and no empty result, it simply never
+  // appears. That is why the omission survived — the same shape as the
+  // gitignore miss this task's sibling (mt#2492) closed one level down.
+  //
+  // Each is written by `require-execution-evidence-before-merge.ts`'s own
+  // ladder writer via a sibling module: `success-criteria-coverage.ts`,
+  // `render-path-evidence.ts` and `consumer-account-evidence.ts` respectively.
+  {
+    stream: "execution-evidence-sc-coverage",
+    guardName: "require-execution-evidence-before-merge",
+  },
+  {
+    stream: "execution-evidence-render-path",
+    guardName: "require-execution-evidence-before-merge",
+  },
+  {
+    stream: "execution-evidence-consumer-account",
+    guardName: "require-execution-evidence-before-merge",
+  },
   { stream: "knowledge-acquisition", guardName: "knowledge-acquisition" },
   { stream: "negative-existence-claim", guardName: "negative-existence-claim-detector" },
   { stream: "operator-deferral" }, // two guards share this log (operator-deferral-detector + -ask-surface)
