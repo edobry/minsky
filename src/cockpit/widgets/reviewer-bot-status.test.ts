@@ -21,16 +21,21 @@ import {
   buildQueryRows,
   runQueriesWithLimit,
   extractTaskIdFromBranch,
+  parseOwnerRepoSlug,
   type ReviewerBotStatusPayload,
   type ReviewerHealthProbeResult,
 } from "./reviewer-bot-status";
 import type { WidgetContext } from "../types";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 
 // ---------------------------------------------------------------------------
 // Test doubles
 // ---------------------------------------------------------------------------
 
 const FIXED_NOW = new Date("2026-06-04T12:00:00Z").getTime();
+
+/** Shared table-name literal — extracted to satisfy custom/no-magic-string-duplication. */
+const REVIEWER_INFLIGHT_REVIEWS_TABLE = "reviewer_inflight_reviews";
 
 function fakeCtx(): WidgetContext {
   return {} as WidgetContext;
@@ -141,7 +146,7 @@ function makeQueryRows(overrides: {
       return [{ avg_ms: avgLatencyMs, p95_ms: p95LatencyMs }];
     }
     // Stale in-flight
-    if (sql.includes("reviewer_inflight_reviews")) {
+    if (sql.includes(REVIEWER_INFLIGHT_REVIEWS_TABLE)) {
       return [{ count: staleInflightCount }];
     }
     // Rate-limit hits
@@ -902,8 +907,8 @@ describe("createReviewerBotStatusWidget — query-failure indicator (mt#2758)", 
     // unique substring — no other query text matches it). Every other query
     // succeeds via the standard healthy stub.
     const singleFailureQueryRows: QueryRows = async (sql, params) => {
-      if (sql.includes("reviewer_inflight_reviews")) {
-        throw new Error('relation "reviewer_inflight_reviews" does not exist');
+      if (sql.includes(REVIEWER_INFLIGHT_REVIEWS_TABLE)) {
+        throw new Error(`relation "${REVIEWER_INFLIGHT_REVIEWS_TABLE}" does not exist`);
       }
       return makeQueryRows({})(sql, params);
     };
@@ -1069,5 +1074,173 @@ describe("concurrency discipline (mt#2765)", () => {
     const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
     expect(payload.db).toBeNull();
     expect(payload.health.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseOwnerRepoSlug (mt#4746)
+// ---------------------------------------------------------------------------
+
+describe("parseOwnerRepoSlug (mt#4746)", () => {
+  test("splits a valid owner/repo slug", () => {
+    expect(parseOwnerRepoSlug("edobry/minsky")).toEqual({ owner: "edobry", repo: "minsky" });
+  });
+
+  test("returns null for a slug with no slash", () => {
+    expect(parseOwnerRepoSlug("minsky")).toBeNull();
+  });
+
+  test("returns null for a slug with an empty owner or repo half", () => {
+    expect(parseOwnerRepoSlug("/minsky")).toBeNull();
+    expect(parseOwnerRepoSlug("edobry/")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746 — two-project fixture, mirrors mt#4727's pattern)
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — project scope (mt#4746)", () => {
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const PROJECT_A_SLUG = "edobry/minsky";
+
+  function ctxWithProject(slug: string): WidgetContext {
+    return { id: "reviewer-bot-status", query: { project: slug } } as WidgetContext;
+  }
+
+  /** Fake scope-resolver db, shaped `select().from().where().limit()`. */
+  function makeScopeResolverDb(rows: Array<{ id: string; slug: string }>): ScopeResolverDb {
+    return {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                return {
+                  limit() {
+                    return Promise.resolve(rows);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  /**
+   * Captures every (sql, params) pair passed to queryRows so tests can
+   * assert the repo-scope clause/params reached the queries that carry
+   * owner/repo columns, and — separately — that the reviewer_webhook_events
+   * queries never gain a scope filter (the documented partial-filter gap).
+   */
+  function makeCapturingQueryRows(): {
+    queryRows: QueryRows;
+    calls: Array<{ sql: string; params: unknown[] }>;
+  } {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const queryRows: QueryRows = async (sql, params = []) => {
+      calls.push({ sql, params });
+      return [];
+    };
+    return { queryRows, calls };
+  }
+
+  test("no ?project= issues every query with exactly one param (unscoped)", async () => {
+    const { queryRows, calls } = makeCapturingQueryRows();
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows,
+      now: () => FIXED_NOW,
+    });
+
+    await widget.fetch(fakeCtx());
+
+    expect(calls).toHaveLength(15);
+    for (const call of calls) {
+      expect(call.params.length).toBeLessThanOrEqual(1);
+      expect(call.sql).not.toContain("pr_owner =");
+      expect(call.sql).not.toContain("owner =");
+    }
+  });
+
+  test("?project=<project A slug> appends the owner/repo filter to repo-attributed queries only", async () => {
+    const { queryRows, calls } = makeCapturingQueryRows();
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows,
+      now: () => FIXED_NOW,
+      getProjectScopeDb: async () =>
+        makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }]),
+    });
+
+    await widget.fetch(ctxWithProject(PROJECT_A_SLUG));
+
+    expect(calls).toHaveLength(15);
+
+    // reviewer_convergence_metrics / review_timing / reviewer_inflight_reviews
+    // queries carry the scope filter with the resolved owner/repo params.
+    const scopedCalls = calls.filter(
+      (c) =>
+        c.sql.includes("reviewer_convergence_metrics") ||
+        c.sql.includes("review_timing") ||
+        c.sql.includes(REVIEWER_INFLIGHT_REVIEWS_TABLE)
+    );
+    expect(scopedCalls.length).toBeGreaterThan(0);
+    for (const call of scopedCalls) {
+      expect(call.params).toContain("edobry");
+      expect(call.params).toContain("minsky");
+      expect(call.sql).toMatch(/(pr_owner|owner|rt\.pr_owner) = \$2/);
+    }
+
+    // reviewer_webhook_events queries (throughput, failure count, last error,
+    // last webhook received) never gain a scope filter — the documented
+    // partial-filter gap (module docblock's "Project scope" section).
+    const webhookCalls = calls.filter((c) => c.sql.includes("reviewer_webhook_events"));
+    expect(webhookCalls.length).toBeGreaterThan(0);
+    for (const call of webhookCalls) {
+      expect(call.params.length).toBeLessThanOrEqual(1);
+      expect(call.sql).not.toContain("owner");
+    }
+  });
+
+  test("?project=<unresolvable slug> fails open to ALL_PROJECTS (no scope filter applied)", async () => {
+    const { queryRows, calls } = makeCapturingQueryRows();
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows,
+      now: () => FIXED_NOW,
+      getProjectScopeDb: async () => null,
+    });
+
+    await widget.fetch(ctxWithProject("unknown/repo"));
+
+    expect(calls).toHaveLength(15);
+    for (const call of calls) {
+      expect(call.params.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("distinct ?project= values are NOT coalesced into the same in-flight fetch", async () => {
+    let probeCalls = 0;
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: async () => {
+        probeCalls++;
+        await new Promise((r) => setTimeout(r, 5));
+        return healthyProbe();
+      },
+      queryRows: async () => [],
+      now: () => FIXED_NOW,
+      getProjectScopeDb: async () =>
+        makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }]),
+    });
+
+    await Promise.all([widget.fetch(ctxWithProject(PROJECT_A_SLUG)), widget.fetch(fakeCtx())]);
+
+    // Two distinct scope keys ("edobry/minsky" and "ALL_PROJECTS") must each
+    // run their own fetch — coalescing across them would silently serve one
+    // project's in-flight result to the other's request.
+    expect(probeCalls).toBe(2);
   });
 });

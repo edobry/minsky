@@ -76,7 +76,10 @@ const SCOPE_EVIDENCE_PATTERN = /resolveCockpitProjectScope|ctx\.projectScope|req
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727/mt#4728):
 // agents, attention, context-inspector (mt#4746), memories-list, memories-search,
-// memories-stats, task-graph, task-list, workstreams.
+// memories-stats, reviewer-bot-status (mt#4746, PARTIAL — see its own docblock's
+// "Project scope" section: reviewer_webhook_events carries no owner/repo column,
+// so 4 of its ~15 queries stay global even when scoped), task-graph, task-list,
+// workstreams.
 // ---------------------------------------------------------------------------
 export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
@@ -113,14 +116,6 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "mcp-server-status",
     reason: "not project-attributable: MCP server connection status is process-level.",
-  },
-  {
-    id: "reviewer-bot-status",
-    reason:
-      "deferred: queries reviewer_webhook_events / reviewer_inflight_reviews / " +
-      "reviewer_convergence_metrics unfiltered; these are keyed by repo/PR, not by " +
-      "Minsky project uuid, so scoping needs a repo→project resolution step. Tracked " +
-      "at mt#4746.",
   },
   {
     id: "memories-detail",
