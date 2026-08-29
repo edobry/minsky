@@ -60,7 +60,7 @@
 // @see mem#535 — R2/R4 incident (owned by mt#2303, pinned here as a
 //      non-duplication regression test)
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, ToolHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -92,10 +92,8 @@ import type { KillInvocation } from "./block-bulk-process-kill";
 // Same one-way hook-to-hook edge `turn-end-untaken-action-scan` already has on
 // that module, and the same one this file already has on the kill parse above.
 import { findOfferShape } from "./ask-routing-deferral-detector";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { logEvaluationRecord } from "./dispatcher";
+import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 import {
   CAPTURE_SCHEMA_FIELD,
@@ -132,7 +130,7 @@ export const INJECTION_ENABLED = false;
  */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_OPERATOR_DEFERRAL";
 
-const CALIBRATION_LOG = ".minsky/operator-deferral-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "operator-deferral";
 
 export type DeferralSurface =
   | "capability-deferral-prose"
@@ -1473,16 +1471,14 @@ export function buildCalibrationRecord(
 }
 
 function appendCalibrationRecord(cwd: string | undefined, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd ?? process.cwd()), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    process.stderr.write(
-      `[operator-deferral-detector] Failed to write calibration log: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root. Undefined is fine: the helper falls through to `process.cwd()`,
+  // which is what the hand-rolled `cwd ?? process.cwd()` did explicitly.
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, {
+    ...(cwd !== undefined ? { fallbackCwd: cwd } : {}),
+  });
 }
 
 export function buildReminder(matches: DeferralMatch[]): string {

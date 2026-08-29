@@ -63,7 +63,7 @@
 // @see .minsky/hooks/block-nested-fork-dispatch.ts — sibling PreToolUse guard on the Agent tool
 // @see .minsky/rules/hook-observers.mdc "Bare-prohibition dispatch"
 
-import { readInput, writeOutput, findRepoRoot } from "./types";
+import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { recordFireLogEntry, classifyOverride } from "./fire-log";
 import {
@@ -72,14 +72,13 @@ import {
   ENFORCEMENT_ENABLED,
 } from "../../packages/domain/src/validation/negative-constraint";
 import type { NegativeConstraintReport } from "../../packages/domain/src/validation/negative-constraint";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logCalibrationRecord } from "./dispatcher";
 
 /** Override env var: set to "1"/"true"/"yes" to suppress detection and emit an audit line. */
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_BARE_PROHIBITION";
 
 /** Calibration log path, relative to the repo root. */
-export const CALIBRATION_LOG = ".minsky/bare-prohibition-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "bare-prohibition";
 
 /** The `tool_input` field carrying the dispatch prompt for the Agent tool. */
 export const PROMPT_FIELD = "prompt";
@@ -179,19 +178,11 @@ export function decideBareProhibitionGate(
 
 /** Append one calibration record; never throws (a logging failure must not break a dispatch). */
 export function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // Resolve the actual repo ROOT, not the raw shell cwd — cwd is routinely a subdirectory,
-    // and a bare resolve() would scatter the log into a stray nested `.minsky/` (mt#2710).
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[warn-bare-prohibition-dispatch] Failed to write calibration log: ${msg}\n`
-    );
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
