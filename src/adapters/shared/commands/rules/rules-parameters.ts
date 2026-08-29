@@ -6,6 +6,7 @@ import { type CommandParameterMap } from "../../command-registry";
 import {
   RULE_CONTENT_DESCRIPTION,
   RULE_DESCRIPTION_DESCRIPTION,
+  RULE_FORMAT_DESCRIPTION,
   RULE_NAME_DESCRIPTION,
   OVERWRITE_DESCRIPTION,
 } from "../../../../utils/option-descriptions";
@@ -103,7 +104,7 @@ export const rulesGenerateCommandParams = composeParams(
     },
     format: {
       schema: z.enum(["cursor", "generic", "minsky"]),
-      description: "Rule format for file system organization (cursor or generic)",
+      description: RULE_FORMAT_DESCRIPTION,
       required: false,
       defaultValue: "cursor",
     },
