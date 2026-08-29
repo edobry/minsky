@@ -212,10 +212,16 @@ function mockMultiTableDb(fixture: MultiTableFixture): PostgresJsDatabase {
     select: () => ({
       from: (table: unknown) => {
         if (table === agentTranscriptsTable) {
+          // The widget calls `.orderBy()` directly when unscoped, or
+          // `.where().orderBy()` when a project scope is set — support both
+          // shapes at this level (mt#4746 round 2: the widget no longer
+          // calls `.where(undefined)`, it skips `.where()` entirely).
+          const afterWhere = {
+            orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
+          };
           return {
-            where: () => ({
-              orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
-            }),
+            where: () => afterWhere,
+            ...afterWhere,
           };
         }
         if (table === minskySessionLinksTable) {

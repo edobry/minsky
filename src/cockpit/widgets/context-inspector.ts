@@ -57,7 +57,7 @@
  */
 
 import { isSqlCapable } from "@minsky/domain/persistence/types";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
@@ -172,9 +172,15 @@ export function createContextInspectorWidget(
           getDb: getProjectScopeDb,
         });
         const projectId = isAllProjects(projectScope) ? undefined : projectScope;
-        const conditions = projectId ? [eq(agentTranscriptsTable.projectId, projectId)] : [];
 
-        const rows = await db
+        // mt#4746 reviewer round 2: build the base query first and apply
+        // `.where()` ONLY when actually scoped, rather than always calling
+        // `.where(conditions.length > 0 ? and(...) : undefined)` — Drizzle
+        // treats an `undefined` where-argument as "no filter" (verified
+        // directly against the real query builder: it renders with no WHERE
+        // clause and does not throw), but never invoking `.where()` at all in
+        // the unscoped case removes any doubt without changing behavior.
+        const baseQuery = db
           .select({
             agentSessionId: agentTranscriptsTable.agentSessionId,
             harness: agentTranscriptsTable.harness,
@@ -185,8 +191,13 @@ export function createContextInspectorWidget(
             // selected here rather than via a second enrichment query.
             title: agentTranscriptsTable.title,
           })
-          .from(agentTranscriptsTable)
-          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .from(agentTranscriptsTable);
+
+        const scopedQuery = projectId
+          ? baseQuery.where(eq(agentTranscriptsTable.projectId, projectId))
+          : baseQuery;
+
+        const rows = await scopedQuery
           // mt#3342: order on a NON-NULL key. Postgres sorts NULLs FIRST under
           // `DESC`, so ordering on `started_at` alone let rows with a NULL
           // start time monopolize the window: 57 such rows existed against a
