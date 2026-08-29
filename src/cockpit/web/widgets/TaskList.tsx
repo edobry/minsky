@@ -33,7 +33,13 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { statusStyle } from "../lib/status-colors";
-import { useProject } from "../lib/project-context";
+import {
+  useProject,
+  shouldShowProjectIndicator,
+  projectLabelById,
+  type ProjectSummary,
+} from "../lib/project-context";
+import { ProjectBadge } from "../components/ProjectBadge";
 import {
   Select,
   SelectContent,
@@ -53,6 +59,8 @@ export interface TaskListItem {
   kind: string;
   tags: string[];
   parentId: string | null;
+  /** Owning project's uuid, or null for a legacy/unscoped row (mt#4729). */
+  projectId: string | null;
 }
 
 interface TaskListPayload {
@@ -476,7 +484,17 @@ function TaskTableHeader({
 // Task row — navigates to /tasks/:id on click
 // ---------------------------------------------------------------------------
 
-function TaskRowItem({ task }: { task: TaskListItem }) {
+function TaskRowItem({
+  task,
+  showProjectBadge,
+  projects,
+}: {
+  task: TaskListItem;
+  /** Whether the project indicator is worth rendering at all — see `shouldShowProjectIndicator`. */
+  showProjectBadge: boolean;
+  projects: ProjectSummary[];
+}) {
+  const projectLabel = showProjectBadge ? projectLabelById(projects, task.projectId) : null;
   return (
     <div className="border-b border-border last:border-0">
       <Link
@@ -489,8 +507,9 @@ function TaskRowItem({ task }: { task: TaskListItem }) {
         <span className="text-small font-mono text-muted-foreground flex-shrink-0 w-20">
           {task.id}
         </span>
-        <div className="flex-1 min-w-0">
-          <span className="text-body truncate block">{task.title}</span>
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="text-body truncate">{task.title}</span>
+          {projectLabel && <ProjectBadge label={projectLabel} className="flex-shrink-0" />}
         </div>
         <span className="text-small text-muted-foreground flex-shrink-0 w-28 truncate">
           {task.kind}
@@ -565,7 +584,15 @@ export function taskSortFn(
 // Inner widget (hooks after payload guard)
 // ---------------------------------------------------------------------------
 
-function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
+function TaskListInner({
+  tasks,
+  showProjectBadge,
+  projects,
+}: {
+  tasks: TaskListItem[];
+  showProjectBadge: boolean;
+  projects: ProjectSummary[];
+}) {
   const filterFn = useCallback(taskFilterFn, []);
   const sortFn = useCallback(taskSortFn, []);
 
@@ -660,6 +687,8 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
             <TaskRowItem
               key={task.id}
               task={task}
+              showProjectBadge={showProjectBadge}
+              projects={projects}
             />
           ))}
           <PaginationBar
@@ -681,9 +710,11 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
 
 interface TaskListBodyProps {
   query: UseQueryResult<WidgetData, Error>;
+  showProjectBadge: boolean;
+  projects: ProjectSummary[];
 }
 
-function TaskListBody({ query }: TaskListBodyProps) {
+function TaskListBody({ query, showProjectBadge, projects }: TaskListBodyProps) {
   if (query.isError) {
     return <p className="text-muted-foreground text-body">Failed to load tasks: {query.error.message}</p>;
   }
@@ -700,7 +731,13 @@ function TaskListBody({ query }: TaskListBodyProps) {
     return <p className="text-muted-foreground text-body">Unexpected payload shape</p>;
   }
 
-  return <TaskListInner tasks={data.payload.tasks} />;
+  return (
+    <TaskListInner
+      tasks={data.payload.tasks}
+      showProjectBadge={showProjectBadge}
+      projects={projects}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -715,7 +752,7 @@ interface TaskListProps {
 }
 
 export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = {}) {
-  const { selectedSlug, queryParam } = useProject();
+  const { selectedSlug, queryParam, projects } = useProject();
   const query = useQuery<WidgetData, Error>({
     // mt#2418: selectedSlug in the key so switching projects invalidates
     // the cache and refetches immediately rather than waiting out staleTime.
@@ -724,10 +761,13 @@ export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = 
     staleTime: 30_000,
     refetchInterval: 10_000,
   });
+  // mt#4729: suppressed when a single project is selected or only one
+  // project exists — see shouldShowProjectIndicator's doc comment.
+  const showProjectBadge = shouldShowProjectIndicator(projects, selectedSlug);
 
   return (
     <WidgetShell variant={variant} title={title}>
-      <TaskListBody query={query} />
+      <TaskListBody query={query} showProjectBadge={showProjectBadge} projects={projects} />
     </WidgetShell>
   );
 }

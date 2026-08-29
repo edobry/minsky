@@ -84,6 +84,45 @@ export function isKnownSlug(projects: ProjectSummary[], slug: string | null): bo
   return projects.some((p) => p.slug === slug);
 }
 
+// ---------------------------------------------------------------------------
+// Project-badge helpers (mt#4729) — shared by TaskList / Changesets /
+// RunDetail row rendering, so the "when to show" rule and the "what label"
+// rule each live in exactly one place rather than being reimplemented per
+// widget.
+// ---------------------------------------------------------------------------
+
+/**
+ * True when a project indicator is worth rendering: the all-projects view
+ * (no project explicitly selected) AND 2+ projects actually exist. A single
+ * known project, or an explicit selection, makes a per-row badge pure noise
+ * — there is nothing left to distinguish (mission-control density: no
+ * indicator with no useful state to convey). Mirrors the same threshold
+ * `ProjectSelector` already uses to decide whether to render itself at all.
+ */
+export function shouldShowProjectIndicator(
+  projects: ProjectSummary[],
+  selectedSlug: string | null
+): boolean {
+  return selectedSlug === null && projects.length >= 2;
+}
+
+/**
+ * Resolve a project uuid (as carried on e.g. `TaskListItem.projectId`) to a
+ * human-readable label — `displayName` when set, else the raw `slug` (same
+ * fallback `ProjectSelector` already applies for its own options), else
+ * `null` when the id names no project the shell currently knows about (a
+ * race with the `/api/projects` fetch, or a stale/foreign id).
+ */
+export function projectLabelById(
+  projects: ProjectSummary[],
+  projectId: string | null
+): string | null {
+  if (!projectId) return null;
+  const project = projects.find((p) => p.id === projectId);
+  if (!project) return null;
+  return project.displayName ?? project.slug;
+}
+
 interface ProjectContextValue {
   /** Every known project (empty while loading, or when none exist). */
   projects: ProjectSummary[];
