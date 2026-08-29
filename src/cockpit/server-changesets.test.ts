@@ -210,9 +210,64 @@ describe("GET /api/changeset/:id degradation (mt#3096)", () => {
     const { url, close } = await startTestServer();
     closeServer = close;
 
-    // PR 0 does not exist on any forge, and no session matches it.
+    // PR 0 does not exist on any forge, and no session matches it. `0` is not a
+    // valid PR number, but this route's contract is that an unresolvable id is
+    // a 404 — mt#4724 widened the syntactic gate without changing that.
     const res = await fetch(`${url}/api/changeset/0`);
     expect(res.status).not.toBe(500);
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * GET /api/changeset/:id — project-qualified ids (mt#4724).
+ *
+ * The route-level half of the collision fix: the endpoint must ACCEPT an
+ * `owner/repo#N` id (percent-encoded into the single path segment) rather than
+ * rejecting it as non-numeric the way the pre-mt#4724 `/^[0-9]+$/` gate did.
+ * WHICH PR each form resolves to is decided by `resolveChangesetRepoSource` /
+ * `selectSessionForChangeset` and asserted directly against a two-project
+ * fixture in `changeset-resolution.test.ts` — this harness configures no live
+ * provider, so a two-project assertion here would be unreachable (the mistake
+ * PR #2979 R1 caught in the sibling block above).
+ */
+describe("GET /api/changeset/:id project-qualified ids (mt#4724)", () => {
+  let closeServer: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    if (closeServer) {
+      await closeServer();
+      closeServer = null;
+    }
+  });
+
+  test("accepts a qualified owner/repo#N id (not the pre-mt#4724 400)", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    const res = await fetch(`${url}/api/changeset/${encodeURIComponent("edobry/peezombie.me#1")}`);
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(500);
+    expect([200, 404]).toContain(res.status);
+  });
+
+  test("a ?project= qualifier on a bare id is accepted", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    const res = await fetch(`${url}/api/changeset/1?project=edobry%2Fpeezombie.me`);
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(500);
+    expect([200, 404]).toContain(res.status);
+  });
+
+  test("a malformed qualified id is still a 400", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    for (const id of ["edobry/peezombie.me#abc", "edobry/peezombie.me", "/repo#1"]) {
+      const res = await fetch(`${url}/api/changeset/${encodeURIComponent(id)}`);
+      expect(res.status).toBe(400);
+    }
   });
 });
