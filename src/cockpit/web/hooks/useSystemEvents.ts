@@ -14,6 +14,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { isValidReplayWindow, type ReplayWindow } from "../lib/plant-replay";
+import { useProject } from "../lib/project-context";
 
 export interface SystemEventRow {
   id: string;
@@ -28,8 +29,9 @@ export const SYSTEM_EVENTS_POLL_MS = 8_000;
  *  since a scrubbed window may legitimately contain a burst of history. */
 const REPLAY_WINDOW_LIMIT = 500;
 
-async function fetchActivity(): Promise<SystemEventRow[]> {
-  const res = await fetch("/api/activity?limit=50");
+async function fetchActivity(queryParam?: { project: string }): Promise<SystemEventRow[]> {
+  const params = new URLSearchParams({ limit: "50", ...queryParam });
+  const res = await fetch(`/api/activity?${params.toString()}`);
   if (!res.ok) {
     throw new Error(`GET /api/activity failed: ${res.status}`);
   }
@@ -48,9 +50,14 @@ async function fetchActivity(): Promise<SystemEventRow[]> {
  * handler, which re-baselines the gesture engine on a fresh poll).
  */
 export function useSystemEvents(intervalMs: number = SYSTEM_EVENTS_POLL_MS, enabled = true) {
+  const { selectedSlug, queryParam } = useProject();
   return useQuery({
-    queryKey: ["plant-board", "system-events"],
-    queryFn: fetchActivity,
+    // mt#4731: selectedSlug in the key so switching projects invalidates and
+    // refetches. Note: `/api/activity` does not yet READ `?project=`
+    // server-side (out of this task's scope, matching mt#4727's boundary) —
+    // this wiring is forward-compatible with that follow-up landing.
+    queryKey: ["plant-board", "system-events", selectedSlug],
+    queryFn: () => fetchActivity(queryParam),
     refetchInterval: enabled ? intervalMs : false,
     refetchOnWindowFocus: false,
     retry: false,
@@ -58,11 +65,15 @@ export function useSystemEvents(intervalMs: number = SYSTEM_EVENTS_POLL_MS, enab
   });
 }
 
-async function fetchActivityWindow(window: ReplayWindow): Promise<SystemEventRow[]> {
+async function fetchActivityWindow(
+  window: ReplayWindow,
+  queryParam?: { project: string }
+): Promise<SystemEventRow[]> {
   const params = new URLSearchParams({
     since: window.since,
     until: window.until,
     limit: String(REPLAY_WINDOW_LIMIT),
+    ...queryParam,
   });
   const res = await fetch(`/api/activity?${params.toString()}`);
   if (!res.ok) {
@@ -83,10 +94,11 @@ async function fetchActivityWindow(window: ReplayWindow): Promise<SystemEventRow
  * not poll: a replayed window is a fixed historical slice, not a live tail.
  */
 export function useReplayEvents(window: ReplayWindow | null) {
+  const { selectedSlug, queryParam } = useProject();
   const enabled = window !== null && isValidReplayWindow(window);
   return useQuery({
-    queryKey: ["plant-board", "system-events-replay", window?.since, window?.until],
-    queryFn: () => fetchActivityWindow(window as ReplayWindow),
+    queryKey: ["plant-board", "system-events-replay", window?.since, window?.until, selectedSlug],
+    queryFn: () => fetchActivityWindow(window as ReplayWindow, queryParam),
     enabled,
     refetchOnWindowFocus: false,
     retry: false,

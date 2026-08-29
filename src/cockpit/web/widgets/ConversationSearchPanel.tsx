@@ -23,6 +23,7 @@ import { Search, Copy, Check, ChevronDown, ChevronRight, RotateCcw } from "lucid
 import { Button } from "../components/ui/button";
 import { EntityRef } from "../components/EntityRef";
 import { Checkbox } from "../components/ui/checkbox";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Client-side mirror of the server response shape. The server type
@@ -77,6 +78,8 @@ interface SearchParams {
   to: string;
   semantic: boolean;
   textMode: TextMatchMode;
+  /** Selected project's slug, or undefined for "All projects" (mt#4731). */
+  project?: string;
 }
 
 async function runConversationSearch(params: SearchParams): Promise<ConversationSearchResponse> {
@@ -86,6 +89,7 @@ async function runConversationSearch(params: SearchParams): Promise<Conversation
   if (params.to) qs.set("to", params.to);
   if (params.semantic) qs.set("mode", "semantic");
   if (!params.semantic) qs.set("textMode", params.textMode);
+  if (params.project) qs.set("project", params.project);
 
   const res = await fetch(`/api/conversations/search?${qs.toString()}`);
   const body: unknown = await res.json().catch(() => null);
@@ -271,6 +275,7 @@ export function ConversationSearchPanel() {
   const [textMode, setTextMode] = useState<TextMatchMode>("websearch");
   const [submitted, setSubmitted] = useState(false);
 
+  const { queryParam: projectParam } = useProject();
   const mutation = useMutation({ mutationFn: runConversationSearch });
 
   const handleSearch = useCallback(
@@ -279,9 +284,16 @@ export function ConversationSearchPanel() {
       const trimmed = query.trim();
       if (!trimmed) return;
       setSubmitted(true);
-      mutation.mutate({ query: trimmed, from, to, semantic, textMode });
+      mutation.mutate({
+        query: trimmed,
+        from,
+        to,
+        semantic,
+        textMode,
+        project: projectParam?.project,
+      });
     },
-    [query, from, to, semantic, textMode]
+    [query, from, to, semantic, textMode, projectParam]
   );
 
   return (

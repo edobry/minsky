@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { entityToPath } from "../lib/entity-codec";
+import { useProject } from "../lib/project-context";
 import {
   buildDigest,
   dayWindow,
@@ -28,8 +29,17 @@ import {
 /** Generous day cap — a busy fleet day runs well past the activity feed's 100 default. */
 const DAY_EVENT_LIMIT = 500;
 
-async function fetchDayEvents(since: string, until: string): Promise<DigestEventRow[]> {
-  const params = new URLSearchParams({ since, until, limit: String(DAY_EVENT_LIMIT) });
+async function fetchDayEvents(
+  since: string,
+  until: string,
+  queryParam?: { project: string }
+): Promise<DigestEventRow[]> {
+  const params = new URLSearchParams({
+    since,
+    until,
+    limit: String(DAY_EVENT_LIMIT),
+    ...queryParam,
+  });
   const res = await fetch(`/api/activity?${params.toString()}`);
   if (!res.ok) {
     throw new Error(`GET /api/activity failed: ${res.status}`);
@@ -40,9 +50,13 @@ async function fetchDayEvents(since: string, until: string): Promise<DigestEvent
 
 function useDayDigest(dayOffset: number) {
   const { since, until } = dayWindow(dayOffset);
+  // mt#4731: `/api/activity` does not yet READ `?project=` server-side (out
+  // of this task's scope, matching mt#4727's boundary) — this wiring is
+  // forward-compatible with that follow-up landing.
+  const { selectedSlug, queryParam } = useProject();
   return useQuery({
-    queryKey: ["digest", since, until],
-    queryFn: () => fetchDayEvents(since, until),
+    queryKey: ["digest", since, until, selectedSlug],
+    queryFn: () => fetchDayEvents(since, until, queryParam),
     // Today's digest keeps up with the fleet; past days are settled history.
     refetchInterval: dayOffset === 0 ? 60_000 : false,
     refetchOnWindowFocus: false,

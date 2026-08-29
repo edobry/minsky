@@ -6,6 +6,7 @@ import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { LinkifiedText } from "../components/LinkifiedText";
+import { useProject } from "../lib/project-context";
 
 interface MemorySearchResult {
   record: MemoryRecord;
@@ -207,14 +208,19 @@ export function MemorySearch({
     setDebounceTimer(id);
   }
 
+  const { selectedSlug, queryParam } = useProject();
+
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["widget", "memories-search", debouncedQuery],
+    // mt#4731: selectedSlug in the key so switching projects invalidates and
+    // refetches.
+    queryKey: ["widget", "memories-search", debouncedQuery, selectedSlug],
     // Params go through fetchWidgetData's params argument — embedding them in
     // the id segment misses the widget route and returns the SPA fallback (mt#2443).
     queryFn: () =>
-      debouncedQuery.trim()
-        ? fetchWidgetData("memories-search", { q: debouncedQuery.trim() })
-        : fetchWidgetData("memories-search"),
+      fetchWidgetData("memories-search", {
+        ...(debouncedQuery.trim() ? { q: debouncedQuery.trim() } : {}),
+        ...queryParam,
+      }),
     staleTime: 20_000,
     enabled: true, // always enabled so empty state renders
   });
