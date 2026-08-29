@@ -102,7 +102,17 @@ function declaredLogPaths(): string[] {
   for (const entry of readdirSync(HOOKS_DIR)) {
     if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
     const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    for (const m of src.matchAll(/["'](\.minsky\/[A-Za-z0-9._-]+\.jsonl?)["']/g)) {
+    // Backticks included: a template literal is a declaration syntax like any
+    // other, and a scanner blind to one whole syntax is the can't-fail shape
+    // this file exists to prevent (PR #3474 R2). There are zero such
+    // declarations today, so this is preventive.
+    //
+    // It is only SAFE because R1's comment-elision landed first: every backtick
+    // `.minsky/*.jsonl` in the tree today — 10 of them — is markdown quoting
+    // inside a docblock, including this PR's own. Matching backticks without
+    // stripping comments would have dragged all 10 into the audit and failed on
+    // paths nothing writes. The two fixes compose; the order mattered.
+    for (const m of src.matchAll(/["'`](\.minsky\/[A-Za-z0-9._-]+\.jsonl?)["'`]/g)) {
       const p = m[1];
       if (p) paths.add(p);
     }
@@ -155,6 +165,13 @@ describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
     const src = 'const U = "https://example.com/x"; const X = ".minsky/real.jsonl";';
     expect(stripComments(src)).toContain("https://example.com/x");
     expect(stripComments(src)).toContain("real.jsonl");
+  });
+
+  it("leaves a template-literal declaration visible to the scanner", () => {
+    // R2: backticks are a declaration syntax. The pairing that makes this safe
+    // is that the docblock case above is already gone by the time we match.
+    const src = "const X = `.minsky/tmpl.jsonl`;";
+    expect(stripComments(src)).toContain(".minsky/tmpl.jsonl");
   });
 
   it("keeps a comment-looking sequence that is inside a string", () => {
