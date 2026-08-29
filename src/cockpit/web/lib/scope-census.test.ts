@@ -31,11 +31,22 @@ describe("cockpit frontend scope census (mt#4730)", () => {
     }
   });
 
-  test("no allowlist entry is stale (duplicated paths)", () => {
+  test("no allowlist entry is stale (duplicated paths, or a path that now consumes scope)", () => {
     const seen = new Set<string>();
     for (const entry of FRONTEND_SCOPE_ALLOWLIST) {
       expect(seen.has(entry.path)).toBe(false);
       seen.add(entry.path);
+      if (entry.path === "lib/project-context.tsx") {
+        // Exempt by name, not by pattern refinement: this file DEFINES
+        // `useProject()` and `apiFetch`'s source of truth (`loadPersistedSlug`)
+        // — its own text necessarily contains `useProject(` (the export
+        // signature itself). That is evidence of the MECHANISM's own
+        // definition site, not evidence this file made a scoping decision
+        // about its own GET /api/projects fetch, so it is not the staleness
+        // this test looks for.
+        continue;
+      }
+      expect(fileSourceConsumesScope(entry.path)).toBe(false);
     }
   });
 

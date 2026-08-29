@@ -39,6 +39,11 @@ describe("cockpit scope census (mt#4730)", () => {
     for (const entry of WIDGET_ALLOWLIST) {
       expect(seen.has(entry.id)).toBe(false);
       seen.add(entry.id);
+      // If the widget's source has since gained real scope-consuming evidence
+      // (someone did the threading work for a "deferred:" entry and forgot to
+      // remove it from the allowlist), that's exactly the staleness this test
+      // name promises to catch.
+      expect(widgetSourceConsumesScope(entry.id)).toBe(false);
     }
   });
 
@@ -58,11 +63,21 @@ describe("cockpit scope census (mt#4730)", () => {
     }
   });
 
-  test("no route allowlist entry is stale (duplicated ids)", () => {
+  test("no route allowlist entry is stale (duplicated ids, or an id that now consumes scope)", () => {
     const seen = new Set<string>();
     for (const entry of ROUTE_ALLOWLIST) {
       expect(seen.has(entry.id)).toBe(false);
       seen.add(entry.id);
+      if (entry.id === "health") {
+        // Exempt by name, not by pattern refinement: health.ts is the
+        // widget DISPATCHER — it structurally contains `req.projectScope`
+        // because it FORWARDS the value onto every other widget's context
+        // (see routes/health.ts). That is evidence of the MECHANISM's own
+        // wiring, not evidence health.ts made a scoping decision about its
+        // own response, so it is not the staleness this test looks for.
+        continue;
+      }
+      expect(routeSourceConsumesScope(entry.id)).toBe(false);
     }
   });
 

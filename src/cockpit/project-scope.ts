@@ -140,12 +140,16 @@ export async function resolveCockpitProjectScope(
  * the widget dispatcher (`routes/health.ts`'s `GET /api/widget/:id/data`),
  * which forwards `req.projectScope` onto `WidgetContext.projectScope`.
  *
- * Fail-open by construction: this middleware never throws and never rejects
- * a request. It delegates entirely to {@link resolveCockpitProjectScope},
- * whose own contract (see this module's docblock) already resolves any
- * failure to `ALL_PROJECTS` rather than propagating — this wrapper just
- * awaits that promise and assigns the result, with no additional try/catch
- * needed (there is nothing here that can throw independently).
+ * Fail-open by construction: this middleware never lets a request hang.
+ * {@link resolveCockpitProjectScope}'s own contract (see this module's
+ * docblock) already resolves any failure to `ALL_PROJECTS` rather than
+ * rejecting, so the `.catch()` below is a defensive backstop, not the
+ * primary fail-open path — but it is NOT optional: without it, an
+ * unexpected rejection (a future change to that contract, or a throw from
+ * this callback itself) would leave the returned promise settled with no
+ * `.then()` handler to run and no `next()` ever called, silently hanging
+ * every request behind this middleware with no timeout and no error surfaced
+ * (PR #3471 R1 — the previous version had exactly this gap).
  *
  * @param options.getDb  Test seam threaded straight through to
  *   {@link resolveCockpitProjectScope}. Production callers never set this.
@@ -156,9 +160,20 @@ export function createProjectScopeMiddleware(options?: {
   return (req, _res, next) => {
     const rawProject = req.query["project"];
     const projectParam = typeof rawProject === "string" ? rawProject : undefined;
-    void resolveCockpitProjectScope(projectParam, options).then((scope) => {
-      req.projectScope = scope;
-      next();
-    });
+    resolveCockpitProjectScope(projectParam, options)
+      .then((scope) => {
+        req.projectScope = scope;
+      })
+      .catch((err) => {
+        log.warn(
+          "[cockpit] project-scope middleware: unexpected rejection resolving scope; " +
+            "falling back to ALL_PROJECTS (a scoping failure must never hang a request)",
+          { error: err instanceof Error ? err.message : String(err) }
+        );
+        req.projectScope = ALL_PROJECTS;
+      })
+      .finally(() => {
+        next();
+      });
   };
 }

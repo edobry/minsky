@@ -72,22 +72,30 @@ function buildUrl(path: string, params: ApiFetchParams | undefined): string {
  * default-appended (see this module's docblock). `path` should already
  * include any path params (e.g. `/api/tasks/${id}`); `params` become the
  * query string.
+ *
+ * `init` is forwarded verbatim to the underlying `fetch()` — pass `method`,
+ * `body`, `headers`, etc. for a mutation (`POST`/`DELETE`/...). Without this,
+ * `apiFetch` could only ever issue a bare GET, which would have limited
+ * adoption to read-only call sites and left every mutating fetch on the raw
+ * `fetch()` path this module exists to replace.
  */
 export async function apiFetch(
   path: string,
   params?: ApiFetchParams,
-  options?: ApiFetchOptions
+  options?: ApiFetchOptions,
+  init?: RequestInit
 ): Promise<Response> {
-  return fetch(buildUrl(path, resolveParams(params, options)));
+  return fetch(buildUrl(path, resolveParams(params, options)), init);
 }
 
 /** Convenience wrapper: fetch + parse JSON, throwing on a non-ok response. */
 export async function apiFetchJson<T>(
   path: string,
   params?: ApiFetchParams,
-  options?: ApiFetchOptions
+  options?: ApiFetchOptions,
+  init?: RequestInit
 ): Promise<T> {
-  const res = await apiFetch(path, params, options);
+  const res = await apiFetch(path, params, options, init);
   if (!res.ok) {
     throw new Error(`${path} failed: ${res.status}`);
   }
