@@ -33,6 +33,89 @@ function getAllTsFiles(dir: string): string[] {
   return files;
 }
 
+/**
+ * Remove the parts of a line that cannot contain a variable REFERENCE: string
+ * and template literals, then comments.
+ *
+ * This scanner is line-based, so before mt#4719 a bare `\bname\b` test counted
+ * English prose in a comment and values inside string literals as uses. All four
+ * false positives on `main` came from that: `_text` was reported "referenced" by
+ * the word "text" in the sentence `// Defaults to a text that EXTENDS ...`.
+ *
+ * Order matters — literals are stripped BEFORE comments, so a `//` inside a
+ * string (`"http://x"`) does not truncate the line at the wrong place.
+ *
+ * Deliberately approximate: a block comment or template literal spanning several
+ * lines is only stripped on the lines carrying its delimiters. That direction is
+ * safe. An unstripped line can only ADD a false positive — the class this
+ * reduces — and never removes a real reference.
+ */
+export function stripNonCode(line: string): string {
+  return line
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``")
+    .replace(/\/\*.*?\*\//g, " ")
+    .replace(/\/\/.*$/, " ")
+    .replace(/\/\*.*$/, " ");
+}
+
+/**
+ * Whether `name` appears on `line` as an actual READ of the binding.
+ *
+ * Two shapes match `\bname\b` without reading anything, and both produced
+ * false positives on `main` (mt#4719):
+ *
+ * - **`name:`** — an object-literal KEY or a TypeScript type annotation.
+ *   `type: "depends" as const` was reported as a use of an unused `_type`
+ *   parameter. Shorthand `{ name }` carries no colon and still counts, which is
+ *   correct: that one IS a read.
+ * - **`obj.name`** — a property access. `r.type` reads a property of `r`, not
+ *   the enclosing `_type`.
+ *
+ * The colon test requires the colon to be ADJACENT, so a ternary's `a ? b : c`
+ * (which prettier always spaces) is still treated as a reference.
+ */
+export function referencesIdentifier(line: string, name: string): boolean {
+  const code = stripNonCode(line);
+  const regex = new RegExp(`\\b${name}\\b(?!_)`, "g");
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(code)) !== null) {
+    const after = code.slice(match.index + name.length);
+    if (/^:/.test(after)) continue;
+    const before = code.slice(0, match.index);
+    if (/\.\s*$/.test(before)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whether `line` declares `name` as a parameter of a NEW function, shadowing the
+ * outer `_name` the scan is tracking.
+ *
+ * The forward scan is brace-counted, and a concise-body arrow opens no brace —
+ * so before mt#4719 it ran past its own expression into a SIBLING lambda. In the
+ * originating case the two lambdas were the branches of one ternary, and the
+ * second declares its own, correctly-named `provider`:
+ *
+ * ```ts
+ * addCredential: opts.addResult
+ *   ? async (_provider: string, _token: string) => opts.addResult as ...
+ *   : async (provider: string, _token: string) => ({ provider, ... })
+ * ```
+ *
+ * Reaching such a line means the identifier is shadowed from here on, so the
+ * scan must stop rather than attribute the sibling's uses to the outer binding.
+ */
+export function declaresParameter(line: string, name: string): boolean {
+  const code = stripNonCode(line);
+  const arrow = code.match(/\(([^)]*)\)\s*=>/);
+  if (!arrow || arrow[1] === undefined) return false;
+  return new RegExp(`\\b${name}\\b`).test(arrow[1]);
+}
+
 function checkFile(filePath: string): VariableNamingIssue[] {
   const issues: VariableNamingIssue[] = [];
   const content = readFileSync(filePath, "utf8");
@@ -58,9 +141,11 @@ function checkFile(filePath: string): VariableNamingIssue[] {
         if (nextLine.includes("catch") || nextLine.includes("function")) break;
         if (nextLine.includes("}") && nextLine.trim() === "}") break;
 
-        // Check for usage without underscore
-        const regex = new RegExp(`\\b${varWithoutUnderscore}\\b(?!_)`);
-        if (regex.test(nextLine) && !nextLine.includes(underscoreVar)) {
+        if (declaresParameter(nextLine, varWithoutUnderscore)) break;
+        if (
+          referencesIdentifier(nextLine, varWithoutUnderscore) &&
+          !nextLine.includes(underscoreVar)
+        ) {
           issues.push({
             file: filePath,
             line: lineNumber,
@@ -98,8 +183,11 @@ function checkFile(filePath: string): VariableNamingIssue[] {
         if (inFunction && braceCount === 0) break;
 
         if (inFunction && j > i) {
-          const regex = new RegExp(`\\b${paramWithoutUnderscore}\\b(?!_)`);
-          if (regex.test(nextLine) && !nextLine.includes(underscoreParam)) {
+          if (declaresParameter(nextLine, paramWithoutUnderscore)) break;
+          if (
+            referencesIdentifier(nextLine, paramWithoutUnderscore) &&
+            !nextLine.includes(underscoreParam)
+          ) {
             issues.push({
               file: filePath,
               line: lineNumber,
@@ -148,8 +236,11 @@ function checkFile(filePath: string): VariableNamingIssue[] {
           if (inFunction && braceCount === 0) break;
 
           if (j > i) {
-            const regex = new RegExp(`\\b${paramWithoutUnderscore}\\b(?!_)`);
-            if (regex.test(nextLine) && !nextLine.includes(underscoreParam)) {
+            if (declaresParameter(nextLine, paramWithoutUnderscore)) break;
+            if (
+              referencesIdentifier(nextLine, paramWithoutUnderscore) &&
+              !nextLine.includes(underscoreParam)
+            ) {
               issues.push({
                 file: filePath,
                 line: lineNumber,
