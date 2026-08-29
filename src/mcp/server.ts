@@ -48,6 +48,7 @@ import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilitie
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
+import { boundToolResponseText, type ResponseSizeGuardDeps } from "./response-size-guard";
 import {
   enrichWakeResponse,
   type SessionResolver as WakeSessionResolver,
@@ -593,6 +594,13 @@ export class MinskyMCPServer {
   // instrumentation can be asserted without a global module mock
   // (custom/no-global-module-mocks).
   private emitDispatchEvent: typeof emitBraintrustEvent = emitBraintrustEvent;
+
+  // mt#4749: injectable filesystem seam for boundToolResponseText's spool
+  // path. Defaults to the real state dir / fs (see ResponseSizeGuardDeps);
+  // overridable in tests (instance-field DI, same pattern as
+  // emitDispatchEvent above) so the size cap is exercised without touching a
+  // real tmpdir (custom/no-real-fs-in-tests).
+  private responseSizeGuardDeps: ResponseSizeGuardDeps = {};
 
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
@@ -1474,6 +1482,19 @@ export class MinskyMCPServer {
           } else {
             responseText = String(result);
           }
+
+          // mt#4749: bound the response text BEFORE it is embedded in the
+          // `content` block below. This is the single point both the
+          // stdio-direct (`mcp start`) transport and the ADR-038 shared-daemon
+          // transport funnel through, so it catches an oversized tool result
+          // regardless of which transport carries it onward — including the
+          // direct-stdio path `src/mcp/shim/response-bound.ts`'s cap never
+          // sees. See `response-size-guard.ts` for the full rationale.
+          responseText = boundToolResponseText(
+            responseText,
+            request.params.name,
+            this.responseSizeGuardDeps
+          );
 
           // Check for staleness after building the response — trigger fires
           // notification + clean exit after the current response is returned.
