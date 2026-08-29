@@ -264,6 +264,18 @@ export async function fetchConversationBlocks(
   };
 }
 
+/**
+ * Deliberately NOT project-scoped (mt#4727). This picker queries
+ * `agentTranscriptsTable` directly — the same substrate
+ * `TranscriptListService.listConversations` reads, whose docblock records
+ * the verified mt#2818 R1 decision that the whole transcripts_* subsystem
+ * stays outside ADR-021's five scoped operations (`tasks.list`,
+ * `session.list`, `memory.list`, `memory.search`, `asks.list`). A harness
+ * conversation is not reliably attributable to one Minsky project, and
+ * scoping this picker alone would leave it inconsistent with
+ * `routes/conversation-search.ts` and the other transcripts_* readers. See
+ * this task's spec `## Outcome` for the recorded decision.
+ */
 async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
   const db = await getContextInspectorDb();
   if (!db) return [];

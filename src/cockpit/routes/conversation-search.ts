@@ -15,6 +15,25 @@
  * pointing at the indexing cadence (mt#2234) instead of a silent empty
  * `results: []`.
  *
+ * ## Deliberately NOT project-scoped (mt#4727)
+ *
+ * Unlike task-list.ts / agents.ts / asks.ts / changesets.ts, this route does
+ * NOT thread `?project=` through to `resolveCockpitProjectScope()`. This
+ * matches an existing, VERIFIED architectural decision for the whole
+ * transcripts_* subsystem (mt#2818 R1, recorded in
+ * `TranscriptListService.listConversations`'s docblock): ADR-021's
+ * user-facing-behavior table enumerates exactly five scoped operations
+ * (`tasks.list`, `session.list`, `memory.list`, `memory.search`,
+ * `asks.list`) and does not include any `transcripts_*` tool. Neither
+ * `TranscriptFtsService.searchText` nor `TranscriptSimilarityService.search`
+ * accept a project filter today, and a harness conversation is not reliably
+ * attributable to one Minsky project (it may span checkouts or be a
+ * non-project chat) — the same reason ADR-021 left this subsystem out.
+ * Adding scoping here alone would leave this route inconsistent with its
+ * five transcripts_* siblings; per the mt#2818 R1 precedent, that should be
+ * done as a coordinated ADR-021 amendment covering all of them, not one at a
+ * time. See this task's spec `## Outcome` for the recorded decision.
+ *
  * @see mt#2523 — this endpoint
  * @see packages/domain/src/transcripts/transcript-search-filters.ts — the
  *   shared coverage/response-shape helpers this route reuses verbatim
