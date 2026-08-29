@@ -34,7 +34,62 @@ import { join } from "node:path";
 const HOOKS_DIR = join(import.meta.dir);
 
 /**
- * Every `.minsky/<something>.json(l)` string literal appearing in a hook source.
+ * Strip `//` and block comments, leaving string literals intact.
+ *
+ * A plain `.replace(/\/\/.*$/gm, "")` is wrong here: it would cut a URL inside
+ * a string at its `//`, and more importantly the reverse case is what this
+ * exists for — a path mentioned in PROSE is not a declaration. This file's own
+ * subject is an example: `cross-turn-hedge-detector.ts` now documents the old
+ * singular path in its docblock, and a scanner that could not tell comment from
+ * code would read that as a live producer and fail the audit on a path nothing
+ * writes. (PR #3474 review raised this; it was latent rather than firing,
+ * because the docblock happens to use backticks.)
+ *
+ * So track string state while walking. Small, but the alternative is a check
+ * that goes red on documentation.
+ */
+function stripComments(src: string): string {
+  let out = "";
+  let i = 0;
+  let quote: string | null = null;
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (quote) {
+      if (c === "\\") {
+        out += c + (next ?? "");
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      while (i < src.length && src[i] !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * Every `.minsky/<something>.json(l)` string literal appearing in hook CODE.
  *
  * Deliberately a source scan rather than an import-and-read-the-constant: the
  * constants are not uniformly named or exported (some are `EVALUATION_LOG`,
@@ -46,7 +101,7 @@ function declaredLogPaths(): string[] {
   const paths = new Set<string>();
   for (const entry of readdirSync(HOOKS_DIR)) {
     if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
-    const src = readFileSync(join(HOOKS_DIR, entry), "utf-8");
+    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
     for (const m of src.matchAll(/["'](\.minsky\/[A-Za-z0-9._-]+\.jsonl?)["']/g)) {
       const p = m[1];
       if (p) paths.add(p);
@@ -60,7 +115,7 @@ function derivedLogPaths(): string[] {
   const names = new Set<string>();
   for (const entry of readdirSync(HOOKS_DIR)) {
     if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
-    const src = readFileSync(join(HOOKS_DIR, entry), "utf-8");
+    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
     for (const m of src.matchAll(/EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g)) {
       const n = m[1];
       if (n) names.add(`.minsky/${n}-evaluations.jsonl`);
@@ -80,6 +135,34 @@ function isIgnored(relPath: string): boolean {
   });
   return res.exitCode === 0;
 }
+
+describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
+  it("drops a path mentioned in a line comment", () => {
+    const src = '// was ".minsky/old-name.jsonl"\nconst X = ".minsky/real.jsonl";';
+    expect(stripComments(src)).not.toContain("old-name");
+    expect(stripComments(src)).toContain("real.jsonl");
+  });
+
+  it("drops a path mentioned in a block comment", () => {
+    const src = '/* see ".minsky/doc-example.jsonl" */\nconst X = ".minsky/real.jsonl";';
+    expect(stripComments(src)).not.toContain("doc-example");
+    expect(stripComments(src)).toContain("real.jsonl");
+  });
+
+  it("does NOT cut a string at a URL's slashes", () => {
+    // The naive `s/\/\/.*$//` fix would truncate here and silently drop any
+    // declaration later on the same line.
+    const src = 'const U = "https://example.com/x"; const X = ".minsky/real.jsonl";';
+    expect(stripComments(src)).toContain("https://example.com/x");
+    expect(stripComments(src)).toContain("real.jsonl");
+  });
+
+  it("keeps a comment-looking sequence that is inside a string", () => {
+    const src = 'const S = "not /* a comment */ really"; const X = ".minsky/real.jsonl";';
+    expect(stripComments(src)).toContain("not /* a comment */ really");
+    expect(stripComments(src)).toContain("real.jsonl");
+  });
+});
 
 describe("every hook log path is gitignored (mt#2492)", () => {
   const paths = [...new Set([...declaredLogPaths(), ...derivedLogPaths()])].sort();

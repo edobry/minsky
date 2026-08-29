@@ -80,6 +80,13 @@ services/reviewer/eval/results/*
 # gitignored with ZERO commits, so its git history is NOT a backup: these files
 # are the only prior copies of that config that exist. Ignore them; do not
 # delete them.
+#
+# ANY DEPTH, deliberately — no leading slash. `projectConfigPath()` in
+# src/mcp/setup/local-http-config.ts joins `.mcp.json` onto whatever projectRoot
+# it is handed, and a session workspace is a project root, so a backup can land
+# outside the repo root. Verified 2026-08-29: `git check-ignore -v` matches this
+# line against `tmpprobe/nested/.mcp.json.minsky-backup-<stamp>`. Do not "fix"
+# this by adding a leading slash (PR #3474 R1 read it as root-only).
 .mcp.json.minsky-backup-*
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
