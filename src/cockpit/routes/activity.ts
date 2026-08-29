@@ -2,6 +2,13 @@
  * Cockpit activity-feed route (mt#2615 — extracted from server.ts).
  *
  *   GET /api/activity — list system events for the activity feed (mt#2092)
+ *
+ * Project scope (mt#4746): `?project=<slug>` resolves through the same
+ * `resolveCockpitProjectScope()` (mt#2418 pattern) every other cockpit
+ * project-scoped read uses, then passes the resolved uuid to
+ * `listEvents({ projectScope })` — see `packages/domain/src/events/query.ts`'s
+ * docblock for the documented partial-filter semantics (only events with a
+ * resolvable `relatedTaskId` can be attributed to a project).
  */
 import type express from "express";
 import { getContextInspectorDb, describeServerPersistenceUnavailability } from "../db-providers";
@@ -106,7 +113,24 @@ export function mountActivityRoutes(app: express.Express): void {
         typeof req.query["limit"] === "string" ? parseInt(req.query["limit"], 10) : 100;
       const limit = isNaN(limitParam) ? 100 : Math.min(Math.max(limitParam, 1), 500);
 
-      const events = await listEvents(db, { eventType, category, since, until, limit });
+      // Project scope (mt#4746) — see the module docblock. Fail-open to
+      // ALL_PROJECTS on any resolution failure (PR #2056 R1), same as every
+      // other cockpit project-scoped read.
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const { isAllProjects } = await import("@minsky/domain/project/scope");
+      const projectParam =
+        typeof req.query["project"] === "string" ? req.query["project"] : undefined;
+      const projectScopeValue = await resolveCockpitProjectScope(projectParam);
+      const projectScope = isAllProjects(projectScopeValue) ? undefined : projectScopeValue;
+
+      const events = await listEvents(db, {
+        eventType,
+        category,
+        since,
+        until,
+        limit,
+        projectScope,
+      });
 
       res.json({ events, total: events.length, limit });
     } catch (err: unknown) {

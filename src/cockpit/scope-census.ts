@@ -137,16 +137,11 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
 // here must show SCOPE_EVIDENCE_PATTERN in its own source.
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727):
-// asks, changesets, conversation-search, session-film, tasks.
+// activity (mt#4746, documented partial-filter semantics via relatedTaskId —
+// see packages/domain/src/events/query.ts's docblock), asks, changesets,
+// conversation-search, session-film, tasks.
 // ---------------------------------------------------------------------------
 export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
-  {
-    id: "activity",
-    reason:
-      "deferred: system_events carries no projectId column; relatedTaskId exists on " +
-      "some rows but an inner join would silently drop every non-task-related event. " +
-      "The frontend already sends ?project= (mt#4731). Tracked at mt#4746.",
-  },
   {
     id: "agent-focus",
     reason:
