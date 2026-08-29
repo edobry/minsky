@@ -162,9 +162,21 @@ function registryCalibrationPaths(): string[] {
     if (!entry.startsWith("registry") || !entry.endsWith(".ts")) continue;
     if (entry.endsWith(".test.ts")) continue;
     const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    for (const m of src.matchAll(/calibrationLog:\s*["']([A-Za-z0-9._-]+)["']/g)) {
-      const n = m[1];
-      if (n) names.add(`.minsky/${n}-calibration.jsonl`);
+    // BOTH declaration forms, because the registry's type is
+    // `calibrationLog?: string | [string, ...string[]]` (`registry.ts:317`).
+    // A scanner matching only the string form would silently miss every stream
+    // in an array declaration — no error, no empty result, just a smaller set
+    // that still clears the floor. That is the can't-fail shape this file
+    // exists to prevent, so it matches the whole value and pulls every quoted
+    // name out of it. Zero array declarations exist today; this is preventive,
+    // and the type is what makes it necessary rather than the current data.
+    for (const m of src.matchAll(/calibrationLog:\s*(\[[^\]]*\]|["'][A-Za-z0-9._-]+["'])/g)) {
+      const value = m[1];
+      if (!value) continue;
+      for (const q of value.matchAll(/["']([A-Za-z0-9._-]+)["']/g)) {
+        const n = q[1];
+        if (n) names.add(`.minsky/${n}-calibration.jsonl`);
+      }
     }
   }
   return [...names].sort();
@@ -208,6 +220,23 @@ describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
     // is that the docblock case above is already gone by the time we match.
     const src = "const X = `.minsky/tmpl.jsonl`;";
     expect(stripComments(src)).toContain(".minsky/tmpl.jsonl");
+  });
+
+  it("sees both calibrationLog declaration forms (PR #3480 R1)", () => {
+    // The registry's type is `string | [string, ...string[]]` (registry.ts:317).
+    // Zero array declarations exist today, so this is the only thing standing
+    // between a future one and a stream silently missing from the audit.
+    const extract = (src: string): string[] => {
+      const out: string[] = [];
+      for (const m of src.matchAll(/calibrationLog:\s*(\[[^\]]*\]|["'][A-Za-z0-9._-]+["'])/g)) {
+        for (const q of (m[1] ?? "").matchAll(/["']([A-Za-z0-9._-]+)["']/g)) {
+          if (q[1]) out.push(q[1]);
+        }
+      }
+      return out;
+    };
+    expect(extract('calibrationLog: "solo",')).toEqual(["solo"]);
+    expect(extract('calibrationLog: ["first", "second"],')).toEqual(["first", "second"]);
   });
 
   it("keeps a comment-looking sequence that is inside a string", () => {

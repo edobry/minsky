@@ -1355,6 +1355,13 @@ export function readCalibrationLogText(cwd: string): string | undefined {
   // mt#4752: resolve through the same helper the WRITER uses. Reader and writer
   // previously derived the path independently, so a change to one could silently
   // stop the dedupe read from finding what the writer had just appended.
+  //
+  // BEHAVIOUR CHANGE, deliberate and shared with every writer migrated in this
+  // change: the old `findRepoRoot(cwd)` is now the LOWEST tier
+  // (`projectDir ?? CLAUDE_PROJECT_DIR ?? fallbackCwd ?? process.cwd()`), so
+  // `CLAUDE_PROJECT_DIR` outranks the raw cwd where it did not before. Reader
+  // and writer move together, which is what keeps the dedupe correct — the
+  // hazard would be migrating one and not the other.
   const logPath = calibrationLogPath(CALIBRATION_LOG_NAME, { fallbackCwd: cwd });
   return readLogTailText(logPath, MAX_DEDUPE_READ_BYTES);
 }

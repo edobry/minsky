@@ -629,8 +629,16 @@ function isOperatorInstructionSkipped(): boolean {
 function appendOperatorInstructionCalibration(record: Record<string, unknown>): void {
   // mt#4752: the shared helper derives the path from the stream NAME, so the
   // filename cannot drift from the convention the .gitignore globs encode.
-  // No cwd is passed on purpose — this writer never had one, and the helper's
-  // own final fallback is `process.cwd()`, which is what it used explicitly.
+  //
+  // BEHAVIOUR CHANGE, deliberate. This previously read `findRepoRoot(process.cwd())`
+  // directly. The helper's chain is
+  // `projectDir ?? CLAUDE_PROJECT_DIR ?? fallbackCwd ?? process.cwd()`, so
+  // `CLAUDE_PROJECT_DIR` now takes precedence where nothing did before — the
+  // resolved path differs whenever that variable is set and points somewhere
+  // other than the cwd's repo root. That is the mt#3745 ordering and the point
+  // of the migration, not an accident: a raw cwd is routinely a repo
+  // subdirectory or a session workspace. No cwd is passed because this writer
+  // never had one to pass.
   logCalibrationRecord(OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME, record);
 }
 
