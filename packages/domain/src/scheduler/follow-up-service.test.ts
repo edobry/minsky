@@ -19,6 +19,7 @@
 
 import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { FollowUpService } from "./follow-up-service";
 import type { ScheduledFollowUpRecord } from "../storage/schemas/scheduled-follow-ups-schema";
 
@@ -330,5 +331,68 @@ describe("FollowUpService", () => {
     const { fired } = await service.fireDue(now);
 
     expect(fired).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746) — documented partial-filter semantics
+// ---------------------------------------------------------------------------
+
+describe("FollowUpService.list — project scope (mt#4746)", () => {
+  const pgDialect = new PgDialect();
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  /** Minimal capturing fake — records the .where() argument, ignores its content. */
+  function makeCapturingDb(rows: ScheduledFollowUpRecord[]): {
+    db: PostgresJsDatabase<Record<string, unknown>>;
+    getLastWhereArg: () => unknown;
+  } {
+    let lastWhereArg: unknown;
+    const db = {
+      select: () => ({
+        from: (_table: unknown) => ({
+          where: (condition: unknown) => {
+            lastWhereArg = condition;
+            return { orderBy: (_col: unknown) => Promise.resolve(rows) };
+          },
+          orderBy: (_col: unknown) => Promise.resolve(rows),
+        }),
+      }),
+    };
+    return {
+      db: db as unknown as PostgresJsDatabase<Record<string, unknown>>,
+      getLastWhereArg: () => lastWhereArg,
+    };
+  }
+
+  test("no projectScope: .where() is never called (unscoped, full read)", async () => {
+    const { db, getLastWhereArg } = makeCapturingDb([]);
+    const service = new FollowUpService(db);
+    await service.list();
+    expect(getLastWhereArg()).toBeUndefined();
+  });
+
+  test("projectScope: .where() receives a condition carrying the resolved project uuid", async () => {
+    const { db, getLastWhereArg } = makeCapturingDb([]);
+    const service = new FollowUpService(db);
+    await service.list({ projectScope: PROJECT_A_ID });
+
+    const whereArg = getLastWhereArg();
+    expect(whereArg).toBeDefined();
+    const { sql: rendered, params } = pgDialect.sqlToQuery(whereArg as never);
+    expect(rendered).toContain("EXISTS");
+    expect(params).toContain(PROJECT_A_ID);
+  });
+
+  test("projectScope + status combine via AND (both conditions present)", async () => {
+    const { db, getLastWhereArg } = makeCapturingDb([]);
+    const service = new FollowUpService(db);
+    await service.list({ status: "pending", projectScope: PROJECT_A_ID });
+
+    const whereArg = getLastWhereArg();
+    const { sql: rendered, params } = pgDialect.sqlToQuery(whereArg as never);
+    expect(rendered).toContain("EXISTS");
+    expect(params).toContain(PROJECT_A_ID);
+    expect(params).toContain("pending");
   });
 });

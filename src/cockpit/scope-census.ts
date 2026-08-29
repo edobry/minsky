@@ -137,9 +137,10 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
 // here must show SCOPE_EVIDENCE_PATTERN in its own source.
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727):
-// activity (mt#4746, documented partial-filter semantics via relatedTaskId —
-// see packages/domain/src/events/query.ts's docblock), asks, changesets,
-// conversation-search, session-film, tasks.
+// activity, follow-ups (both mt#4746, documented partial-filter semantics via
+// relatedTaskId — see packages/domain/src/events/query.ts's and
+// packages/domain/src/scheduler/follow-up-service.ts's docblocks), asks,
+// changesets, conversation-search, session-film, tasks.
 // ---------------------------------------------------------------------------
 export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
   {
@@ -210,12 +211,6 @@ export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
     reason:
       "not project-attributable (mt#4727): SSE broker-wide push channel with no " +
       "per-event project attribution.",
-  },
-  {
-    id: "follow-ups",
-    reason:
-      "deferred: scheduled_follow_ups carries no projectId column, same class as " +
-      "activity. Tracked at mt#4746.",
   },
   {
     id: "health",

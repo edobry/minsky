@@ -33,7 +33,7 @@ async function postJson(url: string, body: unknown): Promise<Response> {
 }
 
 /** Minimal in-memory fake satisfying the FollowUpService surface the routes call. */
-function makeFakeService(): FollowUpService {
+function makeFakeService(onList?: (opts?: { projectScope?: string }) => void): FollowUpService {
   const rows = new Map<string, ScheduledFollowUpRecord>();
   let idCounter = 1;
 
@@ -62,7 +62,8 @@ function makeFakeService(): FollowUpService {
       rows.set(row.id, row);
       return row;
     },
-    async list(opts?: { status?: ScheduledFollowUpRecord["status"] }) {
+    async list(opts?: { status?: ScheduledFollowUpRecord["status"]; projectScope?: string }) {
+      onList?.(opts);
       const all = [...rows.values()].sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
       return opts?.status ? all.filter((r) => r.status === opts.status) : all;
     },
@@ -81,10 +82,15 @@ function makeFakeService(): FollowUpService {
   return fake as unknown as FollowUpService;
 }
 
-async function makeHarness(service: FollowUpService | null): Promise<{ url: string }> {
+async function makeHarness(
+  service: FollowUpService | null,
+  getProjectScopeDb?: () => Promise<
+    import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
+  >
+): Promise<{ url: string }> {
   const app = express();
   app.use(express.json());
-  mountFollowUpRoutes(app, { followUpServiceOverride: service });
+  mountFollowUpRoutes(app, { followUpServiceOverride: service, getProjectScopeDb });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -180,5 +186,74 @@ describe("/api/follow-ups", () => {
     const { url } = await makeHarness(makeFakeService());
     const res = await fetch(`${url}/api/follow-ups/does-not-exist/cancel`, { method: "POST" });
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746 — two-project fixture, mirrors mt#4727's pattern)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/follow-ups — project scope (mt#4746)", () => {
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const PROJECT_A_SLUG = "edobry/minsky";
+
+  function makeScopeResolverDb(
+    rows: Array<{ id: string; slug: string }>
+  ): import("@minsky/domain/project/scope-resolver").ScopeResolverDb {
+    return {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                return {
+                  limit() {
+                    return Promise.resolve(rows);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  test("no ?project= calls list() with projectScope: undefined (ALL_PROJECTS)", async () => {
+    let captured: { projectScope?: string } | undefined;
+    const service = makeFakeService((opts) => {
+      captured = opts;
+    });
+    const { url } = await makeHarness(service);
+
+    const res = await fetch(`${url}/api/follow-ups`);
+    expect(res.status).toBe(200);
+    expect(captured?.projectScope).toBeUndefined();
+  });
+
+  test("?project=<project A slug> resolves to project A's uuid, reaching list() verbatim", async () => {
+    let captured: { projectScope?: string } | undefined;
+    const service = makeFakeService((opts) => {
+      captured = opts;
+    });
+    const { url } = await makeHarness(service, async () =>
+      makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }])
+    );
+
+    const res = await fetch(`${url}/api/follow-ups?project=${encodeURIComponent(PROJECT_A_SLUG)}`);
+    expect(res.status).toBe(200);
+    expect(captured?.projectScope).toBe(PROJECT_A_ID);
+  });
+
+  test("?project=<unresolvable slug> fails open to ALL_PROJECTS (projectScope: undefined)", async () => {
+    let captured: { projectScope?: string } | undefined;
+    const service = makeFakeService((opts) => {
+      captured = opts;
+    });
+    const { url } = await makeHarness(service, async () => null);
+
+    const res = await fetch(`${url}/api/follow-ups?project=${encodeURIComponent("unknown/repo")}`);
+    expect(res.status).toBe(200);
+    expect(captured?.projectScope).toBeUndefined();
   });
 });
