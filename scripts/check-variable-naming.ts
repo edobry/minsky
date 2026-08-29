@@ -34,6 +34,15 @@ function getAllTsFiles(dir: string): string[] {
 }
 
 /**
+ * Escape regex metacharacters in an identifier before interpolating it into a
+ * pattern. `$` is a legal JS/TS identifier character and would otherwise act as
+ * an end-anchor, silently changing what the pattern matches (PR #3454 R1).
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Remove the parts of a line that cannot contain a variable REFERENCE: string
  * and template literals, then comments.
  *
@@ -78,14 +87,16 @@ export function stripNonCode(line: string): string {
  */
 export function referencesIdentifier(line: string, name: string): boolean {
   const code = stripNonCode(line);
-  const regex = new RegExp(`\\b${name}\\b(?!_)`, "g");
+  const regex = new RegExp(`\\b${escapeRegExp(name)}\\b(?!_)`, "g");
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(code)) !== null) {
     const after = code.slice(match.index + name.length);
     if (/^:/.test(after)) continue;
     const before = code.slice(0, match.index);
-    if (/\.\s*$/.test(before)) continue;
+    // Both `obj.name` and `obj?.name` are property access, not a read of the
+    // enclosing binding. Optional chaining was missed on the first pass (R1).
+    if (/\??\.\s*$/.test(before)) continue;
     return true;
   }
   return false;
@@ -113,7 +124,7 @@ export function declaresParameter(line: string, name: string): boolean {
   const code = stripNonCode(line);
   const arrow = code.match(/\(([^)]*)\)\s*=>/);
   if (!arrow || arrow[1] === undefined) return false;
-  return new RegExp(`\\b${name}\\b`).test(arrow[1]);
+  return new RegExp(`\\b${escapeRegExp(name)}\\b`).test(arrow[1]);
 }
 
 function checkFile(filePath: string): VariableNamingIssue[] {
@@ -278,7 +289,7 @@ function main() {
 
   if (totalIssues === 0) {
     console.log("✅ No variable naming issues found!");
-    return;
+    return 0;
   }
 
   console.log(`❌ Found ${totalIssues} potential variable naming issues:\n`);
@@ -298,9 +309,17 @@ function main() {
   console.log("2. Fix function parameters: change _param to param if used in body");
   console.log("3. Keep underscores only for truly unused parameters");
 
-  return;
+  return totalIssues;
 }
 
 if (import.meta.main) {
-  main();
+  // The pre-commit step (`src/hooks/pre-commit.ts` `runVariableNamingCheck`)
+  // decides pass/fail purely from this process's EXIT CODE — `execAsync` rejects
+  // on non-zero and the hook's catch reports the failure.
+  //
+  // Until PR #3454 `main()` returned without ever calling `process.exit`, so the
+  // script exited 0 on every path and the gate was INERT: verified on `main`
+  // with four reported violations present, `execAsync` resolved and the hook
+  // reported a pass. Nothing this check has ever found could block a commit.
+  process.exit(main() > 0 ? 1 : 0);
 }

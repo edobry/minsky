@@ -61,6 +61,24 @@ describe("referencesIdentifier", () => {
     expect(referencesIdentifier("fromTaskId: r.type,", "type")).toBe(false);
   });
 
+  // PR #3454 R1 BLOCKING: `?.` was missed, reintroducing the property-access class.
+  test("optional chaining is not a reference either", () => {
+    expect(referencesIdentifier("const x = r?.type;", "type")).toBe(false);
+    expect(referencesIdentifier("const x = opts?.provider;", "provider")).toBe(false);
+  });
+
+  // PR #3454 R1 NON-BLOCKING: `$` is a legal identifier char and an unescaped
+  // `$` in the pattern acts as an end-anchor, changing what matches.
+  test("an identifier containing regex metacharacters is matched literally", () => {
+    // `a$b` is a legal JS identifier. Unescaped, `\ba$b\b` reads the `$` as an
+    // end-anchor and can never match; escaped, it matches literally.
+    // (A LEADING `$` is out of reach either way — `\b` needs a word char beside
+    // it and `$` is not one. That is a limitation of the line-based approach,
+    // not of the escaping.)
+    expect(referencesIdentifier("return a$b.length;", "a$b")).toBe(true);
+    expect(referencesIdentifier("return other.length;", "a$b")).toBe(false);
+  });
+
   test("shorthand property IS a reference", () => {
     expect(referencesIdentifier("      provider,", "provider")).toBe(true);
   });
