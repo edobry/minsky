@@ -12,16 +12,21 @@ import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-tran
 import { boundedUserTurnsExecute } from "../testing/bounded-user-turns-double";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
+import { ALL_PROJECTS } from "@minsky/domain/project/scope";
 import { createCachedRunMerge, mergeConversationRows } from "./run-merge";
 
 const CONV_A = "aaaaaaaa-0000-0000-0000-00000000000a";
 const CONV_B = "bbbbbbbb-0000-0000-0000-00000000000b";
 const CONV_C = "cccccccc-0000-0000-0000-00000000000c";
 const CONV_D = "dddddddd-0000-0000-0000-00000000000d";
+const PROJECT_A = "11111111-1111-1111-1111-111111111111";
+const PROJECT_B = "22222222-2222-2222-2222-222222222222";
 const WORKSPACE_1 = "workspace-session-1";
 
 /** Shared fixture string — extracted to satisfy custom/no-magic-string-duplication. */
 const FLAKY_TEST_SUITE_PROMPT = "look into the flaky test suite";
+/** Shared fixture string — extracted to satisfy custom/no-magic-string-duplication. */
+const SOME_PARENT_OUTSIDE_WINDOW = "some-parent-outside-window";
 
 interface TranscriptRow {
   agentSessionId: string;
@@ -30,6 +35,8 @@ interface TranscriptRow {
   endedAt: Date | null;
   /** mt#3070 — model the conversation ran on; optional in fixtures that predate the field. */
   model?: string | null;
+  /** mt#4728 — project attribution; optional in fixtures that predate the field. */
+  projectId?: string | null;
 }
 
 interface WorkspaceLinkRow {
@@ -65,6 +72,17 @@ function mockDb(fixture: Fixture, onQuery?: () => void): PostgresJsDatabase {
         from: (table: unknown) => {
           if (table === agentTranscriptsTable) {
             return {
+              // mt#4728: the ALL_PROJECTS branch calls `.orderBy()` directly
+              // on `.from()`'s return (the exact pre-mt#4728 shape); a
+              // scoped call adds a `.where()` step first. Both resolve the
+              // SAME fixture — the fixture itself represents "what the DB
+              // already returned for this call", matching every other
+              // table in this mock (see workspaceLinks/conversationLinks
+              // below, which are likewise pre-filtered by the test author
+              // rather than interpreted from a `where()` argument).
+              where: () => ({
+                orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
+              }),
               orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
             };
           }
@@ -248,7 +266,7 @@ describe("mergeConversationRows (mt#2767)", () => {
       transcripts: [{ agentSessionId: CONV_D, cwd: "/repo/sub", startedAt, endedAt: null }],
       spawns: [
         {
-          parentAgentSessionId: "some-parent-outside-window",
+          parentAgentSessionId: SOME_PARENT_OUTSIDE_WINDOW,
           childAgentSessionId: CONV_D,
           agentKind: "refactorer",
         },
@@ -261,7 +279,7 @@ describe("mergeConversationRows (mt#2767)", () => {
     const groupRow = result.standaloneRows[0];
     if (!groupRow) throw new Error("expected a synthetic group row");
     expect(groupRow.kind).toBe("subagent-group");
-    expect(groupRow.sessionId).toBe("group:some-parent-outside-window");
+    expect(groupRow.sessionId).toBe(`group:${SOME_PARENT_OUTSIDE_WINDOW}`);
     expect(groupRow.subagents).toHaveLength(1);
     expect(groupRow.subagents[0]?.conversationId).toBe(CONV_D);
     expect(groupRow.title).toContain("1 subagent run");
@@ -284,6 +302,171 @@ describe("mergeConversationRows (mt#2767)", () => {
     const result = await mergeConversationRows(db, [WORKSPACE_1]);
     expect(result.standaloneRows).toEqual([]);
     expect(result.workspaceAttrsBySessionId.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scoping (mt#4728) — conversation-derived rows (principal-
+// conversation / subagent-group) now honor the same ProjectScope
+// listSessions already applies, and a NULL-attribution row is always
+// included regardless of scope.
+// ---------------------------------------------------------------------------
+
+describe("mergeConversationRows — project scoping (mt#4728)", () => {
+  // mt#4728 negative control (mt#3244): a first version of these two tests
+  // asserted only `.resolves.toBeDefined()` against a mock shaped so the
+  // WRONG branch would throw. That is not a discriminating assertion —
+  // `mergeConversationRows` wraps its whole body in a top-level try/catch
+  // that swallows ANY error into `EMPTY_RESULT`, which is itself "defined".
+  // Forcing the ALL_PROJECTS branch unconditionally (simulating the
+  // pre-mt#4728 code) left both tests GREEN. Rewritten below to spy on
+  // which branch actually ran, so a caught exception can no longer read as
+  // a pass.
+  test("ALL_PROJECTS (default): the query never calls .where() — exact pre-mt#4728 shape", async () => {
+    let sawWhere = false;
+    const db = {
+      select: () => ({
+        from: (table: unknown) => {
+          if (table === agentTranscriptsTable) {
+            return {
+              where: () => {
+                sawWhere = true;
+                return { orderBy: () => ({ limit: () => Promise.resolve([]) }) };
+              },
+              orderBy: () => ({ limit: () => Promise.resolve([]) }),
+            };
+          }
+          if (table === minskySessionLinksTable) {
+            return {
+              innerJoin: () => ({ where: () => Promise.resolve([]) }),
+              where: () => Promise.resolve([]),
+            };
+          }
+          if (table === agentSpawnsTable) return { where: () => Promise.resolve([]) };
+          throw new Error("unexpected table");
+        },
+      }),
+      execute: boundedUserTurnsExecute([]),
+    } as unknown as PostgresJsDatabase;
+
+    // Explicit ALL_PROJECTS and the omitted (default) form both take the
+    // no-`.where()` branch.
+    await mergeConversationRows(db, [], ALL_PROJECTS);
+    expect(sawWhere).toBe(false);
+    await mergeConversationRows(db, []);
+    expect(sawWhere).toBe(false);
+  });
+
+  test("a specific project scope: the query calls .where() before .orderBy() — never the direct pre-mt#4728 shape", async () => {
+    let sawWhere = false;
+    let sawDirectOrderBy = false;
+    const db = {
+      select: () => ({
+        from: (table: unknown) => {
+          if (table === agentTranscriptsTable) {
+            return {
+              where: () => {
+                sawWhere = true;
+                return { orderBy: () => ({ limit: () => Promise.resolve([]) }) };
+              },
+              orderBy: () => {
+                sawDirectOrderBy = true;
+                return { limit: () => Promise.resolve([]) };
+              },
+            };
+          }
+          if (table === minskySessionLinksTable) {
+            return {
+              innerJoin: () => ({ where: () => Promise.resolve([]) }),
+              where: () => Promise.resolve([]),
+            };
+          }
+          if (table === agentSpawnsTable) return { where: () => Promise.resolve([]) };
+          throw new Error("unexpected table");
+        },
+      }),
+      execute: boundedUserTurnsExecute([]),
+    } as unknown as PostgresJsDatabase;
+
+    await mergeConversationRows(db, [], PROJECT_A);
+    expect(sawWhere).toBe(true);
+    expect(sawDirectOrderBy).toBe(false);
+  });
+
+  test("AT1: a standalone principal-conversation row surfaces its own resolved projectId, and NULL-attribution rows are never excluded by JS-level logic", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const CONV_NULL = "99999999-0000-0000-0000-000000000099";
+    // Represents what Postgres would already have returned for
+    // `project_id = PROJECT_A OR project_id IS NULL` — a project-B row is
+    // never in this list, matching what the real WHERE clause excludes.
+    const db = mockDb({
+      transcripts: [
+        { agentSessionId: CONV_A, cwd: "/repo-a", startedAt, endedAt: null, projectId: PROJECT_A },
+        { agentSessionId: CONV_NULL, cwd: "/repo-null", startedAt, endedAt: null, projectId: null },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, [], PROJECT_A);
+
+    expect(result.standaloneRows).toHaveLength(2);
+    const byId = new Map(result.standaloneRows.map((r) => [r.sessionId, r]));
+    expect(byId.get(CONV_A)?.projectId).toBe(PROJECT_A);
+    expect(byId.get(CONV_NULL)?.projectId).toBeNull();
+  });
+
+  test("AT2: a synthetic subagent-group row's own projectId is always null, mirroring the model aggregation carve-out", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [
+        {
+          agentSessionId: CONV_D,
+          cwd: "/repo/sub",
+          startedAt,
+          endedAt: null,
+          projectId: PROJECT_A,
+        },
+      ],
+      spawns: [
+        {
+          parentAgentSessionId: SOME_PARENT_OUTSIDE_WINDOW,
+          childAgentSessionId: CONV_D,
+          agentKind: "refactorer",
+        },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, [], PROJECT_A);
+
+    expect(result.standaloneRows).toHaveLength(1);
+    const groupRow = result.standaloneRows[0];
+    if (!groupRow) throw new Error("expected a synthetic group row");
+    expect(groupRow.projectId).toBeNull();
+  });
+
+  test("two-project fixture: a query scoped to project B never returns project A's principal-conversation row (simulates the live-verified peezombie leak)", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    // Simulates the WHERE clause already having excluded CONV_A (project A)
+    // when scoped to PROJECT_B — the fixture IS the post-filter result set,
+    // per this file's established mocking convention (see the header
+    // comment on mockDb's agentTranscriptsTable branch above).
+    const db = mockDb({
+      transcripts: [
+        {
+          agentSessionId: CONV_B,
+          cwd: "/repo-peezombie",
+          startedAt,
+          endedAt: null,
+          projectId: PROJECT_B,
+        },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, [], PROJECT_B);
+
+    expect(result.standaloneRows).toHaveLength(1);
+    expect(result.standaloneRows.find((r) => r.sessionId === CONV_A)).toBeUndefined();
+    expect(result.standaloneRows[0]?.sessionId).toBe(CONV_B);
+    expect(result.standaloneRows[0]?.projectId).toBe(PROJECT_B);
   });
 });
 
@@ -441,7 +624,7 @@ describe("per-node model (mt#3070)", () => {
       ],
       spawns: [
         {
-          parentAgentSessionId: "some-parent-outside-window",
+          parentAgentSessionId: SOME_PARENT_OUTSIDE_WINDOW,
           childAgentSessionId: CONV_D,
           agentKind: "refactorer",
         },
@@ -550,5 +733,40 @@ describe("createCachedRunMerge (mt#2767 latency follow-up)", () => {
     const afterFirst = queryCount;
     await cached.getMerge(db, ["workspace-b", "workspace-a"]); // reordered
     expect(queryCount).toBe(afterFirst);
+  });
+
+  // mt#4728: the cache key must include the project scope, or two different
+  // project filters (or two operators viewing different projects) within
+  // the same TTL window would share a cached merge keyed only on the
+  // workspace-id set — reintroducing the cross-project leak this task
+  // fixes, through the cache rather than the query.
+  test("(mt#4728) the SAME empty workspace-id set under two different project scopes is a cache miss for each other, never a hit", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(60_000);
+
+    // Both calls pass the SAME (empty) workspace-id set — the pre-mt#4728
+    // key would collide here.
+    await cached.getMerge(db, [], PROJECT_A);
+    const afterFirst = queryCount;
+    await cached.getMerge(db, [], PROJECT_B);
+    expect(queryCount).toBeGreaterThan(afterFirst); // must NOT be served from PROJECT_A's cache entry
+  });
+
+  test("(mt#4728) an explicit ALL_PROJECTS scope and an omitted scope share one cache entry — the default is ALL_PROJECTS", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(60_000);
+
+    await cached.getMerge(db, [WORKSPACE_1]); // omitted -> defaults to ALL_PROJECTS
+    const afterFirst = queryCount;
+    await cached.getMerge(db, [WORKSPACE_1], ALL_PROJECTS); // explicit
+    expect(queryCount).toBe(afterFirst); // same cache entry
   });
 });

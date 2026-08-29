@@ -139,6 +139,21 @@ export interface AgentRow {
    * open for this session," not "is anything self-registered as attached").
    */
   interfaceBinding: { kind: string; surfaceId?: string; lastObservedAt: string } | null;
+  /**
+   * Project this row is attributed to (mt#4728). For a `dispatched-agent`
+   * row, `record.projectId` (set at workspace creation). For a
+   * conversation-derived row (`principal-conversation` / `subagent-group`),
+   * `agent_transcripts.project_id` via the run-merge join — see
+   * `run-merge.ts`'s `StandaloneRunRow.projectId` doc comment for the
+   * NULL-attribution rule (never hidden, shown under every filter) and the
+   * synthetic-group aggregation carve-out. `null` for a `driven-session`
+   * row — driven-session project attribution is not tracked (out of this
+   * task's scope; the driven-session registry doesn't carry a projectId
+   * today). This field exists so a future frontend pass CAN render a
+   * project badge/distinction; this task does not add that rendering
+   * (sibling mt#4729).
+   */
+  projectId: string | null;
 }
 
 /**
@@ -329,6 +344,8 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
     // Filled in below (createAgentsWidget's fetch()) when a live-attachments
     // source is supplied; null otherwise (mt#2286).
     attachState: null,
+    // mt#4728: the workspace's own resolved project (set at creation time).
+    projectId: record.projectId ?? null,
   };
 }
 
@@ -392,6 +409,10 @@ export function spliceDrivenSessions(
       attachState: null,
       // Not a Minsky workspace session -- no iTerm-tab binding question applies (mt#1628).
       interfaceBinding: null,
+      // mt#4728: driven-session project attribution is not tracked today
+      // (the driven-session registry snapshot carries no projectId) —
+      // explicit unknown, same posture as `model: null` above.
+      projectId: null,
     });
   }
   return [...rows, ...standalone];
@@ -606,9 +627,15 @@ export function createAgentsWidget(
             // two would let the list disagree with /api/agents/:id (which has no
             // merge) whenever the merge is unavailable but the DB is not.
             if (cachedMerge) {
+              // mt#4728: thread the SAME projectScope resolved above through
+              // to the conversation merge — this is the fix for
+              // conversation-derived rows (principal-conversation /
+              // subagent-group) bypassing the project filter that
+              // listSessions already honors.
               const merge = await cachedMerge.getMerge(
                 db,
-                workspaceRows.map((r) => r.sessionId)
+                workspaceRows.map((r) => r.sessionId),
+                projectScope
               );
               for (const row of workspaceRows) {
                 const attrs = merge.workspaceAttrsBySessionId.get(row.sessionId);

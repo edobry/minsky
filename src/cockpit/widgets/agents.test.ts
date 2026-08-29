@@ -17,6 +17,10 @@ import { SessionStatus } from "@minsky/domain/session/types";
 import type { SessionAttachment } from "@minsky/domain/session/index";
 import { isAllProjects } from "@minsky/domain/project/scope";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
+import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -824,6 +828,181 @@ describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
   // already covered directly, with clean DI (no mock.module, banned by this
   // repo's own custom/no-global-module-mocks ESLint rule), in
   // src/cockpit/project-scope.test.ts.
+});
+
+// ---------------------------------------------------------------------------
+// Conversation-derived-row project scoping (mt#4728)
+//
+// Widget-level reproduction of the live-verified leak: a
+// `principal-conversation` row (kind `principal-conversation` /
+// `subagent-group`) bypassed the project filter that `listSessions` already
+// honors, because `mergeConversationRows`'s `agent_transcripts` window query
+// ran unscoped. These tests exercise the full `createAgentsWidget().fetch()`
+// path — the same layer the peezombie repro was observed at — rather than
+// `mergeConversationRows` in isolation (covered separately in
+// `run-merge.test.ts`).
+// ---------------------------------------------------------------------------
+
+interface ConversationDbFixtureRow {
+  agentSessionId: string;
+  cwd: string | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  projectId: string | null;
+  title?: string | null;
+}
+
+/**
+ * Builds a fake conversation DB whose `.where()` branch simulates a
+ * REAL project-scoped Postgres filter (`project_id = filterProjectId OR
+ * project_id IS NULL`), while its direct `.orderBy()` branch (taken only
+ * when `mergeConversationRows` resolves ALL_PROJECTS) returns every row
+ * UNFILTERED. This is deliberately asymmetric so the test can distinguish
+ * "the widget correctly threaded `?project=` through to the merge" from "it
+ * didn't" — a wiring bug that silently drops the scope before calling
+ * `cachedMerge.getMerge` would take the `.orderBy()`-direct branch and leak
+ * every project's rows, exactly like the pre-mt#4728 defect.
+ */
+function makeConversationDb(
+  transcripts: ConversationDbFixtureRow[],
+  filterProjectId: string
+): PostgresJsDatabase {
+  const filtered = transcripts.filter(
+    (t) => t.projectId === filterProjectId || t.projectId == null
+  );
+  return {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table === agentTranscriptsTable) {
+          return {
+            where: () => ({ orderBy: () => ({ limit: () => Promise.resolve(filtered) }) }),
+            orderBy: () => ({ limit: () => Promise.resolve(transcripts) }),
+          };
+        }
+        if (table === minskySessionLinksTable) {
+          return {
+            innerJoin: () => ({ where: () => Promise.resolve([]) }),
+            where: () => Promise.resolve([]),
+          };
+        }
+        if (table === agentSpawnsTable) return { where: () => Promise.resolve([]) };
+        throw new Error("makeConversationDb: unexpected table in .from()");
+      },
+    }),
+    // Every fixture transcript below carries a `title`, so run-merge.ts's
+    // label logic never requests bounded user turns — an empty array is
+    // the correct response either way.
+    execute: () => Promise.resolve([]),
+  } as unknown as PostgresJsDatabase;
+}
+
+// Shared fixture strings — extracted to satisfy custom/no-magic-string-duplication.
+const PEEZOMBIE_SLUG = "edobry/peezombie.me";
+const MINSKY_CWD = "/Users/edobry/Projects/minsky";
+const PEEZOMBIE_CWD = "/Users/edobry/Projects/peezombie.me";
+
+describe("createAgentsWidget — conversation-derived-row project scoping (mt#4728)", () => {
+  const PROJECT_MINSKY = "aaaa1111-0000-0000-0000-000000000001";
+  const PROJECT_PEEZOMBIE = "bbbb2222-0000-0000-0000-000000000002";
+  const CONV_MINSKY = "conv-minsky-0000-0000-0000-000000000001";
+  const CONV_PEEZOMBIE = "conv-peezombie-000-0000-0000-00000000002";
+  const CONV_UNATTRIBUTED = "conv-null-0000-0000-0000-000000000003";
+
+  function makeScopedWidget(conversationDb: PostgresJsDatabase) {
+    return createAgentsWidget(
+      async () => makeSessionProvider([]),
+      undefined,
+      async () => conversationDb,
+      undefined,
+      undefined,
+      async () => makeScopeResolverDb([{ id: PROJECT_PEEZOMBIE, slug: PEEZOMBIE_SLUG }])
+    );
+  }
+
+  test("AT1/AT3: filtering to peezombie excludes the Minsky-cwd principal-conversation row (live-verified repro)", async () => {
+    const conversationDb = makeConversationDb(
+      [
+        {
+          agentSessionId: CONV_MINSKY,
+          cwd: MINSKY_CWD,
+          startedAt: new Date("2026-08-29T14:00:00.000Z"),
+          endedAt: null,
+          projectId: PROJECT_MINSKY,
+          title: "Minsky work",
+        },
+        {
+          agentSessionId: CONV_PEEZOMBIE,
+          cwd: PEEZOMBIE_CWD,
+          startedAt: new Date("2026-08-29T14:05:00.000Z"),
+          endedAt: null,
+          projectId: PROJECT_PEEZOMBIE,
+          title: "Peezombie work",
+        },
+      ],
+      PROJECT_PEEZOMBIE
+    );
+
+    const widget = makeScopedWidget(conversationDb);
+
+    const data = await widget.fetch({
+      id: "agents",
+      query: { project: PEEZOMBIE_SLUG },
+    });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    const cwds = agents.map((a) => a.cwd);
+    expect(cwds).not.toContain(MINSKY_CWD);
+    expect(cwds).toContain(PEEZOMBIE_CWD);
+
+    const peezombieRow = agents.find((a) => a.sessionId === CONV_PEEZOMBIE);
+    if (!peezombieRow) throw new Error("expected the peezombie row");
+    expect(peezombieRow.kind).toBe("principal-conversation");
+    expect(peezombieRow.projectId).toBe(PROJECT_PEEZOMBIE);
+  });
+
+  test("AT2/SC2: a NULL-project-attribution conversation row is shown under a specific project filter, never hidden", async () => {
+    const conversationDb = makeConversationDb(
+      [
+        {
+          agentSessionId: CONV_MINSKY,
+          cwd: MINSKY_CWD,
+          startedAt: new Date("2026-08-29T14:00:00.000Z"),
+          endedAt: null,
+          projectId: PROJECT_MINSKY,
+          title: "Minsky work",
+        },
+        {
+          agentSessionId: CONV_UNATTRIBUTED,
+          cwd: "/some/unresolvable/cwd",
+          startedAt: new Date("2026-08-29T14:10:00.000Z"),
+          endedAt: null,
+          projectId: null,
+          title: "Ambient conversation",
+        },
+      ],
+      PROJECT_PEEZOMBIE
+    );
+
+    const widget = makeScopedWidget(conversationDb);
+
+    const data = await widget.fetch({
+      id: "agents",
+      query: { project: PEEZOMBIE_SLUG },
+    });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    const cwds = agents.map((a) => a.cwd);
+    // The other project's attributed row is excluded...
+    expect(cwds).not.toContain(MINSKY_CWD);
+    // ...but the NULL-attribution row is shown regardless of the filter.
+    const unattributedRow = agents.find((a) => a.sessionId === CONV_UNATTRIBUTED);
+    if (!unattributedRow) throw new Error("expected the NULL-attribution row to be present");
+    expect(unattributedRow.projectId).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

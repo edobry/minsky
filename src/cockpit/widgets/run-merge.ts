@@ -82,14 +82,50 @@
  *     out-of-scope ingest-pipeline gap — the ingest pipeline never writes
  *     it) will start rendering here automatically once fixed, with zero
  *     further plumbing changes.
+ *
+ * Project scoping (mt#4728): `mergeConversationRows` now takes the SAME
+ * `ProjectScope` the caller already resolved for `listSessions`
+ * (`./agents.ts`) and applies it to the `agent_transcripts` window query
+ * below. Prior to mt#4728 this query ran UNSCOPED, so a
+ * `principal-conversation` / `subagent-group` row from a DIFFERENT project
+ * than the one the operator filtered to still appeared (live-verified:
+ * filtering to `edobry/peezombie.me` returned a conversation whose `cwd`
+ * was this repo).
+ *
+ * Decision (filtered, not deliberately-global-but-marked): the cockpit
+ * already has a first-class "All projects" affordance (`ALL_PROJECTS_PARAM`,
+ * `../project-scope.ts`) for an operator who wants cross-project visibility
+ * -- including their own ambient conversation. A project filter's whole
+ * purpose is narrowing the view to one project's resources, so a
+ * conversation-derived row obeys it exactly like a workspace row does,
+ * rather than carving out an exception nothing asked for. Rows still carry
+ * `projectId` (see `StandaloneRunRow.projectId` below) so a consumer CAN
+ * render a badge/distinction later, even though this task does not add
+ * that rendering (frontend project-badge visibility is sibling mt#4729).
+ *
+ * NULL-attribution rule (shown under every filter, never hidden):
+ * `agent_transcripts.project_id` is resolved best-effort at ingest time and
+ * is nullable BY DESIGN (see that column's own doc comment -- ingestion
+ * must not block on resolution failing). That is a materially different
+ * nullability story than a workspace's `project_id` (set at creation
+ * time), so this module does NOT mirror
+ * `drizzle-session-repository.ts`'s strict `eq()`-only filter. When a
+ * specific project is selected, the WHERE clause is
+ * `project_id = :scope OR project_id IS NULL` -- the same "unknown must
+ * never look like excluded" posture `isWithinActiveWindow` in
+ * `./agents.ts` already documents for an unparseable activity timestamp:
+ * this filter's failure mode (an ingest-time resolution gap) must be
+ * showing a row that might not belong, never silently dropping one that
+ * does.
  */
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 import type { WorkspaceId } from "@minsky/domain/ids";
+import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "@minsky/domain/project/scope";
 import { pickBestConversationLink } from "../session-detail";
 // mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
 // shared command import the SAME mt#2770 precedence decision.
@@ -167,6 +203,16 @@ export interface StandaloneRunRow {
    * child's own `subagents[].model` instead.
    */
   model: string | null;
+  /**
+   * Project this row's conversation is attributed to (mt#4728), sourced
+   * from `agent_transcripts.project_id`. `null` means one of two things
+   * this field deliberately does not distinguish for a consumer: ingest
+   * could not resolve a project for this conversation (see this module's
+   * NULL-attribution rule above), or — for a synthetic "subagent-group"
+   * row — the group aggregates children that could carry different
+   * `projectId`s, mirroring `model`'s same aggregation carve-out above.
+   */
+  projectId: string | null;
 }
 
 export interface RunMergeResult {
@@ -271,10 +317,17 @@ function latestTimestamp(entries: SubagentEntry[]): string {
  */
 export async function mergeConversationRows(
   db: PostgresJsDatabase,
-  workspaceSessionIds: string[]
+  workspaceSessionIds: string[],
+  /**
+   * Project scope (mt#4728) — same `ProjectScope` the caller already
+   * resolved for `listSessions`. Defaults to `ALL_PROJECTS` so every
+   * pre-mt#4728 caller (and every pre-existing test in this file) keeps its
+   * exact prior behavior without passing this argument.
+   */
+  projectScope: ProjectScope = ALL_PROJECTS
 ): Promise<RunMergeResult> {
   try {
-    const conversationRows = await db
+    const conversationRowsSelect = db
       .select({
         agentSessionId: agentTranscriptsTable.agentSessionId,
         cwd: agentTranscriptsTable.cwd,
@@ -286,10 +339,32 @@ export async function mergeConversationRows(
         model: agentTranscriptsTable.model,
         // mt#3321 — generated conversation title; feeds the label tier above.
         title: agentTranscriptsTable.title,
+        // mt#4728 — project attribution; see this module's header for the
+        // decision (filtered) and the NULL-attribution rule (shown under
+        // every filter).
+        projectId: agentTranscriptsTable.projectId,
       })
-      .from(agentTranscriptsTable)
-      .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
-      .limit(MAX_CONVERSATION_WINDOW);
+      .from(agentTranscriptsTable);
+
+    // mt#4728: only add a WHERE clause when a specific project is scoped —
+    // the ALL_PROJECTS branch keeps the EXACT pre-mt#4728 query shape (no
+    // `.where()` step at all), so every existing unscoped caller/test is
+    // unaffected. `OR project_id IS NULL` is the NULL-attribution rule
+    // documented at the top of this file: an ingest-time resolution gap
+    // must never look like "known to be a different project."
+    const conversationRows = await (isAllProjects(projectScope)
+      ? conversationRowsSelect
+          .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
+          .limit(MAX_CONVERSATION_WINDOW)
+      : conversationRowsSelect
+          .where(
+            or(
+              eq(agentTranscriptsTable.projectId, projectScope),
+              isNull(agentTranscriptsTable.projectId)
+            )
+          )
+          .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
+          .limit(MAX_CONVERSATION_WINDOW));
 
     const conversationIds = conversationRows.map((r) => r.agentSessionId);
 
@@ -448,6 +523,7 @@ export async function mergeConversationRows(
         cwd: row.cwd,
         subagents: [],
         model: row.model,
+        projectId: row.projectId,
       };
       principalRows.push(principalRow);
       principalRowById.set(row.agentSessionId, principalRow);
@@ -490,6 +566,9 @@ export async function mergeConversationRows(
         // models — no single row-level model to report (see each child's own
         // subagents[].model instead; see the StandaloneRunRow.model doc comment).
         model: null,
+        // Same aggregation carve-out as `model` above (mt#4728) — a group's
+        // children could carry different projectIds.
+        projectId: null,
       });
     }
 
@@ -535,7 +614,11 @@ export const DEFAULT_MERGE_CACHE_TTL_MS = 5_000;
 
 export interface CachedRunMerge {
   /** Same contract as {@link mergeConversationRows}, transparently cached. */
-  getMerge(db: PostgresJsDatabase, workspaceSessionIds: string[]): Promise<RunMergeResult>;
+  getMerge(
+    db: PostgresJsDatabase,
+    workspaceSessionIds: string[],
+    projectScope?: ProjectScope
+  ): Promise<RunMergeResult>;
 }
 
 /**
@@ -545,22 +628,30 @@ export interface CachedRunMerge {
  * module-level singleton, so tests get a fresh cache per `createAgentsWidget()`
  * call.
  *
- * Cache key is the SORTED workspace-sessionId set: membership changes (a
- * session starting or leaving the non-terminal set) invalidate correctly,
- * while polls against an unchanged fleet hit cache.
+ * Cache key is the SORTED workspace-sessionId set PLUS the project scope
+ * (mt#4728): membership changes (a session starting or leaving the
+ * non-terminal set) invalidate correctly, while polls against an unchanged
+ * fleet AND an unchanged project filter hit cache. The project scope MUST be
+ * part of the key — omitting it would let two operators (or one operator
+ * switching the `?project=` filter) within the same TTL window share a
+ * cached merge keyed only on `workspaceSessionIds`, which is IDENTICAL
+ * (often `[]`) across two different project scopes whenever neither has any
+ * workspace rows in view. That would silently serve one project's
+ * conversation-derived rows under another project's filter — the exact
+ * cross-project leak this task fixes, reintroduced through the cache.
  */
 export function createCachedRunMerge(ttlMs: number = DEFAULT_MERGE_CACHE_TTL_MS): CachedRunMerge {
   let entry: { key: string; expiresAt: number; promise: Promise<RunMergeResult> } | null = null;
 
   return {
-    async getMerge(db, workspaceSessionIds) {
-      const key = JSON.stringify([...workspaceSessionIds].sort());
+    async getMerge(db, workspaceSessionIds, projectScope = ALL_PROJECTS) {
+      const key = JSON.stringify([[...workspaceSessionIds].sort(), projectScope]);
       const now = Date.now();
       if (entry && entry.key === key && entry.expiresAt > now) {
         return entry.promise;
       }
 
-      const promise = mergeConversationRows(db, workspaceSessionIds);
+      const promise = mergeConversationRows(db, workspaceSessionIds, projectScope);
       entry = { key, expiresAt: now + ttlMs, promise };
 
       // Defense in depth: mergeConversationRows() never rejects (it catches
