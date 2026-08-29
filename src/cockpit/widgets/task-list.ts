@@ -25,6 +25,14 @@ export interface TaskListItem {
   kind: string;
   tags: string[];
   parentId: string | null;
+  /**
+   * Owning project's uuid (ADR-021), null for a legacy/unscoped row (mt#4729).
+   * The all-projects view resolves this against the shell's `/api/projects`
+   * list (already fetched by `ProjectProvider`) to render a project badge —
+   * deliberately NOT a slug/displayName here, to avoid a second join on
+   * every task-list fetch for data the frontend already holds.
+   */
+  projectId: string | null;
 }
 
 export interface TaskListPayload {
@@ -99,6 +107,7 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
           kind: t.kind ?? "implementation",
           tags: t.tags ?? [],
           parentId: t.parentTaskId ? formatTaskIdForDisplay(t.parentTaskId) : null,
+          projectId: t.projectId ?? null,
         }));
 
         const payload: TaskListPayload = { tasks: items };

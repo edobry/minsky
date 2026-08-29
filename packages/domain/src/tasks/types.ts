@@ -114,6 +114,13 @@ export interface Task {
   backend?: string;
   /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
   parentTaskId?: string;
+  /**
+   * Owning project's uuid (ADR-021, mt#2416) — null for a legacy/unscoped
+   * row. Populated by DB-backed backends from `tasksTable.projectId`;
+   * consumers resolve it to a slug/displayName via the cockpit's
+   * `/api/projects` list (mt#4729) rather than a second join here.
+   */
+  projectId?: string | null;
   metadata?: Record<string, unknown>;
   spec?: string;
   tags?: string[];

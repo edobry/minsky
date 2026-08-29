@@ -584,6 +584,7 @@ export class MinskyTaskBackend implements TaskBackend {
     kind?: string | null;
     createdAt?: Date | null;
     updatedAt?: Date | null;
+    projectId?: string | null;
   }): Task {
     let tags: string[] = [];
     if (row.tags) {
@@ -600,6 +601,7 @@ export class MinskyTaskBackend implements TaskBackend {
       kind: row.kind ?? "implementation",
       backend: this.name,
       tags,
+      projectId: row.projectId ?? null,
       ...(row.createdAt ? { createdAt: row.createdAt } : {}),
       ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
     };

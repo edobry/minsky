@@ -163,6 +163,39 @@ describe("createTaskListWidget — project-scope wiring (mt#2418)", () => {
     expect(isAllProjects(projectScope)).toBe(false);
   });
 
+  // mt#4729: TaskListItem carries the owning project's raw uuid (not a
+  // resolved slug/displayName — the frontend already holds the projects
+  // list via ProjectProvider and resolves the label itself) so the
+  // all-projects view can render a per-row project badge.
+  test("carries a task's projectId through into TaskListItem.projectId", async () => {
+    const PROJECT_ID = "33333333-3333-3333-3333-333333333333";
+    const scopedTask: Task = { ...TASK, id: "mt#2", projectId: PROJECT_ID };
+    const deps: TaskListDeps = {
+      taskService: makeCapturingTaskService([scopedTask], () => {}),
+    };
+    const widget = createTaskListWidget(async () => deps);
+
+    const data = await widget.fetch({ id: "task-list" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const [item] = (data.payload as TaskListPayload).tasks;
+    expect(item?.projectId).toBe(PROJECT_ID);
+  });
+
+  test("defaults TaskListItem.projectId to null for a legacy/unscoped task row", async () => {
+    const deps: TaskListDeps = {
+      // TASK has no projectId set (undefined) — mirrors a pre-ADR-021 row.
+      taskService: makeCapturingTaskService([TASK], () => {}),
+    };
+    const widget = createTaskListWidget(async () => deps);
+
+    const data = await widget.fetch({ id: "task-list" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const [item] = (data.payload as TaskListPayload).tasks;
+    expect(item?.projectId).toBeNull();
+  });
+
   // PR #2056 R1 BLOCKING 2 / NON-BLOCKING 2: a thrown db-getter (module import
   // failure, connection error, etc.) must degrade project-scope resolution to
   // ALL_PROJECTS — NOT the whole widget to `state: "degraded"`. That contract
