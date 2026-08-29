@@ -393,8 +393,13 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
         `  Judged text:            PARTIAL — ${judged.recoverableRecords} of ${judged.recordsAssessed} record(s); bound any rate to the recoverable ones`
       );
     } else if (judged.recoverability === "unrecoverable") {
+      // "carry no capture" was the pre-mt#4465 wording and it states the very
+      // conflation this shipped to remove: capture-marker absence is NOT
+      // unrecoverability. Say what was actually checked — no marker AND no
+      // mapped judged-text field — so the line a reviewer acts on stops
+      // implying the marker is the only thing that counts. (PR #3432 R1)
       lines.push(
-        `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry no capture; you can rate what matched, not whether it was right in context`
+        `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry neither a capture marker nor readable judged text; you can rate what matched, not whether it was right in context`
       );
       // mt#4465 SC4: distinguish "the text is gone" from "the sweep has no
       // mapping for this detector". Both render GONE above, and only the second

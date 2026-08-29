@@ -63,7 +63,10 @@ describe("formatResult — judged-text recoverability", () => {
     // The pair is the point: reporting only the left-hand answer is the gap.
     expect(text).toContain("Classifiable:           yes");
     expect(text).toContain(`${JUDGED_TEXT_LABEL}            GONE`);
-    expect(text).toContain("311 record(s) carry no capture");
+    // Names BOTH conditions (PR #3432 R1): the old "carry no capture" wording
+    // asserted the marker-absence-is-unrecoverable equivalence that mt#4465
+    // removed from the derivation.
+    expect(text).toContain("311 record(s) carry neither a capture marker nor readable judged text");
   });
 
   test("a partial log reports the recoverable count so a rate can be bounded", () => {
