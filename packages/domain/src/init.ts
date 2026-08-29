@@ -7,6 +7,7 @@ import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
+import { runMinskyCompile } from "./compile/compile";
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
@@ -101,10 +102,38 @@ export interface InitializeProjectOptions {
  *   .minsky/config.local.yaml with workspace.mainPath and harness field.
  *   Skipped when mcp.enabled is false.
  */
+/**
+ * Injectable collaborators for {@link initializeProject} (mt#4715).
+ *
+ * `compileForHarness` exists as a SEAM rather than a direct `runMinskyCompile`
+ * call because that function resolves and writes through the REAL filesystem,
+ * while `initializeProject` is otherwise driven by an injected {@link FsLike}.
+ * Calling it unguarded would make a unit test with a mock filesystem reach the
+ * actual repo — so the collaborator is handed in instead of reached for, per
+ * `testing-standards.mdc §Testable Design`.
+ */
+export interface InitializeProjectDeps {
+  /** Compile one target into `workspacePath`. Defaults to the real pipeline. */
+  compileForHarness?: (target: string, workspacePath: string) => Promise<void>;
+  /** Which MCP client / harness is running init. Defaults to real detection. */
+  resolveClient?: () => string;
+}
+
 export async function initializeProject(
   { repoPath, backend, ruleFormat, mcp, overwrite = false, repository }: InitializeProjectOptions,
-  fileSystem: FsLike = createRealFs()
+  fileSystem: FsLike = createRealFs(),
+  deps: InitializeProjectDeps = {}
 ): Promise<void> {
+  const resolveClient = deps.resolveClient ?? resolveInitClient;
+  const compileForHarness =
+    deps.compileForHarness ??
+    (async (target: string, workspacePath: string) => {
+      await runMinskyCompile({ target, workspacePath });
+    });
+  // Resolved ONCE and reused: the rule-scaffolding step below and performSetup
+  // must agree about which harness is running, or a project could be scaffolded
+  // for one client and registered with another.
+  const initClient = resolveClient();
   // === Phase 1: Project initialization ===
 
   // Create process/tasks directory structure
@@ -158,6 +187,53 @@ export async function initializeProject(
     // Skip rule generation when the command registry isn't available (unit tests)
   }
 
+  // mt#4715: scaffolding SOURCES is only half the job. `ruleFormat` picks a
+  // directory, and Claude Code reads NONE of the three it can pick — it reads
+  // `CLAUDE.md` and `.claude/rules`, which the compile pipeline produces FROM
+  // `.minsky/rules/*.mdc` sources. Those are exactly what the step above just
+  // wrote (`getRulePath` emits `<id>.mdc`, bodies carry YAML frontmatter), so
+  // this is a wiring step, not a format conversion. Without it a Claude Code
+  // project is scaffolded with files its own harness never opens.
+  //
+  // Only the two channels Claude Code actually implements are compiled
+  // (mt#3107): `claude.md` for the always-apply corpus and `claude-rules` for
+  // path-scoped `.claude/rules/<id>.md`. Cursor's other two rule types have no
+  // delivery mechanism here, so emitting more targets would write files nothing
+  // reads — the very defect this step removes.
+  //
+  // Gated on the FORMAT as well as the harness (PR #3431 R1). The compile
+  // pipeline reads `.minsky/rules` (ADR-016), which is where sources land only
+  // under `ruleFormat: "minsky"`. An explicit `--rule-format cursor` under
+  // Claude Code puts them in `.cursor/rules` instead — compiling then reads an
+  // empty directory and produces nothing, so the project would end up with
+  // neither the Cursor files it asked for nor the Claude ones it cannot use.
+  const sourcesAreWhereCompileReads = ruleFormat === "minsky";
+  if (initClient === "claude-code" && !sourcesAreWhereCompileReads) {
+    log.warn(
+      `minsky init: --rule-format "${ruleFormat}" writes rules to ` +
+        `${RULE_FORMAT_OUTPUT_DIR[ruleFormat]}, which Claude Code does not read, so no ` +
+        `CLAUDE.md was generated. Re-run with --rule-format minsky for the Claude Code layout.`
+    );
+  }
+  if (initClient === "claude-code" && sourcesAreWhereCompileReads) {
+    for (const target of ["claude.md", "claude-rules"]) {
+      try {
+        await compileForHarness(target, repoPath);
+      } catch (error) {
+        // SURFACED, not swallowed (mt#4715 SC5). `init` must still succeed —
+        // a project with sources but no compiled output is recoverable by
+        // running `minsky compile` — but a silently un-scaffolded project is
+        // the defect, not the mitigation (`work-completion.mdc §Invocation
+        // path`), so the failure has to reach someone.
+        log.warn(
+          `minsky init: could not compile "${target}" for claude-code. The rule sources in ` +
+            `.minsky/rules were written; run \`minsky compile\` to produce CLAUDE.md and ` +
+            `.claude/rules. Cause: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  }
+
   // Create main Minsky configuration file with user's backend choice
   const minskyDir = path.join(repoPath, ".minsky");
   await createDirectoryIfNotExists(minskyDir, fileSystem);
@@ -190,7 +266,10 @@ export async function initializeProject(
     // back out of. They land in `.minsky/config.local.yaml`, which is where
     // machine-scope settings belong.
     await performSetup(
-      { repoPath, client: resolveInitClient(), overwrite, mcp: mcpForConfig },
+      // `initClient`, not a second resolveInitClient() call (mt#4715): rule
+      // scaffolding above already branched on it, and two independent
+      // resolutions could disagree.
+      { repoPath, client: initClient, overwrite, mcp: mcpForConfig },
       fileSystem
     );
 

@@ -231,6 +231,111 @@ describe("Init rule-format output directory (mt#4714)", () => {
     expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
   });
 
+  test("compiles for claude-code, and only the two channels it implements (mt#4715)", async () => {
+    const compiled: Array<{ target: string; workspacePath: string }> = [];
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "minsky",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      {
+        resolveClient: () => "claude-code",
+        compileForHarness: async (target, workspacePath) => {
+          compiled.push({ target, workspacePath });
+        },
+      }
+    );
+
+    // Exactly the two channels Claude Code implements (mt#3107) — not the
+    // full target set, which would write files nothing reads.
+    expect(compiled.map((c) => c.target)).toEqual(["claude.md", "claude-rules"]);
+    expect(compiled.every((c) => c.workspacePath === testRepo)).toBe(true);
+    // ...and the SOURCES they compile from are where the compile pipeline looks.
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
+  });
+
+  test("does NOT compile under a non-claude-code harness (mt#4715 SC3)", async () => {
+    const compiled: string[] = [];
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "cursor",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      {
+        resolveClient: () => "cursor",
+        compileForHarness: async (target) => {
+          compiled.push(target);
+        },
+      }
+    );
+
+    expect(compiled).toEqual([]);
+    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
+  });
+
+  test("claude-code + a non-minsky format does NOT compile (PR #3431 R1)", async () => {
+    // The compile targets read `.minsky/rules`. An explicit `--rule-format
+    // cursor` under Claude Code puts sources in `.cursor/rules`, so compiling
+    // would read an empty directory — the project would get neither the Cursor
+    // files it asked for nor usable Claude ones.
+    const compiled: string[] = [];
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "cursor",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      {
+        resolveClient: () => "claude-code",
+        compileForHarness: async (target) => {
+          compiled.push(target);
+        },
+      }
+    );
+
+    expect(compiled).toEqual([]);
+    // The explicitly-requested format is still honoured.
+    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+  });
+
+  test("a failing compile does not fail init (mt#4715 SC5)", async () => {
+    // The sources are still written and init still succeeds — a project with
+    // sources but no compiled output is recoverable by running `minsky compile`.
+    // The failure is surfaced through the logger rather than swallowed silently.
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "minsky",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      {
+        resolveClient: () => "claude-code",
+        compileForHarness: async () => {
+          throw new Error("compile unavailable");
+        },
+      }
+    );
+
+    // init completed: the config file it writes AFTER the compile step exists.
+    expect(mockFileSystem.files.has(path.join(testRepo, ".minsky", "config.yaml"))).toBe(true);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
+  });
+
   test("the .minsky config directory is created for every format", async () => {
     // Guards the discriminator the first test depends on: `.minsky` itself is
     // always created (config.yaml lives there), so "minsky format worked" can
