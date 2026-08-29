@@ -107,7 +107,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   // unavailable" error, or `tasks.dispatch`'s Step 5 invocation-row write —
   // had no way to wait for that resolution. Confirmed live (mt#3017
   // investigation, 2026-07-22): immediately after a process restart
-  // (`debug_systemInfo` `nodejs.uptime` in the hundreds of seconds),
+  // (`debug_systemInfo` `runtime.uptime` — then `nodejs.uptime`, renamed in
+  // mt#4718 — in the hundreds of seconds),
   // `tasks.dispatch-recover` against a task with real dispatch history
   // (mt#3017 itself) succeeded once the tracker had warmed — the DB and the
   // write path were both healthy; the bug was purely the read-side timing
