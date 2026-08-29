@@ -40,7 +40,19 @@ export const memoriesSearchWidget: WidgetModule = {
 
       const limit = ctx.query?.limit ? parseInt(ctx.query.limit, 10) : 20;
 
-      const response = await memSvc.search(searchQuery, { limit });
+      // Project scope (mt#4727): ?project=<slug> resolved to a project uuid,
+      // defaulting to ALL_PROJECTS when omitted/"all" — same resolution
+      // rules as every other cockpit project-scoped read (mt#2418 pattern,
+      // task-list.ts:91-93). resolveCockpitProjectScope owns its own
+      // db-fetch and never throws (fail-open — PR #2056 R1), so a scoping
+      // problem can never take this widget down.
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const projectScope = await resolveCockpitProjectScope(ctx.query?.project);
+
+      const response = await memSvc.search(searchQuery, {
+        limit,
+        filter: { projectScope },
+      });
 
       const payload: MemoriesSearchPayload = {
         results: response.results,

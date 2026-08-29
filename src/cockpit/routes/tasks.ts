@@ -23,6 +23,7 @@ import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host"
 import { ServerTimingRecorder } from "../server-timing";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
+import { resolveCockpitProjectScope } from "../project-scope";
 
 /**
  * Pick the driven session an operator should be returned to for a task
@@ -219,8 +220,14 @@ export function mountTaskRoutes(app: express.Express): void {
         return;
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+      // Project scope (mt#4727): ?project=<slug>, same resolution rules as
+      // every other cockpit project-scoped read (mt#2418 pattern). Absent/"all"
+      // resolves to ALL_PROJECTS, preserving the pre-mt#4727 comprehensive
+      // id-set behavior this endpoint's docblock promises the linkifier.
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam);
       // Fetch ALL tasks regardless of status (no 500 cap, no sort needed — ids only).
-      const tasks = await taskService.listTasks({ all: true });
+      const tasks = await taskService.listTasks({ all: true, projectScope });
       const ids = tasks.map((t) => formatTaskIdForDisplay(t.id));
       res.json({ ids });
     } catch (err) {
@@ -596,7 +603,16 @@ export function mountTaskRoutes(app: express.Express): void {
       // linkifier in ConversationView — mt#2518). Without this flag the backend
       // default hides terminal-status tasks, leaving most transcript refs unlinkified.
       const includeAll = req.query.all === "true";
-      const tasks = await timing.time("list", () => taskService.listTasks({ all: includeAll }));
+      // Project scope (mt#4727): ?project=<slug>, same resolution rules as
+      // every other cockpit project-scoped read (mt#2418 pattern). Absent/"all"
+      // resolves to ALL_PROJECTS. resolveCockpitProjectScope owns its own
+      // db-fetch and never throws (fail-open — PR #2056 R1), so a scoping
+      // failure can never take this route down.
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam);
+      const tasks = await timing.time("list", () =>
+        taskService.listTasks({ all: includeAll, projectScope })
+      );
       const taskList = sortTasksByRecency(tasks)
         .slice(0, 500)
         .map((t) => ({

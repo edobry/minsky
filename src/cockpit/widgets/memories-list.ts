@@ -28,10 +28,20 @@ export const memoriesListWidget: WidgetModule = {
       const excludeSuperseded = query?.excludeSuperseded === "true";
       const limit = query?.limit ? parseInt(query.limit, 10) : undefined;
 
+      // Project scope (mt#4727): ?project=<slug> resolved to a project uuid,
+      // defaulting to ALL_PROJECTS when omitted/"all" — same resolution
+      // rules as every other cockpit project-scoped read (mt#2418 pattern,
+      // task-list.ts:91-93). resolveCockpitProjectScope owns its own
+      // db-fetch and never throws (fail-open — PR #2056 R1), so a scoping
+      // problem can never take this widget down.
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const projectScope = await resolveCockpitProjectScope(query?.project);
+
       let records: MemoryRecord[] = await memSvc.list({
         type,
         scope,
         excludeSuperseded,
+        projectScope,
       });
 
       // Apply limit client-side (MemoryListFilter has no limit field)

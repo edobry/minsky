@@ -33,7 +33,7 @@ export const memoriesStatsWidget: WidgetModule = {
   id: "memories-stats",
   title: "Memories — Statistics",
   updateMode: { type: "polling", intervalMs: 60_000 },
-  async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+  async fetch(ctx: WidgetContext): Promise<WidgetData> {
     try {
       const memSvc = await getSharedMemoryService();
       if (!memSvc) {
@@ -43,8 +43,17 @@ export const memoriesStatsWidget: WidgetModule = {
         };
       }
 
-      // Fetch all records without excludeSuperseded so we get totals
-      const allRecords: MemoryRecord[] = await memSvc.list({});
+      // Project scope (mt#4727): ?project=<slug> resolved to a project uuid,
+      // defaulting to ALL_PROJECTS when omitted/"all" — same resolution
+      // rules as every other cockpit project-scoped read (mt#2418 pattern,
+      // task-list.ts:91-93). resolveCockpitProjectScope owns its own
+      // db-fetch and never throws (fail-open — PR #2056 R1), so a scoping
+      // problem can never take this widget down.
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const projectScope = await resolveCockpitProjectScope(ctx.query?.project);
+
+      // Fetch all records in scope without excludeSuperseded so we get totals
+      const allRecords: MemoryRecord[] = await memSvc.list({ projectScope });
 
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
