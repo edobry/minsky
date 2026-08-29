@@ -41,7 +41,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -52,8 +52,6 @@ import {
   isRealUserPrompt,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3864 class 6: the local `elideMarkdownContexts` below covers fences, code
 // spans and blockquotes but NOT double-quoted prose — which is the one shape
@@ -69,6 +67,7 @@ import {
   extractMatchContext,
   MATCH_CONTEXT_MAX_CHARS,
 } from "./judged-input-capture";
+import { logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -121,7 +120,7 @@ export const INJECTION_ENABLED = false;
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_PRE_NARRATION";
 
 /** Calibration log path (relative to cwd), sibling to retrospective-trigger-calibration.jsonl. */
-const CALIBRATION_LOG = ".minsky/pre-narration-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "pre-narration";
 
 /**
  * Trailing-window size in TURNS for cross-turn suppression (mt#2671).
@@ -688,20 +687,11 @@ export function buildPreNarrationRecord(
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[pre-narration-detector] Failed to write calibration log: ${msg}\n`);
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 // ---------------------------------------------------------------------------

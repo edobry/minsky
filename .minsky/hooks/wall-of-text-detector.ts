@@ -172,7 +172,7 @@
 // @see mt#3972 — question-answer lookback widened past non-principal turn openers
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readInput, readHostCap, deriveBudgets, readTunedThreshold } from "./types";
 import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
@@ -186,9 +186,8 @@ import {
   DEFAULT_MAX_DEDUPE_READ_BYTES,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { calibrationLogPath, logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -235,7 +234,7 @@ import { captureArtifact } from "./judged-input-capture";
 // re-implemented, as `negative-existence-claim-detector.ts` already does.
 import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
 
-const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "wall-of-text";
 
 /**
  * Reason string for this detector's ONE suppression gate — the mt#3112
@@ -1350,7 +1349,17 @@ function sameSuppressionReasons(a: readonly string[], b: readonly string[]): boo
  * bounded-read implementation.
  */
 export function readCalibrationLogText(cwd: string): string | undefined {
-  const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+  // mt#4752: resolve through the same helper the WRITER uses. Reader and writer
+  // previously derived the path independently, so a change to one could silently
+  // stop the dedupe read from finding what the writer had just appended.
+  //
+  // BEHAVIOUR CHANGE, deliberate and shared with every writer migrated in this
+  // change: the old `findRepoRoot(cwd)` is now the LOWEST tier
+  // (`projectDir ?? CLAUDE_PROJECT_DIR ?? fallbackCwd ?? process.cwd()`), so
+  // `CLAUDE_PROJECT_DIR` outranks the raw cwd where it did not before. Reader
+  // and writer move together, which is what keeps the dedupe correct — the
+  // hazard would be migrating one and not the other.
+  const logPath = calibrationLogPath(CALIBRATION_LOG_NAME, { fallbackCwd: cwd });
   return readLogTailText(logPath, MAX_DEDUPE_READ_BYTES);
 }
 
@@ -1360,20 +1369,11 @@ export function readCalibrationLogText(cwd: string): string | undefined {
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[wall-of-text-detector] Failed to write calibration log: ${msg}\n`);
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**

@@ -1934,17 +1934,32 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** The resolved-project-dir env var the shared path helper reads (mt#4752). */
+const PROJECT_DIR_ENV = "CLAUDE_PROJECT_DIR";
+
 describe("readCalibrationLogText", () => {
   let tmpDir: string;
   let logPath: string;
+  let priorProjectDir: string | undefined;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "wall-of-text-detector-test-"));
     mkdirSync(join(tmpDir, ".minsky"), { recursive: true });
     logPath = join(tmpDir, ".minsky", "wall-of-text-calibration.jsonl");
+    // mt#4752: the argument to `readCalibrationLogText` is the guard's RAW cwd,
+    // which the shared resolver deliberately ranks BELOW `CLAUDE_PROJECT_DIR` —
+    // a raw cwd is routinely a session workspace or a subdirectory, so letting
+    // it outrank the resolved project dir is the bug mt#3745 removed. This
+    // block wants the temp dir to be authoritative, so it says so explicitly
+    // rather than relying on the ambient env being unset. Without this the
+    // tests below silently read the REAL repo's calibration log.
+    priorProjectDir = process.env[PROJECT_DIR_ENV];
+    process.env[PROJECT_DIR_ENV] = tmpDir;
   });
 
   afterEach(() => {
+    if (priorProjectDir === undefined) delete process.env[PROJECT_DIR_ENV];
+    else process.env[PROJECT_DIR_ENV] = priorProjectDir;
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

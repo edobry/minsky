@@ -35,7 +35,7 @@
 // @see .claude/hooks/skill-staleness-detector.ts — sibling UserPromptSubmit hook (staleness)
 // @see .claude/hooks/drive-pr-to-convergence.ts — sibling PostToolUse hook (additionalContext pattern)
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -44,8 +44,7 @@ import {
   extractToolUseNames,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -83,9 +82,8 @@ export const VERBAL_COMMITMENT_PATTERNS: RegExp[] = [
  */
 export const OPERATOR_INSTRUCTION_SKIP_ENV_VAR = "MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER";
 
-/** Calibration log for the operator-instruction surface (repo-root relative). */
-const OPERATOR_INSTRUCTION_CALIBRATION_LOG =
-  ".minsky/operator-instruction-trigger-calibration.jsonl";
+/** Calibration stream NAME for the operator-instruction surface (mt#4752). */
+const OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME = "operator-instruction-trigger";
 
 /**
  * Operator-instruction-as-feature-delivery trigger phrases (mt#2303): the agent
@@ -626,16 +624,19 @@ function isOperatorInstructionSkipped(): boolean {
  * — mirrors silent-stretch-detector). Fail-safe: never throws.
  */
 function appendOperatorInstructionCalibration(record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(process.cwd()), OPERATOR_INSTRUCTION_CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    process.stderr.write(
-      `[substrate-bypass-detector] Failed to write operator-instruction calibration log: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  //
+  // BEHAVIOUR CHANGE, deliberate. This previously read `findRepoRoot(process.cwd())`
+  // directly. The helper's chain is
+  // `projectDir ?? CLAUDE_PROJECT_DIR ?? fallbackCwd ?? process.cwd()`, so
+  // `CLAUDE_PROJECT_DIR` now takes precedence where nothing did before — the
+  // resolved path differs whenever that variable is set and points somewhere
+  // other than the cwd's repo root. That is the mt#3745 ordering and the point
+  // of the migration, not an accident: a raw cwd is routinely a repo
+  // subdirectory or a session workspace. No cwd is passed because this writer
+  // never had one to pass.
+  logCalibrationRecord(OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME, record);
 }
 
 /**

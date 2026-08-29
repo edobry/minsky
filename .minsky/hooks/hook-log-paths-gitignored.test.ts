@@ -120,15 +120,74 @@ function declaredLogPaths(): string[] {
   return [...paths].sort();
 }
 
-/** Paths the shared helper derives from a bare stream name (mt#3745). */
+/**
+ * Paths the shared helpers derive from a bare stream name (mt#3745, mt#4752).
+ *
+ * Both suffixes, because both helpers exist: `evaluationLogPath` derives
+ * `-evaluations.jsonl` from an `EVALUATION_LOG_NAME`, and `calibrationLogPath`
+ * derives `-calibration.jsonl` from a `CALIBRATION_LOG_NAME`.
+ */
 function derivedLogPaths(): string[] {
   const names = new Set<string>();
   for (const entry of readdirSync(HOOKS_DIR)) {
     if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
     const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    for (const m of src.matchAll(/EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g)) {
+    // The optional `[A-Z0-9_]*` prefix is DELIBERATE, not decoration
+    // (PR #3480 R2). A constant is not always named exactly
+    // `CALIBRATION_LOG_NAME` — `substrate-bypass-detector` declares
+    // `OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME`, because that file writes a
+    // stream whose name does not match its own. An unanchored regex happened to
+    // match that identifier's suffix, so coverage was correct by ACCIDENT; this
+    // makes it correct on purpose, and the test below pins it.
+    for (const m of src.matchAll(
+      /[A-Z0-9_]*EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g
+    )) {
       const n = m[1];
       if (n) names.add(`.minsky/${n}-evaluations.jsonl`);
+    }
+    for (const m of src.matchAll(
+      /[A-Z0-9_]*CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g
+    )) {
+      const n = m[1];
+      if (n) names.add(`.minsky/${n}-calibration.jsonl`);
+    }
+  }
+  return [...names].sort();
+}
+
+/**
+ * Paths derived from the registry's `calibrationLog:` declarations (mt#4752).
+ *
+ * This is the audit's real denominator, and adding it is what let mt#4752
+ * remove the hand-written path literals without gutting the check. A
+ * dispatcher-registered guard never spells its path: it declares a stream NAME
+ * in the registry and returns `{ calibration: … }`, and `runDispatcher` calls
+ * `logCalibrationRecord` on its behalf. Scanning only for literals therefore
+ * measured how many guards had NOT yet been migrated — a denominator that
+ * shrinks toward zero precisely as the codebase gets healthier, which is the
+ * wrong direction for a floor to move.
+ */
+function registryCalibrationPaths(): string[] {
+  const names = new Set<string>();
+  for (const entry of readdirSync(HOOKS_DIR)) {
+    if (!entry.startsWith("registry") || !entry.endsWith(".ts")) continue;
+    if (entry.endsWith(".test.ts")) continue;
+    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
+    // BOTH declaration forms, because the registry's type is
+    // `calibrationLog?: string | [string, ...string[]]` (`registry.ts:317`).
+    // A scanner matching only the string form would silently miss every stream
+    // in an array declaration — no error, no empty result, just a smaller set
+    // that still clears the floor. That is the can't-fail shape this file
+    // exists to prevent, so it matches the whole value and pulls every quoted
+    // name out of it. Zero array declarations exist today; this is preventive,
+    // and the type is what makes it necessary rather than the current data.
+    for (const m of src.matchAll(/calibrationLog:\s*(\[[^\]]*\]|["'][A-Za-z0-9._-]+["'])/g)) {
+      const value = m[1];
+      if (!value) continue;
+      for (const q of value.matchAll(/["']([A-Za-z0-9._-]+)["']/g)) {
+        const n = q[1];
+        if (n) names.add(`.minsky/${n}-calibration.jsonl`);
+      }
     }
   }
   return [...names].sort();
@@ -174,6 +233,33 @@ describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
     expect(stripComments(src)).toContain(".minsky/tmpl.jsonl");
   });
 
+  it("sees a PREFIXED log-name constant, not just the bare one (PR #3480 R2)", () => {
+    // `substrate-bypass-detector` declares `OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME`.
+    // Measured across the tree: 27 `*_LOG_NAME` constants, all covered — but one
+    // of them only because an unanchored regex matched its suffix. This pins the
+    // prefix as intended behaviour so a future rename cannot quietly drop it.
+    const re = /[A-Z0-9_]*CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g;
+    const src = 'const OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME = "operator-instruction-trigger";';
+    expect([...src.matchAll(re)].map((m) => m[1])).toEqual(["operator-instruction-trigger"]);
+  });
+
+  it("sees both calibrationLog declaration forms (PR #3480 R1)", () => {
+    // The registry's type is `string | [string, ...string[]]` (registry.ts:317).
+    // Zero array declarations exist today, so this is the only thing standing
+    // between a future one and a stream silently missing from the audit.
+    const extract = (src: string): string[] => {
+      const out: string[] = [];
+      for (const m of src.matchAll(/calibrationLog:\s*(\[[^\]]*\]|["'][A-Za-z0-9._-]+["'])/g)) {
+        for (const q of (m[1] ?? "").matchAll(/["']([A-Za-z0-9._-]+)["']/g)) {
+          if (q[1]) out.push(q[1]);
+        }
+      }
+      return out;
+    };
+    expect(extract('calibrationLog: "solo",')).toEqual(["solo"]);
+    expect(extract('calibrationLog: ["first", "second"],')).toEqual(["first", "second"]);
+  });
+
   it("keeps a comment-looking sequence that is inside a string", () => {
     const src = 'const S = "not /* a comment */ really"; const X = ".minsky/real.jsonl";';
     expect(stripComments(src)).toContain("not /* a comment */ really");
@@ -182,14 +268,24 @@ describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
 });
 
 describe("every hook log path is gitignored (mt#2492)", () => {
-  const paths = [...new Set([...declaredLogPaths(), ...derivedLogPaths()])].sort();
+  const paths = [
+    ...new Set([...declaredLogPaths(), ...derivedLogPaths(), ...registryCalibrationPaths()]),
+  ].sort();
 
   it("finds a non-trivial set of declared log paths", () => {
     // Guards the guard: an enumeration that silently returns [] would make every
     // assertion below vacuously pass, which is the shape this whole test exists
-    // to prevent one level down. 20 is a floor well under the ~32 observed, so
-    // it tolerates real churn without tolerating a broken scan.
-    expect(paths.length).toBeGreaterThan(20);
+    // to prevent one level down.
+    //
+    // mt#4752 re-based this floor. It was 20, against a population that was
+    // mostly hand-written path literals — so migrating a guard onto the shared
+    // helper REMOVED a path from the audit, and completing the migration would
+    // have driven the count under the floor and failed the suite for the wrong
+    // reason. Now that `registryCalibrationPaths()` reads the registry's stream
+    // declarations, the denominator tracks streams that EXIST rather than
+    // literals that remain, and it grows as guards are added. 40 sits under the
+    // 49 observed with room for churn.
+    expect(paths.length).toBeGreaterThan(40);
   });
 
   it.each(paths)("%s is ignored", (relPath) => {
