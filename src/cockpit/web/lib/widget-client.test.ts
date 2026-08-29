@@ -7,7 +7,7 @@
  * (permanent "Loading…" in the UI). These tests pin the correct composition
  * and the boundary guard against the malformed shape.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { fetchWidgetData } from "./widget-client";
 
 // Safety assumption for the globalThis.fetch override: `bun test` executes
@@ -15,6 +15,24 @@ import { fetchWidgetData } from "./widget-client";
 // before any other file runs. If parallel file execution ever lands, switch
 // to a scoped mock API.
 const originalFetch = globalThis.fetch;
+
+// mt#4730 PR #3471 R2: `fetchWidgetData` now default-appends the CURRENT
+// project selection via `apiFetch` (reading the same localStorage key
+// `useProject()` uses), so these exact-URL assertions are sensitive to
+// whatever another test file left in `localStorage` — a single global
+// installed once by dom-setup.ts, not reset per file. Clear it before AND
+// after every test here, defending this file's assertions regardless of
+// what any other file does (a sibling fix in TaskList.test.tsx closes the
+// one leak that actually reached CI, but this file's own isolation should
+// not depend on every OTHER file cleaning up correctly).
+const PROJECT_STORAGE_KEY = "cockpit.project.v1";
+function clearPersistedProject(): void {
+  try {
+    localStorage.removeItem(PROJECT_STORAGE_KEY);
+  } catch {
+    /* ignore — matches the key's own fail-open read posture */
+  }
+}
 
 function captureFetch(): { urls: string[] } {
   const captured = { urls: [] as string[] };
@@ -29,8 +47,13 @@ function captureFetch(): { urls: string[] } {
 }
 
 describe("fetchWidgetData URL composition (mt#2443)", () => {
+  beforeEach(() => {
+    clearPersistedProject();
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    clearPersistedProject();
   });
 
   test("bare id composes /api/widget/<id>/data", async () => {
