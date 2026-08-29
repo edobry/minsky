@@ -30,7 +30,7 @@
 // @see .minsky/hooks/causal-premise-detector.ts — sibling calibration-first shape
 // @see .minsky/hooks/constructed-identifier-batch-detector.ts — the bounded-lookup precedent
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
+import { readInput, readHostCap, deriveBudgets } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -54,8 +54,7 @@ import type {
   NegativeExistenceClaimResult,
   SearchObservation,
 } from "../../packages/domain/src/detectors/negative-existence-claim";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 // The SHARED search-argument grammar (mt#4362 SC2). `pathArgs` resolves
 // `PATTERN [PATH...]` against `command-shape`'s `suppliesPattern` +
@@ -88,7 +87,7 @@ export const INJECTION_ENABLED = false;
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM";
 
-const CALIBRATION_LOG = ".minsky/negative-existence-claim-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "negative-existence-claim";
 
 /**
  * The EVALUATION stream, distinct from the calibration log above.
@@ -99,7 +98,7 @@ const CALIBRATION_LOG = ".minsky/negative-existence-claim-calibration.jsonl";
  * distinguish "the detector is precise" from "the detector is dead", which is
  * the failure mem#534 names and `coverage-receipt.ts` exists to catch.
  */
-const EVALUATION_LOG = ".minsky/negative-existence-claim-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "negative-existence-claim";
 
 /** Longest excerpt kept per claim in a record. */
 const MAX_EXCERPT_CHARS = 400;
@@ -273,18 +272,20 @@ export function collectSearchObservations(turnLines: TranscriptLine[]): SearchOb
   return observations;
 }
 
-function appendJsonl(cwd: string, relativePath: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), relativePath);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[negative-existence-claim-detector] Failed to write ${relativePath}: ${msg}\n`
-    );
-  }
+// mt#4752: both streams now resolve through the shared helpers, which derive
+// the filename from the stream NAME. `cwd` is the guard's raw input cwd — a
+// FALLBACK, never an authoritative root (see `calibrationLogPath`'s docblock).
+//
+// These two wrappers exist rather than inlining the helper at each call site so
+// the sites keep their `(cwd, record)` shape; the previous single `appendJsonl`
+// took the PATH as a parameter, which is exactly the degree of freedom that let
+// a filename be spelled wrong.
+function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
+function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -482,7 +483,7 @@ export async function run(
   if (!evaluated) return null;
 
   const cwd = input.cwd ?? process.cwd();
-  appendJsonl(cwd, EVALUATION_LOG, {
+  appendEvaluationRecord(cwd, {
     ...evaluated.evaluation,
     session_id: input.session_id,
   });
@@ -585,13 +586,13 @@ export async function main(): Promise<void> {
   if (!evaluated) process.exit(0);
 
   if (Date.now() < overallDeadline) {
-    appendJsonl(input.cwd ?? process.cwd(), EVALUATION_LOG, {
+    appendEvaluationRecord(input.cwd ?? process.cwd(), {
       ...evaluated.evaluation,
       session_id: input.session_id,
     });
 
     if (evaluated.result.matched) {
-      appendJsonl(input.cwd ?? process.cwd(), CALIBRATION_LOG, {
+      appendCalibrationRecord(input.cwd ?? process.cwd(), {
         timestamp: new Date().toISOString(),
         session_id: input.session_id,
         claims: evaluated.result.claims.map((c) => ({
