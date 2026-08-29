@@ -107,20 +107,21 @@ export function shouldShowProjectIndicator(
 }
 
 /**
- * Resolve a project uuid (as carried on e.g. `TaskListItem.projectId`) to a
- * human-readable label — `displayName` when set, else the raw `slug` (same
- * fallback `ProjectSelector` already applies for its own options), else
- * `null` when the id names no project the shell currently knows about (a
- * race with the `/api/projects` fetch, or a stale/foreign id).
+ * Resolve a project slug (as carried on e.g. `TaskListItem.project`, or a
+ * session/changeset row's `repoName`) to a human-readable label —
+ * `displayName` when the shell knows a project by that slug, else the slug
+ * itself (which is already a valid identifier per mt#4729 SC1 — no reason
+ * to degrade to null just because `/api/projects` hasn't resolved a nicer
+ * name for it yet, e.g. a race with that fetch, or a project the shell's
+ * list doesn't (yet) include).
  */
-export function projectLabelById(
+export function projectLabelBySlug(
   projects: ProjectSummary[],
-  projectId: string | null
+  slug: string | null
 ): string | null {
-  if (!projectId) return null;
-  const project = projects.find((p) => p.id === projectId);
-  if (!project) return null;
-  return project.displayName ?? project.slug;
+  if (!slug) return null;
+  const project = projects.find((p) => p.slug === slug);
+  return project?.displayName ?? slug;
 }
 
 interface ProjectContextValue {

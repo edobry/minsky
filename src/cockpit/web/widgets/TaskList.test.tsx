@@ -31,7 +31,7 @@ function task(overrides: Partial<TaskListItem> & Pick<TaskListItem, "id" | "stat
     kind: "implementation",
     tags: [],
     parentId: null,
-    projectId: null,
+    project: null,
     ...overrides,
   };
 }
@@ -207,8 +207,8 @@ describe("TaskList project badge", () => {
   test("renders a project badge per row when 2+ projects exist and none is selected", async () => {
     stubTasks(
       [
-        task({ id: "mt#100", status: "TODO", title: "Minsky task", projectId: "p-minsky" }),
-        task({ id: "mt#200", status: "TODO", title: "Peezombie task", projectId: "p-peezombie" }),
+        task({ id: "mt#100", status: "TODO", title: "Minsky task", project: "edobry/minsky" }),
+        task({ id: "mt#200", status: "TODO", title: "Peezombie task", project: "edobry/peezombie" }),
       ],
       [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
     );
@@ -223,7 +223,7 @@ describe("TaskList project badge", () => {
 
   test("suppresses the project badge when only one project is known", async () => {
     stubTasks(
-      [task({ id: "mt#100", status: "TODO", title: "Solo task", projectId: "p-minsky" })],
+      [task({ id: "mt#100", status: "TODO", title: "Solo task", project: "edobry/minsky" })],
       [MINSKY_PROJECT]
     );
     renderList();
@@ -238,7 +238,7 @@ describe("TaskList project badge", () => {
       /* jsdom/happy-dom always provides localStorage; ignore if not */
     }
     stubTasks(
-      [task({ id: "mt#100", status: "TODO", title: "Scoped task", projectId: "p-minsky" })],
+      [task({ id: "mt#100", status: "TODO", title: "Scoped task", project: "edobry/minsky" })],
       [MINSKY_PROJECT, PEEZOMBIE_PROJECT]
     );
     renderList();

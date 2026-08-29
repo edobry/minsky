@@ -10,7 +10,7 @@ import {
   deriveQueryParam,
   isKnownSlug,
   shouldShowProjectIndicator,
-  projectLabelById,
+  projectLabelBySlug,
   type ProjectSummary,
 } from "./project-context";
 
@@ -48,8 +48,12 @@ describe("isKnownSlug", () => {
   });
 });
 
-/** Shared two-project fixture for the mt#4729 badge-helper suites below. */
-const TWO_PROJECTS_FIXTURE: ProjectSummary[] = [
+/**
+ * Shared two-project fixture for the mt#4729 badge-helper suites below.
+ * Typed as a tuple (not a bare array) so destructuring below is provably
+ * non-undefined without a `!` assertion.
+ */
+const TWO_PROJECTS_FIXTURE: [ProjectSummary, ProjectSummary] = [
   { id: "1", slug: "edobry/minsky", displayName: "Minsky" },
   { id: "2", slug: "edobry/peezombie", displayName: null },
 ];
@@ -74,22 +78,23 @@ describe("shouldShowProjectIndicator (mt#4729)", () => {
   });
 });
 
-describe("projectLabelById (mt#4729)", () => {
+describe("projectLabelBySlug (mt#4729)", () => {
   const projects = TWO_PROJECTS_FIXTURE;
+  const [minsky, peezombie] = projects;
 
-  test("returns displayName when set", () => {
-    expect(projectLabelById(projects, "1")).toBe("Minsky");
+  test("returns displayName when the shell knows a project by that slug", () => {
+    expect(projectLabelBySlug(projects, minsky.slug)).toBe("Minsky");
   });
 
-  test("falls back to slug when displayName is null", () => {
-    expect(projectLabelById(projects, "2")).toBe("edobry/peezombie");
+  test("falls back to the slug itself when displayName is null", () => {
+    expect(projectLabelBySlug(projects, peezombie.slug)).toBe(peezombie.slug);
   });
 
-  test("returns null for a null projectId", () => {
-    expect(projectLabelById(projects, null)).toBeNull();
+  test("returns null for a null slug", () => {
+    expect(projectLabelBySlug(projects, null)).toBeNull();
   });
 
-  test("returns null for a projectId naming no known project", () => {
-    expect(projectLabelById(projects, "unknown-uuid")).toBeNull();
+  test("returns the slug itself (not null) for a slug the shell's project list doesn't include", () => {
+    expect(projectLabelBySlug(projects, "someone/else")).toBe("someone/else");
   });
 });

@@ -36,7 +36,7 @@ import { statusStyle } from "../lib/status-colors";
 import {
   useProject,
   shouldShowProjectIndicator,
-  projectLabelById,
+  projectLabelBySlug,
   type ProjectSummary,
 } from "../lib/project-context";
 import { ProjectBadge } from "../components/ProjectBadge";
@@ -59,8 +59,8 @@ export interface TaskListItem {
   kind: string;
   tags: string[];
   parentId: string | null;
-  /** Owning project's uuid, or null for a legacy/unscoped row (mt#4729). */
-  projectId: string | null;
+  /** Owning project's slug, or null for a legacy/unscoped row (mt#4729 SC1). */
+  project: string | null;
 }
 
 interface TaskListPayload {
@@ -494,7 +494,7 @@ function TaskRowItem({
   showProjectBadge: boolean;
   projects: ProjectSummary[];
 }) {
-  const projectLabel = showProjectBadge ? projectLabelById(projects, task.projectId) : null;
+  const projectLabel = showProjectBadge ? projectLabelBySlug(projects, task.project) : null;
   return (
     <div className="border-b border-border last:border-0">
       <Link
