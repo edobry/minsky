@@ -27,6 +27,56 @@ and the persisted JSONL log at
 
 ## Cause classes
 
+### FIRST: which topology is live? Classes 6 and 7 do not exist under the shim (mt#4720)
+
+**Two entry forms write to this log, and only one of them produces the
+proxy-observed classes below.** `src/mcp/setup/local-http-config.ts:44` models
+them as distinct `EntryForm`s:
+
+- **`mcp proxy`** — the stdio respawn proxy spawns `minsky mcp start` as a
+  child and observes its exits. Produces `serverName: "minsky-proxy"` records:
+  cause classes **6 and 7**.
+- **`mcp shim`** — `minsky mcp shim --url <http>` bridges stdio to one
+  long-lived HTTP daemon. **This is the current default (mt#4676, DONE).** No
+  proxy process exists, so **no `minsky-proxy` record can ever be written.**
+
+**Under the shim, the ABSENCE of class 6/7 records is not evidence about
+crashes.** It is evidence about the topology. A grep for
+`"serverName":"minsky-proxy"` returns zero whether or not anything died, which
+is a probe that cannot fail (mem#704).
+
+Check which form is live before reading anything into classes 6 and 7:
+
+```bash
+# The entry form, direct.
+claude mcp list | grep -E '^minsky'      # `mcp shim --url …` or `mcp proxy …`
+
+# Or ask the channel when it last wrote. An append-only log is a union over
+# every writer that ever ran, so its HISTORY outlives the writer — "has it ever
+# written?" passes on a retired channel. Compare the LAST write to your window.
+grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log*.json \
+  | jq -r .timestamp | sort | tail -1
+```
+
+On the principal's machine, measured 2026-08-29: 406 proxy records spanning
+`2026-07-21T07:33:13Z` → `2026-08-22T07:11:38Z`, then nothing. The writer was
+retired with the shim migration; the records remain and stay readable, which is
+why classes 6 and 7 are scoped below rather than deleted.
+
+**What observes an uncatchable death under the shim: nothing (verified, mt#4720).**
+`src/mcp/shim/**` contains no disconnect-recording code at all — the only writers
+in `src/mcp/` are `src/mcp/server.ts` (the daemon self-reporting) and
+`src/mcp/stdio-proxy/proxy.ts` (not in this path). `src/mcp/server.ts` installs
+handlers for
+**SIGTERM / SIGINT / SIGHUP only**, all catchable; SIGKILL, an OOM kill, or a
+runtime panic gives it no opportunity to record anything. So on the shim
+topology a hard daemon death leaves **no disconnect row of any cause**. The only
+residual traces are a subsequent `process_start` row from the replacement
+daemon, and, client-side, a transient
+`minsky mcp shim: daemon request failed: The socket connection was closed
+unexpectedly` surfaced to the caller (mem#1273). Diagnose a suspected hard death
+from an unexplained `process_start`, not from the absence of a cause row.
+
 A single `stdin_close` reading would conflate four real-world classes that
 the tracker now distinguishes (mt#1682):
 
@@ -51,7 +101,8 @@ the tracker now distinguishes (mt#1682):
    Currently tolerated by Claude Code (logged as "Ignoring non-JSON line on
    stdout") and is **not a disconnect cause** but is a framing-corruption
    hazard worth tracking. Cleanup is a separate concern.
-6. **Proxy-observed exits (mt#2830)** — the stdio respawn proxy
+6. **Proxy-observed exits (mt#2830)** — **`mcp proxy` topology only; produces no
+   records under the `mcp shim` default — see §FIRST above.** The stdio respawn proxy
    (`src/mcp/stdio-proxy/proxy.ts`) is a SEPARATE OS process from the inner
    server and is therefore the only reliable observer of exits the inner
    cannot self-report — most importantly **SIGKILL**, which is uncatchable
@@ -75,7 +126,8 @@ the tracker now distinguishes (mt#1682):
    and class 4 already excludes those three. This paragraph read as a blanket
    "counts toward escalation" until mt#4481, which was right for two of its
    five causes.
-7. **Signals with no dedicated taxonomy entry (mt#4481)** — the bare
+7. **Signals with no dedicated taxonomy entry (mt#4481)** — **`mcp proxy`
+   topology only, like class 6 — see §FIRST above.** The bare
    `cause: "signal"`, emitted by `classifyExitForDisconnectLog`'s `default:`
    branch (`src/mcp/stdio-proxy/proxy.ts`) for any signal outside
    SIGKILL/SIGTERM/SIGINT/SIGHUP: SIGBUS, SIGSEGV, SIGABRT, SIGTRAP, and so
@@ -152,7 +204,7 @@ discriminates them using the tool-call count at disconnect time:
   uptime-based escalation filters.
 
 The discriminating signal is the tool-call count (incremented by
-`incrementToolCallCount()` in `server.ts`'s `CallToolRequestSchema` handler
+`incrementToolCallCount()` in `src/mcp/server.ts`'s `CallToolRequestSchema` handler
 before each tool dispatch). Helper processes characteristically connect without
 invoking tools; this is the only reliable signal that doesn't overlap with
 short working sessions.
@@ -396,7 +448,7 @@ was 56 of 86 (65%). `byCause` now filters like `byRole` and agrees with these re
 now record the tautological cause `reconnect`.
 
 **Of the disconnects that remain `unknown`, most are HTTP sessions closing normally.**
-`server.ts` wires every per-session HTTP `Server` with `"unknown"` as its default cause, because
+`src/mcp/server.ts` wires every per-session HTTP `Server` with `"unknown"` as its default cause, because
 the transport close event does not distinguish client-initiated from server-initiated closes at
 the protocol level. That is a property of the protocol, not a gap in this taxonomy — adding cause
 markers cannot reduce it. Treat a large `unknown` share as expected for HTTP and interrogate it
