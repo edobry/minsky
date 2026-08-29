@@ -348,9 +348,30 @@ const defaultCalibrationDeps: CalibrationWriteDeps = { existsSync, mkdirSync, ap
  * found up the tree (e.g. the synthetic `/repo`-style paths this module's
  * own tests use), so this is a no-op for every existing caller that already
  * passes a real repo root.
+ *
+ * **`projectDir` and `fallbackCwd` are NOT interchangeable (mt#4752).** This
+ * mirrors `evaluationLogPath`'s split, added by mt#3745 for the same reason and
+ * omitted here only because no calibration caller needed it at the time.
+ * `projectDir` is an ALREADY-RESOLVED authoritative directory and outranks
+ * everything; `fallbackCwd` is a guard's raw `input.cwd`, which is routinely a
+ * session workspace or a repo subdirectory, so it ranks BELOW
+ * `CLAUDE_PROJECT_DIR`.
+ *
+ * The migrating writers are why the parameter exists: each hand-rolled
+ * `resolve(findRepoRoot(input.cwd), <literal>)`, which silently treats the raw
+ * cwd as authoritative. Passing that cwd as `projectDir` would preserve the
+ * bug through the migration — the whole point is that it lands in the lower
+ * tier.
  */
-export function calibrationLogPath(calibrationLogName: string, projectDir?: string): string {
-  const root = projectDir ?? process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
+export function calibrationLogPath(
+  calibrationLogName: string,
+  options?: { projectDir?: string; fallbackCwd?: string }
+): string {
+  const root =
+    options?.projectDir ??
+    process.env["CLAUDE_PROJECT_DIR"] ??
+    options?.fallbackCwd ??
+    process.cwd();
   return join(findRepoRoot(root), ".minsky", `${calibrationLogName}-calibration.jsonl`);
 }
 
@@ -364,11 +385,14 @@ export function calibrationLogPath(calibrationLogName: string, projectDir?: stri
 export function logCalibrationRecord(
   calibrationLogName: string,
   record: Record<string, unknown>,
-  options?: { projectDir?: string; deps?: CalibrationWriteDeps }
+  options?: { projectDir?: string; fallbackCwd?: string; deps?: CalibrationWriteDeps }
 ): void {
   try {
     const deps = options?.deps ?? defaultCalibrationDeps;
-    const logPath = calibrationLogPath(calibrationLogName, options?.projectDir);
+    const logPath = calibrationLogPath(calibrationLogName, {
+      ...(options?.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
+      ...(options?.fallbackCwd !== undefined ? { fallbackCwd: options.fallbackCwd } : {}),
+    });
     const dir = dirname(logPath);
     if (!deps.existsSync(dir)) deps.mkdirSync(dir, { recursive: true });
     deps.appendFileSync(logPath, `${JSON.stringify(record)}\n`);

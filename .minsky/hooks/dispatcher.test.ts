@@ -388,7 +388,7 @@ describe("buildOverrideAuditLine", () => {
 
 describe("calibrationLogPath", () => {
   test("preserves the existing CALIBRATION_LOG_REGISTRY filename convention", () => {
-    expect(calibrationLogPath("causal-premise", "/repo")).toBe(
+    expect(calibrationLogPath("causal-premise", { projectDir: "/repo" })).toBe(
       "/repo/.minsky/causal-premise-calibration.jsonl"
     );
   });

@@ -127,8 +127,9 @@ import {
   readLogTailText,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { calibrationLogPath, logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
@@ -170,7 +171,7 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ACK_KNOWLEDGE_ACQUISITION";
  * and the `CALIBRATION_LOG_REGISTRY` entry's `path` in
  * `src/domain/calibration/calibration-sweep.ts` exactly.
  */
-export const CALIBRATION_LOG = ".minsky/knowledge-acquisition-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "knowledge-acquisition";
 
 /**
  * Reason string for this detector's ONE recorded suppression gate — research
@@ -1065,15 +1066,11 @@ export async function detectKnowledgeAcquisition(
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[knowledge-acquisition-detector] calibration log write failed: ${msg}\n`);
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /** What this session already has in the calibration log (mt#3740). */
@@ -1097,7 +1094,8 @@ export interface LoggedSessionState {
 function loadLoggedSessionState(cwd: string, sessionId: string | undefined): LoggedSessionState {
   if (!sessionId) return { keys: new Set<string>(), priorVerdict: null };
   try {
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+    // mt#4752: same helper the writer uses, so reader and writer cannot drift.
+    const logPath = calibrationLogPath(CALIBRATION_LOG_NAME, { fallbackCwd: cwd });
     const text = readLogTailText(logPath);
     if (!text) return { keys: new Set<string>(), priorVerdict: null };
     return parseLoggedSessionState(text, sessionId);

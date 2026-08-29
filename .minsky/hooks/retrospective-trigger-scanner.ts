@@ -27,7 +27,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -53,8 +53,7 @@ import type { TranscriptLine } from "./transcript";
  * suppressing a genuinely fresh admission in a long conversation.
  */
 export const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedAndCodeContexts, isDetectorMetaDiscussion } from "./elision";
@@ -87,7 +86,7 @@ import { cappedEvidenceLines } from "./guard-feedback-format";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_RETROSPECTIVE_TRIGGER";
 
-const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "retrospective-trigger";
 
 /**
  * Evaluation stream (mt#3652): EVERY evaluated turn, fired or not, with
@@ -1039,22 +1038,11 @@ function captureFields(capture: JudgedInputCapture | undefined): Record<string, 
 }
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[retrospective-trigger-scanner] Failed to write calibration log: ${msg}\n`
-    );
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**

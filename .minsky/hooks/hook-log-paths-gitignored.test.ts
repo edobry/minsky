@@ -120,7 +120,13 @@ function declaredLogPaths(): string[] {
   return [...paths].sort();
 }
 
-/** Paths the shared helper derives from a bare stream name (mt#3745). */
+/**
+ * Paths the shared helpers derive from a bare stream name (mt#3745, mt#4752).
+ *
+ * Both suffixes, because both helpers exist: `evaluationLogPath` derives
+ * `-evaluations.jsonl` from an `EVALUATION_LOG_NAME`, and `calibrationLogPath`
+ * derives `-calibration.jsonl` from a `CALIBRATION_LOG_NAME`.
+ */
 function derivedLogPaths(): string[] {
   const names = new Set<string>();
   for (const entry of readdirSync(HOOKS_DIR)) {
@@ -129,6 +135,36 @@ function derivedLogPaths(): string[] {
     for (const m of src.matchAll(/EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g)) {
       const n = m[1];
       if (n) names.add(`.minsky/${n}-evaluations.jsonl`);
+    }
+    for (const m of src.matchAll(/CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g)) {
+      const n = m[1];
+      if (n) names.add(`.minsky/${n}-calibration.jsonl`);
+    }
+  }
+  return [...names].sort();
+}
+
+/**
+ * Paths derived from the registry's `calibrationLog:` declarations (mt#4752).
+ *
+ * This is the audit's real denominator, and adding it is what let mt#4752
+ * remove the hand-written path literals without gutting the check. A
+ * dispatcher-registered guard never spells its path: it declares a stream NAME
+ * in the registry and returns `{ calibration: … }`, and `runDispatcher` calls
+ * `logCalibrationRecord` on its behalf. Scanning only for literals therefore
+ * measured how many guards had NOT yet been migrated — a denominator that
+ * shrinks toward zero precisely as the codebase gets healthier, which is the
+ * wrong direction for a floor to move.
+ */
+function registryCalibrationPaths(): string[] {
+  const names = new Set<string>();
+  for (const entry of readdirSync(HOOKS_DIR)) {
+    if (!entry.startsWith("registry") || !entry.endsWith(".ts")) continue;
+    if (entry.endsWith(".test.ts")) continue;
+    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
+    for (const m of src.matchAll(/calibrationLog:\s*["']([A-Za-z0-9._-]+)["']/g)) {
+      const n = m[1];
+      if (n) names.add(`.minsky/${n}-calibration.jsonl`);
     }
   }
   return [...names].sort();
@@ -182,14 +218,24 @@ describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
 });
 
 describe("every hook log path is gitignored (mt#2492)", () => {
-  const paths = [...new Set([...declaredLogPaths(), ...derivedLogPaths()])].sort();
+  const paths = [
+    ...new Set([...declaredLogPaths(), ...derivedLogPaths(), ...registryCalibrationPaths()]),
+  ].sort();
 
   it("finds a non-trivial set of declared log paths", () => {
     // Guards the guard: an enumeration that silently returns [] would make every
     // assertion below vacuously pass, which is the shape this whole test exists
-    // to prevent one level down. 20 is a floor well under the ~32 observed, so
-    // it tolerates real churn without tolerating a broken scan.
-    expect(paths.length).toBeGreaterThan(20);
+    // to prevent one level down.
+    //
+    // mt#4752 re-based this floor. It was 20, against a population that was
+    // mostly hand-written path literals — so migrating a guard onto the shared
+    // helper REMOVED a path from the audit, and completing the migration would
+    // have driven the count under the floor and failed the suite for the wrong
+    // reason. Now that `registryCalibrationPaths()` reads the registry's stream
+    // declarations, the denominator tracks streams that EXIST rather than
+    // literals that remain, and it grows as guards are added. 40 sits under the
+    // 49 observed with room for churn.
+    expect(paths.length).toBeGreaterThan(40);
   });
 
   it.each(paths)("%s is ignored", (relPath) => {
