@@ -75,8 +75,12 @@ const SCOPE_EVIDENCE_PATTERN = /resolveCockpitProjectScope|ctx\.projectScope|req
 // in `widgets/<id>.ts`.
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727/mt#4728):
-// agents, attention, memories-list, memories-search, memories-stats, task-graph,
-// task-list, workstreams.
+// agents, attention, context-inspector (mt#4746), driven-session-cost (mt#4746,
+// task→project resolution — see its own docblock), memories-list, memories-search,
+// memories-stats, reviewer-bot-status (mt#4746, PARTIAL — see its own docblock's
+// "Project scope" section: reviewer_webhook_events carries no owner/repo column,
+// so 4 of its ~15 queries stay global even when scoped), task-graph, task-list,
+// workstreams.
 // ---------------------------------------------------------------------------
 export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
@@ -84,21 +88,8 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
     reason: "not project-attributable: daemon process health (uptime, widget count).",
   },
   {
-    id: "context-inspector",
-    reason:
-      "deferred: its picker source queries agentTranscriptsTable (which DOES carry " +
-      "projectId — the same column session-film.ts already filters on), but scoping " +
-      "was never threaded. Tracked at mt#4746.",
-  },
-  {
     id: "credentials",
     reason: "not project-attributable: credentials are stored globally, not per-project.",
-  },
-  {
-    id: "driven-session-cost",
-    reason:
-      "deferred: queries drivenSessionCostTable unfiltered; scoping requires a " +
-      "task→project resolution step not yet built. Tracked at mt#4746.",
   },
   {
     id: "embeddings-health",
@@ -120,14 +111,6 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "mcp-server-status",
     reason: "not project-attributable: MCP server connection status is process-level.",
-  },
-  {
-    id: "reviewer-bot-status",
-    reason:
-      "deferred: queries reviewer_webhook_events / reviewer_inflight_reviews / " +
-      "reviewer_convergence_metrics unfiltered; these are keyed by repo/PR, not by " +
-      "Minsky project uuid, so scoping needs a repo→project resolution step. Tracked " +
-      "at mt#4746.",
   },
   {
     id: "memories-detail",
@@ -154,16 +137,16 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
 // here must show SCOPE_EVIDENCE_PATTERN in its own source.
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727):
-// asks, changesets, conversation-search, session-film, tasks.
+// activity, follow-ups (both mt#4746, documented partial-filter semantics via
+// relatedTaskId — see packages/domain/src/events/query.ts's and
+// packages/domain/src/scheduler/follow-up-service.ts's docblocks),
+// driven-sessions (mt#4746, list endpoint only — filters directly on each
+// registry record's projectId, already stamped at spawn time by mt#4732; the
+// mutation endpoints remain not-project-attributable by design, per this
+// module's own docblock), asks, changesets, conversation-search, session-film,
+// tasks.
 // ---------------------------------------------------------------------------
 export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
-  {
-    id: "activity",
-    reason:
-      "deferred: system_events carries no projectId column; relatedTaskId exists on " +
-      "some rows but an inner join would silently drop every non-task-related event. " +
-      "The frontend already sends ?project= (mt#4731). Tracked at mt#4746.",
-  },
   {
     id: "agent-focus",
     reason:
@@ -203,16 +186,6 @@ export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
     reason: "not project-attributable: credentials are stored globally, not per-project.",
   },
   {
-    id: "driven-sessions",
-    reason:
-      "deferred (list endpoint only): GET /api/driven-session scans an in-memory " +
-      "process registry with no project concept; would need a task→project " +
-      "resolution per entry. The mutation endpoints (create/attach/stop) act on one " +
-      "already-identified session id and are not project-attributable at all. " +
-      "Tracked at mt#4746. (Distinct from mt#4319/mt#3274/mt#3325/mt#3363, which own " +
-      "this same file for the console/attach/WS-transport feature.)",
-  },
-  {
     id: "embeddings",
     reason:
       "not project-attributable: embeddings-consumer overview/error/reindex admin operations.",
@@ -232,12 +205,6 @@ export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
     reason:
       "not project-attributable (mt#4727): SSE broker-wide push channel with no " +
       "per-event project attribution.",
-  },
-  {
-    id: "follow-ups",
-    reason:
-      "deferred: scheduled_follow_ups carries no projectId column, same class as " +
-      "activity. Tracked at mt#4746.",
   },
   {
     id: "health",

@@ -4,6 +4,34 @@
  * Provides `listEvents` with optional filtering by event type, time range,
  * and related task ID. Default limit is 50; maximum is 500.
  *
+ * ## Project scope (mt#4746) — documented partial-filter semantics
+ *
+ * `system_events` carries no `projectId` column of its own — the mt#4730
+ * census recorded this as a genuine gap rather than a global-by-design
+ * surface (its own concern was that a naive INNER JOIN would silently drop
+ * every non-task-related event). `relatedTaskId` DOES exist on a subset of
+ * rows and references `tasksTable.id`, which carries `projectId` (mt#2417
+ * Phase 1.4) — so `projectScope` filters to events whose `relatedTaskId`
+ * resolves to a task IN that project, via an `EXISTS` correlated subquery
+ * (not a join, so it costs nothing on a row with no `relatedTaskId` and
+ * never duplicates rows).
+ *
+ * **What this means for a scoped read:** an event with no `relatedTaskId`
+ * (most system events — process/daemon lifecycle, sweeps, non-task-bound
+ * activity) is NEVER attributable to any specific project, so it is
+ * EXCLUDED from a `projectScope`-filtered read. This is a genuine
+ * information loss relative to an unscoped read, not a defect: showing an
+ * unattributable event under a specific project's activity feed would be
+ * misleading (which project would it belong to?), and the unscoped
+ * (`projectScope` omitted) read is completely unaffected — every event, task-
+ * bound or not, is still returned exactly as before. A future schema change
+ * (adding `projectId` to `system_events` directly, backfilled via
+ * `relatedTaskId` where resolvable) could recover non-task-bound project
+ * attribution for SOME events, but most system events genuinely have no
+ * project dimension (daemon-wide sweeps, embeddings jobs, etc.) — that is
+ * real feature work outside mt#4746's own scope of threading `?project=`
+ * through the columns/relations that already exist.
+ *
  * @see mt#2092 — Event log Phase 1a
  */
 
@@ -17,6 +45,7 @@ import {
   type EventCategory,
   type SystemEvent,
 } from "../storage/schemas/system-events-schema";
+import { tasksTable } from "../storage/schemas/task-embeddings";
 
 // ---------------------------------------------------------------------------
 // Row → domain mapping
@@ -60,6 +89,16 @@ export interface ListEventsOptions {
   until?: string;
   /** Filter by related task ID. */
   relatedTaskId?: string;
+  /**
+   * Project scope (mt#4746) — a resolved project uuid, or omitted/undefined
+   * for unscoped (unlike `TaskListOptions.projectScope`, this field does NOT
+   * accept the `ProjectScope` sentinel type — callers resolve `ALL_PROJECTS`
+   * to `undefined` themselves, e.g. `isAllProjects(scope) ? undefined :
+   * scope`, per `routes/activity.ts`). See this module's docblock's "Project
+   * scope" section for the documented partial-filter semantics (events with
+   * no `relatedTaskId` are excluded).
+   */
+  projectScope?: string;
   /** Maximum number of results (default: 50, max: 500). */
   limit?: number;
 }
@@ -69,7 +108,8 @@ export interface ListEventsOptions {
 // the count query matches the exact same filter set as the page query)
 // ---------------------------------------------------------------------------
 
-function buildConditions(options: ListEventsOptions): SQL[] {
+/** Exported so `query.test.ts` can assert the project-scope SQL fragment without a live DB. */
+export function buildConditions(options: ListEventsOptions): SQL[] {
   const conditions: SQL[] = [];
 
   if (options.eventType !== undefined) {
@@ -100,6 +140,20 @@ function buildConditions(options: ListEventsOptions): SQL[] {
   if (options.relatedTaskId !== undefined) {
     conditions.push(isNotNull(systemEventsTable.relatedTaskId));
     conditions.push(eq(systemEventsTable.relatedTaskId, options.relatedTaskId));
+  }
+
+  if (options.projectScope !== undefined) {
+    // Project scope (mt#4746) — see this module's docblock. A correlated
+    // EXISTS subquery, not a join: costs nothing extra on a row whose
+    // relatedTaskId is NULL (the subquery's own equality never matches) and
+    // cannot duplicate a systemEventsTable row the way a join could.
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${tasksTable}
+        WHERE ${tasksTable.id} = ${systemEventsTable.relatedTaskId}
+          AND ${tasksTable.projectId} = ${options.projectScope}
+      )`
+    );
   }
 
   return conditions;
