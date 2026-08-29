@@ -281,6 +281,35 @@ describe("Init rule-format output directory (mt#4714)", () => {
     expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
   });
 
+  test("claude-code + a non-minsky format does NOT compile (PR #3431 R1)", async () => {
+    // The compile targets read `.minsky/rules`. An explicit `--rule-format
+    // cursor` under Claude Code puts sources in `.cursor/rules`, so compiling
+    // would read an empty directory — the project would get neither the Cursor
+    // files it asked for nor usable Claude ones.
+    const compiled: string[] = [];
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "cursor",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      {
+        resolveClient: () => "claude-code",
+        compileForHarness: async (target) => {
+          compiled.push(target);
+        },
+      }
+    );
+
+    expect(compiled).toEqual([]);
+    // The explicitly-requested format is still honoured.
+    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+  });
+
   test("a failing compile does not fail init (mt#4715 SC5)", async () => {
     // The sources are still written and init still succeeds — a project with
     // sources but no compiled output is recoverable by running `minsky compile`.

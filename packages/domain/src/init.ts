@@ -200,7 +200,22 @@ export async function initializeProject(
   // path-scoped `.claude/rules/<id>.md`. Cursor's other two rule types have no
   // delivery mechanism here, so emitting more targets would write files nothing
   // reads — the very defect this step removes.
-  if (initClient === "claude-code") {
+  //
+  // Gated on the FORMAT as well as the harness (PR #3431 R1). The compile
+  // pipeline reads `.minsky/rules` (ADR-016), which is where sources land only
+  // under `ruleFormat: "minsky"`. An explicit `--rule-format cursor` under
+  // Claude Code puts them in `.cursor/rules` instead — compiling then reads an
+  // empty directory and produces nothing, so the project would end up with
+  // neither the Cursor files it asked for nor the Claude ones it cannot use.
+  const sourcesAreWhereCompileReads = ruleFormat === "minsky";
+  if (initClient === "claude-code" && !sourcesAreWhereCompileReads) {
+    log.warn(
+      `minsky init: --rule-format "${ruleFormat}" writes rules to ` +
+        `${RULE_FORMAT_OUTPUT_DIR[ruleFormat]}, which Claude Code does not read, so no ` +
+        `CLAUDE.md was generated. Re-run with --rule-format minsky for the Claude Code layout.`
+    );
+  }
+  if (initClient === "claude-code" && sourcesAreWhereCompileReads) {
     for (const target of ["claude.md", "claude-rules"]) {
       try {
         await compileForHarness(target, repoPath);

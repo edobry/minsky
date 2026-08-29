@@ -198,25 +198,35 @@ export function registerInitCommands() {
           // Interactive rule format selection if not provided
           let ruleFormat = params.ruleFormat;
           if (!ruleFormat) {
+            // mt#4715: the default derives from the harness actually running
+            // init, not a fixed "cursor". Claude Code reads neither
+            // `.cursor/rules` nor `.ai/rules`; it reads `CLAUDE.md` and
+            // `.claude/rules`, which the compile pipeline emits FROM
+            // `.minsky/rules` sources. So a Claude Code project scaffolds
+            // sources in the canonical `minsky` location and
+            // `initializeProject` compiles them for that harness.
+            //
+            // Shared by BOTH branches (PR #3431 R1): the non-interactive path
+            // is where the wrong default actually bit, but leaving the prompt
+            // hardcoded to "cursor" made the two paths disagree about what a
+            // Claude Code project should get.
+            const harnessDefaultRuleFormat =
+              resolveInitClient() === "claude-code" ? "minsky" : "cursor";
+
             if (!isInteractive()) {
-              // mt#4715: derive the default from the harness actually running
-              // init, not a fixed "cursor". This is the AGENT path — an agent
-              // never sees the prompt below — and it was the one place the
-              // wrong default actually bit. Claude Code reads neither
-              // `.cursor/rules` nor `.ai/rules`; it reads `CLAUDE.md` and
-              // `.claude/rules`, which the compile pipeline emits FROM
-              // `.minsky/rules` sources. So a Claude Code project scaffolds
-              // sources in the canonical `minsky` location and
-              // `initializeProject` compiles them for that harness.
-              ruleFormat = resolveInitClient() === "claude-code" ? "minsky" : "cursor";
+              ruleFormat = harnessDefaultRuleFormat;
             } else {
               const selectedFormat = await select({
                 message: "Select rule format:",
                 options: [
-                  { value: "cursor", label: "Cursor (default, optimized for Cursor editor)" },
+                  { value: "cursor", label: "Cursor (optimized for the Cursor editor)" },
+                  {
+                    value: "minsky",
+                    label: "Minsky (.minsky/rules sources; compiles to CLAUDE.md for Claude Code)",
+                  },
                   { value: "generic", label: "Generic (for other editors)" },
                 ],
-                initialValue: "cursor",
+                initialValue: harnessDefaultRuleFormat,
               });
 
               if (isCancel(selectedFormat)) {
