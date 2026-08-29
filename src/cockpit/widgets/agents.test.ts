@@ -962,7 +962,15 @@ describe("createAgentsWidget — conversation-derived-row project scoping (mt#47
     expect(peezombieRow.projectId).toBe(PROJECT_PEEZOMBIE);
   });
 
-  test("AT2/SC2: a NULL-project-attribution conversation row is shown under a specific project filter, never hidden", async () => {
+  // mt#4733 superseded this test's original per-row assertion: pre-mt#4733,
+  // the NULL-attribution conversation surfaced as its OWN standalone row
+  // (`a.sessionId === CONV_UNATTRIBUTED`). Live measurement at mt#4733 found
+  // that literal treatment floods a narrow filter (45:2 in production) — so
+  // it now folds into a single collapsed "unattributed-summary" row (SC2)
+  // instead. The underlying guarantee this test protects — a NULL-attribution
+  // conversation is never silently dropped by the filter — is unchanged;
+  // only its representation is (see run-merge.ts's module header).
+  test("AT2/SC2 (mt#4733): a NULL-project-attribution conversation is never dropped by a specific project filter — it folds into the collapsed unattributed-summary row", async () => {
     const conversationDb = makeConversationDb(
       [
         {
@@ -998,10 +1006,13 @@ describe("createAgentsWidget — conversation-derived-row project scoping (mt#47
     const cwds = agents.map((a) => a.cwd);
     // The other project's attributed row is excluded...
     expect(cwds).not.toContain(MINSKY_CWD);
-    // ...but the NULL-attribution row is shown regardless of the filter.
-    const unattributedRow = agents.find((a) => a.sessionId === CONV_UNATTRIBUTED);
-    if (!unattributedRow) throw new Error("expected the NULL-attribution row to be present");
-    expect(unattributedRow.projectId).toBeNull();
+    // ...but the NULL-attribution conversation is never dropped — it's
+    // still present, inside the collapsed aggregate's expandable list.
+    expect(agents.find((a) => a.sessionId === CONV_UNATTRIBUTED)).toBeUndefined();
+    const summaryRow = agents.find((a) => a.kind === "unattributed-summary");
+    if (!summaryRow) throw new Error("expected the unattributed-summary row to be present");
+    expect(summaryRow.projectId).toBeNull();
+    expect(summaryRow.subagents.map((s) => s.conversationId)).toContain(CONV_UNATTRIBUTED);
   });
 });
 
