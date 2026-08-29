@@ -68,6 +68,27 @@ export type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"
 export interface WidgetContext {
   id: string;
   query?: Record<string, string>;
+  /**
+   * Pre-resolved project scope (mt#4730 structural enforcement) — set by
+   * `routes/health.ts`'s `GET /api/widget/:id/data` dispatcher from the
+   * request's `req.projectScope` (itself populated by
+   * `createProjectScopeMiddleware` in `project-scope.ts`), computed from the
+   * SAME `ctx.query.project` value a widget would otherwise resolve itself.
+   *
+   * A widget MAY read this directly instead of importing and calling
+   * `resolveCockpitProjectScope(ctx.query?.project)` — this is the preferred
+   * path for any NEW widget. Existing widgets that already call
+   * `resolveCockpitProjectScope` internally are not required to migrate (see
+   * `scope-census.ts`'s docblock for why): the two are equivalent — same
+   * function, same input, same fail-open result — so calling it again inside
+   * a widget is redundant but never incorrect.
+   *
+   * Optional only because widget unit tests routinely construct a bare
+   * `{ id, query }` context without going through the real dispatcher; a
+   * widget consuming this field directly should default it (`?? ALL_PROJECTS`
+   * from `@minsky/domain/project/scope`) rather than assume presence.
+   */
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope;
 }
 
 /** The complete module contract every widget must satisfy */
