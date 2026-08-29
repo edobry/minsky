@@ -1220,10 +1220,17 @@ if (import.meta.main) {
       agentType: input.agent_type,
       agentTypeObserved: classifyAgentTypeObservation(input),
       sessionId: input.session_id,
+      // mt#4750 review R1 BLOCKING: `overrideSource` disambiguates "env" vs
+      // "grant" per the fire-log contract (fire-log.ts's `FireLogEntry` doc
+      // comment) and must be present whenever an override is recorded. This
+      // guard has no grant-file channel — both of its reachable channels
+      // (process-env, command-string) resolve to the same unified env var —
+      // so the source is unconditionally "env".
       ...(overrideChannel !== undefined
         ? {
             overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
             overrideClassification: classifyOverride(HOOK_OVERRIDE_ENV_VAR),
+            overrideSource: "env" as const,
           }
         : {}),
     });
