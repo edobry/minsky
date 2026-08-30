@@ -766,7 +766,13 @@ export class MemoryService implements MemoryServiceSurface {
       .select({
         total: sql<number>`count(*)::int`,
         supersededCount: sql<number>`count(*) filter (where ${memoriesTable.supersededBy} is not null)::int`,
-        recentCount: sql<number>`count(*) filter (where ${memoriesTable.createdAt} >= ${sevenDaysAgo})::int`,
+        // mt#4761: interpolate as an ISO string, not the Date object directly.
+        // A raw `sql` template's parameter binding does NOT go through the
+        // same type-aware serialization `gte()`/`lte()` apply in
+        // buildListConditions — postgres.js chokes on a bare `Date` here
+        // ("argument must be of type string ... Received an instance of
+        // Date"), caught live via this task's own verification.
+        recentCount: sql<number>`count(*) filter (where ${memoriesTable.createdAt} >= ${sevenDaysAgo.toISOString()})::int`,
         userCount: typeCountSql("user"),
         feedbackCount: typeCountSql("feedback"),
         projectCount: typeCountSql("project"),
