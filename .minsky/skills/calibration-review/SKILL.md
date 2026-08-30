@@ -13,8 +13,29 @@ user-invocable: true
 Closes the calibration → action loop for the detector hooks that ship in
 **log-only calibration mode** (e.g. `causal-premise-detector.ts` with
 `INJECTION_ENABLED=false`, mt#2216; `retrospective-trigger-scanner.ts`,
-mt#2057). Those hooks write matches to `.minsky/*-calibration.jsonl` but nothing
+mt#2057). Those hooks write matches to a per-project calibration log but nothing
 triggers a review — this skill is the review.
+
+**Where the logs live, and why you cannot hardcode it (mt#4748).** The hooks write to
+a project-keyed subdirectory of the state dir, NOT to the repo. `<key>` is a hash of
+the repo root, so every recipe below globs it rather than naming it:
+
+```
+ls ~/.local/state/minsky/projects/*/<name>-calibration.jsonl
+```
+
+**Confirm that glob resolves to exactly ONE path before running any counting recipe
+below.** TWO paths means two projects on this machine, and the recipes would silently
+sum both logs. ZERO paths means this project has no calibration state yet — no hook has
+fired here, or the state dir was cleared — and every count below then reads `0`, which
+is indistinguishable from "the detector never fired." Neither case announces itself,
+which is the same shape of defect as the one in the next paragraph.
+
+**A `.minsky/<name>-calibration.jsonl` still present in the repo is FROZEN HISTORY, not
+the current corpus.** Those files exist and stop at the mt#4748 migration, so reading
+one returns real-looking records that end silently at the cutover — no error, no empty
+file, just a truncated corpus that an FP rate computed over it will not reveal. Read the
+state-dir path; treat the repo copy as an archive.
 
 The mechanical part (enumerate logs, count fires, watermark, diversity
 threshold) is the `calibration.review` command. **This skill does the
@@ -192,7 +213,7 @@ re-opens exactly the gap mt#2878 closed.
 **A below-count-bar log returns `newRecords: []` BY DESIGN** — `computeLogResult`
 gates that field on `atCountThreshold`, so an empty array here means "under the
 bar," never "no evidence exists." Read the raw JSONL for those logs
-(`jq -c '.' .minsky/<name>-calibration.jsonl | tail -n <firesSinceLastReview>`)
+(`jq -c '.' ~/.local/state/minsky/projects/*/<name>-calibration.jsonl | tail -n <firesSinceLastReview>`)
 rather than recording "cannot classify" from the empty array — the
 `classifiability` verdict is computed over the un-gated records and will still
 say `classifiable`. See §"Cannot classify" is a claim about the corpus.
@@ -301,7 +322,7 @@ disposition MUST carry both:
    which fields a detector ought to have written (deriving "missing" would need
    a per-detector table that could drift from the parsers). Then check your
    expectation against the log itself:
-   `jq -c 'select(.<field> != null)' .minsky/<name>-calibration.jsonl | wc -l`,
+   `jq -c 'select(.<field> != null)' ~/.local/state/minsky/projects/*/<name>-calibration.jsonl | wc -l`,
    and cite the count. The log file is the record; this command's output is a
    rendering of it.
 
@@ -352,7 +373,7 @@ If you do split by hand, split on the field that log actually uses, not on
 `captureSchema`:
 
 ```
-jq -c 'select(.final_message_tail != "")' .minsky/untaken-action-calibration.jsonl | wc -l
+jq -c 'select(.final_message_tail != "")' ~/.local/state/minsky/projects/*/untaken-action-calibration.jsonl | wc -l
 ```
 
 **If the output says no judged-text field is mapped for a detector, that GONE is
