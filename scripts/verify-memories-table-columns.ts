@@ -44,7 +44,16 @@
  * kind of probe that returns the same verdict whether or not the system is
  * broken (mem#704). So this scans the first `ROWS_TO_SCAN` rows and requires
  * at least one with a non-empty tags cell — if none is found, that is
- * INCOMPLETE (exit 2), never a silent pass.
+ * recorded as a failure and the script exits 1, never a silent pass.
+ *
+ * Note that this collapses "the check could not run" into the same exit code
+ * as "the check ran and found overlap". Both fail closed, which is the
+ * property that matters, but a caller cannot currently tell them apart from
+ * the exit code alone — only from the message. `EXIT_INCOMPLETE` (2) is
+ * already exported from `./lib/verify-preflight` and the preflight uses it
+ * for its own could-not-run case, so adopting it here for the zero-tagged-rows
+ * case would be a small, self-contained improvement rather than a cross-script
+ * change. Tracked at mt#4786.
  *
  * Usage:
  *   bun scripts/verify-memories-table-columns.ts
