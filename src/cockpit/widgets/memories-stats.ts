@@ -32,6 +32,19 @@ function toEpochMs(value: Date | string): number {
 }
 
 /**
+ * Explicit limit for the pre-mt#4761 fallback path below (PR #3488 R1
+ * NON-BLOCKING 1). `MemoryService.list()` now defaults to `DEFAULT_LIST_CAP`
+ * (500) when no `limit` is given — a bound the fallback's own client-side
+ * aggregation predates and never accounted for. Without an explicit limit
+ * here, a `MemoryServiceSurface` fake lacking `getListStats` (this branch's
+ * only caller) would silently undercount every total once the corpus passed
+ * 500 rows. Set well above any real corpus size this widget will see; if the
+ * corpus ever approaches this, the fallback needs a real fix, not a bigger
+ * number.
+ */
+const STATS_FALLBACK_LIMIT = 1_000_000;
+
+/**
  * Factory: returns a WidgetModule backed by the given memory-service getter.
  * Mirrors `memories-list.ts`'s `createMemoriesListWidget` (mt#4727 test seam).
  */
@@ -81,8 +94,12 @@ export function createMemoriesStatsWidget(
             topAccessed: stats.topAccessed,
           };
         } else {
-          // Fetch all records in scope without excludeSuperseded so we get totals
-          const allRecords: MemoryRecord[] = await memSvc.list({ projectScope });
+          // Fetch all records in scope without excludeSuperseded so we get totals.
+          // Explicit `limit` (PR #3488 R1 NON-BLOCKING 1): see STATS_FALLBACK_LIMIT.
+          const allRecords: MemoryRecord[] = await memSvc.list({
+            projectScope,
+            limit: STATS_FALLBACK_LIMIT,
+          });
 
           const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 

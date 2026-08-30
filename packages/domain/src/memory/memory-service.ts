@@ -51,7 +51,8 @@ import {
 } from "./task-state-assertion";
 import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
 import { escapeLikePattern } from "./intervening-task-lookup";
-import { DEFAULT_LIST_CAP } from "../utils/list-pagination";
+import { DEFAULT_LIST_CAP, computeListTruncation } from "../utils/list-pagination";
+import type { ListTruncationMetadata } from "../utils/list-pagination";
 
 /**
  * Ceiling on measurement-decay lookups per search page (mt#4452, PR #3271 R1).
@@ -266,6 +267,22 @@ export interface MemoryServiceSurface {
    * this method existed), so omitting it is backward compatible.
    */
   count?(filter?: MemoryListFilter): Promise<number>;
+  /**
+   * `list()` plus the mt#2817 `{returned, total, truncated}` metadata triple, in ONE
+   * caller-facing call (PR #3488 R1 BLOCKING). `list()` itself stays a plain
+   * `MemoryRecord[]` — see its doc comment for the four consumers that constrains — so a
+   * paginated caller that wants both the page AND an accurate total without a second
+   * ROUND TRIP (the mt#4761 success criterion) calls this instead of `list()` + `count()`
+   * separately. Internally this IS a paired count query (`list()` then `count()`), which
+   * is the resolved form of the spec's "windowed count(*) over () or a paired count
+   * query" choice: windowed loses the count entirely on a zero-row page, so paired is
+   * correct regardless of which SQL statement count the reviewer meant by "round trip."
+   * OPTIONAL for the same backward-compat reason as `count()` — a fake that omits it
+   * makes its caller (`memories-list.ts`) fall back to `list()` + `records.length`.
+   */
+  listWithMeta?(
+    filter?: MemoryListFilter
+  ): Promise<{ records: MemoryRecord[]; meta: ListTruncationMetadata }>;
   /**
    * SQL-aggregate stats for the memories-stats cockpit widget (mt#4761).
    * OPTIONAL for the same reason as `count()` above — a fake that omits it
@@ -734,11 +751,21 @@ export class MemoryService implements MemoryServiceSurface {
    * Default limit is `DEFAULT_LIST_CAP` (packages/domain/src/utils/list-pagination.ts,
    * mt#2817) when `filter.limit` is not given — the "loud caps" convention is
    * EXTENDED, not replaced: what changes is WHERE the cap applies (SQL
-   * `LIMIT`, not an in-memory `items.slice`). Callers needing the TRUE
-   * (pre-cap) total should call `count()` with the same filter — this method
-   * intentionally keeps returning a plain `MemoryRecord[]` (not a
-   * `{records, meta}` shape) so no existing `MemoryServiceSurface` consumer
-   * breaks.
+   * `LIMIT`, not an in-memory `items.slice`).
+   *
+   * This method intentionally keeps returning a plain `MemoryRecord[]` (not a
+   * `{records, meta}` shape) rather than folding `count()` in directly —
+   * FOUR existing consumers destructure its result as a bare array and are
+   * outside this task's `## Scope`: `src/mcp/middleware/memory-bundle.ts`
+   * (the MCP `instructions` bundle composer), the `MemoryServiceSurface` fake
+   * in `src/cockpit/widgets/memories-project-scope.test.ts`, and the
+   * `MemoryServiceDb` fake in `tests/domain/project-scope-acceptance.test.ts`
+   * (a 4th, `tests/domain/memory/memory-service.test.ts`, drives this method
+   * through a similar fake). Changing the shape here would break all of them.
+   * A caller wanting the page AND an accurate total in one call — the actual
+   * mt#4761 success criterion, which is about the CALLER not making a second
+   * round trip, not about SQL statement count — should call `listWithMeta()`
+   * instead, which wraps this method and `count()` together.
    */
   async list(filter?: MemoryListFilter): Promise<MemoryRecord[]> {
     const conditions = buildListConditions(filter);
@@ -782,6 +809,23 @@ export class MemoryService implements MemoryServiceSurface {
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
     const rows = (await filteredQuery) as Array<{ count: number }>;
     return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * `list()` + `count()` in one caller-facing call (mt#4761, PR #3488 R1 BLOCKING) —
+   * see the `MemoryServiceSurface.listWithMeta` doc comment for why this exists
+   * alongside `list()` rather than changing `list()`'s own return shape.
+   *
+   * A paired count query, deliberately: a windowed `count(*) over ()` folded into the
+   * `list()` query would return NO row (and so no count at all) on a zero-row page,
+   * which a separate `count()` call does not have.
+   */
+  async listWithMeta(
+    filter?: MemoryListFilter
+  ): Promise<{ records: MemoryRecord[]; meta: ListTruncationMetadata }> {
+    const records = await this.list(filter);
+    const total = await this.count(filter);
+    return { records, meta: computeListTruncation(total, records.length) };
   }
 
   /**

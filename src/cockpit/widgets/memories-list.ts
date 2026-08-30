@@ -2,6 +2,7 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { getSharedMemoryService } from "./shared-memory-service";
 import { describeWidgetDegradedReason } from "../db-providers";
 import type {
+  MemoryRecord,
   MemoryType,
   MemoryScope,
   MemoryListFilter,
@@ -155,17 +156,26 @@ export function createMemoriesListWidget(
           association,
         };
 
-        const records = await memSvc.list(filter);
-
-        // mt#4761: prefer a true SQL count over the (SQL-limited) page length —
-        // `records.length` can never exceed `limit`, so it would silently
-        // report `truncated: false` once a real cap applies. `count()` ignores
-        // limit/offset/sort/dir (buildListConditions never looks at them), so
-        // reusing `filter` verbatim is safe. A MemoryServiceSurface fake that
-        // doesn't implement `count` (e.g. the mt#4727 two-project-fixture
-        // test) falls back to the pre-mt#4761 behavior of treating the
-        // returned array as the full matching set.
-        const total = memSvc.count ? await memSvc.count(filter) : records.length;
+        // mt#4761 (PR #3488 R1 BLOCKING): one call, not `list()` + a separate
+        // `count()` — `listWithMeta()` is `list()` and `count()` paired
+        // server-side so this widget makes exactly one call to the service
+        // for both the page and the total. `records.length` (the SQL-limited
+        // page) would silently report `truncated: false` once a real cap
+        // applies, which is exactly what a bare `list()` result cannot
+        // distinguish. A MemoryServiceSurface fake that doesn't implement
+        // `listWithMeta` (e.g. the mt#4727 two-project-fixture test) falls
+        // back to the pre-mt#4761 behavior of treating `list()`'s own result
+        // as the full matching set.
+        let records: MemoryRecord[];
+        let total: number;
+        if (memSvc.listWithMeta) {
+          const result = await memSvc.listWithMeta(filter);
+          records = result.records;
+          total = result.meta.total;
+        } else {
+          records = await memSvc.list(filter);
+          total = records.length;
+        }
 
         const payload: MemoriesListPayload = {
           records: records.map((r) => ({ ...toMemorySummary(r), shortId: r.shortId })),

@@ -6418,7 +6418,7 @@
         },
         {
           "name": "list",
-          "description": "Browse memory records with optional type/scope/project filters.",
+          "description": "Browse memory records with optional type/scope/project filters, sorted and paginated in SQL (mt#4761). Defaults to created desc when --sort is omitted. Supports --sort (created|updated|lastAccessed|accessCount|shortId|name), --dir (asc|desc), --offset, --tags (AND semantics — every listed tag must be present), and --name-contains (case-insensitive substring match).",
           "options": [
             {
               "flags": ["--type"],

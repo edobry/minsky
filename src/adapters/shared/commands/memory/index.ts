@@ -874,7 +874,12 @@ export function registerMemoryCommands(
     id: "memory.list",
     category: CommandCategory.MEMORY,
     name: "list",
-    description: "Browse memory records with optional type/scope/project filters.",
+    description:
+      "Browse memory records with optional type/scope/project filters, sorted and paginated " +
+      "in SQL (mt#4761). Defaults to created desc when --sort is omitted. Supports --sort " +
+      "(created|updated|lastAccessed|accessCount|shortId|name), --dir (asc|desc), --offset, " +
+      "--tags (AND semantics — every listed tag must be present), and --name-contains " +
+      "(case-insensitive substring match).",
     parameters: memoryListParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.list", {
@@ -926,26 +931,27 @@ export function registerMemoryCommands(
 
       const records = await service.list(listFilter);
 
-      // mt#4761: prefer a true SQL count over `records.length` — `list()` is
-      // now itself SQL-limited (defaulting to DEFAULT_LIST_CAP), so its own
-      // array length can undercount `total` once a real cap applies.
-      // `applyListCap` remains the fallback for a `MemoryServiceSurface` that
-      // doesn't implement `count()` (e.g. an older/test fake whose `list()`
-      // ignores `limit` entirely and returns the full unfiltered set) — the
-      // exact mt#2817 in-memory-cap behavior this surface had before.
+      // mt#4761 (PR #3488 R1 NON-BLOCKING 2): `applyListCap` runs
+      // UNCONDITIONALLY — the returned/truncated computation must not assume
+      // `list()` already capped to `params.limit`. A `MemoryServiceSurface`
+      // fake that ignores `limit` entirely (returns the full unfiltered set,
+      // e.g. `memory-commands.test.ts`'s fake) needs this exactly as much as
+      // the real SQL-backed service does, which already returns a page at
+      // most `params.limit` long — capping an already-capped array is a
+      // no-op, so this is safe either way.
       const { applyListCap, computeListTruncation } = await import(
         "@minsky/domain/utils/list-pagination"
       );
-      let cappedRecords: MemoryRecord[];
-      let truncation: { returned: number; total: number; truncated: boolean };
+      const capped = applyListCap(records, params.limit);
+      const cappedRecords: MemoryRecord[] = capped.items;
+      let truncation: { returned: number; total: number; truncated: boolean } = capped.meta;
+
+      // Prefer a true SQL count over `applyListCap`'s own `total` (which is
+      // only accurate when `records` already held every matching row —
+      // false once `list()` applies its own SQL-side cap).
       if (service.count) {
         const total = await service.count(listFilter);
-        cappedRecords = records;
-        truncation = computeListTruncation(total, records.length);
-      } else {
-        const capped = applyListCap(records, params.limit);
-        cappedRecords = capped.items;
-        truncation = capped.meta;
+        truncation = computeListTruncation(total, cappedRecords.length);
       }
 
       // mt#2817: opt-in compact projection — strip content (and every other
