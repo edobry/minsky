@@ -24,7 +24,13 @@ export const tasksTable = pgTable(
     status: taskStatusEnum("status"),
     title: text("title"),
     tags: text("tags").default("[]"), // JSON-serialized string[]
-    kind: text("kind").default("implementation").notNull(), // Task workflow kind: "implementation" | "umbrella"
+    kind: text("kind").default("implementation").notNull(), // Task workflow kind — see TaskKind union (workflows.ts)
+    // Work-package claim identity (ADR-046, mt#2911). Written ONLY by the claim
+    // path — a single conditional UPDATE from READY (CAS) that sets these
+    // atomically with status → IN-PROGRESS; release clears both. Null for every
+    // other kind and for unclaimed packages.
+    claimedBy: text("claimed_by"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
