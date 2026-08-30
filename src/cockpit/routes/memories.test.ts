@@ -13,7 +13,8 @@ import { describe, test, expect, afterEach } from "bun:test";
 import type { Server } from "http";
 import express from "express";
 import { mountMemoryRoutes, COCKPIT_OPERATOR_SOURCE_AGENT_ID, BULK_RECORD_CAP } from "./memories";
-import { isPublicPath } from "../passkey-auth";
+import { createCockpitServer } from "../server";
+import type { PasskeyStore } from "../passkey-auth";
 import {
   createSharedCommandRegistry,
   type SharedCommand,
@@ -453,26 +454,108 @@ describe("POST /api/memories/bulk/delete", () => {
 });
 
 // ─── AT5 — auth gating ─────────────────────────────────────────────────────────
+//
+// Two independent, deployment-mode-scoped gates cover these routes, and BOTH
+// apply with zero per-route auth code in `memories.ts` (see server.ts's
+// `mutationAuthMiddleware` / `requirePasskeySession` mounts). Both describe
+// blocks below build the REAL `createCockpitServer` app — the same factory
+// `server.ts` uses in production — and issue a genuine unauthenticated HTTP
+// request at each route, asserting the response status. This is deliberately
+// NOT a check that the route's path/method appears in some allowlist: a test
+// that only inspects a config table would keep passing if the gate were
+// removed, misconfigured, or mounted in the wrong order (mem#704's shape) —
+// which matters most here because these are the routes that DELETE records.
+// Mirrors `conversation-shares.test.ts`'s own `expect((await
+// fetch(...)).status).toBe(401)` shape for `/api/shares`.
 
-describe("AT5 — every memory write route requires a session", () => {
-  // Two independent, deployment-mode-scoped gates cover these routes, and
-  // BOTH apply with zero per-route code in `memories.ts` — see server.ts
-  // around its `mutationAuthMiddleware` / `requirePasskeySession` mounts:
-  //
-  //   - Public Railway deployment (`opts.isPublicDeployment`): PATH-based —
-  //     `requirePasskeySession` denies any path not on `isPublicPath`'s
-  //     closed allowlist, the same gate `/api/shares` (mint/list/revoke)
-  //     relies on.
-  //   - Local daemon: METHOD-based — `mutationAuthMiddleware` requires a
-  //     bearer token (or the loopback bootstrap cookie) on every non-GET
-  //     request, regardless of path. Every route this file mounts is
-  //     PATCH/POST/DELETE, so all of them are covered by construction.
-  test.each([
-    "/api/memories/some-id",
-    "/api/memories/some-id/supersede",
-    "/api/memories/bulk/retag",
-    "/api/memories/bulk/delete",
-  ])("%s is NOT in the public-path allowlist", (path) => {
-    expect(isPublicPath(path)).toBe(false);
+/** A passkey store with no valid session — every gated request is denied. */
+function unauthenticatedPasskeyStore(): PasskeyStore {
+  return {
+    listPasskeys: async () => [],
+    findPasskeyByCredentialId: async () => null,
+    insertPasskey: async () => "p1",
+    updatePasskeyCounter: async () => {},
+    createSession: async () => {},
+    findValidSession: async () => null,
+    deleteSession: async () => {},
+  };
+}
+
+async function startServer(app: express.Express): Promise<{ url: string }> {
+  const server = app.listen(0, "127.0.0.1");
+  servers.push(server);
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no ephemeral port");
+  return { url: `http://127.0.0.1:${address.port}` };
+}
+
+describe("AT5 — public deployment: requirePasskeySession denies every route with no session", () => {
+  async function startGatedServer(): Promise<{ url: string }> {
+    return startServer(
+      createCockpitServer({
+        isPublicDeployment: true,
+        publicAuth: "passkey",
+        passkeyStore: unauthenticatedPasskeyStore(),
+      })
+    );
+  }
+
+  test("PATCH /api/memories/:id — no session — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await postJson(`${url}/api/memories/some-id`, { tags: ["x"] }, "PATCH");
+    expect(res.status).toBe(401);
+  });
+
+  test("POST /api/memories/:id/supersede — no session — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await postJson(`${url}/api/memories/some-id/supersede`, VALID_SUPERSEDE_BODY);
+    expect(res.status).toBe(401);
+  });
+
+  test("DELETE /api/memories/:id — no session — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await fetch(`${url}/api/memories/some-id`, { method: "DELETE" });
+    expect(res.status).toBe(401);
+  });
+
+  test("POST /api/memories/bulk/retag — no session — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await postJson(`${url}/api/memories/bulk/retag`, { ids: ["a"], tags: ["x"] });
+    expect(res.status).toBe(401);
+  });
+
+  test("POST /api/memories/bulk/delete — no session — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await postJson(`${url}/api/memories/bulk/delete`, { ids: ["a"] });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("AT5 — local daemon: mutationAuthMiddleware denies every route with no token", () => {
+  async function startGatedServer(): Promise<{ url: string }> {
+    // `isPublicDeployment` omitted (false) — local-daemon mode, gated by
+    // `mutationAuthMiddleware` (method-based, not path-based) instead of the
+    // passkey session gate exercised above. `overrideToken` avoids touching
+    // the real `~/.local/state/minsky/cockpit-token` file.
+    return startServer(createCockpitServer({ overrideToken: "test-fixture-token" }));
+  }
+
+  test("PATCH /api/memories/:id — no bearer token — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await postJson(`${url}/api/memories/some-id`, { tags: ["x"] }, "PATCH");
+    expect(res.status).toBe(401);
+  });
+
+  test("DELETE /api/memories/:id — no bearer token — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await fetch(`${url}/api/memories/some-id`, { method: "DELETE" });
+    expect(res.status).toBe(401);
+  });
+
+  test("POST /api/memories/bulk/delete — no bearer token — 401", async () => {
+    const { url } = await startGatedServer();
+    const res = await postJson(`${url}/api/memories/bulk/delete`, { ids: ["a"] });
+    expect(res.status).toBe(401);
   });
 });
