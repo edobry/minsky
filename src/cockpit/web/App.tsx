@@ -36,6 +36,9 @@ const DrivenSessionPage = lazy(() =>
 const DrivenSessionCostPage = lazy(() =>
   import("./pages/DrivenSessionCostPage").then((m) => ({ default: m.DrivenSessionCostPage }))
 );
+const ReviewerCostPage = lazy(() =>
+  import("./pages/ReviewerCostPage").then((m) => ({ default: m.ReviewerCostPage }))
+);
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -462,6 +465,17 @@ export function App() {
             element={
               <ErrorBoundary id="driven-session-cost-page">
                 <DrivenSessionCostPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Reviewer cost readout (mt#4557): daily spend by token class, a
+              per-config cohort table, cap-pin share, and the outlier tail —
+              read through mt#4546's review_timing accessor. */}
+          <Route
+            path="/reviewer/cost"
+            element={
+              <ErrorBoundary id="reviewer-cost-page">
+                <ReviewerCostPage />
               </ErrorBoundary>
             }
           />
