@@ -27,8 +27,11 @@ ls ~/.local/state/minsky/projects/*/<name>-calibration.jsonl
 ```
 
 **Confirm that glob resolves to exactly ONE path before running any counting recipe
-below** — a machine with two projects would silently sum both logs, which is the same
-shape of defect as the one in the next paragraph.
+below.** TWO paths means two projects on this machine, and the recipes would silently
+sum both logs. ZERO paths means this project has no calibration state yet — no hook has
+fired here, or the state dir was cleared — and every count below then reads `0`, which
+is indistinguishable from "the detector never fired." Neither case announces itself,
+which is the same shape of defect as the one in the next paragraph.
 
 **A `.minsky/<name>-calibration.jsonl` still present in the repo is FROZEN HISTORY, not
 the current corpus.** Those files exist and stop at the mt#4748 migration, so reading
