@@ -176,4 +176,28 @@ describe("renderCoverageLines (mt#4693, PR #3418 R2)", () => {
   test("nothing reportable produces no lines at all — the common path stays quiet", () => {
     expect(renderCoverageLines([], { filed: [], policyClosed: [] })).toEqual([]);
   });
+
+  // mt#4695. Deliberately the FILED case, not the policy-closed one: the
+  // policy-closed branch has carried the link since mt#4693, so asserting there
+  // passes whether or not the coverage line was fixed. Filing succeeds on the
+  // ordinary path, which leaves the coverage line as the only place a link can
+  // appear — and before mt#4695 it produced none.
+  test("the coverage line itself carries the settings link, not just the policy-closed branch", () => {
+    const text = renderCoverageLines([UNCOVERED], {
+      filed: ["ask-1"],
+      policyClosed: [],
+    }).join("\n");
+
+    expect(text).not.toContain("COULD NOT");
+    expect(text).toContain("https://github.com/settings/installations/125403046");
+    expect(text).not.toContain("Installed GitHub Apps");
+  });
+
+  test("a coverage line with no installation id keeps the navigation prose", () => {
+    const noLink = { ...UNCOVERED, settingsUrl: undefined };
+    const text = renderCoverageLines([noLink], { filed: ["ask-1"], policyClosed: [] }).join("\n");
+
+    expect(text).not.toContain("https://");
+    expect(text).toContain("Installed GitHub Apps");
+  });
 });
