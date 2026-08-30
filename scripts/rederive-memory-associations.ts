@@ -317,7 +317,17 @@ async function main(): Promise<void> {
   const token = planToken(plan);
 
   if (asJson) {
-    console.log(JSON.stringify({ token, tally, plan }, null, 2));
+    // `measuredAt` and `scanned` are what make a committed snapshot readable later: the corpus
+    // moves under this script (a ref changes bucket whenever a memory is patched), so a bare
+    // tally with no date is a number nobody can re-derive. Read in the imperative shell, never
+    // in the pure core, so nothing under test reads the clock.
+    console.log(
+      JSON.stringify(
+        { measuredAt: new Date().toISOString(), scanned: all.length, token, tally, plan },
+        null,
+        2
+      )
+    );
   } else {
     console.log("=== tracksTask re-derivation ===");
     console.log(`Memories scanned:            ${all.length}`);
