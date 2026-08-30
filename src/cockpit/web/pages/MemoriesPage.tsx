@@ -21,7 +21,16 @@ export function MemoriesPage() {
         <MemoriesHealth />
       </div>
 
-      <MemoryStats />
+      {/* mt#4762 PR #3492 R2: MemoryStats' own content (type badges, a 2-col
+          quick-stats grid, a 5-row "most accessed" list) was designed for the
+          ~1/3-page column it occupied in the old Search+Stats grid — at full
+          page width it just stretches the card frame, leaving the right two
+          thirds empty. Capping the width here is a page-layout call (this
+          page's container, not the widget), not the widget redesign mt#4767
+          owns; the widget's own markup is untouched. */}
+      <div className="max-w-md">
+        <MemoryStats />
+      </div>
 
       {/* Main list — self-navigating (row click -> /memory/:id), own toolbar
           (filters + search), sortable server-driven columns. */}

@@ -149,6 +149,16 @@ function toDisplayRowFromRecord(r: MemoryRecord): DisplayRow {
 
 const PROVENANCE_TAG_NAMESPACES = new Set(["imported-from", "content-hash"]);
 const VISIBLE_TAG_SLOTS = 3;
+/**
+ * Reserved width for the tags column — shared by the header spacer and each
+ * row's tag cell so the two stay aligned (mt#4762 PR #3492 R2). This used to
+ * be `w-8` (32px), nowhere near enough for real chip text ("memory-hygiene"
+ * alone is ~90px at this font size); each chip is also individually
+ * `max-w-[64px] truncate` and the cell itself carries `overflow-hidden` as a
+ * second line of defense, so nothing here can bleed into the Created cell
+ * immediately to its left again regardless of how long a tag's name is.
+ */
+const TAGS_COLUMN_WIDTH_CLASS = "w-32 flex-shrink-0";
 
 function tagNamespace(tag: string): string | null {
   const idx = tag.indexOf(":");
@@ -450,7 +460,20 @@ function MemoriesTableHeader({
           <SortIndicator active={sortKey === col.key} dir={sortDir} />
         </button>
       ))}
-      <span className="w-8 flex-shrink-0 hidden lg:block" aria-hidden="true" />
+      {/* Not sortable (no server field to sort tags by), so a static label
+          rather than a SORT_COLUMNS entry — but it MUST reserve the same
+          width as the row's tag cell below, or header/row columns misalign.
+          mt#4762 PR #3492 R2: this used to be an unlabeled w-8 (32px) spacer,
+          nowhere near wide enough for real chip content, which is why tags
+          overflowed their box and painted over Created — see TAGS_COLUMN_WIDTH_CLASS. */}
+      <span
+        className={cn(
+          TAGS_COLUMN_WIDTH_CLASS,
+          "hidden lg:block text-eyebrow font-mono uppercase text-muted-foreground text-right"
+        )}
+      >
+        Tags
+      </span>
     </div>
   );
 }
@@ -477,6 +500,7 @@ function MemoriesRowItem({ row, onRowClick }: { row: DisplayRow; onRowClick: (id
       role="button"
       tabIndex={0}
       aria-label={`View details for ${row.name}`}
+      data-testid="memories-row"
       className="flex items-center gap-3 py-1.5 border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/30 transition-colors rounded-sm"
     >
       <span className="w-16 flex-shrink-0 font-mono text-small text-foreground">
@@ -499,16 +523,24 @@ function MemoriesRowItem({ row, onRowClick }: { row: DisplayRow; onRowClick: (id
         {row.accessCount !== undefined && row.accessCount > 0 ? row.accessCount : "—"}
       </span>
       <span
+        data-col="created"
         className="w-24 flex-shrink-0 text-right tabular-nums text-small text-muted-foreground"
         title={absoluteIso(row.createdAt)}
       >
         {relativeTime(row.createdAt)}
       </span>
-      <div className="w-8 flex-shrink-0 hidden lg:flex flex-wrap justify-end gap-0.5">
+      <div
+        data-col="tags"
+        className={cn(
+          TAGS_COLUMN_WIDTH_CLASS,
+          "hidden lg:flex flex-wrap content-center justify-end gap-0.5 overflow-hidden"
+        )}
+      >
         {visibleTags.map((tag) => (
           <span
             key={tag}
-            className="px-1 py-0.5 rounded bg-muted text-muted-foreground text-[10px] whitespace-nowrap"
+            title={tag}
+            className="max-w-[64px] truncate px-1 py-0.5 rounded bg-muted text-muted-foreground text-[10px] whitespace-nowrap"
           >
             {tag}
           </span>
