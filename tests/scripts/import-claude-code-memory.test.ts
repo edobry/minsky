@@ -68,6 +68,7 @@ function makeFakeService(existing: MemoryRecord[] = []): MemoryServiceSurface & 
     },
 
     get: async (_id: string) => null,
+    getWithStaleness: async (_id: string) => null,
     getWithoutAccessTracking: async (_id: string) => null,
 
     search: async (_query: string, _opts?: MemorySearchOptions): Promise<MemorySearchResponse> => ({

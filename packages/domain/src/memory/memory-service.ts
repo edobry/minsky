@@ -26,9 +26,15 @@ import {
 import {
   collectUnresolvedRefs,
   combineStaleness,
+  combineTaskStateDrift,
   computeStaleness,
   extractTrackingTaskRefs,
 } from "./staleness";
+import {
+  assertedTaskIds,
+  computeTaskStateDrift,
+  extractTaskStateAssertions,
+} from "./task-state-assertion";
 import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
 
 /**
@@ -63,6 +69,7 @@ import { MEMORY_SCOPES } from "./types";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
+  MemoryReadResult,
   MemoryCreateInput,
   MemoryUpdateInput,
   MemoryListFilter,
@@ -105,6 +112,15 @@ export interface MemoryServiceDb {
 export interface MemoryServiceSurface {
   search(query: string, opts?: MemorySearchOptions): Promise<MemorySearchResponse>;
   get(id: string): Promise<MemoryRecord | null>;
+  /**
+   * Fetch by id AND annotate staleness, the way `search()` already does (mt#4743).
+   *
+   * `get()` is deliberately left un-annotated: it is the internal read used by callers
+   * that want the row, not a verdict about it. This is the CONSUMER-facing read — the
+   * one an agent reaches when a handoff, a spec cross-reference or a family root named
+   * a record by id, which is precisely the load-bearing case mt#1709 did not cover.
+   */
+  getWithStaleness(id: string): Promise<MemoryReadResult | null>;
   /** Read without bumping access tracking — for read-in-order-to-write callers (mt#3602). */
   getWithoutAccessTracking(id: string): Promise<MemoryRecord | null>;
   list(filter?: MemoryListFilter): Promise<MemoryRecord[]>;
@@ -485,6 +501,36 @@ export class MemoryService implements MemoryServiceSurface {
   }
 
   /**
+   * See {@link MemoryServiceSurface.getWithStaleness}.
+   *
+   * Routed through the SAME {@link annotateStaleness} pass `search()` uses, on a
+   * one-element result list, rather than a parallel implementation. Two consequences that
+   * are the point rather than an accident of reuse:
+   *
+   * - **Every trigger `search()` has, this has** — including trigger 2's measurement decay
+   *   (mt#4452), which `annotateStaleness` folds in via `combineStaleness`. A third trigger
+   *   added later lands on both surfaces at once, which is the property that makes
+   *   "`memory_get` returns the same annotation `memory_search` does" true by construction
+   *   instead of by two implementations someone has to keep in step.
+   * - **The lookup cost is the same shape, not a new one.** `annotateStaleness` returns
+   *   before issuing any query when the record declares no refs, so an ordinary fetch costs
+   *   zero extra queries; only a record that actually names a tracking task pays for one.
+   *   That matters here because `get` sits on far hotter paths than `search`.
+   */
+  async getWithStaleness(id: string): Promise<MemoryReadResult | null> {
+    const record = await this.get(id);
+    if (!record) return null;
+
+    // `score: 0` is a placeholder for a shape that requires one — a fetch-by-id has no
+    // query to be relevant to, and nothing downstream of `annotateStaleness` reads it.
+    const results: MemorySearchResult[] = [{ record, score: 0 }];
+    await this.annotateStaleness(results);
+
+    const staleness = results[0]?.staleness;
+    return staleness === undefined ? { record } : { record, staleness };
+  }
+
+  /**
    * Read a record WITHOUT bumping `last_accessed_at` / `access_count`.
    *
    * For a caller that reads a record in order to WRITE it — `memory.patch`
@@ -759,7 +805,16 @@ export class MemoryService implements MemoryServiceSurface {
     if (!lookup || results.length === 0) return;
 
     const perResult = results.map((r) => extractTrackingTaskRefs(r.record));
-    const allRefs = [...new Set(perResult.flatMap((p) => p.refs))];
+    // Trigger 3 (mt#4743). Extracted here, beside trigger 1, so both share ONE status
+    // lookup — its refs are task ids of exactly the same kind, and unioning them keeps the
+    // "one query per search" property the docblock below claims rather than adding a second.
+    const perResultAssertions = results.map((r) => extractTaskStateAssertions(r.record));
+    const allRefs = [
+      ...new Set([
+        ...perResult.flatMap((p) => p.refs),
+        ...perResultAssertions.flatMap((a) => assertedTaskIds(a)),
+      ]),
+    ];
     if (allRefs.length === 0) return;
 
     let statuses: ReadonlyMap<string, string | undefined>;
@@ -775,6 +830,18 @@ export class MemoryService implements MemoryServiceSurface {
       if (!extracted) continue;
       const staleness = computeStaleness(extracted.refs, extracted.source, statuses);
       if (staleness) result.staleness = staleness;
+
+      // Trigger 3 folds on top, against the SAME `statuses` map — no extra query. It can
+      // promote a `current` verdict to `stale`, but only when a drifted assertion names a
+      // task that has since gone terminal; see `combineTaskStateDrift`.
+      const assertions = perResultAssertions[i];
+      if (assertions && assertions.length > 0) {
+        const combined = combineTaskStateDrift(
+          result.staleness,
+          computeTaskStateDrift(assertions, statuses)
+        );
+        if (combined) result.staleness = combined;
+      }
     }
 
     // mt#4452: trigger 2 folds in on top, and can promote a `current` verdict to `stale` —

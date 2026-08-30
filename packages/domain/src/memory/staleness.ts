@@ -56,6 +56,7 @@
  */
 
 import { renderMeasurementNote, type MeasurementDecay } from "./measurement-decay";
+import { renderTaskStateNote, type TaskStateDrift } from "./task-state-assertion";
 import { TRACKS_TASK_ASSOCIATION } from "./associations";
 
 /**
@@ -178,6 +179,17 @@ export interface MemoryStaleness {
    * the system.
    */
   measurement?: MeasurementDecay;
+  /**
+   * Trigger 3's finding (mt#4743): the record asserts another task's status, and that status
+   * no longer matches the task record. Independent of the two fields above for the same reason
+   * `measurement` is — a record can carry any combination — so it is a sibling field.
+   *
+   * Unlike `measurement`, this does NOT force `outcome` to `"stale"`. A record whose
+   * PRESCRIPTION is still live can carry a dated status mention in a lineage bullet; that is
+   * worth flagging to a reader without asserting the whole record has expired. `outcome`
+   * is promoted only when a drifted assertion names a task that has since gone terminal.
+   */
+  taskStateDrift?: TaskStateDrift;
 }
 
 /**
@@ -317,6 +329,67 @@ export function combineStaleness(
     outcome: "stale",
     note: retirement.note ? `${retirement.note}\n\n${measurementNote}` : measurementNote,
     measurement,
+  };
+}
+
+/**
+ * Fold trigger 3's finding into whatever the earlier triggers concluded (mt#4743).
+ *
+ * Mirrors {@link combineStaleness} with one deliberate difference: it does NOT
+ * unconditionally promote `outcome` to `"stale"`.
+ *
+ * Trigger 2 promotes because a decayed measurement is a statement about THIS record's own
+ * numbers — if they no longer describe the system, the record is stale, whatever its tracking
+ * task is doing. A drifted status mention is weaker: a lineage bullet reading "mt#X (TODO)"
+ * when mt#X is now IN-PROGRESS is dated, and says nothing about whether the record's
+ * PRESCRIPTION still holds. Promoting on that would flag a third of the corpus's family roots
+ * as obsolete on the strength of one aging parenthetical, which is the noise
+ * {@link MemorySearchResult.staleness}'s optional-not-"current" convention exists to avoid.
+ *
+ * So promotion requires a drifted assertion whose task has gone TERMINAL — measured at 47 of
+ * the 53 wrong claims in the live corpus, i.e. almost all of the real signal, without the tail
+ * that carries almost none of it.
+ *
+ * Non-promoting drift is still RECORDED in the structured field and renders nothing, the same
+ * discipline `computeStaleness` applies to `unresolved`: a finding we made and chose not to
+ * put in front of a reader stays inspectable rather than being discarded. This also preserves
+ * `note`'s stated invariant — present only when `outcome === "stale"`.
+ */
+export function combineTaskStateDrift(
+  existing: MemoryStaleness | undefined,
+  drift: TaskStateDrift | undefined
+): MemoryStaleness | undefined {
+  if (!drift) return existing;
+
+  const promotes = drift.drifted.some((d) => d.nowTerminal);
+
+  if (!existing) {
+    return promotes
+      ? {
+          outcome: "stale",
+          source: "text",
+          completedTasks: [],
+          unresolvedTasks: [],
+          note: renderTaskStateNote(drift),
+          taskStateDrift: drift,
+        }
+      : {
+          outcome: "current",
+          source: "text",
+          completedTasks: [],
+          unresolvedTasks: [],
+          taskStateDrift: drift,
+        };
+  }
+
+  if (!promotes) return { ...existing, taskStateDrift: drift };
+
+  const note = renderTaskStateNote(drift);
+  return {
+    ...existing,
+    outcome: "stale",
+    note: existing.note ? `${existing.note}\n\n${note}` : note,
+    taskStateDrift: drift,
   };
 }
 
