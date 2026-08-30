@@ -76,8 +76,10 @@
 //      points the agent at when a log is review-due
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 // mt#3744 deliberately removed the `./domain-bootstrap` import: this hook no longer resolves
@@ -110,6 +112,42 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_CALIBRATION_CADENCE";
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
 const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.json";
+
+// ---------------------------------------------------------------------------
+// mt#4748 R1 — calibration/evaluation log READ path (state-dir, project-keyed)
+// ---------------------------------------------------------------------------
+//
+// The watermark/last-warned stores above stay repo-rooted (a different
+// producer than the calibration/evaluation logs themselves, and out of
+// mt#4748's scope — still correctly gitignored). The LOGS this hook reads via
+// `readContent` below moved: `.minsky/hooks/dispatcher.ts`'s
+// `calibrationLogPath`/`evaluationLogPath` now resolve under
+// `getMinskyStateDir()/projects/<key>/`, not `<repoRoot>/.minsky/`. This
+// detector's whole job is noticing when a log is review-due; reading the old
+// (now-empty) location makes it report nothing, silently, forever — the
+// exact can't-fail-probe class mt#4748's R1 fix exists to prevent.
+//
+// `projectStateKey` is duplicated (not imported) from the guard-events
+// ingest module (its `ingest-runtime.ts`) / `dispatcher.ts` — same
+// no-cross-dependency convention: importing that ingest module here
+// would pull its `drizzle-orm` / DB-schema imports into every UserPromptSubmit
+// hook invocation's cold start, for one leaf pure function. MUST compute the
+// IDENTICAL value from the IDENTICAL `repoRoot` input as the write side, or
+// this reader looks in the wrong project's subdirectory.
+function projectStateKey(repoRoot: string): string {
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
+ * Resolve a `CALIBRATION_LOG_REGISTRY` / derived-entry `path` (still
+ * repo-relative — e.g. `.minsky/<name>-calibration.jsonl` or
+ * `.minsky/<name>-evaluations.jsonl`, see that field's docblock in
+ * `calibration-sweep.ts`) at its ACTUAL post-mt#4748 location.
+ */
+export function resolveCalibrationStatePath(repoRoot: string, relPath: string): string {
+  const bareName = relPath.replace(/^\.minsky\//, "");
+  return join(getMinskyStateDir(), "projects", projectStateKey(repoRoot), bareName);
+}
 
 /**
  * Re-warning cooldown: once a log is flagged review-due and the operator has
@@ -675,9 +713,11 @@ export async function run(
 
   try {
     const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
+    // mt#4748 R1: the logs themselves live under the state dir now, not
+    // `<repoRoot>/.minsky/` — see the module note above `projectStateKey`.
     const readContent = async (relPath: string): Promise<string | null> => {
       try {
-        return readFileSync(join(repoRoot, relPath), "utf-8");
+        return readFileSync(resolveCalibrationStatePath(repoRoot, relPath), "utf-8");
       } catch {
         return null;
       }
@@ -767,9 +807,11 @@ export async function main(): Promise<void> {
 
   try {
     const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
+    // mt#4748 R1: the logs themselves live under the state dir now, not
+    // `<repoRoot>/.minsky/` — see the module note above `projectStateKey`.
     const readContent = async (relPath: string): Promise<string | null> => {
       try {
-        return readFileSync(join(repoRoot, relPath), "utf-8");
+        return readFileSync(resolveCalibrationStatePath(repoRoot, relPath), "utf-8");
       } catch {
         return null;
       }
