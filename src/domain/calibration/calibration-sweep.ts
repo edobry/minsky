@@ -40,7 +40,24 @@ import { createHash } from "node:crypto";
  * operator-facing output, and the record kind (drives the parse path).
  */
 export interface CalibrationLogEntry {
-  /** Repo-relative path to the JSONL log file. */
+  /**
+   * Repo-relative path to the JSONL log file.
+   *
+   * **STALE as of mt#4748.** `.minsky/hooks/dispatcher.ts`'s
+   * `calibrationLogPath` — the actual write path every value here mirrors —
+   * moved from repo-rooted `.minsky/<name>-calibration.jsonl` to a
+   * project-keyed subdirectory of the state dir
+   * (`getMinskyStateDir()/projects/<key>/<name>-calibration.jsonl`), so
+   * these repo-relative strings no longer name where the file IS. The sole
+   * consumer of this field, `src/adapters/shared/commands/calibration.ts`'s
+   * `readContent` closure, resolves it as `join(workspacePath, relPath)` —
+   * a repo-working-tree join — and is OUT OF SCOPE for mt#4748 (not in its
+   * file list). Left un-migrated here rather than half-fixed: flipping this
+   * field to an absolute state-dir path without also fixing that closure
+   * would silently mis-resolve (`path.join` does not restart at an absolute
+   * second segment the way `path.resolve` does), which is a worse failure
+   * than the current one. Tracked: mt#4771.
+   */
   path: string;
   /** Human-readable name for display (no spaces; use kebab). */
   name: string;
