@@ -370,6 +370,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "criterion-reconciliation-scan",
+    {
+      description:
+        'Records when a spec write EXPLAINS that a Success Criterion or Acceptance Test is unmet — "is not satisfied", "cannot be satisfied", "unsatisfiable" — names that criterion, and leaves the criterion\'s own normative text untouched in the same revision. Fires at the spec-WRITE seam, one round earlier than the reviewer that caught this four times in eight days (mt#4038, mt#4162, mt#4320; mt#4076 wrote only to the PR body and never reaches this seam). Both halves of the join are sections of the SAME document, so it needs no database and no transcript. Unlike its seam siblings it IS on ADR-024\'s ladder and says so: the discharging action is structural but cannot be the trigger, so the nominating half is a phrase set by necessity — Rung 1 only, and a recall bound is answered by a rung climb rather than a widened list. Record-only at ship; the evaluation stream carries the miss denominator.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("criterion-reconciliation-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "warn-unwired-task-relationship",
     {
       description:

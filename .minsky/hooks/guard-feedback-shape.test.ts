@@ -285,6 +285,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "constructed-identifier-batch-detector",
         "context-fill-gauge",
         "cross-turn-hedge-detector",
+        "criterion-reconciliation-scan",
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
@@ -445,6 +446,13 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // render is the ceiling for any realistic model id (measured 269 known / 355
   // fallback against the declared 400), not a sample of an unbounded axis.
   "context-fill-gauge": "capped",
+  // mt#4213. Both rendered axes are bounded: the id list at `MAX_RENDERED_IDS`
+  // with an `…and N more` overflow suffix, and a fixed body. So `renderWorstCase`
+  // is a proved ceiling (measured 384 against the declared 420), not a sample.
+  // Note the contrast with `spec-criterion-claim-detector` below, which is
+  // RENDER_PROBE_SAMPLE precisely because it still owes this cap — paying it at
+  // authoring time is what buys "capped" here.
+  "criterion-reconciliation-scan": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
   "inject-ask-responses": "capped", // MAX_ENUMERATED_ASKS x (MAX_TITLE_CHARS + MAX_CHOSEN_RENDER_CHARS) (mt#3564)
   "inject-current-time": "fixed",

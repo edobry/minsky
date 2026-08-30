@@ -468,6 +468,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "criterion-reconciliation-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "`lexical`, NOT `structural`, and the distinction is the whole design note. The CONFIRMING half is structural and exact — does this write carry the named criterion's own entry, answerable from the authored text because a marker patch leaves what it omits byte-identical. But the NOMINATING half is a fixed substring set, because the discharging action (editing the criterion) cannot be the trigger: every patch that does not touch a criterion would fire. A guard is placed on the ladder by the surface it MATCHES, and this one matches prose, so ADR-024 governs it and mt#4595's closed-vocabulary carve-out does not apply. Recall is therefore the live risk: planning measured mt#4038, one of its own recorded instances, as matching none of the set, and that miss ships as an asserted test rather than as a widened list.",
+    },
+  ],
+  [
     "warn-unwired-task-relationship",
     {
       interventions: [recordReview],
