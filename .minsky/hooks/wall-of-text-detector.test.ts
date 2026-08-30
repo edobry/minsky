@@ -1932,7 +1932,8 @@ describe("run — mt#3718 R1 dedupe-vs-suppression interaction (reason-set-aware
    .minsky/wall-of-text-calibration.jsonl. */
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { calibrationLogPath } from "./dispatcher";
 
 /** The resolved-project-dir env var the shared path helper reads (mt#4752). */
 const PROJECT_DIR_ENV = "CLAUDE_PROJECT_DIR";
@@ -1944,8 +1945,11 @@ describe("readCalibrationLogText", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "wall-of-text-detector-test-"));
-    mkdirSync(join(tmpDir, ".minsky"), { recursive: true });
-    logPath = join(tmpDir, ".minsky", "wall-of-text-calibration.jsonl");
+    // mt#4748: resolves under the state dir, project-keyed by `tmpDir` — not
+    // under `tmpDir` itself. Compute through the same helper the reader
+    // (`readCalibrationLogText` -> `calibrationLogPath`) routes through.
+    logPath = calibrationLogPath("wall-of-text", { projectDir: tmpDir });
+    mkdirSync(dirname(logPath), { recursive: true });
     // mt#4752: the argument to `readCalibrationLogText` is the guard's RAW cwd,
     // which the shared resolver deliberately ranks BELOW `CLAUDE_PROJECT_DIR` —
     // a raw cwd is routinely a session workspace or a subdirectory, so letting
@@ -1960,6 +1964,9 @@ describe("readCalibrationLogText", () => {
   afterEach(() => {
     if (priorProjectDir === undefined) delete process.env[PROJECT_DIR_ENV];
     else process.env[PROJECT_DIR_ENV] = priorProjectDir;
+    // mt#4748: `logPath` now lives under the shared state dir, outside
+    // `tmpDir`, so cleaning up `tmpDir` alone would leak it.
+    rmSync(logPath, { force: true });
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

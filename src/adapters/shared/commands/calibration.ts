@@ -30,6 +30,7 @@ import {
 } from "../command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import { buildSweptEntries } from "../../../domain/calibration/swept-entries";
 import {
   blockingClaims,
@@ -155,7 +156,10 @@ function buildRecordContextLines(rec: CalibrationRecord): string[] {
 function resolveWorkspacePath(ctx?: CommandExecutionContext): string {
   // Prefer the workspace resolved by the execution context (correct for MCP /
   // session-scoped invocations where the server cwd is not the user's workspace);
-  // fall back to cwd for plain CLI use. The calibration logs are repo-relative.
+  // fall back to cwd for plain CLI use. Still used as the repo-root INPUT for
+  // watermark/claim-store paths (those stay repo-relative, mt#4748 does not
+  // move them) and as the key input for calibration/evaluation log
+  // resolution below (mt#4748 R1 — those are no longer repo-relative reads).
   return ctx?.workspacePath ?? process.cwd();
 }
 
@@ -166,6 +170,88 @@ async function readFileOrNull(filePath: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// mt#4748 R1 — calibration/evaluation log READ path (state-dir, project-keyed)
+// ---------------------------------------------------------------------------
+//
+// `.minsky/hooks/dispatcher.ts`'s `calibrationLogPath`/`evaluationLogPath`
+// moved these logs off the repo working tree onto
+// `getMinskyStateDir()/projects/<key>/` (`<key>` a hash of the repo root).
+// `CALIBRATION_LOG_REGISTRY` (`calibration-sweep.ts`) still declares
+// repo-relative `path` values (that field's own docblock records why, and
+// the follow-up this leaves), so this is the READ-side translation: the
+// same math the write side does, applied here at consumption time instead
+// of at the registry's declaration site.
+//
+// Repo-root resolution is duplicated (a `.git`-ascent walk), not imported
+// from `.minsky/hooks/types.ts`'s `findRepoRoot` — this file is production
+// `src/` code and does not depend on the `.minsky/hooks/` dev-tooling tree
+// (the reverse direction — hooks importing `packages/domain` — is
+// established since mt#4373; this direction is not, and pulling in
+// `types.ts`'s ~1300 lines of unrelated hook-dispatch machinery for one
+// function is not worth the coupling). This MUST resolve identically to the
+// write side for the SAME repo, or this reader silently looks in the wrong
+// project's subdirectory — the defect this whole migration exists to fix.
+// `workspacePath` is already the intended repo root for every existing
+// caller of this file (the OLD `join(workspacePath, relPath)` join already
+// assumed that, with no ascent, and never handled a subdirectory correctly
+// either — this preserves that exact assumption rather than introducing a
+// new one), so the `.git` walk is a fidelity match for the common case, not
+// a behavior change for this file.
+async function findGitRepoRoot(startDir: string): Promise<string> {
+  const { existsSync, statSync, readFileSync } = await import("node:fs");
+  const { join, dirname, resolve, isAbsolute } = await import("node:path");
+
+  const isGitRepoRootCandidate = (dir: string): boolean => {
+    const dotGit = join(dir, ".git");
+    if (!existsSync(dotGit)) return false;
+    try {
+      if (statSync(dotGit).isDirectory()) return true;
+      // `.git` is a file — accept only a parseable `gitdir:` indirection
+      // (worktree layout) whose target exists and is a directory. Mirrors
+      // `.minsky/hooks/types.ts`'s `resolveGitDir`/`isRepoRootCandidate`.
+      const content = String(readFileSync(dotGit, "utf-8"));
+      const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
+      if (!match?.[1]) return false;
+      const target = match[1].trim();
+      const resolved = isAbsolute(target) ? target : resolve(dir, target);
+      return existsSync(resolved) && statSync(resolved).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+
+  let dir = resolve(startDir);
+  for (;;) {
+    if (isGitRepoRootCandidate(dir)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(startDir);
+    dir = parent;
+  }
+}
+
+/** Duplicated from `dispatcher.ts` / `ingest-runtime.ts` — see the module note above. */
+async function projectStateKey(repoRoot: string): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
+ * Resolve a `CALIBRATION_LOG_REGISTRY` / derived-entry `path` (still
+ * repo-relative — e.g. `.minsky/<name>-calibration.jsonl` or
+ * `.minsky/<name>-evaluations.jsonl`) at its ACTUAL post-mt#4748 location.
+ */
+export async function resolveCalibrationStatePath(
+  workspacePath: string,
+  relPath: string
+): Promise<string> {
+  const { join } = await import("node:path");
+  const repoRoot = await findGitRepoRoot(workspacePath);
+  const key = await projectStateKey(repoRoot);
+  const bareName = relPath.replace(/^\.minsky\//, "");
+  return join(getMinskyStateDir(), "projects", key, bareName);
 }
 
 async function writeFileMkdir(filePath: string, content: string): Promise<void> {
@@ -590,11 +676,13 @@ export function registerCalibrationCommands(): void {
     async execute(params, ctx) {
       try {
         const workspacePath = resolveWorkspacePath(ctx);
-        const { join } = await import("node:path");
 
-        // Build the reader function (resolves repo-relative paths)
+        // mt#4748 R1: the log CONTENT lives under the state dir now, not
+        // `<workspacePath>/<relPath>` — see the module note above
+        // `resolveCalibrationStatePath`. (Watermark/claim stores below are
+        // unaffected and still resolve against `workspacePath` directly.)
         const readContent = async (relPath: string): Promise<string | null> => {
-          return readFileOrNull(join(workspacePath, relPath));
+          return readFileOrNull(await resolveCalibrationStatePath(workspacePath, relPath));
         };
 
         let watermarks = await loadWatermarks(workspacePath);

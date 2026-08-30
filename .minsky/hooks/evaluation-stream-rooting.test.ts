@@ -6,7 +6,7 @@
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 import { appendEvaluationRecord as appendRetrospectiveTrigger } from "./retrospective-trigger-scanner";
 import {
@@ -15,6 +15,7 @@ import {
 } from "./silent-stretch-detector";
 import { appendEvaluationRecord as appendStopAtDecision } from "./stop-at-decision-scan";
 import { appendEvaluationRecord as appendOperatorDeferral } from "./operator-deferral-detector";
+import { evaluationLogPath } from "./dispatcher";
 
 /**
  * mt#3745 — per-DETECTOR rooting, not just the shared helper.
@@ -100,8 +101,13 @@ describe("evaluation-stream rooting, per detector (mt#3745 AT1)", () => {
           detector.append(fx.strayRepo, { timestamp: "2026-08-05T00:00:00Z", probe: true });
         });
 
-        const landed = join(fx.projectRepo, ".minsky", detector.streamFile);
-        const stray = join(fx.strayRepo, ".minsky", detector.streamFile);
+        // mt#4748: the log now resolves under the state dir, project-keyed —
+        // not under either repo's `.minsky/`. The property under test is
+        // unchanged (lands under the PROJECT root's key, not the stray
+        // cwd's), so compute both through the same helper the detector
+        // itself routes through rather than hand-rolling a `.minsky/` path.
+        const landed = evaluationLogPath(detector.label, { projectDir: fx.projectRepo });
+        const stray = evaluationLogPath(detector.label, { projectDir: fx.strayRepo });
 
         expect(existsSync(landed)).toBe(true);
         expect(JSON.parse(readFileSync(landed, "utf-8").trim())).toEqual({
@@ -111,6 +117,9 @@ describe("evaluation-stream rooting, per detector (mt#3745 AT1)", () => {
         // The defect, stated as an assertion: nothing under the guard's cwd.
         expect(existsSync(stray)).toBe(false);
       } finally {
+        // mt#4748: `landed` now lives under the shared state dir, outside
+        // either mkdtemp'd repo, so `fx.cleanup()` alone would leak it.
+        rmSync(evaluationLogPath(detector.label, { projectDir: fx.projectRepo }), { force: true });
         fx.cleanup();
       }
     });
@@ -125,11 +134,13 @@ describe("silent-stretch dedupe reader rooting (mt#3745 AT3)", () => {
   // this test able to fail — if it read the stray, it would find "STRAY".
   test("reads the CLAUDE_PROJECT_DIR-rooted log, not the one under cwd", () => {
     const fx = makeFixture("reader");
+    // mt#4748: same state-dir/project-key rooting as the writer tests above.
+    // Declared outside `try` so `finally` below can clean them up too.
+    const projectLog = evaluationLogPath("silent-stretch", { projectDir: fx.projectRepo });
+    const strayLog = evaluationLogPath("silent-stretch", { projectDir: fx.strayRepo });
     try {
-      const projectLog = join(fx.projectRepo, ".minsky", SILENT_STRETCH_STREAM_FILE);
-      const strayLog = join(fx.strayRepo, ".minsky", SILENT_STRETCH_STREAM_FILE);
-      mkdirSync(join(fx.projectRepo, ".minsky"), { recursive: true });
-      mkdirSync(join(fx.strayRepo, ".minsky"), { recursive: true });
+      mkdirSync(dirname(projectLog), { recursive: true });
+      mkdirSync(dirname(strayLog), { recursive: true });
       writeFileSync(projectLog, `${JSON.stringify({ marker: "PROJECT" })}\n`, "utf-8");
       writeFileSync(strayLog, `${JSON.stringify({ marker: "STRAY" })}\n`, "utf-8");
 
@@ -139,6 +150,9 @@ describe("silent-stretch dedupe reader rooting (mt#3745 AT3)", () => {
       expect(text).toContain("PROJECT");
       expect(text).not.toContain("STRAY");
     } finally {
+      // mt#4748: both logs now live under the shared state dir.
+      rmSync(projectLog, { force: true });
+      rmSync(strayLog, { force: true });
       fx.cleanup();
     }
   });

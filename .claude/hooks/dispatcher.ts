@@ -37,6 +37,8 @@
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import { readInput, writeOutput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import {
@@ -327,27 +329,46 @@ export interface CalibrationWriteDeps {
 const defaultCalibrationDeps: CalibrationWriteDeps = { existsSync, mkdirSync, appendFileSync };
 
 /**
+ * Derive a stable, filesystem-safe key for a repo root so calibration/
+ * evaluation streams from DIFFERENT Minsky-managed projects never collide in
+ * the shared, machine-local state dir (mt#4748 SC1). Deterministic sha256
+ * over the resolved absolute path — the same shape VS Code's
+ * `workspaceStorage` keying uses, for the same reason.
+ *
+ * Duplicated (not imported) in
+ * `packages/domain/src/guard-events/ingest-runtime.ts` — the sweep that
+ * reads these files back for DB ingest, which must derive the identical key
+ * from the identical `repoRoot` to ever find what this file wrote. Each
+ * module tree stays free of a dependency on the other by convention (mirrors
+ * why `fire-log.ts` and `guard-health.ts` each carry their own
+ * `getXStateDir` rather than sharing one); this function's whole contract is
+ * "same input -> same output", which a 3-line pure function duplicated
+ * twice satisfies exactly as well as a shared import would.
+ */
+export function projectStateKey(repoRoot: string): string {
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
  * Resolve the JSONL path for a calibration-log name, preserving the EXACT
  * filenames `CALIBRATION_LOG_REGISTRY`
  * (`src/domain/calibration/calibration-sweep.ts`) already expects — e.g.
- * `"causal-premise"` -> `.minsky/causal-premise-calibration.jsonl`. No
- * changes are needed to that registry when a guard migrates onto this
+ * `"causal-premise"` -> `<state dir>/projects/<key>/causal-premise-calibration.jsonl`.
+ * No changes are needed to that registry when a guard migrates onto this
  * service (per the task's "read it; do not change it" constraint).
  *
- * mt#2710: `root` (whichever of `projectDir` / `CLAUDE_PROJECT_DIR` /
- * `process.cwd()` resolved) is passed through `findRepoRoot` before joining
- * `.minsky/` — this is the ACTUAL production write path for every
- * dispatcher-migrated calibration writer (`runDispatcher` calls
- * `logCalibrationRecord(reg.calibrationLog, outcome.calibration)` with no
- * `projectDir`, so it falls all the way to `process.cwd()`, which mirrors
- * the hook subprocess's shell cwd — routinely a repo SUBDIRECTORY). Without
- * this, fixing only the individual guards' now-unreachable standalone-CLI
- * `appendCalibrationRecord()` fallbacks would leave the real D4 write path
- * still scattering `.minsky/` into whatever subdirectory the shell cwd sat
- * in. `findRepoRoot` degrades to its input unchanged when no `.git` is
- * found up the tree (e.g. the synthetic `/repo`-style paths this module's
- * own tests use), so this is a no-op for every existing caller that already
- * passes a real repo root.
+ * mt#4748 (SC1): rooted on `getMinskyStateDir()`, NOT the repo, and keyed by
+ * project via {@link projectStateKey} — before this, EVERY Minsky-managed
+ * project's working tree received this file, and only THIS repo's own
+ * `.gitignore` (retired by SC6) ever ignored it. `root` (whichever of
+ * `projectDir` / `CLAUDE_PROJECT_DIR` / `fallbackCwd` / `process.cwd()`
+ * resolved) is still passed through `findRepoRoot` first — the repo root is
+ * no longer where the file LIVES, but it is still what makes the project KEY
+ * stable across the many different cwds (a repo subdirectory, a session
+ * workspace) a hook subprocess can be invoked from (mt#2710's original
+ * rationale for this same `findRepoRoot` call, preserved here). `findRepoRoot`
+ * degrades to its input unchanged when no `.git` is found up the tree (e.g.
+ * the synthetic `/repo`-style paths this module's own tests use).
  *
  * **`projectDir` and `fallbackCwd` are NOT interchangeable (mt#4752).** This
  * mirrors `evaluationLogPath`'s split, added by mt#3745 for the same reason and
@@ -372,7 +393,13 @@ export function calibrationLogPath(
     process.env["CLAUDE_PROJECT_DIR"] ??
     options?.fallbackCwd ??
     process.cwd();
-  return join(findRepoRoot(root), ".minsky", `${calibrationLogName}-calibration.jsonl`);
+  const repoRoot = findRepoRoot(root);
+  return join(
+    getMinskyStateDir(),
+    "projects",
+    projectStateKey(repoRoot),
+    `${calibrationLogName}-calibration.jsonl`
+  );
 }
 
 /**
@@ -422,6 +449,11 @@ export function logCalibrationRecord(
  * Separate parameters rather than one `root` argument on purpose: a single
  * parameter is exactly what let the raw cwd be supplied where an authoritative
  * dir was meant, and nothing in the type system objected.
+ *
+ * mt#4748 (SC1): rooted on `getMinskyStateDir()`, project-keyed via
+ * {@link projectStateKey} — same move as `calibrationLogPath` above, same
+ * reason (this was the other half of every managed project's working-tree
+ * landmine; see that function's docblock for the full rationale).
  */
 export function evaluationLogPath(
   evaluationLogName: string,
@@ -432,7 +464,13 @@ export function evaluationLogPath(
     process.env["CLAUDE_PROJECT_DIR"] ??
     options?.fallbackCwd ??
     process.cwd();
-  return join(findRepoRoot(root), ".minsky", `${evaluationLogName}-evaluations.jsonl`);
+  const repoRoot = findRepoRoot(root);
+  return join(
+    getMinskyStateDir(),
+    "projects",
+    projectStateKey(repoRoot),
+    `${evaluationLogName}-evaluations.jsonl`
+  );
 }
 
 /**
