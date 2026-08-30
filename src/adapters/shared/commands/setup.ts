@@ -121,7 +121,11 @@ export function renderCoverageLines(
 ): string[] {
   const lines: string[] = [];
   for (const entry of reportable) {
-    lines.push(formatAppCoverage(entry.status, entry.slug));
+    // `settingsUrl` is already resolved on the entry by `checkAppRoleCoverage`
+    // — the `policyClosed` loop below has consumed it since mt#4693, while this
+    // one dropped it, so the coverage line sent the operator navigating for a
+    // link that was in hand (mt#4695).
+    lines.push(formatAppCoverage(entry.status, entry.slug, entry.settingsUrl));
   }
 
   if (outcome.filed.length > 0) {
