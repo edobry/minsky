@@ -286,6 +286,8 @@ export type PreparedElement =
       sections: { heading: string; content: string }[];
       /** Parent conversation + the `Agent` call that dispatched this, when stamped. */
       stamp?: { parentAgentSessionId: string; parentToolUseId: string };
+      /** Assignment facts shown in the header without hover. */
+      facts: { sessionId?: string; taskId?: string; readOnly: boolean };
     }
   /**
    * A slash-command invocation merged with its captured output and the
@@ -514,8 +516,7 @@ export function ToolInvocation({
     ? `${call.name}\n${sessionTarget.absolutePath}\nsession ${sessionTarget.sessionId}`
     : call.name;
   const digest = useMemo(
-    () =>
-      summarizeToolInvocation(call.name, call.input, resultInfo),
+    () => summarizeToolInvocation(call.name, call.input, resultInfo),
     [call.name, call.input, resultInfo]
   );
 
@@ -718,7 +719,7 @@ export function DispatchBriefBlock({
   element: Extract<PreparedElement, { kind: "dispatch-brief" }>;
   entityIndex: EntityIndex;
 }) {
-  const { body, sections, stamp } = element;
+  const { body, sections, stamp, facts } = element;
   return (
     <div
       data-testid="dispatch-brief"
@@ -742,6 +743,41 @@ export function DispatchBriefBlock({
             >
               ↑ dispatched from this call
             </Link>
+          </>
+        ) : null}
+        {facts.taskId ? (
+          <>
+            <span aria-hidden>·</span>
+            <Link
+              to={`/tasks/${encodeURIComponent(facts.taskId)}`}
+              className="rounded font-mono text-violet-300 underline decoration-violet-300/40 underline-offset-2 transition-colors hover:text-violet-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {facts.taskId}
+            </Link>
+          </>
+        ) : null}
+        {facts.sessionId ? (
+          <>
+            <span aria-hidden>·</span>
+            <span className="font-mono" title={`Workspace session ${facts.sessionId}`}>
+              {/* Short prefix, full id on hover — the id itself is unreadable at
+                  a glance and the header is a scan surface, not a reference. The
+                  HOVER carries only the long form of something already visible,
+                  which is the permitted use (`cockpit-design` anti-pattern 5
+                  bans hover-ONLY critical state, not hover detail). */}
+              {facts.sessionId.slice(0, 8)}…
+            </span>
+          </>
+        ) : null}
+        {facts.readOnly ? (
+          <>
+            <span aria-hidden>·</span>
+            <span
+              className="rounded border border-violet-400/40 px-1 text-[10px] uppercase tracking-wide text-violet-300"
+              title="This dispatch was declared read-only (mt#2865); a write-gate denies session mutations for it"
+            >
+              read-only
+            </span>
           </>
         ) : null}
       </div>
@@ -804,11 +840,7 @@ export function InjectedContentBlock({
           // No padding on the wrapper: the structured body pads its own rows,
           // exactly as ToolInvocation's expanded branch does.
           <div className="border-t border-border/40">
-            <TaskNotificationBody
-              span={span}
-              parts={span.notification}
-              entityIndex={entityIndex}
-            />
+            <TaskNotificationBody span={span} parts={span.notification} entityIndex={entityIndex} />
           </div>
         ) : (
           <div className="border-t border-border/40 px-2 py-1">

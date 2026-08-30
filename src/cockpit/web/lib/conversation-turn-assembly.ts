@@ -228,6 +228,7 @@ function asDispatchBrief(
     body: parts.body,
     sections: parts.sections,
     ...(parts.stamp ? { stamp: parts.stamp } : {}),
+    facts: parts.facts,
   };
   // The brief replaces the text run in place, at the position the first text
   // element held, so a turn that mixes prose with another element keeps its

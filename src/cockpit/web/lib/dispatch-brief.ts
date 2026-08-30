@@ -41,6 +41,51 @@ export const FOLDED_SECTION_HEADINGS = [
   "## Embedded Skills",
 ] as const;
 
+/**
+ * The assignment facts the header shows without hover (`cockpit-design`
+ * anti-pattern 5: critical state must not be hover-only).
+ *
+ * Parsed out of the brief's own text, because that is where they are: the
+ * generator writes them as prose, not as structured fields, and the render path
+ * has no other channel to them. Every field is OPTIONAL — a brief that does not
+ * carry one renders without it rather than rendering a blank slot, since the
+ * generator has several shapes and not all of them emit all three.
+ *
+ * **Deliberately absent: agent type and model.** The criterion asks for them and
+ * they are genuinely not here — they live in `agent_spawns`, not in the prompt,
+ * so parsing cannot reach them. The page already shows the agent kind in its
+ * "Spawned by <kind> dispatch" chrome, which is the right home for a
+ * conversation-grain fact; duplicating it into a turn-grain header would be the
+ * same double-print that `d68f527c0` just removed.
+ */
+export interface DispatchBriefFacts {
+  /** Minsky workspace session the dispatch runs in. */
+  sessionId?: string;
+  /** Task the dispatch is bound to, e.g. `mt#4248`. */
+  taskId?: string;
+  /** True when the prompt carries the mt#2865 read-only-bound section. */
+  readOnly: boolean;
+}
+
+// Anchored on the generator's exact strings (`prompt-generation.ts`), pinned by
+// `prompt-generation.dispatch-brief-headings.test.ts` alongside the fold
+// headings — same duplication, same reason (mt#3239 bars the value import), same
+// guard.
+const SESSION_RE = /You are working in Minsky session `([^`]+)`/;
+const TASK_RE = /^Task (mt#\d+):/m;
+const READ_ONLY_MARKER = "This dispatch is declared **read-only**";
+
+/** Pull the header facts out of a brief's text. */
+export function extractDispatchBriefFacts(text: string): DispatchBriefFacts {
+  const session = SESSION_RE.exec(text);
+  const task = TASK_RE.exec(text);
+  return {
+    ...(session?.[1] ? { sessionId: session[1] } : {}),
+    ...(task?.[1] ? { taskId: task[1] } : {}),
+    readOnly: text.includes(READ_ONLY_MARKER),
+  };
+}
+
 export interface DispatchBriefParts {
   /** The dispatch-specific instructions, markers stripped. */
   body: string;
@@ -48,6 +93,8 @@ export interface DispatchBriefParts {
   sections: { heading: string; content: string }[];
   /** The mt#2292 dispatch stamp, when the prompt carries one. */
   stamp?: { parentAgentSessionId: string; parentToolUseId: string };
+  /** Assignment facts for the header (mt#4354). */
+  facts: DispatchBriefFacts;
 }
 
 /** True when a line opens one of the folded sections. */
@@ -99,5 +146,10 @@ export function splitDispatchBrief(text: string): DispatchBriefParts {
     body: bodyLines.join("\n").trim(),
     sections: sections.map((s) => ({ heading: s.heading, content: s.content.join("\n").trim() })),
     ...(stamp ? { stamp } : {}),
+    // Read from the ORIGINAL text, not from `body`: the read-only-bound section
+    // and the task line can land in either half depending on which generator
+    // shape produced the prompt, and a fact that disappears because it happened
+    // to be folded is worse than no fact at all.
+    facts: extractDispatchBriefFacts(text),
   };
 }

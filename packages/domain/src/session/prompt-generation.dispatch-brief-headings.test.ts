@@ -22,6 +22,8 @@ import {
   ENVELOPE_HEADER,
   RECOMMENDED_SKILLS_HEADER,
   EMBEDDED_SKILLS_HEADER,
+  SESSION_LINE_PREFIX,
+  READ_ONLY_DECLARATION,
 } from "./prompt-generation";
 
 describe("mt#4354 — dispatch-brief folded-section headings", () => {
@@ -31,6 +33,25 @@ describe("mt#4354 — dispatch-brief folded-section headings", () => {
     expect(ENVELOPE_HEADER).toBe("## Operating Envelope");
     expect(RECOMMENDED_SKILLS_HEADER).toBe("## Recommended Skills");
     expect(EMBEDDED_SKILLS_HEADER).toBe("## Embedded Skills");
+  });
+
+  test("the prose shapes the cockpit PARSES for header facts are unchanged", () => {
+    // `extractDispatchBriefFacts` (src/cockpit/web/lib/dispatch-brief.ts) reads
+    // the session id, the task id and the read-only declaration out of the
+    // generated prompt's PROSE, because the generator emits them as prose and
+    // the render path has no structured channel to them.
+    //
+    // Those three anchors are not exported constants, so this pins them against
+    // the generator's SOURCE. Crude, and it is the only thing that actually
+    // detects the drift: reword any of these and the cockpit header silently
+    // starts omitting a fact, with nothing else failing.
+    // These are the literals `extractDispatchBriefFacts` matches, verbatim. The
+    // generator now BUILDS its templates from these same constants, so the
+    // coupling is declared rather than scraped — an earlier draft read the
+    // generator's source text instead, which `custom/no-real-fs-in-tests`
+    // correctly rejected and which would have been the weaker guard anyway.
+    expect(SESSION_LINE_PREFIX).toBe("You are working in Minsky session");
+    expect(READ_ONLY_DECLARATION).toBe("This dispatch is declared **read-only**");
   });
 
   test("each heading is a full top-level markdown heading", () => {

@@ -7,7 +7,11 @@
  * exists to prevent, and showing one section too many is not.
  */
 import { describe, test, expect } from "bun:test";
-import { splitDispatchBrief, FOLDED_SECTION_HEADINGS } from "./dispatch-brief";
+import {
+  splitDispatchBrief,
+  extractDispatchBriefFacts,
+  FOLDED_SECTION_HEADINGS,
+} from "./dispatch-brief";
 
 const STAMP = "<!-- minsky:dispatch:v1 parent=397c46b7-23d4 tool_use=toolu_019WF6 -->";
 
@@ -97,5 +101,67 @@ describe("splitDispatchBrief", () => {
     for (const needle of ["line one", "envelope", "skills", "real"]) {
       expect(recovered).toContain(needle);
     }
+  });
+});
+
+// ── mt#4354: the header's assignment facts ────────────────────────────────────
+//
+// Parsed from the brief's prose because the generator writes them as prose. The
+// property under test: every field degrades to ABSENT rather than to a wrong or
+// empty value, since a header slot showing nothing is worse than no slot.
+describe("extractDispatchBriefFacts", () => {
+  const REAL_SHAPE = [
+    "You are working in Minsky session `3b59f1ec-11d5-4daf-8f6a-80b9ecca1ef5`, checked out at /tmp/x.",
+    "",
+    "Task mt#4248: Implementation work",
+  ].join("\n");
+
+  test("pulls the session and task out of the generator's real shape", () => {
+    expect(extractDispatchBriefFacts(REAL_SHAPE)).toEqual({
+      sessionId: "3b59f1ec-11d5-4daf-8f6a-80b9ecca1ef5",
+      taskId: "mt#4248",
+      readOnly: false,
+    });
+  });
+
+  test("a prompt carrying none of them yields no fields, not empty ones", () => {
+    // The failure this guards: rendering `· …` or `· mt#` for a brief whose
+    // shape the generator never emitted those lines for.
+    expect(extractDispatchBriefFacts("Do the thing.")).toEqual({ readOnly: false });
+  });
+
+  test("detects the mt#2865 read-only declaration", () => {
+    expect(
+      extractDispatchBriefFacts("This dispatch is declared **read-only** (mt#2865).").readOnly
+    ).toBe(true);
+  });
+
+  test("prose merely DISCUSSING read-only does not set the flag", () => {
+    expect(extractDispatchBriefFacts("Consider whether this should be read-only.").readOnly).toBe(
+      false
+    );
+  });
+
+  test("the task line must START a line — a mid-sentence mention is not the binding", () => {
+    // `TASK_RE` is anchored with /m for exactly this: the body routinely
+    // references other tasks in prose, and the header must name the one the
+    // dispatch is BOUND to.
+    expect(extractDispatchBriefFacts("Read Task mt#9999: for context").taskId).toBeUndefined();
+  });
+
+  test("facts ride on the split result, read from the ORIGINAL text", () => {
+    // Read from the original rather than from `body`, so a fact does not vanish
+    // because it happened to sit inside a folded section.
+    const parts = splitDispatchBrief(
+      [
+        REAL_SHAPE,
+        "",
+        FOLDED_SECTION_HEADINGS[0],
+        "This dispatch is declared **read-only** (mt#2865).",
+      ].join("\n")
+    );
+    expect(parts.facts.taskId).toBe("mt#4248");
+    expect(parts.facts.readOnly).toBe(true);
+    expect(parts.body).not.toContain("read-only");
   });
 });
