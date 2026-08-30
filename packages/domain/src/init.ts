@@ -8,6 +8,20 @@ import { getMinskyConfigContentYaml } from "./init/config-content";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
+/**
+ * The per-target rule accounting {@link initializeProject} consumes (mt#4770).
+ *
+ * Declared here rather than as a `Pick<>` of the compile service's result so
+ * this seam — and the tests that stub it — do not have to know the compile
+ * service's typing (PR #3489 R1). The tie to the real pipeline is still
+ * enforced by the compiler: the default `compileForHarness` below returns
+ * `runMinskyCompile`'s result directly, so if `MinskyCompileServiceResult`
+ * ever stops carrying these two fields, that assignment fails typecheck.
+ */
+export interface HarnessCompileAccounting {
+  definitionsIncluded: string[];
+  definitionsSkipped: string[];
+}
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
@@ -113,10 +127,32 @@ export interface InitializeProjectOptions {
  * `testing-standards.mdc §Testable Design`.
  */
 export interface InitializeProjectDeps {
-  /** Compile one target into `workspacePath`. Defaults to the real pipeline. */
-  compileForHarness?: (target: string, workspacePath: string) => Promise<void>;
+  /**
+   * Compile one target into `workspacePath`. Defaults to the real pipeline.
+   *
+   * Returns the target's per-rule accounting (mt#4770). This used to be
+   * `Promise<void>`: the result was awaited and discarded, so init could not
+   * tell whether the rules it had just scaffolded actually landed anywhere the
+   * running harness reads.
+   *
+   * **Every supplier of this seam is in-repo and enumerable** — `@minsky/domain`
+   * is `private: true` and never published, and the only sites passing it are
+   * this package's own tests (PR #3489 R1 adoption sweep). A caller that omits
+   * `deps` entirely, which is every production call site, is unaffected.
+   */
+  compileForHarness?: (target: string, workspacePath: string) => Promise<HarnessCompileAccounting>;
   /** Which MCP client / harness is running init. Defaults to real detection. */
   resolveClient?: () => string;
+  /**
+   * Operator-facing warning sink (mt#4770). Defaults to `log.cliWarn`.
+   *
+   * Injected for the same reason `compileForHarness` is: the messages below
+   * are the observable behavior under test, and the alternative is patching
+   * the logger module the function reaches itself — the shape
+   * `testing-standards.mdc §Testable Design` tells us to treat as design
+   * feedback rather than work around with a spy.
+   */
+  warn?: (message: string) => void;
 }
 
 export async function initializeProject(
@@ -125,11 +161,10 @@ export async function initializeProject(
   deps: InitializeProjectDeps = {}
 ): Promise<void> {
   const resolveClient = deps.resolveClient ?? resolveInitClient;
+  const warn = deps.warn ?? ((message: string) => log.cliWarn(message));
   const compileForHarness =
     deps.compileForHarness ??
-    (async (target: string, workspacePath: string) => {
-      await runMinskyCompile({ target, workspacePath });
-    });
+    (async (target: string, workspacePath: string) => runMinskyCompile({ target, workspacePath }));
   // Resolved ONCE and reused: the rule-scaffolding step below and performSetup
   // must agree about which harness is running, or a project could be scaffolded
   // for one client and registered with another.
@@ -207,28 +242,79 @@ export async function initializeProject(
   // Claude Code puts them in `.cursor/rules` instead — compiling then reads an
   // empty directory and produces nothing, so the project would end up with
   // neither the Cursor files it asked for nor the Claude ones it cannot use.
+  // Channel note (mt#4770). Every operator-facing message in this block uses
+  // `log.cliWarn`, never `log.warn`. `log.warn` routes through
+  // `emitDiagnostic` (`packages/shared/src/logger.ts`), which DISCARDS in HUMAN
+  // mode when stderr is a terminal — i.e. exactly the interactive `minsky init`
+  // these messages are written for. That is mt#3119's finding, and it is why
+  // the two warnings here were invisible to the operator they addressed. This
+  // is the init surface only; the compile pipeline's own `SkipLogFn` default
+  // still uses `log.warn` and stays mt#3119's to fix.
   const sourcesAreWhereCompileReads = ruleFormat === "minsky";
   if (initClient === "claude-code" && !sourcesAreWhereCompileReads) {
-    log.warn(
+    warn(
       `minsky init: --rule-format "${ruleFormat}" writes rules to ` +
         `${RULE_FORMAT_OUTPUT_DIR[ruleFormat]}, which Claude Code does not read, so no ` +
         `CLAUDE.md was generated. Re-run with --rule-format minsky for the Claude Code layout.`
     );
   }
   if (initClient === "claude-code" && sourcesAreWhereCompileReads) {
+    // mt#4770: scaffolding the sources and compiling them is STILL not the
+    // whole job — a rule can compile cleanly into NEITHER Claude Code target
+    // and leave no trace of having done so, which is how a fresh project ends
+    // up with a 90-byte CLAUDE.md, an empty .claude/rules, and no signal that
+    // anything is wrong. An empty ruleset is otherwise indistinguishable from
+    // a correctly-tiered one.
+    //
+    // Reachability is READ from the pipeline's own per-rule accounting, not
+    // re-derived here: `buildClaudeRulesContent` already records every rule
+    // failing `isEligibleForClaudeRules` in `definitionsSkipped`, and
+    // `buildClaudeMdContent` records every non-ALWAYS_APPLY rule the same way.
+    // Re-applying those two predicates at this call site would be a second
+    // source of truth that a later change to either one could silently falsify.
+    const reachable = new Set<string>();
+    const compiled = new Set<string>();
+    let accountingComplete = true;
+
     for (const target of ["claude.md", "claude-rules"]) {
       try {
-        await compileForHarness(target, repoPath);
+        const result = await compileForHarness(target, repoPath);
+        for (const id of result.definitionsIncluded ?? []) {
+          reachable.add(id);
+          compiled.add(id);
+        }
+        for (const id of result.definitionsSkipped ?? []) {
+          compiled.add(id);
+        }
       } catch (error) {
         // SURFACED, not swallowed (mt#4715 SC5). `init` must still succeed —
         // a project with sources but no compiled output is recoverable by
         // running `minsky compile` — but a silently un-scaffolded project is
         // the defect, not the mitigation (`work-completion.mdc §Invocation
         // path`), so the failure has to reach someone.
-        log.warn(
+        accountingComplete = false;
+        warn(
           `minsky init: could not compile "${target}" for claude-code. The rule sources in ` +
             `.minsky/rules were written; run \`minsky compile\` to produce CLAUDE.md and ` +
             `.claude/rules. Cause: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
+    // Assert unreachability ONLY when both targets actually reported (SC3). A
+    // rule absent because a target THREW is not evidence that it is
+    // ineligible — the per-target failure above already covers that case, and
+    // stacking an "unreachable" claim on top of it would state a conclusion
+    // this run cannot support.
+    if (accountingComplete) {
+      const unreachable = [...compiled].filter((id) => !reachable.has(id)).sort();
+      if (unreachable.length > 0) {
+        warn(
+          `minsky init: ${unreachable.length} scaffolded rule(s) are not reachable by Claude ` +
+            `Code — ${unreachable.join(", ")}. They were written to .minsky/rules, but land in ` +
+            `neither CLAUDE.md (which carries rules marked alwaysApply: true) nor .claude/rules ` +
+            `(which carries rules that declare globs). Nothing in Claude Code retrieves them ` +
+            `automatically; an agent has to ask for one by name with \`rules_get <name>\`.`
         );
       }
     }
@@ -288,7 +374,11 @@ export async function initializeProject(
       await provisionObservabilityHooks({ repoPath }, fileSystem);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      log.warn(
+      // mt#4770: `warn`, not `log.warn` — the comment above says this "must
+      // never look like success", which is exactly what `log.warn` produces in
+      // HUMAN mode. Same class as the rule-reachability messages; see the
+      // channel note above.
+      warn(
         `Minsky observability hooks were NOT installed: ${reason}\n` +
           `The project is initialized, but its conversations will not appear in the cockpit ` +
           `(attach and presence will read UNKNOWN). Re-run 'minsky init' after resolving the above.`

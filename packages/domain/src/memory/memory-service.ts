@@ -16,7 +16,21 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
+import {
+  eq,
+  and,
+  isNull,
+  inArray,
+  or,
+  lt,
+  gte,
+  lte,
+  sql,
+  asc,
+  desc,
+  arrayContains,
+  ilike,
+} from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import {
@@ -36,6 +50,9 @@ import {
   extractTaskStateAssertions,
 } from "./task-state-assertion";
 import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
+import { escapeLikePattern } from "./intervening-task-lookup";
+import { DEFAULT_LIST_CAP, computeListTruncation } from "../utils/list-pagination";
+import type { ListTruncationMetadata } from "../utils/list-pagination";
 
 /**
  * Ceiling on measurement-decay lookups per search page (mt#4452, PR #3271 R1).
@@ -62,6 +79,121 @@ function scopedToProject(projectScope: string) {
     inArray(memoriesTable.scope, PROJECT_AGNOSTIC_MEMORY_SCOPES)
   );
 }
+
+/**
+ * Shared WHERE-condition builder for `list()` and `count()` (mt#4761).
+ *
+ * Both methods must apply the EXACT same filter predicates — `count()` exists
+ * to report the true total behind a `list()` page, so any drift between the
+ * two would make `{returned, total, truncated}` lie. `sort`/`dir`/`limit`/
+ * `offset` are deliberately excluded: they affect ORDERING/PAGINATION, not
+ * which rows match.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildListConditions(filter?: MemoryListFilter): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [];
+
+  if (filter?.type) {
+    conditions.push(eq(memoriesTable.type, filter.type));
+  }
+  if (filter?.scope) {
+    conditions.push(eq(memoriesTable.scope, filter.scope));
+  }
+  // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
+  if (filter?.projectScope && !isAllProjects(filter.projectScope)) {
+    conditions.push(scopedToProject(filter.projectScope));
+  } else if (filter?.projectId) {
+    conditions.push(eq(memoriesTable.projectId, filter.projectId));
+  }
+  if (filter?.excludeSuperseded) {
+    conditions.push(isNull(memoriesTable.supersededBy));
+  }
+  if (filter?.stale) {
+    const days = filter.stalenessDays ?? 90;
+    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    conditions.push(
+      or(isNull(memoriesTable.lastAccessedAt), lt(memoriesTable.lastAccessedAt, threshold))
+    );
+  }
+  if (filter?.association) {
+    const { type: assocType, targetId } = filter.association;
+    const containsObj = { [assocType]: [targetId] };
+    conditions.push(sql`${memoriesTable.associations} @> ${JSON.stringify(containsObj)}::jsonb`);
+  }
+  // mt#2817: since/until filter on createdAt (see MemoryListFilter doc comment
+  // for why createdAt rather than updatedAt). Invalid date strings are
+  // dropped rather than throwing — same defensive posture as the rest of
+  // this filter set (a bad filter degrades to "no filter", not a 500).
+  if (filter?.since) {
+    const since = new Date(filter.since);
+    if (!Number.isNaN(since.getTime())) {
+      conditions.push(gte(memoriesTable.createdAt, since));
+    }
+  }
+  if (filter?.until) {
+    const until = new Date(filter.until);
+    if (!Number.isNaN(until.getTime())) {
+      conditions.push(lte(memoriesTable.createdAt, until));
+    }
+  }
+  // mt#4761: AND semantics — `arrayContains` renders `tags @> ARRAY[...]`,
+  // which requires every listed tag to be present (Postgres array containment),
+  // not merely one of them (that would be `&&`/arrayOverlaps, deliberately unused).
+  if (filter?.tags && filter.tags.length > 0) {
+    conditions.push(arrayContains(memoriesTable.tags, filter.tags));
+  }
+  // mt#4761: case-insensitive substring match. Escaped so a literal `%`/`_`
+  // in the search text is not treated as a LIKE wildcard (Postgres's default
+  // ILIKE escape character is `\`, so no explicit ESCAPE clause is needed).
+  if (filter?.nameContains) {
+    conditions.push(ilike(memoriesTable.name, `%${escapeLikePattern(filter.nameContains)}%`));
+  }
+
+  return conditions;
+}
+
+/**
+ * Resolve a `MemoryListFilter.sort`/`dir` pair to a SQL ORDER BY fragment
+ * (mt#4761). Defaults to `created desc` — see `list()`'s doc comment.
+ *
+ * `shortId` is stored as `text` holding the FULL formatted `mem#N` token
+ * (`rowToRecord` reads `row.short_id` verbatim with no `formatShortId` call —
+ * the DB column already carries the prefix), nullable for legacy
+ * pre-backfill rows. A plain text sort would both order "mem#10" before
+ * "mem#2" AND treat the whole string as the sort key, so the numeric suffix
+ * is extracted via `split_part(..., '#', 2)` and cast to `integer`;
+ * `NULLIF(..., '')` guards a value with no `#` (which `split_part` would
+ * otherwise turn into `''`, and `''::integer` raises `22P02` rather than
+ * sorting as absent — caught live via `bun run src/cli.ts memory list --sort
+ * shortId` during this task's own verification). NULLs sort last under
+ * either direction via `NULLS LAST`, keeping unminted rows out of the way
+ * rather than interleaved by direction-dependent Postgres defaults.
+ */
+function resolveListOrderBy(
+  sort: MemoryListSortField | undefined,
+  dir: "asc" | "desc" | undefined
+) {
+  const direction = dir === "asc" ? asc : desc;
+  const dirSql = dir === "asc" ? sql`asc` : sql`desc`;
+  switch (sort) {
+    case "updated":
+      return direction(memoriesTable.updatedAt);
+    case "lastAccessed":
+      return sql`${memoriesTable.lastAccessedAt} ${dirSql} NULLS LAST`;
+    case "accessCount":
+      return direction(memoriesTable.accessCount);
+    case "shortId": {
+      const numericShortId = sql`NULLIF(split_part(${memoriesTable.shortId}, '#', 2), '')::integer`;
+      return sql`${numericShortId} ${dirSql} NULLS LAST`;
+    }
+    case "name":
+      return direction(memoriesTable.name);
+    case "created":
+    default:
+      return direction(memoriesTable.createdAt);
+  }
+}
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
@@ -73,9 +205,11 @@ import type {
   MemoryCreateInput,
   MemoryUpdateInput,
   MemoryListFilter,
+  MemoryListSortField,
   MemorySearchOptions,
   MemorySearchResponse,
   MemorySearchResult,
+  MemoryType,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -124,6 +258,44 @@ export interface MemoryServiceSurface {
   /** Read without bumping access tracking — for read-in-order-to-write callers (mt#3602). */
   getWithoutAccessTracking(id: string): Promise<MemoryRecord | null>;
   list(filter?: MemoryListFilter): Promise<MemoryRecord[]>;
+  /**
+   * True count of memories matching `filter`, ignoring `limit`/`offset` (mt#4761).
+   * OPTIONAL: a caller needing an accurate total over a real SQL-side cap
+   * should prefer this when present; a `MemoryServiceSurface` fake that omits
+   * it is read as "treat `list()`'s own result as the full matching set" by
+   * every consumer here (the same assumption those consumers made before
+   * this method existed), so omitting it is backward compatible.
+   */
+  count?(filter?: MemoryListFilter): Promise<number>;
+  /**
+   * `list()` plus the mt#2817 `{returned, total, truncated}` metadata triple, in ONE
+   * caller-facing call (PR #3488 R1 BLOCKING). `list()` itself stays a plain
+   * `MemoryRecord[]` — see its doc comment for the four consumers that constrains — so a
+   * paginated caller that wants both the page AND an accurate total without a second
+   * ROUND TRIP (the mt#4761 success criterion) calls this instead of `list()` + `count()`
+   * separately. Internally this IS a paired count query (`list()` then `count()`), which
+   * is the resolved form of the spec's "windowed count(*) over () or a paired count
+   * query" choice: windowed loses the count entirely on a zero-row page, so paired is
+   * correct regardless of which SQL statement count the reviewer meant by "round trip."
+   * OPTIONAL for the same backward-compat reason as `count()` — a fake that omits it
+   * makes its caller (`memories-list.ts`) fall back to `list()` + `records.length`.
+   */
+  listWithMeta?(
+    filter?: MemoryListFilter
+  ): Promise<{ records: MemoryRecord[]; meta: ListTruncationMetadata }>;
+  /**
+   * SQL-aggregate stats for the memories-stats cockpit widget (mt#4761).
+   * OPTIONAL for the same reason as `count()` above — a fake that omits it
+   * causes the widget to fall back to its pre-mt#4761 client-side computation
+   * via `list()`.
+   */
+  getListStats?(filter?: MemoryListFilter): Promise<{
+    total: number;
+    supersededCount: number;
+    byType: Record<MemoryType, number>;
+    recentCount: number;
+    topAccessed: Array<{ id: string; name: string; accessCount: number }>;
+  }>;
   create(input: MemoryCreateInput): Promise<MemoryRecord>;
   update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;
   delete(id: string): Promise<void>;
@@ -564,64 +736,175 @@ export class MemoryService implements MemoryServiceSurface {
     return rowToRecord(row);
   }
 
+  /**
+   * List memory records with ordering, limiting, offsetting and tag
+   * filtering applied IN SQL (mt#4761) — previously this issued
+   * `db.select().from(memoriesTable)` with no `ORDER BY` and no `LIMIT` on
+   * every path except `filter.stale`, so rows arrived in Postgres heap order
+   * and every caller fetched the entire matching set.
+   *
+   * Default order is `created desc` — a stable, meaningful default rather
+   * than heap order — UNLESS `filter.stale` is set, in which case the
+   * pre-existing `lastAccessedAt ASC NULLS FIRST` order is preserved exactly
+   * (the stale/health-widget browsing mode ignores `sort`/`dir`).
+   *
+   * Default limit is `DEFAULT_LIST_CAP` (packages/domain/src/utils/list-pagination.ts,
+   * mt#2817) when `filter.limit` is not given — the "loud caps" convention is
+   * EXTENDED, not replaced: what changes is WHERE the cap applies (SQL
+   * `LIMIT`, not an in-memory `items.slice`).
+   *
+   * This method intentionally keeps returning a plain `MemoryRecord[]` (not a
+   * `{records, meta}` shape) rather than folding `count()` in directly —
+   * FOUR existing consumers destructure its result as a bare array and are
+   * outside this task's `## Scope`: `src/mcp/middleware/memory-bundle.ts`
+   * (the MCP `instructions` bundle composer), the `MemoryServiceSurface` fake
+   * in `src/cockpit/widgets/memories-project-scope.test.ts`, and the
+   * `MemoryServiceDb` fake in `tests/domain/project-scope-acceptance.test.ts`
+   * (a 4th, `tests/domain/memory/memory-service.test.ts`, drives this method
+   * through a similar fake). Changing the shape here would break all of them.
+   * A caller wanting the page AND an accurate total in one call — the actual
+   * mt#4761 success criterion, which is about the CALLER not making a second
+   * round trip, not about SQL statement count — should call `listWithMeta()`
+   * instead, which wraps this method and `count()` together.
+   */
   async list(filter?: MemoryListFilter): Promise<MemoryRecord[]> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conditions: any[] = [];
-
-    if (filter?.type) {
-      conditions.push(eq(memoriesTable.type, filter.type));
-    }
-    if (filter?.scope) {
-      conditions.push(eq(memoriesTable.scope, filter.scope));
-    }
-    // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
-    if (filter?.projectScope && !isAllProjects(filter.projectScope)) {
-      conditions.push(scopedToProject(filter.projectScope));
-    } else if (filter?.projectId) {
-      conditions.push(eq(memoriesTable.projectId, filter.projectId));
-    }
-    if (filter?.excludeSuperseded) {
-      conditions.push(isNull(memoriesTable.supersededBy));
-    }
-    if (filter?.stale) {
-      const days = filter.stalenessDays ?? 90;
-      const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      conditions.push(
-        or(isNull(memoriesTable.lastAccessedAt), lt(memoriesTable.lastAccessedAt, threshold))
-      );
-    }
-    if (filter?.association) {
-      const { type: assocType, targetId } = filter.association;
-      const containsObj = { [assocType]: [targetId] };
-      conditions.push(sql`${memoriesTable.associations} @> ${JSON.stringify(containsObj)}::jsonb`);
-    }
-    // mt#2817: since/until filter on createdAt (see MemoryListFilter doc comment
-    // for why createdAt rather than updatedAt). Invalid date strings are
-    // dropped rather than throwing — same defensive posture as the rest of
-    // this filter set (a bad filter degrades to "no filter", not a 500).
-    if (filter?.since) {
-      const since = new Date(filter.since);
-      if (!Number.isNaN(since.getTime())) {
-        conditions.push(gte(memoriesTable.createdAt, since));
-      }
-    }
-    if (filter?.until) {
-      const until = new Date(filter.until);
-      if (!Number.isNaN(until.getTime())) {
-        conditions.push(lte(memoriesTable.createdAt, until));
-      }
-    }
+    const conditions = buildListConditions(filter);
 
     const baseQuery = this.deps.db.select().from(memoriesTable);
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
 
     // When stale filter is active, sort by lastAccessedAt ASC NULLS FIRST so the
-    // oldest/never-accessed records appear first.
-    const rows = filter?.stale
-      ? await filteredQuery.orderBy(sql`${memoriesTable.lastAccessedAt} ASC NULLS FIRST`)
-      : await filteredQuery;
+    // oldest/never-accessed records appear first — unchanged from pre-mt#4761
+    // behavior, and NOT overridable via `sort`/`dir`.
+    const orderExpr = filter?.stale
+      ? sql`${memoriesTable.lastAccessedAt} ASC NULLS FIRST`
+      : resolveListOrderBy(filter?.sort, filter?.dir);
+
+    const limit =
+      typeof filter?.limit === "number" && filter.limit > 0 ? filter.limit : DEFAULT_LIST_CAP;
+    const offset = typeof filter?.offset === "number" && filter.offset > 0 ? filter.offset : 0;
+
+    const rows = await filteredQuery.orderBy(orderExpr).limit(limit).offset(offset);
 
     return (rows as Record<string, unknown>[]).map(rowToRecord);
+  }
+
+  /**
+   * True count of memories matching `filter`, ignoring `limit`/`offset`/
+   * `sort`/`dir` (mt#4761). Exists so a paginated caller (the cockpit widget,
+   * the `memory.list` command) can report an accurate `{returned, total,
+   * truncated}` triple without materializing every matching row — `list()`
+   * deliberately stays capped, so its own array length cannot answer "how
+   * many rows actually match."
+   *
+   * Applies the EXACT same predicates as `list()` via the shared
+   * `buildListConditions` — see that function's doc comment for why drift
+   * between the two would be a correctness bug, not a style issue.
+   */
+  async count(filter?: MemoryListFilter): Promise<number> {
+    const conditions = buildListConditions(filter);
+    const baseQuery = this.deps.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(memoriesTable);
+    const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
+    const rows = (await filteredQuery) as Array<{ count: number }>;
+    return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * `list()` + `count()` in one caller-facing call (mt#4761, PR #3488 R1 BLOCKING) —
+   * see the `MemoryServiceSurface.listWithMeta` doc comment for why this exists
+   * alongside `list()` rather than changing `list()`'s own return shape.
+   *
+   * A paired count query, deliberately: a windowed `count(*) over ()` folded into the
+   * `list()` query would return NO row (and so no count at all) on a zero-row page,
+   * which a separate `count()` call does not have.
+   */
+  async listWithMeta(
+    filter?: MemoryListFilter
+  ): Promise<{ records: MemoryRecord[]; meta: ListTruncationMetadata }> {
+    const records = await this.list(filter);
+    const total = await this.count(filter);
+    return { records, meta: computeListTruncation(total, records.length) };
+  }
+
+  /**
+   * Aggregate counts for the memories-stats cockpit widget (mt#4761),
+   * computed via SQL aggregates rather than loading every matching row with
+   * full `content` to compute five numbers client-side (the pre-mt#4761
+   * behavior: `memSvc.list({projectScope})` fetched all ~1,338 rows for this).
+   *
+   * `filter` is typically just `{ projectScope }` — the widget does not
+   * apply `excludeSuperseded` here (it wants totals INCLUDING superseded
+   * records, matching the pre-existing widget behavior).
+   */
+  async getListStats(filter?: MemoryListFilter): Promise<{
+    total: number;
+    supersededCount: number;
+    byType: Record<MemoryType, number>;
+    recentCount: number;
+    topAccessed: Array<{ id: string; name: string; accessCount: number }>;
+  }> {
+    const conditions = buildListConditions(filter);
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const typeCountSql = (type: MemoryType) =>
+      sql<number>`count(*) filter (where ${memoriesTable.type} = ${type})::int`;
+
+    const aggQuery = this.deps.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        supersededCount: sql<number>`count(*) filter (where ${memoriesTable.supersededBy} is not null)::int`,
+        // mt#4761: interpolate as an ISO string, not the Date object directly.
+        // A raw `sql` template's parameter binding does NOT go through the
+        // same type-aware serialization `gte()`/`lte()` apply in
+        // buildListConditions — postgres.js chokes on a bare `Date` here
+        // ("argument must be of type string ... Received an instance of
+        // Date"), caught live via this task's own verification.
+        recentCount: sql<number>`count(*) filter (where ${memoriesTable.createdAt} >= ${sevenDaysAgo.toISOString()})::int`,
+        userCount: typeCountSql("user"),
+        feedbackCount: typeCountSql("feedback"),
+        projectCount: typeCountSql("project"),
+        referenceCount: typeCountSql("reference"),
+      })
+      .from(memoriesTable);
+    const aggRows = (await (whereClause ? aggQuery.where(whereClause) : aggQuery)) as Array<{
+      total: number;
+      supersededCount: number;
+      recentCount: number;
+      userCount: number;
+      feedbackCount: number;
+      projectCount: number;
+      referenceCount: number;
+    }>;
+    const agg = aggRows[0];
+
+    const accessedCondition = gte(memoriesTable.accessCount, 1);
+    const topQuery = this.deps.db
+      .select({
+        id: memoriesTable.id,
+        name: memoriesTable.name,
+        accessCount: memoriesTable.accessCount,
+      })
+      .from(memoriesTable)
+      .where(whereClause ? and(whereClause, accessedCondition) : accessedCondition)
+      .orderBy(desc(memoriesTable.accessCount))
+      .limit(3);
+    const topRows = (await topQuery) as Array<{ id: string; name: string; accessCount: number }>;
+
+    return {
+      total: agg?.total ?? 0,
+      supersededCount: agg?.supersededCount ?? 0,
+      byType: {
+        user: agg?.userCount ?? 0,
+        feedback: agg?.feedbackCount ?? 0,
+        project: agg?.projectCount ?? 0,
+        reference: agg?.referenceCount ?? 0,
+      },
+      recentCount: agg?.recentCount ?? 0,
+      topAccessed: topRows.map((r) => ({ id: r.id, name: r.name, accessCount: r.accessCount })),
+    };
   }
 
   // -------------------------------------------------------------------------

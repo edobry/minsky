@@ -276,6 +276,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS: "tunable", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
   MINSKY_TEST_WATCHDOG_MS: "tunable", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   MINSKY_TEST_READY_TIMEOUT_MS: "test-fixture", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
+  MINSKY_TEST_CLOCK_SHIFT_DAYS: "test-fixture", // tests/clock-shift.ts (mt#4726) — moves the wall clock forward by N days for the whole suite, so a fixture pinned to an absolute instant expires in a scheduled nightly instead of on a real PR. Set only by scripts/run-tests-clock-shifted.ts; UNSET is inert and every ordinary run is unaffected
   // mt#4017 — NOT hook-read: this one is read by scripts/drizzle-config-loader.ts,
   // which calls loadConfiguration() itself, so the var is present in process.env
   // when the loader's own environment source parses it. It is the sanctioned-
