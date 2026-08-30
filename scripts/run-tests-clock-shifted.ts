@@ -104,7 +104,10 @@ function parseShiftDays(argv: string[]): number {
   }
   const value = Number(flag.slice("--days=".length));
   if (!Number.isFinite(value) || value === 0) {
-    throw new Error(
+    // `fail()`, not `throw`: a bad horizon means the RUN is broken, which is exit 2. An uncaught
+    // throw exits 1, and 1 is reserved for "a real fixture is going to expire" — the one reading a
+    // CI consumer must not confuse with a misconfigured invocation.
+    fail(
       `--days must be a non-zero finite number, got ${JSON.stringify(flag)}. A zero horizon runs ` +
         "the suite against the real clock, which this job has no way to distinguish from a broken " +
         "shim."
