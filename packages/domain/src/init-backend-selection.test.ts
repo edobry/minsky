@@ -7,6 +7,7 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import { initializeProject } from "./init";
+import type { HarnessCompileAccounting, InitializeProjectDeps } from "./init";
 import * as path from "path";
 import { parse as yamlParse } from "yaml";
 import { createMockFs } from "./interfaces/mock-fs";
@@ -246,6 +247,10 @@ describe("Init rule-format output directory (mt#4714)", () => {
         resolveClient: () => "claude-code",
         compileForHarness: async (target, workspacePath) => {
           compiled.push({ target, workspacePath });
+          // mt#4770: the seam now returns each target's per-rule accounting.
+          // Empty here — this test asserts WHICH targets are compiled, not
+          // rule reachability, and empty sets produce no reachability warning.
+          return { definitionsIncluded: [], definitionsSkipped: [] };
         },
       }
     );
@@ -273,6 +278,7 @@ describe("Init rule-format output directory (mt#4714)", () => {
         resolveClient: () => "cursor",
         compileForHarness: async (target) => {
           compiled.push(target);
+          return { definitionsIncluded: [], definitionsSkipped: [] };
         },
       }
     );
@@ -300,6 +306,7 @@ describe("Init rule-format output directory (mt#4714)", () => {
         resolveClient: () => "claude-code",
         compileForHarness: async (target) => {
           compiled.push(target);
+          return { definitionsIncluded: [], definitionsSkipped: [] };
         },
       }
     );
@@ -346,5 +353,108 @@ describe("Init rule-format output directory (mt#4714)", () => {
       await runInit(format);
       expect(mockFileSystem.directories.has(dir(".minsky"))).toBe(true);
     }
+  });
+});
+
+describe("Init reports rules unreachable by the harness (mt#4770)", () => {
+  const testRepo = "/tmp/test-repo";
+  let mockFileSystem: MockFs;
+
+  beforeEach(() => {
+    mockFileSystem = createMockFs();
+  });
+
+  const accounting = (
+    definitionsIncluded: string[],
+    definitionsSkipped: string[]
+  ): HarnessCompileAccounting => ({
+    definitionsIncluded,
+    definitionsSkipped,
+  });
+
+  /**
+   * Run init as Claude Code with `minsky` sources (the configuration that
+   * compiles), capturing operator-facing warnings through the injected sink
+   * rather than by spying on the logger module.
+   */
+  const runCapturingWarnings = async (
+    compileForHarness: InitializeProjectDeps["compileForHarness"]
+  ): Promise<string[]> => {
+    const warnings: string[] = [];
+    await initializeProject(
+      {
+        repoPath: testRepo,
+        backend: "minsky",
+        ruleFormat: "minsky",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      {
+        resolveClient: () => "claude-code",
+        compileForHarness,
+        warn: (message) => warnings.push(message),
+      }
+    );
+    return warnings;
+  };
+
+  const reachabilityWarnings = (warnings: string[]): string[] =>
+    warnings.filter((w) => w.includes("not reachable by Claude"));
+
+  test("names every rule that lands in NEITHER target (AT2)", async () => {
+    // The observed defect: all six stock templates are skipped by both
+    // targets, so the project gets a stub CLAUDE.md and an empty
+    // .claude/rules with nothing said about it.
+    const warnings = await runCapturingWarnings(async () =>
+      accounting([], ["index", "minsky-workflow"])
+    );
+
+    const reported = reachabilityWarnings(warnings);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain("index");
+    expect(reported[0]).toContain("minsky-workflow");
+    // The message must name the ONLY retrieval path that actually works.
+    expect(reported[0]).toContain("rules_get");
+  });
+
+  test("does NOT name a rule that reached either target (AT3)", async () => {
+    // `index` is skipped by claude.md but INCLUDED by claude-rules — one
+    // target is enough to be reachable, so only `minsky-workflow` qualifies.
+    const warnings = await runCapturingWarnings(async (target) =>
+      target === "claude.md"
+        ? accounting([], ["index", "minsky-workflow"])
+        : accounting(["index"], ["minsky-workflow"])
+    );
+
+    const reported = reachabilityWarnings(warnings);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain("minsky-workflow");
+    expect(reported[0]).not.toContain("index");
+  });
+
+  test("asserts no unreachability when a target throws (AT4)", async () => {
+    const warnings = await runCapturingWarnings(async (target) => {
+      if (target === "claude-rules") {
+        throw new Error("compile unavailable");
+      }
+      return accounting([], ["minsky-workflow"]);
+    });
+
+    // The per-target failure is still surfaced...
+    expect(warnings.some((w) => w.includes('could not compile "claude-rules"'))).toBe(true);
+    // ...but a rule missing because a target CRASHED is not evidence that it is
+    // ineligible, so the run must not claim it is unreachable.
+    expect(reachabilityWarnings(warnings)).toEqual([]);
+  });
+
+  test("says nothing when every rule reaches a target (AT5)", async () => {
+    const warnings = await runCapturingWarnings(async (target) =>
+      target === "claude.md"
+        ? accounting(["always-rule"], ["scoped-rule"])
+        : accounting(["scoped-rule"], ["always-rule"])
+    );
+
+    expect(warnings).toEqual([]);
   });
 });
