@@ -30,7 +30,7 @@ import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach, moc
 import { render, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoriesList } from "./MemoriesList";
+import { MemoriesList, formatMemoryDisplayName, parseHandoffName } from "./MemoriesList";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 import { ProjectProvider } from "../lib/project-context";
 
@@ -313,5 +313,85 @@ describe("MemoriesList — search folds into the table toolbar (mt#4762 AT5)", (
     });
     await waitFor(() => expect(container.textContent).toContain("Matched result"));
     expect(container.textContent).not.toContain("Unrelated");
+  });
+});
+
+describe("MemoriesList — handoff name parsing (mt#4763)", () => {
+  test("parseHandoffName extracts the cluster slug and date, underscores rendered as spaces", () => {
+    expect(parseHandoffName("handoff_cockpit_facets_2026-08-30")).toEqual({
+      slug: "cockpit facets",
+      date: "2026-08-30",
+    });
+  });
+
+  test("a hyphenated slug is left as-is (only underscores are treated as word separators)", () => {
+    expect(parseHandoffName("handoff_cockpit-facets_2026-08-30")).toEqual({
+      slug: "cockpit-facets",
+      date: "2026-08-30",
+    });
+  });
+
+  test("parseHandoffName returns null for a non-matching name", () => {
+    expect(parseHandoffName("some other memory name")).toBeNull();
+  });
+
+  test("formatMemoryDisplayName only rewrites handoff-tagged, convention-matching names", () => {
+    expect(formatMemoryDisplayName("handoff_cockpit_facets_2026-08-30", ["handoff"])).toBe(
+      "cockpit facets"
+    );
+    // Not tagged handoff: the name is left alone even though it matches the pattern.
+    expect(formatMemoryDisplayName("handoff_cockpit_facets_2026-08-30", ["other"])).toBe(
+      "handoff_cockpit_facets_2026-08-30"
+    );
+    // Tagged handoff but doesn't match the naming convention: left alone.
+    expect(formatMemoryDisplayName("Ad-hoc handoff note", ["handoff"])).toBe(
+      "Ad-hoc handoff note"
+    );
+  });
+});
+
+describe("MemoriesList — clickable tags (mt#4763 AT6)", () => {
+  test("clicking a tag chip issues a request carrying tags=<tag>, without opening the row", async () => {
+    const { container, calls } = renderList({
+      records: [baseRecord({ id: "mem-1", shortId: "mem#1", tags: ["handoff", "cockpit"] })],
+    });
+    await waitFor(() => expect(container.textContent).toContain("handoff"));
+
+    const tagButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "handoff"
+    );
+    expect(tagButton).toBeTruthy();
+
+    fireEvent.click(tagButton as Element);
+
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.startsWith("/api/widget/memories-list/data") && c.includes("tags=handoff"))
+      ).toBe(true);
+    });
+  });
+
+  test("clicking a second, different tag REPLACES the filter (single-tag semantics from a row)", async () => {
+    const { container, calls } = renderList({
+      records: [baseRecord({ id: "mem-1", shortId: "mem#1", tags: ["handoff", "cockpit"] })],
+    });
+    await waitFor(() => expect(container.textContent).toContain("handoff"));
+
+    const handoffButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "handoff"
+    ) as Element;
+    fireEvent.click(handoffButton);
+    await waitFor(() => expect(calls.some((c) => c.includes("tags=handoff"))).toBe(true));
+
+    const cockpitButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "cockpit"
+    ) as Element;
+    fireEvent.click(cockpitButton);
+
+    await waitFor(() => {
+      const latestListCall = [...calls].reverse().find((c) => c.startsWith("/api/widget/memories-list/data"));
+      expect(latestListCall).toContain("tags=cockpit");
+      expect(latestListCall).not.toContain("tags=handoff");
+    });
   });
 });

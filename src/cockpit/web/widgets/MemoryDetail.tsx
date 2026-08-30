@@ -7,6 +7,7 @@
  * URL navigation supplied by the host via `onNavigate`.
  */
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
@@ -14,6 +15,82 @@ import { Prose } from "../components/Prose";
 import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
 import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
+import type { AssociationType } from "@minsky/domain/memory/associations";
+import type { RoutableEntityType } from "../lib/entity-codec";
+
+/**
+ * ADR-012's association vocabulary, declared LOCALLY rather than imported
+ * from `@minsky/domain/memory/associations` at runtime: that module is
+ * flagged by `custom/no-node-import-in-cockpit-web` (mt#3239) as reaching a
+ * Node-only dependency transitively, so only its TYPE (`AssociationType`,
+ * above) can cross into the browser bundle. This mirrors the same
+ * declared-locally convention `MemoriesList.tsx` already uses for
+ * server-only widget payload shapes — see that file's own docblock.
+ *
+ * ADR-012 fixes the canonical target-ID form per association type (tasks
+ * `mt#NNNN`, PRs `PR#NNNN`, sessions a full UUID, rules a filename, skills a
+ * bare name); the mt#4763 gate verdict (p) requires rendering each type
+ * through the EXISTING `minsky://` entity codec using that declared form
+ * rather than inventing a display mapping. Only the codec's own routable
+ * types can become a real link — `rule`/`skill`/`transcript` have no cockpit
+ * detail route (`entity-codec.ts`'s `ROUTABLE_ENTITY_TYPES`), so those stay
+ * plain monospace text below, same as an unknown association key.
+ */
+const ASSOCIATION_ROUTABLE_KIND: Partial<Record<AssociationType, RoutableEntityType>> = {
+  tracksTask: "task",
+  relatedTask: "task",
+  informsAsk: "ask",
+  extractedFromSession: "session",
+  citedInReview: "changeset",
+  // originatesRule / originatesSkill / extractedFromTranscript have no
+  // routable cockpit entity type — omitted, so they fall through to plain
+  // monospace rendering below.
+};
+
+function isKnownAssociationType(key: string): key is AssociationType {
+  return Object.hasOwn(ASSOCIATION_ROUTABLE_KIND, key) || key in ASSOCIATION_SEMANTICS;
+}
+
+/** Hover text only (`dt`'s `title`) — the full ADR-012 semantics table, duplicated locally for the same reason as above. */
+const ASSOCIATION_SEMANTICS: Partial<Record<AssociationType, string>> = {
+  tracksTask: "This memory is a bridge that retires when the named task ships",
+  relatedTask: "This memory is related to (but not bridged on) the named task",
+  originatesRule: "This memory originated the named rule file",
+  originatesSkill: "This memory originated the named skill",
+  informsAsk: "This memory was cited as evidence for the named ask",
+  extractedFromSession: "This memory was extracted from the named session",
+  extractedFromTranscript: "This memory was extracted from a specific transcript turn",
+  citedInReview: "This memory was cited in a PR review",
+};
+
+/** ADR-012's PR target form is `PR#NNNN`; the changeset route id is the bare number. */
+function prAssociationToChangesetId(value: string): string {
+  return value.startsWith("PR#") ? value.slice("PR#".length) : value;
+}
+
+/**
+ * A TAG that is itself an entity reference (mt#4763 PR #3500 R2 BLOCKING).
+ *
+ * Criterion 7 (tags navigate to the filtered `/memories` view) and
+ * criterion 8 (`mt#NNNN` tags render as task deeplinks) name opposite
+ * destinations for the SAME tag shape — resolved by SURFACE: on the
+ * detail page, an entity-shaped tag is treated as a reference and wins
+ * over the general filter-link rendering; on the list page (`MemoriesList.tsx`,
+ * unaffected by this fix) every tag stays a filter, because a reader
+ * scanning a table wants to narrow it, not jump away from it.
+ *
+ * `mt#NNNN` is confirmed common in the corpus (2,251 memories carry one).
+ * `PR#NNNN` is ADR-012's declared canonical form for `citedInReview` and is
+ * confirmed present, if rare (exactly one memory: `PR#3000`) — checked live
+ * rather than assumed, per the instruction not to build for a shape the
+ * corpus doesn't carry. A `.mdc` rule-filename shape was also checked and
+ * found absent (0 hits) and is not implemented.
+ */
+function entityReferenceTag(tag: string): { type: RoutableEntityType; id: string } | null {
+  if (/^mt#\d+$/.test(tag)) return { type: "task", id: tag };
+  if (/^PR#\d+$/.test(tag)) return { type: "changeset", id: prAssociationToChangesetId(tag) };
+  return null;
+}
 
 interface MemorySearchResult {
   record: MemoryRecord;
@@ -127,47 +204,94 @@ export function MemoryDetailContent({
         </dl>
       </section>
 
-      {/* Tags */}
+      {/* Tags — clickable everywhere they render (mt#4763 success criterion),
+          EXCEPT an mt#NNNN/PR#NNNN-shaped tag on this page, which is a task
+          or PR deeplink per criterion 8 (see `entityReferenceTag` above and
+          the spec's criterion 7 amendment). Every other tag navigates to the
+          `/memories` facet-filtered view rather than displaying inert text. */}
       {record.tags.length > 0 && (
         <section>
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Tags
           </h3>
           <div className="flex flex-wrap gap-1">
-            {record.tags.map((tag) => (
-              <span
-                key={tag}
-                className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px]"
-              >
-                {tag}
-              </span>
-            ))}
+            {record.tags.map((tag) => {
+              const ref = entityReferenceTag(tag);
+              if (ref) {
+                return (
+                  <EntityRef key={tag} type={ref.type} id={ref.id} className="text-[11px]">
+                    {tag}
+                  </EntityRef>
+                );
+              }
+              return (
+                <Link
+                  key={tag}
+                  to={`/memories?mem_f_tags=${encodeURIComponent(tag)}`}
+                  title={tag}
+                  aria-label={`Filter by ${tag}`}
+                  className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px] hover:bg-primary/20 hover:text-primary transition-colors"
+                >
+                  {tag}
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}
 
-      {/* Associations */}
+      {/* Associations — rendered through the SAME minsky:// entity codec as
+          every other cockpit deeplink, per ADR-012's declared target-ID form
+          for each association type (mt#4763 gate verdict (p)): tasks and
+          asks route on their id directly, PRs route via the changeset
+          codec (bare PR number), sessions route on the full UUID. A type
+          with no routable target kind (rule/skill/transcript) or an
+          unrecognized key renders as plain monospace, same as before. */}
       {Object.keys(record.associations).length > 0 && (
         <section>
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Associations
           </h3>
           <dl>
-            {Object.entries(record.associations).map(([type, targets]) => (
-              <div
-                key={type}
-                className="flex items-start gap-2 py-1 border-b border-border/50 last:border-0 text-xs"
-              >
-                <dt className="text-muted-foreground flex-shrink-0">{type}</dt>
-                <dd className="flex flex-wrap gap-1">
-                  {targets.map((t) => (
-                    <span key={t} className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">
-                      {t}
-                    </span>
-                  ))}
-                </dd>
-              </div>
-            ))}
+            {Object.entries(record.associations).map(([type, targets]) => {
+              const routableType = isKnownAssociationType(type)
+                ? ASSOCIATION_ROUTABLE_KIND[type]
+                : undefined;
+              const semantics = isKnownAssociationType(type)
+                ? ASSOCIATION_SEMANTICS[type]
+                : undefined;
+              return (
+                <div
+                  key={type}
+                  className="flex items-start gap-2 py-1 border-b border-border/50 last:border-0 text-xs"
+                >
+                  <dt className="text-muted-foreground flex-shrink-0" title={semantics}>
+                    {type}
+                  </dt>
+                  <dd className="flex flex-wrap gap-1">
+                    {targets.map((t) =>
+                      routableType ? (
+                        <EntityRef
+                          key={t}
+                          type={routableType}
+                          id={routableType === "changeset" ? prAssociationToChangesetId(t) : t}
+                          className="text-[10px]"
+                        >
+                          {t}
+                        </EntityRef>
+                      ) : (
+                        <span
+                          key={t}
+                          className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]"
+                        >
+                          {t}
+                        </span>
+                      )
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
           </dl>
         </section>
       )}

@@ -171,6 +171,46 @@ function isProvenanceTag(tag: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Handoff name parsing (mt#4763 success criterion)
+//
+// `.minsky/skills/handoff/SKILL.md`'s naming convention is
+// `handoff_<cluster-slug>_<date>` — a raw snake_case string with the date
+// baked into the tail. A record only gets this treatment when it actually
+// carries the `handoff` tag AND its name matches the convention; anything
+// else renders its raw name unchanged (this is a display transform, never a
+// rewrite of stored data).
+// ---------------------------------------------------------------------------
+
+const HANDOFF_NAME_PATTERN = /^handoff_(.+)_(\d{4}-\d{2}-\d{2})$/;
+
+interface ParsedHandoffName {
+  slug: string;
+  date: string;
+}
+
+/** Parse a `handoff_<slug>_<date>` name; returns null when it doesn't match. */
+export function parseHandoffName(name: string): ParsedHandoffName | null {
+  const match = HANDOFF_NAME_PATTERN.exec(name);
+  if (!match) return null;
+  const [, rawSlug, date] = match;
+  if (!rawSlug || !date) return null;
+  return { slug: rawSlug.replace(/_/g, " "), date };
+}
+
+/**
+ * The visible label for a memory row/detail title (mt#4763). For a
+ * `handoff`-tagged record whose name matches the convention, the cluster
+ * slug becomes the visible label rather than the raw snake_case name — the
+ * date is still available via the row's own Created column / detail
+ * metadata, so it isn't duplicated into the label.
+ */
+export function formatMemoryDisplayName(name: string, tags: string[]): string {
+  if (!tags.includes("handoff")) return name;
+  const parsed = parseHandoffName(name);
+  return parsed ? parsed.slug : name;
+}
+
+// ---------------------------------------------------------------------------
 // Relative time + absolute ISO title
 // ---------------------------------------------------------------------------
 
@@ -232,6 +272,22 @@ interface MemoriesFilters extends Record<string, string> {
   excludeSuperseded: "true" | "false";
   /** Search query — folded into URL state so a searched view round-trips (AT3/AT6). */
   q: string;
+  /**
+   * Comma-separated tag list, AND semantics (mt#4763) — mirrors the
+   * `memories-list` widget's own `parseTags` convention (a comma-joined
+   * string, since the widget-dispatch route silently drops repeated
+   * `?tags=a&tags=b` query keys; see `memories-list.ts`'s `parseTags` doc
+   * comment). Driven by the facet rail (`MemoriesPage.tsx`, multi-select
+   * toggle) AND by clicking a tag chip in a row or on the detail page
+   * (single-tag replace) — both write this SAME URL param
+   * (`mem_f_tags`), which is what lets a facet click and a row click
+   * converge on one filtered view (AT4/AT6).
+   */
+  tags: string;
+  /** ISO date lower bound — drives the "Recent" cohort preset (mt#4763). */
+  since: string;
+  /** `"true"` to show only stale records — drives the "Stale" cohort preset (mt#4763). */
+  stale: "true" | "false";
 }
 
 const DEFAULT_FILTERS: MemoriesFilters = {
@@ -239,6 +295,9 @@ const DEFAULT_FILTERS: MemoriesFilters = {
   scope: "",
   excludeSuperseded: "true",
   q: "",
+  tags: "",
+  since: "",
+  stale: "false",
 };
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -316,6 +375,9 @@ function buildListParams(
   if (state.filters.type) params.type = state.filters.type;
   if (state.filters.scope) params.scope = state.filters.scope;
   if (state.filters.excludeSuperseded === "true") params.excludeSuperseded = "true";
+  if (state.filters.tags) params.tags = state.filters.tags;
+  if (state.filters.since) params.since = state.filters.since;
+  if (state.filters.stale === "true") params.stale = "true";
   if (projectParam) params.project = projectParam.project;
   return params;
 }
@@ -412,6 +474,23 @@ function MemoriesToolbar({
         Hide superseded
       </label>
 
+      {/* Active tag filter, cleared from a single control (mt#4763) — the tag
+          itself may have been set by a facet-rail click, a row click, or a
+          detail-page click; this is the one place to back out of all of them. */}
+      {filters.tags && (
+        <div className="flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-primary">
+          <span className="font-mono">{filters.tags.split(",").join(" + ")}</span>
+          <button
+            type="button"
+            onClick={() => onFilterChange("tags", "")}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Clear tag filter"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="ml-auto flex items-center gap-1.5">
         <span className="text-muted-foreground">Per page:</span>
         <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
@@ -482,11 +561,21 @@ function MemoriesTableHeader({
 // Row
 // ---------------------------------------------------------------------------
 
-function MemoriesRowItem({ row, onRowClick }: { row: DisplayRow; onRowClick: (id: string) => void }) {
+function MemoriesRowItem({
+  row,
+  onRowClick,
+  onTagClick,
+}: {
+  row: DisplayRow;
+  onRowClick: (id: string) => void;
+  /** Clicking a tag chip filters the list to that tag (mt#4763 AT6) — never opens the row. */
+  onTagClick: (tag: string) => void;
+}) {
   const entityIndex = useEntityIndex();
   const semanticTags = row.tags.filter((t) => !isProvenanceTag(t));
   const visibleTags = semanticTags.slice(0, VISIBLE_TAG_SLOTS);
   const overflow = row.tags.length - visibleTags.length;
+  const displayName = formatMemoryDisplayName(row.name, row.tags);
 
   return (
     <div
@@ -510,7 +599,7 @@ function MemoriesRowItem({ row, onRowClick }: { row: DisplayRow; onRowClick: (id
         <TypeBadge type={row.type} />
         <div className="min-w-0 flex-1">
           <div className="text-body truncate" title={row.name}>
-            {row.name}
+            {displayName}
           </div>
           {row.description && (
             <div className="text-small text-muted-foreground truncate" title={row.description}>
@@ -537,13 +626,19 @@ function MemoriesRowItem({ row, onRowClick }: { row: DisplayRow; onRowClick: (id
         )}
       >
         {visibleTags.map((tag) => (
-          <span
+          <button
             key={tag}
+            type="button"
             title={tag}
-            className="max-w-[64px] truncate px-1 py-0.5 rounded bg-muted text-muted-foreground text-[10px] whitespace-nowrap"
+            aria-label={`Filter by ${tag}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTagClick(tag);
+            }}
+            className="max-w-[64px] truncate px-1 py-0.5 rounded bg-muted text-muted-foreground text-[10px] whitespace-nowrap hover:bg-primary/20 hover:text-primary transition-colors"
           >
             {tag}
-          </span>
+          </button>
         ))}
         {overflow > 0 && <span className="text-muted-foreground text-[10px]">+{overflow}</span>}
       </div>
@@ -691,6 +786,9 @@ function MemoriesListInner({
       urlState.filters.type,
       urlState.filters.scope,
       urlState.filters.excludeSuperseded,
+      urlState.filters.tags,
+      urlState.filters.since,
+      urlState.filters.stale,
       selectedSlug,
     ],
     queryFn: () => fetchWidgetData("memories-list", buildListParams(urlState, projectParam)),
@@ -801,7 +899,12 @@ function MemoriesListInner({
             onSort={controls.setSort}
           />
           {controls.pageItems.map((row) => (
-            <MemoriesRowItem key={row.id} row={row} onRowClick={onRowClick} />
+            <MemoriesRowItem
+              key={row.id}
+              row={row}
+              onRowClick={onRowClick}
+              onTagClick={(tag) => controls.setFilter("tags", tag)}
+            />
           ))}
           <MemoriesPaginationBar
             page={controls.page}

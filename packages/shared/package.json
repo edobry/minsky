@@ -35,6 +35,7 @@
     "./entity-thread-types": "./src/entity-thread-types.ts",
     "./tool-effect": "./src/tool-effect.ts",
     "./credential-request": "./src/credential-request.ts",
-    "./app-grant-request": "./src/app-grant-request.ts"
+    "./app-grant-request": "./src/app-grant-request.ts",
+    "./memory-tag-namespaces": "./src/memory-tag-namespaces.ts"
   }
 }
