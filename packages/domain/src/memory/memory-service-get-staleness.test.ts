@@ -51,13 +51,22 @@ function rowWith(content: string, associations: Record<string, unknown> = {}) {
  * A db fake returning exactly one row. `update` is a no-op sink for the
  * fire-and-forget access-count bump `get()` performs.
  */
-function dbReturning(row: ReturnType<typeof rowWith>): MemoryServiceDb {
+function dbReturning(
+  row: ReturnType<typeof rowWith>,
+  onUpdate: () => void = () => {}
+): MemoryServiceDb {
   return {
     select: () => ({ from: () => ({ where: () => Promise.resolve([row]) }) }),
     insert: () => {
       throw new Error("not used");
     },
-    update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+    update: () => {
+      // `bumpAccessCount` calls `db.update(...)` synchronously before handing the chain to
+      // `Promise.resolve`, so counting here is deterministic despite the bump being
+      // fire-and-forget.
+      onUpdate();
+      return { set: () => ({ where: () => Promise.resolve([]) }) };
+    },
     delete: () => {
       throw new Error("not used");
     },
@@ -80,10 +89,13 @@ function dbReturning(row: ReturnType<typeof rowWith>): MemoryServiceDb {
 function serviceOver(
   row: ReturnType<typeof rowWith>,
   statuses: Record<string, string | undefined>
-): { service: MemoryService; lookupCalls: () => number } {
+): { service: MemoryService; lookupCalls: () => number; accessBumps: () => number } {
   let lookupCalls = 0;
+  let accessBumps = 0;
   const deps: MemoryServiceDeps = {
-    db: dbReturning(row),
+    db: dbReturning(row, () => {
+      accessBumps++;
+    }),
     vectorStorage: {} as VectorStorage,
     embeddingService: {} as EmbeddingService,
     taskStatusLookup: async (taskIds: string[]) => {
@@ -91,7 +103,11 @@ function serviceOver(
       return new Map(taskIds.map((id) => [id, statuses[id]]));
     },
   };
-  return { service: new MemoryService(deps), lookupCalls: () => lookupCalls };
+  return {
+    service: new MemoryService(deps),
+    lookupCalls: () => lookupCalls,
+    accessBumps: () => accessBumps,
+  };
 }
 
 describe("MemoryService.getWithStaleness (mt#4743)", () => {
@@ -156,6 +172,33 @@ describe("MemoryService.getWithStaleness (mt#4743)", () => {
       await service.getWithStaleness(UUID);
 
       expect(lookupCalls()).toBe(1);
+    });
+  });
+
+  // Access tracking must be bumped ONCE, not once per internal read. Raised as a review
+  // finding on PR #3485 (a suspected double-bump via `get()` plus a "search bump"); the
+  // bump lives in `search()`, one level ABOVE `annotateStaleness`, which is what
+  // `getWithStaleness` calls — so there is exactly one. Asserted rather than argued,
+  // because the shape that WOULD double-count is a live hazard for any future refactor
+  // that routes this method through `search()` instead.
+  describe("access tracking is bumped exactly once", () => {
+    test("an annotated fetch bumps once, not twice", async () => {
+      const { service, accessBumps } = serviceOver(rowWith(DECLARES_RETIREMENT), {
+        "mt#1541": "CLOSED",
+      });
+
+      const result = await service.getWithStaleness(UUID);
+
+      expect(result?.staleness?.outcome).toBe("stale");
+      expect(accessBumps()).toBe(1);
+    });
+
+    test("an unannotated fetch also bumps exactly once", async () => {
+      const { service, accessBumps } = serviceOver(rowWith(NAMES_NO_RETIREMENT), {});
+
+      await service.getWithStaleness(UUID);
+
+      expect(accessBumps()).toBe(1);
     });
   });
 
