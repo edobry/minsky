@@ -6,17 +6,41 @@
  * (/memory/:id) hosts MemoryDetailBody, and lineage/similar navigation is
  * URL navigation supplied by the host via `onNavigate`.
  */
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import { Prose } from "../components/Prose";
 import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
-import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
+import type { MemoryRecord, MemoryType, MemoryScope } from "@minsky/domain/memory/types";
 import type { AssociationType } from "@minsky/domain/memory/associations";
 import type { RoutableEntityType } from "../lib/entity-codec";
+import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import { Textarea } from "../components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import {
+  useUpdateMemory,
+  useSupersedeMemory,
+  useDeleteMemory,
+  type MemorySupersedeInput,
+} from "../lib/memory-mutations";
 
 /**
  * ADR-012's association vocabulary, declared LOCALLY rather than imported
@@ -110,6 +134,16 @@ const TYPE_BADGE: Record<MemoryType, string> = {
   project: "bg-emerald-500/20 text-emerald-500",
   reference: "bg-muted text-muted-foreground",
 };
+
+/**
+ * Declared LOCALLY rather than importing `MEMORY_TYPES`/`MEMORY_SCOPES` as
+ * VALUES from `@minsky/domain/memory/types` — same `no-node-import-in-cockpit-web`
+ * rationale as `ASSOCIATION_ROUTABLE_KIND` above (a type-only import crosses
+ * the boundary; the runtime constant does not). Both enums are small and
+ * closed (mirrors `MemoriesList.tsx`'s own local `TYPE_OPTIONS`/`SCOPE_OPTIONS`).
+ */
+const MEMORY_TYPE_OPTIONS: MemoryType[] = ["user", "feedback", "project", "reference"];
+const MEMORY_SCOPE_OPTIONS: MemoryScope[] = ["project", "user", "cross_project"];
 
 function relativeTime(date: Date | string): string {
   const d = date instanceof Date ? date : new Date(date);
@@ -378,6 +412,392 @@ export function MemoryDetailContent({
 }
 
 // ---------------------------------------------------------------------------
+// Curation actions (mt#4766) — edit tags, edit name/description, supersede,
+// delete. Each is a controlled Dialog opened from a small action bar; success
+// invalidates the relevant widget queries (`memory-mutations.ts`'s hooks), so
+// the detail page and the `/memories` list reflect the change without a
+// manual reload.
+// ---------------------------------------------------------------------------
+
+function EditTagsDialog({
+  record,
+  open,
+  onOpenChange,
+}: {
+  record: MemoryRecord;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [value, setValue] = useState(record.tags.join(", "));
+  const mutation = useUpdateMemory();
+
+  const close = (next: boolean) => {
+    if (!next) mutation.reset();
+    onOpenChange(next);
+  };
+
+  const save = () => {
+    const tags = value
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+    mutation.mutate(
+      { id: record.id, fields: { tags } },
+      { onSuccess: () => close(false) }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit tags</DialogTitle>
+          <DialogDescription>Comma-separated. Saved via the shared command layer.</DialogDescription>
+        </DialogHeader>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label="Tags"
+          className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+        />
+        {mutation.isError && (
+          <p className="text-xs text-destructive" role="alert">
+            {mutation.error instanceof Error ? mutation.error.message : "Failed to save tags."}
+          </p>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={mutation.isPending} onClick={save}>
+            {mutation.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditMetaDialog({
+  record,
+  open,
+  onOpenChange,
+}: {
+  record: MemoryRecord;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [name, setName] = useState(record.name);
+  const [description, setDescription] = useState(record.description);
+  const mutation = useUpdateMemory();
+
+  const close = (next: boolean) => {
+    if (!next) mutation.reset();
+    onOpenChange(next);
+  };
+
+  const save = () => {
+    mutation.mutate(
+      { id: record.id, fields: { name, description } },
+      { onSuccess: () => close(false) }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit name / description</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="Name"
+            className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+          <Textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            aria-label="Description"
+            rows={3}
+          />
+        </div>
+        {mutation.isError && (
+          <p className="text-xs text-destructive" role="alert">
+            {mutation.error instanceof Error ? mutation.error.message : "Failed to save."}
+          </p>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={mutation.isPending || name.trim().length === 0}
+            onClick={save}
+          >
+            {mutation.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SupersedeDialog({
+  record,
+  open,
+  onOpenChange,
+  onSuperseded,
+}: {
+  record: MemoryRecord;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuperseded: (replacementId: string) => void;
+}) {
+  const [form, setForm] = useState<MemorySupersedeInput>({
+    type: record.type,
+    name: record.name,
+    description: record.description,
+    content: record.content,
+    scope: record.scope,
+    tags: record.tags,
+    reason: "",
+  });
+  const mutation = useSupersedeMemory();
+
+  const close = (next: boolean) => {
+    if (!next) mutation.reset();
+    onOpenChange(next);
+  };
+
+  const save = () => {
+    mutation.mutate(
+      { oldId: record.id, input: form },
+      { onSuccess: ({ replacement }) => onSuperseded(replacement.id) }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Supersede this memory</DialogTitle>
+          <DialogDescription>
+            Creates a new record and marks this one superseded. Pre-filled from the current
+            content — edit what changed.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          <div className="flex gap-2">
+            <Select
+              value={form.type}
+              onValueChange={(v) => setForm((f) => ({ ...f, type: v as MemoryType }))}
+            >
+              <SelectTrigger className="h-8 w-32" aria-label="Type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MEMORY_TYPE_OPTIONS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={form.scope}
+              onValueChange={(v) => setForm((f) => ({ ...f, scope: v as MemoryScope }))}
+            >
+              <SelectTrigger className="h-8 w-32" aria-label="Scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MEMORY_SCOPE_OPTIONS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <input
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            aria-label="Name"
+            className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+          <input
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            aria-label="Description"
+            className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+          <Textarea
+            value={form.content}
+            onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+            aria-label="Content"
+            rows={8}
+          />
+          <input
+            value={(form.tags ?? []).join(", ")}
+            onChange={(e) =>
+              setForm((f) => ({
+                ...f,
+                tags: e.target.value
+                  .split(",")
+                  .map((t) => t.trim())
+                  .filter((t) => t.length > 0),
+              }))
+            }
+            aria-label="Tags"
+            placeholder="Tags (comma-separated)"
+            className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+          <input
+            value={form.reason ?? ""}
+            onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+            aria-label="Reason"
+            placeholder="Reason for superseding (recorded on the supersession chain)"
+            className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+        </div>
+        {mutation.isError && (
+          <p className="text-xs text-destructive" role="alert">
+            {mutation.error instanceof Error ? mutation.error.message : "Failed to supersede."}
+          </p>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={mutation.isPending || form.name.trim().length === 0 || form.content.trim().length === 0}
+            onClick={save}
+          >
+            {mutation.isPending ? "Superseding…" : "Supersede"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteDialog({
+  record,
+  open,
+  onOpenChange,
+  onDeleted,
+}: {
+  record: MemoryRecord;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
+}) {
+  const mutation = useDeleteMemory();
+
+  const close = (next: boolean) => {
+    if (!next) mutation.reset();
+    onOpenChange(next);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete this memory?</DialogTitle>
+          <DialogDescription>{record.shortId ?? record.id.slice(0, 8)} — {record.name}</DialogDescription>
+        </DialogHeader>
+        {/*
+          Stated plainly, per the spec's confirm-dialog requirement: this is a
+          hard delete (row + best-effort embedding row), and unlike tasks
+          there is no short-id tombstone table for memory — a deleted mem#N
+          can be reissued to an unrelated future record.
+        */}
+        <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-xs">
+          This permanently deletes the row and its embedding. There is no undo, and unlike tasks,
+          memory has no short-id tombstone table — {record.shortId ?? "this record's short id"}{" "}
+          can be reissued to a different, unrelated memory in the future.
+        </p>
+        {mutation.isError && (
+          <p className="text-xs text-destructive" role="alert">
+            {mutation.error instanceof Error ? mutation.error.message : "Failed to delete."}
+          </p>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate(record.id, { onSuccess: onDeleted })}
+          >
+            {mutation.isPending ? "Deleting…" : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type CurationDialog = "tags" | "meta" | "supersede" | "delete" | null;
+
+function MemoryCurationBar({ record }: { record: MemoryRecord }) {
+  const navigate = useNavigate();
+  const [openDialog, setOpenDialog] = useState<CurationDialog>(null);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button size="sm" variant="outline" onClick={() => setOpenDialog("tags")}>
+        Edit tags
+      </Button>
+      <Button size="sm" variant="outline" onClick={() => setOpenDialog("meta")}>
+        Edit name / description
+      </Button>
+      <Button size="sm" variant="outline" onClick={() => setOpenDialog("supersede")}>
+        Supersede
+      </Button>
+      <Button size="sm" variant="destructive" onClick={() => setOpenDialog("delete")}>
+        Delete
+      </Button>
+
+      <EditTagsDialog
+        record={record}
+        open={openDialog === "tags"}
+        onOpenChange={(o) => setOpenDialog(o ? "tags" : null)}
+      />
+      <EditMetaDialog
+        record={record}
+        open={openDialog === "meta"}
+        onOpenChange={(o) => setOpenDialog(o ? "meta" : null)}
+      />
+      <SupersedeDialog
+        record={record}
+        open={openDialog === "supersede"}
+        onOpenChange={(o) => setOpenDialog(o ? "supersede" : null)}
+        onSuperseded={(replacementId) => {
+          setOpenDialog(null);
+          navigate(`/memory/${encodeURIComponent(replacementId)}`);
+        }}
+      />
+      <DeleteDialog
+        record={record}
+        open={openDialog === "delete"}
+        onOpenChange={(o) => setOpenDialog(o ? "delete" : null)}
+        onDeleted={() => {
+          setOpenDialog(null);
+          navigate("/memories");
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Self-fetching body (no overlay chrome) — hosted by MemoryPage (/memory/:id)
 // ---------------------------------------------------------------------------
 
@@ -409,10 +829,11 @@ export function MemoryDetailBody({
       </p>
     );
   }
+  const payload = query.data.payload as MemoriesDetailPayload;
   return (
-    <MemoryDetailContent
-      payload={query.data.payload as MemoriesDetailPayload}
-      onNavigate={onNavigate}
-    />
+    <div className="space-y-3 flex flex-col flex-1 min-h-0">
+      <MemoryCurationBar record={payload.record} />
+      <MemoryDetailContent payload={payload} onNavigate={onNavigate} />
+    </div>
   );
 }
