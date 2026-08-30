@@ -238,7 +238,15 @@ export function extractPrNumbersForTools(
   toolNames: readonly string[]
 ): Set<number> {
   const numbers = new Set<number>();
-  for (const toolName of toolNames) {
+  // mt#4498 / PR #3484 R1: match the observed names whose BARE suffix equals a
+  // configured one, not just the configured strings. `findToolUseInputs` compares
+  // exactly, so without this the identity-evidence path stays blind to the
+  // `mcp__minsky-server__` alias even though the tool-NAME sets were fixed —
+  // which would have left PR-number correlation silently one-sided. Caught in
+  // review; the first version of this change fixed only the two name sets.
+  const wanted = new Set(toolNames.map(bareToolName));
+  const observed = extractToolUseNames(lines).filter((n) => wanted.has(bareToolName(n)));
+  for (const toolName of new Set([...toolNames, ...observed])) {
     for (const input of findToolUseInputs(lines, toolName)) {
       for (const key of PR_NUMBER_INPUT_KEYS) {
         const raw = input[key];
@@ -271,6 +279,17 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
   {
     key: "review-approved",
     patterns: [
+      // mt#4498: FIRST, so the matched phrase carries the PR number when the
+      // claim names one. `extractClaimedPrNumber` reads the matched PHRASE, not
+      // the sentence, so the bare `/\bAPPROVED\b/` below yields the phrase
+      // "APPROVED" and can never be identity-backed — which would make the
+      // merge evidence added to `identityScopedTools` inert. Patterns are tried
+      // in order and the first match wins, so this must precede it.
+      //
+      // The bounded span (no `.*`) keeps "PR #200 … APPROVED" from reaching
+      // across a sentence boundary and pairing an unrelated number with a later
+      // approval token.
+      /\bPR\s+#?\d+\b[^.!?\n]{0,80}?\bAPPROVED\b/,
       /\bbot\s+approved\b/i,
       /\breviewer\s+approved\b/i,
       /\breview\s+(came\s+back|returned|landed)\b/i,
@@ -284,29 +303,31 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
       "mcp__github__pull_request_read",
       "pull_request_read",
       "get_reviews",
-      // mt#4498: a completed MERGE entails a prior approval, so the merge call
-      // is itself evidence the review landed. `session_pr_merge` refuses on a
-      // PR without an approving review — the whole merge-gate chain is built on
-      // that — so an agent that merged cannot have been pre-narrating the
-      // approval it merged on.
-      //
-      // Measured, not assumed: of the 36 `review-approved` fires still leaking
-      // in the replayed corpus, **10 had `session_pr_merge` in window** and no
-      // other listed tool. They are the largest addressable share of the
-      // largest leaking category.
-      //
-      // NOT identity-scoped, unlike the `merged` category's read tools below.
-      // The asymmetry is deliberate: a READ of some other PR says nothing about
-      // this one, which is why that list is scoped. A merge is an action the
-      // agent PERFORMED in this session, and performing it required an approval
-      // to exist — the entailment holds without matching PR numbers. Scoping it
-      // would drop the 6 of those 10 whose claim names no PR number at all.
+    ],
+    // mt#4498: a completed MERGE of a PR entails a prior approval OF THAT PR.
+    // `session_pr_merge` refuses a PR without an approving review — the whole
+    // merge-gate chain is built on that — so an agent that merged PR #N cannot
+    // have been pre-narrating the approval of PR #N.
+    //
+    // IDENTITY-SCOPED, and PR #3484 R1 is why. The first version of this put
+    // the merge tools in `requiredTools`, unscoped, arguing that a merge is an
+    // action the agent PERFORMED rather than a read. That argument is true and
+    // does not license the scope: unscoped, a merge of PR #100 would suppress a
+    // false "PR #200 APPROVED" claim in the same window. It also contradicted
+    // this file's own stated principle one list below — "for a suppressor the
+    // safe degrade direction is MORE fires, never fewer".
+    //
+    // The cost is real and accepted: of the 10 leaking `review-approved` fires
+    // that had a merge in window, 6 name no PR number and so are never
+    // identity-backed. Scoping covers 4 rather than 10. Correctness over count
+    // — the 6 remain in the residual named in the PR body.
+    identityScopedTools: [
       "mcp__minsky__session_pr_merge",
       "session_pr_merge",
       "mcp__github__merge_pull_request",
       "merge_pull_request",
     ],
-    expectedTool: "session_pr_wait-for-review / pull_request_read (or a merge, which entails one)",
+    expectedTool: "session_pr_wait-for-review / pull_request_read (or a merge of the same PR)",
   },
   {
     key: "merged",
@@ -513,12 +534,16 @@ export function windowSlice(lines: TranscriptLine[], windowTurns: number): Trans
  * Only the LAST segment is added, so `mcp__github__pull_request_read` also
  * registers `pull_request_read` — which the lists already treat as equivalent.
  */
+export function bareToolName(name: string): string {
+  return name.split("__").pop() ?? name;
+}
+
 export function withBareToolAliases(names: Iterable<string>): Set<string> {
   const out = new Set<string>();
   for (const name of names) {
     out.add(name);
-    const bare = name.split("__").pop();
-    if (bare && bare !== name) out.add(bare);
+    const bare = bareToolName(name);
+    if (bare !== name) out.add(bare);
   }
   return out;
 }
