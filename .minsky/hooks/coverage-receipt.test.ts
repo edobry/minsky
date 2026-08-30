@@ -258,9 +258,13 @@ describe("checkDetectorCoverage", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveCalibrationLogPath / summarizeCoverage / formatCoverageResult", () => {
-  test("path follows the dispatcher's .minsky/<name>-calibration.jsonl convention", () => {
+  // mt#4748: the dispatcher's convention moved from repo-rooted
+  // `.minsky/<name>-calibration.jsonl` to state-dir, project-keyed.
+  test("path follows the dispatcher's <state dir>/projects/<key>/<name>-calibration.jsonl convention", () => {
     const p = resolveCalibrationLogPath(DETECTOR);
-    expect(p.endsWith(`/.minsky/${DETECTOR}-calibration.jsonl`)).toBe(true);
+    expect(p.endsWith(`/${DETECTOR}-calibration.jsonl`)).toBe(true);
+    expect(p).toContain("/projects/");
+    expect(p.includes("/.minsky/")).toBe(false);
   });
 
   test("summarizeCoverage counts flagged detectors", () => {

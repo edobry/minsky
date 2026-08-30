@@ -31,6 +31,8 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import { findRepoRoot } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -82,20 +84,44 @@ const REAL_FS: CoverageFsDeps = { existsSync, readFileSync };
 
 // ---------------------------------------------------------------------------
 // Path resolution — mirrors the dispatcher's D4 `calibrationLogPath`
-// (dispatcher.ts): repo-root `.minsky/<name>-calibration.jsonl`.
+// (dispatcher.ts): state dir, project-keyed (mt#4748 SC1).
 // ---------------------------------------------------------------------------
 
 /**
+ * Derive a stable, filesystem-safe key for a repo root — duplicated (not
+ * imported) from `dispatcher.ts` / `ingest-runtime.ts`'s `projectStateKey`
+ * for the same reason those two don't share one either: each module tree
+ * stays free of a dependency on the others by convention. Must compute the
+ * IDENTICAL value from the IDENTICAL input for this reader to ever find what
+ * the dispatcher wrote (mt#4748).
+ */
+function projectStateKey(repoRoot: string): string {
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
  * Resolve the calibration JSONL path for a logical detector name (e.g.
- * `"retrospective-trigger"` -> `<repo>/.minsky/retrospective-trigger-calibration.jsonl`).
+ * `"retrospective-trigger"` ->
+ * `<state dir>/projects/<key>/retrospective-trigger-calibration.jsonl`).
  * Mirrors the exact convention the dispatcher's `calibrationLogPath` and the
  * `src/domain/calibration/calibration-sweep.ts` consumer already expect.
+ *
+ * mt#4748 (SC1): rooted on `getMinskyStateDir()`, not the repo — this was a
+ * split-brain reader waiting to happen the moment `calibrationLogPath`
+ * moved: `findRepoRoot(cwd)` alone still resolves fine, it just no longer
+ * names where the file IS.
  */
 export function resolveCalibrationLogPath(
   detectorName: string,
   cwd: string = process.cwd()
 ): string {
-  return join(findRepoRoot(cwd), ".minsky", `${detectorName}-calibration.jsonl`);
+  const repoRoot = findRepoRoot(cwd);
+  return join(
+    getMinskyStateDir(),
+    "projects",
+    projectStateKey(repoRoot),
+    `${detectorName}-calibration.jsonl`
+  );
 }
 
 /**
