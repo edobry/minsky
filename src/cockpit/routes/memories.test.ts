@@ -455,16 +455,24 @@ describe("POST /api/memories/bulk/delete", () => {
 // ─── AT5 — auth gating ─────────────────────────────────────────────────────────
 
 describe("AT5 — every memory write route requires a session", () => {
+  // Two independent, deployment-mode-scoped gates cover these routes, and
+  // BOTH apply with zero per-route code in `memories.ts` — see server.ts
+  // around its `mutationAuthMiddleware` / `requirePasskeySession` mounts:
+  //
+  //   - Public Railway deployment (`opts.isPublicDeployment`): PATH-based —
+  //     `requirePasskeySession` denies any path not on `isPublicPath`'s
+  //     closed allowlist, the same gate `/api/shares` (mint/list/revoke)
+  //     relies on.
+  //   - Local daemon: METHOD-based — `mutationAuthMiddleware` requires a
+  //     bearer token (or the loopback bootstrap cookie) on every non-GET
+  //     request, regardless of path. Every route this file mounts is
+  //     PATCH/POST/DELETE, so all of them are covered by construction.
   test.each([
     "/api/memories/some-id",
     "/api/memories/some-id/supersede",
     "/api/memories/bulk/retag",
     "/api/memories/bulk/delete",
   ])("%s is NOT in the public-path allowlist", (path) => {
-    // `isPublicPath` is a closed allowlist (`passkey-auth.ts`): a path not on
-    // it is denied without a valid session by `requirePasskeySession`, the
-    // SAME global gate `/api/shares` (mint/list/revoke) relies on — no
-    // per-route auth code is needed or present in `memories.ts`.
     expect(isPublicPath(path)).toBe(false);
   });
 });
