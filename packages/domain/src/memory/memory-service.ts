@@ -26,9 +26,15 @@ import {
 import {
   collectUnresolvedRefs,
   combineStaleness,
+  combineTaskStateDrift,
   computeStaleness,
   extractTrackingTaskRefs,
 } from "./staleness";
+import {
+  assertedTaskIds,
+  computeTaskStateDrift,
+  extractTaskStateAssertions,
+} from "./task-state-assertion";
 import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
 
 /**
@@ -799,7 +805,16 @@ export class MemoryService implements MemoryServiceSurface {
     if (!lookup || results.length === 0) return;
 
     const perResult = results.map((r) => extractTrackingTaskRefs(r.record));
-    const allRefs = [...new Set(perResult.flatMap((p) => p.refs))];
+    // Trigger 3 (mt#4743). Extracted here, beside trigger 1, so both share ONE status
+    // lookup — its refs are task ids of exactly the same kind, and unioning them keeps the
+    // "one query per search" property the docblock below claims rather than adding a second.
+    const perResultAssertions = results.map((r) => extractTaskStateAssertions(r.record));
+    const allRefs = [
+      ...new Set([
+        ...perResult.flatMap((p) => p.refs),
+        ...perResultAssertions.flatMap((a) => assertedTaskIds(a)),
+      ]),
+    ];
     if (allRefs.length === 0) return;
 
     let statuses: ReadonlyMap<string, string | undefined>;
@@ -815,6 +830,18 @@ export class MemoryService implements MemoryServiceSurface {
       if (!extracted) continue;
       const staleness = computeStaleness(extracted.refs, extracted.source, statuses);
       if (staleness) result.staleness = staleness;
+
+      // Trigger 3 folds on top, against the SAME `statuses` map — no extra query. It can
+      // promote a `current` verdict to `stale`, but only when a drifted assertion names a
+      // task that has since gone terminal; see `combineTaskStateDrift`.
+      const assertions = perResultAssertions[i];
+      if (assertions && assertions.length > 0) {
+        const combined = combineTaskStateDrift(
+          result.staleness,
+          computeTaskStateDrift(assertions, statuses)
+        );
+        if (combined) result.staleness = combined;
+      }
     }
 
     // mt#4452: trigger 2 folds in on top, and can promote a `current` verdict to `stale` —
