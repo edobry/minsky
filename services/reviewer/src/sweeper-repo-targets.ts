@@ -142,6 +142,45 @@ export function parseCoverageRepositories(fullNames: readonly string[]): RepoTar
   return targets;
 }
 
+/**
+ * Parse a git remote URL (`session.repoUrl`, e.g.
+ * `https://github.com/edobry/peezombie.me` or
+ * `git@github.com:edobry/peezombie.me.git`) into a `RepoTarget`.
+ *
+ * Used by `merge-state-sweeper.ts` (mt#4759 R1) to derive EACH `PR_OPEN`
+ * session's OWN repo, rather than checking every session against a single
+ * caller-supplied pair — the fix for a coordinator-caught defect where a
+ * session from one repo was checked against another repo's PR of the same
+ * number, and a false MATCH (not a 404) silently corrupted session state.
+ *
+ * Deliberately reimplemented here rather than importing
+ * `packages/domain/src/uri-utils.ts`'s `parseGitHubOwnerRepo`: that module
+ * has no package-export path (`@minsky/domain` exposes `./session`, `./auth`,
+ * etc., but not `./uri-utils`), and adding one is outside this task's scope
+ * (`packages/domain/package.json` is not among the files this task touches).
+ * The parsing itself is intentionally narrow — only the two forms GitHub
+ * itself emits for `git remote get-url origin` — and returns `null` (never
+ * throws) for anything else, matching this module's fail-closed-to-null,
+ * never-throw parsing style.
+ */
+export function parseGitHubRemoteUrl(remoteUrl: string | undefined): RepoTarget | null {
+  if (!remoteUrl) return null;
+
+  // SSH: git@github.com:owner/repo[.git]
+  const sshMatch = remoteUrl.match(/^git@github\.com:([^/]+)\/([^/?#]+?)(?:\.git)?$/);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+
+  // HTTPS: https://github.com/owner/repo[.git]
+  const httpsMatch = remoteUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?$/);
+  if (httpsMatch?.[1] && httpsMatch[2]) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] };
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Resolution
 // ---------------------------------------------------------------------------

@@ -20,13 +20,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   runMergeStateSweep,
-  runMergeStateSweepCycle,
   loadMergeStateSweeperConfig,
   startMergeStateSweeper,
   type MergeStateSweeperConfig,
   type MergeStateSweeperDeps,
 } from "./merge-state-sweeper";
-import type { GetInstallationCoverageFn } from "./sweeper-repo-targets";
 import type { ReviewerConfig } from "./config";
 import type { Octokit } from "@octokit/rest";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session";
@@ -39,7 +37,6 @@ import { silenceConsoleLogs, captureConsoleLogs, findLogEvent } from "./test-hel
 
 const OWNER = "edobry";
 const REPO = "minsky";
-const PEEZOMBIE_FULL_NAME = "edobry/peezombie.me";
 const GITHUB_TIMEOUT_MS = 30_000;
 const ENV_SWEEPER_ENABLED = "MERGE_STATE_SWEEPER_ENABLED";
 const ENV_SWEEPER_INTERVAL_MS = "MERGE_STATE_SWEEPER_INTERVAL_MS";
@@ -138,16 +135,26 @@ function makePrOpenSession(opts: {
   sessionId: string;
   taskId?: string;
   prNumber?: number;
+  /**
+   * mt#4759 R1: the session's OWN repo (full URL, e.g.
+   * "https://github.com/edobry/peezombie.me"). Omitted by every pre-existing
+   * caller of this helper, matching production's era before this field
+   * mattered to the sweeper — those sessions exercise the FALLBACK path.
+   */
+  repoUrl?: string;
+  repoName?: string;
 }): SessionRecord {
   return {
     sessionId: opts.sessionId,
     taskId: opts.taskId,
     status: "PR_OPEN" as SessionRecord["status"],
+    ...(opts.repoUrl !== undefined ? { repoUrl: opts.repoUrl } : {}),
+    ...(opts.repoName !== undefined ? { repoName: opts.repoName } : {}),
     ...(opts.prNumber !== undefined
       ? {
           pullRequest: {
             number: opts.prNumber,
-            url: `https://github.com/${OWNER}/${REPO}/pull/${opts.prNumber}`,
+            url: `https://github.com/${opts.repoName ?? OWNER}/${opts.repoName ?? REPO}/pull/${opts.prNumber}`,
             state: "open" as const,
             createdAt: "2026-05-01T00:00:00Z",
             headBranch: "task/mt-9999",
@@ -189,6 +196,40 @@ function makeFakeOctokit(opts: {
           const data = opts.prResponses[args.pull_number];
           if (!data) {
             throw new Error(`fake octokit: no fixture for PR #${args.pull_number}`);
+          }
+          return { data };
+        },
+      },
+    },
+  };
+  return fake as unknown as Octokit;
+}
+
+/**
+ * A REPO-AWARE fake Octokit whose `pulls.get` is keyed by (repo, pull_number)
+ * — unlike `makeFakeOctokit` above, which ignores owner/repo entirely and so
+ * cannot express "this PR number is merged in repo A but open in repo B."
+ * Needed for mt#4759 R1's session-driven multi-repo tests: the whole point
+ * is asserting the sweeper resolves the CORRECT repo per session, which a
+ * repo-blind fake cannot discriminate.
+ */
+function makeRepoAwareOctokit(
+  byRepo: Record<
+    string,
+    Record<number, { merged: boolean; merged_at?: string | null; merge_commit_sha?: string | null }>
+  >,
+  calls: Array<{ owner: string; repo: string; prNumber: number }>
+): Octokit {
+  const fake = {
+    rest: {
+      pulls: {
+        get: async (args: { owner: string; repo: string; pull_number: number }) => {
+          calls.push({ owner: args.owner, repo: args.repo, prNumber: args.pull_number });
+          const data = byRepo[args.repo]?.[args.pull_number];
+          if (!data) {
+            throw new Error(
+              `fake octokit: no fixture for ${args.owner}/${args.repo}#${args.pull_number}`
+            );
           }
           return { data };
         },
@@ -423,6 +464,74 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.missedSyncs).toBe(0);
     expect(result.syncsTriggered).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — cross-repo PR-number corruption regression (mt#4759 R1)
+// ---------------------------------------------------------------------------
+//
+// Coordinator-caught BLOCKING defect on the first cut of this PR: the
+// multi-repo cycle wrapper called runMergeStateSweep once per resolved
+// target, but the function itself checks EVERY PR_OPEN session against
+// whichever owner/repo it was called with — ignoring the session's OWN
+// repo entirely. A peezombie.me session at PR #4 (still open) got checked
+// against edobry/minsky's PR #4 (merged 2025-05-23, and minsky's low PR
+// numbers are densely populated: #10, #28, #30, #32-36, #68, #75, #84+ are
+// also merged) — a false MATCH, not a 404, so applyPostMergeStateSync fired
+// on the WRONG session carrying minsky's merge SHA/timestamp. Silent
+// session-state corruption, not merely wasted API calls.
+//
+// This test calls runMergeStateSweep directly (no cycle wrapper needed) —
+// the defect reproduces from a SINGLE call whose target repo happens to
+// have a merged PR at the session's own PR number.
+describe("runMergeStateSweep — cross-repo PR-number corruption regression (mt#4759 R1)", () => {
+  it("does NOT sync a session whose OWN PR is open, even when the CALLER's target repo has a merged PR at the same number", async () => {
+    // A peezombie.me session — its own PR #4 is still open.
+    const session = makePrOpenSession({
+      sessionId: "s-peezombie-4",
+      taskId: "mt#9001",
+      prNumber: 4,
+      repoUrl: "https://github.com/edobry/peezombie.me",
+      repoName: "peezombie.me",
+    });
+
+    // The caller's target is edobry/minsky — whose REAL PR #4 is merged
+    // (verified live 2026-08-30). The session's OWN repo, peezombie.me, has
+    // its OWN PR #4 still open. A repo-AWARE fake is required here — the
+    // repo-blind `makeFakeOctokit` used elsewhere in this file cannot
+    // express "merged in one repo, open in another at the same number,"
+    // which is exactly the distinction this regression depends on.
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRepoAwareOctokit(
+      {
+        minsky: {
+          4: {
+            merged: true,
+            merged_at: "2025-05-23T00:00:00Z",
+            merge_commit_sha: "minsky-real-pr4-sha",
+          },
+        },
+        "peezombie.me": { 4: { merged: false } },
+      },
+      calls
+    );
+
+    const syncCalledFor: string[] = [];
+    const deps = makeDeps([session], async (params) => {
+      syncCalledFor.push(params.sessionId);
+    });
+
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
+
+    // The sweeper must have checked peezombie.me's own PR #4, not minsky's.
+    expect(calls).toEqual([{ owner: "edobry", repo: "peezombie.me", prNumber: 4 }]);
+
+    // The peezombie session must NOT be synced using minsky's PR #4's
+    // merge SHA/timestamp — its own PR is still open.
+    expect(syncCalledFor).not.toContain("s-peezombie-4");
+    expect(result.syncsTriggered).toBe(0);
+    expect(result.missedSyncs).toBe(0);
   });
 });
 
@@ -967,213 +1076,99 @@ describe("startMergeStateSweeper — boot catch-up sweep (mt#2684)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// runMergeStateSweepCycle — multi-repo target resolution (mt#4759)
+// runMergeStateSweep — session-driven multi-repo (mt#4759 R1)
 // ---------------------------------------------------------------------------
+//
+// Replaces the earlier `runMergeStateSweepCycle` (installation-coverage,
+// per-target loop) design, which a coordinator review caught corrupting
+// session state cross-repo (see the regression test above and the module
+// docblock's "Multi-repo sweep is SESSION-driven" section). The sweeper is
+// now correctly multi-repo WITHOUT any repo-target set: each PR_OPEN
+// session is checked against its OWN repo, derived from `session.repoUrl`.
 
-describe("runMergeStateSweepCycle — multi-repo target resolution (mt#4759)", () => {
-  const EXPLICIT_SWEEPER_CONFIG: MergeStateSweeperConfig = {
-    enabled: true,
-    intervalMs: 600_000,
-    owner: OWNER,
-    repo: REPO,
-    ownerDefaulted: false,
-    repoDefaulted: false,
-    githubTimeoutMs: GITHUB_TIMEOUT_MS,
-    bootCatchupEnabled: false,
-  };
+describe("runMergeStateSweep — session-driven multi-repo (mt#4759 R1)", () => {
+  it("each session is checked against its OWN repo, not the caller's owner/repo params", async () => {
+    const minskySession = makePrOpenSession({
+      sessionId: "s-minsky",
+      taskId: "mt#1",
+      prNumber: 10,
+      repoUrl: "https://github.com/edobry/minsky",
+      repoName: "minsky",
+    });
+    const peezombieSession = makePrOpenSession({
+      sessionId: "s-peezombie",
+      taskId: "mt#2",
+      prNumber: 10,
+      repoUrl: "https://github.com/edobry/peezombie.me",
+      repoName: "peezombie.me",
+    });
 
-  /**
-   * A config with NEITHER SWEEPER_REPO_OWNER nor SWEEPER_REPO_NAME set —
-   * both *Defaulted flags true, which is what triggers installation-coverage
-   * resolution rather than the single-pair short-circuit.
-   */
-  const NO_OVERRIDE_SWEEPER_CONFIG: MergeStateSweeperConfig = {
-    ...EXPLICIT_SWEEPER_CONFIG,
-    ownerDefaulted: true,
-    repoDefaulted: true,
-  };
-
-  /** A fake Octokit whose `pulls.get` records every (owner, repo, pull_number) call. */
-  function makeRecordingOctokit(
-    prResponses: Record<
-      number,
-      { merged: boolean; merged_at?: string | null; merge_commit_sha?: string | null }
-    >,
-    calls: Array<{ owner: string; repo: string; prNumber: number }>
-  ): Octokit {
-    const fake = {
-      rest: {
-        pulls: {
-          get: async (args: { owner: string; repo: string; pull_number: number }) => {
-            calls.push({ owner: args.owner, repo: args.repo, prNumber: args.pull_number });
-            const data = prResponses[args.pull_number];
-            if (!data) {
-              throw new Error(`fake octokit: no fixture for #${args.pull_number}`);
-            }
-            return { data };
-          },
-        },
-      },
-    };
-    return fake as unknown as Octokit;
-  }
-
-  it("multi-repo enumeration: sweeps every resolved repo target once", async () => {
-    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 })];
     const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
-    const octokit = makeRecordingOctokit({ 10: { merged: false } }, calls);
-    const getInstallationCoverage: GetInstallationCoverageFn = () =>
-      Promise.resolve({
-        selection: "selected",
-        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME],
-      });
-
-    const deps: MergeStateSweeperDeps = {
-      ...makeDeps(sessions),
-      getInstallationCoverage,
-    };
-
-    const result = await runMergeStateSweepCycle(
-      BASE_REVIEWER_CONFIG,
-      octokit,
-      NO_OVERRIDE_SWEEPER_CONFIG,
-      deps
+    // Same PR NUMBER (10) in both repos, but only minsky's is merged —
+    // proving each session resolves ITS OWN repo rather than both landing
+    // on whichever owner/repo the caller happened to pass.
+    const octokit = makeRepoAwareOctokit(
+      {
+        minsky: {
+          10: { merged: true, merged_at: "2026-08-01T00:00:00Z", merge_commit_sha: "m10" },
+        },
+        "peezombie.me": { 10: { merged: false } },
+      },
+      calls
     );
 
-    expect(result.repoTargetSource).toBe("installation-coverage");
-    expect(result.targets).toEqual([
-      { owner: "edobry", repo: "minsky" },
-      { owner: "edobry", repo: "peezombie.me" },
-    ]);
-    expect(result.perRepo).toHaveLength(2);
-    // Both targets were actually swept — one octokit.pulls.get call per target.
-    expect(calls).toEqual([
+    const syncCalledFor: string[] = [];
+    const deps = makeDeps([minskySession, peezombieSession], async (params) => {
+      syncCalledFor.push(params.sessionId);
+    });
+
+    // Caller passes a THIRD, irrelevant pair — neither session should fall
+    // back to it, since both have a parseable repoUrl of their own.
+    const result = await runMergeStateSweep(
+      octokit,
+      "some-other-owner",
+      "some-other-repo",
+      deps,
+      GITHUB_TIMEOUT_MS
+    );
+
+    expect(calls.sort((a, b) => a.repo.localeCompare(b.repo))).toEqual([
       { owner: "edobry", repo: "minsky", prNumber: 10 },
       { owner: "edobry", repo: "peezombie.me", prNumber: 10 },
     ]);
+    expect(syncCalledFor).toEqual(["s-minsky"]);
+    expect(result.missedSyncs).toBe(1);
+    expect(result.syncsTriggered).toBe(1);
   });
 
-  it('selection: "all" branch: sweeps the full repository list', async () => {
-    const sessions: SessionRecord[] = [];
-    const octokit = makeRecordingOctokit({}, []);
-    const getInstallationCoverage: GetInstallationCoverageFn = () =>
-      Promise.resolve({
-        selection: "all",
-        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME, "edobry/third-repo"],
-      });
+  it("a session with no repoUrl falls back to the caller's owner/repo params (backward compat)", async () => {
+    // No repoUrl set — matches every pre-existing test's session shape,
+    // which predates this field mattering to the sweeper.
+    const session = makePrOpenSession({ sessionId: "s-legacy", taskId: "mt#3", prNumber: 42 });
 
-    const deps: MergeStateSweeperDeps = { ...makeDeps(sessions), getInstallationCoverage };
-
-    const result = await runMergeStateSweepCycle(
-      BASE_REVIEWER_CONFIG,
-      octokit,
-      NO_OVERRIDE_SWEEPER_CONFIG,
-      deps
-    );
-
-    expect(result.repoTargetSource).toBe("installation-coverage");
-    expect(result.targets).toHaveLength(3);
-    expect(result.perRepo).toHaveLength(3);
-  });
-
-  it("explicit-env-override branch: getInstallationCoverage is never called when SWEEPER_REPO_OWNER/NAME are set", async () => {
-    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 })];
     const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
-    const octokit = makeRecordingOctokit({ 10: { merged: false } }, calls);
-    let coverageCalled = false;
-    const getInstallationCoverage: GetInstallationCoverageFn = () => {
-      coverageCalled = true;
-      return Promise.reject(new Error("should not be called"));
-    };
+    const octokit = makeRepoAwareOctokit({ minsky: { 42: { merged: false } } }, calls);
+    const deps = makeDeps([session]);
 
-    const deps: MergeStateSweeperDeps = { ...makeDeps(sessions), getInstallationCoverage };
+    await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
 
-    const result = await runMergeStateSweepCycle(
-      BASE_REVIEWER_CONFIG,
-      octokit,
-      EXPLICIT_SWEEPER_CONFIG,
-      deps
-    );
-
-    expect(result.repoTargetSource).toBe("explicit-env");
-    expect(result.targets).toEqual([{ owner: OWNER, repo: REPO }]);
-    expect(coverageCalled).toBe(false);
-    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 10 }]);
+    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 42 }]);
   });
 
-  it("coverage-call-failure fallback: sweeps the default pair, never sweeps zero repos", async () => {
-    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 })];
+  it("a session with an unparseable repoUrl falls back to the caller's owner/repo params", async () => {
+    const session = makePrOpenSession({
+      sessionId: "s-bad-url",
+      taskId: "mt#4",
+      prNumber: 43,
+      repoUrl: "not-a-github-url",
+    });
+
     const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
-    const octokit = makeRecordingOctokit({ 10: { merged: false } }, calls);
-    const getInstallationCoverage: GetInstallationCoverageFn = () =>
-      Promise.reject(new Error("GitHub 500"));
+    const octokit = makeRepoAwareOctokit({ minsky: { 43: { merged: false } } }, calls);
+    const deps = makeDeps([session]);
 
-    const deps: MergeStateSweeperDeps = { ...makeDeps(sessions), getInstallationCoverage };
+    await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
 
-    const { logs, restore } = captureConsoleLogs();
-    let result;
-    try {
-      result = await runMergeStateSweepCycle(
-        BASE_REVIEWER_CONFIG,
-        octokit,
-        NO_OVERRIDE_SWEEPER_CONFIG,
-        deps
-      );
-    } finally {
-      restore();
-    }
-
-    // FAIL SAFE: falls back to the single default pair, never an empty target list.
-    expect(result.repoTargetSource).toBe("fallback-default");
-    expect(result.targets).toEqual([{ owner: OWNER, repo: REPO }]);
-    expect(result.targets.length).toBeGreaterThan(0);
-    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 10 }]);
-    expect(findLogEvent(logs, "merge_state_sweeper.repo_target_resolution_failed")).not.toBeNull();
-  });
-
-  it("aggregates missedSyncs/syncsTriggered/errors additively across targets", async () => {
-    const sessions = [
-      makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 }),
-      makePrOpenSession({ sessionId: "s2", taskId: "mt#2", prNumber: 20 }),
-    ];
-    // Both PR numbers "exist" and are merged from the fake octokit's point of
-    // view (it does not distinguish targets) — since runMergeStateSweep is
-    // called once per target with the SAME session list (mt#4768 tracks the
-    // per-session repo-matching gap this documents), each of the 2 targets
-    // independently detects both sessions as merged: 2 sessions x 2 targets.
-    const octokit = makeRecordingOctokit(
-      {
-        10: { merged: true, merged_at: "2026-08-30T00:00:00Z", merge_commit_sha: "aaa" },
-        20: { merged: true, merged_at: "2026-08-30T00:00:00Z", merge_commit_sha: "bbb" },
-      },
-      []
-    );
-    const getInstallationCoverage: GetInstallationCoverageFn = () =>
-      Promise.resolve({
-        selection: "selected",
-        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME],
-      });
-
-    const syncCalledFor: string[] = [];
-    const deps: MergeStateSweeperDeps = {
-      ...makeDeps(sessions, async (params) => {
-        syncCalledFor.push(params.sessionId);
-      }),
-      getInstallationCoverage,
-    };
-
-    const result = await runMergeStateSweepCycle(
-      BASE_REVIEWER_CONFIG,
-      octokit,
-      NO_OVERRIDE_SWEEPER_CONFIG,
-      deps
-    );
-
-    // sessionsScanned is NOT summed across targets (same session set each pass).
-    expect(result.aggregate.sessionsScanned).toBe(2);
-    // missedSyncs/syncsTriggered ARE additive: 2 sessions detected merged x 2 targets.
-    expect(result.aggregate.missedSyncs).toBe(4);
-    expect(result.aggregate.syncsTriggered).toBe(4);
-    expect(syncCalledFor.length).toBe(4);
+    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 43 }]);
   });
 });
