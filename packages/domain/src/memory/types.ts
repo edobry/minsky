@@ -182,6 +182,21 @@ export interface MemorySearchResult {
 }
 
 /**
+ * A single record fetched by id, with the same read-time staleness verdict
+ * {@link MemorySearchResult} carries (mt#4743).
+ *
+ * Separate from `MemorySearchResult` because a fetch-by-id has no `score` — there is no
+ * query to be relevant to. Sharing the `staleness` field type (and, in the service, the
+ * same annotation pass) is what makes the two surfaces agree by construction rather than
+ * by two implementations that must be kept in step.
+ */
+export interface MemoryReadResult {
+  record: MemoryRecord;
+  /** See {@link MemorySearchResult.staleness}. Same semantics, same computation. */
+  staleness?: MemoryStaleness;
+}
+
+/**
  * Sort field for `MemoryService.list()` (mt#4761), applied via SQL `ORDER BY`.
  * Ignored when `filter.stale` is true — that filter forces its own
  * `lastAccessedAt` ascending, nulls-first order (see `MemoryListFilter.stale`).

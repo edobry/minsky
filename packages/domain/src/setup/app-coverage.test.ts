@@ -19,6 +19,16 @@ import type { TokenRole } from "../auth/token-provider";
 /** The originating ungranted repo (mt#4680). */
 const UNGRANTED_REPO = "edobry/peezombie.me";
 
+/**
+ * The on-page control the operator has to find once they arrive — named the
+ * same way on both the linked and the prose path, so it is asserted from one
+ * place rather than retyped per test.
+ */
+const REPOSITORY_ACCESS = "Repository access";
+
+/** The navigation path the deep link replaces (mt#4695). */
+const NAVIGATION_PATH_MARKER = "Installed GitHub Apps";
+
 function fakeProvider(
   impl: () => Promise<{ repositories: string[]; selection: "all" | "selected" }>
 ) {
@@ -101,13 +111,63 @@ describe("formatAppCoverage (mt#4680)", () => {
     expect(out).toContain(`does NOT cover ${UNGRANTED_REPO}`);
     expect(out).toContain("404");
     expect(out).toContain("minsky-ai");
-    expect(out).toContain("Repository access");
+    expect(out).toContain(REPOSITORY_ACCESS);
   });
 
   it("does not tell the operator to grant anything when the check merely failed", () => {
     const out = formatAppCoverage({ state: "unknown", reason: "503" });
     expect(out).toContain("could not be verified");
-    expect(out).not.toContain("Repository access");
+    expect(out).not.toContain(REPOSITORY_ACCESS);
+  });
+
+  // mt#4695: the prose form is the FALLBACK, not the remedy. The principal
+  // could not act on it — "there was no link".
+  it("emits the settings link instead of navigation prose when one is supplied", () => {
+    const out = formatAppCoverage(
+      { state: "not-covered", repo: UNGRANTED_REPO, coveredCount: 1 },
+      "minsky-ai",
+      "https://github.com/settings/installations/125403046"
+    );
+
+    expect(out).toContain("https://github.com/settings/installations/125403046");
+    // The navigation path the link replaces must be GONE, not merely joined —
+    // an operator handed both still has to decide which one to follow.
+    expect(out).not.toContain(NAVIGATION_PATH_MARKER);
+    // Still actionable once they land: which repo, and where on the page.
+    expect(out).toContain(UNGRANTED_REPO);
+    expect(out).toContain(REPOSITORY_ACCESS);
+  });
+
+  it("still names the app slug on the linked path, so two uncovered roles stay distinct", () => {
+    // Both roles render a block headed `does NOT cover <repo>`; the slug is the
+    // only thing separating them, so it must survive the switch to a link.
+    const implementer = formatAppCoverage(
+      { state: "not-covered", repo: UNGRANTED_REPO, coveredCount: 1 },
+      "minsky-ai",
+      "https://github.com/settings/installations/125403046"
+    );
+    const reviewer = formatAppCoverage(
+      { state: "not-covered", repo: UNGRANTED_REPO, coveredCount: 1 },
+      "minsky-reviewer",
+      "https://github.com/settings/installations/987654321"
+    );
+
+    expect(implementer).toContain("minsky-ai");
+    expect(reviewer).toContain("minsky-reviewer");
+    expect(implementer).not.toBe(reviewer);
+  });
+
+  it("falls back to the navigation path when no link is available", () => {
+    // SC3: a missing installation id degrades to prose rather than emitting a
+    // guessed or half-built URL. Exercised, not assumed.
+    const out = formatAppCoverage(
+      { state: "not-covered", repo: UNGRANTED_REPO, coveredCount: 1 },
+      "minsky-ai"
+    );
+
+    expect(out).not.toContain("https://");
+    expect(out).toContain(NAVIGATION_PATH_MARKER);
+    expect(out).toContain(REPOSITORY_ACCESS);
   });
 });
 

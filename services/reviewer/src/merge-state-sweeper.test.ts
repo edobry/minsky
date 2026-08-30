@@ -135,16 +135,26 @@ function makePrOpenSession(opts: {
   sessionId: string;
   taskId?: string;
   prNumber?: number;
+  /**
+   * mt#4759 R1: the session's OWN repo (full URL, e.g.
+   * "https://github.com/edobry/peezombie.me"). Omitted by every pre-existing
+   * caller of this helper, matching production's era before this field
+   * mattered to the sweeper — those sessions exercise the FALLBACK path.
+   */
+  repoUrl?: string;
+  repoName?: string;
 }): SessionRecord {
   return {
     sessionId: opts.sessionId,
     taskId: opts.taskId,
     status: "PR_OPEN" as SessionRecord["status"],
+    ...(opts.repoUrl !== undefined ? { repoUrl: opts.repoUrl } : {}),
+    ...(opts.repoName !== undefined ? { repoName: opts.repoName } : {}),
     ...(opts.prNumber !== undefined
       ? {
           pullRequest: {
             number: opts.prNumber,
-            url: `https://github.com/${OWNER}/${REPO}/pull/${opts.prNumber}`,
+            url: `https://github.com/${opts.repoName ?? OWNER}/${opts.repoName ?? REPO}/pull/${opts.prNumber}`,
             state: "open" as const,
             createdAt: "2026-05-01T00:00:00Z",
             headBranch: "task/mt-9999",
@@ -186,6 +196,40 @@ function makeFakeOctokit(opts: {
           const data = opts.prResponses[args.pull_number];
           if (!data) {
             throw new Error(`fake octokit: no fixture for PR #${args.pull_number}`);
+          }
+          return { data };
+        },
+      },
+    },
+  };
+  return fake as unknown as Octokit;
+}
+
+/**
+ * A REPO-AWARE fake Octokit whose `pulls.get` is keyed by (repo, pull_number)
+ * — unlike `makeFakeOctokit` above, which ignores owner/repo entirely and so
+ * cannot express "this PR number is merged in repo A but open in repo B."
+ * Needed for mt#4759 R1's session-driven multi-repo tests: the whole point
+ * is asserting the sweeper resolves the CORRECT repo per session, which a
+ * repo-blind fake cannot discriminate.
+ */
+function makeRepoAwareOctokit(
+  byRepo: Record<
+    string,
+    Record<number, { merged: boolean; merged_at?: string | null; merge_commit_sha?: string | null }>
+  >,
+  calls: Array<{ owner: string; repo: string; prNumber: number }>
+): Octokit {
+  const fake = {
+    rest: {
+      pulls: {
+        get: async (args: { owner: string; repo: string; pull_number: number }) => {
+          calls.push({ owner: args.owner, repo: args.repo, prNumber: args.pull_number });
+          const data = byRepo[args.repo]?.[args.pull_number];
+          if (!data) {
+            throw new Error(
+              `fake octokit: no fixture for ${args.owner}/${args.repo}#${args.pull_number}`
+            );
           }
           return { data };
         },
@@ -420,6 +464,74 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.missedSyncs).toBe(0);
     expect(result.syncsTriggered).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — cross-repo PR-number corruption regression (mt#4759 R1)
+// ---------------------------------------------------------------------------
+//
+// Coordinator-caught BLOCKING defect on the first cut of this PR: the
+// multi-repo cycle wrapper called runMergeStateSweep once per resolved
+// target, but the function itself checks EVERY PR_OPEN session against
+// whichever owner/repo it was called with — ignoring the session's OWN
+// repo entirely. A peezombie.me session at PR #4 (still open) got checked
+// against edobry/minsky's PR #4 (merged 2025-05-23, and minsky's low PR
+// numbers are densely populated: #10, #28, #30, #32-36, #68, #75, #84+ are
+// also merged) — a false MATCH, not a 404, so applyPostMergeStateSync fired
+// on the WRONG session carrying minsky's merge SHA/timestamp. Silent
+// session-state corruption, not merely wasted API calls.
+//
+// This test calls runMergeStateSweep directly (no cycle wrapper needed) —
+// the defect reproduces from a SINGLE call whose target repo happens to
+// have a merged PR at the session's own PR number.
+describe("runMergeStateSweep — cross-repo PR-number corruption regression (mt#4759 R1)", () => {
+  it("does NOT sync a session whose OWN PR is open, even when the CALLER's target repo has a merged PR at the same number", async () => {
+    // A peezombie.me session — its own PR #4 is still open.
+    const session = makePrOpenSession({
+      sessionId: "s-peezombie-4",
+      taskId: "mt#9001",
+      prNumber: 4,
+      repoUrl: "https://github.com/edobry/peezombie.me",
+      repoName: "peezombie.me",
+    });
+
+    // The caller's target is edobry/minsky — whose REAL PR #4 is merged
+    // (verified live 2026-08-30). The session's OWN repo, peezombie.me, has
+    // its OWN PR #4 still open. A repo-AWARE fake is required here — the
+    // repo-blind `makeFakeOctokit` used elsewhere in this file cannot
+    // express "merged in one repo, open in another at the same number,"
+    // which is exactly the distinction this regression depends on.
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRepoAwareOctokit(
+      {
+        minsky: {
+          4: {
+            merged: true,
+            merged_at: "2025-05-23T00:00:00Z",
+            merge_commit_sha: "minsky-real-pr4-sha",
+          },
+        },
+        "peezombie.me": { 4: { merged: false } },
+      },
+      calls
+    );
+
+    const syncCalledFor: string[] = [];
+    const deps = makeDeps([session], async (params) => {
+      syncCalledFor.push(params.sessionId);
+    });
+
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
+
+    // The sweeper must have checked peezombie.me's own PR #4, not minsky's.
+    expect(calls).toEqual([{ owner: "edobry", repo: "peezombie.me", prNumber: 4 }]);
+
+    // The peezombie session must NOT be synced using minsky's PR #4's
+    // merge SHA/timestamp — its own PR is still open.
+    expect(syncCalledFor).not.toContain("s-peezombie-4");
+    expect(result.syncsTriggered).toBe(0);
+    expect(result.missedSyncs).toBe(0);
   });
 });
 
@@ -960,5 +1072,103 @@ describe("startMergeStateSweeper — boot catch-up sweep (mt#2684)", () => {
     const cycleEnd = findLogEvent(logs, EVENT_CYCLE_END);
     expect(cycleEnd?.syncsTriggered).toBe(1);
     expect(cycleEnd?.missedSyncs).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — session-driven multi-repo (mt#4759 R1)
+// ---------------------------------------------------------------------------
+//
+// Replaces the earlier `runMergeStateSweepCycle` (installation-coverage,
+// per-target loop) design, which a coordinator review caught corrupting
+// session state cross-repo (see the regression test above and the module
+// docblock's "Multi-repo sweep is SESSION-driven" section). The sweeper is
+// now correctly multi-repo WITHOUT any repo-target set: each PR_OPEN
+// session is checked against its OWN repo, derived from `session.repoUrl`.
+
+describe("runMergeStateSweep — session-driven multi-repo (mt#4759 R1)", () => {
+  it("each session is checked against its OWN repo, not the caller's owner/repo params", async () => {
+    const minskySession = makePrOpenSession({
+      sessionId: "s-minsky",
+      taskId: "mt#1",
+      prNumber: 10,
+      repoUrl: "https://github.com/edobry/minsky",
+      repoName: "minsky",
+    });
+    const peezombieSession = makePrOpenSession({
+      sessionId: "s-peezombie",
+      taskId: "mt#2",
+      prNumber: 10,
+      repoUrl: "https://github.com/edobry/peezombie.me",
+      repoName: "peezombie.me",
+    });
+
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    // Same PR NUMBER (10) in both repos, but only minsky's is merged —
+    // proving each session resolves ITS OWN repo rather than both landing
+    // on whichever owner/repo the caller happened to pass.
+    const octokit = makeRepoAwareOctokit(
+      {
+        minsky: {
+          10: { merged: true, merged_at: "2026-08-01T00:00:00Z", merge_commit_sha: "m10" },
+        },
+        "peezombie.me": { 10: { merged: false } },
+      },
+      calls
+    );
+
+    const syncCalledFor: string[] = [];
+    const deps = makeDeps([minskySession, peezombieSession], async (params) => {
+      syncCalledFor.push(params.sessionId);
+    });
+
+    // Caller passes a THIRD, irrelevant pair — neither session should fall
+    // back to it, since both have a parseable repoUrl of their own.
+    const result = await runMergeStateSweep(
+      octokit,
+      "some-other-owner",
+      "some-other-repo",
+      deps,
+      GITHUB_TIMEOUT_MS
+    );
+
+    expect(calls.sort((a, b) => a.repo.localeCompare(b.repo))).toEqual([
+      { owner: "edobry", repo: "minsky", prNumber: 10 },
+      { owner: "edobry", repo: "peezombie.me", prNumber: 10 },
+    ]);
+    expect(syncCalledFor).toEqual(["s-minsky"]);
+    expect(result.missedSyncs).toBe(1);
+    expect(result.syncsTriggered).toBe(1);
+  });
+
+  it("a session with no repoUrl falls back to the caller's owner/repo params (backward compat)", async () => {
+    // No repoUrl set — matches every pre-existing test's session shape,
+    // which predates this field mattering to the sweeper.
+    const session = makePrOpenSession({ sessionId: "s-legacy", taskId: "mt#3", prNumber: 42 });
+
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRepoAwareOctokit({ minsky: { 42: { merged: false } } }, calls);
+    const deps = makeDeps([session]);
+
+    await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
+
+    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 42 }]);
+  });
+
+  it("a session with an unparseable repoUrl falls back to the caller's owner/repo params", async () => {
+    const session = makePrOpenSession({
+      sessionId: "s-bad-url",
+      taskId: "mt#4",
+      prNumber: 43,
+      repoUrl: "not-a-github-url",
+    });
+
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRepoAwareOctokit({ minsky: { 43: { merged: false } } }, calls);
+    const deps = makeDeps([session]);
+
+    await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
+
+    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 43 }]);
   });
 });

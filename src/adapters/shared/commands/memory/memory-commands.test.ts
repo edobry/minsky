@@ -78,6 +78,10 @@ function makeFakeMemoryService(
         : { results: [], backend: "embeddings", degraded: false },
 
     get: async (_id) => (overrides.getResult !== undefined ? overrides.getResult : defaultRecord),
+    getWithStaleness: async (_id) => {
+      const record = overrides.getResult !== undefined ? overrides.getResult : defaultRecord;
+      return record === null ? null : { record };
+    },
     getWithoutAccessTracking: async (_id) =>
       overrides.getResult !== undefined ? overrides.getResult : defaultRecord,
 

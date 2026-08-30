@@ -834,9 +834,12 @@ export function registerMemoryCommands(
       const id = await resolveMemoryIdInput(params.id, ctx ?? {});
 
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const record = await service.get(id);
+      // mt#4743: the annotating read. `search()` has carried a staleness verdict since
+      // mt#1709 while this path — the one an agent takes when a handoff or a spec named a
+      // record BY ID — returned the row unannotated, which is the load-bearing case.
+      const result = await service.getWithStaleness(id);
 
-      if (!record) {
+      if (!result) {
         // mt#2696 R1: name both what the caller passed AND how it was
         // interpreted (full UUID vs prefix) rather than echoing the raw
         // input unconditionally — a resolved prefix that no longer matches
@@ -856,7 +859,13 @@ export function registerMemoryCommands(
         throw new Error(message);
       }
 
-      return record;
+      // mt#4743: ADDITIVE. Every field of the record stays at the path it has always been
+      // at and `staleness` sits alongside them, so no existing `memory.get` consumer sees a
+      // shape change; the key is absent entirely for a record that declares no retirement
+      // relationship, matching `MemorySearchResult`'s optional-not-"current" convention.
+      return result.staleness === undefined
+        ? result.record
+        : { ...result.record, staleness: result.staleness };
     },
   });
 
