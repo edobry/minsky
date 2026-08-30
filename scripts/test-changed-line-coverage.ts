@@ -164,7 +164,14 @@ export function parseLcovCoveredLines(lcovText: string, repoRoot = ""): LineMap 
 export interface CoverageEvaluation {
   /** The added test file this verdict is about. */
   testFile: string;
-  /** How many of the PR's changed lines this test's run executed. */
+  /**
+   * The SET of changed lines this test's run executed, per changed file
+   * (sorted ascending). This is the primary output — SC1 asks for the set, and
+   * a count alone cannot be checked against the diff by a reader.
+   * Files with an empty intersection are omitted.
+   */
+  coveredChangedLines: Record<string, number[]>;
+  /** Size of {@link coveredChangedLines}, summed. Derived, for quick reporting. */
   changedLinesCovered: number;
   /** Changed files it reached at least one line of, sorted for stable records. */
   reachedFiles: string[];
@@ -193,6 +200,7 @@ export function evaluateCoverage(
 ): CoverageEvaluation {
   const reachedFiles: string[] = [];
   const unreachedFiles: string[] = [];
+  const coveredChangedLines: Record<string, number[]> = {};
   let changedLinesCovered = 0;
 
   for (const [file, changed] of changedLines) {
@@ -200,16 +208,18 @@ export function evaluateCoverage(
     if (isTestFile(file)) continue;
 
     const covered = coveredLines.get(file);
-    let hits = 0;
+    const hitLines: number[] = [];
     if (covered) {
       for (const line of changed) {
-        if (covered.has(line)) hits++;
+        if (covered.has(line)) hitLines.push(line);
       }
     }
 
-    if (hits > 0) {
+    if (hitLines.length > 0) {
+      hitLines.sort((a, b) => a - b);
+      coveredChangedLines[file] = hitLines;
       reachedFiles.push(file);
-      changedLinesCovered += hits;
+      changedLinesCovered += hitLines.length;
     } else {
       unreachedFiles.push(file);
     }
@@ -220,11 +230,37 @@ export function evaluateCoverage(
 
   return {
     testFile,
+    coveredChangedLines,
     changedLinesCovered,
     reachedFiles,
     unreachedFiles,
     vacuous: changedLinesCovered === 0,
   };
+}
+
+/**
+ * Collapse a sorted line list into ranges (`41-43,50`) so a wide intersection
+ * stays readable in a CI log without losing which lines it names.
+ */
+export function formatLineRanges(lines: number[]): string {
+  if (lines.length === 0) return "";
+  const parts: string[] = [];
+  let start = lines[0] as number;
+  let prev = start;
+
+  for (let i = 1; i <= lines.length; i++) {
+    const current = lines[i];
+    if (current !== undefined && current === prev + 1) {
+      prev = current;
+      continue;
+    }
+    parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+    if (current === undefined) break;
+    start = current;
+    prev = current;
+  }
+
+  return parts.join(",");
 }
 
 /**
@@ -235,9 +271,14 @@ export function evaluateCoverage(
  */
 export function describeEvaluation(evaluation: CoverageEvaluation): string {
   if (!evaluation.vacuous) {
+    // Name the LINES, not just the count: SC1 asks for the set, and a reader
+    // checking this against the diff needs the line numbers to do it.
+    const perFile = Object.entries(evaluation.coveredChangedLines)
+      .map(([file, lines]) => `${file}:${formatLineRanges(lines)}`)
+      .join("; ");
     return (
       `${evaluation.testFile}: executes ${evaluation.changedLinesCovered} changed line(s) ` +
-      `across ${evaluation.reachedFiles.length} file(s)`
+      `across ${evaluation.reachedFiles.length} file(s) — ${perFile}`
     );
   }
   const targets = evaluation.unreachedFiles.length

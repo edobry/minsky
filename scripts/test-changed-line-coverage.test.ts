@@ -13,6 +13,7 @@ import {
   parseLcovCoveredLines,
   evaluateCoverage,
   describeEvaluation,
+  formatLineRanges,
   isTestFile,
 } from "./test-changed-line-coverage";
 
@@ -262,10 +263,46 @@ describe("evaluateCoverage — AT4 and the empty cases", () => {
   });
 });
 
+describe("evaluateCoverage — SC1 asks for the SET of covered changed lines, not a count", () => {
+  test("returns the actual line numbers, per changed file", () => {
+    // PR #3497 R1 BLOCKING: a count cannot be checked against the diff by a
+    // reader. The line numbers can.
+    const changed: Map<string, Set<number>> = new Map([[SOURCE_FILE, new Set([41, 42, 43, 90])]]);
+    const covered: Map<string, Set<number>> = new Map([[SOURCE_FILE, new Set([41, 43, 77])]]);
+
+    const verdict = evaluateCoverage(TEST_FILE, changed, covered);
+    // 77 is covered but not changed; 42 and 90 are changed but not covered.
+    expect(verdict.coveredChangedLines).toEqual({ [SOURCE_FILE]: [41, 43] });
+    expect(verdict.changedLinesCovered).toBe(2);
+  });
+
+  test("a file with an empty intersection is omitted from the set", () => {
+    const changed: Map<string, Set<number>> = new Map([
+      [SOURCE_FILE, new Set([1])],
+      ["src/other.ts", new Set([5])],
+    ]);
+    const covered: Map<string, Set<number>> = new Map([[SOURCE_FILE, new Set([1])]]);
+
+    const verdict = evaluateCoverage(TEST_FILE, changed, covered);
+    expect(Object.keys(verdict.coveredChangedLines)).toEqual([SOURCE_FILE]);
+    expect(verdict.unreachedFiles).toEqual(["src/other.ts"]);
+  });
+});
+
+describe("formatLineRanges", () => {
+  test("collapses runs and keeps singletons", () => {
+    expect(formatLineRanges([41, 42, 43, 50])).toBe("41-43,50");
+    expect(formatLineRanges([7])).toBe("7");
+    expect(formatLineRanges([1, 3, 5])).toBe("1,3,5");
+    expect(formatLineRanges([])).toBe("");
+  });
+});
+
 describe("describeEvaluation", () => {
   test("a vacuous finding names the test AND the files it failed to reach", () => {
     const message = describeEvaluation({
       testFile: TEST_FILE,
+      coveredChangedLines: {},
       changedLinesCovered: 0,
       reachedFiles: [],
       unreachedFiles: [SOURCE_FILE],
@@ -276,14 +313,16 @@ describe("describeEvaluation", () => {
     expect(message).toContain("NONE");
   });
 
-  test("a non-vacuous evaluation reports the intersection SIZE (mt#4423 SC3')", () => {
+  test("a non-vacuous evaluation reports the SIZE and the LINES", () => {
     const message = describeEvaluation({
       testFile: TEST_FILE,
+      coveredChangedLines: { [SOURCE_FILE]: [41, 42, 43, 50] },
       changedLinesCovered: 4,
       reachedFiles: [SOURCE_FILE],
       unreachedFiles: [],
       vacuous: false,
     });
     expect(message).toContain("4 changed line(s)");
+    expect(message).toContain(`${SOURCE_FILE}:41-43,50`);
   });
 });

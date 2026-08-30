@@ -61,6 +61,18 @@ interface RunnerOptions {
 export interface EvaluationRecord extends CoverageEvaluation {
   timestamp: string;
   base: string;
+  /**
+   * True when the run produced no lcov at all (the test errored before
+   * reporting, the reporter failed).
+   *
+   * Third instance of the same silent-empty class as the base-ref check
+   * (PR #3497 R1, found by the class-not-instance scan rather than reported):
+   * absent coverage intersects to zero, which is byte-identical to "ran and
+   * reached nothing" — so without this flag a test that never RAN would be
+   * reported as vacuous. It is not; `vacuous` is forced false here and the
+   * record says why.
+   */
+  coverageUnavailable: boolean;
 }
 
 /**
@@ -75,6 +87,25 @@ export function runCoverageCheck(options: RunnerOptions): {
 } {
   const repoRoot = options.repoRoot ?? findRepoRoot(process.cwd());
   const nowMs = options.nowMs ?? Date.now();
+
+  // Verify the base ref RESOLVES before diffing against it (PR #3497 R1).
+  // `git diff` against a ref that does not exist errors, but a ref that
+  // resolves to something unexpected produces a plausible-looking diff — and
+  // an empty diff degrades to "no test files added", which exits 0 and reads
+  // exactly like a clean pass. That is the silent-empty class this whole check
+  // exists to detect, so it must not be the check's own failure mode.
+  const baseRev = execWithPath(["git", "rev-parse", "--verify", `${options.base}^{commit}`], {
+    cwd: repoRoot,
+    timeout: 30_000,
+  });
+  if (baseRev.exitCode !== 0) {
+    throw new Error(
+      `base ref '${options.base}' does not resolve to a commit ` +
+        `(git rev-parse exit ${baseRev.exitCode}): ${baseRev.stderr.trim()}. ` +
+        `Refusing to diff — an unresolvable base yields an empty diff, which is ` +
+        `indistinguishable from a PR that added no tests.`
+    );
+  }
 
   const diffResult = execWithPath(
     ["git", "diff", "--unified=0", `${options.base}...HEAD`],
@@ -114,11 +145,16 @@ export function runCoverageCheck(options: RunnerOptions): {
     );
 
     const lcovPath = join(coverageDir, "lcov.info");
-    const lcov = existsSync(lcovPath) ? readFileSync(lcovPath, "utf8") : "";
+    const coverageUnavailable = !existsSync(lcovPath);
+    const lcov = coverageUnavailable ? "" : readFileSync(lcovPath, "utf8");
     const covered = parseLcovCoveredLines(lcov, repoRoot);
 
+    const evaluation = evaluateCoverage(testFile, changedLines, covered);
     evaluations.push({
-      ...evaluateCoverage(testFile, changedLines, covered),
+      ...evaluation,
+      // No coverage is not evidence of no reach — see `coverageUnavailable`.
+      vacuous: coverageUnavailable ? false : evaluation.vacuous,
+      coverageUnavailable,
       timestamp: new Date(nowMs).toISOString(),
       base: options.base,
     });
@@ -147,7 +183,18 @@ function main(): void {
   }
 
   const repoRoot = findRepoRoot(process.cwd());
-  const { evaluations, addedTestFiles } = runCoverageCheck({ base, repoRoot });
+
+  let evaluations: EvaluationRecord[];
+  let addedTestFiles: string[];
+  try {
+    ({ evaluations, addedTestFiles } = runCoverageCheck({ base, repoRoot }));
+  } catch (err) {
+    // Exit 2 = the check could not RUN, which is a different thing from the
+    // check running and finding nothing. A raw stack trace in a CI log buries
+    // that distinction; the message states it.
+    console.error(`::error::${err instanceof Error ? err.message : String(err)}`);
+    process.exit(2);
+  }
 
   if (addedTestFiles.length === 0) {
     console.log("No test files added by this PR — nothing to evaluate.");
