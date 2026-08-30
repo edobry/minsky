@@ -68,6 +68,30 @@ function prAssociationToChangesetId(value: string): string {
   return value.startsWith("PR#") ? value.slice("PR#".length) : value;
 }
 
+/**
+ * A TAG that is itself an entity reference (mt#4763 PR #3500 R2 BLOCKING).
+ *
+ * Criterion 7 (tags navigate to the filtered `/memories` view) and
+ * criterion 8 (`mt#NNNN` tags render as task deeplinks) name opposite
+ * destinations for the SAME tag shape — resolved by SURFACE: on the
+ * detail page, an entity-shaped tag is treated as a reference and wins
+ * over the general filter-link rendering; on the list page (`MemoriesList.tsx`,
+ * unaffected by this fix) every tag stays a filter, because a reader
+ * scanning a table wants to narrow it, not jump away from it.
+ *
+ * `mt#NNNN` is confirmed common in the corpus (2,251 memories carry one).
+ * `PR#NNNN` is ADR-012's declared canonical form for `citedInReview` and is
+ * confirmed present, if rare (exactly one memory: `PR#3000`) — checked live
+ * rather than assumed, per the instruction not to build for a shape the
+ * corpus doesn't carry. A `.mdc` rule-filename shape was also checked and
+ * found absent (0 hits) and is not implemented.
+ */
+function entityReferenceTag(tag: string): { type: RoutableEntityType; id: string } | null {
+  if (/^mt#\d+$/.test(tag)) return { type: "task", id: tag };
+  if (/^PR#\d+$/.test(tag)) return { type: "changeset", id: prAssociationToChangesetId(tag) };
+  return null;
+}
+
 interface MemorySearchResult {
   record: MemoryRecord;
   score: number;
@@ -180,26 +204,38 @@ export function MemoryDetailContent({
         </dl>
       </section>
 
-      {/* Tags — clickable everywhere they render (mt#4763 success criterion):
-          each tag navigates to the `/memories` facet-filtered view rather
-          than just displaying inert text. */}
+      {/* Tags — clickable everywhere they render (mt#4763 success criterion),
+          EXCEPT an mt#NNNN/PR#NNNN-shaped tag on this page, which is a task
+          or PR deeplink per criterion 8 (see `entityReferenceTag` above and
+          the spec's criterion 7 amendment). Every other tag navigates to the
+          `/memories` facet-filtered view rather than displaying inert text. */}
       {record.tags.length > 0 && (
         <section>
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Tags
           </h3>
           <div className="flex flex-wrap gap-1">
-            {record.tags.map((tag) => (
-              <Link
-                key={tag}
-                to={`/memories?mem_f_tags=${encodeURIComponent(tag)}`}
-                title={tag}
-                aria-label={`Filter by ${tag}`}
-                className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px] hover:bg-primary/20 hover:text-primary transition-colors"
-              >
-                {tag}
-              </Link>
-            ))}
+            {record.tags.map((tag) => {
+              const ref = entityReferenceTag(tag);
+              if (ref) {
+                return (
+                  <EntityRef key={tag} type={ref.type} id={ref.id} className="text-[11px]">
+                    {tag}
+                  </EntityRef>
+                );
+              }
+              return (
+                <Link
+                  key={tag}
+                  to={`/memories?mem_f_tags=${encodeURIComponent(tag)}`}
+                  title={tag}
+                  aria-label={`Filter by ${tag}`}
+                  className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px] hover:bg-primary/20 hover:text-primary transition-colors"
+                >
+                  {tag}
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}

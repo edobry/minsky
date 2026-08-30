@@ -126,6 +126,40 @@ describe("MemoryDetail — clickable tags (mt#4763)", () => {
   });
 });
 
+describe("MemoryDetail — entity-shaped tags are deeplinks, not filters (PR #3500 R2 BLOCKING)", () => {
+  test("an mt#NNNN tag renders as a task deeplink instead of a filter link", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const record = baseRecord({ tags: ["mt#4749", "handoff"] });
+    const { container } = renderDetail({
+      record,
+      lineage: [],
+      lineageTruncated: false,
+      similar: [],
+    });
+    const taskLink = container.querySelector('a[href="/tasks/mt%234749"]');
+    expect(taskLink).not.toBeNull();
+    expect(taskLink?.textContent).toBe("mt#4749");
+    // Not ALSO rendered as a filter link to the same tag.
+    expect(container.querySelector('a[href="/memories?mem_f_tags=mt%234749"]')).toBeNull();
+    // A non-entity-shaped tag on the same record is unaffected.
+    expect(container.querySelector('a[href="/memories?mem_f_tags=handoff"]')).not.toBeNull();
+  });
+
+  test("a PR#NNNN tag renders as a changeset deeplink instead of a filter link", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const record = baseRecord({ tags: ["PR#3000"] });
+    const { container } = renderDetail({
+      record,
+      lineage: [],
+      lineageTruncated: false,
+      similar: [],
+    });
+    const link = container.querySelector('a[href="/changeset/3000"]');
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toBe("PR#3000");
+  });
+});
+
 describe("MemoryDetail — ADR-012 association rendering (mt#4763 AT7)", () => {
   test("a tracksTask association renders as a clickable task deeplink", () => {
     global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
