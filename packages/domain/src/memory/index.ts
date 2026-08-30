@@ -11,6 +11,7 @@ export type {
   MemoryCreateInput,
   MemoryUpdateInput,
   MemorySearchResult,
+  MemoryReadResult,
   MemorySearchResponse,
   MemoryListFilter,
   MemorySearchOptions,

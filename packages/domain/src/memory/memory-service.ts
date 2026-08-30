@@ -63,6 +63,7 @@ import { MEMORY_SCOPES } from "./types";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
+  MemoryReadResult,
   MemoryCreateInput,
   MemoryUpdateInput,
   MemoryListFilter,
@@ -105,6 +106,15 @@ export interface MemoryServiceDb {
 export interface MemoryServiceSurface {
   search(query: string, opts?: MemorySearchOptions): Promise<MemorySearchResponse>;
   get(id: string): Promise<MemoryRecord | null>;
+  /**
+   * Fetch by id AND annotate staleness, the way `search()` already does (mt#4743).
+   *
+   * `get()` is deliberately left un-annotated: it is the internal read used by callers
+   * that want the row, not a verdict about it. This is the CONSUMER-facing read — the
+   * one an agent reaches when a handoff, a spec cross-reference or a family root named
+   * a record by id, which is precisely the load-bearing case mt#1709 did not cover.
+   */
+  getWithStaleness(id: string): Promise<MemoryReadResult | null>;
   /** Read without bumping access tracking — for read-in-order-to-write callers (mt#3602). */
   getWithoutAccessTracking(id: string): Promise<MemoryRecord | null>;
   list(filter?: MemoryListFilter): Promise<MemoryRecord[]>;
@@ -482,6 +492,36 @@ export class MemoryService implements MemoryServiceSurface {
     if (!record) return null;
     this.bumpAccessCount([record.id]);
     return record;
+  }
+
+  /**
+   * See {@link MemoryServiceSurface.getWithStaleness}.
+   *
+   * Routed through the SAME {@link annotateStaleness} pass `search()` uses, on a
+   * one-element result list, rather than a parallel implementation. Two consequences that
+   * are the point rather than an accident of reuse:
+   *
+   * - **Every trigger `search()` has, this has** — including trigger 2's measurement decay
+   *   (mt#4452), which `annotateStaleness` folds in via `combineStaleness`. A third trigger
+   *   added later lands on both surfaces at once, which is the property that makes
+   *   "`memory_get` returns the same annotation `memory_search` does" true by construction
+   *   instead of by two implementations someone has to keep in step.
+   * - **The lookup cost is the same shape, not a new one.** `annotateStaleness` returns
+   *   before issuing any query when the record declares no refs, so an ordinary fetch costs
+   *   zero extra queries; only a record that actually names a tracking task pays for one.
+   *   That matters here because `get` sits on far hotter paths than `search`.
+   */
+  async getWithStaleness(id: string): Promise<MemoryReadResult | null> {
+    const record = await this.get(id);
+    if (!record) return null;
+
+    // `score: 0` is a placeholder for a shape that requires one — a fetch-by-id has no
+    // query to be relevant to, and nothing downstream of `annotateStaleness` reads it.
+    const results: MemorySearchResult[] = [{ record, score: 0 }];
+    await this.annotateStaleness(results);
+
+    const staleness = results[0]?.staleness;
+    return staleness === undefined ? { record } : { record, staleness };
   }
 
   /**

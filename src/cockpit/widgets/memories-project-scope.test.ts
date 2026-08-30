@@ -87,6 +87,7 @@ function makeTwoProjectMemService(
       };
     },
     get: async () => null,
+    getWithStaleness: async () => null,
     getWithoutAccessTracking: async () => null,
     create: async () => {
       throw new Error("not implemented in fake");
