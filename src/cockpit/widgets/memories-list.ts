@@ -13,8 +13,18 @@ import { toMemorySummary } from "@minsky/domain/memory/types";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 
+/**
+ * Widget-specific row shape: the shared `MemorySummaryRecord` projection plus
+ * `shortId` (mt#4761 AT2 needs the `mem#N` short id to verify default-sort
+ * ordering against the DB's max short id — `toMemorySummary`'s shared shape
+ * intentionally excludes it, since it must stay byte-identical to the
+ * `memory.list summary:true` command output pinned by
+ * `memory-commands.test.ts`).
+ */
+export type MemoriesListRow = MemorySummaryRecord & { shortId?: string };
+
 export interface MemoriesListPayload {
-  records: MemorySummaryRecord[];
+  records: MemoriesListRow[];
   total: number;
 }
 
@@ -158,7 +168,7 @@ export function createMemoriesListWidget(
         const total = memSvc.count ? await memSvc.count(filter) : records.length;
 
         const payload: MemoriesListPayload = {
-          records: records.map(toMemorySummary),
+          records: records.map((r) => ({ ...toMemorySummary(r), shortId: r.shortId })),
           total,
         };
 

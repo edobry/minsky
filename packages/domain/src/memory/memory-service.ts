@@ -150,26 +150,36 @@ function buildListConditions(filter?: MemoryListFilter): any[] {
  * Resolve a `MemoryListFilter.sort`/`dir` pair to a SQL ORDER BY fragment
  * (mt#4761). Defaults to `created desc` — see `list()`'s doc comment.
  *
- * `shortId` is stored as `text` (nullable, minted sequentially — ADR-029), so
- * a plain text sort would order "10" before "2"; the explicit `::integer`
- * cast restores numeric order. NULLs (legacy pre-backfill rows) sort last
- * under either direction via `NULLS LAST`, keeping unminted rows out of the
- * way rather than interleaved by direction-dependent Postgres defaults.
+ * `shortId` is stored as `text` holding the FULL formatted `mem#N` token
+ * (`rowToRecord` reads `row.short_id` verbatim with no `formatShortId` call —
+ * the DB column already carries the prefix), nullable for legacy
+ * pre-backfill rows. A plain text sort would both order "mem#10" before
+ * "mem#2" AND treat the whole string as the sort key, so the numeric suffix
+ * is extracted via `split_part(..., '#', 2)` and cast to `integer`;
+ * `NULLIF(..., '')` guards a value with no `#` (which `split_part` would
+ * otherwise turn into `''`, and `''::integer` raises `22P02` rather than
+ * sorting as absent — caught live via `bun run src/cli.ts memory list --sort
+ * shortId` during this task's own verification). NULLs sort last under
+ * either direction via `NULLS LAST`, keeping unminted rows out of the way
+ * rather than interleaved by direction-dependent Postgres defaults.
  */
 function resolveListOrderBy(
   sort: MemoryListSortField | undefined,
   dir: "asc" | "desc" | undefined
 ) {
   const direction = dir === "asc" ? asc : desc;
+  const dirSql = dir === "asc" ? sql`asc` : sql`desc`;
   switch (sort) {
     case "updated":
       return direction(memoriesTable.updatedAt);
     case "lastAccessed":
-      return sql`${memoriesTable.lastAccessedAt} ${dir === "asc" ? sql`asc` : sql`desc`} NULLS LAST`;
+      return sql`${memoriesTable.lastAccessedAt} ${dirSql} NULLS LAST`;
     case "accessCount":
       return direction(memoriesTable.accessCount);
-    case "shortId":
-      return sql`(${memoriesTable.shortId})::integer ${dir === "asc" ? sql`asc` : sql`desc`} NULLS LAST`;
+    case "shortId": {
+      const numericShortId = sql`NULLIF(split_part(${memoriesTable.shortId}, '#', 2), '')::integer`;
+      return sql`${numericShortId} ${dirSql} NULLS LAST`;
+    }
     case "name":
       return direction(memoriesTable.name);
     case "created":
