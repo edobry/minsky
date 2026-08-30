@@ -56,6 +56,20 @@ import {
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import {
+  useBulkRetagMemories,
+  useBulkDeleteMemories,
+  type BulkRetagPreview,
+  type BulkDeletePreview,
+} from "../lib/memory-mutations";
 
 // ---------------------------------------------------------------------------
 // Payload shapes (mirror the `memories-list` / `memories-search` widgets —
@@ -511,6 +525,237 @@ function MemoriesToolbar({
 }
 
 // ---------------------------------------------------------------------------
+// Bulk selection actions (mt#4766) — dry-run-first per
+// `operational-safety-dry-run-first`: a preview of exactly which records
+// change is shown before any write, and the API caps a direct bulk write at
+// BULK_RECORD_CAP (10) records — over that requires a task wrapper.
+// ---------------------------------------------------------------------------
+
+function BulkRetagDialog({
+  ids,
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  ids: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDone: () => void;
+}) {
+  const [tagsInput, setTagsInput] = useState("");
+  const [preview, setPreview] = useState<BulkRetagPreview | null>(null);
+  const mutation = useBulkRetagMemories();
+
+  const close = (next: boolean) => {
+    if (!next) {
+      setPreview(null);
+      mutation.reset();
+    }
+    onOpenChange(next);
+  };
+
+  const tags = tagsInput
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  const runPreview = () => {
+    mutation.mutate(
+      { ids, tags, execute: false },
+      { onSuccess: (data) => setPreview(data as BulkRetagPreview) }
+    );
+  };
+
+  const runExecute = () => {
+    mutation.mutate({ ids, tags, execute: true }, { onSuccess: () => onDone() });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Retag {ids.length} selected records</DialogTitle>
+          <DialogDescription>
+            Sets these tags on every selected record (replaces existing tags). Preview first —
+            nothing is written until you confirm.
+          </DialogDescription>
+        </DialogHeader>
+        <input
+          value={tagsInput}
+          onChange={(e) => {
+            setTagsInput(e.target.value);
+            setPreview(null);
+          }}
+          aria-label="New tags"
+          placeholder="Tags (comma-separated)"
+          className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+        />
+        {mutation.isError && (
+          <p className="text-xs text-destructive" role="alert">
+            {mutation.error instanceof Error ? mutation.error.message : "Bulk retag failed."}
+          </p>
+        )}
+        {preview && (
+          <ul className="max-h-48 overflow-y-auto space-y-1 rounded border border-border p-2 text-xs">
+            {preview.changes.map((c) => (
+              <li key={c.id} className="flex justify-between gap-2">
+                <span className="truncate">{c.name ?? c.id}</span>
+                <span className="text-muted-foreground font-mono">
+                  {(c.currentTags ?? []).join("|") || "—"} → {c.newTags.join("|") || "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          {preview ? (
+            <Button size="sm" disabled={mutation.isPending} onClick={runExecute}>
+              {mutation.isPending ? "Applying…" : `Apply to ${ids.length}`}
+            </Button>
+          ) : (
+            <Button size="sm" disabled={mutation.isPending || tags.length === 0} onClick={runPreview}>
+              {mutation.isPending ? "Loading…" : "Preview"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkDeleteDialog({
+  ids,
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  ids: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDone: () => void;
+}) {
+  const [preview, setPreview] = useState<BulkDeletePreview | null>(null);
+  const mutation = useBulkDeleteMemories();
+
+  const close = (next: boolean) => {
+    if (!next) {
+      setPreview(null);
+      mutation.reset();
+    }
+    onOpenChange(next);
+  };
+
+  const runPreview = () => {
+    mutation.mutate(
+      { ids, execute: false },
+      { onSuccess: (data) => setPreview(data as BulkDeletePreview) }
+    );
+  };
+
+  const runExecute = () => {
+    mutation.mutate({ ids, execute: true }, { onSuccess: () => onDone() });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Delete {ids.length} selected records</DialogTitle>
+          <DialogDescription>
+            Hard delete — row and best-effort embedding removed for each. Memory has no short-id
+            tombstone table, so a deleted record's short id can be reissued later. Preview first.
+          </DialogDescription>
+        </DialogHeader>
+        {mutation.isError && (
+          <p className="text-xs text-destructive" role="alert">
+            {mutation.error instanceof Error ? mutation.error.message : "Bulk delete failed."}
+          </p>
+        )}
+        {preview && (
+          <ul className="max-h-48 overflow-y-auto space-y-1 rounded border border-border p-2 text-xs">
+            {preview.changes.map((c) => (
+              <li key={c.id} className="truncate">
+                {c.name || c.id}
+              </li>
+            ))}
+          </ul>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          {preview ? (
+            <Button size="sm" variant="destructive" disabled={mutation.isPending} onClick={runExecute}>
+              {mutation.isPending ? "Deleting…" : `Delete ${ids.length}`}
+            </Button>
+          ) : (
+            <Button size="sm" variant="destructive" disabled={mutation.isPending} onClick={runPreview}>
+              {mutation.isPending ? "Loading…" : "Preview"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkActionsBar({
+  selectedIds,
+  onClear,
+}: {
+  selectedIds: string[];
+  onClear: () => void;
+}) {
+  const [dialog, setDialog] = useState<"retag" | "delete" | null>(null);
+
+  return (
+    <div className="flex items-center gap-2 py-1.5 mb-1 px-2 rounded border border-primary/30 bg-primary/5 text-xs">
+      <span>{selectedIds.length} selected</span>
+      <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => setDialog("retag")}>
+        Retag
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-6 px-2 text-destructive"
+        onClick={() => setDialog("delete")}
+      >
+        Delete
+      </Button>
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto text-muted-foreground hover:text-foreground"
+      >
+        Clear selection
+      </button>
+
+      <BulkRetagDialog
+        ids={selectedIds}
+        open={dialog === "retag"}
+        onOpenChange={(o) => setDialog(o ? "retag" : null)}
+        onDone={() => {
+          setDialog(null);
+          onClear();
+        }}
+      />
+      <BulkDeleteDialog
+        ids={selectedIds}
+        open={dialog === "delete"}
+        onOpenChange={(o) => setDialog(o ? "delete" : null)}
+        onDone={() => {
+          setDialog(null);
+          onClear();
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Table header
 // ---------------------------------------------------------------------------
 
@@ -518,13 +763,23 @@ function MemoriesTableHeader({
   sortKey,
   sortDir,
   onSort,
+  allOnPageSelected,
+  onToggleAll,
 }: {
   sortKey: MemorySortKey;
   sortDir: SortDir;
   onSort: (key: MemorySortKey) => void;
+  allOnPageSelected: boolean;
+  onToggleAll: (checked: boolean) => void;
 }) {
   return (
     <div className="flex items-center gap-3 py-1.5 mb-0.5 border-b border-border">
+      <Checkbox
+        checked={allOnPageSelected}
+        onCheckedChange={(v) => onToggleAll(v === true)}
+        aria-label="Select all on page"
+        className="flex-shrink-0"
+      />
       {SORT_COLUMNS.map((col) => (
         <button
           key={col.key}
@@ -565,11 +820,16 @@ function MemoriesRowItem({
   row,
   onRowClick,
   onTagClick,
+  selected,
+  onToggleSelected,
 }: {
   row: DisplayRow;
   onRowClick: (id: string) => void;
   /** Clicking a tag chip filters the list to that tag (mt#4763 AT6) — never opens the row. */
   onTagClick: (tag: string) => void;
+  /** Bulk-selection state (mt#4766) — checkbox click never opens the row. */
+  selected: boolean;
+  onToggleSelected: (id: string, checked: boolean) => void;
 }) {
   const entityIndex = useEntityIndex();
   const semanticTags = row.tags.filter((t) => !isProvenanceTag(t));
@@ -592,6 +852,13 @@ function MemoriesRowItem({
       data-testid="memories-row"
       className="flex items-center gap-3 py-1.5 border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/30 transition-colors rounded-sm"
     >
+      <Checkbox
+        checked={selected}
+        onCheckedChange={(v) => onToggleSelected(row.id, v === true)}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Select ${row.name}`}
+        className="flex-shrink-0"
+      />
       <span className="w-16 flex-shrink-0 font-mono text-small text-foreground">
         {row.shortId ?? "—"}
       </span>
@@ -757,6 +1024,20 @@ function MemoriesListInner({
 
   const isSearching = urlState.filters.q.trim().length > 0;
 
+  // Bulk-selection state (mt#4766) — a plain Set, not folded into URL state:
+  // selection is a working-set for an in-progress bulk action, not a durable
+  // view the operator would want to bookmark or share (unlike every other
+  // piece of state on this page, which round-trips through the URL).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelected = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
   // Local input text updates immediately on keystroke; the URL `q` filter
   // (and therefore the actual search request) updates after a 300ms
   // debounce — same debounce window MemorySearch already used.
@@ -887,6 +1168,12 @@ function MemoriesListInner({
             : "Showing lexical search results. Semantic similarity unavailable."}
         </div>
       )}
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          selectedIds={[...selectedIds]}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      )}
       {controls.pageItems.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-8 px-4">
           {isSearching ? `No memories match "${urlState.filters.q}".` : "No memories match the current filters."}
@@ -897,6 +1184,19 @@ function MemoriesListInner({
             sortKey={controls.sortKey}
             sortDir={controls.sortDir}
             onSort={controls.setSort}
+            allOnPageSelected={
+              controls.pageItems.length > 0 && controls.pageItems.every((r) => selectedIds.has(r.id))
+            }
+            onToggleAll={(checked) => {
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                for (const row of controls.pageItems) {
+                  if (checked) next.add(row.id);
+                  else next.delete(row.id);
+                }
+                return next;
+              });
+            }}
           />
           {controls.pageItems.map((row) => (
             <MemoriesRowItem
@@ -904,6 +1204,8 @@ function MemoriesListInner({
               row={row}
               onRowClick={onRowClick}
               onTagClick={(tag) => controls.setFilter("tags", tag)}
+              selected={selectedIds.has(row.id)}
+              onToggleSelected={toggleSelected}
             />
           ))}
           <MemoriesPaginationBar
