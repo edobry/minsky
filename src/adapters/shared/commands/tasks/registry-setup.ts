@@ -260,7 +260,12 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       getOptionalSessionProvider,
       getAskRepository
     ),
-    createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksCreateCommand(
+      getPersistenceProvider,
+      getTaskGraphService,
+      getTaskService,
+      container
+    ),
     createTasksEditCommand(getPersistenceProvider, getTaskService),
     createTasksBulkEditCommand(getPersistenceProvider, getTaskService),
     createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
