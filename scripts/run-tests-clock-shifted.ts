@@ -34,7 +34,7 @@
  * `discoverTestFiles`' own exclusion list — see CLAUDE.md on the Bun truncated-run defect.
  */
 
-import { statSync } from "node:fs";
+import { appendFileSync, statSync } from "node:fs";
 import { evaluateBunTestSummary } from "./run-tests-gated";
 import { discoverTestFiles, GRAPH_ONLY_ROOTS, ROOTS, toBunTestArgs } from "./run-tests-main";
 import {
@@ -52,13 +52,18 @@ const DEFAULT_SHIFT_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
- * How far the observed offset may sit from the requested one before the preflight fails.
+ * Slack on top of the measured spawn window, before the preflight calls the horizon wrong.
  *
- * Bounded by process spawn time, not by clock precision: a cold CI runner can take seconds to boot
- * bun and evaluate the preload. Five minutes is far above that and far below one day, so it cannot
- * mask a wrong horizon.
+ * This was 5 minutes, sized to cover process startup on a cold CI runner. That reasoning was wrong
+ * by orders of magnitude (PR #3487 R1): the bounds below are `realNowBefore` and `realNowAfter`,
+ * which already BRACKET the instant the probe read its clock, so startup is accounted for by
+ * construction and nothing is left for a fixed constant to cover except clock-read jitter.
+ *
+ * Seconds therefore suffice, and the tighter bound is strictly better: at 5 minutes the check
+ * could only catch a horizon that was ABSENT or wildly wrong, while at 5 seconds it also catches
+ * one that is merely slightly wrong — a unit slip, a rounding bug, a stale offset.
  */
-const PREFLIGHT_TOLERANCE_MS = 5 * 60 * 1000;
+const PREFLIGHT_JITTER_MS = 5_000;
 
 const PROBE_FLAG = "--probe";
 const PROBE_MARKER = "__MT4726_CLOCK_PROBE__";
@@ -178,8 +183,8 @@ async function preflight(shiftDays: number, thisFile: string): Promise<void> {
     ["Date.now()", payload.nowMs],
     ["new Date()", payload.newDateMs],
   ] as const) {
-    const lower = realNowBefore + offsetMs - PREFLIGHT_TOLERANCE_MS;
-    const upper = realNowAfter + offsetMs + PREFLIGHT_TOLERANCE_MS;
+    const lower = realNowBefore + offsetMs - PREFLIGHT_JITTER_MS;
+    const upper = realNowAfter + offsetMs + PREFLIGHT_JITTER_MS;
     if (observed < lower || observed > upper) {
       fail(
         `${label} returned ${new Date(observed).toISOString()}, which is not ${describeOffset(
@@ -194,6 +199,30 @@ async function preflight(shiftDays: number, thisFile: string): Promise<void> {
   process.stdout.write(
     `✅ preflight: ${describeOffset(offsetMs)} is in effect — the suite will see ${payload.iso}\n`
   );
+}
+
+/**
+ * Mirror the verdict into GitHub's job summary when running under Actions.
+ *
+ * stdout already names the horizon, but that lives in the raw job log, which a reader has to open
+ * and scroll. The summary is what shows on the run page directly, so the horizon is legible
+ * without a rerun — SC3's "actionable without a rerun", applied to the surface a human lands on
+ * (PR #3487 R1). A no-op locally, and never fatal: this is a reporting side channel, and failing
+ * a clean run because a summary file could not be appended to would be strictly worse than
+ * losing the summary.
+ */
+function writeJobSummary(lines: string[]): void {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath === undefined || summaryPath.trim() === "") {
+    return;
+  }
+  try {
+    appendFileSync(summaryPath, `${lines.join("\n")}\n`);
+  } catch (error) {
+    process.stderr.write(
+      `run-tests-clock-shifted: could not write the job summary (continuing): ${String(error)}\n`
+    );
+  }
 }
 
 interface PhaseResult {
@@ -297,6 +326,31 @@ if (import.meta.main) {
           `${r.ok ? "" : ` — ${r.reason}`}\n`
       );
     }
+
+    // This runner is NOT itself shifted — the env var is set only on the children — so the real
+    // clock here plus the offset is the date the suite actually saw.
+    const effectiveDate = new Date(Date.now() + shiftDays * MS_PER_DAY).toISOString();
+    writeJobSummary([
+      `## Clock-shifted test run — ${describeOffset(shiftDays * MS_PER_DAY)}`,
+      "",
+      `**Effective date the suite saw:** ${effectiveDate}`,
+      `**Real date:** ${new Date().toISOString()}`,
+      "",
+      "| Phase | Files | Result |",
+      "| --- | --- | --- |",
+      ...results.map(
+        (r) => `| ${r.name} | ${r.fileCount} | ${r.ok ? "PASS" : `**FAIL** — ${r.reason}`} |`
+      ),
+      "",
+      skipped.length === 0
+        ? "No exemptions — every discovered test file ran under the shift."
+        : `Exempt (${skipped.length}): ${skipped.map((f) => `\`${f}\``).join(", ")}`,
+      "",
+      failures.length > 0
+        ? `A fixture is pinned to an absolute instant that will detonate within ${shiftDays} days, ` +
+          "or the shim cannot represent its world — see `tests/clock-shift-exemptions.ts`."
+        : "No wall-clock time bombs found at this horizon.",
+    ]);
 
     if (failures.length > 0) {
       process.stderr.write(

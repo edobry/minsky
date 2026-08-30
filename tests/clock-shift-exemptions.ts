@@ -51,10 +51,21 @@ export function normalizeExemptionPath(file: string): string {
   return file.startsWith("./") ? file.slice(2) : file;
 }
 
-/** True when `file` is exempt from the shifted run. */
-export function isClockShiftExempt(file: string): boolean {
+/**
+ * True when `file` is exempt from the shifted run.
+ *
+ * `exemptions` is an optional trailing parameter with a real default — the same injectable seam
+ * shape `testing-standards.mdc §Testable Design` prescribes for the clock. It exists so a test can
+ * exercise path matching against its own fixture instead of the committed list. Coupling a test to
+ * the committed list would make it fail exactly when that list is EMPTIED, which is the state this
+ * whole mechanism is trying to reach (PR #3487 R1).
+ */
+export function isClockShiftExempt(
+  file: string,
+  exemptions: readonly ClockShiftExemption[] = CLOCK_SHIFT_EXEMPTIONS
+): boolean {
   const normalized = normalizeExemptionPath(file);
-  return CLOCK_SHIFT_EXEMPTIONS.some((e) => normalizeExemptionPath(e.file) === normalized);
+  return exemptions.some((e) => normalizeExemptionPath(e.file) === normalized);
 }
 
 /**

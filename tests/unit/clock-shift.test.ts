@@ -221,27 +221,60 @@ describe("installClockShift", () => {
   });
 });
 
+/** A path no real test uses, so exemption fixtures can never collide with the committed list. */
+const FIXTURE_PATH = "src/some/exempt.test.ts";
+/** A second fixture path, for the duplicate-entry case. */
+const OTHER_FIXTURE_PATH = "src/example.test.ts";
+
+const intentional = (file: string, reason: string): ClockShiftExemption => ({
+  file,
+  exemptionClass: "intentional-time-coupling",
+  reason,
+});
+
 describe("clock-shift exemptions", () => {
   test("the committed list is well formed", () => {
     expect(assertExemptionsWellFormed()).toEqual([]);
   });
 
+  test("every committed entry is exempt under the default list", () => {
+    // The one wiring test for the default parameter, per ADR-036 §3: the tests above drive an
+    // injected fixture, so without this nothing would notice if the default stopped pointing at
+    // CLOCK_SHIFT_EXEMPTIONS. Passes vacuously on an empty list, which is the correct behaviour
+    // rather than a gap — an empty list has no entry that could fail to be exempt.
+    for (const entry of CLOCK_SHIFT_EXEMPTIONS) {
+      expect(isClockShiftExempt(entry.file)).toBe(true);
+    }
+  });
+
   test("matches a path whether or not it carries a leading ./", () => {
-    const entry = CLOCK_SHIFT_EXEMPTIONS[0];
-    expect(entry).toBeDefined();
-    const file = entry?.file ?? "";
-    expect(isClockShiftExempt(file)).toBe(true);
-    expect(isClockShiftExempt(`./${file}`)).toBe(true);
+    // Against a LOCAL fixture, never the committed list. Reading CLOCK_SHIFT_EXEMPTIONS[0] here
+    // would make this test fail the day that list is emptied — which is the state the whole
+    // mechanism is working toward, since every `probe-artifact` entry is a debt meant to be paid
+    // off (PR #3487 R1).
+    const fixture = [intentional(FIXTURE_PATH, "asserts a real calendar date")];
+    expect(isClockShiftExempt(FIXTURE_PATH, fixture)).toBe(true);
+    expect(isClockShiftExempt(`./${FIXTURE_PATH}`, fixture)).toBe(true);
+  });
+
+  test("matches when the COMMITTED entry carries the leading ./ and the query does not", () => {
+    const fixture = [intentional(`./${FIXTURE_PATH}`, "normalisation works from either side")];
+    expect(isClockShiftExempt(FIXTURE_PATH, fixture)).toBe(true);
   });
 
   test("does not match an unrelated file", () => {
     expect(isClockShiftExempt("src/does/not/exist.test.ts")).toBe(false);
   });
 
+  test("an empty list exempts nothing — the intended end state, not a broken one", () => {
+    expect(isClockShiftExempt("packages/domain/src/git/lock-operations.test.ts", [])).toBe(false);
+    expect(assertExemptionsWellFormed([])).toEqual([]);
+  });
+
   test("rejects a probe-artifact entry with no owning task", () => {
     const orphaned: ClockShiftExemption[] = [
       {
-        file: "src/example.test.ts",
+        file: OTHER_FIXTURE_PATH,
         exemptionClass: "probe-artifact",
         reason: "a shim limitation with nobody on the hook for it",
       },
@@ -252,20 +285,12 @@ describe("clock-shift exemptions", () => {
   });
 
   test("rejects a duplicate entry, which would hide a second reason", () => {
-    const duplicated: ClockShiftExemption[] = [
-      {
-        file: "src/example.test.ts",
-        exemptionClass: "intentional-time-coupling",
-        reason: "asserts a real calendar date",
-      },
-      {
-        file: "./src/example.test.ts",
-        exemptionClass: "intentional-time-coupling",
-        reason: "a different reason nobody will ever read",
-      },
+    const duplicated = [
+      intentional(OTHER_FIXTURE_PATH, "asserts a real calendar date"),
+      intentional(`./${OTHER_FIXTURE_PATH}`, "a different reason nobody will ever read"),
     ];
     expect(assertExemptionsWellFormed(duplicated)).toContain(
-      "duplicate entry for ./src/example.test.ts"
+      `duplicate entry for ./${OTHER_FIXTURE_PATH}`
     );
   });
 });
