@@ -12,6 +12,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import {
   checkOverride,
   buildOverrideAuditLine,
@@ -20,6 +21,7 @@ import {
   logCalibrationRecord,
   evaluationLogPath,
   logEvaluationRecord,
+  projectStateKey,
   resolveDispatchContext,
   runDispatcher,
   composeAdditionalContext,
@@ -386,11 +388,23 @@ describe("buildOverrideAuditLine", () => {
 // calibrationLogPath / logCalibrationRecord (D4)
 // ---------------------------------------------------------------------------
 
+// mt#4748: calibration/evaluation logs resolve under the state dir,
+// project-keyed — not under the repo. Mirrors `calibrationLogPath` /
+// `evaluationLogPath`'s own resolution so an exact-path assertion computes
+// it rather than hardcoding a string that would silently drift.
+function expectedStatePath(repoRoot: string, name: string, suffix: string): string {
+  return join(getMinskyStateDir(), "projects", projectStateKey(repoRoot), `${name}${suffix}`);
+}
+const expectedCalibrationPath = (repoRoot: string, name: string) =>
+  expectedStatePath(repoRoot, name, "-calibration.jsonl");
+const expectedEvaluationPath = (repoRoot: string, name: string) =>
+  expectedStatePath(repoRoot, name, "-evaluations.jsonl");
+
 describe("calibrationLogPath", () => {
-  test("preserves the existing CALIBRATION_LOG_REGISTRY filename convention", () => {
-    expect(calibrationLogPath("causal-premise", { projectDir: "/repo" })).toBe(
-      "/repo/.minsky/causal-premise-calibration.jsonl"
-    );
+  test("preserves the existing CALIBRATION_LOG_REGISTRY filename convention; mt#4748 SC2 never under the repo root", () => {
+    const result = calibrationLogPath("causal-premise", { projectDir: "/repo" });
+    expect(result).toBe(expectedCalibrationPath("/repo", "causal-premise"));
+    expect(result.startsWith("/repo")).toBe(false);
   });
 
   // mt#2710: real-fs regression for the hooks-resolve-input.cwd-raw fix.
@@ -417,10 +431,13 @@ describe("calibrationLogPath", () => {
         // No `projectDir` argument — matches the real `runDispatcher` call
         // site.
         const result = calibrationLogPath("causal-premise");
-        expect(result).toBe(join(repoRoot, ".minsky", "causal-premise-calibration.jsonl"));
-        // The stray-subdirectory bug this fix closes: no `.minsky/` under
+        expect(result).toBe(expectedCalibrationPath(repoRoot, "causal-premise"));
+        // The stray-subdirectory bug this fix closes: no path under
         // the subdirectory `CLAUDE_PROJECT_DIR` pointed at.
         expect(result.startsWith(subDir)).toBe(false);
+        // mt#4748 SC2: nor under the repo root itself anymore — the whole
+        // point of the state-dir move.
+        expect(result.startsWith(repoRoot)).toBe(false);
       } finally {
         if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
         else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
@@ -438,7 +455,7 @@ describe("calibrationLogPath", () => {
 describe("evaluationLogPath", () => {
   test("uses the -evaluations.jsonl filename convention", () => {
     expect(evaluationLogPath("silent-stretch", { projectDir: "/repo" })).toBe(
-      "/repo/.minsky/silent-stretch-evaluations.jsonl"
+      expectedEvaluationPath("/repo", "silent-stretch")
     );
   });
 
@@ -460,7 +477,7 @@ describe("evaluationLogPath", () => {
       try {
         // `fallbackCwd` is what a guard passes from `input.cwd` — it must NOT win.
         const result = evaluationLogPath("silent-stretch", { fallbackCwd: strayRepo });
-        expect(result).toBe(join(projectRepo, ".minsky", "silent-stretch-evaluations.jsonl"));
+        expect(result).toBe(expectedEvaluationPath(projectRepo, "silent-stretch"));
         expect(result.startsWith(strayRepo)).toBe(false);
       } finally {
         if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
@@ -480,7 +497,7 @@ describe("evaluationLogPath", () => {
       delete process.env.CLAUDE_PROJECT_DIR;
       try {
         expect(evaluationLogPath("stop-at-decision", { fallbackCwd: repoRoot })).toBe(
-          join(repoRoot, ".minsky", "stop-at-decision-evaluations.jsonl")
+          expectedEvaluationPath(repoRoot, "stop-at-decision")
         );
       } finally {
         if (prevProjectDir !== undefined) process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
@@ -495,7 +512,7 @@ describe("evaluationLogPath", () => {
     process.env.CLAUDE_PROJECT_DIR = "/env-dir";
     try {
       expect(evaluationLogPath("retrospective-trigger", { projectDir: "/explicit" })).toBe(
-        "/explicit/.minsky/retrospective-trigger-evaluations.jsonl"
+        expectedEvaluationPath("/explicit", "retrospective-trigger")
       );
     } finally {
       if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
@@ -510,11 +527,13 @@ describe("logEvaluationRecord", () => {
     try {
       mkdirSync(join(repoRoot, ".git"));
       logEvaluationRecord("silent-stretch", { hook: "x", fired: false }, { projectDir: repoRoot });
-      const written = readFileSync(
-        join(repoRoot, ".minsky", "silent-stretch-evaluations.jsonl"),
-        "utf-8"
-      );
+      const writtenPath = expectedEvaluationPath(repoRoot, "silent-stretch");
+      const written = readFileSync(writtenPath, "utf-8");
       expect(JSON.parse(written.trim())).toEqual({ hook: "x", fired: false });
+      // mt#4748: the write now lands under the shared state dir rather than
+      // inside `repoRoot`, so `rmSync(repoRoot, ...)` below no longer cleans
+      // it up — remove it explicitly.
+      rmSync(writtenPath, { force: true });
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
@@ -580,7 +599,7 @@ describe("logCalibrationRecord", () => {
       { timestamp: "T", matchedPhrases: ["x"] },
       { projectDir: "/repo", deps }
     );
-    const content = deps.files.get("/repo/.minsky/causal-premise-calibration.jsonl");
+    const content = deps.files.get(expectedCalibrationPath("/repo", "causal-premise"));
     expect(content).toBeDefined();
     expect(JSON.parse((content ?? "").trim())).toEqual({ timestamp: "T", matchedPhrases: ["x"] });
   });
@@ -588,12 +607,14 @@ describe("logCalibrationRecord", () => {
   test("creates the parent dir when missing", () => {
     const deps = makeFakeDeps();
     logCalibrationRecord("x", { a: 1 }, { projectDir: "/repo", deps });
-    expect(deps.dirsCreated).toContain("/repo/.minsky");
+    expect(deps.dirsCreated).toContain(
+      join(getMinskyStateDir(), "projects", projectStateKey("/repo"))
+    );
   });
 
   test("does not recreate an already-existing dir", () => {
     const deps = makeFakeDeps();
-    deps.dirsCreated.push("/repo/.minsky");
+    deps.dirsCreated.push(join(getMinskyStateDir(), "projects", projectStateKey("/repo")));
     let mkdirCalls = 0;
     const wrapped: CalibrationWriteDeps = {
       ...deps,
