@@ -2599,6 +2599,44 @@
               "commandId": "tasks.claims.release"
             }
           ]
+        },
+        {
+          "name": "claim",
+          "description": "Claim a READY work package: one conditional write sets IN-PROGRESS and records claimed_by/claimed_at atomically, so concurrent claims get exactly one winner. The only legal READY→IN-PROGRESS path for kind work-package.",
+          "options": [
+            {
+              "flags": ["--claimed-by"],
+              "description": "Override the recorded claimant identity. Defaults to the resolved caller (MCP identity or harness environment); pass only when claiming on behalf of another actor deliberately.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Work-package task id (e.g. \"mt#2911\")"
+            }
+          ],
+          "commandId": "tasks.claim"
+        },
+        {
+          "name": "release",
+          "description": "Release a claimed work package back to READY, clearing claimed_by/claimed_at and appending a transfer-log entry (origin release) that re-offers it. Any caller may release — the releaser is recorded, so freeing a dead conversation's claim is auditable rather than forbidden.",
+          "options": [
+            {
+              "flags": ["--notes"],
+              "description": "Transfer notes recorded on the release entry: what is done, what remains, judgment the next claimant needs.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Work-package task id (e.g. \"mt#2911\")"
+            }
+          ],
+          "commandId": "tasks.release"
         }
       ]
     },

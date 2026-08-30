@@ -226,6 +226,15 @@ const ASKS_CREATE_TOOL_NAME = "asks.create";
 const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
 
 /**
+ * Work-package claim/release (ADR-046, mt#2911). Same delivery need as
+ * `tasks.claims.release`: the recorded claimant/releaser identity must come
+ * from the resolved MCP caller, because the long-lived server process carries
+ * no harness env vars for `resolveCallerActorId` to fall back to.
+ */
+const WORK_PACKAGE_CLAIM_TOOL_NAME = "tasks.claim";
+const WORK_PACKAGE_RELEASE_TOOL_NAME = "tasks.release";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -234,7 +243,7 @@ const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
  * merely CONTAINS one of these cannot receive the param. Built once at module
  * load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now four tools wide and
+ * Why a set rather than a second `if`: the injection is now six tools wide and
  * the matching rule (exact, both aliases, server overwrites any caller-supplied
  * value) is the part that must not drift between them. One membership test
  * cannot disagree with itself.
@@ -245,6 +254,8 @@ const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
     CALIBRATION_REVIEW_TOOL_NAME,
     ASKS_CREATE_TOOL_NAME,
     CLAIMS_RELEASE_TOOL_NAME,
+    WORK_PACKAGE_CLAIM_TOOL_NAME,
+    WORK_PACKAGE_RELEASE_TOOL_NAME,
   ].flatMap((name) => [name, toClaudeDesktopName(name)])
 );
 
