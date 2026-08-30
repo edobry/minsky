@@ -132,6 +132,35 @@ export interface MemoryUpdateInput {
   associations?: MemoryAssociations;
 }
 
+// --- Content-free projection (mt#4761) ---
+
+/**
+ * Compact projection of a `MemoryRecord` with no `content` body — the same
+ * shape the `memory.list` command's `summary: true` param has produced since
+ * mt#2817 (`src/adapters/shared/commands/memory/index.ts:886-889`). Pulled
+ * out to a shared function so the cockpit's `memories-list` widget — which
+ * bypasses the command layer and calls `MemoryService.list()` directly — can
+ * reach the same content-free shape instead of shipping full records
+ * (mt#4761's AT1: no record in the widget's HTTP payload may carry `content`).
+ */
+export type MemorySummaryRecord = Pick<
+  MemoryRecord,
+  "id" | "name" | "type" | "description" | "tags" | "createdAt" | "updatedAt"
+>;
+
+/** Project a `MemoryRecord` down to `MemorySummaryRecord` (mt#4761). */
+export function toMemorySummary(record: MemoryRecord): MemorySummaryRecord {
+  return {
+    id: record.id,
+    name: record.name,
+    type: record.type,
+    description: record.description,
+    tags: record.tags,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
 // --- Search types ---
 
 /**
@@ -151,6 +180,22 @@ export interface MemorySearchResult {
    */
   staleness?: MemoryStaleness;
 }
+
+/**
+ * Sort field for `MemoryService.list()` (mt#4761), applied via SQL `ORDER BY`.
+ * Ignored when `filter.stale` is true — that filter forces its own
+ * `lastAccessedAt` ascending, nulls-first order (see `MemoryListFilter.stale`).
+ */
+export type MemoryListSortField =
+  | "created"
+  | "updated"
+  | "lastAccessed"
+  | "accessCount"
+  | "shortId"
+  | "name";
+
+/** Sort direction for `MemoryService.list()` (mt#4761). */
+export type MemoryListSortDirection = "asc" | "desc";
 
 /**
  * Options for filtering memory list results.
@@ -194,6 +239,33 @@ export interface MemoryListFilter {
   since?: string;
   /** Upper bound (inclusive) on `createdAt` — ISO-8601 timestamp (mt#2817). */
   until?: string;
+  /**
+   * Sort field, applied in SQL (mt#4761). Defaults to `"created"` when omitted.
+   * Ignored when `stale` is true.
+   */
+  sort?: MemoryListSortField;
+  /**
+   * Sort direction, applied in SQL (mt#4761). Defaults to `"desc"` when omitted.
+   * Ignored when `stale` is true.
+   */
+  dir?: MemoryListSortDirection;
+  /**
+   * Max rows to return, applied via SQL `LIMIT` (mt#4761). Defaults to
+   * `DEFAULT_LIST_CAP` (`../utils/list-pagination.ts`) when omitted.
+   */
+  limit?: number;
+  /** Rows to skip, applied via SQL `OFFSET` (mt#4761). Defaults to 0. */
+  offset?: number;
+  /**
+   * AND-semantics filter over the `tags` `text[]` column (mt#4761): a
+   * matching record must carry EVERY listed tag, not merely one of them.
+   */
+  tags?: string[];
+  /**
+   * Case-insensitive substring filter over `name`, applied via SQL `ILIKE`
+   * (mt#4761).
+   */
+  nameContains?: string;
 }
 
 /**

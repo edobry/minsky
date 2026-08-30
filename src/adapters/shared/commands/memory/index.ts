@@ -41,7 +41,7 @@ import type {
   MemoryCreateInput,
   MemorySearchResult,
 } from "@minsky/domain/memory/types";
-import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
+import { MEMORY_TYPES, MEMORY_SCOPES, toMemorySummary } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
 import {
   validateAssociations,
@@ -188,6 +188,34 @@ const memoryListParams = {
   until: {
     schema: z.string(),
     description: "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false as const,
+  },
+  // mt#4761: sort/dir/offset/tags/nameContains — applied IN SQL by
+  // MemoryService.list(). Previously this surface capped results in-memory
+  // (applyListCap) with no ordering, sorting, or offset support at all.
+  sort: {
+    schema: z.enum(["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]),
+    description: "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+    required: false as const,
+  },
+  dir: {
+    schema: z.enum(["asc", "desc"]),
+    description: "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+    required: false as const,
+  },
+  offset: {
+    schema: z.number().int().nonnegative(),
+    description: "Rows to skip, applied via SQL OFFSET. Defaults to 0",
+    required: false as const,
+  },
+  tags: {
+    schema: z.array(z.string()),
+    description: "Filter by tags — AND semantics: a matching record must carry EVERY listed tag",
+    required: false as const,
+  },
+  nameContains: {
+    schema: z.string(),
+    description: "Case-insensitive substring filter over name",
     required: false as const,
   },
   // mt#2817: opt-in compact projection — id/name/type/description/tags/dates,
@@ -859,7 +887,13 @@ export function registerMemoryCommands(
       const sinceTs = parseTime(params.since);
       const untilTs = parseTime(params.until);
 
-      const records = await service.list({
+      // mt#4761: sort/dir/offset/tags/nameContains forwarded to the domain
+      // filter, which now applies them (plus limit) IN SQL — a filter that
+      // existed only for the cockpit was a second implementation waiting to
+      // happen. `limit` is passed through too: MemoryService.list() defaults
+      // it to DEFAULT_LIST_CAP (500) when omitted, matching pre-mt#4761
+      // behavior for this surface.
+      const listFilter = {
         type: params.type,
         scope: params.scope,
         projectId: params.projectId,
@@ -873,30 +907,45 @@ export function registerMemoryCommands(
             : undefined,
         since: sinceTs !== null ? new Date(sinceTs).toISOString() : undefined,
         until: untilTs !== null ? new Date(untilTs).toISOString() : undefined,
-      });
+        sort: params.sort,
+        dir: params.dir,
+        limit: params.limit,
+        offset: params.offset,
+        tags: params.tags,
+        nameContains: params.nameContains,
+      };
 
-      // mt#2817: loud cap — never silently drop rows past a default limit.
-      // `total` is the true count of everything matching the filters above
-      // (the SQL query already applied since/until/type/scope/etc, so the
-      // fetched array IS the full matching set before this cap).
-      const { applyListCap } = await import("@minsky/domain/utils/list-pagination");
-      const { items: cappedRecords, meta: truncation } = applyListCap(records, params.limit);
+      const records = await service.list(listFilter);
+
+      // mt#4761: prefer a true SQL count over `records.length` — `list()` is
+      // now itself SQL-limited (defaulting to DEFAULT_LIST_CAP), so its own
+      // array length can undercount `total` once a real cap applies.
+      // `applyListCap` remains the fallback for a `MemoryServiceSurface` that
+      // doesn't implement `count()` (e.g. an older/test fake whose `list()`
+      // ignores `limit` entirely and returns the full unfiltered set) — the
+      // exact mt#2817 in-memory-cap behavior this surface had before.
+      const { applyListCap, computeListTruncation } = await import(
+        "@minsky/domain/utils/list-pagination"
+      );
+      let cappedRecords: MemoryRecord[];
+      let truncation: { returned: number; total: number; truncated: boolean };
+      if (service.count) {
+        const total = await service.count(listFilter);
+        cappedRecords = records;
+        truncation = computeListTruncation(total, records.length);
+      } else {
+        const capped = applyListCap(records, params.limit);
+        cappedRecords = capped.items;
+        truncation = capped.meta;
+      }
 
       // mt#2817: opt-in compact projection — strip content (and every other
       // non-summary field) so a browse-style query doesn't ship multi-KB
       // bodies the caller didn't ask for. Default (summary:false) is
-      // unchanged from the pre-mt#2817 shape.
-      const outputRecords = params.summary
-        ? cappedRecords.map((r) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type,
-            description: r.description,
-            tags: r.tags,
-            createdAt: r.createdAt,
-            updatedAt: r.updatedAt,
-          }))
-        : cappedRecords;
+      // unchanged from the pre-mt#2817 shape. mt#4761: reuses the SAME
+      // projection the cockpit's memories-list widget now uses
+      // (`toMemorySummary`), so the two surfaces cannot drift.
+      const outputRecords = params.summary ? cappedRecords.map(toMemorySummary) : cappedRecords;
 
       return { records: outputRecords, ...truncation };
     },

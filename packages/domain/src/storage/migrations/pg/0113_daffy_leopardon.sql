@@ -1,0 +1,1 @@
+CREATE INDEX "idx_memories_created_at" ON "memories" USING btree ("created_at");

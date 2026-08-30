@@ -6480,6 +6480,33 @@
               "takesValue": true
             },
             {
+              "flags": ["--sort"],
+              "description": "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+              "takesValue": true,
+              "values": ["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]
+            },
+            {
+              "flags": ["--dir"],
+              "description": "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+              "takesValue": true,
+              "values": ["asc", "desc"]
+            },
+            {
+              "flags": ["--offset"],
+              "description": "Rows to skip, applied via SQL OFFSET. Defaults to 0",
+              "takesValue": true
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Filter by tags — AND semantics: a matching record must carry EVERY listed tag",
+              "takesValue": true
+            },
+            {
+              "flags": ["--name-contains"],
+              "description": "Case-insensitive substring filter over name",
+              "takesValue": true
+            },
+            {
               "flags": ["--summary"],
               "description": "When true, return compact rows (id, name, type, description, tags, createdAt, updatedAt) with no content body"
             }
