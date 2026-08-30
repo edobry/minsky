@@ -32,6 +32,7 @@ import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { SortIndicator } from "../components/SortIndicator";
 import { statusStyle } from "../lib/status-colors";
 import {
   useProject,
@@ -127,17 +128,6 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Sort direction indicator
-// ---------------------------------------------------------------------------
-
-function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) {
-    return <span className="text-muted-foreground opacity-30 ml-0.5">↕</span>;
-  }
-  return <span className="ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 // ---------------------------------------------------------------------------
