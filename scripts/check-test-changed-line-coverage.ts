@@ -205,6 +205,17 @@ function main(): void {
   const vacuous = evaluations.filter((e) => e.vacuous);
 
   for (const evaluation of evaluations) {
+    if (evaluation.coverageUnavailable) {
+      // Its own line rather than the covers/VACUOUS pair (PR #3497 R2
+      // NON-BLOCKING): rendering this as "covers … 0 changed line(s)" asserts
+      // two things that are not true — that it covers, and that it reached
+      // zero — when what actually happened is that nothing was measured.
+      console.log(
+        `  NO DATA ${evaluation.testFile}: the run produced no coverage report, so this PR's ` +
+          `changed lines were never compared against it. Not counted either way.`
+      );
+      continue;
+    }
     console.log(
       `  ${evaluation.vacuous ? "VACUOUS" : "covers "} ${describeEvaluation(evaluation)}`
     );
