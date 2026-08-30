@@ -14,6 +14,21 @@ import { join } from "node:path";
 import { mock } from "bun:test";
 import { mockLogger } from "../src/utils/test-utils/mock-logger";
 import { TEST_LOGGER_SILENCED_FLAG } from "@minsky/shared/logger";
+import { installClockShift } from "./clock-shift";
+
+// Wall-clock offset (mt#4726). Installed FIRST in this file's body, before any other setup runs,
+// so nothing here captures an unshifted `Date.now`. Inert unless MINSKY_TEST_CLOCK_SHIFT_DAYS is
+// set — with the var unset this is a parse, a null, and a return, and every ordinary run is
+// unaffected. Placed in the preload rather than behind a runner flag so it reaches every suite
+// that already loads this file (`test`, `test:hooks`, `test:components`, `test:integration`);
+// mt#4721's bomb lived in `.minsky/hooks`, which only `test:hooks` reaches.
+const clockShift = installClockShift();
+if (clockShift.active) {
+  // Named on stdout so a shifted run is identifiable from the CI log alone. The runner does not
+  // rely on this line — `scripts/run-tests-clock-shifted.ts` proves the offset independently
+  // before it starts the suite (SC6) — but a human reading a failure needs the horizon here.
+  process.stdout.write(`🕐 ${clockShift.summary} (mt#4726 clock-shifted run)\n`);
+}
 
 // State-dir isolation (mt#2872): any code path that resolves the Minsky state
 // dir (guard-health log, disconnect log, caches) must NEVER touch the
