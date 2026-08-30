@@ -20,11 +20,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   runMergeStateSweep,
+  runMergeStateSweepCycle,
   loadMergeStateSweeperConfig,
   startMergeStateSweeper,
   type MergeStateSweeperConfig,
   type MergeStateSweeperDeps,
 } from "./merge-state-sweeper";
+import type { GetInstallationCoverageFn } from "./sweeper-repo-targets";
 import type { ReviewerConfig } from "./config";
 import type { Octokit } from "@octokit/rest";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session";
@@ -37,6 +39,7 @@ import { silenceConsoleLogs, captureConsoleLogs, findLogEvent } from "./test-hel
 
 const OWNER = "edobry";
 const REPO = "minsky";
+const PEEZOMBIE_FULL_NAME = "edobry/peezombie.me";
 const GITHUB_TIMEOUT_MS = 30_000;
 const ENV_SWEEPER_ENABLED = "MERGE_STATE_SWEEPER_ENABLED";
 const ENV_SWEEPER_INTERVAL_MS = "MERGE_STATE_SWEEPER_INTERVAL_MS";
@@ -960,5 +963,217 @@ describe("startMergeStateSweeper — boot catch-up sweep (mt#2684)", () => {
     const cycleEnd = findLogEvent(logs, EVENT_CYCLE_END);
     expect(cycleEnd?.syncsTriggered).toBe(1);
     expect(cycleEnd?.missedSyncs).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runMergeStateSweepCycle — multi-repo target resolution (mt#4759)
+// ---------------------------------------------------------------------------
+
+describe("runMergeStateSweepCycle — multi-repo target resolution (mt#4759)", () => {
+  const EXPLICIT_SWEEPER_CONFIG: MergeStateSweeperConfig = {
+    enabled: true,
+    intervalMs: 600_000,
+    owner: OWNER,
+    repo: REPO,
+    ownerDefaulted: false,
+    repoDefaulted: false,
+    githubTimeoutMs: GITHUB_TIMEOUT_MS,
+    bootCatchupEnabled: false,
+  };
+
+  /**
+   * A config with NEITHER SWEEPER_REPO_OWNER nor SWEEPER_REPO_NAME set —
+   * both *Defaulted flags true, which is what triggers installation-coverage
+   * resolution rather than the single-pair short-circuit.
+   */
+  const NO_OVERRIDE_SWEEPER_CONFIG: MergeStateSweeperConfig = {
+    ...EXPLICIT_SWEEPER_CONFIG,
+    ownerDefaulted: true,
+    repoDefaulted: true,
+  };
+
+  /** A fake Octokit whose `pulls.get` records every (owner, repo, pull_number) call. */
+  function makeRecordingOctokit(
+    prResponses: Record<
+      number,
+      { merged: boolean; merged_at?: string | null; merge_commit_sha?: string | null }
+    >,
+    calls: Array<{ owner: string; repo: string; prNumber: number }>
+  ): Octokit {
+    const fake = {
+      rest: {
+        pulls: {
+          get: async (args: { owner: string; repo: string; pull_number: number }) => {
+            calls.push({ owner: args.owner, repo: args.repo, prNumber: args.pull_number });
+            const data = prResponses[args.pull_number];
+            if (!data) {
+              throw new Error(`fake octokit: no fixture for #${args.pull_number}`);
+            }
+            return { data };
+          },
+        },
+      },
+    };
+    return fake as unknown as Octokit;
+  }
+
+  it("multi-repo enumeration: sweeps every resolved repo target once", async () => {
+    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 })];
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRecordingOctokit({ 10: { merged: false } }, calls);
+    const getInstallationCoverage: GetInstallationCoverageFn = () =>
+      Promise.resolve({
+        selection: "selected",
+        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME],
+      });
+
+    const deps: MergeStateSweeperDeps = {
+      ...makeDeps(sessions),
+      getInstallationCoverage,
+    };
+
+    const result = await runMergeStateSweepCycle(
+      BASE_REVIEWER_CONFIG,
+      octokit,
+      NO_OVERRIDE_SWEEPER_CONFIG,
+      deps
+    );
+
+    expect(result.repoTargetSource).toBe("installation-coverage");
+    expect(result.targets).toEqual([
+      { owner: "edobry", repo: "minsky" },
+      { owner: "edobry", repo: "peezombie.me" },
+    ]);
+    expect(result.perRepo).toHaveLength(2);
+    // Both targets were actually swept — one octokit.pulls.get call per target.
+    expect(calls).toEqual([
+      { owner: "edobry", repo: "minsky", prNumber: 10 },
+      { owner: "edobry", repo: "peezombie.me", prNumber: 10 },
+    ]);
+  });
+
+  it('selection: "all" branch: sweeps the full repository list', async () => {
+    const sessions: SessionRecord[] = [];
+    const octokit = makeRecordingOctokit({}, []);
+    const getInstallationCoverage: GetInstallationCoverageFn = () =>
+      Promise.resolve({
+        selection: "all",
+        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME, "edobry/third-repo"],
+      });
+
+    const deps: MergeStateSweeperDeps = { ...makeDeps(sessions), getInstallationCoverage };
+
+    const result = await runMergeStateSweepCycle(
+      BASE_REVIEWER_CONFIG,
+      octokit,
+      NO_OVERRIDE_SWEEPER_CONFIG,
+      deps
+    );
+
+    expect(result.repoTargetSource).toBe("installation-coverage");
+    expect(result.targets).toHaveLength(3);
+    expect(result.perRepo).toHaveLength(3);
+  });
+
+  it("explicit-env-override branch: getInstallationCoverage is never called when SWEEPER_REPO_OWNER/NAME are set", async () => {
+    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 })];
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRecordingOctokit({ 10: { merged: false } }, calls);
+    let coverageCalled = false;
+    const getInstallationCoverage: GetInstallationCoverageFn = () => {
+      coverageCalled = true;
+      return Promise.reject(new Error("should not be called"));
+    };
+
+    const deps: MergeStateSweeperDeps = { ...makeDeps(sessions), getInstallationCoverage };
+
+    const result = await runMergeStateSweepCycle(
+      BASE_REVIEWER_CONFIG,
+      octokit,
+      EXPLICIT_SWEEPER_CONFIG,
+      deps
+    );
+
+    expect(result.repoTargetSource).toBe("explicit-env");
+    expect(result.targets).toEqual([{ owner: OWNER, repo: REPO }]);
+    expect(coverageCalled).toBe(false);
+    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 10 }]);
+  });
+
+  it("coverage-call-failure fallback: sweeps the default pair, never sweeps zero repos", async () => {
+    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 })];
+    const calls: Array<{ owner: string; repo: string; prNumber: number }> = [];
+    const octokit = makeRecordingOctokit({ 10: { merged: false } }, calls);
+    const getInstallationCoverage: GetInstallationCoverageFn = () =>
+      Promise.reject(new Error("GitHub 500"));
+
+    const deps: MergeStateSweeperDeps = { ...makeDeps(sessions), getInstallationCoverage };
+
+    const { logs, restore } = captureConsoleLogs();
+    let result;
+    try {
+      result = await runMergeStateSweepCycle(
+        BASE_REVIEWER_CONFIG,
+        octokit,
+        NO_OVERRIDE_SWEEPER_CONFIG,
+        deps
+      );
+    } finally {
+      restore();
+    }
+
+    // FAIL SAFE: falls back to the single default pair, never an empty target list.
+    expect(result.repoTargetSource).toBe("fallback-default");
+    expect(result.targets).toEqual([{ owner: OWNER, repo: REPO }]);
+    expect(result.targets.length).toBeGreaterThan(0);
+    expect(calls).toEqual([{ owner: OWNER, repo: REPO, prNumber: 10 }]);
+    expect(findLogEvent(logs, "merge_state_sweeper.repo_target_resolution_failed")).not.toBeNull();
+  });
+
+  it("aggregates missedSyncs/syncsTriggered/errors additively across targets", async () => {
+    const sessions = [
+      makePrOpenSession({ sessionId: "s1", taskId: "mt#1", prNumber: 10 }),
+      makePrOpenSession({ sessionId: "s2", taskId: "mt#2", prNumber: 20 }),
+    ];
+    // Both PR numbers "exist" and are merged from the fake octokit's point of
+    // view (it does not distinguish targets) — since runMergeStateSweep is
+    // called once per target with the SAME session list (mt#4768 tracks the
+    // per-session repo-matching gap this documents), each of the 2 targets
+    // independently detects both sessions as merged: 2 sessions x 2 targets.
+    const octokit = makeRecordingOctokit(
+      {
+        10: { merged: true, merged_at: "2026-08-30T00:00:00Z", merge_commit_sha: "aaa" },
+        20: { merged: true, merged_at: "2026-08-30T00:00:00Z", merge_commit_sha: "bbb" },
+      },
+      []
+    );
+    const getInstallationCoverage: GetInstallationCoverageFn = () =>
+      Promise.resolve({
+        selection: "selected",
+        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME],
+      });
+
+    const syncCalledFor: string[] = [];
+    const deps: MergeStateSweeperDeps = {
+      ...makeDeps(sessions, async (params) => {
+        syncCalledFor.push(params.sessionId);
+      }),
+      getInstallationCoverage,
+    };
+
+    const result = await runMergeStateSweepCycle(
+      BASE_REVIEWER_CONFIG,
+      octokit,
+      NO_OVERRIDE_SWEEPER_CONFIG,
+      deps
+    );
+
+    // sessionsScanned is NOT summed across targets (same session set each pass).
+    expect(result.aggregate.sessionsScanned).toBe(2);
+    // missedSyncs/syncsTriggered ARE additive: 2 sessions detected merged x 2 targets.
+    expect(result.aggregate.missedSyncs).toBe(4);
+    expect(result.aggregate.syncsTriggered).toBe(4);
+    expect(syncCalledFor.length).toBe(4);
   });
 });
