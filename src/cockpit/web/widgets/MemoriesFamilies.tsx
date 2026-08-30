@@ -19,6 +19,7 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { EntityRef } from "../components/EntityRef";
 import { SortIndicator } from "../components/SortIndicator";
+import { useProject } from "../lib/project-context";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -156,9 +157,21 @@ function FamiliesTable({ families }: { families: FamilyRow[] }) {
 }
 
 function MemoriesFamiliesInner() {
+  // PR #3500 R1 BLOCKING: this used to fetch with an empty params object,
+  // which relied on `apiFetch`'s implicit default-append (mt#4730) — but
+  // the queryKey below carried no project dependency, so a project switch
+  // mid-session never invalidated the cache and this view kept showing
+  // whatever scope it FIRST mounted with (unscoped, if that was "All
+  // projects"), silently diverging from the list beside it. Threading
+  // `projectParam` explicitly — same as `FacetsRail`/`MemoriesList` — fixes
+  // both halves: the fetch is scoped AND the cache key reacts to a switch.
+  const { queryParam: projectParam } = useProject();
+  const params: Record<string, string> = {};
+  if (projectParam) params.project = projectParam.project;
+
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["widget", "memories-families"],
-    queryFn: () => fetchWidgetData("memories-families", {}),
+    queryKey: ["widget", "memories-families", projectParam?.project ?? ""],
+    queryFn: () => fetchWidgetData("memories-families", params),
     staleTime: 30_000,
   });
 

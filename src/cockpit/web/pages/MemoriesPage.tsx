@@ -7,6 +7,7 @@ import { MemoriesFamilies } from "../widgets/MemoriesFamilies";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useProject } from "../lib/project-context";
 import { cn } from "../lib/utils";
+import { PROVENANCE_TAG_NAMESPACES } from "@minsky/shared/memory-tag-namespaces";
 
 /**
  * mt#4762: the standalone `<MemorySearch>` card (a third of the viewport for
@@ -257,8 +258,13 @@ interface MemoriesFacetsPayload {
   namespaces: NamespaceFacetGroup[];
 }
 
-/** Mirrors `memories-facets.ts`'s `PROVENANCE_TAG_NAMESPACES` — frontend code declares this locally, same convention as `MemoriesList.tsx`'s own payload shapes. */
-const PROVENANCE_NAMESPACES = new Set(["imported-from", "content-hash"]);
+/**
+ * Single-sourced with the backend `memories-facets` widget via
+ * `@minsky/shared/memory-tag-namespaces` (PR #3500 R1 non-blocking fix) —
+ * this used to be an independent local copy of the same list, which is
+ * exactly the drift risk the reviewer flagged.
+ */
+const PROVENANCE_NAMESPACES = new Set<string>(PROVENANCE_TAG_NAMESPACES);
 
 /** How many non-namespaced tags the rail shows before the rest fold into the corpus's own long tail — the full set is still in `payload.flat`, this only bounds the RENDER. */
 const FLAT_TAG_DISPLAY_LIMIT = 20;
@@ -352,8 +358,34 @@ function FacetsRail({
 
   if (flatVisible.length === 0 && payload.namespaces.length === 0) return null;
 
+  // Bounded-height, internally-scrollable band (PR #3500 R2 — Eugene's own
+  // screenshot finding, not a reviewer BLOCKING/NON-BLOCKING item): with
+  // enough distinct tags (measured: ~70 chips across 8 rows on the live
+  // corpus) an unbounded band pushed the table — the page's PRIMARY
+  // surface — below the fold on a 1440x1000 viewport (first row ~730px
+  // down, only 3 rows visible). Considered three shapes on the merits:
+  //   1. A literal side rail (this codebase's own idiom for "rail" —
+  //      `components/Rail.tsx` is a persistent vertical column) costs the
+  //      table zero vertical space, but ~70 chips wrapped into a ~240px
+  //      column would still need its own height bound to avoid an
+  //      absurdly tall column — so it doesn't eliminate the need for a
+  //      scroll bound, it only relocates it — and it requires restructuring
+  //      this page into a two-column grid, a materially bigger change.
+  //   2. A collapsed-by-default band (only the top N, expand for the rest)
+  //      partially defeats mt#4763's own premise — the discovery problem —
+  //      by hiding the FAMILY/THEME/TRACKING grouping this page exists to
+  //      surface, exactly the content Eugene called out as "the content
+  //      itself is right."
+  //   3. A bounded-height scrollable band (chosen): keeps every namespace
+  //      group visible without an extra click, costs a small fixed amount
+  //      of vertical space regardless of corpus size, and is a one-line
+  //      change (`max-h-* overflow-y-auto`) with no page-layout risk.
+  // `max-h-32` (128px) fits roughly 5 chip rows before scrolling — enough
+  // to show the flat top-N tags plus a namespace group or two at a glance,
+  // while leaving the table's own header comfortably above the fold.
   return (
-    <div className="space-y-1.5 py-2 border-b border-border" data-testid="facets-rail">
+    <div className="border-b border-border py-2" data-testid="facets-rail">
+      <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1">
       {flatVisible.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {flatVisible.map((f) => (
@@ -415,6 +447,7 @@ function FacetsRail({
             ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

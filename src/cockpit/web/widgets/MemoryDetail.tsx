@@ -193,7 +193,8 @@ export function MemoryDetailContent({
               <Link
                 key={tag}
                 to={`/memories?mem_f_tags=${encodeURIComponent(tag)}`}
-                title={`Filter by ${tag}`}
+                title={tag}
+                aria-label={`Filter by ${tag}`}
                 className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px] hover:bg-primary/20 hover:text-primary transition-colors"
               >
                 {tag}

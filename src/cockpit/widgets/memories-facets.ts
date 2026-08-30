@@ -71,8 +71,14 @@ export interface MemoriesFacetsPayload {
   namespaces: NamespaceFacetGroup[];
 }
 
-/** Machine-provenance namespaces the frontend collapses by default (mt#4763). */
-export const PROVENANCE_TAG_NAMESPACES = ["imported-from", "content-hash"] as const;
+/**
+ * Machine-provenance namespaces the frontend collapses by default (mt#4763).
+ * Re-exported from the shared single-source module (PR #3500 R1
+ * non-blocking fix) — this used to be a second, independent copy of the
+ * same list `MemoriesPage.tsx` declared, which is exactly the drift the
+ * reviewer flagged.
+ */
+export { PROVENANCE_TAG_NAMESPACES } from "@minsky/shared/memory-tag-namespaces";
 
 interface FacetsFilter {
   type?: MemoryType;

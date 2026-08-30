@@ -261,3 +261,21 @@ describe("MemoriesPage — Families view swap (mt#4763)", () => {
     );
   });
 });
+
+describe("MemoriesPage — facet rail vertical-space bound (PR #3500 R2)", () => {
+  test("the facet rail's scrollable content region is height-bounded, so it cannot push the table below the fold", async () => {
+    const { container } = renderPage();
+    await waitFor(() => expect(container.textContent).toContain("handoff"));
+
+    const rail = container.querySelector('[data-testid="facets-rail"]');
+    expect(rail).not.toBeNull();
+    // The rail's OWN element must not carry an unbounded content height —
+    // the bound lives on its first child (the scrollable region), which
+    // must cap max-height and scroll internally rather than growing with
+    // the number of tags (PR #3500 R2: an unbounded rail measured ~730px
+    // tall against a 1000px viewport, leaving only 3 table rows visible).
+    const scrollRegion = rail?.firstElementChild;
+    expect(scrollRegion?.className).toContain("max-h-");
+    expect(scrollRegion?.className).toContain("overflow-y-auto");
+  });
+});

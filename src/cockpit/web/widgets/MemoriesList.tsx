@@ -629,7 +629,8 @@ function MemoriesRowItem({
           <button
             key={tag}
             type="button"
-            title={`Filter by ${tag}`}
+            title={tag}
+            aria-label={`Filter by ${tag}`}
             onClick={(e) => {
               e.stopPropagation();
               onTagClick(tag);

@@ -8,12 +8,15 @@ import { render, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoriesFamilies } from "./MemoriesFamilies";
+import { ProjectProvider } from "../lib/project-context";
 
 const originalFetch = global.fetch;
+const PROJECT_STORAGE_KEY = "cockpit.project.v1"; // mirrors project-context.tsx's STORAGE_KEY
 
 afterEach(() => {
   cleanup();
   global.fetch = originalFetch;
+  localStorage.removeItem(PROJECT_STORAGE_KEY);
 });
 
 function jsonResponse(body: unknown, ok = true): Response {
@@ -21,7 +24,9 @@ function jsonResponse(body: unknown, ok = true): Response {
 }
 
 function renderFamilies() {
+  const calls: string[] = [];
   global.fetch = mock(async (url: string) => {
+    calls.push(url);
     if (url.startsWith("/api/widget/memories-families/data")) {
       return jsonResponse({
         state: "ok",
@@ -51,13 +56,16 @@ function renderFamilies() {
   }) as unknown as typeof fetch;
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <MemoriesFamilies />
+        <ProjectProvider>
+          <MemoriesFamilies />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return { ...result, calls };
 }
 
 describe("MemoriesFamilies (mt#4763 AT5)", () => {
@@ -109,5 +117,26 @@ describe("MemoriesFamilies (mt#4763 AT5)", () => {
       expect(rows[0]?.textContent).toContain("scope-creep");
       expect(rows[1]?.textContent).toContain("assertion-without-verification");
     });
+  });
+});
+
+describe("MemoriesFamilies — project scoping (PR #3500 R1 BLOCKING)", () => {
+  test("with a project selected, the fetch carries project=<slug>", async () => {
+    localStorage.setItem(PROJECT_STORAGE_KEY, "minsky");
+    const { container, calls } = renderFamilies();
+    await waitFor(() =>
+      expect(container.textContent).toContain("assertion-without-verification")
+    );
+    const familiesCall = calls.find((c) => c.startsWith("/api/widget/memories-families/data"));
+    expect(familiesCall).toContain("project=minsky");
+  });
+
+  test("with no project selected (All projects), the fetch carries no project param", async () => {
+    const { container, calls } = renderFamilies();
+    await waitFor(() =>
+      expect(container.textContent).toContain("assertion-without-verification")
+    );
+    const familiesCall = calls.find((c) => c.startsWith("/api/widget/memories-families/data"));
+    expect(familiesCall).not.toContain("project=");
   });
 });
