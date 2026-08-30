@@ -233,6 +233,20 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
 async function listEveryMemory(
   service: MemoryServiceSurface
 ): Promise<Awaited<ReturnType<MemoryServiceSurface["list"]>>> {
+  if (typeof service.count !== "function") {
+    throw new Error(
+      "MemoryService exposes no count(); cannot prove the scan covered the corpus. Refusing."
+    );
+  }
+
+  // Count FIRST, and compare with `<`, not `!==`. Both choices are about the same race: a record
+  // created while the scan is in flight. Counting first means such a record can only make the
+  // scan LARGER than the floor, never smaller, so it cannot trip the check; comparing with `<`
+  // means a concurrent DELETE (which lowers the true total below the floor) does not either.
+  // What remains catchable is the case worth catching — a SHORT read, where paging silently
+  // stopped early and every rate below would be computed over a fraction of the corpus.
+  const floor = await service.count();
+
   const PAGE = 500;
   const out: Awaited<ReturnType<MemoryServiceSurface["list"]>> = [];
   for (let offset = 0; ; offset += PAGE) {
@@ -241,17 +255,10 @@ async function listEveryMemory(
     if (page.length < PAGE) break;
   }
 
-  if (typeof service.count === "function") {
-    const total = await service.count();
-    if (out.length !== total) {
-      throw new Error(
-        `Scan covered ${out.length} of ${total} memories — refusing to report a rate over a ` +
-          "partial corpus. Investigate the pagination before trusting any number below."
-      );
-    }
-  } else {
+  if (out.length < floor) {
     throw new Error(
-      "MemoryService exposes no count(); cannot prove the scan covered the corpus. Refusing."
+      `Scan covered ${out.length} of at least ${floor} memories — refusing to report a rate ` +
+        "over a partial corpus. Investigate the pagination before trusting any number below."
     );
   }
 
@@ -263,8 +270,10 @@ async function main(): Promise<void> {
   const execute = argv.includes("--execute");
   const verbose = argv.includes("--verbose");
   const asJson = argv.includes("--json");
-  const tokenArg = argv[argv.indexOf("--token") + 1];
-  const suppliedToken = argv.includes("--token") ? tokenArg : undefined;
+  // Read the value only when the flag is present. `indexOf` returns -1 when it is absent, so the
+  // unguarded `argv[indexOf + 1]` would silently read argv[0].
+  const tokenIdx = argv.indexOf("--token");
+  const suppliedToken = tokenIdx >= 0 ? argv[tokenIdx + 1] : undefined;
 
   const memoryService = await buildMemoryService();
   const all = await listEveryMemory(memoryService);
@@ -353,19 +362,47 @@ async function main(): Promise<void> {
 
   let applied = 0;
   let errors = 0;
+  let skipped = 0;
   for (const entry of plan) {
-    // Preserve every other association key — a record can hold one true ref and one false one
-    // (mem#1208 carries mt#4454 legitimately alongside a quoted mt#2056), and other association
-    // types are out of scope entirely.
-    const source = withTracks.find((m) => m.id === entry.id);
-    const associations = { ...(source?.associations ?? {}) } as Record<string, string[]>;
-    if (entry.after.length > 0) {
-      associations[TRACKS_TASK_ASSOCIATION] = entry.after;
-    } else {
-      delete associations[TRACKS_TASK_ASSOCIATION];
-    }
     try {
-      await memoryService.update(entry.id, { associations });
+      // Re-read immediately before writing. `update` REPLACES the whole associations map, so
+      // building it from the scan-time snapshot would silently revert any association key a
+      // concurrent writer added since — including keys this task never looks at. The plan token
+      // guards the SET of records; this guards each record's own content at the moment of write.
+      const current = await memoryService.get(entry.id);
+      if (!current) {
+        console.error(`  SKIP ${entry.shortId ?? entry.id}: record no longer exists.`);
+        skipped++;
+        continue;
+      }
+
+      const live = { ...((current.associations ?? {}) as Record<string, string[]>) };
+      const liveRefs = live[TRACKS_TASK_ASSOCIATION] ?? [];
+      // If the refs moved since the dry-run, the plan's `after` was computed against text and
+      // refs that no longer describe this record. Skip rather than apply a stale correction.
+      if (JSON.stringify(liveRefs) !== JSON.stringify(entry.before)) {
+        console.error(
+          `  SKIP ${entry.shortId ?? entry.id}: tracksTask changed since the dry-run ` +
+            `(${JSON.stringify(entry.before)} -> ${JSON.stringify(liveRefs)}). Re-run.`
+        );
+        skipped++;
+        continue;
+      }
+
+      // Preserve every other association key — a record can hold one true ref and one false one
+      // (mem#1208 carries mt#4454 legitimately alongside a quoted mt#2056), and other association
+      // types are out of scope entirely.
+      if (entry.after.length > 0) {
+        live[TRACKS_TASK_ASSOCIATION] = entry.after;
+      } else {
+        delete live[TRACKS_TASK_ASSOCIATION];
+      }
+
+      await memoryService.update(entry.id, { associations: live });
+      console.log(
+        `  ${entry.shortId ?? entry.id}: ${JSON.stringify(entry.before)} -> ` +
+          `${JSON.stringify(entry.after)}`
+      );
       applied++;
     } catch (err) {
       console.error(`  ERROR updating ${entry.shortId ?? entry.id}: ${err}`);
@@ -373,11 +410,16 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`\nDone. Applied: ${applied}, Errors: ${errors}`);
+  console.log(`\nDone. Applied: ${applied}, Skipped: ${skipped}, Errors: ${errors}`);
   if (errors > 0) process.exit(1);
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+// Guarded: the pure core above is imported by the test file, and an unguarded call would run the
+// CLI — DB connection, and a `process.exit` — on import. Matches the `import.meta.main` pattern
+// the hook modules use.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });
+}
