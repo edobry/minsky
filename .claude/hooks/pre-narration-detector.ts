@@ -287,8 +287,29 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
       "mcp__github__pull_request_read",
       "pull_request_read",
       "get_reviews",
+      // mt#4498: a completed MERGE entails a prior approval, so the merge call
+      // is itself evidence the review landed. `session_pr_merge` refuses on a
+      // PR without an approving review — the whole merge-gate chain is built on
+      // that — so an agent that merged cannot have been pre-narrating the
+      // approval it merged on.
+      //
+      // Measured, not assumed: of the 36 `review-approved` fires still leaking
+      // in the replayed corpus, **10 had `session_pr_merge` in window** and no
+      // other listed tool. They are the largest addressable share of the
+      // largest leaking category.
+      //
+      // NOT identity-scoped, unlike the `merged` category's read tools below.
+      // The asymmetry is deliberate: a READ of some other PR says nothing about
+      // this one, which is why that list is scoped. A merge is an action the
+      // agent PERFORMED in this session, and performing it required an approval
+      // to exist — the entailment holds without matching PR numbers. Scoping it
+      // would drop the 6 of those 10 whose claim names no PR number at all.
+      "mcp__minsky__session_pr_merge",
+      "session_pr_merge",
+      "mcp__github__merge_pull_request",
+      "merge_pull_request",
     ],
-    expectedTool: "session_pr_wait-for-review / pull_request_read",
+    expectedTool: "session_pr_wait-for-review / pull_request_read (or a merge, which entails one)",
   },
   {
     key: "merged",
@@ -475,11 +496,41 @@ export function windowSlice(lines: TranscriptLine[], windowTurns: number): Trans
   return lines.slice(start);
 }
 
+/**
+ * Tool names as observed, PLUS each one's bare suffix (mt#4498).
+ *
+ * `requiredTools` is matched with exact `Set.has`, and this project runs more
+ * than one MCP server alias for the same server: a session connected as
+ * `minsky-server` emits `mcp__minsky-server__session_pr_merge`, which equals
+ * neither the `mcp__minsky__…` entry nor the bare `session_pr_merge` entry that
+ * every list already carries. The suppressor could therefore never see that
+ * session's evidence, and every result claim in it fired as pre-narration.
+ *
+ * Registering the suffix makes the bare entries — already present in all four
+ * categories — do the work, so no list needs a second copy per alias and a
+ * future alias is covered without another edit.
+ *
+ * Measured share of the residual, so this is not mistaken for the headline: 2 of
+ * 65 tool-absent leaks (3%). It is a correctness fix, not the cause.
+ *
+ * Only the LAST segment is added, so `mcp__github__pull_request_read` also
+ * registers `pull_request_read` — which the lists already treat as equivalent.
+ */
+export function withBareToolAliases(names: Iterable<string>): Set<string> {
+  const out = new Set<string>();
+  for (const name of names) {
+    out.add(name);
+    const bare = name.split("__").pop();
+    if (bare && bare !== name) out.add(bare);
+  }
+  return out;
+}
+
 export function extractWindowToolUseNames(
   lines: TranscriptLine[],
   windowTurns: number
 ): Set<string> {
-  return new Set(extractToolUseNames(windowSlice(lines, windowTurns)));
+  return withBareToolAliases(extractToolUseNames(windowSlice(lines, windowTurns)));
 }
 
 /**
@@ -564,7 +615,7 @@ export function detectPreNarrationWithSuppression(
   // quotes inside a code span are already blanked and cannot confuse pairing —
   // the same ordering `elideQuotedAndCodeContexts` uses.
   const text = elideDoubleQuotedSpans(elideMarkdownContexts(rawText));
-  const toolNames = new Set(extractToolUseNames(turnLines));
+  const toolNames = withBareToolAliases(extractToolUseNames(turnLines));
 
   const matches: ClaimMatch[] = [];
   const suppressed: SuppressedClaimMatch[] = [];

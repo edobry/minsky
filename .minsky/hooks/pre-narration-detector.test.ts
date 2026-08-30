@@ -17,6 +17,7 @@ import {
   SUPPRESSION_SAME_TURN_TOOL_CALL,
   SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
+  withBareToolAliases,
   run,
   renderWorstCase,
   buildIdentityEvidence,
@@ -36,6 +37,7 @@ import type { DispatchContext } from "./registry";
 const CREATED_PR_CLAIM = "Created PR #4242.";
 const APPROVED_CLAIM = "The review came back: APPROVED, no findings.";
 const PR_CREATE_TOOL = "mcp__minsky__session_pr_create";
+const PR_MERGE_TOOL = "mcp__minsky__session_pr_merge";
 const PR_READ_TOOL_NAME = "mcp__github__pull_request_read";
 const MERGED_CLAIM_3033 = "PR #3033 merged.";
 
@@ -383,7 +385,7 @@ describe("match context capture (mt#3198)", () => {
   // sentence says whether the agent claimed a merge or referred to one.
   const REFERENCE_TURN = "The merged PR touches the auth module, so I re-read it.";
   const CLAIM_TURN = "I already merged PR #2603 to unblock the deploy.";
-  const MERGE_TOOL = "mcp__minsky__session_pr_merge";
+  const MERGE_TOOL = PR_MERGE_TOOL;
 
   function firstMatch(text: string) {
     const matches = detectPreNarration([makeAssistantLine(text)] as never);
@@ -832,10 +834,7 @@ describe("mt#3864 Cause A — reading a PR's state is evidence about THAT PR's s
   test("a same-turn merge tool still names the same-turn reason, not the identity one", () => {
     // Negative control for the ordering: identity evidence present AND a real
     // merge call in the turn must still record the stronger source.
-    const turn = [
-      makeAssistantToolUseLine("mcp__minsky__session_pr_merge"),
-      makeAssistantLine(MERGED_CLAIM),
-    ];
+    const turn = [makeAssistantToolUseLine(PR_MERGE_TOOL), makeAssistantLine(MERGED_CLAIM)];
     const detection = detectPreNarrationWithSuppression(
       turn as never,
       undefined,
@@ -1024,5 +1023,106 @@ describe("mt#3864 — identity evidence is window-scoped (PR #3096 R2)", () => {
     // rather than sharing one union set.
     expect(evidence.has("merged")).toBe(true);
     expect(evidence.has("review-approved")).toBe(false);
+  });
+});
+
+describe("mt#4498 — a merge entails the approval it merged on", () => {
+  const MERGE_TOOL = PR_MERGE_TOOL;
+
+  test("an APPROVED claim backed only by a MERGE in window is suppressed", () => {
+    // The entailment: `session_pr_merge` refuses a PR without an approving
+    // review, so an agent that merged cannot have been pre-narrating the
+    // approval. Largest addressable share of the leak — 10 of the 36
+    // `review-approved` fires in the replayed corpus had exactly this shape.
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine(MERGE_TOOL),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_WINDOW_TOOL_CALL]);
+    expect(detection.suppressed[0]?.category).toBe("review-approved");
+  });
+
+  test("NEGATIVE CONTROL: the same claim with NO tool in window still fires", () => {
+    // Without this the change above is indistinguishable from switching the
+    // category off. The fixture differs from the one above by exactly one
+    // thing — the merge call — so a detector answering both the same way has
+    // measured nothing.
+    const lines = [makeUserLine(), makeAssistantLine(APPROVED_CLAIM), makeUserLine()];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+
+  test("an unrelated tool in window does NOT suppress the claim", () => {
+    // Guards the widening direction: the merge entailment must not degrade into
+    // "any tool ran, so the claim is backed".
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine("mcp__minsky__tasks_get"),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+});
+
+describe("mt#4498 — the second MCP server alias is not invisible", () => {
+  test("evidence emitted under the `minsky-server` alias suppresses", () => {
+    // Exact `Set.has` matching meant `mcp__minsky-server__session_pr_wait-for-review`
+    // equalled neither the `mcp__minsky__…` entry nor the bare one, so every
+    // result claim in a session on that alias fired. 2 of 65 tool-absent leaks.
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine("mcp__minsky-server__session_pr_wait-for-review"),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_WINDOW_TOOL_CALL]);
+  });
+
+  test("NEGATIVE CONTROL: an unrelated tool under the same alias still fires", () => {
+    // Proves the alias handling did not degrade into matching on the prefix.
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine("mcp__minsky-server__tasks_get"),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+
+  test("withBareToolAliases adds the suffix without dropping the full name", () => {
+    const out = withBareToolAliases(["mcp__minsky-server__session_pr_merge", "Bash"]);
+    expect(out.has("mcp__minsky-server__session_pr_merge")).toBe(true);
+    expect(out.has("session_pr_merge")).toBe(true);
+    expect(out.has("Bash")).toBe(true);
   });
 });
