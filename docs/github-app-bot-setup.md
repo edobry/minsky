@@ -207,11 +207,42 @@ After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are aut
 2. Choose the account (your personal account or an organization) where the target repository lives.
 3. Select **Only select repositories** and choose the specific repositories you want the bot to access. Minimal scope is recommended.
 4. Click **Install**.
-5. After installation, look at the browser URL. It will be:
+5. After installation, look at the browser URL. For an installation on a **personal account** it
+   will be:
+
    ```
    https://github.com/settings/installations/<INSTALLATION-ID>
    ```
+
    Note the numeric **Installation ID** from the URL.
+
+   This form is verified against GitHub rather than assumed: the installation object returned by
+   `GET /app/installations/{installation_id}` carries an `html_url`, and
+   `bun scripts/verify-installation-settings-url.ts` asserts that Minsky's constructed link equals
+   it. For this project's installation it does (`target_type: User`).
+
+   **For an installation on an organization, this URL form is NOT confirmed.** GitHub configures an
+   org installation under that organization's own settings (Settings > Third-party Access > GitHub
+   Apps), which is a different page, and GitHub's docs publish no URL for either case. If you
+   installed on an org, take the ID from whatever URL your browser actually shows. Settling this
+   properly — and switching Minsky to read GitHub's `html_url` instead of constructing the path —
+   is tracked as mt#4764.
+
+### What `minsky setup` does with this ID
+
+Once `github.serviceAccount.installationId` is configured, `minsky setup`'s App-coverage check
+emits the settings page as a **direct link** when a repository is not covered, rather than telling
+you to navigate there:
+
+```
+GitHub App: installation does NOT cover edobry/peezombie.me
+  Pull-request creation will fail with a 404 until this is granted.
+  Grant minsky-ai access at https://github.com/settings/installations/125403046 — pick edobry/peezombie.me under Repository access, then Save.
+```
+
+When no installation ID is configured, it falls back to the navigation path above rather than
+emitting a guessed URL. Both forms name the App slug, so a project with several configured App
+roles (implementer, reviewer) can tell the blocks apart.
 
 ## 3. Store Credentials
 
