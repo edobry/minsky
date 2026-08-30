@@ -1399,9 +1399,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--tag"],
@@ -1551,9 +1551,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--repo"],
@@ -1612,9 +1612,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--execute"],
@@ -1660,9 +1660,9 @@
           "options": [
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--add-tag"],
@@ -1798,9 +1798,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--quiet"],
@@ -1883,9 +1883,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--quiet"],
@@ -2291,9 +2291,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--limit"],
