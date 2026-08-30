@@ -113,15 +113,31 @@ import { extractPgErrorContext } from "./webhook-events";
 import { DomainAskEmitter, makeContainerAskRepoProvider, type AskEmitter } from "./ask-emitter";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import {
+  resolveRepoTargets,
+  defaultGetInstallationCoverage,
+  type RepoTarget,
+  type GetInstallationCoverageFn,
+} from "./sweeper-repo-targets";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
 // ---------------------------------------------------------------------------
 
 export interface SweeperConfig {
-  /** Owner of the target GitHub repo (default: "edobry"). */
+  /**
+   * Owner of the EXPLICIT-OVERRIDE / fallback target repo (default: "edobry").
+   *
+   * mt#4759: this is no longer necessarily THE target — when neither
+   * `SWEEPER_REPO_OWNER` nor `SWEEPER_REPO_NAME` is set (both `*Defaulted`
+   * flags true), `runSweep` resolves the actual target SET from the reviewer
+   * App's installation coverage instead, and this field is used only as the
+   * fail-safe fallback pair if that resolution fails. When either env var
+   * IS set, this field (paired with `repo`) remains THE sole target, exactly
+   * as before mt#4759 — see `sweeper-repo-targets.ts`.
+   */
   owner: string;
-  /** Name of the target GitHub repo (default: "minsky"). */
+  /** Name of the EXPLICIT-OVERRIDE / fallback target repo (default: "minsky"). See `owner`. */
   repo: string;
   /** Sweep interval in milliseconds. */
   intervalMs: number;
@@ -190,6 +206,14 @@ export interface MissingReviewPR {
   authorLogin: string;
   /** Human-readable reason (e.g. "no review by bot" or "commit_id mismatch"). */
   reason: "no_review_by_bot" | "commit_id_mismatch";
+  /**
+   * Owner/repo this PR belongs to (mt#4759 — multi-repo sweep). Carried on
+   * every entry, rather than assumed from a single outer-scope pair, so a
+   * pooled `missing` list spanning several repos can still be routed to the
+   * correct marker/circuit-breaker lookups and the correct retrigger call.
+   */
+  owner: string;
+  repo: string;
 }
 
 /** Summary of a single sweep cycle. */
@@ -282,6 +306,8 @@ export async function detectMissingReview(
       headSha,
       authorLogin,
       reason: "no_review_by_bot",
+      owner,
+      repo,
     };
   }
 
@@ -294,6 +320,8 @@ export async function detectMissingReview(
       headSha,
       authorLogin,
       reason: "commit_id_mismatch",
+      owner,
+      repo,
     };
   }
 
@@ -410,6 +438,13 @@ export interface SweeperDeps {
    * `null`/absent when no sink is configured (opt-in).
    */
   alertSink?: AlertSink | null;
+  /**
+   * Optional override for the installation-coverage repo-target lookup
+   * (mt#4759). When present, replaces `defaultGetInstallationCoverage`'s
+   * real network call — injected in tests to exercise the multi-repo,
+   * `selection: "all"`, and coverage-call-failure branches hermetically.
+   */
+  getInstallationCoverage?: GetInstallationCoverageFn;
 }
 
 /**
@@ -486,18 +521,39 @@ export async function runSweep(
   depsOverride?: SweeperDeps
 ): Promise<SweepResult> {
   const startedAt = new Date().toISOString();
-  const { owner, repo } = sweeperConfig;
 
   const deps = depsOverride ?? (await buildSweeperDeps(config));
   const { octokit, botLogin, runReviewFn, db, askEmitter, alertSink } = deps;
   const listOpenCircuitsFn = deps.listOpenCircuitsFn ?? listOpenCircuitsForPRs;
   const markCircuitAlertedFn = deps.markCircuitAlertedFn ?? markCircuitAlerted;
 
+  // mt#4759: resolve the repo TARGET SET rather than a single pair. An
+  // explicit SWEEPER_REPO_OWNER/SWEEPER_REPO_NAME override (either set)
+  // takes precedence and short-circuits with no network call — this is what
+  // keeps every existing single-repo test (and any real deployment that has
+  // configured these vars) byte-identical to pre-mt#4759 behavior. Absent an
+  // override, the set comes from the reviewer App's own installation
+  // coverage, with a fail-safe fallback to the single legacy pair on error —
+  // see sweeper-repo-targets.ts's module docblock.
+  const explicitTarget: RepoTarget | null =
+    sweeperConfig.ownerDefaulted && sweeperConfig.repoDefaulted
+      ? null
+      : { owner: sweeperConfig.owner, repo: sweeperConfig.repo };
+  const getInstallationCoverage =
+    deps.getInstallationCoverage ?? defaultGetInstallationCoverage(config);
+  const resolution = await resolveRepoTargets({
+    explicitTarget,
+    fallbackTarget: { owner: sweeperConfig.owner, repo: sweeperConfig.repo },
+    getInstallationCoverage,
+    logPrefix: "sweeper",
+  });
+  const targets = resolution.targets;
+
   log.info("sweeper.cycle_start", {
     event: "sweeper.cycle_start",
     timestamp: startedAt,
-    owner,
-    repo,
+    targets: targets.map((t) => `${t.owner}/${t.repo}`),
+    repoTargetSource: resolution.source,
     botLogin,
   });
 
@@ -521,61 +577,69 @@ export async function runSweep(
     }
   }
 
-  // 1. List all open PRs.
-  const openPRs = await listOpenPRs(octokit, owner, repo);
-  // mt#2717 (reviewer R1 NB): listOpenPRs is the cycle's first auth-bearing
-  // GitHub call, so its success proves the App installation token authenticated.
-  // Record the success HERE — at the precise auth-bearing call — rather than
-  // after the whole cycle resolves, so a later internally-caught failure can't
-  // reset the shared auth-health streak on a partial-failure cycle.
-  githubAuthHealth.recordSuccess();
-  const prsScanned = openPRs.length;
-
-  // 2. Detect missing reviews, respecting tier routing.
+  // 1. For each target repo, list open PRs and detect missing reviews,
+  // respecting tier routing. Repos are swept SEQUENTIALLY (not in parallel)
+  // to preserve the mt#1969 sequential-retrigger invariant below — running
+  // multiple repos' cycles concurrently would reintroduce the same
+  // concurrent-retrigger contention that invariant exists to avoid.
+  let prsScanned = 0;
   const missing: MissingReviewPR[] = [];
 
-  for (const pr of openPRs) {
-    // Skip draft PRs — mirrors the webhook handler's skip_draft policy.
-    if (pr.draft) {
-      log.info("skip_draft_sweeper", {
-        event: "skip_draft_sweeper",
-        pr: pr.number,
+  for (const { owner, repo } of targets) {
+    const openPRs = await listOpenPRs(octokit, owner, repo);
+    // mt#2717 (reviewer R1 NB): listOpenPRs is the cycle's first auth-bearing
+    // GitHub call, so its success proves the App installation token authenticated.
+    // Record the success HERE — at the precise auth-bearing call — rather than
+    // after the whole cycle resolves, so a later internally-caught failure can't
+    // reset the shared auth-health streak on a partial-failure cycle.
+    githubAuthHealth.recordSuccess();
+    prsScanned += openPRs.length;
+
+    for (const pr of openPRs) {
+      // Skip draft PRs — mirrors the webhook handler's skip_draft policy.
+      if (pr.draft) {
+        log.info("skip_draft_sweeper", {
+          event: "skip_draft_sweeper",
+          pr: pr.number,
+          owner,
+          repo,
+        });
+        continue;
+      }
+
+      // Respect tier routing: skip PRs that decideRouting says to skip.
+      // We use extractTierFromPRBody here (not the full resolveTier fallback
+      // chain with MCP) because the sweeper is a lightweight background task —
+      // it should not add per-PR MCP round-trips. PRs with no body marker get
+      // the null tier → defaults to Tier 2 behavior. This matches the Sprint A
+      // fail-open policy for sweeper context.
+      const tier = extractTierFromPRBody(pr.body);
+      const routing = decideRouting(tier, config.tier2Enabled);
+      if (!routing.shouldReview) {
+        continue;
+      }
+
+      const detected = await detectMissingReview(
+        octokit,
         owner,
         repo,
-      });
-      continue;
-    }
+        pr.number,
+        pr.headSha,
+        botLogin,
+        pr.authorLogin
+      );
 
-    // Respect tier routing: skip PRs that decideRouting says to skip.
-    // We use extractTierFromPRBody here (not the full resolveTier fallback
-    // chain with MCP) because the sweeper is a lightweight background task —
-    // it should not add per-PR MCP round-trips. PRs with no body marker get
-    // the null tier → defaults to Tier 2 behavior. This matches the Sprint A
-    // fail-open policy for sweeper context.
-    const tier = extractTierFromPRBody(pr.body);
-    const routing = decideRouting(tier, config.tier2Enabled);
-    if (!routing.shouldReview) {
-      continue;
-    }
-
-    const detected = await detectMissingReview(
-      octokit,
-      owner,
-      repo,
-      pr.number,
-      pr.headSha,
-      botLogin,
-      pr.authorLogin
-    );
-
-    if (detected !== null) {
-      missing.push(detected);
-      log.warn("sweeper.missing_review", {
-        event: "sweeper.missing_review",
-        pr: detected.number,
-        headSha: detected.headSha,
-        reason: detected.reason,
-      });
+      if (detected !== null) {
+        missing.push(detected);
+        log.warn("sweeper.missing_review", {
+          event: "sweeper.missing_review",
+          pr: detected.number,
+          headSha: detected.headSha,
+          reason: detected.reason,
+          owner,
+          repo,
+        });
+      }
     }
   }
 
@@ -588,11 +652,16 @@ export async function runSweep(
     try {
       const markerLookup = await listActiveMarkersForPRs(
         db,
-        missing.map((m) => ({ owner, repo, prNumber: m.number, headSha: m.headSha }))
+        missing.map((m) => ({
+          owner: m.owner,
+          repo: m.repo,
+          prNumber: m.number,
+          headSha: m.headSha,
+        }))
       );
 
       filteredMissing = missing.filter((m) => {
-        const key = markerKey(owner, repo, m.number, m.headSha);
+        const key = markerKey(m.owner, m.repo, m.number, m.headSha);
         const marker = markerLookup.get(key);
         if (marker !== undefined) {
           log.info("sweeper.skipped_inflight", {
@@ -627,7 +696,12 @@ export async function runSweep(
     try {
       openCircuits = await listOpenCircuitsFn(
         db,
-        filteredMissing.map((m) => ({ owner, repo, prNumber: m.number, headSha: m.headSha }))
+        filteredMissing.map((m) => ({
+          owner: m.owner,
+          repo: m.repo,
+          prNumber: m.number,
+          headSha: m.headSha,
+        }))
       );
     } catch (circuitErr: unknown) {
       openCircuits = new Map();
@@ -644,7 +718,7 @@ export async function runSweep(
       // to mark the circuit `alerted`. See the dedup discussion below.
       const keptMissing: MissingReviewPR[] = [];
       for (const m of filteredMissing) {
-        const open = openCircuits.get(submissionFailureKey(owner, repo, m.number, m.headSha));
+        const open = openCircuits.get(submissionFailureKey(m.owner, m.repo, m.number, m.headSha));
         if (open === undefined) {
           keptMissing.push(m);
           continue;
@@ -701,7 +775,7 @@ export async function runSweep(
             alertSink?.notify(
               "error",
               `Reviewer circuit-breaker tripped — PR #${m.number}`,
-              `Reviewer review submission for ${owner}/${repo} PR #${m.number} @ ${m.headSha} keeps failing with a non-retryable error (${open.errorClass}, status ${open.lastStatus ?? "unknown"}) after ${open.consecutiveCount} attempts; the sweeper has stopped retriggering it. Operator action required (mt#2350 / mt#1596).`
+              `Reviewer review submission for ${m.owner}/${m.repo} PR #${m.number} @ ${m.headSha} keeps failing with a non-retryable error (${open.errorClass}, status ${open.lastStatus ?? "unknown"}) after ${open.consecutiveCount} attempts; the sweeper has stopped retriggering it. Operator action required (mt#2350 / mt#1596).`
             )
           ).catch((sinkErr: unknown) => {
             log.warn("sweeper.alert_sink_unhandled", {
@@ -713,8 +787,8 @@ export async function runSweep(
           });
           const emitOutcome = askEmitter
             ? await askEmitter.emitCircuitBreakerAlert({
-                owner,
-                repo,
+                owner: m.owner,
+                repo: m.repo,
                 prNumber: m.number,
                 headSha: m.headSha,
                 errorClass: open.errorClass,
@@ -749,7 +823,7 @@ export async function runSweep(
     // Schedule each in the batch. retriggerViaRunReview never throws (it
     // catch-logs internally), so we can safely await all in parallel.
     await Promise.all(
-      batch.map((pr) => retriggerViaRunReview(config, owner, repo, pr, runReviewFn, db))
+      batch.map((pr) => retriggerViaRunReview(config, pr.owner, pr.repo, pr, runReviewFn, db))
     );
     retriggeredCount += batch.length;
   }

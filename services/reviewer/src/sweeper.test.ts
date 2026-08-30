@@ -77,6 +77,7 @@ const TIER2_BODY = "<!-- minsky:tier=2 -->";
 const REASON_NO_REVIEW = "no_review_by_bot" as const;
 const PR_AUTHOR = "test-author";
 const EVENT_CYCLE_END = "sweeper.cycle_end";
+const PEEZOMBIE_FULL_NAME = "edobry/peezombie.me";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -1434,5 +1435,264 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
 
     expect(result.retriggeredCount).toBe(0);
     expect(result.missing).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runSweep — multi-repo target resolution (mt#4759)
+// ---------------------------------------------------------------------------
+
+describe("runSweep — multi-repo target resolution (mt#4759)", () => {
+  /**
+   * A SweeperConfig representing "no explicit SWEEPER_REPO_OWNER/NAME set" —
+   * both *Defaulted flags true, which is what triggers installation-coverage
+   * resolution instead of the single-pair short-circuit. Mirrors production
+   * today: verified in the mt#4759 spec's Planning Audit that no
+   * SWEEPER_REPO_* Railway var is set.
+   */
+  const NO_OVERRIDE_CONFIG: SweeperConfig = {
+    ...SWEEPER_CONFIG,
+    ownerDefaulted: true,
+    repoDefaulted: true,
+  };
+
+  /**
+   * A fake Octokit whose PR/review datasets are keyed by `repo`, so a
+   * multi-repo sweep can be exercised against genuinely different data per
+   * target — the single-repo `makeFakeOctokit` above ignores `owner`/`repo`
+   * entirely, which is fine for every single-target test above but cannot
+   * distinguish two repos.
+   */
+  function makeMultiRepoFakeOctokit(byRepo: Record<string, FakeOctokitOptions>): Octokit {
+    const paginateFn = mock((endpoint: unknown, params?: unknown) => {
+      const p = params as Record<string, unknown> | undefined;
+      const repo = (p?.["repo"] as string | undefined) ?? "";
+      const options = byRepo[repo] ?? {};
+
+      if (p && "pull_number" in p) {
+        const prNumber = p["pull_number"] as number;
+        return Promise.resolve(options.reviews?.[prNumber] ?? []);
+      }
+      if (p && "state" in p) {
+        return Promise.resolve(options.openPRs ?? []);
+      }
+      return Promise.resolve([]);
+    });
+
+    return {
+      paginate: paginateFn,
+      rest: {
+        pulls: {
+          list: {} as unknown,
+          listReviews: {} as unknown,
+        },
+      },
+    } as unknown as Octokit;
+  }
+
+  test("multi-repo enumeration: both resolved repos are swept, each PR carries its own owner/repo", async () => {
+    const octokit = makeMultiRepoFakeOctokit({
+      minsky: {
+        openPRs: [
+          { number: 1, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+        ],
+        reviews: { 1: [] },
+      },
+      "peezombie.me": {
+        openPRs: [
+          { number: 1, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+        ],
+        reviews: { 1: [] },
+      },
+    });
+    const getInstallationCoverage = () =>
+      Promise.resolve({
+        selection: "selected" as const,
+        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME],
+      });
+
+    const deps: SweeperDeps = {
+      octokit,
+      botLogin: BOT_LOGIN,
+      getInstallationCoverage,
+    };
+
+    const result = await runSweep(BASE_CONFIG, NO_OVERRIDE_CONFIG, deps);
+
+    expect(result.prsScanned).toBe(2);
+    expect(result.missing).toHaveLength(2);
+    const byRepo = new Map(result.missing.map((m) => [m.repo, m]));
+    expect(byRepo.get("minsky")?.owner).toBe("edobry");
+    expect(byRepo.get("peezombie.me")?.owner).toBe("edobry");
+  });
+
+  test('selection: "all" branch: the full repository list is swept', async () => {
+    const octokit = makeMultiRepoFakeOctokit({
+      minsky: { openPRs: [], reviews: {} },
+      "peezombie.me": { openPRs: [], reviews: {} },
+      "third-repo": {
+        openPRs: [
+          { number: 7, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+        ],
+        reviews: { 7: [] },
+      },
+    });
+    const getInstallationCoverage = () =>
+      Promise.resolve({
+        selection: "all" as const,
+        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME, "edobry/third-repo"],
+      });
+
+    const deps: SweeperDeps = { octokit, botLogin: BOT_LOGIN, getInstallationCoverage };
+    const result = await runSweep(BASE_CONFIG, NO_OVERRIDE_CONFIG, deps);
+
+    expect(result.prsScanned).toBe(1);
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0]?.repo).toBe("third-repo");
+  });
+
+  test("explicit-env-override branch: getInstallationCoverage is never called when SWEEPER_REPO_OWNER/NAME are set", async () => {
+    const getInstallationCoverage = mock(() =>
+      Promise.reject(new Error("should not be called"))
+    ) as unknown as SweeperDeps["getInstallationCoverage"];
+
+    const deps: SweeperDeps = {
+      octokit: makeFakeOctokit({ openPRs: [], reviews: {} }),
+      botLogin: BOT_LOGIN,
+      getInstallationCoverage,
+    };
+
+    // SWEEPER_CONFIG has ownerDefaulted:false, repoDefaulted:false — the
+    // explicit-override case.
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(result.prsScanned).toBe(0);
+    expect(getInstallationCoverage).not.toHaveBeenCalled();
+  });
+
+  test("coverage-call-failure fallback: sweep still runs against the default pair, never sweeps zero repos", async () => {
+    const octokit = makeFakeOctokit({
+      openPRs: [
+        { number: 55, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
+      reviews: { 55: [] },
+    });
+    const getInstallationCoverage = () => Promise.reject(new Error("GitHub 500"));
+
+    const deps: SweeperDeps = { octokit, botLogin: BOT_LOGIN, getInstallationCoverage };
+    const { logs, restore } = captureConsoleLogs();
+    let result;
+    try {
+      result = await runSweep(BASE_CONFIG, NO_OVERRIDE_CONFIG, deps);
+    } finally {
+      restore();
+    }
+
+    // Fell back to the single default pair (edobry/minsky) rather than
+    // sweeping zero repos — the load-bearing FAIL SAFE property.
+    expect(result.prsScanned).toBe(1);
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0]?.owner).toBe("edobry");
+    expect(result.missing[0]?.repo).toBe("minsky");
+    expect(findLogEvent(logs, "sweeper.repo_target_resolution_failed")).not.toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // AT5/SC4: with no new configuration set AND no test-injected coverage
+  // override, the sweep target is still edobry/minsky. This deliberately
+  // does NOT inject `getInstallationCoverage` — it lets `runSweep` build the
+  // real `defaultGetInstallationCoverage(config)`, which fails hermetically
+  // (BASE_CONFIG carries no real GitHub App credentials), exercising the
+  // exact fallback path a genuinely unconfigured deployment would hit.
+  // -------------------------------------------------------------------------
+  test("AT5/SC4: with no new configuration and no injected override, the target is still edobry/minsky", async () => {
+    const octokit = makeFakeOctokit({
+      openPRs: [
+        { number: 9, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+      ],
+      reviews: { 9: [] },
+    });
+
+    // No getInstallationCoverage override — the real defaultGetInstallationCoverage
+    // is built from BASE_CONFIG, which has no usable GitHub App credentials.
+    const deps: SweeperDeps = { octokit, botLogin: BOT_LOGIN };
+
+    const { restore } = captureConsoleLogs();
+    let result;
+    try {
+      result = await runSweep(BASE_CONFIG, NO_OVERRIDE_CONFIG, deps);
+    } finally {
+      restore();
+    }
+
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0]?.owner).toBe("edobry");
+    expect(result.missing[0]?.repo).toBe("minsky");
+  });
+
+  // -------------------------------------------------------------------------
+  // AT4 / SC3: a second repo's PR that received NO webhook is SURFACED by a
+  // sweep pass — the property the task exists for, not merely enumeration.
+  // -------------------------------------------------------------------------
+  test("AT4/SC3: a second repo's webhook-less PR is retriggered by the missed-review sweeper", async () => {
+    // Repo "minsky" (the original, webhook-covered repo): its PR already has
+    // a bot review at HEAD — simulating the normal webhook path having
+    // already handled it. It must NOT be retriggered.
+    //
+    // Repo "peezombie.me" (the second, newly-covered repo): its PR has NO
+    // bot review at all — simulating a webhook that was dropped for this
+    // repo, which per the task's Summary is otherwise a PERMANENT silent
+    // no-review, because peezombie.me has no fallback sweep today. This is
+    // exactly the failure the multi-repo resolution exists to close.
+    const octokit = makeMultiRepoFakeOctokit({
+      minsky: {
+        openPRs: [
+          { number: 100, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+        ],
+        reviews: {
+          100: [{ user: { login: BOT_LOGIN }, commit_id: HEAD_SHA, state: "COMMENTED" }],
+        },
+      },
+      "peezombie.me": {
+        openPRs: [
+          { number: 1, head: { sha: HEAD_SHA }, body: TIER3_BODY, user: { login: PR_AUTHOR } },
+        ],
+        reviews: { 1: [] }, // no webhook ever reviewed this PR
+      },
+    });
+    const getInstallationCoverage = () =>
+      Promise.resolve({
+        selection: "selected" as const,
+        repositories: ["edobry/minsky", PEEZOMBIE_FULL_NAME],
+      });
+
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "ok", tier: 3 as const })
+    );
+
+    const deps: SweeperDeps = {
+      octokit,
+      botLogin: BOT_LOGIN,
+      runReviewFn,
+      getInstallationCoverage,
+    };
+
+    const result = await runSweep(BASE_CONFIG, NO_OVERRIDE_CONFIG, deps);
+
+    // Only peezombie.me's PR is missing/retriggered — minsky's already-reviewed
+    // PR is correctly left alone.
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0]?.owner).toBe("edobry");
+    expect(result.missing[0]?.repo).toBe("peezombie.me");
+    expect(result.missing[0]?.number).toBe(1);
+    expect(result.retriggeredCount).toBe(1);
+
+    // The actual retrigger call — proving the sweep didn't just ENUMERATE
+    // the second repo's PR but genuinely re-invoked review for it.
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    const [, callOwner, callRepo, callPrNumber] = runReviewFn.mock.calls[0] as unknown[];
+    expect(callOwner).toBe("edobry");
+    expect(callRepo).toBe("peezombie.me");
+    expect(callPrNumber).toBe(1);
   });
 });
