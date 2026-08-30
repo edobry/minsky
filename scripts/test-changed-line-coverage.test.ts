@@ -182,6 +182,42 @@ end_of_record
   });
 });
 
+describe("evaluateCoverage — AT3, the PR #3242 regression shape", () => {
+  test("a test whose fixture short-circuits before the changed lines is surfaced", () => {
+    // The originating incident (mt#4423's motivation): the test was named
+    // "an operator QUOTING a watermark in prose stays human" and handed a
+    // fixture with `origin: { kind: "human" }`, which resolves at precedence
+    // step 3. The marker logic the PR changed sits at step 5, so the run never
+    // reached it and the test passed whether or not that logic was correct.
+    //
+    // Modeled by coverage: the run covers the early-return lines and none of
+    // the changed ones.
+    const changed: Map<string, Set<number>> = new Map([
+      // The PR changed the step-5 marker branch.
+      [SOURCE_FILE, new Set([120, 121, 122])],
+    ]);
+    const covered: Map<string, Set<number>> = new Map([
+      // The run resolved at step 3 and returned.
+      [SOURCE_FILE, new Set([40, 41, 42])],
+    ]);
+
+    const verdict = evaluateCoverage(TEST_FILE, changed, covered);
+    expect(verdict.vacuous).toBe(true);
+    expect(verdict.unreachedFiles).toEqual([SOURCE_FILE]);
+  });
+
+  test("the same test reaching the step-5 branch is NOT surfaced", () => {
+    // Same file, same changed lines — only the executed set differs. Pairing
+    // these is what shows the verdict tracks coverage rather than the fixture.
+    const changed: Map<string, Set<number>> = new Map([[SOURCE_FILE, new Set([120, 121, 122])]]);
+    const covered: Map<string, Set<number>> = new Map([[SOURCE_FILE, new Set([120, 121])]]);
+
+    const verdict = evaluateCoverage(TEST_FILE, changed, covered);
+    expect(verdict.vacuous).toBe(false);
+    expect(verdict.changedLinesCovered).toBe(2);
+  });
+});
+
 describe("evaluateCoverage — the self-exclusion that keeps the check able to fail", () => {
   test("a test file's OWN changed lines do not count as coverage", () => {
     // A newly added test file is itself a changed file. If its own executed lines
