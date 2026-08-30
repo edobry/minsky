@@ -82,6 +82,39 @@ export const UNMET_ASSERTIONS: readonly string[] = [
 ];
 
 /**
+ * The assertions as ONE alternation, longest-first, matched case-insensitively
+ * against the original text (PR #3499 R1, two BLOCKING findings, one fix).
+ *
+ * **What actually fixes the duplicate is the criterion-keyed dedupe below, NOT this
+ * sort — verified by control, because the first version of this comment said
+ * otherwise.** Reverting the sort to shortest-first leaves every test passing;
+ * reverting the dedupe key to include the phrase fails `a criterion named twice in
+ * one section still yields one finding`. The reason is that alternation is tried per
+ * POSITION: at the offset of `is`, `not met` cannot match at all, so the longer
+ * branch wins whatever the ordering.
+ *
+ * Longest-first is kept as a DEFENCE against a future pair that does collide at one
+ * offset — a phrase that is a strict prefix of another. The current list contains no
+ * such pair, so the ordering is presently unexercised; it is cheap insurance against
+ * the next phrase added, not a load-bearing mechanism, and a test asserting it would
+ * pass with or without it.
+ *
+ * **Matching the ORIGINAL rather than a lowercased copy is what keeps indices
+ * sound.** The previous version searched `text.toLowerCase()` and used the resulting
+ * offsets against `text`. Unicode lowercasing is not length-preserving — `İ`
+ * (U+0130) lowercases to two code units — so a single such character anywhere
+ * earlier in a spec shifted every subsequent offset, corrupting the adjacency
+ * window, the section clamp and the excerpt. The `i` flag has no such effect.
+ */
+const ASSERTION_RE = new RegExp(
+  [...UNMET_ASSERTIONS]
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|"),
+  "gi"
+);
+
+/**
  * A criterion reference: `SC3`, `AT#4`, `SC 12`. A closed vocabulary — an ordinal
  * against a named section — so this half carries no paraphrase axis.
  */
@@ -238,7 +271,6 @@ export function detectCriterionReconciliation(
   // Elide first, for the reason `extractCriteria`'s header spells out: a fenced block
   // quoting one of these assertions is an example, not a claim about this spec.
   const elided = elide(authoredText);
-  const haystack = elided.toLowerCase();
 
   const amended = amendedCriterionIds(authoredText, elide);
   const amendedSet = new Set(amended);
@@ -246,36 +278,38 @@ export function detectCriterionReconciliation(
   const findings: CriterionReconciliationFinding[] = [];
   const seen = new Set<string>();
 
-  for (const assertion of UNMET_ASSERTIONS) {
-    let from = 0;
-    for (;;) {
-      const at = haystack.indexOf(assertion, from);
-      if (at === -1) break;
-      from = at + assertion.length;
+  ASSERTION_RE.lastIndex = 0;
+  let hit: RegExpExecArray | null;
+  while ((hit = ASSERTION_RE.exec(elided)) !== null) {
+    const at = hit.index;
+    // Normalized for the record; the MATCH kept its original casing.
+    const assertion = hit[0].toLowerCase();
 
-      const heading = enclosingHeading(elided, at);
-      if (heading !== null && DISCHARGE_HEADINGS.some((re) => re.test(heading))) continue;
+    const heading = enclosingHeading(elided, at);
+    if (heading !== null && DISCHARGE_HEADINGS.some((re) => re.test(heading))) continue;
 
-      // Clamped to the enclosing section — see `sectionSpan`.
-      const span = sectionSpan(elided, at);
-      const windowStart = Math.max(span.start, at - ADJACENCY_WINDOW_CHARS);
-      const windowEnd = Math.min(span.end, at + assertion.length + ADJACENCY_WINDOW_CHARS);
-      const window = elided.slice(windowStart, windowEnd);
+    // Clamped to the enclosing section — see `sectionSpan`.
+    const span = sectionSpan(elided, at);
+    const windowStart = Math.max(span.start, at - ADJACENCY_WINDOW_CHARS);
+    const windowEnd = Math.min(span.end, at + hit[0].length + ADJACENCY_WINDOW_CHARS);
+    const window = elided.slice(windowStart, windowEnd);
 
-      CRITERION_ID.lastIndex = 0;
-      let idMatch: RegExpExecArray | null;
-      while ((idMatch = CRITERION_ID.exec(window)) !== null) {
-        const criterionId = `${(idMatch[1] ?? "").toUpperCase()}${idMatch[2] ?? ""}`;
-        if (amendedSet.has(criterionId)) continue;
-        const key = `${criterionId}:${assertion}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        findings.push({
-          criterionId,
-          assertion,
-          excerpt: excerptAround(elided, at, assertion.length),
-        });
-      }
+    CRITERION_ID.lastIndex = 0;
+    let idMatch: RegExpExecArray | null;
+    while ((idMatch = CRITERION_ID.exec(window)) !== null) {
+      const criterionId = `${(idMatch[1] ?? "").toUpperCase()}${idMatch[2] ?? ""}`;
+      if (amendedSet.has(criterionId)) continue;
+      // Keyed on the CRITERION alone (PR #3499 R1). Including the phrase let one
+      // sentence yield several findings for the same criterion when phrases
+      // overlapped; the alternation now prevents the overlap, and this makes the
+      // one-finding-per-criterion property independent of the phrase list's shape.
+      if (seen.has(criterionId)) continue;
+      seen.add(criterionId);
+      findings.push({
+        criterionId,
+        assertion,
+        excerpt: excerptAround(elided, at, hit[0].length),
+      });
     }
   }
 

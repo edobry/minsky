@@ -28,6 +28,22 @@ function elide(text: string): string {
   return out;
 }
 
+/**
+ * PR #3499 R1 (non-blocking): this stub is deliberately WEAKER than production —
+ * it blanks fenced blocks only, where the real composition also covers code spans,
+ * blockquotes and prose-quoted spans. That is safe in one direction and not the
+ * other: under-eliding can only produce EXTRA matches, so a test that passes here
+ * cannot be masking a false negative. The adapter test exercises the real elider.
+ *
+ * What both must share is LENGTH PRESERVATION, because the matcher reads offsets off
+ * the elided text and applies them to the same string. Asserted rather than assumed.
+ */
+test("the stub elider is length- and line-preserving, like the real one", () => {
+  const sample = ["# Heading", "", "text", "```", "fenced üñïçø∂é", "```", "tail"].join("\n");
+  expect(elide(sample).length).toBe(sample.length);
+  expect(elide(sample).split("\n").length).toBe(sample.split("\n").length);
+});
+
 const identity = (t: string): string => t;
 
 /** Extracted so the heading is not a magic string repeated across fixtures. */
@@ -174,6 +190,51 @@ describe("detectCriterionReconciliation — the three negative controls", () => 
   test("silent on an empty or whitespace write", () => {
     expect(detectCriterionReconciliation("", identity).findings).toEqual([]);
     expect(detectCriterionReconciliation("   \n  ", identity).findings).toEqual([]);
+  });
+});
+
+describe("PR #3499 R1 — the two BLOCKING defects", () => {
+  /**
+   * `is not met` contains `not met`. Scanning each phrase independently produced
+   * TWO findings for one sentence, and the dedupe key included the phrase so it
+   * could not collapse them.
+   */
+  test("overlapping phrases yield ONE finding, not one per phrase", () => {
+    const write = "## Outcome\n\nSC2 is not met by the shipped implementation.";
+    const result = detectCriterionReconciliation(write, identity);
+
+    expect(result.findings).toHaveLength(1);
+    // The LONGER phrase wins at that offset.
+    expect(result.findings[0]?.assertion).toBe("is not met");
+  });
+
+  test("a criterion named twice in one section still yields one finding", () => {
+    const write = "## Outcome\n\nSC2 is not satisfied. As noted, SC2 cannot be satisfied either.";
+    expect(detectCriterionReconciliation(write, identity).findings).toHaveLength(1);
+  });
+
+  /**
+   * `İ` (U+0130) lowercases to TWO code units, so a lowercased-copy search returned
+   * offsets that no longer addressed the original string. Everything downstream —
+   * the section clamp, the adjacency window, the excerpt — read from the wrong
+   * place. One such character before the assertion is enough to show it.
+   */
+  test("a length-changing Unicode character does not shift the reported excerpt", () => {
+    const write = `## Outcome\n\nİİİ context here. SC7 cannot be satisfied as written.`;
+    const result = detectCriterionReconciliation(write, identity);
+
+    expect(result.findings.map((f) => f.criterionId)).toEqual(["SC7"]);
+    // The excerpt must contain the real assertion text, not a shifted slice.
+    expect(result.findings[0]?.excerpt).toContain("cannot be satisfied");
+  });
+
+  test("the id is still found when the shift would have pushed it out of the window", () => {
+    // 'İ' repeated ahead of the hit: under the old lowercased-copy search every
+    // offset past this run was wrong by one per character.
+    const write = `## Outcome\n\n${"İ".repeat(60)}\n\nSC3 is not satisfied.`;
+    expect(
+      detectCriterionReconciliation(write, identity).findings.map((f) => f.criterionId)
+    ).toEqual(["SC3"]);
   });
 });
 
