@@ -111,6 +111,12 @@ export const memoriesTable = pgTable(
   (table) => [
     // Filtering index: type + scope + projectId is the most common compound filter
     index("idx_memories_type_scope_project").on(table.type, table.scope, table.projectId),
+    // Default-sort index (mt#4761): `MemoryService.list()`'s default order is
+    // `created_at DESC`. `idx_memories_type_scope_project` above does not cover
+    // `created_at`, so an unfiltered (or lightly-filtered) browse previously
+    // required a full seq scan + sort. See the PR body for the `EXPLAIN` this
+    // index turns into an index scan.
+    index("idx_memories_created_at").on(table.createdAt),
     // Agent lookup index (Phase 2 will write sourceAgentId)
     index("idx_memories_source_agent_id").on(table.sourceAgentId),
     // Lineage traversal index

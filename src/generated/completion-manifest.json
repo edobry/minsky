@@ -6418,7 +6418,7 @@
         },
         {
           "name": "list",
-          "description": "Browse memory records with optional type/scope/project filters.",
+          "description": "Browse memory records with optional type/scope/project filters, sorted and paginated in SQL (mt#4761). Defaults to created desc when --sort is omitted. Supports --sort (created|updated|lastAccessed|accessCount|shortId|name), --dir (asc|desc), --offset, --tags (AND semantics — every listed tag must be present), and --name-contains (case-insensitive substring match).",
           "options": [
             {
               "flags": ["--type"],
@@ -6477,6 +6477,33 @@
             {
               "flags": ["--until"],
               "description": "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--sort"],
+              "description": "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+              "takesValue": true,
+              "values": ["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]
+            },
+            {
+              "flags": ["--dir"],
+              "description": "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+              "takesValue": true,
+              "values": ["asc", "desc"]
+            },
+            {
+              "flags": ["--offset"],
+              "description": "Rows to skip, applied via SQL OFFSET. Defaults to 0",
+              "takesValue": true
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Filter by tags — AND semantics: a matching record must carry EVERY listed tag",
+              "takesValue": true
+            },
+            {
+              "flags": ["--name-contains"],
+              "description": "Case-insensitive substring filter over name",
               "takesValue": true
             },
             {
