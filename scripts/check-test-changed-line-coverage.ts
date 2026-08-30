@@ -31,7 +31,7 @@
  * adopted for the retrospective-trigger family.
  */
 
-import { mkdtempSync, readFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { execWithPath, findRepoRoot } from "../.minsky/hooks/types";
@@ -148,6 +148,9 @@ export function runCoverageCheck(options: RunnerOptions): {
     const coverageUnavailable = !existsSync(lcovPath);
     const lcov = coverageUnavailable ? "" : readFileSync(lcovPath, "utf8");
     const covered = parseLcovCoveredLines(lcov, repoRoot);
+    // Read first, then remove. CI discards the runner anyway; a local run would
+    // otherwise leave one temp tree per added test file, per invocation.
+    rmSync(coverageDir, { recursive: true, force: true });
 
     const evaluation = evaluateCoverage(testFile, changedLines, covered);
     evaluations.push({
