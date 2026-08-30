@@ -18,6 +18,18 @@
  *    overridable via `MINSKY_STATE_DIR`), the same root the fire-log,
  *    guard-health-log, and the disconnect tracker already write to.
  *
+ * mt#4748 (SC1): the `calibration` and `evaluation` families were `"repo"`
+ * through 2026-08-30 — every managed project's working tree, not just this
+ * repo's, so nothing outside this repo's own `.gitignore` (retired by SC6)
+ * ever ignored them. They are `"state-dir"` now, project-keyed under
+ * `projects/<hash of repoRoot>/` (see `resolveStreamPath` in
+ * `ingest-runtime.ts` and `.minsky/hooks/dispatcher.ts`'s
+ * `calibrationLogPath` / `evaluationLogPath`,
+ * the actual write path these rows describe) so two Minsky-managed repos on
+ * one machine cannot collide in a single flat `<name>-calibration.jsonl`.
+ * ADR-028 §D4 is amended in the same change (mt#4748 SC7) — it had
+ * documented the now-superseded `.minsky/calibration/<guard>.jsonl` path.
+ *
  * Two formats:
  *  - `"jsonl"` — newline-delimited JSON, tailed by byte offset (§tailing.ts).
  *  - `"json-array"` — the one exception, `mcp-disconnect-log.json`; parsed
@@ -56,7 +68,12 @@ export interface GuardEventStreamSource {
   stream: string;
   family: GuardEventFamily;
   location: GuardEventStreamLocation;
-  /** Relative to the repo root (location="repo") or the state dir (location="state-dir"). */
+  /**
+   * Relative to the repo root (location="repo") or the state dir
+   * (location="state-dir"). For a `calibration`/`evaluation`-family
+   * state-dir stream, `resolveStreamPath` additionally nests this under a
+   * project-keyed subdirectory (mt#4748) — see the module doc comment.
+   */
   relativePath: string;
   format: GuardEventStreamFormat;
   /** Static per-stream guard label — see module doc comment. */
@@ -138,8 +155,13 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
 ].map((s) => ({
   ...s,
   family: "calibration" as const,
-  location: "repo" as const,
-  relativePath: `.minsky/${s.stream}-calibration.jsonl`,
+  // mt#4748 SC1: state-dir, not repo — see the module doc comment's history
+  // note. `relativePath` is bare (no `.minsky/` prefix): `resolveStreamPath`
+  // roots calibration/evaluation streams under a project-keyed subdirectory
+  // of the state dir, not the repo, so a `.minsky/`-shaped path would be
+  // misleading here.
+  location: "state-dir" as const,
+  relativePath: `${s.stream}-calibration.jsonl`,
   format: "jsonl" as const,
 }));
 
@@ -160,8 +182,10 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
 ].map((s) => ({
   ...s,
   family: "evaluation" as const,
-  location: "repo" as const,
-  relativePath: `.minsky/${s.stream}.jsonl`,
+  // mt#4748 SC1: state-dir, not repo — see CALIBRATION_STREAMS above for the
+  // rationale (identical: `resolveStreamPath` project-keys this family).
+  location: "state-dir" as const,
+  relativePath: `${s.stream}.jsonl`,
   format: "jsonl" as const,
 }));
 

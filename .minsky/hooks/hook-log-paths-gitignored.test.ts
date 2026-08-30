@@ -1,294 +1,88 @@
 /**
- * mt#2492 — every runtime log path a hook declares must be gitignored.
+ * mt#4748 SC2/SC4/SC6 — every calibration/evaluation stream a hook can write
+ * resolves OUTSIDE the repo working tree, so nothing can ever be staged by
+ * `git add -A` / `session_commit --all`.
  *
- * These logs are local telemetry: they are written on ordinary turns, they
- * differ per machine and per session, and committing one puts one operator's
- * in-flight measurements into everyone's checkout. `.gitignore` covers them
- * with two globs (`**\/.minsky/*-calibration.jsonl`, `**\/.minsky/*-evaluations.jsonl`)
- * plus a few literals.
+ * Historical note (mt#2492): this file used to assert the INVERSE — that
+ * every declared `.minsky/*-calibration.jsonl` / `*-evaluations.jsonl` path
+ * was covered by a `.gitignore` denylist (`**\/.minsky/*-calibration.jsonl`,
+ * `**\/.minsky/*-evaluations.jsonl`, mt#2667). mt#4748 retired that denylist
+ * (`.gitignore`, SC6) because the underlying premise changed: these streams
+ * no longer write into ANY working tree at all — `.minsky/hooks/dispatcher.ts`'s
+ * `calibrationLogPath` / `evaluationLogPath` resolve under the state dir
+ * (`~/.local/state/minsky/projects/<key>/`), project-keyed by the repo root,
+ * not the repo itself. A pattern-coverage check on a path that is never
+ * written into the tree is testing nothing; the direct structural property —
+ * "this path can never be under the repo root" — is what SC2 actually asks
+ * for, and unlike a denylist it cannot fall behind a newly-added detector
+ * (SC3): a stream declared with `family: "calibration" | "evaluation"`
+ * inherits the state-dir resolution automatically, with no per-stream
+ * `.gitignore` line to remember.
  *
- * The globs work. What had no check was whether a NEW producer's filename
- * actually lands inside one — and that is exactly how this test came to exist:
- * `cross-turn-hedge-detector.ts` hand-wrote `.minsky/cross-turn-hedge-evaluation.jsonl`,
- * SINGULAR, where all 31 siblings are plural. One character, so the glob missed
- * it, and it sat untracked for weeks. Nothing failed, because nothing looked:
- * a repo-wide grep for `check-ignore` returned zero matches before this file.
- *
- * The failure mode is invisible to every other gate — the file looks normal,
- * no test reads it, and CI never sees it. It surfaces only as untracked noise
- * in `git status` that a human eventually notices. So the check has to be
- * mechanical, and it has to run over the DECLARED paths rather than over
- * whatever happens to exist on disk: a path that no one has triggered yet has
- * no file, and is exactly the case worth catching before it does.
+ * AT4 (the spec's own acceptance test) is covered directly: a detector name
+ * that matches no existing pattern — because there IS no pattern anymore —
+ * still resolves outside the repo, since the resolution is structural
+ * (state-dir + project key), not name-based.
  */
-/* eslint-disable custom/no-real-fs-in-tests -- this file's entire purpose is an
- * audit of the REAL repository: which paths the real hook sources declare, and
- * what the real `.gitignore` does with them. Mocking either side would mean
- * asserting against a fixture of the thing under test, which is precisely the
- * can't-fail probe this test exists to prevent. Same justification, and same
- * file-level form, as the sibling census `hook-module-inventory.test.ts`. */
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { calibrationLogPath, evaluationLogPath } from "./dispatcher";
+import { GUARD_EVENT_STREAM_SOURCES } from "../../packages/domain/src/guard-events/stream-sources";
 
-const HOOKS_DIR = join(import.meta.dir);
+/** A synthetic "fresh init" project root — never a real repo on this machine. */
+const FRESH_INIT_REPO_ROOT = "/tmp/mt4748-fresh-init-project-that-does-not-exist";
 
-/**
- * Strip `//` and block comments, leaving string literals intact.
- *
- * A plain `.replace(/\/\/.*$/gm, "")` is wrong here: it would cut a URL inside
- * a string at its `//`, and more importantly the reverse case is what this
- * exists for — a path mentioned in PROSE is not a declaration. This file's own
- * subject is an example: `cross-turn-hedge-detector.ts` now documents the old
- * singular path in its docblock, and a scanner that could not tell comment from
- * code would read that as a live producer and fail the audit on a path nothing
- * writes. (PR #3474 review raised this; it was latent rather than firing,
- * because the docblock happens to use backticks.)
- *
- * So track string state while walking. Small, but the alternative is a check
- * that goes red on documentation.
- */
-function stripComments(src: string): string {
-  let out = "";
-  let i = 0;
-  let quote: string | null = null;
-  while (i < src.length) {
-    const c = src[i];
-    const next = src[i + 1];
-    if (quote) {
-      if (c === "\\") {
-        out += c + (next ?? "");
-        i += 2;
-        continue;
-      }
-      if (c === quote) quote = null;
-      out += c;
-      i += 1;
-      continue;
+const calibrationStreams = GUARD_EVENT_STREAM_SOURCES.filter((s) => s.family === "calibration");
+const evaluationStreams = GUARD_EVENT_STREAM_SOURCES.filter((s) => s.family === "evaluation");
+
+describe("mt#4748 SC2 — calibration/evaluation streams never resolve inside the repo", () => {
+  it("finds a non-trivial set of calibration and evaluation streams (guards the guard)", () => {
+    // An enumeration that silently returned [] would make every assertion
+    // below vacuously pass — the exact shape this file exists to prevent one
+    // level down (mirrors the floor the old version of this test kept).
+    expect(calibrationStreams.length).toBeGreaterThan(20);
+    expect(evaluationStreams.length).toBeGreaterThan(3);
+  });
+
+  it("every declared calibration stream's location is state-dir, not repo", () => {
+    for (const s of calibrationStreams) {
+      expect(s.location).toBe("state-dir");
     }
-    if (c === '"' || c === "'" || c === "`") {
-      quote = c;
-      out += c;
-      i += 1;
-      continue;
+  });
+
+  it("every declared evaluation stream's location is state-dir, not repo", () => {
+    for (const s of evaluationStreams) {
+      expect(s.location).toBe("state-dir");
     }
-    if (c === "/" && next === "/") {
-      while (i < src.length && src[i] !== "\n") i += 1;
-      continue;
+  });
+
+  it.each(calibrationStreams.map((s) => s.stream))(
+    "calibrationLogPath(%s) never resolves under a fresh-init repo root",
+    (stream) => {
+      const p = calibrationLogPath(stream, { projectDir: FRESH_INIT_REPO_ROOT });
+      expect(p.startsWith(FRESH_INIT_REPO_ROOT)).toBe(false);
     }
-    if (c === "/" && next === "*") {
-      i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i += 1;
-      i += 2;
-      continue;
+  );
+
+  it.each(evaluationStreams.map((s) => s.stream.replace(/-evaluations$/, "")))(
+    "evaluationLogPath(%s) never resolves under a fresh-init repo root",
+    (bareName) => {
+      const p = evaluationLogPath(bareName, { projectDir: FRESH_INIT_REPO_ROOT });
+      expect(p.startsWith(FRESH_INIT_REPO_ROOT)).toBe(false);
     }
-    out += c;
-    i += 1;
-  }
-  return out;
-}
+  );
 
-/**
- * Every `.minsky/<something>.json(l)` string literal appearing in hook CODE.
- *
- * Deliberately a source scan rather than an import-and-read-the-constant: the
- * constants are not uniformly named or exported (some are `EVALUATION_LOG`,
- * some `EVALUATION_LOG_NAME`, some inline), and importing every hook module to
- * enumerate them would execute their top-level side effects. The literal is
- * what ends up on disk, so the literal is what to check.
- */
-function declaredLogPaths(): string[] {
-  const paths = new Set<string>();
-  for (const entry of readdirSync(HOOKS_DIR)) {
-    if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
-    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    // Backticks included: a template literal is a declaration syntax like any
-    // other, and a scanner blind to one whole syntax is the can't-fail shape
-    // this file exists to prevent (PR #3474 R2). There are zero such
-    // declarations today, so this is preventive.
-    //
-    // It is only SAFE because R1's comment-elision landed first: every backtick
-    // `.minsky/*.jsonl` in the tree today — 10 of them — is markdown quoting
-    // inside a docblock, including this PR's own. Matching backticks without
-    // stripping comments would have dragged all 10 into the audit and failed on
-    // paths nothing writes. The two fixes compose; the order mattered.
-    for (const m of src.matchAll(/["'`](\.minsky\/[A-Za-z0-9._-]+\.jsonl?)["'`]/g)) {
-      const p = m[1];
-      if (p) paths.add(p);
-    }
-  }
-  return [...paths].sort();
-}
-
-/**
- * Paths the shared helpers derive from a bare stream name (mt#3745, mt#4752).
- *
- * Both suffixes, because both helpers exist: `evaluationLogPath` derives
- * `-evaluations.jsonl` from an `EVALUATION_LOG_NAME`, and `calibrationLogPath`
- * derives `-calibration.jsonl` from a `CALIBRATION_LOG_NAME`.
- */
-function derivedLogPaths(): string[] {
-  const names = new Set<string>();
-  for (const entry of readdirSync(HOOKS_DIR)) {
-    if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
-    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    // The optional `[A-Z0-9_]*` prefix is DELIBERATE, not decoration
-    // (PR #3480 R2). A constant is not always named exactly
-    // `CALIBRATION_LOG_NAME` — `substrate-bypass-detector` declares
-    // `OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME`, because that file writes a
-    // stream whose name does not match its own. An unanchored regex happened to
-    // match that identifier's suffix, so coverage was correct by ACCIDENT; this
-    // makes it correct on purpose, and the test below pins it.
-    for (const m of src.matchAll(
-      /[A-Z0-9_]*EVALUATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g
-    )) {
-      const n = m[1];
-      if (n) names.add(`.minsky/${n}-evaluations.jsonl`);
-    }
-    for (const m of src.matchAll(
-      /[A-Z0-9_]*CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g
-    )) {
-      const n = m[1];
-      if (n) names.add(`.minsky/${n}-calibration.jsonl`);
-    }
-  }
-  return [...names].sort();
-}
-
-/**
- * Paths derived from the registry's `calibrationLog:` declarations (mt#4752).
- *
- * This is the audit's real denominator, and adding it is what let mt#4752
- * remove the hand-written path literals without gutting the check. A
- * dispatcher-registered guard never spells its path: it declares a stream NAME
- * in the registry and returns `{ calibration: … }`, and `runDispatcher` calls
- * `logCalibrationRecord` on its behalf. Scanning only for literals therefore
- * measured how many guards had NOT yet been migrated — a denominator that
- * shrinks toward zero precisely as the codebase gets healthier, which is the
- * wrong direction for a floor to move.
- */
-function registryCalibrationPaths(): string[] {
-  const names = new Set<string>();
-  for (const entry of readdirSync(HOOKS_DIR)) {
-    if (!entry.startsWith("registry") || !entry.endsWith(".ts")) continue;
-    if (entry.endsWith(".test.ts")) continue;
-    const src = stripComments(readFileSync(join(HOOKS_DIR, entry), "utf-8"));
-    // BOTH declaration forms, because the registry's type is
-    // `calibrationLog?: string | [string, ...string[]]` (`registry.ts:317`).
-    // A scanner matching only the string form would silently miss every stream
-    // in an array declaration — no error, no empty result, just a smaller set
-    // that still clears the floor. That is the can't-fail shape this file
-    // exists to prevent, so it matches the whole value and pulls every quoted
-    // name out of it. Zero array declarations exist today; this is preventive,
-    // and the type is what makes it necessary rather than the current data.
-    for (const m of src.matchAll(/calibrationLog:\s*(\[[^\]]*\]|["'][A-Za-z0-9._-]+["'])/g)) {
-      const value = m[1];
-      if (!value) continue;
-      for (const q of value.matchAll(/["']([A-Za-z0-9._-]+)["']/g)) {
-        const n = q[1];
-        if (n) names.add(`.minsky/${n}-calibration.jsonl`);
-      }
-    }
-  }
-  return [...names].sort();
-}
-
-function isIgnored(relPath: string): boolean {
-  // `check-ignore` exits 0 when the path IS ignored, 1 when it is not. Run from
-  // the repo root so relative paths resolve the way git will see them.
-  // Bun.spawnSync rather than node:child_process per `bun_over_node.mdc`.
-  const res = Bun.spawnSync(["git", "check-ignore", "-q", relPath], {
-    cwd: join(HOOKS_DIR, "..", ".."),
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  return res.exitCode === 0;
-}
-
-describe("stripComments — the scanner only sees code (PR #3474 R1)", () => {
-  it("drops a path mentioned in a line comment", () => {
-    const src = '// was ".minsky/old-name.jsonl"\nconst X = ".minsky/real.jsonl";';
-    expect(stripComments(src)).not.toContain("old-name");
-    expect(stripComments(src)).toContain("real.jsonl");
-  });
-
-  it("drops a path mentioned in a block comment", () => {
-    const src = '/* see ".minsky/doc-example.jsonl" */\nconst X = ".minsky/real.jsonl";';
-    expect(stripComments(src)).not.toContain("doc-example");
-    expect(stripComments(src)).toContain("real.jsonl");
-  });
-
-  it("does NOT cut a string at a URL's slashes", () => {
-    // The naive `s/\/\/.*$//` fix would truncate here and silently drop any
-    // declaration later on the same line.
-    const src = 'const U = "https://example.com/x"; const X = ".minsky/real.jsonl";';
-    expect(stripComments(src)).toContain("https://example.com/x");
-    expect(stripComments(src)).toContain("real.jsonl");
-  });
-
-  it("leaves a template-literal declaration visible to the scanner", () => {
-    // R2: backticks are a declaration syntax. The pairing that makes this safe
-    // is that the docblock case above is already gone by the time we match.
-    const src = "const X = `.minsky/tmpl.jsonl`;";
-    expect(stripComments(src)).toContain(".minsky/tmpl.jsonl");
-  });
-
-  it("sees a PREFIXED log-name constant, not just the bare one (PR #3480 R2)", () => {
-    // `substrate-bypass-detector` declares `OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME`.
-    // Measured across the tree: 27 `*_LOG_NAME` constants, all covered — but one
-    // of them only because an unanchored regex matched its suffix. This pins the
-    // prefix as intended behaviour so a future rename cannot quietly drop it.
-    const re = /[A-Z0-9_]*CALIBRATION_LOG_NAME\s*=\s*["']([A-Za-z0-9._-]+)["']/g;
-    const src = 'const OPERATOR_INSTRUCTION_CALIBRATION_LOG_NAME = "operator-instruction-trigger";';
-    expect([...src.matchAll(re)].map((m) => m[1])).toEqual(["operator-instruction-trigger"]);
-  });
-
-  it("sees both calibrationLog declaration forms (PR #3480 R1)", () => {
-    // The registry's type is `string | [string, ...string[]]` (registry.ts:317).
-    // Zero array declarations exist today, so this is the only thing standing
-    // between a future one and a stream silently missing from the audit.
-    const extract = (src: string): string[] => {
-      const out: string[] = [];
-      for (const m of src.matchAll(/calibrationLog:\s*(\[[^\]]*\]|["'][A-Za-z0-9._-]+["'])/g)) {
-        for (const q of (m[1] ?? "").matchAll(/["']([A-Za-z0-9._-]+)["']/g)) {
-          if (q[1]) out.push(q[1]);
-        }
-      }
-      return out;
-    };
-    expect(extract('calibrationLog: "solo",')).toEqual(["solo"]);
-    expect(extract('calibrationLog: ["first", "second"],')).toEqual(["first", "second"]);
-  });
-
-  it("keeps a comment-looking sequence that is inside a string", () => {
-    const src = 'const S = "not /* a comment */ really"; const X = ".minsky/real.jsonl";';
-    expect(stripComments(src)).toContain("not /* a comment */ really");
-    expect(stripComments(src)).toContain("real.jsonl");
-  });
-});
-
-describe("every hook log path is gitignored (mt#2492)", () => {
-  const paths = [
-    ...new Set([...declaredLogPaths(), ...derivedLogPaths(), ...registryCalibrationPaths()]),
-  ].sort();
-
-  it("finds a non-trivial set of declared log paths", () => {
-    // Guards the guard: an enumeration that silently returns [] would make every
-    // assertion below vacuously pass, which is the shape this whole test exists
-    // to prevent one level down.
-    //
-    // mt#4752 re-based this floor. It was 20, against a population that was
-    // mostly hand-written path literals — so migrating a guard onto the shared
-    // helper REMOVED a path from the audit, and completing the migration would
-    // have driven the count under the floor and failed the suite for the wrong
-    // reason. Now that `registryCalibrationPaths()` reads the registry's stream
-    // declarations, the denominator tracks streams that EXIST rather than
-    // literals that remain, and it grows as guards are added. 40 sits under the
-    // 49 observed with room for churn.
-    expect(paths.length).toBeGreaterThan(40);
-  });
-
-  it.each(paths)("%s is ignored", (relPath) => {
-    expect(isIgnored(relPath)).toBe(true);
+  // AT4 — a detector with a log name matching no existing pattern (there is
+  // no pattern to match anymore) still resolves outside the repo, because
+  // the resolution is structural, not name-based.
+  it("AT4: a brand-new, never-before-seen detector name also resolves outside the repo", () => {
+    const name = "brand-new-detector-never-seen-before-mt4748";
+    expect(
+      calibrationLogPath(name, { projectDir: FRESH_INIT_REPO_ROOT }).startsWith(
+        FRESH_INIT_REPO_ROOT
+      )
+    ).toBe(false);
+    expect(
+      evaluationLogPath(name, { projectDir: FRESH_INIT_REPO_ROOT }).startsWith(FRESH_INIT_REPO_ROOT)
+    ).toBe(false);
   });
 });

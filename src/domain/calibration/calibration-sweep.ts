@@ -40,7 +40,35 @@ import { createHash } from "node:crypto";
  * operator-facing output, and the record kind (drives the parse path).
  */
 export interface CalibrationLogEntry {
-  /** Repo-relative path to the JSONL log file. */
+  /**
+   * Repo-relative path to the JSONL log file — as a NAME, not a resolvable
+   * filesystem path. **The value stays repo-relative deliberately (mt#4748
+   * R1)**: `.minsky/hooks/dispatcher.ts`'s `calibrationLogPath` — the actual
+   * write path every value here mirrors — moved from
+   * `.minsky/<name>-calibration.jsonl` (repo-rooted) to a project-keyed
+   * subdirectory of the state dir
+   * (`getMinskyStateDir()/projects/<key>/<name>-calibration.jsonl`), where
+   * `<key>` is a hash of the repo root — a value this static registry has no
+   * way to embed. Every reader translates this field at CONSUMPTION time
+   * instead: strip the `.minsky/` prefix, then re-root under
+   * `getMinskyStateDir()/projects/<key of the caller's own repo root>/`. Do
+   * NOT flip this field to an absolute path — `path.join` does not restart
+   * at an absolute second segment the way `path.resolve` does, so any
+   * consumer still doing `join(workspacePath, relPath)` would silently
+   * mis-resolve rather than error.
+   *
+   * **Three consumers, all migrated in the same change (mt#4748 R1; the
+   * initial PR wrongly named ONE and called the other two an open follow-up
+   * — corrected here after reviewer-caught omission):**
+   * `src/adapters/shared/commands/calibration.ts`'s `readContent` closure,
+   * and `.minsky/hooks/calibration-review-cadence-detector.ts`'s two
+   * (functionally identical) `readContent` closures in `run()` and
+   * `main()`. Each duplicates the state-dir/project-key translation locally
+   * rather than importing a shared helper — the established convention in
+   * this migration (see `projectStateKey` in `dispatcher.ts` /
+   * `ingest-runtime.ts` / `coverage-receipt.ts`): every module tree stays
+   * free of a dependency on the others.
+   */
   path: string;
   /** Human-readable name for display (no spaces; use kebab). */
   name: string;
