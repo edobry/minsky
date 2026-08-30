@@ -68,7 +68,8 @@ export async function checkAppCoverage(
  */
 export function formatAppCoverage(
   status: AppCoverageStatus,
-  appSlug = "your Minsky GitHub App"
+  appSlug = "your Minsky GitHub App",
+  settingsUrl?: string
 ): string {
   switch (status.state) {
     case "covered":
@@ -77,7 +78,15 @@ export function formatAppCoverage(
       return [
         `GitHub App: installation does NOT cover ${status.repo}`,
         `  Pull-request creation will fail with a 404 until this is granted.`,
-        `  Grant it: GitHub -> Settings -> Applications -> Installed GitHub Apps -> ${appSlug} -> Repository access`,
+        // The link is the remedy; the navigation path is the fallback (mt#4695).
+        // The linked form still names `appSlug` because that is the ONLY thing
+        // distinguishing two uncovered roles — `checkAppRoleCoverage` renders one
+        // block per role and both headers read `does NOT cover <repo>`, so dropping
+        // the slug here would leave an operator with two identical blocks and two
+        // bare URLs.
+        settingsUrl
+          ? `  Grant ${appSlug} access at ${settingsUrl} — pick ${status.repo} under Repository access, then Save.`
+          : `  Grant it: GitHub -> Settings -> Applications -> Installed GitHub Apps -> ${appSlug} -> Repository access`,
       ].join("\n");
     case "no-app-configured":
       return "GitHub App: not configured — skipping coverage check";
