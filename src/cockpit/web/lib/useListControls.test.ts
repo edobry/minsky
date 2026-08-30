@@ -16,6 +16,7 @@ import {
   computePageCount,
   paginateSlice,
   readListControlsState,
+  buildSearchStringState,
 } from "./useListControls";
 
 // ---------------------------------------------------------------------------
@@ -208,6 +209,30 @@ describe("useListControls logic", () => {
 
     test("prefixKey with prefix returns prefixed key", () => {
       expect(prefixKey("ag", "page")).toBe("ag_page");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // buildSearchStringState (mt#4762 PR #3492 review) — clearing every param
+  // must serialize to "", never a bare "?", or the hook's internal
+  // `searchString` state disagrees with the real `window.location.search`
+  // (which `writeSearchParams` already normalizes the same way).
+  // ---------------------------------------------------------------------------
+
+  describe("buildSearchStringState", () => {
+    test("an empty param set serializes to the empty string, not a bare '?'", () => {
+      expect(buildSearchStringState(new URLSearchParams(""))).toBe("");
+    });
+
+    test("clearing every param from a populated set also yields the empty string", () => {
+      const params = new URLSearchParams("mem_sort=accessCount&mem_dir=desc");
+      params.delete("mem_sort");
+      params.delete("mem_dir");
+      expect(buildSearchStringState(params)).toBe("");
+    });
+
+    test("a non-empty param set is prefixed with '?'", () => {
+      expect(buildSearchStringState(new URLSearchParams("sort=value"))).toBe("?sort=value");
     });
   });
 

@@ -459,7 +459,7 @@ function MemoriesTableHeader({
 // Row
 // ---------------------------------------------------------------------------
 
-function MemoriesRowItem({ row, onOpen }: { row: DisplayRow; onOpen: (id: string) => void }) {
+function MemoriesRowItem({ row, onRowClick }: { row: DisplayRow; onRowClick: (id: string) => void }) {
   const entityIndex = useEntityIndex();
   const semanticTags = row.tags.filter((t) => !isProvenanceTag(t));
   const visibleTags = semanticTags.slice(0, VISIBLE_TAG_SLOTS);
@@ -467,11 +467,11 @@ function MemoriesRowItem({ row, onOpen }: { row: DisplayRow; onOpen: (id: string
 
   return (
     <div
-      onClick={() => onOpen(row.id)}
+      onClick={() => onRowClick(row.id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onOpen(row.id);
+          onRowClick(row.id);
         }
       }}
       role="button"
@@ -607,11 +607,11 @@ function computeServerPayload(
 // ---------------------------------------------------------------------------
 
 function MemoriesListInner({
-  onOpen,
+  onRowClick,
   selectedSlug,
   projectParam,
 }: {
-  onOpen: (id: string) => void;
+  onRowClick: (id: string) => void;
   selectedSlug: string | null;
   projectParam: { project: string } | undefined;
 }) {
@@ -769,7 +769,7 @@ function MemoriesListInner({
             onSort={controls.setSort}
           />
           {controls.pageItems.map((row) => (
-            <MemoriesRowItem key={row.id} row={row} onOpen={onOpen} />
+            <MemoriesRowItem key={row.id} row={row} onRowClick={onRowClick} />
           ))}
           <MemoriesPaginationBar
             page={controls.page}
@@ -790,15 +790,25 @@ function MemoriesListInner({
 // ---------------------------------------------------------------------------
 
 interface MemoriesListProps {
-  /** Navigate-to-detail hook; defaults to a full-page navigation to `/memory/:id`. */
-  onOpen?: (id: string) => void;
+  /**
+   * Row-click navigation hook; defaults to an in-app navigation to
+   * `/memory/:id`. Signature is `(id: string) => void` rather than the
+   * pre-mt#4762 `(record: MemoryRecord) => void` — the row's own data
+   * varies by source (the SQL-list path projects to the lighter
+   * `DisplayRow`, not a full `MemoryRecord`; only search mode has one), and
+   * `id` is the one field every row shape guarantees. The only pre-existing
+   * consumer, `MemoriesPage.tsx`, no longer passes this callback at all
+   * (mt#4762 made the widget self-navigating via `useNavigate`), so no
+   * caller depends on the old signature.
+   */
+  onRowClick?: (id: string) => void;
   /** Render-context variant; defaults to the home-grid card frame. */
   variant?: WidgetVariant;
   /** Title from the registry; defaults to the widget's canonical title for back-compat. */
   title?: string;
 }
 
-export function MemoriesList({ onOpen, variant = "card", title = "Memories" }: MemoriesListProps) {
+export function MemoriesList({ onRowClick, variant = "card", title = "Memories" }: MemoriesListProps) {
   const { selectedSlug, queryParam: projectParam } = useProject();
   const navigate = useNavigate();
   const navigateToMemory = (id: string) => {
@@ -808,7 +818,7 @@ export function MemoriesList({ onOpen, variant = "card", title = "Memories" }: M
   return (
     <WidgetShell variant={variant} title={title}>
       <MemoriesListInner
-        onOpen={onOpen ?? navigateToMemory}
+        onRowClick={onRowClick ?? navigateToMemory}
         selectedSlug={selectedSlug}
         projectParam={projectParam}
       />

@@ -150,6 +150,20 @@ export function applyUpdates(
   return next;
 }
 
+/**
+ * Serialize a `URLSearchParams` back into the `?`-prefixed string form the
+ * hook stores as its `searchString` state (mt#4762 PR #3492 review) — an
+ * empty param set serializes to `""`, never a bare `"?"`. Mirrors
+ * `writeSearchParams`' own empty-case handling (below) so the hook's
+ * internal state and the real `window.location.search` can never disagree:
+ * without this, clearing every filter left `searchString` as the literal
+ * string `"?"` while the browser's own query string read `""`.
+ */
+export function buildSearchStringState(params: URLSearchParams): string {
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
 /** Compute total page count from item count and page size */
 export function computePageCount(totalItems: number, pageSize: number): number {
   return Math.max(1, Math.ceil(totalItems / pageSize));
@@ -338,7 +352,7 @@ export function useListControls<T, S extends string, F extends Record<string, st
   const mergeAndFlush = useCallback((updates: Record<string, string | null>) => {
     const next = applyUpdates(readSearchParams(), updates);
     writeSearchParams(next);
-    setSearchString(`?${next.toString()}`);
+    setSearchString(buildSearchStringState(next));
   }, []);
 
   const setPage = useCallback(
