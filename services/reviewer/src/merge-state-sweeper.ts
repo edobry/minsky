@@ -46,6 +46,15 @@
  *   Owner: infrastructure monitoring (mt#1310).
  * - GitHub API being unreachable (sweeper can't check PR state).
  *   Owner: infrastructure monitoring.
+ * - Cross-repo PR-number ambiguity under multi-repo sweep (mt#4759). Each
+ *   resolved repo target is swept against the SAME unfiltered PR_OPEN
+ *   session list (sessions are not filtered by `session.repoUrl`), so a
+ *   session belonging to repo A is also checked against repo B's PR of the
+ *   same number. Today this cannot bite in practice — `edobry/minsky`'s open
+ *   PR numbers are in the thousands while `edobry/peezombie.me` starts at #1
+ *   — but it is the same class of cross-repo PR-number collision already
+ *   named (for a different mechanism) in mt#1207. Real, newly reachable,
+ *   not yet biting; tracked at mt#4768.
  *
  * ## Detection source (mt#1752)
  *
@@ -105,6 +114,13 @@ import type { Octokit } from "@octokit/rest";
 import { log } from "./logger";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session";
 import type { TaskServiceInterface } from "@minsky/domain/tasks";
+import {
+  resolveRepoTargets,
+  defaultGetInstallationCoverage,
+  type RepoTarget,
+  type RepoTargetSource,
+  type GetInstallationCoverageFn,
+} from "./sweeper-repo-targets";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -122,14 +138,22 @@ export interface MergeStateSweeperConfig {
    */
   enabled: boolean;
   /**
-   * Owner of the target GitHub repo. Reads `SWEEPER_REPO_OWNER` for parity with the
-   * sibling `sweeper.ts` (missed-review sweeper); defaults to `"edobry"` since both
-   * sweepers operate on the same repo in production. mt#1752.
+   * Owner of the EXPLICIT-OVERRIDE / fallback target GitHub repo. Reads
+   * `SWEEPER_REPO_OWNER` for parity with the sibling `sweeper.ts`
+   * (missed-review sweeper); defaults to `"edobry"`. mt#1752.
+   *
+   * mt#4759: this is no longer necessarily THE target — when neither
+   * `SWEEPER_REPO_OWNER` nor `SWEEPER_REPO_NAME` is set (both `*Defaulted`
+   * flags true), `runMergeStateSweepCycle` resolves the actual target SET
+   * from the reviewer App's installation coverage instead, and this field is
+   * used only as the fail-safe fallback pair if that resolution fails. See
+   * `sweeper-repo-targets.ts`.
    */
   owner: string;
   /**
-   * Name of the target GitHub repo. Reads `SWEEPER_REPO_NAME` for parity with the
-   * sibling `sweeper.ts`; defaults to `"minsky"`. mt#1752.
+   * Name of the EXPLICIT-OVERRIDE / fallback target GitHub repo. Reads
+   * `SWEEPER_REPO_NAME` for parity with the sibling `sweeper.ts`; defaults
+   * to `"minsky"`. mt#1752. See `owner`'s doc for the mt#4759 multi-repo note.
    */
   repo: string;
   /**
@@ -230,6 +254,13 @@ export interface MergeStateSweeperDeps {
     mergedAt?: string;
     trigger: string;
   }) => Promise<void>;
+  /**
+   * Optional override for the installation-coverage repo-target lookup
+   * (mt#4759). When present, replaces `defaultGetInstallationCoverage`'s real
+   * network call — injected in tests to exercise the multi-repo,
+   * `selection: "all"`, and coverage-call-failure branches hermetically.
+   */
+  getInstallationCoverage?: GetInstallationCoverageFn;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +460,99 @@ export async function runMergeStateSweep(
 }
 
 // ---------------------------------------------------------------------------
+// Multi-repo cycle wrapper (mt#4759)
+// ---------------------------------------------------------------------------
+
+/** The result of a full merge-state sweep cycle across ALL resolved repo targets. */
+export interface MergeStateSweepCycleResult {
+  readonly targets: readonly RepoTarget[];
+  readonly repoTargetSource: RepoTargetSource;
+  /** One result per target, in target order — for per-repo observability. */
+  readonly perRepo: readonly MergeStateSweepResult[];
+  /** Aggregated across all targets — see `aggregateMergeStateSweepResults`. */
+  readonly aggregate: MergeStateSweepResult;
+}
+
+/**
+ * Sum per-repo `MergeStateSweepResult`s into one aggregate result.
+ *
+ * `sessionsScanned` is NOT summed: `runMergeStateSweep` lists the SAME
+ * unfiltered `PR_OPEN` session set on every target pass (see the module
+ * docblock's "### Does NOT cover" entry on cross-repo PR-number ambiguity,
+ * mt#4768), so summing would multiply one real session count by the number
+ * of targets. `missedSyncs`/`syncsTriggered`/`errors` ARE additive — each
+ * target pass can genuinely detect and sync DIFFERENT sessions.
+ */
+function aggregateMergeStateSweepResults(
+  results: readonly MergeStateSweepResult[]
+): MergeStateSweepResult {
+  return {
+    startedAt: results[0]?.startedAt ?? new Date().toISOString(),
+    sessionsScanned: results[0]?.sessionsScanned ?? 0,
+    missedSyncs: results.reduce((sum, r) => sum + r.missedSyncs, 0),
+    syncsTriggered: results.reduce((sum, r) => sum + r.syncsTriggered, 0),
+    errors: results.flatMap((r) => r.errors),
+  };
+}
+
+/**
+ * Run a full merge-state sweep cycle across EVERY resolved repo target
+ * (mt#4759), calling the unchanged, per-repo `runMergeStateSweep` once per
+ * target and aggregating the results.
+ *
+ * Target resolution follows the same rule as `sweeper.ts`'s `runSweep`: an
+ * explicit `SWEEPER_REPO_OWNER`/`SWEEPER_REPO_NAME` override (either set)
+ * short-circuits to that single pair with no network call — preserving
+ * every existing single-repo test byte-for-byte. Absent an override, the
+ * set comes from the reviewer App's own installation coverage, with a
+ * fail-safe fallback to the single legacy pair on error — see
+ * `sweeper-repo-targets.ts`'s module docblock.
+ *
+ * Targets are swept SEQUENTIALLY (not via `Promise.all`) so a slow or
+ * failing target cannot race another's Octokit calls against the shared
+ * `githubTimeoutMs` budget in a way that's hard to attribute.
+ */
+export async function runMergeStateSweepCycle(
+  config: ReviewerConfig,
+  octokit: Octokit,
+  sweeperConfig: MergeStateSweeperConfig,
+  deps: MergeStateSweeperDeps
+): Promise<MergeStateSweepCycleResult> {
+  const explicitTarget: RepoTarget | null =
+    sweeperConfig.ownerDefaulted && sweeperConfig.repoDefaulted
+      ? null
+      : { owner: sweeperConfig.owner, repo: sweeperConfig.repo };
+  const getInstallationCoverage =
+    deps.getInstallationCoverage ?? defaultGetInstallationCoverage(config);
+  const resolution = await resolveRepoTargets({
+    explicitTarget,
+    fallbackTarget: { owner: sweeperConfig.owner, repo: sweeperConfig.repo },
+    getInstallationCoverage,
+    logPrefix: "merge_state_sweeper",
+  });
+
+  const perRepo: MergeStateSweepResult[] = [];
+  for (const target of resolution.targets) {
+    perRepo.push(
+      await runMergeStateSweep(
+        octokit,
+        target.owner,
+        target.repo,
+        deps,
+        sweeperConfig.githubTimeoutMs
+      )
+    );
+  }
+
+  return {
+    targets: resolution.targets,
+    repoTargetSource: resolution.source,
+    perRepo,
+    aggregate: aggregateMergeStateSweepResults(perRepo),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Scheduler (in-process setInterval)
 // ---------------------------------------------------------------------------
 
@@ -551,13 +675,9 @@ export function startMergeStateSweeper(
         octokitPromise = createOctokit(config);
       }
       const octokit = await octokitPromise;
-      return runMergeStateSweep(
-        octokit,
-        sweeperConfig.owner,
-        sweeperConfig.repo,
-        deps,
-        sweeperConfig.githubTimeoutMs
-      );
+      // mt#4759: sweep every resolved repo target, not just the single
+      // configured pair — see runMergeStateSweepCycle's docblock.
+      return runMergeStateSweepCycle(config, octokit, sweeperConfig, deps);
     })()
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
