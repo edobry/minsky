@@ -7,7 +7,7 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import { initializeProject } from "./init";
-import type { InitializeProjectDeps } from "./init";
+import type { HarnessCompileAccounting, InitializeProjectDeps } from "./init";
 import * as path from "path";
 import { parse as yamlParse } from "yaml";
 import { createMockFs } from "./interfaces/mock-fs";
@@ -367,7 +367,7 @@ describe("Init reports rules unreachable by the harness (mt#4770)", () => {
   const accounting = (
     definitionsIncluded: string[],
     definitionsSkipped: string[]
-  ): { definitionsIncluded: string[]; definitionsSkipped: string[] } => ({
+  ): HarnessCompileAccounting => ({
     definitionsIncluded,
     definitionsSkipped,
   });

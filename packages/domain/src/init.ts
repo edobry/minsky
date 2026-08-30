@@ -8,7 +8,20 @@ import { getMinskyConfigContentYaml } from "./init/config-content";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
-import type { MinskyCompileServiceResult } from "./compile/compile-service";
+/**
+ * The per-target rule accounting {@link initializeProject} consumes (mt#4770).
+ *
+ * Declared here rather than as a `Pick<>` of the compile service's result so
+ * this seam — and the tests that stub it — do not have to know the compile
+ * service's typing (PR #3489 R1). The tie to the real pipeline is still
+ * enforced by the compiler: the default `compileForHarness` below returns
+ * `runMinskyCompile`'s result directly, so if `MinskyCompileServiceResult`
+ * ever stops carrying these two fields, that assignment fails typecheck.
+ */
+export interface HarnessCompileAccounting {
+  definitionsIncluded: string[];
+  definitionsSkipped: string[];
+}
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
@@ -120,15 +133,14 @@ export interface InitializeProjectDeps {
    * Returns the target's per-rule accounting (mt#4770). This used to be
    * `Promise<void>`: the result was awaited and discarded, so init could not
    * tell whether the rules it had just scaffolded actually landed anywhere the
-   * running harness reads. The return type is narrowed to the two fields the
-   * accounting consumes rather than the full {@link MinskyCompileServiceResult}
-   * — it states exactly what init depends on, and keeps a test stub to two
-   * arrays instead of a whole compile result.
+   * running harness reads.
+   *
+   * **Every supplier of this seam is in-repo and enumerable** — `@minsky/domain`
+   * is `private: true` and never published, and the only sites passing it are
+   * this package's own tests (PR #3489 R1 adoption sweep). A caller that omits
+   * `deps` entirely, which is every production call site, is unaffected.
    */
-  compileForHarness?: (
-    target: string,
-    workspacePath: string
-  ) => Promise<Pick<MinskyCompileServiceResult, "definitionsIncluded" | "definitionsSkipped">>;
+  compileForHarness?: (target: string, workspacePath: string) => Promise<HarnessCompileAccounting>;
   /** Which MCP client / harness is running init. Defaults to real detection. */
   resolveClient?: () => string;
   /**
