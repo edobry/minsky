@@ -409,6 +409,32 @@ describe("mt#4769: a deferral authored into an artifact body is observable", () 
     expect(detectArtifactBodyDeferral([], "   \n  ")).toEqual([]);
   });
 
+  // PR #3533 R1, pinned END-TO-END rather than at the record builder. The wrong
+  // label did not come from `buildCalibrationRecord` — it came from the shared
+  // `toOutcome`, which both prose and ask surfaces route through. A builder-level
+  // assertion passes while the surface that actually reaches it is mislabelled,
+  // so the regression has to be asserted at the surface.
+  test("R1 regression: the ask surface's own outcome is labelled ask-tool-call", () => {
+    const deferringAsk: Record<string, unknown> = {
+      questions: [
+        {
+          question: "The reviewer service is CRASHED. How should we proceed?",
+          options: [{ label: "You recover the reviewer service" }],
+        },
+      ],
+    };
+    const input = {
+      session_id: "s-ask-label",
+      tool_name: "AskUserQuestion",
+      tool_input: deferringAsk,
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+
+    const outcome = runAskSurface(input, ctxWith([]));
+    expect(outcome).not.toBeNull();
+    expect((outcome?.calibration as Record<string, unknown>).evaluated).toBe("ask-tool-call");
+  });
+
   // AT4 — negative control, in its mechanical form. The FULL-revert control is
   // in the PR body; this one pins the dispatch gate specifically.
   test("AT4: with the guard overridden, a firing body produces nothing", () => {
@@ -618,8 +644,16 @@ describe("diversity axis (mt#3781)", () => {
   // sweep actually calls.
   test("AT1: extractDistinctPhrases sees one phrase across the two fires", () => {
     const records = [
-      buildCalibrationRecord("s1", detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))),
-      buildCalibrationRecord("s2", detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW))),
+      buildCalibrationRecord(
+        "s1",
+        detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION)),
+        "prose-turn"
+      ),
+      buildCalibrationRecord(
+        "s2",
+        detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW)),
+        "prose-turn"
+      ),
     ];
 
     const parsed = records.map(
@@ -633,7 +667,8 @@ describe("diversity axis (mt#3781)", () => {
   test("AT2: the record still carries the surrounding prose", () => {
     const record = buildCalibrationRecord(
       "s1",
-      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
+      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION)),
+      "prose-turn"
     ) as { matches: Array<{ phrase: string; context: string }> };
 
     // `leadSentences: 1` pulls in the sentence before the trigger, which is the
@@ -879,11 +914,19 @@ describe("calibration-first posture", () => {
   });
 
   test("record carries the mt#2554 coverage-receipt source field and matches shape", () => {
-    const record = buildCalibrationRecord("s4", [
-      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL },
-    ]);
+    const record = buildCalibrationRecord(
+      "s4",
+      [{ surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL }],
+      "ask-tool-call"
+    );
     expect(record["source"]).toBe("live");
     expect(record["injection_enabled"]).toBe(false);
+    // PR #3533 R1. `evaluated` shipped defaulted on the first push, so the ask
+    // surface — which reaches this builder through the shared `toOutcome` — was
+    // labelled `prose-turn` on every fire. Pin the VALUE, not just the arity: a
+    // wrong-but-present label reads as data to a false-positive review, which is
+    // worse than the missing field it replaced.
+    expect(record["evaluated"]).toBe("ask-tool-call");
     const matches = record["matches"] as Array<Record<string, unknown>>;
     expect(matches[0]).toEqual({
       category: ASK_OPTION_LABEL,
@@ -1420,7 +1463,7 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
 
   test("the calibration record keeps the shared matches shape", () => {
     const matches = detectAskJustificationAbsence(askTurn({}));
-    const record = buildCalibrationRecord("sess-1", matches);
+    const record = buildCalibrationRecord("sess-1", matches, "prose-turn");
     const entries = record["matches"] as Array<Record<string, unknown>>;
 
     expect(entries[0]).toEqual({

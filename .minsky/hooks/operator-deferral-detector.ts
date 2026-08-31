@@ -1480,10 +1480,17 @@ export function buildCalibrationRecord(
    * CALIBRATION log, which is what a false-positive review actually reads, had
    * no such field. Three units writing one undifferentiated stream means an
    * artifact-body fire and a chat-prose fire are the same row, and this task's
-   * SC5 asks for the artifact class's FP rate specifically. Defaulted so every
-   * existing caller keeps its current meaning.
+   * SC5 asks for the artifact class's FP rate specifically.
+   *
+   * REQUIRED, not defaulted (PR #3533 R1). The first push defaulted it to
+   * `"prose-turn"` so existing callers would keep compiling — and that silently
+   * mislabeled every ask-surface fire, because `toOutcome` is shared by two
+   * surfaces evaluating different units. A field whose purpose is to
+   * disambiguate is worse than no field when it disambiguates wrongly, and a
+   * required parameter makes the compiler enumerate the call sites instead of
+   * leaving it to a grep.
    */
-  evaluated: EvaluatedUnit = "prose-turn"
+  evaluated: EvaluatedUnit
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -1685,9 +1692,23 @@ export function detectArtifactBodyDeferral(
   ];
 }
 
-function toOutcome(matches: DeferralMatch[], sessionId: string | undefined): GuardOutcome | null {
+/**
+ * @param evaluated Which unit produced these matches (mt#4769, PR #3533 R1).
+ *   REQUIRED at every call site rather than defaulted: this helper is shared by
+ *   two surfaces that evaluate different units, so a default silently labels one
+ *   of them wrong — which is exactly what the first push of this PR did, tagging
+ *   every ask-surface fire `prose-turn`. A field added to disambiguate three
+ *   units is worse than no field at all when it disambiguates them incorrectly.
+ */
+function toOutcome(
+  matches: DeferralMatch[],
+  sessionId: string | undefined,
+  evaluated: EvaluatedUnit
+): GuardOutcome | null {
   if (matches.length === 0) return null;
-  const outcome: GuardOutcome = { calibration: buildCalibrationRecord(sessionId, matches) };
+  const outcome: GuardOutcome = {
+    calibration: buildCalibrationRecord(sessionId, matches, evaluated),
+  };
   if (INJECTION_ENABLED) outcome.additionalContext = buildReminder(matches);
   return outcome;
 }
@@ -1724,7 +1745,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
         summarizeAskJustificationEvaluation(turnLines)
       )
     );
-    return toOutcome(matches, input.session_id);
+    return toOutcome(matches, input.session_id, "prose-turn");
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1760,7 +1781,9 @@ export function runAskSurface(input: ToolHookInput, ctx: DispatchContext): Guard
         "ask-tool-call"
       )
     );
-    return toOutcome(matches, input.session_id);
+    // "ask-tool-call", not the shared default this originally inherited
+    // (PR #3533 R1) — the calibration row must name the unit that produced it.
+    return toOutcome(matches, input.session_id, "ask-tool-call");
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Ask-surface detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1851,8 +1874,14 @@ export async function main(): Promise<void> {
   if (lines.length === 0) process.exit(0);
 
   let matches: DeferralMatch[] = [];
+  // Tracked alongside `matches` so the calibration row names the unit that
+  // produced it (mt#4769, PR #3533 R1). Defaulting this at the record builder
+  // is what mislabeled the ask surface on the first push.
+  let evaluatedUnit: EvaluatedUnit = "prose-turn";
   try {
+    const artifactRead = readArtifactBodyForCall(input.tool_name, input.tool_input);
     if (input.tool_name === "AskUserQuestion") {
+      evaluatedUnit = "ask-tool-call";
       matches = detectAskDeferral(input.tool_input, extractFinalTurn(lines).turnLines);
       // Mirrors `runAskSurface` (PR #2659 R1) — both entrypoints render this
       // surface, and recording in only one leaves the denominator wrong.
@@ -1864,6 +1893,18 @@ export async function main(): Promise<void> {
           askEvaluationText(input.tool_input),
           "ask-tool-call"
         )
+      );
+    } else if (artifactRead.text !== null) {
+      // mt#4769 — mirrors `runArtifactSurface`, for the same reason the ask
+      // branch above mirrors its own guard: wiring one entrypoint and not the
+      // other is the mt#3270 R1 shape this function's next comment already
+      // names. The turn is passed for the probe suppressor; the artifact text
+      // is what gets matched.
+      evaluatedUnit = "artifact-body";
+      matches = detectArtifactBodyDeferral(extractFinalTurn(lines).turnLines, artifactRead.text);
+      appendEvaluationRecord(
+        input.cwd,
+        buildEvaluationRecord(input.session_id, matches, artifactRead.text, "artifact-body")
       );
     } else {
       const turnLines = extractLastAssistantTurn(lines);
@@ -1897,7 +1938,10 @@ export async function main(): Promise<void> {
 
   if (matches.length === 0) process.exit(0);
 
-  appendCalibrationRecord(input.cwd, buildCalibrationRecord(input.session_id, matches));
+  appendCalibrationRecord(
+    input.cwd,
+    buildCalibrationRecord(input.session_id, matches, evaluatedUnit)
+  );
 
   if (!INJECTION_ENABLED) process.exit(0);
 
