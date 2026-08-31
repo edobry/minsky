@@ -593,6 +593,70 @@ as `no-telemetry` rather than admitting.
 open EMPTY and fill from its next turn. The drive channel now replays the
 conversation's on-disk history, so the pane opens with its prior turns.
 
+### Memory curation (mt#4766)
+
+`/memories` and `/memory/:id` gained row-level and bulk write actions — edit
+tags, edit name/description, supersede, and hard delete — where previously
+the cockpit could not change a memory in any way (the widget transport was
+`GET`-only). Every mutation routes through the shared command registry
+(`memory.update` / `memory.supersede` / `memory.delete`), never
+`MemoryService` directly, per ADR-004: the command layer is where
+`checkDerivation`, `validateAssociations` (ADR-012's closed association-type
+vocabulary), and the `tracksTask` auto-derivation actually run, and a route
+calling the service would silently skip all of them.
+
+#### `PATCH /api/memories/:id`
+
+Mutation (same auth gate as every other cockpit mutation endpoint — see
+`docs/architecture/cockpit.md`'s auth posture). Body: any of `name`,
+`description`, `tags` (string array), `associations`
+(`Record<string, string[]>`). An unknown field, or a wrong-typed value for
+one of these, returns `400` without reaching the command layer. `404` if the
+memory does not exist. A non-empty `associations` value under a key outside
+ADR-012's vocabulary is rejected `400` by the command layer itself (the
+message names ADR-012 — this is the check that only exists because the route
+goes through the command layer rather than the bare service). On success:
+`{ record: MemoryRecord }`.
+
+#### `POST /api/memories/:id/supersede`
+
+Mutation. Body: `type`, `name`, `description`, `content`, `scope` (all
+required non-empty strings; `type`/`scope` must be a valid enum value) plus
+optional `projectId`, `tags`, `confidence`, `reason`. `400` on a
+missing/invalid required field or an unknown field. `404` if the old memory
+does not exist. On success: `{ old: MemoryRecord, replacement: MemoryRecord }`
+— the old row's `supersededBy` points at the replacement's id.
+
+**Actor attribution is server-ascribed, never caller-supplied.**
+`sourceAgentId`/`sourceSessionId` are not accepted in the request body at
+all — a request that includes either is rejected `400` as an unknown field —
+and every replacement record's `sourceAgentId` is unconditionally set
+server-side to the fixed `COCKPIT_OPERATOR_SOURCE_AGENT_ID` constant. This
+applies mt#2898's finding on the ask-resolve route (`responder` read from the
+request body, forgeable by any caller once a permission bridge started
+trusting it) to a second entity before the same hole got dug twice.
+
+#### `DELETE /api/memories/:id`
+
+Mutation. Hard delete — the row is removed and the memory's embedding row is
+best-effort removed from `memories_embeddings`. **There is no undo, and
+unlike tasks (`deleted_task_ids`) memory has no short-id tombstone table** —
+once a `mem#N` record is deleted, that short id can be reissued to a
+different, unrelated future record. The cockpit's delete-confirmation dialog
+states both consequences before the operator confirms. On success:
+`{ deleted: true, id }`.
+
+#### `POST /api/memories/bulk/retag` · `POST /api/memories/bulk/delete`
+
+Mutation. Both follow `operational-safety-dry-run-first`: body
+`{ "ids": string[], "execute"?: boolean }` (retag also takes
+`"tags": string[]`). `execute` defaults to `false` (preview) — the response
+lists exactly which records would change (id, current state, new state) with
+no write performed. Pass `execute: true` to apply. A selection larger than
+10 records (`BULK_RECORD_CAP`) is refused `400` regardless of `execute`,
+naming the `operational-safety-dry-run-first` discipline rather than
+silently truncating the selection.
+
 ### `GET /api/health`
 
 The cockpit daemon exposes a lightweight health endpoint at
@@ -633,5 +697,8 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
   (the §The rail surface)
 - mt#2767 / mt#4728 / mt#4733 — Agents unified run list, project-scoped filtering, the
   NULL-attribution collapse (the §Agents / unified run list surface)
+- mt#4766 — Memory curation write path (retag / edit / supersede / delete),
+  routed through the shared command registry per ADR-004 (the §Memory
+  curation surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`
