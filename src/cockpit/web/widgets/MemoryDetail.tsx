@@ -382,7 +382,11 @@ export function MemoryDetailContent({
 
       {/* Similar memories */}
       {similar.length > 0 && (
-        <section>
+        // mt#4787: a stable hook for the section whose numbers this task
+        // corrected — used by scripts/capture-memories-render.ts to know the
+        // list has actually rendered before the shutter, and available to any
+        // future test of the orientation.
+        <section data-testid="memory-similar">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Similar Memories
           </h3>
