@@ -399,7 +399,17 @@ export function MemoryDetailContent({
                 ) : (
                   <span className="truncate flex-1 min-w-0">{sim.name}</span>
                 )}
-                <span className="text-muted-foreground flex-shrink-0 tabular-nums">
+                {/* mt#4787: this expression is UNCHANGED and is now correct.
+                    `score` used to be the vector store's raw L2 distance, so
+                    the closest match rendered the smallest number; it is now a
+                    cosine similarity in [0,1], converted once at the
+                    MemoryService boundary. Do not add a `1 - x` here — that
+                    would re-invert it, and the two other render sites would
+                    then disagree with this one. */}
+                <span
+                  className="text-muted-foreground flex-shrink-0 tabular-nums"
+                  title="Cosine similarity — higher is more similar"
+                >
                   {(score * 100).toFixed(0)}%
                 </span>
               </li>
