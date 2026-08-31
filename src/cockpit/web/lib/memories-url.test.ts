@@ -17,6 +17,9 @@ import {
   type WorklistId,
 } from "./memories-url";
 
+/** The one filter key that interacts with a worklist rather than being one. */
+const EXCLUDE_SUPERSEDED = "excludeSuperseded";
+
 const ALL_WORKLISTS: WorklistId[] = ["untagged", "neverRead", "cold", "duplicates", "superseded"];
 
 function setUrl(url: string) {
@@ -69,6 +72,33 @@ describe("the never-read mapping", () => {
   test("cold carries its threshold so the label and the filter agree", () => {
     applyWorklist("cold", 30);
     expect(readMemFilter(window.location.search, "coldDays")).toBe("30");
+  });
+});
+
+describe("the superseded worklist and excludeSuperseded agree", () => {
+  test("applying it sets excludeSuperseded=false", () => {
+    // The toolbar checkbox renders from URL state, not from the request. Drop
+    // this and the page shows "Hide superseded" TICKED above a table of
+    // nothing but superseded records — the control contradicting the content.
+    applyWorklist("superseded");
+    expect(readMemFilter(window.location.search, EXCLUDE_SUPERSEDED)).toBe("false");
+  });
+
+  test("switching away from it restores the default", () => {
+    // Left behind, the "false" would silently widen the NEXT worklist to
+    // include superseded records, so its table would disagree with the tile
+    // count that was just clicked.
+    applyWorklist("superseded");
+    applyWorklist("untagged");
+    expect(readMemFilter(window.location.search, EXCLUDE_SUPERSEDED)).toBe("");
+  });
+
+  test("no other worklist touches it", () => {
+    for (const id of ["untagged", "neverRead", "cold"] as const) {
+      setUrl("http://localhost/memories");
+      applyWorklist(id);
+      expect(readMemFilter(window.location.search, EXCLUDE_SUPERSEDED)).toBe("");
+    }
   });
 });
 

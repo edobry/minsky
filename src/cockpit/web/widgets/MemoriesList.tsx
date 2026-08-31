@@ -534,14 +534,45 @@ function MemoriesToolbar({
         </SelectContent>
       </Select>
 
-      <label className="flex items-center gap-1 text-muted-foreground cursor-pointer">
-        <Checkbox
-          checked={filters.excludeSuperseded === "true"}
-          onCheckedChange={(v) => onFilterChange("excludeSuperseded", v === true ? "true" : "false")}
-          className="h-3 w-3"
-        />
-        Hide superseded
-      </label>
+      {/* mt#4767: the superseded worklist OVERRIDES this control, so it must
+          not keep asserting the opposite. `onlySuperseded` and
+          `excludeSuperseded` are contradictory and `excludeSuperseded`
+          defaults to "true" — so on that worklist the checkbox would render
+          TICKED above a table containing nothing but superseded records.
+
+          Deriving the rendered state here (rather than only writing the URL in
+          applyWorklist) covers the case a click-path fix cannot: a shared or
+          bookmarked `?mem_f_onlySuperseded=true` link, which never goes
+          through applyWorklist at all. Disabled rather than merely unticked,
+          because on this worklist the filter genuinely has no effect — a
+          control that looks live and does nothing is the same lie in a
+          quieter register. */}
+      {(() => {
+        const overridden = filters.onlySuperseded === "true";
+        return (
+          <label
+            className={cn(
+              "flex items-center gap-1 text-muted-foreground",
+              overridden ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+            )}
+            title={
+              overridden
+                ? "Not applicable while the Superseded worklist is active — it shows superseded records by definition."
+                : undefined
+            }
+          >
+            <Checkbox
+              checked={!overridden && filters.excludeSuperseded === "true"}
+              disabled={overridden}
+              onCheckedChange={(v) =>
+                onFilterChange("excludeSuperseded", v === true ? "true" : "false")
+              }
+              className="h-3 w-3"
+            />
+            Hide superseded
+          </label>
+        );
+      })()}
 
       {/* Active tag filter, cleared from a single control (mt#4763) — the tag
           itself may have been set by a facet-rail click, a row click, or a

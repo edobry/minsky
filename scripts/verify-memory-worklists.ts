@@ -207,6 +207,29 @@ async function main(): Promise<number> {
     `never-read(${neverWhere}) + cold(${coldWhere}) = ${sum}, stale-union at ${coldDays}d = ${staleUnion}`
   );
 
+  // ── The growth window returns exactly GROWTH_WEEKS buckets ──
+  //
+  // Added after the live payload returned NINE buckets from a constant named
+  // 8: `date_trunc('week', now() - interval '8 weeks')` starts 8 weeks before
+  // TODAY and then truncates BACK to that week's Monday, so the range covers 8
+  // full weeks plus the current partial one. Nothing in a unit test could see
+  // this — the off-by-one lives entirely in the SQL date arithmetic — and the
+  // rendered bars looked entirely plausible either way.
+  const growthBuckets = await scalar(
+    db,
+    sql`SELECT count(*)::int AS n FROM (
+          SELECT date_trunc('week', created_at) FROM memories
+          WHERE created_at >= date_trunc('week', now()) - interval '7 weeks'
+          GROUP BY 1
+        ) g`
+  );
+  record(
+    "growth window",
+    growthBuckets <= 8,
+    `${growthBuckets} week bucket(s) in the window (must be <= GROWTH_WEEKS = 8; ` +
+      `fewer only if a week had no creations)`
+  );
+
   // ── The measurement that motivated the split, re-derived ──
   //
   // Not an acceptance test: a standing record of WHY these are two filters.

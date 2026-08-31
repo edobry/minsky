@@ -128,6 +128,10 @@ const WORKLIST_KEYS = [
   "tags",
   "since",
   "stale",
+  // Cleared so the "false" the superseded worklist sets below does not survive
+  // into the NEXT worklist, which would silently widen it to include
+  // superseded records and make its table disagree with its own tile count.
+  "excludeSuperseded",
 ] as const;
 
 function clearWorklistKeys(): Record<string, null> {
@@ -152,6 +156,20 @@ export function applyWorklist(id: WorklistId, coldDays?: number): void {
   };
   if (id === "cold" && coldDays !== undefined) {
     updates[memFilterKey("coldDays")] = String(coldDays);
+  }
+  if (id === "superseded") {
+    // The superseded worklist and `excludeSuperseded` are contradictory, and
+    // `excludeSuperseded` defaults to "true". `buildListParams` already drops
+    // it from the REQUEST so the query returns rows — but the URL state is
+    // what the toolbar checkbox renders from, so without this the page shows
+    // "Hide superseded" TICKED above a table containing nothing but superseded
+    // records. Caught in the render capture, not by any test: the query was
+    // right and the control lied about it.
+    //
+    // Setting it here makes the URL, the checkbox and the request agree at one
+    // source; the delete in buildListParams stays as belt-and-braces for a
+    // caller that sets the filter some other way.
+    updates[memFilterKey("excludeSuperseded")] = "false";
   }
   writeMemoriesUrl(updates);
 }

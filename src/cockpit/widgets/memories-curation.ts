@@ -246,7 +246,13 @@ async function queryGrowth(
 ): Promise<GrowthBucket[]> {
   const conditions = buildCurationConditions(filter);
   const scopedWhere = conditions.length > 0 ? sql`AND ${sql.join(conditions, sql` AND `)}` : sql``;
-  const window = sql.raw(`interval '${GROWTH_WEEKS} weeks'`);
+  // GROWTH_WEEKS - 1, anchored on the CURRENT week's start rather than on
+  // `now()`. Both halves matter, and the naive form gets both wrong:
+  // `date_trunc('week', now() - interval '8 weeks')` starts 8 weeks before
+  // TODAY, then truncation walks it back to that week's Monday — so the range
+  // spans 8 full weeks PLUS the current partial one, and returns 9 buckets
+  // from a constant named 8. Caught on the live payload, not by a test.
+  const window = sql.raw(`interval '${GROWTH_WEEKS - 1} weeks'`);
 
   const result = await db.execute(sql`
     SELECT
@@ -255,7 +261,7 @@ async function queryGrowth(
       count(*) FILTER (WHERE 'handoff' = ANY(${memoriesTable.tags}))::int AS handoff,
       count(*) FILTER (WHERE 'retrospective' = ANY(${memoriesTable.tags}))::int AS retrospective
     FROM ${memoriesTable}
-    WHERE ${memoriesTable.createdAt} >= date_trunc('week', now() - ${window})
+    WHERE ${memoriesTable.createdAt} >= date_trunc('week', now()) - ${window}
     ${scopedWhere}
     GROUP BY 1
     ORDER BY 1 ASC

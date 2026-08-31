@@ -123,11 +123,26 @@ function GrowthPanel({ buckets }: { buckets: GrowthBucket[] }) {
   if (buckets.length === 0) return null;
   const max = Math.max(...buckets.map((b) => b.total), 1);
 
+  // The handoff share is the one number this panel exists for (mt#4767): the
+  // corpus's growth is majority-handoff by new volume, and that composition is
+  // an operational property — every record here is a candidate for injection
+  // into agent context. Rendered as a figure, not just as bar proportion,
+  // because "legible at a glance" is the requirement and reading a ratio off
+  // stacked bars is not that.
+  const windowTotal = buckets.reduce((sum, b) => sum + b.total, 0);
+  const windowHandoff = buckets.reduce((sum, b) => sum + b.handoff, 0);
+  const handoffPct = windowTotal > 0 ? Math.round((windowHandoff / windowTotal) * 100) : 0;
+
   return (
     <div className="mt-3" data-testid="growth-panel">
-      <div className="flex items-baseline justify-between mb-1.5">
-        <h3 className="text-[11px] font-medium text-foreground">Created per week</h3>
-        <span className="text-[10px] text-muted-foreground">
+      <div className="flex items-baseline justify-between mb-1.5 gap-2">
+        <h3 className="text-[11px] font-medium text-foreground">
+          Created per week
+          <span className="ml-2 font-normal text-muted-foreground" data-testid="handoff-share">
+            {windowTotal} in {buckets.length} weeks — {handoffPct}% handoffs
+          </span>
+        </h3>
+        <span className="text-[10px] text-muted-foreground flex-shrink-0">
           handoff / retrospective / other
         </span>
       </div>
