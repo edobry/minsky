@@ -306,6 +306,92 @@ describe("ManifestFlowProvisioner", () => {
     expect(creds.installationId).toBe(88888);
   });
 
+  describe("mt#4815: values from the API are origin-checked AND escaped before being served", () => {
+    /**
+     * Drive /callback to the install-link page — the page carrying the href
+     * this task is about — with `html_url` replaced, then finish the flow so
+     * the provisioner resolves and shuts its server down rather than idling
+     * until the timeout.
+     */
+    async function callbackPageWithHtmlUrl(htmlUrl: unknown): Promise<string> {
+      lookupQueue = [undefined, 88888];
+      manifestConversionResponse = {
+        ok: true,
+        body: { ...FAKE_APP_RESPONSE, html_url: htmlUrl },
+      };
+
+      const { port, result } = await startProvisionerOnFreePort({
+        timeoutMs: 30_000,
+        installationLookup: makeLookup(),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+      const resp = await fetch(`http://localhost:${port}/callback?code=abc123`);
+      expect(resp.status).toBe(200);
+      const body = await resp.text();
+
+      await new Promise((r) => setTimeout(r, 20));
+      await fetch(`http://localhost:${port}/check-install`);
+      await result;
+
+      return body;
+    }
+
+    // AT2 — the origin check's job.
+    test("an off-origin html_url never reaches the Install App href", async () => {
+      const body = await callbackPageWithHtmlUrl("https://github.com.evil.com/apps/test-app");
+
+      expect(body).not.toContain("evil.com");
+      expect(body).toContain('href="https://github.com/apps/test-app/installations/new"');
+    });
+
+    // AT3 — the escaping's job, and the case that proves the two defences are
+    // not interchangeable. The host here IS github.com, so `trustedGitHubUrl`
+    // passes the value through unchanged; only escaping stops the quote from
+    // closing the attribute and injecting a handler after it.
+    test("a quote in an ON-ORIGIN html_url cannot break out of the href attribute", async () => {
+      const body = await callbackPageWithHtmlUrl(
+        'https://github.com/apps/x" onmouseover="alert(1)'
+      );
+
+      expect(body).toContain("&quot;");
+      // Nothing follows a closed href quote except the style attribute the
+      // template itself writes.
+      expect(body).not.toMatch(/href="[^"]*"\s+onmouseover/);
+      expect(body).not.toContain('onmouseover="alert(1)"');
+    });
+
+    test("a legitimate html_url is rendered unchanged", async () => {
+      const body = await callbackPageWithHtmlUrl("https://github.com/apps/test-app");
+      expect(body).toContain('href="https://github.com/apps/test-app/installations/new"');
+    });
+
+    // The `app` object is a bare `as` cast over JSON.parse, so its declared
+    // `id: number` is an assertion about GitHub's response, not a guarantee.
+    // This covers the OTHER served page (the pre-installed happy path) and a
+    // value that is not the URL.
+    test("a non-numeric app id is escaped rather than interpolated raw", async () => {
+      lookupQueue = [99999];
+      manifestConversionResponse = {
+        ok: true,
+        body: { ...FAKE_APP_RESPONSE, id: "<script>alert(1)</script>" },
+      };
+
+      const { port, result } = await startProvisionerOnFreePort({
+        timeoutMs: 30_000,
+        installationLookup: makeLookup(),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+      const resp = await fetch(`http://localhost:${port}/callback?code=abc123`);
+      const body = await resp.text();
+      await result;
+
+      expect(body).not.toContain("<script>");
+      expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    });
+  });
+
   test("two-phase: /check-install before installation is set returns 404, eventual timeout", async () => {
     // Both lookups (during /callback + /check-install) return undefined.
     lookupQueue = [undefined, undefined];
