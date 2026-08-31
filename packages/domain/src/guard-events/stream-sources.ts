@@ -229,6 +229,11 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
 // ---------------------------------------------------------------------------
 
 const EVALUATION_STREAMS: GuardEventStreamSource[] = [
+  // mt#4807: the actionables-decision family records EVERY located terminal
+  // actionables block, fired or not, so a sweep has a denominator. It shares
+  // the detector's calibration stream NAME; `logEvaluationRecord` derives the
+  // `-evaluations` path from it.
+  { stream: "ask-routing-deferral-evaluations", guardName: "ask-routing-deferral" },
   { stream: "causal-premise-evaluations", guardName: "causal-premise" },
   {
     stream: "negative-existence-claim-evaluations",

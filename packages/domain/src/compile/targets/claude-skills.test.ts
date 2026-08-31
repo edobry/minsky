@@ -6,6 +6,9 @@
 
 import { describe, it, expect } from "bun:test";
 import { makeClaudeSkillsTarget, buildSkillMd } from "./claude-skills";
+
+/** Shared across the skip tests so the fixture error text cannot drift between them. */
+const IMPORT_FAILURE_MESSAGE = "module not found: boom";
 import type { MinskyCompileFsDeps } from "../types";
 import type { SkillDefinition } from "../../definitions/types";
 import {
@@ -247,7 +250,7 @@ describe("claudeSkillsTarget.compile (normal)", () => {
     const skips: string[] = [];
     const fakeFs = makeSkillFs("bad-skill");
     const importStub = async () => {
-      throw new Error("module not found: boom");
+      throw new Error(IMPORT_FAILURE_MESSAGE);
     };
     const target = makeClaudeSkillsTarget(importStub, (m) => skips.push(m));
 
@@ -255,7 +258,44 @@ describe("claudeSkillsTarget.compile (normal)", () => {
     expect(result.definitionsSkipped).toEqual(["bad-skill"]);
     expect(skips).toHaveLength(1);
     expect(skips[0]).toContain("bad-skill");
-    expect(skips[0]).toContain("module not found: boom");
+    expect(skips[0]).toContain(IMPORT_FAILURE_MESSAGE);
+  });
+
+  /**
+   * mt#3119. The two tests above INJECT a sink and assert it fired — and that is exactly
+   * what passed while the defect was live, because in production that sink is `log.warn`,
+   * which a one-shot CLI discards. Asserting the callback ran says nothing about whether
+   * anyone can SEE the skip.
+   *
+   * These assert the reason reaches the RESULT, which is the channel a renderer can print
+   * from. No sink is injected: the default path is the one that was broken.
+   */
+  it("carries the skip reason on the result, not only to the sink (mt#3119)", async () => {
+    const fakeFs = makeSkillFs("bad-skill");
+    const importStub = async () => {
+      throw new Error(IMPORT_FAILURE_MESSAGE);
+    };
+    const target = makeClaudeSkillsTarget(importStub);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsSkipped).toEqual(["bad-skill"]);
+    expect(result.skipReasons).toHaveLength(1);
+    expect(result.skipReasons?.[0]).toContain("bad-skill");
+    expect(result.skipReasons?.[0]).toContain(IMPORT_FAILURE_MESSAGE);
+  });
+
+  it("leaves skipReasons empty when nothing was skipped (mt#3119)", async () => {
+    const fakeFs = makeSkillFs("good-skill");
+    const importStub = async (_path: string) => ({
+      default: { name: "good-skill", description: "d", content: "c" },
+    });
+    const target = makeClaudeSkillsTarget(importStub);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsSkipped).toEqual([]);
+    expect(result.skipReasons ?? []).toEqual([]);
   });
 
   it("reports a warning (not a silent skip) when a skill fails schema validation", async () => {
