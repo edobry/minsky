@@ -46,7 +46,7 @@ import {
   extractToolUseNames,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { logCalibrationRecord } from "./dispatcher";
+import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 import {
@@ -65,6 +65,7 @@ import type {
 import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { locateActionablesBlock, splitUnitClauses } from "./actionables-block";
+import type { ActionablesMarkerForm } from "./actionables-block";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -638,7 +639,7 @@ export interface ActionablesDecisionMatch {
 }
 
 export interface ActionablesDetection {
-  markerForm: string;
+  markerForm: ActionablesMarkerForm;
   unitCount: number;
   /** Units past {@link ACTIONABLES_MAX_UNITS}, reported rather than dropped silently. */
   unitsTruncated: number;
@@ -714,6 +715,21 @@ export async function detectActionablesDecisions(
 
   return detection;
 }
+
+/**
+ * Injectable write seam for the actionables evaluation stream (PR #3519 R1).
+ *
+ * A parameter rather than a module import `run()` reaches itself, matching
+ * `causal-premise-detector`'s `EvaluationWriter`: a test can capture or fail the
+ * write by passing its own writer instead of patching `./dispatcher`, which is
+ * what the testable-design checkpoint asks for and what keeps the suite from
+ * appending to a real log on every run.
+ */
+export type ActionablesEvaluationWriter = (record: Record<string, unknown>, cwd?: string) => void;
+
+export const defaultActionablesEvaluationWriter: ActionablesEvaluationWriter = (record, cwd) => {
+  logEvaluationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
+};
 
 /** Short sha1, matching the Stop guard's key derivation. */
 function sha1Short(input: string): string {
@@ -1670,7 +1686,8 @@ export async function run(
     : undefined,
   actionablesNominator: SettledDecisionNominator | undefined = isActionablesNominationEnabled()
     ? createActionablesDecisionNominator()
-    : undefined
+    : undefined,
+  writeActionablesEvaluation: ActionablesEvaluationWriter = defaultActionablesEvaluationWriter
 ): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
@@ -1724,6 +1741,49 @@ export async function run(
   const actionablesFired =
     actionables !== null &&
     (actionables.matches.length > 0 || actionables.degradedReason !== undefined);
+
+  // PR #3519 R1 (non-blocking): the calibration record carries actionables data
+  // only on a fire, so a sweep reading it alone sees numerators without a
+  // denominator — it cannot tell "few decisions in the block" from "few blocks".
+  // The fix is NOT to widen the calibration log: its diversity axis is keyed on
+  // fires, and ADR-024's 2026-08-03 amendment names a separate EVALUATION stream
+  // as "the measurement substrate a fire-only calibration log cannot provide,
+  // and the input that keeps both the FP rate and the false-negative rate
+  // observable post-ship". So every located block is recorded here, fired or
+  // not, and the calibration log keeps its fire-only semantics.
+  //
+  // Only runs when the family is enabled, so a disabled detector writes nothing.
+  if (actionables !== null) {
+    try {
+      writeActionablesEvaluation(
+        {
+          timestamp: new Date().toISOString(),
+          session_id: input.session_id,
+          family: "actionables-decision",
+          threshold: ACTIONABLES_DECISION_THRESHOLD,
+          markerForm: actionables.markerForm,
+          unitCount: actionables.unitCount,
+          unitsScored:
+            Math.min(actionables.unitCount, ACTIONABLES_MAX_UNITS) - actionables.unitsCitingAsk,
+          unitsCitingAsk: actionables.unitsCitingAsk,
+          unitsTruncated: actionables.unitsTruncated,
+          matchCount: actionables.matches.length,
+          scores: actionables.matches.map((m) => m.score),
+          ...(actionables.degradedReason !== undefined
+            ? { degradedReason: actionables.degradedReason }
+            : {}),
+        },
+        input.cwd
+      );
+    } catch (err) {
+      // A measurement stream must never break the guard it measures. Written to
+      // stderr rather than swallowed: this family's recurring failure mode is a
+      // broken mechanism that looks identical to a quiet one.
+      process.stderr.write(
+        `[ask-routing-deferral-detector] evaluation write failed: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    }
+  }
 
   if (matches.length === 0 && !actionablesFired) return null;
 

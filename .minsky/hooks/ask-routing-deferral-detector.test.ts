@@ -37,6 +37,7 @@ import {
   isRung2NominationEnabled,
   RUNG2_NOMINATION_ENV_VAR,
   detectActionablesDecisions,
+  type ActionablesEvaluationWriter,
   ACTIONABLES_DECISION_THRESHOLD,
   ACTIONABLES_NOMINATION_ENV_VAR,
   isActionablesNominationEnabled,
@@ -1926,6 +1927,91 @@ describe("mt#4807 — the actionables family is LOG-ONLY by wiring", () => {
       undefined,
       undefined,
       async () => ({ kind: "settled", score: 0.9 }) as const
+    );
+    expect(outcome).toBeNull();
+  });
+});
+
+describe("mt#4807 — the evaluation stream carries the denominator (PR #3519 R1)", () => {
+  const BLOCK = `Done.
+
+---
+
+### Actionables
+
+- Merge PR #3508 once the bot approves.
+- Filed mt#4799 and mt#4801 for the two follow-ups.`;
+
+  function capturingWriter(): {
+    records: Record<string, unknown>[];
+    writer: ActionablesEvaluationWriter;
+  } {
+    const records: Record<string, unknown>[] = [];
+    return { records, writer: (r) => void records.push(r) };
+  }
+
+  test("a located block with NO matches is still recorded — that is the point", async () => {
+    // The reviewer's finding: without this, a sweep sees numerators and no
+    // denominator, and cannot tell "few decisions in blocks" from "few blocks".
+    const { records, writer } = capturingWriter();
+    const lines = [makeRunUserLine(), makeRunAssistantLine(BLOCK), makeRunUserLine()];
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "none" }) as const,
+      writer
+    );
+    // Nothing fired, so the guard itself stays silent...
+    expect(outcome).toBeNull();
+    // ...and the evaluation stream still carries the block.
+    expect(records).toHaveLength(1);
+    expect(records[0]?.family).toBe("actionables-decision");
+    expect(records[0]?.markerForm).toBe("heading");
+    expect(records[0]?.unitCount).toBe(2);
+    expect(records[0]?.matchCount).toBe(0);
+    expect(records[0]?.threshold).toBe(ACTIONABLES_DECISION_THRESHOLD);
+  });
+
+  test("NEGATIVE CONTROL: no block means no evaluation record", async () => {
+    const { records, writer } = capturingWriter();
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Merged. Nothing outstanding."),
+      makeRunUserLine(),
+    ];
+    await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "none" }) as const,
+      writer
+    );
+    expect(records).toEqual([]);
+  });
+
+  test("NEGATIVE CONTROL: the family gated OFF writes nothing", async () => {
+    // No nominator means detectActionablesDecisions returns null before it ever
+    // looks for a block, so a disabled detector costs nothing and logs nothing.
+    const { records, writer } = capturingWriter();
+    const lines = [makeRunUserLine(), makeRunAssistantLine(BLOCK), makeRunUserLine()];
+    await run(RUN_HOOK_INPUT, makeCtx(lines), undefined, undefined, undefined, writer);
+    expect(records).toEqual([]);
+  });
+
+  test("a throwing writer does not break the guard it measures", async () => {
+    const lines = [makeRunUserLine(), makeRunAssistantLine(BLOCK), makeRunUserLine()];
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "none" }) as const,
+      () => {
+        throw new Error("disk full");
+      }
     );
     expect(outcome).toBeNull();
   });
