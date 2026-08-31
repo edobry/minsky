@@ -41,10 +41,12 @@ export async function resolveCurrentProjectScope(
     if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistenceProvider.getDatabaseConnection();
     if (!rawDb) return undefined;
-    const scope = await resolveProjectScope(
-      identity,
-      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-    );
+    // `caller` is threaded through deliberately: `resolveProjectScope` defaults
+    // it to "unknown", and mt#4509's scope-resolution failure classifications
+    // are logged under it — so dropping it degrades every asks.list/asks.create
+    // diagnostic to an unattributable line. It is an optional parameter, so
+    // nothing type-checks this; PR #3534 R1 caught exactly that omission.
+    const scope = await resolveProjectScope(identity, rawDb, caller);
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
