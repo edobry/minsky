@@ -152,13 +152,18 @@ export interface AppRoleDescriptor {
 export interface AppRoleCoverage extends AppRoleDescriptor {
   readonly status: AppCoverageStatus;
   /**
-   * Settings-page link for this role, absent when none could be determined.
+   * Settings-page link for this role. Present whenever one could be determined
+   * AT ALL — from GitHub's `html_url` (read only for a `not-covered` role), or
+   * otherwise from `installationId` via `installationSettingsUrl`, for ANY
+   * status. Absent only when neither source yielded one.
    *
-   * **Not tied to `installationId` (mt#4764, PR #3511 R2).** This read "present
-   * iff `installationId` was supplied", which was true while the link was
-   * always constructed from that id. It now comes from GitHub's `html_url`
-   * first, so it can be present with no local id — and absent WITH one, when
-   * the role is covered and no link is rendered at all.
+   * **Populated is not the same as rendered (mt#4764, PR #3511 R3).** A covered
+   * role still carries the constructed link here; `formatAppCoverage` simply
+   * does not print one for that state. Two earlier versions of this comment got
+   * this wrong in opposite directions — "present iff `installationId` was
+   * supplied" (false once `html_url` became the source) and then "absent when
+   * the role is covered" (false because the constructed fallback still
+   * applies). Read the assignment below, not either of those.
    */
   readonly settingsUrl?: string;
 }
@@ -211,17 +216,18 @@ export async function checkAppRoleCoverage(
     // not the user's, so a constructed `/settings/installations/<id>` can only
     // ever be right about one account type; `html_url` is right about both.
     //
-    // Only fetched when a link will actually be rendered — a covered role shows
-    // no link, and the happy path should not pay for an API call nobody reads.
+    // Fetched ONLY for `not-covered` — the one state whose rendered line
+    // actually prints a link. A covered role prints none, and `unknown` means
+    // the coverage probe already failed, so a second call there is waste that
+    // amplifies whatever transient failure or rate limit caused the first
+    // (PR #3511 R1). Note the OTHER states still get a `settingsUrl` below,
+    // from the constructed fallback — this condition governs the API CALL, not
+    // whether the field is populated.
     //
     // The `typeof` guard is load-bearing, not defensive style: every fake
     // provider in the tests is built with `as unknown as GitHubAppTokenProvider`,
     // so a provider missing this method is a RUNTIME throw the compiler cannot
     // see. `getInstallationHtmlUrl` already returns `null` on its own failures.
-    // Narrowed to `not-covered` (PR #3511 R1): `unknown` means the coverage
-    // probe ALREADY failed, and its rendered line carries no link at all — so a
-    // second call there is pure waste and amplifies whatever transient failure
-    // or rate limit produced the first one.
     const authoritativeUrl =
       status.state === "not-covered" && typeof provider.getInstallationHtmlUrl === "function"
         ? await provider.getInstallationHtmlUrl(descriptor.role)

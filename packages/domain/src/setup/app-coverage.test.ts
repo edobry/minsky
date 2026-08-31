@@ -468,6 +468,10 @@ describe("checkAppRoleCoverage settings link (mt#4764)", () => {
 
     expect(result[0]?.status.state).toBe("unknown");
     expect(calls).toBe(0);
+    // PR #3511 R3: skipping the FETCH does not mean skipping the FIELD. The
+    // constructed fallback still applies here, and both earlier versions of the
+    // `settingsUrl` docblock got this boundary wrong — so it is pinned.
+    expect(result[0]?.settingsUrl).toBe("https://github.com/settings/installations/125403046");
   });
 
   it("does not spend an API call on a COVERED role, which renders no link", async () => {
