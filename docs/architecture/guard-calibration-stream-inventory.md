@@ -424,6 +424,95 @@ covers 40 distinct stream files, satisfying AT2's "at least the 33 streams
 observed 2026-08-12" floor with the 2 mid-session additions and the 5 adjacent
 streams also present.
 
+## I. mt#4804 — 27 streams added to the manifest (2026-08-31)
+
+§A and §B above are a dated snapshot (2026-08-12) and are left as written; this section carries
+the streams added since, so the doc still lists every row the manifest holds.
+
+**What happened.** The manifest is what the ingest walks, so a declared stream missing from it is
+written to disk forever and reaches `guard_events` never — no error, no empty result, no signal.
+mt#4752 found three such streams on 2026-08-30 while enumerating the writers it happened to be
+touching, and wrote the comment in `stream-sources.ts` describing the mechanism exactly. Running
+the same enumeration against the declaration surfaces rather than by hand found **27 more**: 22
+calibration, 5 evaluation.
+
+**24 of the 27 had records on disk — 107,828 of them.** The other three had never been written,
+and they are the reason this task rejected a filesystem scan as the coverage check: a scan sees
+what has FIRED, so it would have reported the set complete while those three stayed invisible
+until their first record.
+
+`Records` below is the on-disk line count at declaration time (2026-08-31); the ingest backfills
+from offset 0, because a stream with no high-water-mark entry has no prior offset to resume from.
+
+### Calibration (22)
+
+| Stream                           | Writer (guard)                        | Records             |
+| -------------------------------- | ------------------------------------- | ------------------- |
+| `truncated-outcome-read`         | `truncated-outcome-read`              | 36,174              |
+| `cli-mcp-substitution`           | `cli-mcp-substitution`                | 33,386              |
+| `nonexistent-search-path`        | `nonexistent-search-path`             | 23,892              |
+| `claim-provenance-scan`          | `claim-provenance-scan`               | 3,149               |
+| `evidence-record-provenance`     | `evidence-record-provenance`          | 2,208               |
+| `unwired-task-relationship`      | `warn-unwired-task-relationship`      | 864                 |
+| `stale-signal-sweep`             | `stale-signal-sweep`                  | 565                 |
+| `unrendered-result-field-scan`   | `unrendered-result-field-scan`        | 554                 |
+| `duplicate-check-candidate-read` | `duplicate-check-candidate-read`      | 541                 |
+| `new-surface-design-pass`        | `new-surface-design-pass`             | 498                 |
+| `enumeration-scope`              | `enumeration-scope-check`             | 373                 |
+| `gate-walk-provenance`           | `gate-walk-provenance`                | 351                 |
+| `spec-criterion-claim`           | `spec-criterion-claim-detector`       | 344                 |
+| `context-fill-gauge`             | `context-fill-gauge`                  | 198                 |
+| `spec-scope-execution`           | `spec-scope-execution-check`          | 144                 |
+| `stale-state-assertion`          | `turn-end-stale-state-assertion-scan` | 86                  |
+| `flakiness-control`              | `flakiness-control-detector`          | 37                  |
+| `coverage-claim-path`            | `coverage-claim-path-detector`        | 3                   |
+| `cross-turn-hedge`               | `cross-turn-hedge-detector`           | 2                   |
+| `block-bulk-process-kill`        | `block-bulk-process-kill`             | 1                   |
+| `criterion-reconciliation`       | `criterion-reconciliation-scan`       | **0 — never fired** |
+| `secret-request-in-chat`         | `secret-request-in-chat-detector`     | **0 — never fired** |
+
+Two of these — `gate-walk-provenance` and `coverage-claim-path` — are written by **standalone**
+hooks wired directly in `.claude/settings.json`, not by `GUARD_REGISTRY` entries. They are
+invisible to a registry-only diff, which is why the coverage check reads
+`getDeclaredCalibrationLogNames()` (all four declaration surfaces) rather than the registry alone.
+
+`guardName` differs from the stream stem for several rows (`stale-state-assertion` is written by
+`turn-end-stale-state-assertion-scan`, `unwired-task-relationship` by
+`warn-unwired-task-relationship`). Values come from `buildCalibrationLogToGuards()`, never from
+name matching — mt#3502 records name matching as a first pass that reported two real detectors as
+having zero invocations when they had 874 and 1,531.
+
+### Evaluation (5)
+
+| Stream                                 | Writer (guard)                    | Records             |
+| -------------------------------------- | --------------------------------- | ------------------- |
+| `spec-criterion-claim-evaluations`     | `spec-criterion-claim-detector`   | 2,361               |
+| `context-fill-gauge-evaluations`       | `context-fill-gauge`              | 1,309               |
+| `secret-request-in-chat-evaluations`   | `secret-request-in-chat-detector` | 653                 |
+| `cross-turn-hedge-evaluations`         | `cross-turn-hedge-detector`       | 135                 |
+| `criterion-reconciliation-evaluations` | `criterion-reconciliation-scan`   | **0 — never fired** |
+
+The evaluation half was harder to find, and the reason is structural: **there is no
+`evaluationLog:` field anywhere.** A calibration stream is declared on a surface and can be
+enumerated; an evaluation stream is named by a module-local constant each writer hands to
+`logEvaluationRecord`, and nothing collected them. `grep -c "evaluationLog:"` over
+`.minsky/hooks/` returns 0, which reads as "no such mechanism" rather than "declared
+differently" — mt#4804's planning pass recorded this as an open question rather than guessing,
+and the implementation answered it.
+
+`scripts/lib/evaluation-log-declarations.ts` is now that missing surface.
+
+### What keeps this list correct
+
+`scripts/lib/stream-manifest-coverage.test.ts` diffs the declaration surfaces against the
+manifest and fails naming any stream that is declared but not ingested, so a 23rd omission is a
+red test rather than a silent gap. Its writer census additionally fails when a module writes
+evaluation records without an entry in `EVALUATION_STREAM_PRODUCERS`, so that hand-maintained map
+cannot fall behind the tree.
+
+One deliberate asymmetry: a manifest row with **no** declaration behind it is reported, not
+failed. A stale row costs one `stat` per sweep; a missing row costs every record it holds.
+
 ## Cross-references
 
 - Parent: mt#3334 (phases recorded in its Planning Audit). Consumers: mt#4034

@@ -197,6 +197,37 @@ export function extractClaimedPrNumber(phrase: string): number | null {
 }
 
 /**
+ * The PR number the claim's SENTENCE names, or null when it names none — or
+ * more than one, where pairing a number to the claim would be a guess (mt#4810).
+ *
+ * `extractClaimedPrNumber` above reads the matched PHRASE. For the dominant
+ * `review-approved` pattern that phrase is the bare token `APPROVED`, which
+ * carries no subject at all, so such a claim could never be identity-backed —
+ * measured at 7 of 31 with-context `review-approved` fires whose sentence names
+ * a PR the phrase does not. The record has carried that sentence as `context`
+ * since mt#3198 and nothing read it; this does, so `matches[].phrase` is
+ * untouched and mt#4074's diversity axis is unaffected.
+ *
+ * The uniqueness requirement is what keeps this sound. PR #3484's blocking
+ * finding was that a merge of PR #100 could silence a claim about PR #200; a
+ * sentence naming two numbers reproduces that ambiguity in miniature, so it
+ * yields nothing and the claim fires. For a suppressor the safe degrade
+ * direction is MORE fires (ADR-024's fail-to-Rung-1 invariant).
+ */
+export function extractUniqueClaimedPrNumber(text: string): number | null {
+  const found = new Set<number>();
+  for (const m of text.matchAll(/\bPR\s*#?(\d+)/gi)) {
+    const raw = m[1];
+    if (raw === undefined) continue;
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n)) found.add(n);
+  }
+  if (found.size !== 1) return null;
+  const [only] = found;
+  return only ?? null;
+}
+
+/**
  * PR-number input keys read from the `identityScopedTools`' own inputs.
  *
  * Deliberately NOT generic (PR #3096 R4). This list held `"number"` and `"pr"`
@@ -429,6 +460,14 @@ export interface ClaimMatch {
 export const SUPPRESSION_SAME_TURN_TOOL_CALL = "same-turn-tool-call";
 export const SUPPRESSION_WINDOW_TOOL_CALL = "window-tool-call";
 export const SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL = "identity-scoped-tool-call";
+/**
+ * Identity-scoped, with the PR number read from the claim's SENTENCE rather
+ * than its matched phrase (mt#4810). A distinct reason so a calibration
+ * reviewer can measure THIS path's own delta: an unchanged headline count is
+ * equally consistent with "the fallback is inert" and "it fires and something
+ * else absorbs it", and only the per-reason split separates them (mem#1208).
+ */
+export const SUPPRESSION_IDENTITY_SCOPED_CONTEXT = "identity-scoped-context";
 
 /** A claim that matched its category's patterns but was backed by a real tool call. */
 export interface SuppressedClaimMatch extends ClaimMatch {
@@ -673,7 +712,15 @@ export function detectPreNarrationWithSuppression(
     //
     // A claim naming no PR number is never identity-backed and deliberately
     // falls through to firing.
-    const claimedPr = extractClaimedPrNumber(matched.matchedPhrase);
+    // mt#4810: the phrase is the tightest subject when it carries one — mt#4498
+    // put the number there for the `PR #N … APPROVED` shape. When it does not,
+    // fall back to the claim's own sentence, which the record has captured as
+    // `context` since mt#3198 and which nothing was reading. Measured over the
+    // full calibration corpus, that is 22 of 31 with-context `review-approved`
+    // fires whose phrase is the bare `APPROVED` token.
+    const phrasePr = extractClaimedPrNumber(matched.matchedPhrase);
+    const contextPr = phrasePr === null ? extractUniqueClaimedPrNumber(matched.context) : null;
+    const claimedPr = phrasePr ?? contextPr;
     const identityBacked =
       claimedPr !== null && (evidencePrNumbers?.get(category.key)?.has(claimedPr) ?? false);
 
@@ -689,7 +736,9 @@ export function detectPreNarrationWithSuppression(
           ? SUPPRESSION_SAME_TURN_TOOL_CALL
           : inWindow
             ? SUPPRESSION_WINDOW_TOOL_CALL
-            : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+            : contextPr !== null
+              ? SUPPRESSION_IDENTITY_SCOPED_CONTEXT
+              : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
       });
       continue;
     }

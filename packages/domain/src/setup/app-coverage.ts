@@ -106,6 +106,25 @@ export function formatAppCoverage(
  * for the reviewer role) — NOT from the token provider, which holds it on a
  * private field. That keeps this a pure function of its argument, so it is
  * assertable without a provider, a network, or a config loader.
+ *
+ * **This is the FALLBACK, not the source (mt#4764).** `checkAppRoleCoverage`
+ * prefers `provider.getInstallationHtmlUrl()` — GitHub's own `html_url` for the
+ * installation — and uses this only when that read is unavailable or fails.
+ *
+ * Why, recorded so the next reader does not re-derive it from the same silence:
+ * GitHub configures a PERSONAL-account installation under the user's own
+ * Settings > Applications, and an ORGANIZATION installation under that org's
+ * Settings > Third-party Access. Those are different pages, and GitHub's docs
+ * publish a URL for NEITHER — so this constructed path can only ever be right
+ * about one account type. It was verified live against a `target_type: User`
+ * installation (mt#4695, `scripts/verify-installation-settings-url.ts`, which
+ * returned a byte-identical `html_url`); the ORG case was never observed,
+ * because this project has no organization installation to observe. Reading
+ * `html_url` makes that observation unnecessary rather than pending.
+ *
+ * Kept pure deliberately: the purity above is the reason this is still a
+ * usable fallback at all — it needs no provider, so it works exactly when the
+ * provider path did not.
  */
 export function installationSettingsUrl(installationId: number): string | null {
   // Guarded rather than a bare interpolation (PR #3418 R1, non-blocking): a
@@ -121,14 +140,31 @@ export interface AppRoleDescriptor {
   readonly role: TokenRole;
   /** Display slug, e.g. `minsky-ai`. Named, never inferred — it appears in operator-facing text. */
   readonly slug: string;
-  /** Installation id from config, when configured. Absent means no deep link is available. */
+  /**
+   * Installation id from config, when configured. Absent means the CONSTRUCTED
+   * fallback link is unavailable — not that no link is (mt#4764): GitHub's own
+   * `html_url` is read from the installation object and needs no local id.
+   */
   readonly installationId?: number;
 }
 
 /** One role's coverage verdict, plus what an operator-facing surface needs to name it. */
 export interface AppRoleCoverage extends AppRoleDescriptor {
   readonly status: AppCoverageStatus;
-  /** Settings-page deep link, present iff `installationId` was supplied. */
+  /**
+   * Settings-page link for this role. Present whenever one could be determined
+   * AT ALL — from GitHub's `html_url` (read only for a `not-covered` role), or
+   * otherwise from `installationId` via `installationSettingsUrl`, for ANY
+   * status. Absent only when neither source yielded one.
+   *
+   * **Populated is not the same as rendered (mt#4764, PR #3511 R3).** A covered
+   * role still carries the constructed link here; `formatAppCoverage` simply
+   * does not print one for that state. Two earlier versions of this comment got
+   * this wrong in opposite directions — "present iff `installationId` was
+   * supplied" (false once `html_url` became the source) and then "absent when
+   * the role is covered" (false because the constructed fallback still
+   * applies). Read the assignment below, not either of those.
+   */
   readonly settingsUrl?: string;
 }
 
@@ -175,10 +211,33 @@ export async function checkAppRoleCoverage(
       status = { state: "unknown", reason: getErrorMessage(error) };
     }
 
+    // Prefer GitHub's own answer to the constructed path (mt#4764). An
+    // ORG-owned installation is configured under that organization's settings,
+    // not the user's, so a constructed `/settings/installations/<id>` can only
+    // ever be right about one account type; `html_url` is right about both.
+    //
+    // Fetched ONLY for `not-covered` — the one state whose rendered line
+    // actually prints a link. A covered role prints none, and `unknown` means
+    // the coverage probe already failed, so a second call there is waste that
+    // amplifies whatever transient failure or rate limit caused the first
+    // (PR #3511 R1). Note the OTHER states still get a `settingsUrl` below,
+    // from the constructed fallback — this condition governs the API CALL, not
+    // whether the field is populated.
+    //
+    // The `typeof` guard is load-bearing, not defensive style: every fake
+    // provider in the tests is built with `as unknown as GitHubAppTokenProvider`,
+    // so a provider missing this method is a RUNTIME throw the compiler cannot
+    // see. `getInstallationHtmlUrl` already returns `null` on its own failures.
+    const authoritativeUrl =
+      status.state === "not-covered" && typeof provider.getInstallationHtmlUrl === "function"
+        ? await provider.getInstallationHtmlUrl(descriptor.role)
+        : null;
+
     const settingsUrl =
-      descriptor.installationId === undefined
+      authoritativeUrl ??
+      (descriptor.installationId === undefined
         ? null
-        : installationSettingsUrl(descriptor.installationId);
+        : installationSettingsUrl(descriptor.installationId));
 
     results.push({
       ...descriptor,
