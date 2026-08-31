@@ -112,15 +112,13 @@ export function classifyRecord(input: {
  * when it is empty. Deleting the key instead makes it absent from `Object.entries`, which reaches
  * neither branch and leaves the stored value untouched (mt#4796).
  *
- * Every other key is carried through unchanged: a record can hold association types this task
- * does not touch, and the merge would preserve them anyway — but passing them explicitly keeps
- * the payload a faithful statement of the intended end state rather than a diff.
+ * The payload names ONLY `tracksTask`. Because `update` merges, every other association type is
+ * preserved by construction — so re-sending them buys nothing and costs correctness: the values
+ * would be the ones read at scan time, and writing them back could clobber a concurrent update to
+ * a key this task has no business touching. A merge API's minimal payload is the safe one.
  */
-export function buildAssociationsUpdate(
-  current: Record<string, string[]>,
-  afterRefs: string[]
-): Record<string, string[]> {
-  return { ...current, [TRACKS_TASK_ASSOCIATION]: afterRefs };
+export function buildAssociationsUpdate(afterRefs: string[]): Record<string, string[]> {
+  return { [TRACKS_TASK_ASSOCIATION]: afterRefs };
 }
 
 /**
@@ -138,6 +136,21 @@ export function applyUpdateAssociationsSemantics(
   for (const [k, v] of entries) if (v.length > 0) merged[k] = v;
   for (const [k, v] of entries) if (v.length === 0) delete merged[k];
   return merged;
+}
+
+/**
+ * Compare two ref lists as SETS.
+ *
+ * `tracksTask` is a set of task ids; nothing downstream depends on their order, and neither the
+ * JSONB round-trip nor a concurrent writer promises to preserve it. An order-sensitive comparison
+ * would therefore report a spurious drift-skip or a spurious write-failure on a record that is
+ * perfectly correct — a false alarm in the one check that exists to catch real ones.
+ */
+export function sameRefs(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
 }
 
 /** The corrected ref list for a record: every `quoted-only` ref dropped, order preserved. */
@@ -369,10 +382,14 @@ async function main(): Promise<void> {
   let skipped = 0;
   for (const entry of plan) {
     try {
-      // Re-read immediately before writing. `update` REPLACES the whole associations map, so
-      // building it from the scan-time snapshot would silently revert any association key a
-      // concurrent writer added since — including keys this task never looks at. The plan token
-      // guards the SET of records; this guards each record's own content at the moment of write.
+      // Re-read immediately before writing, to confirm this record's `tracksTask` is still the
+      // one the plan was computed against. The plan token guards the SET of records; this guards
+      // each record's own content at the moment of write.
+      //
+      // NOTE: this comment previously said `update` REPLACES the whole associations map. It does
+      // not — it MERGES (see `buildAssociationsUpdate`), and that false belief is exactly what
+      // produced mt#4796. Other association keys need no defending here; the merge preserves them,
+      // which is why the payload names only `tracksTask`.
       const current = await memoryService.get(entry.id);
       if (!current) {
         console.error(`  SKIP ${entry.shortId ?? entry.id}: record no longer exists.`);
@@ -384,7 +401,7 @@ async function main(): Promise<void> {
       const liveRefs = live[TRACKS_TASK_ASSOCIATION] ?? [];
       // If the refs moved since the dry-run, the plan's `after` was computed against text and
       // refs that no longer describe this record. Skip rather than apply a stale correction.
-      if (JSON.stringify(liveRefs) !== JSON.stringify(entry.before)) {
+      if (!sameRefs(liveRefs, entry.before)) {
         console.error(
           `  SKIP ${entry.shortId ?? entry.id}: tracksTask changed since the dry-run ` +
             `(${JSON.stringify(entry.before)} -> ${JSON.stringify(liveRefs)}). Re-run.`
@@ -405,7 +422,7 @@ async function main(): Promise<void> {
       // first live run reported "Applied: 9" while applying 4 — every correction that emptied
       // `tracksTask` was a silent no-op.
       await memoryService.update(entry.id, {
-        associations: buildAssociationsUpdate(live, entry.after),
+        associations: buildAssociationsUpdate(entry.after),
       });
 
       // Verify the OUTCOME, not the invocation. `update` returning a record is not evidence the
@@ -415,7 +432,7 @@ async function main(): Promise<void> {
         TRACKS_TASK_ASSOCIATION
       ];
       const observedRefs = Array.isArray(observed) ? observed : [];
-      if (JSON.stringify(observedRefs) !== JSON.stringify(entry.after)) {
+      if (!sameRefs(observedRefs, entry.after)) {
         console.error(
           `  FAILED ${entry.shortId ?? entry.id}: wrote ${JSON.stringify(entry.after)} but read ` +
             `back ${JSON.stringify(observedRefs)}. The write did not take effect.`
