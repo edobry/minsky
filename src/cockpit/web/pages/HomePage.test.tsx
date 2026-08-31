@@ -7,7 +7,7 @@
  * stay on the calm line; receipts (uptime/version/credentials) never render
  * on home.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -113,9 +113,17 @@ const originalFetch = globalThis.fetch;
 
 interface StubOptions {
   embeddingsStatus?: "healthy" | "degraded";
+  /** Scoped attention-widget totalPending — read whenever a `project=` param is present. */
+  scopedPending?: number;
+  /** Unscoped attention-widget totalPending — read for the deliberately-global fetch. */
+  unscopedPending?: number;
 }
 
-function stubHome({ embeddingsStatus = "healthy" }: StubOptions = {}) {
+function stubHome({
+  embeddingsStatus = "healthy",
+  scopedPending = 0,
+  unscopedPending = 0,
+}: StubOptions = {}) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     const json = (body: unknown) =>
@@ -124,6 +132,10 @@ function stubHome({ embeddingsStatus = "healthy" }: StubOptions = {}) {
         headers: { "Content-Type": "application/json" },
       });
 
+    if (url.includes("/api/widget/attention/data")) {
+      const totalPending = url.includes("project=") ? scopedPending : unscopedPending;
+      return json({ state: "ok", payload: { totalPending } });
+    }
     if (url.includes("/api/asks")) return json({ asks: [] });
     if (url.includes("/api/widget/agents/data"))
       return json(ok({ agents: [{ liveness: "healthy" }, { liveness: "idle" }] }));
@@ -171,7 +183,17 @@ function renderHome() {
   );
 }
 
+const PROJECT_STORAGE_KEY = "cockpit.project.v1";
+
 describe("HomePage (triage radiator)", () => {
+  beforeEach(() => {
+    try {
+      localStorage.clear();
+    } catch {
+      /* jsdom/happy-dom always provides localStorage; ignore if not */
+    }
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
     cleanup();
@@ -218,5 +240,45 @@ describe("HomePage (triage radiator)", () => {
     expect(screen.getByText((_, el) => el?.textContent === "1 idle")).toBeDefined();
     const strip = screen.getByLabelText("Fleet status — open agents");
     expect(strip.getAttribute("href")).toBe("/agents");
+  });
+
+  // -------------------------------------------------------------------------
+  // Cross-project needs-you leak (mt#4794) — same three fixture states as
+  // Rail.attention-elsewhere.test.tsx, on the home "Needs you" region.
+  // -------------------------------------------------------------------------
+
+  test("project filter active, scoped=0/unscoped=40: 'Nothing needs you' plus a muted elsewhere line", async () => {
+    localStorage.setItem(PROJECT_STORAGE_KEY, "edobry/peezombie");
+    stubHome({ scopedPending: 0, unscopedPending: 40 });
+    renderHome();
+
+    await waitFor(() => expect(screen.getByText("Nothing needs you")).toBeDefined());
+    const elsewhere = await screen.findByTestId("needs-you-elsewhere");
+    expect(elsewhere.textContent).toBe("clear here — 40 pending in other projects →");
+    expect(elsewhere.getAttribute("href")).toBe("/asks");
+  });
+
+  test("project filter active, scoped=N/unscoped=N (equal): no elsewhere line", async () => {
+    localStorage.setItem(PROJECT_STORAGE_KEY, "edobry/peezombie");
+    stubHome({ scopedPending: 40, unscopedPending: 40 });
+    renderHome();
+
+    // Wait for the page's fetches to settle (the substrate calm line is the
+    // slowest of the bunch) before asserting absence — otherwise a false
+    // negative could just mean the queries haven't resolved yet. TriageBand's
+    // own "Nothing needs you" is unaffected either way here: this stub's
+    // `/api/asks` route always returns an empty list, independent of the
+    // attention-widget `scopedPending`/`unscopedPending` fixture values.
+    await waitFor(() => expect(screen.getByTestId("substrate-calm-line")).toBeDefined());
+    expect(screen.queryByTestId("needs-you-elsewhere")).toBeNull();
+  });
+
+  test("All-projects selected, pending=40: never renders an elsewhere line", async () => {
+    // No persisted slug => All projects.
+    stubHome({ scopedPending: 40, unscopedPending: 40 });
+    renderHome();
+
+    await waitFor(() => expect(screen.getByTestId("substrate-calm-line")).toBeDefined());
+    expect(screen.queryByTestId("needs-you-elsewhere")).toBeNull();
   });
 });

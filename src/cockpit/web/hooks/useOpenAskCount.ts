@@ -41,3 +41,43 @@ export function useOpenAskCount() {
     refetchInterval: 10_000,
   });
 }
+
+/**
+ * Unscoped (all-projects) variant of {@link useOpenAskCount} (mt#4794).
+ *
+ * Backs the cross-project needs-me leak indicator: when a specific project
+ * filter is active, the scoped Attention count alone can read "clear" while
+ * other projects carry pending asks — a self-imposed blind spot (mt#4757
+ * audit). Consumers compare this against the scoped count via
+ * `lib/attention-leak.ts`'s `elsewhereCount` and render a muted "elsewhere"
+ * secondary when they differ.
+ *
+ * Pass `{ enabled: false }` while no project filter is active — "elsewhere"
+ * is meaningless in the All-projects view, so there is nothing worth
+ * fetching (and nothing to compare against) in that state.
+ *
+ * `{ global: true }` opts `fetchWidgetData`'s default `?project=` append
+ * (mt#4730) back out — this is the one deliberately cross-project attention
+ * read the spec calls for; every other consumer of the attention widget
+ * stays scoped. Distinct TanStack key from `useOpenAskCount`'s own so the
+ * scoped query is untouched and both cache entries coexist — no new
+ * endpoint, one additional query.
+ */
+export function useUnscopedOpenAskCount(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["plant-board", "open-ask-count", "unscoped"],
+    queryFn: fetchOpenAskCountUnscoped,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+    enabled: options?.enabled,
+  });
+}
+
+async function fetchOpenAskCountUnscoped(): Promise<number> {
+  const data = await fetchWidgetData("attention", undefined, { global: true });
+  if (data.state !== "ok") {
+    throw new Error(`attention widget: ${data.reason}`);
+  }
+  const payload = data.payload as AttentionPayload;
+  return payload.totalPending;
+}

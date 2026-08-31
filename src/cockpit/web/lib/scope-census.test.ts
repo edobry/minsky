@@ -46,6 +46,18 @@ describe("cockpit frontend scope census (mt#4730)", () => {
         // this test looks for.
         continue;
       }
+      if (entry.path === "components/Rail.tsx") {
+        // Exempt by name, same shape as the project-context.tsx case above:
+        // mt#4794's cross-project attention-leak indicator gave this file a
+        // GENUINE `useProject()` call (reading `selectedSlug`/`setSelectedSlug`
+        // for the rail's Attention digest), but that call is about a
+        // DIFFERENT concern than the allowlisted raw fetch — `fetchRunningCommit`'s
+        // `GET /api/health` stays daemon-level and correctly unscoped either
+        // way. File-granularity evidence can't distinguish "this file now
+        // scopes ITS raw fetch" from "this file scopes something else
+        // entirely," so the allowlist entry is not stale.
+        continue;
+      }
       expect(fileSourceConsumesScope(entry.path)).toBe(false);
     }
   });

@@ -37,6 +37,30 @@ task graph — back ~184px of content width.
   navigation and reload. If storage is unavailable the preference simply becomes
   session-ephemeral and the rail opens expanded.
 
+### The project filter (mt#2418; per-option triage summary mt#4795)
+
+A single Postgres can hold rows from several projects (ADR-021). When the rail
+knows 2+ projects, a "Filter by project" dropdown appears at the top of the
+rail (below the wordmark, above the New conversation action), letting you
+view one project's data at a time, or "All projects" (the default). The
+selection persists across navigation and reload (`localStorage`, matching the
+rail-collapse preference above), and every scoped widget/page on every route
+re-fetches under the new filter.
+
+Renders nothing for a single-project deployment — there is nothing to filter,
+so the control would be pure noise.
+
+**Per-option triage summary.** Each option in the open dropdown carries a
+muted one-line summary — e.g. "40 need you · 3 working" for a project with
+pending asks and active agents, or "clear" for a project with neither — so
+"which project needs me" is answerable at the point of choosing, without
+switching into that project first. The "All projects" option shows the
+cross-project aggregate. If a project's summary fails to load, the option
+reads "status unavailable" — never a fabricated "clear" — so an outage never
+reads as a healthy project. The summary line is a snapshot fetched while the
+dropdown is open; it does not change what the closed dropdown or the
+underlying filter behavior look like.
+
 ### Keyboard shortcuts
 
 | Chord            | Does                                  |

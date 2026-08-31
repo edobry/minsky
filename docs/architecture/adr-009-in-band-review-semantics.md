@@ -16,7 +16,7 @@ The `minsky-reviewer[bot]` agent posts findings as Markdown text in the body of 
 **[BLOCKING]** `file:line[-range]` — body
 ```
 
-PR #815 is the canonical example: 14+ findings, every one citing a specific `file:line` or `file:line-range`, **zero** anchored review comments (`get_review_comments` totalCount: 0). The `submitReview` tool already accepts a `comments[]` array of line-anchored comments end-to-end — see the `ReviewComment` interface and the Octokit mapping in `src/domain/repository/github-pr-review.ts`, and the matching tool-schema entries under `comments` in `src/adapters/shared/commands/session/session-parameters.ts`. The capability is wired; the prompt simply never instructs the reviewer to populate it. Two reasons compound that gap:
+PR #815 is the canonical example: 14+ findings, every one citing a specific `file:line` or `file:line-range`, **zero** anchored review comments (`get_review_comments` totalCount: 0). The `submitReview` tool already accepts a `comments[]` array of line-anchored comments end-to-end — see the `ReviewComment` interface and the Octokit mapping in `packages/domain/src/repository/github-pr-review.ts`, and the matching tool-schema entries under `comments` in `src/adapters/shared/commands/session/session-parameters.ts`. The capability is wired; the prompt simply never instructs the reviewer to populate it. Two reasons compound that gap:
 
 1. **The reviewer prompt** (`.claude/agents/reviewer.md`) teaches an output format of `[BLOCKING] file:line — body` as Markdown text, never `comments[]`.
 2. **The context tool** (`session_pr_review_context`) returns the diff as a single unified-diff string. To produce a valid `comments[]` entry, the reviewer must parse `@@` hunk headers, pick a line that lies in a hunk, and pick a matching `side`. GitHub rejects the _entire_ `createReview` call with 422 if a single comment is off-diff. That foot-gun makes attempts costly and pushes the model back to body-Markdown output.
@@ -152,7 +152,7 @@ mt#1340 (prompt update) is blocked on mt#1336 and mt#1337. The remaining tasks (
 - [ADR-006: Agent Identity](./adr-006-agent-identity.md) — bot identity used by `submitReview` and the new GraphQL mutations
 - `mt#1335` — parent task and sibling cluster (queryable via `mcp__minsky__tasks_get`; tasks are stored in the Minsky DB, not the filesystem)
 - `.claude/agents/reviewer.md` — reviewer subagent prompt (target of mt#1340)
-- `src/domain/repository/github-pr-review.ts` — current forge layer (extended by mt#1337, mt#1342, mt#1346)
-- `src/domain/session/commands/pr-review-context-subcommand.ts` — context tool (extended by mt#1336, mt#1343)
+- `packages/domain/src/repository/github-pr-review.ts` — current forge layer (extended by mt#1337, mt#1342, mt#1346)
+- `packages/domain/src/session/commands/pr-review-context-subcommand.ts` — context tool (extended by mt#1336, mt#1343)
 - `src/adapters/shared/commands/session/session-parameters.ts` — MCP tool schema (extended by mt#1337, mt#1341)
 - `mt#1110_calibration` memory — observed cost of body-blob review iteration
