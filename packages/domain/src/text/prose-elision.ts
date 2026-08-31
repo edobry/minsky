@@ -27,17 +27,60 @@
  * `staleness.ts`'s `hasRetirementAnchor` bounds its window to the containing LINE, and would
  * silently change meaning if elision collapsed one.
  *
+ * **The filler is separately load-bearing, and it is NOT whitespace (mt#4792).** Same-length
+ * gives alignment; a non-`\s`, non-`\w` filler gives the other half — a pattern cannot match
+ * ACROSS an elided hole. Filling with spaces manufactured matches — for however long the
+ * original `elideMarkdownNonProse` (mt#1707) carried the same filler, which this hoist
+ * inherited unchanged. See {@link ELISION_FILL}.
+ *
  * @see docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md — the ladder
  * @see mt#4454 — the memory-staleness consumer that forced the hoist
  * @see mt#4386 — the `bare-prohibition` consumer queued behind it
  */
 
-/** Replace every non-newline character with a space, preserving length and line structure. */
-const blankSameLength = (match: string): string => match.replace(/[^\n]/g, " ");
+/**
+ * The character elided spans are filled with. Deliberately NOT a space.
+ *
+ * U+00B7 satisfies all three properties the callers need, and whitespace satisfies only two:
+ *
+ * 1. **One UTF-16 code unit**, so blanking preserves length and every offset into the residual
+ *    stays a valid offset into the raw text.
+ * 2. **Not `\s`**, so a pattern's own `\s+` cannot span an elided hole and match text that was
+ *    never adjacent. This is the property a space lacks — see {@link blankSameLength}.
+ * 3. **Not `\w`**, so `\b` boundaries still form at the seams; a pattern anchored hard against
+ *    an elided span behaves exactly as it did when the span was there.
+ */
+const ELISION_FILL = "·";
+
+/**
+ * Replace every non-newline character with {@link ELISION_FILL}, preserving length and line
+ * structure.
+ *
+ * **Why not a space (mt#4792).** Blanking to whitespace lets the CALLER's own `\s+` run straight
+ * through the hole, so a clause that does NOT match the raw text matches the residual — the
+ * elision MANUFACTURES the false positive it exists to remove. Measured on the shipped
+ * implementation before this fix:
+ *
+ * ```
+ * "Retire when `an aside` mt#7777 ships."   // \s+ cannot cross the code span -> no match
+ * "Retire when            mt#7777 ships."   // blanked to spaces -> \bretire\s+when\s+(mt#\d+)\b MATCHES
+ * ```
+ *
+ * That defeats Rung 1's own instruction to "match on the residual": the residual has to be
+ * ALIGNED with the raw text, not MATCHABLE ACROSS the parts that were removed. Same-length is
+ * what the ADR is reaching for; whitespace was incidental to the pass it named.
+ *
+ * Note the hazard is intrinsic to same-length blanking rather than to any one author — it was
+ * hit independently twice on 2026-08-30, here and in `scripts/rederive-memory-associations.ts`.
+ * If you are tempted to "simplify" this back to a space, the property test in the sibling spec
+ * file (`a pattern that does not match the raw text must not match the residual`) is the one
+ * that will fail.
+ */
+const blankSameLength = (match: string): string => match.replace(/[^\n]/g, ELISION_FILL);
 
 /**
  * Replace markdown contexts that carry textual references (not coordination
- * instructions) with same-length whitespace. Preserves character positions so
+ * instructions) with a same-length non-matching filler. Preserves character positions so
  * `indexOf` results in the returned text remain valid offsets into the original
  * body — excerpts can still be sliced from the original to show real context.
  *
@@ -101,7 +144,7 @@ export function elideMarkdownNonProse(body: string): string {
 }
 
 /**
- * Blank PROSE-QUOTED spans with same-length whitespace.
+ * Blank PROSE-QUOTED spans with a same-length non-matching filler.
  *
  * ADR-024 Rung 1's half (b), and the one it calls *"the load-bearing, harder part"*.
  * {@link elideMarkdownNonProse} covers code spans, fences and blockquote lines and NOT this one,
