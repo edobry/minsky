@@ -30,6 +30,7 @@ import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { SortIndicator } from "../components/SortIndicator";
 import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
 import { useFocusAttachment } from "../hooks/useFocusAttachment";
 import { basePathFor, pathForTab } from "./RunDetail";
@@ -324,17 +325,6 @@ function formatRelative(isoTimestamp: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay}d ago`;
-}
-
-// ---------------------------------------------------------------------------
-// Sort direction indicator
-// ---------------------------------------------------------------------------
-
-function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) {
-    return <span className="text-muted-foreground opacity-30 ml-0.5">↕</span>;
-  }
-  return <span className="ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,37 @@
  * a general task-id match would flag nearly every record in the corpus. Only a clause that
  * states a RETIREMENT RELATIONSHIP counts.
  *
+ * ## The text scan matches the RESIDUAL, not the body (mt#4454)
+ *
+ * A clause states a retirement relationship only when the record is ASSERTING it. A record that
+ * QUOTES one — from another memory, from a spec, from its own documented test fixture — is
+ * giving an example, and the grammar is identical either way, so no pattern can tell them
+ * apart. ADR-024 Rung 1's prefilter can: elide the quoting contexts, then match what is left.
+ * `extractTrackingTaskRefs` runs {@link elideQuotedAndMarkdown} first for that reason.
+ *
+ * **Both halves earn their place, measured on real records.** mem#484 quotes another memory's
+ * budget in PROSE QUOTES and survives markdown elision untouched; mem#1340 carries a
+ * discrimination-control table whose fixture sits in a CODE SPAN. Either half alone leaves one
+ * of them firing.
+ *
+ * ## The known false-negative, stated rather than discovered later
+ *
+ * ADR-024's half (b) is *"prose-quoted spans **and explicit discussion-framing**"*, and only
+ * the first is implemented (see `../text/prose-elision.ts`). So a record that quotes its OWN
+ * budget — *`this memory set for itself ("retires when mt#4525 … land")`* — is elided along
+ * with the records quoting someone else's, because nothing here distinguishes whose clause is
+ * being quoted.
+ *
+ * Measured 2026-08-30 over the live corpus: of 10 records whose stored association held a ref
+ * this prefilter suppresses, **2 (mem#1237, mem#361) are self-quotations** — so the cost is
+ * real and roughly a fifth of the affected set, not a hypothetical. It is accepted rather than
+ * fixed here because discussion-framing detection is the harder half ADR-024 flags as *"an
+ * empirical gate, not an assumption"*, and because the recall loss is a record that will simply
+ * not be annotated, against a precision gain on records that were being annotated WRONGLY. If
+ * self-quotation turns out to be commoner than 2-in-10, that is the evidence for building the
+ * second half — not a reason to widen the patterns, which is the arms race ADR-024 §Context
+ * exists to end.
+ *
  * @see mt#1709 — this module
  * @see docs/memory-staleness-annotation.md — patterns + annotation shape
  * @see docs/architecture/adr-012-memory-entity-associations.md — the association source
@@ -58,6 +89,7 @@
 import { renderMeasurementNote, type MeasurementDecay } from "./measurement-decay";
 import { renderTaskStateNote, type TaskStateDrift } from "./task-state-assertion";
 import { TRACKS_TASK_ASSOCIATION } from "./associations";
+import { elideQuotedAndMarkdown } from "../text/prose-elision";
 
 /**
  * Task statuses that mean the tracked work has landed.
@@ -221,14 +253,26 @@ export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
     };
   }
 
-  const haystack = `${record.description ?? ""}\n${record.content}`;
+  const raw = `${record.description ?? ""}\n${record.content}`;
+
+  // ADR-024 Rung 1 (mt#4454): match on the RESIDUAL, not the raw body. A clause the record
+  // QUOTES — from another memory, from a spec, from its own documented test fixture — is
+  // example text, not a retirement condition this record declares about itself. The two
+  // halves are complements and both are needed here, measured against real records:
+  //
+  //   mem#484  "retire when mt#2056 ships"      prose quotes  -> needs (b); (a) alone misses it
+  //   mem#1340 `Retire when mt#1541 ships.`     code span     -> needs (a)
+  //
+  // Same-length blanking means every offset into `elided` is a valid offset into `raw`, which
+  // is what lets the anchor check below read the raw text at a match position found here.
+  const elided = elideQuotedAndMarkdown(raw);
   const refs: string[] = [];
 
   for (const pattern of SELF_ANCHORED_PATTERNS) {
     // Patterns are module-level and `g`-flagged, so lastIndex persists across calls.
     // Reset before each use rather than relying on exec-to-exhaustion.
     pattern.lastIndex = 0;
-    for (const match of haystack.matchAll(pattern)) {
+    for (const match of elided.matchAll(pattern)) {
       const captured = match[1];
       if (captured) refs.push(captured.toLowerCase());
     }
@@ -236,10 +280,17 @@ export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
 
   for (const pattern of CONDITIONAL_PATTERNS) {
     pattern.lastIndex = 0;
-    for (const match of haystack.matchAll(pattern)) {
+    for (const match of elided.matchAll(pattern)) {
       const captured = match[1];
       if (!captured) continue;
-      if (hasRetirementAnchor(haystack, match.index ?? 0)) refs.push(captured.toLowerCase());
+      // The CLAUSE is read from the elided text; the ANCHOR is read from the RAW text at the
+      // same offset. Deliberate, and the same raw/elided split `spec-criterion-claim.ts`'s
+      // `hasCorpusReferentNear` makes: an anchor word is routinely decorated — "**Budget:**",
+      // `` `Budget` `` — and blanking a backticked anchor would drop a genuine clause for a
+      // reason that has nothing to do with quotation. Reading the anchor from raw cannot
+      // reintroduce the quoted-clause false positive, because a quoted clause produced no
+      // match to anchor in the first place.
+      if (hasRetirementAnchor(raw, match.index ?? 0)) refs.push(captured.toLowerCase());
     }
   }
 

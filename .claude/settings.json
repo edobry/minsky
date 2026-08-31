@@ -220,7 +220,7 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 32,
+            "timeout": 42,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]

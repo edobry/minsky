@@ -25,6 +25,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Full history: the mt#4779 step below diffs `origin/<base>...HEAD`,
+          # which needs the merge-base. A depth-bounded fetch can silently fail
+          # to reach it on a long-lived branch, and the failure mode is a diff
+          # that looks plausible rather than an error.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -49,3 +55,14 @@ jobs:
           fi
 
           echo "No placeholder tests detected."
+
+      # mt#4779 — a newly ADDED test file that executes none of the PR's changed
+      # lines is vacuous by construction. Log-only (calibration-first per
+      # ADR-032); it never fails the job, and flipping posture is
+      # operator-reserved. Records EVERY evaluation, not only fires, so a later
+      # read can tell "nothing was vacuous" from "the check never ran" — the
+      # ambiguity mt#4219 measured on a sibling surface.
+      - name: Per-test changed-line coverage (log-only)
+        if: github.event_name == 'pull_request'
+        run: |
+          bun scripts/check-test-changed-line-coverage.ts --base "origin/${{ github.base_ref }}"

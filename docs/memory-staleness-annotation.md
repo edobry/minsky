@@ -126,6 +126,42 @@ the grammar is identical to the genuine form.
 After the anchor requirement: **131 of 1206 (10.86%)**. mem#96, mem#19 and mem#102 all stopped
 firing.
 
+### The quotation prefilter, and the second defect it closed (mt#4454)
+
+The anchor requirement fixed the first precision defect and left a second one it could not see: a
+clause the record **quotes** rather than declares. The grammar is identical, so — exactly as with
+mem#96 — no reading of the pattern list could have surfaced it. Two live instances:
+
+| Record       | Matched text                       | Context                                                                            |
+| ------------ | ---------------------------------- | ---------------------------------------------------------------------------------- |
+| **mem#484**  | `retire when mt#2056 ships`        | a **prose quotation** of a DIFFERENT memory's budget, inside an incident narrative |
+| **mem#1340** | `` `Retire when mt#1541 ships.` `` | a **code span** — the record's own documented discrimination-control fixture       |
+
+So the text scan now matches the **residual** after ADR-024 Rung 1 elision
+(`packages/domain/src/text/prose-elision.ts`): markdown code spans / fenced blocks / blockquote
+lines, then prose-quoted spans. Both halves are load-bearing — mem#484 survives markdown elision
+untouched, mem#1340 needs it.
+
+Measured over the live corpus (1343 memories, 2026-08-30), comparing the text path before and
+after: **10 records stopped producing a ref, 0 gained one.** All 10 were producing a _stale_
+banner, and the three `Temporary mechanism budget` records kept their genuine `mt#1034` clause
+while losing only the backticked `tracking task: mt#1503` **example** — which is what a
+one-sided fix would have destroyed.
+
+**The corpus-wide fire rate did not move (149 of 1343, 11.09%), and that is not the fix failing.**
+Since mt#4448 the write path derives `associations.tracksTask` from the same extractor, and
+`extractTrackingTaskRefs` checks the association FIRST — so all 10 records already carry a minted
+association and keep rendering stale from it. This fix stops NEW false associations at the source;
+repairing the already-minted ones is **mt#4765**.
+
+**Known false negative, accepted deliberately.** ADR-024's half (b) is _"prose-quoted spans **and
+explicit discussion-framing**"_, and only the first ships. A record quoting its OWN budget —
+mem#1237's _`("retires when mt#4525 and mt#4295 land …")`_ — is elided too, because nothing yet
+distinguishes whose clause is being quoted. Two of the ten (mem#1237, mem#361) are this shape. The
+trade is a record that goes un-annotated against records that were being annotated wrongly; if
+self-quotation proves commoner than 2-in-10, that is the evidence for building the framing half,
+not for widening the patterns.
+
 ### Why it does not reuse `bridge-memory-retirement.ts`'s patterns
 
 `.minsky/hooks/bridge-memory-retirement.ts` (mt#2062) solves what looks like the same problem
@@ -217,9 +253,14 @@ failed to resolve. Roughly a third of the explicit status claims in this corpus 
 
 Trigger 3's refs union into trigger 1's existing lookup, so it adds **no** query.
 
-**No quotation prefilter yet.** A status claim inside a code fence or blockquote will match. That
-class is owned by mt#4454 (gated on mt#4386's prose-quotation primitive), and trigger 3 should
-adopt that primitive when it lands; it is tolerable meanwhile for the reason in (1) above.
+**No quotation prefilter yet — but the primitive now exists (mt#4454).** A status claim inside a
+code fence or blockquote will still match here: trigger 3 reads the raw body, and only trigger 1's
+`extractTrackingTaskRefs` was wired to the elider. It is tolerable meanwhile for the reason in (1)
+above. What changed is that adopting it is now a one-line composition rather than a dependency —
+`elideQuotedAndMarkdown` from `packages/domain/src/text/prose-elision.ts`. It was deliberately NOT
+applied to triggers 2 and 3 in the same change: their own false-positive profiles are unmeasured,
+and wiring an elider into three detectors on one detector's evidence is the opposite of ADR-024's
+evidence gate. Same applies to trigger 2's `CITED_PATH_PATTERN` / `CITED_TABLE_PATTERN`.
 
 **`unresolved` also emits a structured warning.** A memory naming a task id the task graph
 cannot account for is worth knowing about even though it must never block or annotate the

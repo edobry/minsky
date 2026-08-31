@@ -21,6 +21,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { SortIndicator } from "../components/SortIndicator";
 import { statusStyle, type TaskStatus } from "../lib/status-colors";
 import {
   streamHealth,
@@ -137,17 +138,6 @@ function Chevron({ open }: { open: boolean }) {
       <polyline points="6 9 12 15 18 9" />
     </svg>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Sort direction indicator
-// ---------------------------------------------------------------------------
-
-function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) {
-    return <span className="text-muted-foreground opacity-30 ml-0.5">↕</span>;
-  }
-  return <span className="ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 // ---------------------------------------------------------------------------
