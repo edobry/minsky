@@ -42,6 +42,9 @@ const SettingsPage = lazy(() =>
 const WorkstreamsPage = lazy(() =>
   import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
 );
+const WorkPackagesPage = lazy(() =>
+  import("./pages/WorkPackagesPage").then((m) => ({ default: m.WorkPackagesPage }))
+);
 const DigestPage = lazy(() => import("./pages/DigestPage").then((m) => ({ default: m.DigestPage })));
 const ProposalsPage = lazy(() =>
   import("./pages/ProposalsPage").then((m) => ({ default: m.ProposalsPage }))
@@ -514,6 +517,15 @@ export function App() {
             element={
               <ErrorBoundary id="digest-page">
                 <DigestPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* ADR-046 (mt#2911): the claimable work-package pool. */}
+          <Route
+            path="/work-packages"
+            element={
+              <ErrorBoundary id="work-packages-page">
+                <WorkPackagesPage />
               </ErrorBoundary>
             }
           />
