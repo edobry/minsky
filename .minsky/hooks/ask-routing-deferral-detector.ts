@@ -571,7 +571,10 @@ export const ACTIONABLES_DECISION_EXEMPLAR_SET: ExemplarSet = {
  * - **One missed positive.** *"The mt#4678 agent needs two things from you: a yes/no on publishing
  *   the corpus payload…"* scores **0.4008**. This is the SAME decision as the originating instance,
  *   restated a day later — SC4's generalization floor — and the mechanism does not reach it. The
- *   act sits in a post-colon fragment whose own words are mostly the decision's SUBJECT.
+ *   act sits in a post-colon fragment whose own words are mostly the decision's SUBJECT. **Owned by
+ *   mt#4824**, which also records why the threshold cannot simply be lowered to reach it: the
+ *   0.4008..0.5012 band is occupied by the false positive above, so P2 moves only if its SCORE
+ *   moves. mt#4807's SC4 is marked DEFERRED to that task rather than left unreconciled.
  *
  * So the honest claim is 9 of 10 labeled positives with 1 of 10 labeled negatives firing. That is
  * NOT ADR-024 sign-off (b)'s bar for enforcing (`0 known-FP AND <=5% new false-negative`), which is
