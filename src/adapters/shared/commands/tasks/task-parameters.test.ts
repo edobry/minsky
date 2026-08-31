@@ -77,3 +77,25 @@ describe("tasks_create kind param — governance gap fix (mt#3010)", () => {
     expect(() => tasksCreateParams.kind.schema.parse("not-a-real-kind")).toThrow();
   });
 });
+
+/**
+ * ADR-046 (mt#2911): the work-package kind is a first-class registry entry, so
+ * every kind param derived from the shared enum must accept it — create, edit,
+ * list, search here; tasks_available reuses the same TaskParameters.kind
+ * (routing-commands.ts:28) and is exercised end-to-end in
+ * task-routing-service.test.ts's default-deny block.
+ */
+describe("work-package kind flows through every declaration site (ADR-046)", () => {
+  test("the workflow registry carries the kind (the single source every schema derives from)", () => {
+    expect(Object.keys(WORKFLOWS)).toContain("work-package");
+  });
+
+  test.each([
+    ["tasksCreateParams", tasksCreateParams.kind],
+    ["taskEditParams", taskEditParams.kind],
+    ["tasksListParams", tasksListParams.kind],
+    ["tasksSearchParams", tasksSearchParams.kind],
+  ])('%s.kind schema parses "work-package"', (_name, param) => {
+    expect(param.schema.safeParse("work-package").success).toBe(true);
+  });
+});

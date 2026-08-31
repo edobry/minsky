@@ -272,6 +272,20 @@ Navigate to your main workspace and try again:
       );
     }
 
+    // work-package tasks never take a session of their own (ADR-046, mt#2911):
+    // a package is a claimable BUNDLE — you claim it (tasks claim), then start
+    // sessions on its member tasks individually. A session bound to the bundle
+    // itself would have no single branch to own.
+    if (startKind === "work-package") {
+      throw new ValidationError(
+        `Task ${normalizedTaskId} is kind "work-package" — a claimable bundle, not a session ` +
+          `target. Claim it first (tasks claim ${normalizedTaskId}), then run session_start on ` +
+          `its member tasks individually. See docs/task-kinds.md §work-package (ADR-046).`,
+        undefined,
+        undefined
+      );
+    }
+
     // Validate task status. The valid precursor for session_start is kind-aware:
     // - implementation kind: requires READY (planning gate must complete first)
     // - umbrella kind: requires PLANNING (no READY state in the umbrella workflow;
