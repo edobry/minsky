@@ -39,6 +39,7 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { log } from "@minsky/shared/logger";
+import { resolveCalibrationStatePath } from "./calibration";
 import type { AskKind } from "@minsky/domain/ask/types";
 import type { FormLintMatch } from "@minsky/domain/ask/form-lint";
 
@@ -106,10 +107,10 @@ export function isVerifiedWorkspaceRoot(workspacePath: string): boolean {
  * purely advisory instrumentation, same posture as the hook-based
  * calibration writers this mirrors).
  */
-export function appendAskFormLintCalibrationRecord(
+export async function appendAskFormLintCalibrationRecord(
   workspacePath: string,
   record: AskFormLintCalibrationRecord
-): void {
+): Promise<void> {
   if (!isVerifiedWorkspaceRoot(workspacePath)) {
     log.warn(
       "asks.create: skipping form-lint calibration write — workspacePath does not verify " +
@@ -119,7 +120,15 @@ export function appendAskFormLintCalibrationRecord(
     return;
   }
   try {
-    const logPath = resolve(workspacePath, ASK_FORM_LINT_CALIBRATION_LOG);
+    // mt#4811: resolve through the READER's own resolver rather than under
+    // `workspacePath`. This log is a `CALIBRATION_LOG_REGISTRY` member, so
+    // `/calibration-review` reads it from the state dir — and until this change
+    // the writer still appended into the repo working tree, so the sweep saw an
+    // empty corpus against 17 KB on disk and read it as "this guard never
+    // fired". Calling the same function the reader calls is what makes the two
+    // agree by construction; a second derivation of the project key is exactly
+    // what mt#4780 declined to add.
+    const logPath = await resolveCalibrationStatePath(workspacePath, ASK_FORM_LINT_CALIBRATION_LOG);
     const dir = dirname(logPath);
     mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");

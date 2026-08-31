@@ -2604,7 +2604,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           // check, which has nothing to acknowledge. Gate on whether a
           // BLOCKING match was actually present.
           const hasBlockingMatch = filterBlockingFormLintMatches(formLintMatches).length > 0;
-          appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
+          await appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
             timestamp: new Date().toISOString(),
             askId: result.id,
             kind: result.kind,
