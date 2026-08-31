@@ -10,6 +10,8 @@ import { FakeTaskService } from "../tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
 import { first } from "@minsky/shared/array-safety";
 import type { ScopeResolverDb } from "../project/scope-resolver";
+import { tasksTable } from "../storage/schemas/task-embeddings";
+import { projectsTable } from "../storage/schemas/projects-schema";
 
 // mt#3106: the --recover path now routes through the guarded delete, whose
 // live-actor gate would fail-closed in these provider-less fixtures. Existing
@@ -584,5 +586,166 @@ describe("startSessionImpl - project_id stamping resolves from repoUrl before th
 
     const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
     expect(added.projectId).toBeUndefined();
+  });
+});
+
+// mt#4758: the CROSS-PROJECT case — the task's project and the server's config
+// name DIFFERENT repositories. The mt#4734 suite above cannot reach this: it
+// points `createDeps` at the foreign URL, so config and project AGREE and the
+// resolution is consistent either way. Here they disagree, which is the
+// condition under which session_start used to succeed and produce a session
+// whose files were one repository and whose record was another.
+describe("startSessionImpl - identity comes from the task's project, not the server's config (mt#4758)", () => {
+  const MINSKY_URL = "https://github.com/edobry/minsky.git";
+  const PEEZOMBIE_URL = "https://github.com/edobry/peezombie.me.git";
+  const PEEZOMBIE_ID = "2ef29b41-413e-4ecf-a61b-e695697e7d82";
+  const PEEZOMBIE_PATH = "/Users/edobry/Projects/peezombie.me";
+
+  /**
+   * Table-keyed fake: the task read and the two project reads (by id, from the
+   * identity resolver; by slug, from the scope resolver) hit different tables.
+   */
+  function crossProjectDb(taskRows: unknown[], projectRows: unknown[]): ScopeResolverDb {
+    const byTable = new Map<unknown, unknown[]>([
+      [tasksTable, taskRows],
+      [projectsTable, projectRows],
+    ]);
+    return {
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => ({ limit: () => Promise.resolve(byTable.get(table) ?? []) }),
+        }),
+      }),
+    } as unknown as ScopeResolverDb;
+  }
+
+  function peezombieTaskDb(): ScopeResolverDb {
+    return crossProjectDb(
+      [{ id: "mt#4678", projectId: PEEZOMBIE_ID }],
+      [{ id: PEEZOMBIE_ID, slug: "edobry/peezombie.me", repoUrl: PEEZOMBIE_URL }]
+    );
+  }
+
+  /** Make the repo argument classifiable as a local checkout of `originUrl`. */
+  function withOrigin(deps: StartSessionDependencies, originUrl: string): void {
+    (deps.gitService as { execInRepository: unknown }).execInRepository = vi.fn(
+      async (_dir: string, command: string) =>
+        command.includes("remote get-url") ? `${originUrl}\n` : ""
+    );
+  }
+
+  it("stamps the TASK's project repository on the record, not the server's (AT2)", async () => {
+    // Server rooted at minsky; task mt#4678 belongs to peezombie.
+    const deps = { ...createDeps(MINSKY_URL), db: peezombieTaskDb() };
+    const params = { task: "mt#4678" } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    // All three of AT2's assertions: record url, derived name, and project id.
+    expect(added.repoUrl).toBe(PEEZOMBIE_URL);
+    expect(added.repoName).toContain("peezombie");
+    expect(added.projectId).toBe(PEEZOMBIE_ID);
+  });
+
+  it("clones from the forge URL, so origin is never a local path (SC3)", async () => {
+    const deps = { ...createDeps(MINSKY_URL), db: peezombieTaskDb() };
+    withOrigin(deps, PEEZOMBIE_URL);
+    const params = {
+      task: "mt#4678",
+      repo: PEEZOMBIE_PATH,
+    } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    const cloneArgs = first(
+      (deps.gitService.clone as ReturnType<typeof mock>).mock.calls as unknown[][]
+    )[0] as { repoUrl: string; referenceRepo?: string };
+
+    // The local path is a FETCH source, not the origin.
+    expect(cloneArgs.repoUrl).toBe(PEEZOMBIE_URL);
+    expect(cloneArgs.referenceRepo).toBe(PEEZOMBIE_PATH);
+  });
+
+  it("REFUSES when the repo argument contradicts the task's project (SC1b)", async () => {
+    const deps = { ...createDeps(MINSKY_URL), db: peezombieTaskDb() };
+    // A local checkout of minsky, passed for a peezombie task.
+    withOrigin(deps, MINSKY_URL);
+    const params = {
+      task: "mt#4678",
+      repo: "/Users/edobry/Projects/minsky",
+    } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/edobry\/peezombie\.me/);
+    // Nothing half-built: the refusal happens in the precondition phase.
+    expect(deps.addSessionSpy.mock.calls.length).toBe(0);
+  });
+
+  it("leaves the same-project case unchanged, with and without an explicit repo (AT4)", async () => {
+    const minskyId = "3ac3d147-2b6f-4cf9-a52a-2b6e32d3c5fe";
+    const sameProjectDb = () =>
+      crossProjectDb(
+        [{ id: "mt#4758", projectId: minskyId }],
+        [{ id: minskyId, slug: "edobry/minsky", repoUrl: MINSKY_URL }]
+      );
+
+    const bare = { ...createDeps(MINSKY_URL), db: sameProjectDb() };
+    await startSessionImpl({ task: "mt#4758" } as unknown as SessionStartParameters, bare);
+    const bareAdded = first(bare.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(bareAdded.repoUrl).toBe(MINSKY_URL);
+    expect(bareAdded.projectId).toBe(minskyId);
+
+    const withRepo = { ...createDeps(MINSKY_URL), db: sameProjectDb() };
+    withOrigin(withRepo, MINSKY_URL);
+    await startSessionImpl(
+      {
+        task: "mt#4758",
+        repo: "/Users/edobry/Projects/minsky",
+      } as unknown as SessionStartParameters,
+      withRepo
+    );
+    const repoAdded = first(withRepo.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(repoAdded.repoUrl).toBe(MINSKY_URL);
+    expect(repoAdded.projectId).toBe(minskyId);
+  });
+
+  it("takes the BACKEND from the resolved project too, not the server config (PR #3516 R1)", async () => {
+    // A server whose own backend is NOT github, working a task whose project IS
+    // github-backed. Before this fix `isGithubBacked` read the server's answer,
+    // so the SC3 guard went the wrong way and a local path became `origin` for
+    // a GitHub-backed project — this task's defect, one field over.
+    const deps = { ...createDeps(MINSKY_URL), db: peezombieTaskDb() };
+    deps.getRepositoryBackend = vi.fn(async () => ({
+      repoUrl: "/Users/edobry/Projects/some-local-repo",
+      backendType: "local",
+    })) as unknown as StartSessionDependencies["getRepositoryBackend"];
+    withOrigin(deps, PEEZOMBIE_URL);
+
+    await startSessionImpl(
+      { task: "mt#4678", repo: PEEZOMBIE_PATH } as unknown as SessionStartParameters,
+      deps
+    );
+
+    const cloneArgs = first(
+      (deps.gitService.clone as ReturnType<typeof mock>).mock.calls as unknown[][]
+    )[0] as { repoUrl: string; referenceRepo?: string };
+    expect(cloneArgs.repoUrl).toBe(PEEZOMBIE_URL);
+    expect(cloneArgs.repoUrl).not.toBe(PEEZOMBIE_PATH);
+
+    // And the record carries the backend the IDENTITY implies, not the server's.
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(added.backendType).toBe("github");
+  });
+
+  it("falls back to config identity when the task carries no project (fail-open)", async () => {
+    const deps = {
+      ...createDeps(MINSKY_URL),
+      db: crossProjectDb([{ id: "mt#4758", projectId: null }], []),
+    };
+
+    await startSessionImpl({ task: "mt#4758" } as unknown as SessionStartParameters, deps);
+
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(added.repoUrl).toBe(MINSKY_URL);
   });
 });
