@@ -159,8 +159,15 @@ function MemorySearchBody({
                         {record.name}
                       </span>
                     </div>
+                    {/* mt#4787: unchanged and now correct — see the matching
+                        note in MemoryDetail.tsx. `score` is a cosine similarity
+                        converted once at the MemoryService boundary, not the
+                        vector store's raw L2 distance. */}
                     {payload.backend === "embeddings" && (
-                      <span className="text-[10px] text-muted-foreground tabular-nums flex-shrink-0">
+                      <span
+                        className="text-[10px] text-muted-foreground tabular-nums flex-shrink-0"
+                        title="Cosine similarity — higher is more similar"
+                      >
                         {(score * 100).toFixed(0)}%
                       </span>
                     )}

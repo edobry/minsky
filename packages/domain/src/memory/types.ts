@@ -168,6 +168,21 @@ export function toMemorySummary(record: MemoryRecord): MemorySummaryRecord {
  */
 export interface MemorySearchResult {
   record: MemoryRecord;
+  /**
+   * **Cosine similarity in [0, 1] — HIGHER means more similar** (mt#4787).
+   *
+   * The direction is stated here because its absence was the defect. The
+   * vector store returns an L2 DISTANCE (`<->`, lower is nearer); this field
+   * is that distance converted at the `MemoryService` boundary via
+   * {@link l2DistanceToSimilarity}, so that every consumer reads one
+   * unambiguous direction. Before mt#4787 the raw distance was passed through
+   * under this name and three separate surfaces rendered it as a similarity —
+   * the closest match displaying the smallest number.
+   *
+   * Do not reintroduce a raw distance here. If you need one, convert back with
+   * {@link similarityToL2Distance} at the point of use and name the local
+   * `distance`.
+   */
   score: number;
   /**
    * Read-time staleness verdict (mt#1709). Present only when the record declares a
@@ -356,6 +371,30 @@ export interface MemoryListFilter {
  */
 export interface MemorySearchOptions {
   limit?: number;
+  /**
+   * **Minimum cosine similarity in [0, 1]** — results scoring below it are
+   * dropped (mt#4787). Same direction as {@link MemorySearchResult.score}, so
+   * a threshold and a displayed score are directly comparable.
+   *
+   * This matches what the `memory.search` command has always DOCUMENTED
+   * ("Minimum similarity score threshold"). It did not match what the code
+   * did: the value was forwarded untouched to `VectorStorage.search`, which
+   * applies it as `score <= threshold` against an L2 DISTANCE — a maximum, and
+   * in the opposite direction. `MemoryService` now converts it with
+   * {@link similarityToL2Distance} before the store sees it.
+   *
+   * **Caller audit at the time of the change (PR #3512 R1).** Exactly ONE
+   * production caller sets this: the `memory.similar` command
+   * (`src/adapters/shared/commands/memory/index.ts:1260`), whose own parameter
+   * is described as "Minimum similarity score threshold" — so it was already
+   * asking for a similarity floor and silently receiving the inverse. This
+   * change fixes that caller rather than flipping a contract out from under
+   * it. Every other consumer passes only `limit`/`filter` and is unaffected:
+   * the `memory.search` command, the cockpit's `memories-search` and
+   * `memories-detail` widgets, the MCP enrichment and bundle middleware, and
+   * `scripts/benchmark-mcp-memory-enrichment.ts` /
+   * `scripts/principal-corpus/acceptance-tests.ts`.
+   */
   threshold?: number;
   filter?: MemoryListFilter;
 }

@@ -324,10 +324,48 @@ describe("memory-enrichment / enrichToolResponse", () => {
     expect(result?.text).toContain('<memory-context tool="tasks.get" count="2">');
     expect(result?.text).toContain("</memory-context>");
     expect(result?.text).toContain("[feedback] Test rule A");
-    expect(result?.text).toContain("score 0.91");
+    // mt#4787: labelled `similarity`, not `score`. This block is agent-facing,
+    // and `MemorySearchResult.score` is now a cosine similarity in [0,1] where
+    // higher is more similar — a bare "score" left the direction unstated on
+    // the widest-reach of the three surfaces that render it.
+    expect(result?.text).toContain("similarity 0.91");
+    expect(result?.text).not.toContain("score 0.91");
     expect(result?.text).toContain("[project] Test project B");
     expect(result?.text).toContain("Description A");
     expect(result?.text).toContain("Description B");
+  });
+
+  test("the better match is rendered with the HIGHER number (mt#4787)", async () => {
+    // The direction, not just the label. Before mt#4787 the field carried the
+    // vector store's L2 distance, so the nearest record printed the smallest
+    // figure here — and an agent reading the block had no way to tell.
+    const service = makeMemoryService({
+      searchResponse: {
+        results: [
+          makeSearchResult({
+            record: makeMemoryRecord({ name: "Closest", description: "d" }),
+            score: 0.91,
+          }),
+          makeSearchResult({
+            record: makeMemoryRecord({ id: "id-2", name: "Furthest", description: "d" }),
+            score: 0.42,
+          }),
+        ],
+        backend: "embeddings",
+        degraded: false,
+      },
+    });
+    const text =
+      (await enrichToolResponse("tasks.get", { taskId: "mt#1588" }, service))?.text ?? "";
+
+    const closestIdx = text.indexOf("Closest");
+    const furthestIdx = text.indexOf("Furthest");
+    expect(closestIdx).toBeGreaterThanOrEqual(0);
+    expect(furthestIdx).toBeGreaterThan(closestIdx);
+
+    // The first-listed record carries the larger figure.
+    expect(text).toContain("Closest — similarity 0.91");
+    expect(text).toContain("Furthest — similarity 0.42");
   });
 
   test("respects total char budget", async () => {

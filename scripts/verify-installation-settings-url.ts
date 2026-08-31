@@ -37,6 +37,8 @@ import { join } from "node:path";
 import { setupConfiguration } from "@minsky/domain/config-setup";
 import { getConfiguration } from "@minsky/domain/configuration";
 import { installationSettingsUrl } from "@minsky/domain/setup/app-coverage";
+import { createTokenProvider } from "@minsky/domain/auth";
+import { GitHubAppTokenProvider } from "@minsky/domain/auth/github-app-token-provider";
 
 const GITHUB_API_BASE = "https://api.github.com";
 
@@ -126,6 +128,28 @@ async function main(): Promise<void> {
   }
 
   console.log("PASS: constructed URL matches GitHub's own html_url for this installation.");
+
+  // mt#4764: the raw check above proves what GitHub ANSWERS. This proves the
+  // PRODUCTION path reads it — `getInstallationHtmlUrl` is what
+  // `checkAppRoleCoverage` now prefers over the constructed form, and a
+  // seam-injected unit test says nothing about the real-wired binding.
+  const provider = createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? "");
+  if (!(provider instanceof GitHubAppTokenProvider)) {
+    console.log("SKIP: configured provider is not App-backed — production path not exercised.");
+    return;
+  }
+
+  const viaProvider = await provider.getInstallationHtmlUrl();
+  console.log(`via provider:    ${viaProvider ?? "<null>"}`);
+
+  if (viaProvider !== authoritative) {
+    console.error(
+      "FAIL: GitHubAppTokenProvider.getInstallationHtmlUrl() did not return GitHub's html_url."
+    );
+    process.exit(1);
+  }
+
+  console.log("PASS: the production read path returns GitHub's own html_url.");
 }
 
 await main();
