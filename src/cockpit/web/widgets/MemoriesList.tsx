@@ -300,11 +300,32 @@ interface MemoriesFilters extends Record<string, string> {
   tags: string;
   /** ISO date lower bound — drives the "Recent" cohort preset (mt#4763). */
   since: string;
-  /** `"true"` to show only stale records — drives the "Stale" cohort preset (mt#4763). */
+  /**
+   * `"true"` to show only stale records — drives the cohort preset mt#4763
+   * shipped as "Stale" and mt#4767 relabels to "Cold".
+   *
+   * The FIELD keeps its name while the LABEL changes: renaming
+   * `MemoryListFilter.stale` is a tracked follow-up, and doing it here would
+   * break every already-shared `?mem_f_stale=true` URL for a cosmetic win.
+   * New work should reach for `cold` below, which is the disjoint filter;
+   * this one unions never-read in and cannot separate the two.
+   */
   stale: "true" | "false";
+  /** `"true"` for records with no tags — mt#4767's Untagged worklist. */
+  untagged: "true" | "false";
+  /** `"true"` for records never read since creation — mt#4767's Never-read worklist. */
+  neverAccessed: "true" | "false";
+  /** `"true"` for records read once and not since — mt#4767's Cold worklist. */
+  cold: "true" | "false";
+  /** Cold threshold in days; empty means the domain default (14). */
+  coldDays: string;
+  /** `"true"` for superseded records only — mt#4767's Superseded worklist. */
+  onlySuperseded: "true" | "false";
 }
 
-const DEFAULT_FILTERS: MemoriesFilters = {
+/** Exported alongside {@link buildListParams} so a test can start from the real
+ * production defaults rather than a hand-built object that could drift from them. */
+export const DEFAULT_FILTERS: MemoriesFilters = {
   type: "",
   scope: "",
   excludeSuperseded: "true",
@@ -312,6 +333,11 @@ const DEFAULT_FILTERS: MemoriesFilters = {
   tags: "",
   since: "",
   stale: "false",
+  untagged: "false",
+  neverAccessed: "false",
+  cold: "false",
+  coldDays: "",
+  onlySuperseded: "false",
 };
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -376,7 +402,15 @@ interface UrlState {
   filters: MemoriesFilters;
 }
 
-function buildListParams(
+/**
+ * Exported for direct assertion (mt#4767). This is a pure state -> request-params
+ * function — the observable the filter plumbing actually produces — so testing it
+ * needs no render and no fetch mock. Worth pinning because one of its rules is
+ * non-obvious and fails SILENTLY: the superseded worklist has to delete the
+ * default `excludeSuperseded`, or it renders a plausible empty list rather than
+ * an error.
+ */
+export function buildListParams(
   state: UrlState,
   projectParam: { project: string } | undefined
 ): Record<string, string> {
@@ -392,6 +426,27 @@ function buildListParams(
   if (state.filters.tags) params.tags = state.filters.tags;
   if (state.filters.since) params.since = state.filters.since;
   if (state.filters.stale === "true") params.stale = "true";
+  // mt#4767 curation worklists. Each is sent only when active, so an
+  // untouched view sends nothing new and the request shape is unchanged for
+  // every existing caller.
+  if (state.filters.untagged === "true") params.untagged = "true";
+  if (state.filters.neverAccessed === "true") params.neverAccessed = "true";
+  if (state.filters.cold === "true") {
+    params.cold = "true";
+    // Only sent alongside `cold` — on its own it would read as a threshold
+    // for a filter that isn't running.
+    if (state.filters.coldDays) params.coldDays = state.filters.coldDays;
+  }
+  if (state.filters.onlySuperseded === "true") {
+    params.onlySuperseded = "true";
+    // The superseded worklist has to see superseded rows, and
+    // DEFAULT_FILTERS.excludeSuperseded is "true" — so without this the
+    // worklist would reliably render empty, which is the worst kind of wrong
+    // (a plausible zero rather than an error). The two filters are
+    // contradictory by construction; this resolves it in the only direction
+    // that makes the view meaningful.
+    delete params.excludeSuperseded;
+  }
   if (projectParam) params.project = projectParam.project;
   return params;
 }
@@ -1070,6 +1125,14 @@ function MemoriesListInner({
       urlState.filters.tags,
       urlState.filters.since,
       urlState.filters.stale,
+      // mt#4767: every filter that reaches buildListParams must appear here,
+      // or switching worklists re-serves the previous worklist's cached page
+      // under the new heading — a wrong list that looks like a right one.
+      urlState.filters.untagged,
+      urlState.filters.neverAccessed,
+      urlState.filters.cold,
+      urlState.filters.coldDays,
+      urlState.filters.onlySuperseded,
       selectedSlug,
     ],
     queryFn: () => fetchWidgetData("memories-list", buildListParams(urlState, projectParam)),

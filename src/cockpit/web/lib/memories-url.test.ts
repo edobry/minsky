@@ -1,0 +1,126 @@
+/**
+ * Worklist URL round-trip tests (mt#4767).
+ *
+ * The navigate side and the "am I active" side are two functions reading one
+ * mapping. If they disagree, a worklist either never highlights or — worse —
+ * highlights while the table shows something else, which is a wrong answer
+ * that looks like a right one. These assert they agree, and pin the two
+ * mappings that are easy to get subtly wrong.
+ */
+import { describe, test, expect, beforeEach } from "bun:test";
+import {
+  applyWorklist,
+  isWorklistActive,
+  activeWorklist,
+  readMemFilter,
+  readView,
+  type WorklistId,
+} from "./memories-url";
+
+const ALL_WORKLISTS: WorklistId[] = ["untagged", "neverRead", "cold", "duplicates", "superseded"];
+
+function setUrl(url: string) {
+  (window as unknown as { happyDOM: { setURL: (u: string) => void } }).happyDOM.setURL(url);
+}
+
+beforeEach(() => {
+  setUrl("http://localhost/memories");
+});
+
+describe("applyWorklist / isWorklistActive round-trip", () => {
+  test.each(ALL_WORKLISTS)("%s is active immediately after applying it", (id) => {
+    applyWorklist(id);
+    expect(isWorklistActive(window.location.search, id)).toBe(true);
+  });
+
+  test.each(ALL_WORKLISTS)("%s is the ONLY active worklist after applying it", (id) => {
+    applyWorklist(id);
+    const others = ALL_WORKLISTS.filter((o) => o !== id);
+    for (const other of others) {
+      expect(isWorklistActive(window.location.search, other)).toBe(false);
+    }
+    expect(activeWorklist(window.location.search)).toBe(id);
+  });
+
+  test("no worklist is active on a bare /memories", () => {
+    expect(activeWorklist(window.location.search)).toBeNull();
+  });
+});
+
+describe("the never-read mapping", () => {
+  test("neverRead writes `neverAccessed`, NEVER `stale`", () => {
+    // This is the whole reason mt#4767 added a domain filter instead of
+    // reusing the existing one. `stale` is `last_accessed_at IS NULL OR older
+    // than N` — a union that also matches read-but-old records. Pointing this
+    // worklist at it would silently merge two populations the page presents
+    // as separate; measured 2026-08-31 they differ by exactly one row at the
+    // 90-day default, so the bug would be invisible in the counts too.
+    applyWorklist("neverRead");
+    expect(readMemFilter(window.location.search, "neverAccessed")).toBe("true");
+    expect(readMemFilter(window.location.search, "stale")).toBe("");
+  });
+
+  test("cold writes `cold`, NEVER `stale`", () => {
+    applyWorklist("cold");
+    expect(readMemFilter(window.location.search, "cold")).toBe("true");
+    expect(readMemFilter(window.location.search, "stale")).toBe("");
+  });
+
+  test("cold carries its threshold so the label and the filter agree", () => {
+    applyWorklist("cold", 30);
+    expect(readMemFilter(window.location.search, "coldDays")).toBe("30");
+  });
+});
+
+describe("duplicates is a view, not a filter", () => {
+  test("applying it swaps the page view and sets no row filter", () => {
+    applyWorklist("duplicates");
+    expect(readView(window.location.search)).toBe("duplicates");
+    for (const key of ["untagged", "neverAccessed", "cold", "onlySuperseded"]) {
+      expect(readMemFilter(window.location.search, key)).toBe("");
+    }
+  });
+
+  test("a filter-shaped worklist clears the duplicates view", () => {
+    applyWorklist("duplicates");
+    applyWorklist("untagged");
+    expect(readView(window.location.search)).toBe("");
+  });
+});
+
+describe("switching worklists does not accumulate filters", () => {
+  test("the previous worklist's filter is cleared, not ANDed", () => {
+    // Without this, "Untagged" then "Superseded" would silently mean "untagged
+    // AND superseded" — a list smaller than the count on the tile that was
+    // just clicked, with nothing on screen explaining why.
+    applyWorklist("untagged");
+    applyWorklist("superseded");
+    expect(readMemFilter(window.location.search, "untagged")).toBe("");
+    expect(readMemFilter(window.location.search, "onlySuperseded")).toBe("true");
+  });
+
+  test("a cohort filter left over from mt#4763 is cleared too", () => {
+    setUrl("http://localhost/memories?mem_f_tags=handoff&mem_f_since=2026-08-01");
+    applyWorklist("untagged");
+    expect(readMemFilter(window.location.search, "tags")).toBe("");
+    expect(readMemFilter(window.location.search, "since")).toBe("");
+    expect(readMemFilter(window.location.search, "untagged")).toBe("true");
+  });
+
+  test("a stale coldDays does not survive into a non-cold worklist", () => {
+    applyWorklist("cold", 30);
+    applyWorklist("untagged");
+    expect(readMemFilter(window.location.search, "coldDays")).toBe("");
+  });
+});
+
+describe("pagination resets on a worklist click", () => {
+  test("mem_page is dropped", () => {
+    // Landing on page 4 of a list you just switched to shows an empty table
+    // whenever the new population is shorter — an empty state that is not a
+    // real empty state.
+    setUrl("http://localhost/memories?mem_page=4");
+    applyWorklist("untagged");
+    expect(new URLSearchParams(window.location.search).get("mem_page")).toBeNull();
+  });
+});

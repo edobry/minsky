@@ -118,6 +118,15 @@ export function createMemoriesListWidget(
         const offset = parsePositiveInt(query?.offset) ?? 0;
         const stale = query?.stale === "true";
         const stalenessDays = parsePositiveInt(query?.stalenessDays);
+        // mt#4767 curation worklists. `cold` is NOT `stale` with a different
+        // threshold: `stale` unions never-read with read-but-old, so it can
+        // never render the two as separate lists — see MemoryListFilter's
+        // field docs for the measurement (252 vs 251 at the 90-day default).
+        const untagged = query?.untagged === "true";
+        const neverAccessed = query?.neverAccessed === "true";
+        const cold = query?.cold === "true";
+        const coldDays = parsePositiveInt(query?.coldDays);
+        const onlySuperseded = query?.onlySuperseded === "true";
         const association =
           query?.associationType && query?.associationTarget
             ? { type: query.associationType, targetId: query.associationTarget }
@@ -153,6 +162,11 @@ export function createMemoriesListWidget(
           until: query?.until,
           stale,
           stalenessDays,
+          untagged,
+          neverAccessed,
+          cold,
+          coldDays,
+          onlySuperseded,
           association,
         };
 

@@ -141,6 +141,14 @@ function invalidateMemoryQueries(queryClient: QueryClient, id?: string): void {
   void queryClient.invalidateQueries({ queryKey: ["widget", "memories-list"] });
   void queryClient.invalidateQueries({ queryKey: ["widget", "memories-search"] });
   void queryClient.invalidateQueries({ queryKey: ["widget", "memories-stats"] });
+  // mt#4767: the curation worklists are the surface a mutation is MOST likely
+  // to move — tagging an untagged record is the canonical flow, and the whole
+  // point of the worklists is that acting on one shrinks it. Without this the
+  // count would sit unchanged after the action that fixed it, which reads as
+  // "the write didn't take". `memories-duplicates` likewise: a supersede from
+  // the detail page removes a member from its group.
+  void queryClient.invalidateQueries({ queryKey: ["widget", "memories-curation"] });
+  void queryClient.invalidateQueries({ queryKey: ["widget", "memories-duplicates"] });
   if (id) {
     void queryClient.invalidateQueries({ queryKey: ["widget", "memories-detail", id] });
   }

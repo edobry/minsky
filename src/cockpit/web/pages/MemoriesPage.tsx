@@ -1,13 +1,24 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MemoriesHealth } from "../widgets/MemoriesHealth";
-import { MemoryStats } from "../widgets/MemoryStats";
+import { MemoriesCuration } from "../widgets/MemoriesCuration";
 import { MemoriesList } from "../widgets/MemoriesList";
 import { MemoriesFamilies } from "../widgets/MemoriesFamilies";
+import { MemoriesDuplicates } from "../widgets/MemoriesDuplicates";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useProject } from "../lib/project-context";
 import { cn } from "../lib/utils";
 import { PROVENANCE_TAG_NAMESPACES } from "@minsky/shared/memory-tag-namespaces";
+import {
+  VIEW_PARAM,
+  memFilterKey,
+  readMemFilter,
+  readView,
+  readExcludeSuperseded,
+  parseTagList,
+  writeMemoriesUrl,
+  useReactiveSearch,
+} from "../lib/memories-url";
 
 /**
  * mt#4762: the standalone `<MemorySearch>` card (a third of the viewport for
@@ -44,69 +55,17 @@ import { PROVENANCE_TAG_NAMESPACES } from "@minsky/shared/memory-tag-namespaces"
 // `useListControls.ts` or `MemoriesList.tsx`'s hook usage were needed.
 // ---------------------------------------------------------------------------
 
-const MEM_PREFIX = "mem";
-const VIEW_PARAM = "mem_view";
-
-export function memFilterKey(key: string): string {
-  return `${MEM_PREFIX}_f_${key}`;
-}
-
-export function readMemFilter(search: string, key: string): string {
-  return new URLSearchParams(search).get(memFilterKey(key)) ?? "";
-}
-
-export function readView(search: string): string {
-  return new URLSearchParams(search).get(VIEW_PARAM) ?? "";
-}
-
-/**
- * Write a batch of `mem_f_*`/`mem_view` values (`null` clears the key) and
- * reset pagination, mirroring `useListControls`'s own `setFilter` — then
- * notify any co-mounted `useListControls` instance via a synthetic
- * `popstate` (see section doc above).
- */
-function writeMemoriesUrl(updates: Record<string, string | null>): void {
-  const params = new URLSearchParams(window.location.search);
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === null || value === "") params.delete(key);
-    else params.set(key, value);
-  }
-  params.delete(`${MEM_PREFIX}_page`);
-  const search = params.toString();
-  const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
-  window.history.replaceState(null, "", url);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
-/** Reactive copy of `window.location.search`, kept in sync via `popstate`. */
-function useReactiveSearch(): string {
-  const [search, setSearch] = useState(() => window.location.search);
-  useEffect(() => {
-    const onPopState = () => setSearch(window.location.search);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-  return search;
-}
-
-export function parseTagList(value: string): string[] {
-  return value
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-}
-
-/**
- * `MemoriesList`'s own `DEFAULT_FILTERS.excludeSuperseded` is `"true"`, and
- * `useListControls`'s `setFilter` OMITS a param from the URL when it equals
- * the default — so an ABSENT `mem_f_excludeSuperseded` means "true", not
- * "unset". The facet-count query must read the SAME default or its counts
- * would disagree with the table for the (very common) never-touched case.
- */
-export function readExcludeSuperseded(search: string): "true" | "false" {
-  const raw = readMemFilter(search, "excludeSuperseded");
-  return raw === "false" ? "false" : "true";
-}
+// These moved to `../lib/memories-url` (mt#4767) so the curation worklists
+// can write the same URL space without importing from the page that renders
+// them. Re-exported here because this module was their public home and both
+// this page's tests and future callers resolve them from it.
+export {
+  memFilterKey,
+  readMemFilter,
+  readView,
+  parseTagList,
+  readExcludeSuperseded,
+} from "../lib/memories-url";
 
 // ---------------------------------------------------------------------------
 // Cohort switcher (mt#4763 success criterion)
@@ -120,7 +79,7 @@ export function readExcludeSuperseded(search: string): "true" | "false" {
 // the same table — see `MemoriesFamilies.tsx`.
 // ---------------------------------------------------------------------------
 
-type CohortId = "all" | "recent" | "handoffs" | "families" | "retrospectives" | "bridge" | "stale";
+type CohortId = "all" | "recent" | "handoffs" | "families" | "retrospectives" | "bridge" | "cold";
 
 interface CohortDef {
   id: CohortId;
@@ -132,7 +91,20 @@ interface CohortDef {
 /** Matches `memories-stats.ts`'s own `recentCount` window — the one other place "recent" is defined in this system. */
 const RECENT_WINDOW_DAYS = 7;
 
-const FILTER_COHORT_KEYS = ["tags", "since", "stale"] as const;
+// mt#4767: the curation worklist keys join this list. A cohort click must
+// clear them, or a worklist left active from a previous click silently ANDs
+// with the new cohort — "Handoffs" would quietly mean "untagged handoffs" and
+// the count would disagree with the chip.
+const FILTER_COHORT_KEYS = [
+  "tags",
+  "since",
+  "stale",
+  "cold",
+  "coldDays",
+  "untagged",
+  "neverAccessed",
+  "onlySuperseded",
+] as const;
 
 function clearFilterCohortKeys(): Record<string, null> {
   const updates: Record<string, null> = { [VIEW_PARAM]: null };
@@ -144,6 +116,25 @@ function isPlainView(search: string): boolean {
   return readView(search) === "";
 }
 
+/**
+ * True when any last-accessed / curation narrowing filter is set (mt#4767).
+ *
+ * The "All" and "Recent" cohorts use this to decide they are NOT active. It
+ * has to cover every worklist key, not just `stale`: before mt#4767 the check
+ * was a bare `readMemFilter(s, "stale") !== "true"`, so clicking a worklist
+ * would leave "All" rendering as the selected chip while the table showed a
+ * narrowed list — the chip row asserting something the table contradicts.
+ */
+function hasNarrowingFilter(search: string): boolean {
+  return (
+    readMemFilter(search, "stale") === "true" ||
+    readMemFilter(search, "cold") === "true" ||
+    readMemFilter(search, "untagged") === "true" ||
+    readMemFilter(search, "neverAccessed") === "true" ||
+    readMemFilter(search, "onlySuperseded") === "true"
+  );
+}
+
 export const COHORT_DEFS: CohortDef[] = [
   {
     id: "all",
@@ -153,7 +144,7 @@ export const COHORT_DEFS: CohortDef[] = [
       isPlainView(s) &&
       readMemFilter(s, "tags") === "" &&
       readMemFilter(s, "since") === "" &&
-      readMemFilter(s, "stale") !== "true",
+      !hasNarrowingFilter(s),
   },
   {
     id: "recent",
@@ -166,7 +157,7 @@ export const COHORT_DEFS: CohortDef[] = [
       isPlainView(s) &&
       readMemFilter(s, "since") !== "" &&
       readMemFilter(s, "tags") === "" &&
-      readMemFilter(s, "stale") !== "true",
+      !hasNarrowingFilter(s),
   },
   {
     id: "handoffs",
@@ -195,10 +186,28 @@ export const COHORT_DEFS: CohortDef[] = [
     isActive: (s) => isPlainView(s) && readMemFilter(s, "tags") === "bridge-memory",
   },
   {
-    id: "stale",
-    label: "Stale",
-    apply: () => writeMemoriesUrl({ ...clearFilterCohortKeys(), [memFilterKey("stale")]: "true" }),
-    isActive: (s) => isPlainView(s) && readMemFilter(s, "stale") === "true",
+    // mt#4767: was `id: "stale", label: "Stale"`, filtering on `mem_f_stale`.
+    // Both halves were wrong and in different ways.
+    //
+    // The LABEL collided: `staleness.ts` emits "⚠️ POSSIBLY OBSOLETE" for a
+    // memory whose TRACKING TASK shipped — an unrelated property — so the
+    // page showed one word for two meanings.
+    //
+    // The FILTER was worse: `stale` is `last_accessed_at IS NULL OR older
+    // than N`, so a chip meaning "read a while ago" was actually serving
+    // never-read records too. Measured 2026-08-31, that is 251 of the 252
+    // rows it returned. It now filters on `cold`, which requires
+    // `last_accessed_at IS NOT NULL` and says what it means.
+    //
+    // A legacy `?mem_f_stale=true` link still filters correctly (the domain
+    // field is untouched) and still lights this chip, so shared URLs keep
+    // working while new clicks write the honest param.
+    id: "cold",
+    label: "Cold",
+    apply: () => writeMemoriesUrl({ ...clearFilterCohortKeys(), [memFilterKey("cold")]: "true" }),
+    isActive: (s) =>
+      isPlainView(s) &&
+      (readMemFilter(s, "cold") === "true" || readMemFilter(s, "stale") === "true"),
   },
 ];
 
@@ -460,6 +469,7 @@ export function MemoriesPage() {
   const search = useReactiveSearch();
   const { queryParam: projectParam } = useProject();
   const isFamiliesView = readView(search) === "families";
+  const isDuplicatesView = readView(search) === "duplicates";
 
   return (
     <div className="p-4 max-w-6xl mx-auto w-full space-y-4">
@@ -469,21 +479,23 @@ export function MemoriesPage() {
         <MemoriesHealth />
       </div>
 
-      {/* mt#4762 PR #3492 R2: MemoryStats' own content (type badges, a 2-col
-          quick-stats grid, a 5-row "most accessed" list) was designed for the
-          ~1/3-page column it occupied in the old Search+Stats grid — at full
-          page width it just stretches the card frame, leaving the right two
-          thirds empty. Capping the width here is a page-layout call (this
-          page's container, not the widget), not the widget redesign mt#4767
-          owns; the widget's own markup is untouched. */}
-      <div className="max-w-md">
-        <MemoryStats />
-      </div>
+      {/* mt#4767: this is the widget redesign the mt#4762 PR #3492 R2 comment
+          deferred to this task. MemoryStats' width cap is gone with it — the
+          worklist tiles are a full-width 5-up grid, so there is no longer a
+          narrow card stretched across the page. MemoryStats.tsx itself stays
+          registered as a standalone widget for any other render context. */}
+      <MemoriesCuration />
 
       <CohortSwitcher search={search} />
 
       {isFamiliesView ? (
         <MemoriesFamilies />
+      ) : isDuplicatesView ? (
+        /* Read-only content-hash rollup. Deliberately renders INSTEAD of the
+           table (mt#4763's families precedent): a duplicate group is not a
+           filtered slice of a flat list, and rendering it as one would drop
+           the grouping that makes the population legible. */
+        <MemoriesDuplicates />
       ) : (
         <>
           <FacetsRail search={search} projectParam={projectParam} />

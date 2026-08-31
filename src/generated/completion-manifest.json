@@ -6489,6 +6489,27 @@
               "takesValue": true
             },
             {
+              "flags": ["--untagged"],
+              "description": "When true, filter to memories carrying no tags at all"
+            },
+            {
+              "flags": ["--never-accessed"],
+              "description": "When true, filter to memories never read since creation. Narrower than --stale, which also matches records that WERE read but not recently"
+            },
+            {
+              "flags": ["--cold"],
+              "description": "When true, filter to memories that were read at least once but not within --cold-days. Disjoint from --never-accessed; --stale is the union of the two"
+            },
+            {
+              "flags": ["--cold-days"],
+              "description": "Threshold (in days) for the --cold filter; defaults to 14",
+              "takesValue": true
+            },
+            {
+              "flags": ["--only-superseded"],
+              "description": "When true, return ONLY superseded memories. Not the inverse of --exclude-superseded, which can exclude them but never restrict to them"
+            },
+            {
               "flags": ["--limit"],
               "description": "Maximum number of results to return",
               "takesValue": true
