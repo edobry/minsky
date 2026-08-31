@@ -133,14 +133,32 @@ export function defaultEvaluationWriterScanDeps(repoRoot?: string): EvaluationWr
   };
 }
 
+/** Strip line and block comments so a mention in prose is not read as a code reference. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
 /**
  * Every `.minsky/hooks` module that writes evaluation records, found by reading source.
  *
- * Keys on the IMPORT of `logEvaluationRecord`, not on a call to it. That choice is the whole
- * point of the function: `context-fill-gauge.ts` calls the writer through an injected alias
- * (`logEvaluation(...)`), so a scan for `logEvaluationRecord(` finds ten writers and misses the
- * eleventh — which is what happened during mt#4804's investigation, and the miss is silent
- * because ten results look like a complete answer.
+ * Matches ANY code reference to `logEvaluationRecord` — not the call `logEvaluationRecord(`, and
+ * not a named-import statement either. Both narrower forms have a silent false negative, and a
+ * census that under-reports is worse than no census: it returns a plausible list, and nothing
+ * distinguishes "every writer is declared" from "the scan could not see this one".
+ *
+ * - Keying on the CALL misses `context-fill-gauge.ts`, which writes through an injected alias
+ *   (`const logEvaluation = deps.logEvaluationRecordFn ?? logEvaluationRecord`) and never spells
+ *   `logEvaluationRecord(`. That miss is real: it happened during mt#4804's own investigation,
+ *   where ten results looked like a complete answer.
+ * - Keying on a NAMED import (`import { logEvaluationRecord } from "./dispatcher"`) misses a
+ *   namespace or default import — `import * as dispatcher from "./dispatcher"` followed by
+ *   `dispatcher.logEvaluationRecord(...)`. Flagged by the reviewer on PR #3517; no such writer
+ *   exists in the tree today, which is exactly why it would have gone unnoticed when one arrived.
+ *
+ * Matching the bare identifier covers all three, and the failure direction flips: a module that
+ * merely references the symbol is a FALSE POSITIVE, which fails loudly and is resolved by adding
+ * an entry. Comments are stripped first so a module discussing the writer in prose — as
+ * `guard-health.ts` does, describing its swallow-all posture — is not caught by it.
  *
  * Test files are excluded (they import the writer to assert on it), as is `dispatcher.ts`, which
  * DEFINES it.
@@ -150,9 +168,8 @@ export function findEvaluationWriterModules(deps: EvaluationWriterScanDeps): str
   for (const path of deps.listHookFiles()) {
     if (path.endsWith(".test.ts")) continue;
     if (path.endsWith("/dispatcher.ts") || path.endsWith("dispatcher.ts")) continue;
-    const source = deps.readFile(path);
-    // The import, not the call — see the doc comment above.
-    if (!/import\s*\{[^}]*\blogEvaluationRecord\b[^}]*\}\s*from/s.test(source)) continue;
+    const code = stripComments(deps.readFile(path));
+    if (!/\blogEvaluationRecord\b/.test(code)) continue;
     writers.push(path);
   }
   return writers.sort();

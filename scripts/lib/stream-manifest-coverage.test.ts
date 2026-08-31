@@ -152,6 +152,34 @@ describe("the evaluation-writer census keeps a hand-maintained map honest", () =
     expect(reported).toEqual([".minsky/hooks/brand-new-detector.ts"]);
   });
 
+  test("the census sees a writer that imports the dispatcher as a namespace", () => {
+    // PR #3517 R1, non-blocking. Keying on a NAMED import misses this shape, and no writer in
+    // the tree uses it today — which is precisely why the gap would have gone unnoticed until
+    // one did. A census that under-reports returns a plausible list with nothing to distinguish
+    // it from a complete one.
+    const writers = findEvaluationWriterModules({
+      listHookFiles: () => [".minsky/hooks/namespace-writer.ts"],
+      readFile: () =>
+        'import * as dispatcher from "./dispatcher";\n' +
+        "dispatcher.logEvaluationRecord(NAME, record, {});",
+    });
+    expect(writers).toEqual([".minsky/hooks/namespace-writer.ts"]);
+  });
+
+  test("a module that only mentions the writer in a comment is not counted", () => {
+    // The cost of widening to the bare identifier is false positives; stripping comments keeps
+    // the real one out. `guard-health.ts` describes the writer's swallow-all posture in prose and
+    // writes its own log directly.
+    const writers = findEvaluationWriterModules({
+      listHookFiles: () => [".minsky/hooks/prose-only.ts"],
+      readFile: () =>
+        "// Mirrors logEvaluationRecord's swallow-all posture (dispatcher.ts D4).\n" +
+        "/* see logEvaluationRecord for the convention */\n" +
+        "fs.appendFileSync(logPath, line);",
+    });
+    expect(writers).toEqual([]);
+  });
+
   test("the scan skips tests and the dispatcher that defines the writer", () => {
     const source = 'import { logEvaluationRecord } from "./dispatcher";';
     const writers = findEvaluationWriterModules({

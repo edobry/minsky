@@ -348,7 +348,12 @@ const ADJACENT_STATE_DIR_STREAMS: GuardEventStreamSource[] = [
 
 /**
  * The complete guard/calibration exhaust stream set — every row from
- * inventory §A–§E (73 streams as of mt#4804, 2026-08-31; 46 before it). This IS the
+ * inventory §A–§E. The count is deliberately NOT written here: this comment
+ * said "41 streams as of the 2026-08-13 snapshot" while the array held 46 and
+ * the repo declared 73, and a number that drifts silently is worse than no
+ * number, because it reads as current. `GUARD_EVENT_STREAM_SOURCES.length` is
+ * the count, and `scripts/lib/stream-manifest-coverage.test.ts` is what keeps
+ * the set correct (PR #3517 R1). This IS the
  * "data, not code" surface constraint #8 requires: a newly-appeared stream
  * is a new entry here, never a change to `parsing.ts` or `ingest-service.ts`.
  */
