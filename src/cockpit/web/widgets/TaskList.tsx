@@ -672,29 +672,30 @@ function TaskListInner({
 
   const handleToggleStatus = useCallback(
     (status: string) => {
-      setFilter("status", toggleStatus(filters.status, status));
+      const next = toggleStatus(filters.status, status);
+      // Report the fetch-shape change in the SAME event as the filter change
+      // (PR #3530 R2), not a render later via the effect below. Otherwise the
+      // click produces one render where the new filter is applied to the old
+      // active-only payload, which shows "No tasks match these filters" — a
+      // flash of the exact misleading message this task removes. Updating the
+      // parent here changes the query key in the same batch, so that render
+      // never happens: TanStack has no data for the new key and the body's
+      // own loading branch covers the gap.
+      onIncludeTerminalChange(selectionNeedsTerminal(next));
+      setFilter("status", next);
     },
-    [filters.status, setFilter]
+    [filters.status, setFilter, onIncludeTerminalChange]
   );
 
-  // Tell the fetch above whether the payload needs terminal statuses
-  // (mt#4774). Effect rather than a call during render: it sets state in the
-  // parent, which React forbids mid-render. The parent's own initial read of
-  // the URL means this is a no-op on mount for the common case, and a real
-  // toggle only when the operator changes the filter.
+  // Backstop for filter changes that do NOT come through the toggle handler
+  // above — `clearFilters`, and any future control that writes the status
+  // filter (mt#4774). Effect rather than a call during render: it sets state
+  // in the parent, which React forbids mid-render. Idempotent, and a no-op on
+  // mount for the common case because the parent seeds itself from the URL.
   const needsTerminal = selectionNeedsTerminal(filters.status);
   useEffect(() => {
     onIncludeTerminalChange(needsTerminal);
   }, [needsTerminal, onIncludeTerminalChange]);
-
-  // True while the selection needs terminal rows the CURRENT payload cannot
-  // contain (PR #3530 R1). The payload is the source of truth rather than a
-  // fetch flag: `payloadHasTerminal` is false exactly when the rows in hand
-  // came from an active-only fetch, which is the window where the empty-filter
-  // banner would lie. It clears the moment the widened rows arrive, with no
-  // dependence on request timing.
-  const payloadHasTerminal = tasks.some((t) => TERMINAL_STATUSES.has(t.status));
-  const awaitingTerminalPayload = needsTerminal && !payloadHasTerminal;
 
   return (
     <>
@@ -718,13 +719,6 @@ function TaskListInner({
 
       {totalCount === 0 ? (
         <p className="text-body text-muted-foreground">No tasks</p>
-      ) : filteredCount === 0 && awaitingTerminalPayload ? (
-        // The widened fetch is still in flight, so the current payload
-        // genuinely has no terminal rows YET (mt#4774, PR #3530 R1). Showing
-        // the empty-filter banner here would flash the exact misleading
-        // message this task exists to remove — "No tasks match these filters"
-        // for a filter that is about to match.
-        <p className="text-body text-muted-foreground">Loading…</p>
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
           <p className="text-body text-muted-foreground">No tasks match these filters</p>

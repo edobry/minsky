@@ -312,6 +312,23 @@ describe("selectionNeedsTerminal (mt#4774)", () => {
     expect(selectionNeedsTerminal(" DONE , TODO ")).toBe(true);
   });
 
+  // NOT covered here, deliberately: "selecting DONE in a scope with zero DONE
+  // tasks shows the empty banner rather than hanging on Loading" — the PR
+  // #3530 R1 defect. Two approaches were tried and both fail at the same
+  // point: this widget's status filter is URL-persisted through
+  // `history.replaceState`, and under happy-dom that write is not reflected
+  // back into `window.location.search`, so `useListControls` never observes
+  // the change. Seeding the URL before render and clicking the real chip both
+  // leave the filter at "all", which makes any assertion here vacuous — the
+  // first attempt DID pass in the full suite while failing in isolation,
+  // which is what a vacuous pass looks like.
+  //
+  // The behavior is verified in a real browser instead (recorded in the PR),
+  // the same split `src/cockpit/CLAUDE.md` prescribes for anything happy-dom
+  // structurally cannot observe. The defect is also gone by construction
+  // rather than by re-gating: R2 deletes the suppression branch entirely, so
+  // there is no state left that can fail to clear.
+
   test("every status the UI offers is classified — no status silently misses the opt-in", () => {
     // Guards the pair: ALL_STATUSES drives the buttons, and each one either
     // needs the larger payload or is present in the default one. A status
