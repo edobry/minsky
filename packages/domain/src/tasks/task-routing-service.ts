@@ -60,10 +60,16 @@ export class TaskRoutingService {
     const { statusFilter = ["TODO", "IN-PROGRESS"], backendFilter, kind, limit = 50 } = options;
 
     // Get all tasks
-    const allTasks = await this.taskService.listTasks({
+    const listed = await this.taskService.listTasks({
       status: statusFilter.length === 1 ? statusFilter[0] : undefined,
       kind,
     });
+
+    // ADR-046 (mt#2911): a work package is claimed deliberately, never
+    // auto-served — the consumer-side default-deny. Excluded whenever the
+    // caller did not name a kind; an explicit `kind: "work-package"` filter
+    // (or any other explicit kind) bypasses this untouched.
+    const allTasks = kind ? listed : listed.filter((task) => task.kind !== "work-package");
 
     // Filter by backend if specified
     const filteredTasks = backendFilter
