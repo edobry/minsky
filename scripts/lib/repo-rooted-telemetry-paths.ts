@@ -19,10 +19,12 @@
  *
  * ## What it cannot see
  *
- * A text scan over single-line assignments. It misses a path assembled across statements, one
- * built by string concatenation, and one whose root arrives through a parameter with no local
- * assignment. It is a floor under a class that currently has NO mechanical check at all, not a
- * proof of absence — state that bound rather than reading a clean run as "there are none."
+ * A text scan. It handles `path.join(...)` and multi-line argument lists (PR #3528 R1) but still
+ * misses: an ALIASED import (`import { join as j }` — undetectable by name), a wrapper helper
+ * around `join`/`resolve`, a path assembled across statements or by string concatenation, and one
+ * whose root arrives through a parameter with no local assignment. It is a floor under a class
+ * that had NO mechanical check at all, not a proof of absence — state that bound rather than
+ * reading a clean run as "there are none."
  */
 
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -48,11 +50,43 @@ export const SCAN_ROOTS = [".minsky/hooks", "src", "packages"] as const;
 
 /** `const x = join(<root>, ...)` / `resolve(...)` on one line — the shape this scan can see. */
 const PATH_ASSIGNMENT =
-  /\b(?:const|let|var)\s+([\w$]+)\s*(?::[^=]+)?=\s*(?:await\s+)?(?:join|resolve)\(\s*([^,]+),([^;]*);/g;
+  /\b(?:const|let|var)\s+([\w$]+)\s*(?::[^=]+)?=\s*(?:await\s+)?(?:[\w$]+\.)?(?:join|resolve)\(([\s\S]{0,400}?)\)\s*;/g;
 
 /** First argument denotes the repository the agent is working in, rather than the state dir. */
 const REPO_ROOTED =
   /findRepoRoot\(|deriveHookRepoRoot\(|repoRoot|workspacePath|process\.cwd\(\)|\bcwd\b/;
+
+/**
+ * Telemetry-ish word STEMS, compared against whole identifier segments rather than substrings.
+ *
+ * PR #3528 R1: a substring match on `log` also matches `cataLOGPath` and `LOGgerConfig`. Word
+ * boundaries alone do not fix that, because the names this must CATCH are camelCase — `\blog\b`
+ * matches neither `logPath` nor `mainLog`. So the candidate text is SEGMENTED on case and
+ * non-alphanumeric boundaries first, and these stems are compared against whole segments.
+ */
+const TELEMETRY_STEMS = new Set([
+  "log",
+  "logs",
+  "calibration",
+  "evaluation",
+  "evaluations",
+  "baseline",
+  "watermark",
+  "watermarks",
+  "claims",
+  "mismatch",
+  "observations",
+  "jsonl",
+]);
+
+/** `WATERMARK_STORE_PATH` -> ["watermark","store","path"]; `catalogPath` -> ["catalog","path"]. */
+function segments(text: string): string[] {
+  return text
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((s) => s.toLowerCase());
+}
 
 /**
  * Target is telemetry rather than config, build output, or a user-requested artifact. Without
@@ -60,8 +94,9 @@ const REPO_ROOTED =
  * repo-local), a graphviz render the operator asked for by path, and a generated Dockerfile —
  * all measured, none of them this class.
  */
-const TELEMETRY_TARGET =
-  /log|calibration|evaluation|baseline|watermark|claims|mismatch|observations|\.jsonl/i;
+function isTelemetryTarget(text: string): boolean {
+  return segments(text).some((s) => TELEMETRY_STEMS.has(s));
+}
 
 /**
  * Files exempt from the rule, each with the reason and — where the exemption is temporary — the
@@ -81,6 +116,12 @@ export const ALLOWLIST: Record<string, string> = {
   "src/adapters/shared/commands/calibration.ts":
     "DELIBERATE, AND UNDECIDED — same watermark store as above plus mt#4164's claim store, " +
     "written under the same lock. See the entry above for why this exemption is provisional.",
+  "src/cockpit/ask-state-cache.ts":
+    "DELIBERATE, AND UNDECIDED — a READER of the same watermark store, and the third module in " +
+    "that family. Surfaced only after PR #3528 R1 widened this scan to namespaced calls: it " +
+    "uses `path.join`, which the first draft could not see. Flagging a reader is intended, not " +
+    "over-reach — reader/writer disagreement on a path IS the mt#4811 failure, so both sides of " +
+    "a store belong to the same decision. Same provisional status as the two entries above.",
 };
 
 /** Every repo-rooted telemetry path expression in the given files, allowlist NOT applied. */
@@ -89,11 +130,18 @@ export function findRepoRootedTelemetryPaths(files: ScannedFile[]): RepoRootedTe
   for (const file of files) {
     const seen = new Set<string>();
     for (const match of file.source.matchAll(PATH_ASSIGNMENT)) {
-      const [, name, root, rest] = match;
-      if (!root || !REPO_ROOTED.test(root)) continue;
-      if (!TELEMETRY_TARGET.test(`${name} ${rest}`)) continue;
+      const [, name, args] = match;
+      if (!name || args === undefined) continue;
+      // The ROOT is the first argument; everything after it is the path tail. Splitting on the
+      // first comma is approximate for a nested call in argument one, and that is the safe
+      // direction: a nested call leaves MORE text in `root`, so `REPO_ROOTED` can only over-match.
+      const comma = args.indexOf(",");
+      const root = comma === -1 ? args : args.slice(0, comma);
+      const rest = comma === -1 ? "" : args.slice(comma + 1);
+      if (!REPO_ROOTED.test(root)) continue;
+      if (!isTelemetryTarget(`${name} ${rest}`)) continue;
       const expression = safeTruncate(
-        `${name} = join(${root.trim()},${rest?.trim() ?? ""}`.replace(/\s+/g, " "),
+        `${name} = join(${root.trim()},${rest.trim()}`.replace(/\s+/g, " "),
         120,
         "head"
       );

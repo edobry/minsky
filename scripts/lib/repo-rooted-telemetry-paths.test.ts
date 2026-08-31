@@ -71,6 +71,9 @@ describe("SC5 — no unallowed writer resolves a telemetry path against the repo
 });
 
 describe("SC5 — the check can fail, and on the right shape", () => {
+  /** Stand-in path for synthetic sources; the path is irrelevant to what these cases assert. */
+  const SYNTHETIC_HOOK = ".minsky/hooks/some-detector.ts";
+
   test("AT2 control: it flags the historical ask-form-lint writer, which lived OUTSIDE .minsky/hooks", () => {
     // This is the case that motivates the whole design. Three directory-scoped sweeps ran before
     // mt#4811 and none could see this file, because it sits in src/adapters/shared/commands/.
@@ -94,7 +97,7 @@ describe("SC5 — the check can fail, and on the right shape", () => {
     // Keying on appendFileSync/writeFileSync would miss this, and that is not hypothetical: both
     // real allowlisted files write through a one-hop helper and a write-keyed scan found neither.
     const viaHelper: ScannedFile = {
-      path: ".minsky/hooks/some-detector.ts",
+      path: SYNTHETIC_HOOK,
       source: `
         const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
         writeStore(watermarkPath, updated);
@@ -128,6 +131,46 @@ describe("SC5 — the check can fail, and on the right shape", () => {
       },
     ];
     expect(findRepoRootedTelemetryPaths(notTelemetry)).toEqual([]);
+  });
+
+  // PR #3528 R1 — two shapes the first draft of this scan missed, both routine in this tree.
+  test("R1: it flags a NAMESPACED join (`path.join`), not only a bare one", () => {
+    const namespaced: ScannedFile = {
+      path: SYNTHETIC_HOOK,
+      source: `const logPath = path.join(repoRoot, ".minsky", "thing-calibration.jsonl");`,
+    };
+    expect(findRepoRootedTelemetryPaths([namespaced])).toHaveLength(1);
+  });
+
+  test("R1: it flags a MULTI-LINE argument list", () => {
+    const multiline: ScannedFile = {
+      path: SYNTHETIC_HOOK,
+      source: `
+        const calibrationPath = join(
+          repoRoot,
+          ".minsky",
+          "thing-calibration.jsonl"
+        );
+      `,
+    };
+    expect(findRepoRootedTelemetryPaths([multiline])).toHaveLength(1);
+  });
+
+  test("R1: `catalogPath` and `loggerConfig` do NOT match on the `log` substring", () => {
+    // The first draft used /log/i against the raw text, so `cataLOGPath` matched. Segmenting on
+    // case boundaries fixes it without losing the camelCase names that MUST match.
+    const substringTraps: ScannedFile[] = [
+      { path: "a.ts", source: `const catalogPath = join(repoRoot, "catalog.json");` },
+      { path: "b.ts", source: `const loggerConfigPath = join(repoRoot, "logger.json");` },
+    ];
+    expect(findRepoRootedTelemetryPaths(substringTraps)).toEqual([]);
+
+    // …and the camelCase names it must still catch, in the same test so the pair cannot drift.
+    const mustMatch: ScannedFile[] = [
+      { path: "c.ts", source: `const logPath = join(repoRoot, "x.jsonl");` },
+      { path: "d.ts", source: `const mainLog = join(repoRoot, "x.jsonl");` },
+    ];
+    expect(findRepoRootedTelemetryPaths(mustMatch)).toHaveLength(2);
   });
 
   test("it does NOT flag a state-dir path that merely mentions the repo root elsewhere", () => {
