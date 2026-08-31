@@ -39,9 +39,21 @@ import { livenessDotClass, type Liveness } from "../lib/liveness-colors";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
-import { useProject } from "../lib/project-context";
+import {
+  useProject,
+  useOptionalProject,
+  projectLabelById,
+  shouldShowProjectIndicator,
+} from "../lib/project-context";
+import { ProjectBadge } from "../components/ProjectBadge";
 import { AgentDrivenPeek } from "./AgentDrivenPeek";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 
 /**
@@ -87,6 +99,13 @@ export interface AgentRow {
   liveness: Liveness;
   taskId: string | null;
   taskTitle: string | null;
+  /**
+   * Owning project's uuid (server: `widgets/agents.ts` AgentRow.projectId,
+   * mt#4732); resolved to a label via `projectLabelById` for the
+   * all-projects badge (mt#4773). Optional for back-compat with older
+   * payloads.
+   */
+  projectId?: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
@@ -482,10 +501,7 @@ function AgentsControlBar({
       >
         Kind:
       </span>
-      <Select
-        value={filters.kind}
-        onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}
-      >
+      <Select value={filters.kind} onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}>
         <SelectTrigger
           className="h-6 bg-background"
           aria-labelledby={kindLabelId}
@@ -997,6 +1013,15 @@ function AgentRowItem({
   const [expanded, setExpanded] = useState(false);
   const label = livenessLabel(agent.liveness);
   const path = rowPath(agent);
+  // Project identity in the all-projects view (mt#4773) — the payload has
+  // carried `projectId` per row since mt#4732; the UI dropped it. Same
+  // when-to-show rule as task/changeset rows (mt#4729). Optional context:
+  // a row rendered outside the provider has no selection to indicate.
+  const projectCtx = useOptionalProject();
+  const projectLabel =
+    projectCtx && shouldShowProjectIndicator(projectCtx.projects, projectCtx.selectedSlug)
+      ? projectLabelById(projectCtx.projects, agent.projectId ?? null)
+      : null;
   const hasSubagents = agent.subagents.length > 0;
   // mt#2912 — a row with an active driven binding (either a dispatched-agent
   // row annotated via the DrivenChip, or a standalone driven-session row)
@@ -1039,6 +1064,10 @@ function AgentRowItem({
         </span>
         {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
+
+      {/* Project identity (mt#4773) — all-projects view only, same affordance
+          as task/changeset rows. */}
+      {projectLabel && <ProjectBadge label={projectLabel} className="flex-shrink-0" />}
 
       {/* Needs-me badge (mt#2884) — the SECOND status channel, independent of
           the liveness dot: "does this run need the human" vs "is it alive". */}
