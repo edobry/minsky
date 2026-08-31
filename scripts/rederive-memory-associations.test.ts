@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyRecord,
   correctedRefs,
-  elideQuotations,
   planToken,
   type PlanEntry,
 } from "./rederive-memory-associations";
@@ -21,59 +20,6 @@ const MEM_1340_PROSE = [
 const MEM_1208_FIRING_SENTENCE =
   "mem#484 matched `retire when mt#2056 ships` — a sentence in which mem#484 **quotes a " +
   "different memory's** budget criterion while narrating an incident.";
-
-describe("elideQuotations", () => {
-  test("blanks an inline code span but preserves length and newlines", () => {
-    const input = "before `retire when mt#1.` after\nsecond line";
-    const out = elideQuotations(input);
-    expect(out.length).toBe(input.length);
-    expect(out.split("\n").length).toBe(2);
-    expect(out).toContain("before ");
-    expect(out).not.toContain("mt#1");
-  });
-
-  test("blanks a fenced block including backticks inside it", () => {
-    const input = ["prose", "```", "retire when mt#7 ships", "```", "tail"].join("\n");
-    expect(elideQuotations(input)).not.toContain("mt#7");
-    expect(elideQuotations(input)).toContain("prose");
-    expect(elideQuotations(input)).toContain("tail");
-  });
-
-  test("blanks to EOF on an unterminated fence rather than matching nothing", () => {
-    const input = ["prose", "```", "retire when mt#7 ships"].join("\n");
-    expect(elideQuotations(input)).not.toContain("mt#7");
-  });
-
-  test("blanks a blockquote line", () => {
-    expect(elideQuotations("> retire when mt#8 ships")).not.toContain("mt#8");
-  });
-
-  test("leaves ordinary prose untouched", () => {
-    const input = "Budget: retire when mt#9 ships.";
-    expect(elideQuotations(input)).toBe(input);
-  });
-
-  test("does not JOIN tokens across an elided span (would manufacture a match)", () => {
-    // Blanking to spaces would turn this into `Retire when      mt#7777 ships`, which the
-    // extractor DOES match — inventing a grounding the raw text never had. The filler must
-    // break the whitespace run.
-    const input = "Retire when `an aside` mt#7777 ships.";
-    const elided = elideQuotations(input);
-    expect(elided.length).toBe(input.length);
-    expect(elided).not.toMatch(/when\s+mt#7777/);
-  });
-});
-
-describe("elision cannot manufacture a grounding (regression)", () => {
-  test("a ref the raw text never derives is not promoted to grounded by elision", () => {
-    const content = "Retire when `an aside` mt#7777 ships.";
-    // Raw derives nothing here — the span breaks the clause — so the stored ref is
-    // not-derivable, NOT grounded. Spaces-as-filler reported `grounded` for exactly this shape.
-    const c = classifyRecord({ storedRefs: ["mt#7777"], content });
-    expect(c.refs).toEqual([{ ref: "mt#7777", verdict: "not-derivable" }]);
-    expect(c.unstoredGrounded).toEqual([]);
-  });
-});
 
 describe("classifyRecord — discrimination control (mt#4765 AT2, AT3)", () => {
   test("mem#1340's firing line classifies quoted-only, not grounded", () => {

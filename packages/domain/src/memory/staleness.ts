@@ -241,7 +241,22 @@ export interface StalenessDetectionInput {
  * the fall-through: an association map that lacks `tracksTask` is NOT treated as an
  * authoritative "no tracking task" — see the module docblock.
  */
-export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
+/** Options for {@link extractTrackingTaskRefs}. See the field's comment before using it. */
+export interface ExtractTrackingTaskRefsOptions {
+  /**
+   * Match on the RAW body instead of the quotation-elided residual — i.e. reproduce the
+   * pre-mt#4454 behaviour, including its false positives.
+   *
+   * Only `scripts/rederive-memory-associations.ts` sets this, to date stored associations against
+   * the derivation that produced them (mt#4765). Do not set it on any read or write path.
+   */
+  skipQuotationElision?: boolean;
+}
+
+export function extractTrackingTaskRefs(
+  record: StalenessDetectionInput,
+  options?: ExtractTrackingTaskRefsOptions
+): {
   refs: string[];
   source: StalenessRefSource;
 } {
@@ -265,7 +280,16 @@ export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
   //
   // Same-length blanking means every offset into `elided` is a valid offset into `raw`, which
   // is what lets the anchor check below read the raw text at a match position found here.
-  const elided = elideQuotedAndMarkdown(raw);
+  // `skipQuotationElision` exists for ARCHAEOLOGY and has exactly one caller:
+  // `scripts/rederive-memory-associations.ts` (mt#4765), which needs to know what the write path
+  // produced BEFORE mt#4454 added the elision, so it can tell a stored association that the old
+  // patterns minted from a quoted clause apart from one an author DECLARED. Those two are
+  // byte-identical once stored, and the difference is only recoverable by re-deriving both ways.
+  //
+  // It is deliberately NOT a general escape hatch: passing it reproduces a defect. Nothing on a
+  // read or write path may set it, which is why it is an options bag on this function rather than
+  // a second exported entry point that would look like a peer.
+  const elided = options?.skipQuotationElision === true ? raw : elideQuotedAndMarkdown(raw);
   const refs: string[] = [];
 
   for (const pattern of SELF_ANCHORED_PATTERNS) {

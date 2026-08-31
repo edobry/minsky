@@ -33,55 +33,6 @@ import { TRACKS_TASK_ASSOCIATION } from "@minsky/domain/memory/associations";
 
 // ── Pure core ───────────────────────────────────────────────────────────────────────────────
 
-/**
- * Blank out spans whose content is QUOTED rather than uttered — fenced blocks, inline code
- * spans, and blockquotes — preserving length and newlines so the extractor's anchor-window
- * arithmetic is unchanged.
- *
- * This is a LOCAL, classification-only approximation of ADR-024 Rung 1 part (a). It is
- * deliberately NOT the shared prose-quotation primitive: that is mt#4386's deliverable, with
- * mt#4454 as the memory-staleness consumer that changes what the WRITE path produces. Nothing
- * here touches the write path or the shipped patterns — it only decides whether a ref this
- * corpus ALREADY stores can be grounded in unquoted prose. When mt#4386 lands, replace this
- * function with the primitive; the classification contract below is unchanged by that swap,
- * which is the property mt#4765 SC5 asks for.
- */
-export function elideQuotations(text: string): string {
-  // NOT spaces. Blanking to whitespace lets the extractor's own `\s+` span the removed text and
-  // MANUFACTURE a match the raw text never produced: `Retire when \`aside\` mt#7 ships` does not
-  // match (the span breaks the run), but blanked to spaces it becomes `Retire when      mt#7
-  // ships`, which does. That is a projection inventing a value rather than dropping one
-  // (`claim-confidence.mdc` — an accessor is not a filter, it is a constructor), and it lands in
-  // the SAFE direction, so nothing downstream would have failed: the ref reads `grounded` and is
-  // simply never corrected. Found by hand-checking mem#1208, whose only mt#4454 mention is
-  // ordinary prose. U+00B7 is neither a word char (so `\b` boundaries still form correctly at the
-  // seams) nor whitespace (so no run can cross it), and is one code unit, so the anchor window's
-  // 140-char look-back keeps measuring the same distances.
-  const blank = (m: string): string => m.replace(/[^\n]/g, "·");
-
-  // Fenced blocks first: they can contain backticks that would otherwise read as spans.
-  // Line-based rather than a lazy multiline regex, so an unterminated fence blanks to EOF
-  // instead of silently matching nothing.
-  const lines = text.split("\n");
-  let inFence = false;
-  const defenced = lines.map((line) => {
-    if (/^\s{0,3}(?:```|~~~)/.test(line)) {
-      inFence = !inFence;
-      return blank(line);
-    }
-    return inFence ? blank(line) : line;
-  });
-
-  return defenced
-    .map((line) => {
-      // Blockquote: the whole line is someone else's words.
-      if (/^\s{0,3}>/.test(line)) return blank(line);
-      // Inline code spans, same-line, backtick-run balanced.
-      return line.replace(/(`+)(?:(?!\1).)*\1/g, blank);
-    })
-    .join("\n");
-}
-
 /** What grounds (or fails to ground) a single stored ref. */
 export type RefVerdict = "grounded" | "quoted-only" | "not-derivable";
 
@@ -119,21 +70,27 @@ export function classifyRecord(input: {
   description?: string | null;
 }): RecordClassification {
   const { content, description } = input;
-  const asText = (c: string, d?: string | null) =>
-    extractTrackingTaskRefs({ content: c, ...(d == null ? {} : { description: d }) }).refs;
-
   // Associations deliberately omitted: passing them would take the fast path and return the
   // stored value back to us, which is the very shortcut this script exists to bypass.
-  const derivedRaw = new Set(asText(content, description));
-  const derivedElided = new Set(
-    asText(
-      elideQuotations(content),
-      description == null ? description : elideQuotations(description)
-    )
-  );
+  const record = { content, ...(description == null ? {} : { description }) };
+
+  // BOTH derivations now come from the shipped extractor, which is the whole point of the
+  // mt#4792 rework. Before it, this script carried a LOCAL approximation of the quotation pass
+  // because the extractor had none; mt#4454 then shipped the real one, which made the local copy
+  // both redundant and — being an approximation — a source of disagreement with the write path.
+  //
+  //   derivedNow  — what the extractor produces TODAY (quotation-elided). Ground truth.
+  //   derivedRaw  — what it produced BEFORE mt#4454 (no elision), i.e. what actually MINTED the
+  //                 stored associations this script is auditing.
+  //
+  // A ref in `derivedRaw` but not `derivedNow` was minted from a QUOTED clause: the old patterns
+  // saw it, the corrected ones do not. That is a confirmed false positive, and it is the only
+  // bucket this script is willing to correct.
+  const derivedNow = new Set(extractTrackingTaskRefs(record).refs);
+  const derivedRaw = new Set(extractTrackingTaskRefs(record, { skipQuotationElision: true }).refs);
 
   const refs = input.storedRefs.map((ref): RefClassification => {
-    if (derivedElided.has(ref)) return { ref, verdict: "grounded" };
+    if (derivedNow.has(ref)) return { ref, verdict: "grounded" };
     if (derivedRaw.has(ref)) return { ref, verdict: "quoted-only" };
     return { ref, verdict: "not-derivable" };
   });
@@ -142,7 +99,7 @@ export function classifyRecord(input: {
   return {
     storedRefs: input.storedRefs,
     refs,
-    unstoredGrounded: [...derivedElided].filter((r) => !stored.has(r)).sort(),
+    unstoredGrounded: [...derivedNow].filter((r) => !stored.has(r)).sort(),
   };
 }
 

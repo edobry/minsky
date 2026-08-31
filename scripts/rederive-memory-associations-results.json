@@ -1,10 +1,10 @@
 {
-  "measuredAt": "2026-08-30T23:33:54.134Z",
+  "measuredAt": "2026-08-31T01:12:14.894Z",
   "scanned": 1343,
-  "token": "5aadf34a2a7c54b3",
+  "token": "4200dcaa2378b6e2",
   "tally": {
-    "grounded": 182,
-    "quoted-only": 6,
+    "grounded": 179,
+    "quoted-only": 9,
     "not-derivable": 10
   },
   "plan": [
@@ -25,12 +25,36 @@
       "dropped": ["mt#4655"]
     },
     {
+      "id": "f3d87b92-89ed-45f4-9aba-debab8f27933",
+      "shortId": "mem#1237",
+      "name": "a_silent_check_is_not_evidence_of_coverage_2026_08_24",
+      "before": ["mt#4525"],
+      "after": [],
+      "dropped": ["mt#4525"]
+    },
+    {
       "id": "dcbe5f93-e9be-40b6-ab7c-248910a37154",
       "shortId": "mem#1208",
       "name": "feedback_a_detectors_false_positives_are_found_by_reading_records_not_by_counting_them",
       "before": ["mt#2056", "mt#4454"],
       "after": ["mt#4454"],
       "dropped": ["mt#2056"]
+    },
+    {
+      "id": "76153081-f4a2-43fb-9c5b-086d3720a9cb",
+      "shortId": "mem#484",
+      "name": "Bridge memory retirement: delete if redundant, don't label",
+      "before": ["mt#2056"],
+      "after": [],
+      "dropped": ["mt#2056"]
+    },
+    {
+      "id": "a6b78ee8-e603-4120-8358-cabe4a76f970",
+      "shortId": "mem#361",
+      "name": "parallel-work-guard recovery path — RETIRED (mt#1637 shipped the grant-channel override)",
+      "before": ["mt#1637"],
+      "after": [],
+      "dropped": ["mt#1637"]
     },
     {
       "id": "e81315d4-6241-4e5b-9118-f44398ae52a5",
