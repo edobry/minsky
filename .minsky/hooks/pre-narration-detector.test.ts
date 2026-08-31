@@ -17,6 +17,8 @@ import {
   SUPPRESSION_SAME_TURN_TOOL_CALL,
   SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
+  bareToolName,
+  withBareToolAliases,
   run,
   renderWorstCase,
   buildIdentityEvidence,
@@ -36,6 +38,9 @@ import type { DispatchContext } from "./registry";
 const CREATED_PR_CLAIM = "Created PR #4242.";
 const APPROVED_CLAIM = "The review came back: APPROVED, no findings.";
 const PR_CREATE_TOOL = "mcp__minsky__session_pr_create";
+const PR_MERGE_TOOL = "mcp__minsky__session_pr_merge";
+/** The same tool under this project's OTHER MCP server alias (mt#4498). */
+const PR_MERGE_TOOL_ALIASED = "mcp__minsky-server__session_pr_merge";
 const PR_READ_TOOL_NAME = "mcp__github__pull_request_read";
 const MERGED_CLAIM_3033 = "PR #3033 merged.";
 
@@ -383,7 +388,7 @@ describe("match context capture (mt#3198)", () => {
   // sentence says whether the agent claimed a merge or referred to one.
   const REFERENCE_TURN = "The merged PR touches the auth module, so I re-read it.";
   const CLAIM_TURN = "I already merged PR #2603 to unblock the deploy.";
-  const MERGE_TOOL = "mcp__minsky__session_pr_merge";
+  const MERGE_TOOL = PR_MERGE_TOOL;
 
   function firstMatch(text: string) {
     const matches = detectPreNarration([makeAssistantLine(text)] as never);
@@ -832,10 +837,7 @@ describe("mt#3864 Cause A — reading a PR's state is evidence about THAT PR's s
   test("a same-turn merge tool still names the same-turn reason, not the identity one", () => {
     // Negative control for the ordering: identity evidence present AND a real
     // merge call in the turn must still record the stronger source.
-    const turn = [
-      makeAssistantToolUseLine("mcp__minsky__session_pr_merge"),
-      makeAssistantLine(MERGED_CLAIM),
-    ];
+    const turn = [makeAssistantToolUseLine(PR_MERGE_TOOL), makeAssistantLine(MERGED_CLAIM)];
     const detection = detectPreNarrationWithSuppression(
       turn as never,
       undefined,
@@ -1020,9 +1022,129 @@ describe("mt#3864 — identity evidence is window-scoped (PR #3096 R2)", () => {
   test("evidence is keyed by category, so a scoped tool cannot back another category", () => {
     const lines = [makeUserLine(), readOfPr(3033), makeAssistantLine(MERGED_CLAIM_3033)];
     const evidence = buildIdentityEvidence(lines as never, 12);
-    // Only `merged` declares identityScopedTools today; the others must be absent
-    // rather than sharing one union set.
     expect(evidence.has("merged")).toBe(true);
-    expect(evidence.has("review-approved")).toBe(false);
+    // mt#4498: `review-approved` now declares identityScopedTools too (the merge
+    // tools), so this can no longer assert the KEY is absent — it is present with
+    // an empty set. The claim under test was never really about key presence
+    // though; it is that a scoped tool declared on one category cannot back
+    // another. Asserting the PR number is what tests that directly: the fixture's
+    // evidence is a READ, which backs `merged` and must not leak into
+    // `review-approved`, whose scoped tools are merges.
+    expect(evidence.get("merged")?.has(3033)).toBe(true);
+    expect(evidence.get("review-approved")?.has(3033) ?? false).toBe(false);
+  });
+});
+
+describe("mt#4498 — a merge of PR #N entails the approval of PR #N", () => {
+  const APPROVED_CLAIM_200 = "PR #200 came back APPROVED, no findings.";
+  const approvedEvidence = (...prs: number[]) => new Map([["review-approved", new Set(prs)]]);
+
+  test("an APPROVED claim backed by a merge OF THE SAME PR is suppressed", () => {
+    // `session_pr_merge` refuses a PR with no approving review, so a merge of
+    // PR #200 is proof the approval of PR #200 happened.
+    const turn = [makeAssistantLine(APPROVED_CLAIM_200)];
+    const detection = detectPreNarrationWithSuppression(
+      turn as never,
+      undefined,
+      approvedEvidence(200)
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+    ]);
+  });
+
+  test("NEGATIVE CONTROL: a merge of a DIFFERENT PR does not suppress", () => {
+    // PR #3484 R1 — the finding this scoping exists for. Unscoped, a merge of
+    // #100 would have silenced a false claim about #200.
+    const turn = [makeAssistantLine(APPROVED_CLAIM_200)];
+    const detection = detectPreNarrationWithSuppression(
+      turn as never,
+      undefined,
+      approvedEvidence(100)
+    );
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+
+  test("NEGATIVE CONTROL: no evidence at all still fires", () => {
+    const turn = [makeAssistantLine(APPROVED_CLAIM_200)];
+    const detection = detectPreNarrationWithSuppression(turn as never);
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+});
+
+describe("mt#4498 — the second MCP server alias is not invisible", () => {
+  test("window evidence emitted under the `minsky-server` alias suppresses", () => {
+    // Exact `Set.has` matching meant `mcp__minsky-server__session_pr_wait-for-review`
+    // equalled neither the `mcp__minsky__…` entry nor the bare one, so every
+    // result claim in a session on that alias fired.
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine("mcp__minsky-server__session_pr_wait-for-review"),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_WINDOW_TOOL_CALL]);
+  });
+
+  test("NEGATIVE CONTROL: an unrelated tool under the same alias still fires", () => {
+    // Proves the alias handling did not degrade into matching on the prefix.
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine("mcp__minsky-server__tasks_get"),
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(turn, windowTools);
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+
+  test("PR #3484 R1: IDENTITY evidence also sees the alias", () => {
+    // The first version of this change fixed only the two tool-NAME sets, so
+    // PR-number correlation stayed blind to the alias — a silently one-sided
+    // fix. Caught in review.
+    const lines: TranscriptLine[] = [
+      makeUserLine(),
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              name: PR_MERGE_TOOL_ALIASED,
+              input: { prNumber: 200 },
+            },
+          ],
+        },
+      } as never,
+      makeToolResultLine(),
+      makeUserLine(),
+      makeAssistantLine("PR #200 came back APPROVED."),
+    ];
+    const evidence = buildIdentityEvidence(lines as never, TRAILING_WINDOW_TURNS);
+    expect(evidence.get("review-approved")?.has(200)).toBe(true);
+  });
+
+  test("bareToolName / withBareToolAliases keep the full name as well", () => {
+    expect(bareToolName(PR_MERGE_TOOL_ALIASED)).toBe("session_pr_merge");
+    expect(bareToolName("Bash")).toBe("Bash");
+    const out = withBareToolAliases([PR_MERGE_TOOL_ALIASED, "Bash"]);
+    expect(out.has(PR_MERGE_TOOL_ALIASED)).toBe(true);
+    expect(out.has("session_pr_merge")).toBe(true);
+    expect(out.has("Bash")).toBe(true);
   });
 });
