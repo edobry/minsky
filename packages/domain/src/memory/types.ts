@@ -382,6 +382,18 @@ export interface MemorySearchOptions {
    * applies it as `score <= threshold` against an L2 DISTANCE — a maximum, and
    * in the opposite direction. `MemoryService` now converts it with
    * {@link similarityToL2Distance} before the store sees it.
+   *
+   * **Caller audit at the time of the change (PR #3512 R1).** Exactly ONE
+   * production caller sets this: the `memory.similar` command
+   * (`src/adapters/shared/commands/memory/index.ts:1260`), whose own parameter
+   * is described as "Minimum similarity score threshold" — so it was already
+   * asking for a similarity floor and silently receiving the inverse. This
+   * change fixes that caller rather than flipping a contract out from under
+   * it. Every other consumer passes only `limit`/`filter` and is unaffected:
+   * the `memory.search` command, the cockpit's `memories-search` and
+   * `memories-detail` widgets, the MCP enrichment and bundle middleware, and
+   * `scripts/benchmark-mcp-memory-enrichment.ts` /
+   * `scripts/principal-corpus/acceptance-tests.ts`.
    */
   threshold?: number;
   filter?: MemoryListFilter;
