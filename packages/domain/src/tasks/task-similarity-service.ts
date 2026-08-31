@@ -147,7 +147,8 @@ export class TaskSimilarityService {
    * mt#3305 wrote `score <= threshold`, correctly, because the embeddings
    * backend then returned the vector store's raw L2 DISTANCE. mt#4805 moved that
    * conversion up into `EmbeddingsSimilarityBackend`, so `SimilarityItem.score`
-   * is now a cosine SIMILARITY from every backend and the predicate is
+   * is a SIMILARITY from every backend — cosine from embeddings, Jaccard from
+   * lexical; direction guaranteed, units not — and the predicate is
    * `score >= threshold`.
    *
    * That is a USER-VISIBLE contract change on `tasks_search --threshold` /

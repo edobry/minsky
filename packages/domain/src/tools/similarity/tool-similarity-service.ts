@@ -39,15 +39,23 @@ export interface ToolSearchRequest {
 export interface RelevantTool {
   toolId: string;
   /**
-   * Cosine similarity in [0, 1] — higher is more similar (mt#4805).
+   * Similarity — higher is more similar. **Backend-dependent scale** (mt#4805).
    *
-   * The name was accurate and the value was not: this held
-   * `SimilarityItem.score`, which the embeddings backend passed through as an L2
-   * DISTANCE, so `tools_search` emitted an ASCENDING number to every MCP consumer
-   * while ordering the rows best-first. Measured live before the fix, for the
-   * query "create a new task with a spec": 0.830 for the best match rising to
-   * 1.086 for the tenth. Same defect mt#4787 fixed on the memory surface, on this
-   * one.
+   * This is `SimilarityItem.score` verbatim, so it inherits that field's contract
+   * exactly: DIRECTION is guaranteed across backends, UNITS are not. It is a
+   * cosine similarity in [0, 1] when the embeddings backend answered, a Jaccard
+   * coefficient in [0, 1] from `lexical-backend`, and an UNBOUNDED keyword score
+   * from `tool-keyword-backend` — and `createToolSimilarityCore` falls back
+   * between all three, so a consumer that needs the scale cannot read it off this
+   * field. Do not compare a value here against a threshold calibrated on a
+   * different backend, and do not render it as a percentage.
+   *
+   * The name was accurate before mt#4805 and the value was not: this held the
+   * embeddings backend's raw L2 DISTANCE, so `tools_search` emitted an ASCENDING
+   * number to every MCP consumer while ordering the rows best-first. Measured live
+   * before the fix, for the query "create a new task with a spec": 0.830 for the
+   * best match rising to 1.086 for the tenth. Same defect mt#4787 fixed on the
+   * memory surface, on this one.
    */
   relevanceScore: number;
   tool: SharedCommand;

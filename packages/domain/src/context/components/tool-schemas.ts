@@ -161,7 +161,10 @@ export const ToolSchemasComponent: ContextComponent = {
           const relevantTools = await toolSimilarityService.findRelevantTools({
             query: userQuery as string,
             limit: 20, // Configurable limit - default reduces from 50+ to 20 tools
-            // Minimum cosine SIMILARITY, higher is more similar (mt#4805). The
+            // Minimum SIMILARITY, higher is more similar (mt#4805) — a cosine
+            // similarity when the embeddings backend answers, and on the
+            // fallback backends' own scales otherwise, per
+            // `SimilarityItem.score`. The
             // comment below has always described this intent; before mt#4805 the
             // value was compared against an L2 DISTANCE instead, where 0.1 means
             // a near-duplicate (cosine > 0.995) — so the filter could not fire

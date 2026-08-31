@@ -42,11 +42,19 @@
 // against ALL tasks (no status filter), then apply the SAME terminal-status
 // exclusion discipline as the sibling matcher before thresholding.
 //
-// Calibration (mt#2813 PR body has the full replay-corpus table): `score` is
-// an embedding DISTANCE (lower = more similar — the tasks.search CLI's own
-// `--threshold` flag is documented "lower is closer"). Live-probed against
-// the two evidence pairs plus 20 recent legitimately-distinct standalone
-// creations:
+// Calibration (mt#2813 PR body has the full replay-corpus table). The numbers
+// below are DISTANCES, which is what `tasks.search` returned when they were
+// measured. As of mt#4805 that command returns a cosine SIMILARITY instead —
+// `EmbeddingsSimilarityBackend` converts at the backend boundary, and the
+// `--threshold` flag it feeds is now documented "higher is more similar".
+//
+// The calibration is NOT re-measured, because it does not need to be: the
+// conversion `s = 1 - d²/2` is exact for unit vectors and strictly decreasing,
+// so it preserves both the ordering and the partition. Every pair below lands
+// on the same side of the converted threshold it landed on before — see
+// STANDALONE_DUP_MIN_SIMILARITY, which carries the mapped value for each.
+// Live-probed against the two evidence pairs plus 20 recent
+// legitimately-distinct standalone creations:
 //   - mt#2734 (title+spec) -> mt#2351 at distance 0.478
 //   - mt#2887 (title+spec, at-creation content) -> mt#2892 at 0.579, mt#2888
 //     at 0.632 (both ACTIVE at replay time)
@@ -103,23 +111,51 @@ export interface StandaloneDuplicateCandidate {
   id: string;
   title: string;
   status: string;
-  /** Embedding distance to the new task's title+spec query — lower is closer. */
+  /** Cosine similarity to the new task's title+spec query — higher is closer (mt#4805). */
   score: number;
 }
 
 /**
- * Distance threshold below which a `tasks.search` hit is treated as a
- * high-similarity candidate (mt#2813 calibration — see the module doc
- * comment above for the full replay-corpus numbers). Chosen as the tightest
- * round cutoff that still catches BOTH required true-positive pairs
- * (mt#2734->mt#2351 at 0.478; mt#2887->mt#2888 at 0.632) while excluding
- * 17/20 of the false-positive calibration corpus — the 3 remaining hits are
- * genuinely topically-adjacent sibling tasks, not noise, and this guard is
- * advisory (WARN), never blocking, so the cost of an occasional such warn is
- * low relative to the cost of missing the "same incident, different
- * mechanism" duplicate class this task exists to catch.
+ * The mt#2813 calibration, in the units it was MEASURED in: an embedding
+ * distance, lower is closer. Chosen as the tightest round cutoff that still
+ * catches BOTH required true-positive pairs (mt#2734->mt#2351 at 0.478;
+ * mt#2887->mt#2888 at 0.632) while excluding 17/20 of the false-positive
+ * calibration corpus — the 3 remaining hits are genuinely topically-adjacent
+ * sibling tasks, not noise, and this guard is advisory (WARN), never blocking,
+ * so the cost of an occasional such warn is low relative to the cost of missing
+ * the "same incident, different mechanism" duplicate class mt#2813 exists to
+ * catch.
+ *
+ * Kept as the PROVENANCE of the threshold, not as the comparison — nothing
+ * compares against it any more. `tasks.search` stopped returning distances at
+ * mt#4805; {@link STANDALONE_DUP_MIN_SIMILARITY} is what the filter reads.
  */
 export const STANDALONE_DUP_MAX_DISTANCE = 0.65;
+
+/**
+ * The same threshold in the units `tasks.search` now returns (mt#4805): a
+ * minimum cosine SIMILARITY, higher is closer.
+ *
+ * `s = 1 - d²/2`, exact for unit vectors and strictly decreasing, so this is a
+ * change of units and NOT a recalibration — the partition of the mt#2813 corpus
+ * is identical, pair for pair:
+ *
+ * | pair | distance | similarity | verdict |
+ * | ---- | -------- | ---------- | ------- |
+ * | mt#2734 -> mt#2351 (true positive) | 0.478 | 0.8858 | warns, as before |
+ * | mt#2887 -> mt#2888 (true positive) | 0.632 | 0.8003 | warns, as before |
+ * | threshold itself                   | 0.650 | 0.7888 | boundary preserved |
+ * | mt#2762 nearest active (true negative) | 0.797 | 0.6824 | permits, as before |
+ *
+ * Derived from {@link STANDALONE_DUP_MAX_DISTANCE} rather than written as a
+ * literal, so the two can never drift and the provenance stays one hop away.
+ * The formula is inlined rather than imported from
+ * `packages/domain/src/similarity/similarity-score.ts` to keep this hook free of
+ * a domain import; it is four characters of arithmetic and the source of truth
+ * for it is named right here.
+ */
+export const STANDALONE_DUP_MIN_SIMILARITY =
+  1 - (STANDALONE_DUP_MAX_DISTANCE * STANDALONE_DUP_MAX_DISTANCE) / 2;
 
 /** Max candidates surfaced in one warning (advisory — several may be relevant). */
 export const STANDALONE_DUP_CANDIDATE_CAP = 5;
@@ -160,8 +196,17 @@ export function buildStandaloneDuplicateQuery(title: string, spec?: string): str
  * Filter + rank `tasks.search` results into high-similarity candidates:
  * excludes TERMINAL-status matches (mt#2683 discipline — a DONE/CLOSED/
  * COMPLETED task cannot represent live duplicate work), keeps only hits at
- * or under STANDALONE_DUP_MAX_DISTANCE, sorted closest-first, capped at
+ * or above STANDALONE_DUP_MIN_SIMILARITY, sorted closest-first, capped at
  * STANDALONE_DUP_CANDIDATE_CAP. Pure.
+ *
+ * The predicate and the sort both flipped at mt#4805, when `tasks.search`
+ * changed from returning an L2 distance to returning a cosine similarity. Left
+ * unchanged, this function would have inverted: a true duplicate at distance
+ * 0.478 becomes similarity 0.886 and would have been SKIPPED by the old
+ * `score > 0.65` test, while an unrelated task at distance 1.1 becomes 0.395
+ * and would have been surfaced as a duplicate candidate. Nothing would have
+ * errored — the guard is advisory, so the only symptom would have been warnings
+ * that name the wrong tasks and silence on the real ones.
  */
 export function detectStandaloneDuplicates(
   results: readonly TaskSearchResult[]
@@ -170,7 +215,7 @@ export function detectStandaloneDuplicates(
   for (const r of results) {
     if (typeof r.id !== "string" || typeof r.score !== "number") continue;
     if (r.status && TERMINAL_TASK_STATUSES.has(r.status)) continue;
-    if (r.score > STANDALONE_DUP_MAX_DISTANCE) continue;
+    if (r.score < STANDALONE_DUP_MIN_SIMILARITY) continue;
     candidates.push({
       id: r.id,
       title: r.title ?? "(untitled)",
@@ -178,7 +223,7 @@ export function detectStandaloneDuplicates(
       score: r.score,
     });
   }
-  candidates.sort((a, b) => a.score - b.score);
+  candidates.sort((a, b) => b.score - a.score);
   return candidates.slice(0, STANDALONE_DUP_CANDIDATE_CAP);
 }
 
@@ -194,7 +239,7 @@ export function formatStandaloneDuplicateWarning(
       `${candidates.length} existing ACTIVE task${plural ? "s" : ""}:`
   );
   for (const c of candidates) {
-    lines.push(`  ${c.id} [${c.status}] (distance=${c.score.toFixed(3)}) — "${c.title}"`);
+    lines.push(`  ${c.id} [${c.status}] (similarity=${c.score.toFixed(3)}) — "${c.title}"`);
   }
   lines.push(
     "This is ADVISORY, not blocking. Before filing, confirm this work isn't already covered — " +
