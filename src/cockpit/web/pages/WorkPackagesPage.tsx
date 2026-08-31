@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "../lib/api-client";
 import { Button } from "../components/ui/button";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
@@ -38,7 +39,9 @@ interface WorkPackagesResponse {
 }
 
 async function fetchWorkPackages(): Promise<WorkPackagesResponse> {
-  const res = await fetch("/api/work-packages");
+  // apiFetch default-appends ?project= from the shell's persisted selection
+  // (mt#4730 structural scoping); the route filters tasks.project_id on it.
+  const res = await apiFetch("/api/work-packages");
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Failed to load work packages: ${res.status}${body ? ` — ${body}` : ""}`);
@@ -84,11 +87,17 @@ export function WorkPackagesPage() {
 
   const claimMutation = useMutation({
     mutationFn: async (taskId: string) => {
-      const res = await fetch(`/api/work-packages/${encodeURIComponent(taskId)}/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      // deliberately-global: claim is id-addressed; no project narrowing applies.
+      const res = await apiFetch(
+        `/api/work-packages/${encodeURIComponent(taskId)}/claim`,
+        undefined,
+        { global: true },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
       const body = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(body.message ?? `Claim failed: ${res.status}`);
       return body;
@@ -102,11 +111,17 @@ export function WorkPackagesPage() {
 
   const releaseMutation = useMutation({
     mutationFn: async (taskId: string) => {
-      const res = await fetch(`/api/work-packages/${encodeURIComponent(taskId)}/release`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      // deliberately-global: release is id-addressed; no project narrowing applies.
+      const res = await apiFetch(
+        `/api/work-packages/${encodeURIComponent(taskId)}/release`,
+        undefined,
+        { global: true },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
       const body = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(body.message ?? `Release failed: ${res.status}`);
       return body;
