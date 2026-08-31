@@ -32,7 +32,10 @@ export function resolveStateDir(env: NodeJS.ProcessEnv = process.env): string {
 
 /**
  * Ascend from `startDir` looking for a `.minsky` directory — the repo-root
- * signal every `location: "repo"` stream source is relative to. Mirrors
+ * signal. Since mt#4816 no stream is relative to it (the `location: "repo"`
+ * kind is retired); it survives because `projectStateKey` hashes it, so it is
+ * what separates one managed project's calibration records from another's.
+ * Mirrors
  * `findRepoRoot` (`src/cockpit/web-dist.ts`) in shape, but keyed on `.minsky`
  * rather than `src/cockpit/web` since `packages/domain` must not depend on
  * `src/` (layering: domain has no adapter-layer imports). Falls back to
@@ -75,9 +78,11 @@ export function resolveStreamPath(
   source: GuardEventStreamSource,
   roots: { repoRoot: string; stateDir: string }
 ): string {
-  if (source.location === "repo") {
-    return join(roots.repoRoot, source.relativePath);
-  }
+  // mt#4816: the `location === "repo"` branch that stood here is GONE, together with the
+  // `"repo"` member of `GuardEventStreamLocation` — `subagent-model-mismatch` was the last row
+  // declaring it, and re-introducing one is now a type error rather than a grep's problem.
+  // `roots.repoRoot` is still load-bearing below: it is the project key's input.
+  //
   // mt#4748: calibration/evaluation streams are project-keyed within the
   // shared state dir (see `projectStateKey` above). Every OTHER state-dir
   // family (fire-log, guard-health-log, two-strikes, …) stays flat/global —

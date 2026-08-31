@@ -20,13 +20,34 @@ import {
   type StandaloneDuplicateCandidate,
 } from "./parallel-work-guard-standalone";
 
+/**
+ * The mt#4805 change of units, applied at the fixture boundary.
+ *
+ * Every calibration number in this file is an embedding DISTANCE, because that
+ * is what `tasks.search` returned when the mt#2813 replay corpus was measured
+ * and what the module's own doc comment records. The command now returns a
+ * cosine SIMILARITY. Converting here rather than rewriting 20-odd literals keeps
+ * each call site readable against the recorded calibration — a reader can still
+ * match `0.478` to "mt#2734 -> mt#2351" in the module doc — while feeding the
+ * guard the units it actually consumes.
+ *
+ * `s = 1 - d²/2`, the same identity `packages/domain/src/similarity/similarity-score.ts`
+ * implements and `STANDALONE_DUP_MIN_SIMILARITY` is derived through. Strictly
+ * decreasing, so a fixture ABOVE the distance threshold lands BELOW the
+ * similarity one and every assertion's verdict is preserved.
+ */
+function asSimilarity(distance: number): number {
+  return 1 - (distance * distance) / 2;
+}
+
 function result(
   id: string,
-  score: number,
+  /** An embedding DISTANCE from the calibration corpus; converted for the guard. */
+  distance: number,
   status = "TODO",
   title = `Title for ${id}`
 ): TaskSearchResult {
-  return { id, score, status, title };
+  return { id, score: asSimilarity(distance), status, title };
 }
 
 describe("buildStandaloneDuplicateQuery (mt#2813)", () => {
@@ -113,22 +134,59 @@ describe("detectStandaloneDuplicates (mt#2813)", () => {
     const candidates = detectStandaloneDuplicates([result("mt#1", 0.9), result("mt#2", 1.05)]);
     expect(candidates).toEqual([]);
   });
+
+  it("keeps the CLOSE task and drops the FAR one — direction, not just count (mt#4805)", () => {
+    // Pins the inversion this guard nearly shipped. mt#4805 flipped
+    // `tasks.search` from returning an L2 distance to returning a cosine
+    // similarity; the filter here still read `score > MAX_DISTANCE`, which under
+    // the new units keeps the FAR task and drops the CLOSE one. Nothing errors —
+    // the guard is advisory, so the only symptom is warnings naming the wrong
+    // tasks and silence on the real ones.
+    //
+    // Every other case in this suite asserts a SET or a COUNT, which the
+    // inverted predicate can satisfy by accident when the fixture happens to be
+    // symmetric. This one asserts WHICH.
+    const candidates = detectStandaloneDuplicates([
+      result("mt#close", 0.478), // a real duplicate, per the mt#2813 corpus
+      result("mt#far", 1.05), // unrelated
+    ]);
+    expect(candidates.map((c) => c.id)).toEqual(["mt#close"]);
+    expect(candidates.map((c) => c.id)).not.toContain("mt#far");
+  });
+
+  it("sorts candidates closest-FIRST under the new units (mt#4805)", () => {
+    const candidates = detectStandaloneDuplicates([
+      result("mt#mid", 0.55),
+      result("mt#closest", 0.2),
+      result("mt#nearish", 0.63),
+    ]);
+    expect(candidates.map((c) => c.id)).toEqual(["mt#closest", "mt#mid", "mt#nearish"]);
+    // Closest-first now means score DESCENDING, the opposite of the pre-mt#4805 sort.
+    const scores = candidates.map((c) => c.score);
+    expect(scores[0] as number).toBeGreaterThan(scores[1] as number);
+    expect(scores[1] as number).toBeGreaterThan(scores[2] as number);
+  });
 });
 
 describe("formatStandaloneDuplicateWarning (mt#2813)", () => {
-  it("names every candidate with its status and distance", () => {
+  it("names every candidate with its status and similarity", () => {
+    // `StandaloneDuplicateCandidate.score` is the POST-filter value, so this
+    // fixture is a similarity directly rather than going through `result()`.
+    // 0.886 is what the mt#2734 -> mt#2351 pair's recorded distance of 0.478
+    // converts to (mt#4805).
     const candidates: StandaloneDuplicateCandidate[] = [
       {
         id: "mt#2351",
         title: "Reconcile pre-existing Pulumi-state drift",
         status: "TODO",
-        score: 0.478,
+        score: asSimilarity(0.478),
       },
     ];
     const msg = formatStandaloneDuplicateWarning("Reconcile prod Pulumi drift", candidates);
     expect(msg).toContain("mt#2351");
     expect(msg).toContain("[TODO]");
-    expect(msg).toContain("0.478");
+    expect(msg).toContain("similarity=0.886");
+    expect(msg).not.toContain("distance=");
     expect(msg).toContain("ADVISORY, not blocking");
   });
 

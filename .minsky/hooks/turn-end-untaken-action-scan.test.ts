@@ -1,6 +1,6 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the dedup store (turn-end-scan-store.ts) writes real per-session JSON files; these tests exercise the real store roundtrip (write -> dedup-read) in an isolated mkdtemp dir, mirroring turn-end-retro-scan.test.ts's precedent */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   run,
   TAIL_WINDOW_CHARS,
   OVERRIDE_ENV_VAR,
+  EVALUATION_SKIP_ENV_VAR,
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
   SUPPRESSION_RESERVED_CATEGORY_HALT,
   SUPPRESSION_ARMED_WATCHER_EVIDENCE,
@@ -28,6 +29,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
+import { evaluationLogPath } from "./dispatcher";
 import {
   STOP_INJECTED_OVERLAP_FAMILY,
   readFlagged,
@@ -51,6 +53,15 @@ const R2_FINAL_MESSAGE =
 const LEGITIMATE_WATCHER_MESSAGE =
   "GitHub is 500ing on the create-PR call. A retry watcher is armed (~7 min); " +
   "I'll re-attempt the PR when it fires — no action needed from you.";
+
+// A real attested tail that matches BOTH the reserved-category and
+// untaken-action detectors ("Say the word") — reused across the
+// reserved-category-vs-armed-watcher ordering test and the mt#4117
+// evaluation-stream test, rather than duplicated, since a hand-written
+// substitute has previously matched neither.
+const RESERVED_CATEGORY_HALT_MESSAGE =
+  "picking the replacement myself because which model becomes your default is your " +
+  "preference, not a capability gap. Say the word and a model and it's done.";
 
 const ctx: DispatchContext = { transcriptLines: [] } as unknown as DispatchContext;
 
@@ -985,17 +996,10 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
     // Reserved-category must win: it is the more specific reason, and it is the
     // one whose calibration record a reviewer of THIS guard would look for.
     test("reserved-category wins when a reserved halt and an armed wait both hold", () => {
-      // A real attested tail that matches BOTH detectors — reserved-category
-      // (a durable-default preference) and untaken-action ("Say the word").
-      // Reused from this file's own reserved-category fixtures rather than
-      // invented, since a hand-written one silently matched neither.
-      const reservedHaltMessage =
-        "picking the replacement myself because which model becomes your default is your " +
-        "preference, not a capability gap. Say the word and a model and it's done.";
       const outcome = run(
         {
           session_id: "both-conditions",
-          last_assistant_message: reservedHaltMessage,
+          last_assistant_message: RESERVED_CATEGORY_HALT_MESSAGE,
         } as StopHookInput,
         ctxWith(toolUse("t1", "ScheduleWakeup", { delaySeconds: 600 })),
         storeDir
@@ -1552,5 +1556,188 @@ describe("tool-call-state match arm (mt#4697)", () => {
     const out = runOn("mt#4324 is next.", c, "sc3-armed");
     expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_ARMED_WATCHER_EVIDENCE]);
     expect(out?.additionalContext).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4117 — the evaluation stream: every scanned turn-ending message writes a
+// record, fired or not, distinct from the fire-only calibration log above.
+// ---------------------------------------------------------------------------
+
+describe("evaluation stream (mt#4117)", () => {
+  function withProjectDir<T>(dir: string, fn: () => T): T {
+    const prev = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = dir;
+    try {
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = prev;
+    }
+  }
+
+  function readEvaluationRecords(dir: string): Record<string, unknown>[] {
+    const path = evaluationLogPath("untaken-action", { projectDir: dir });
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf-8")
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  function evalToolUse(id: string, name: string, input: Record<string, unknown>): TranscriptLine {
+    return {
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+    } as unknown as TranscriptLine;
+  }
+
+  // A preceding user turn is required so `extractFinalTurn` can delimit the
+  // final assistant turn — mirrors the "armed-watcher evidence suppression"
+  // describe block's own `ctxWith` fixture above.
+  function evalCtxWith(...lines: TranscriptLine[]): DispatchContext {
+    const userTurn: TranscriptLine = {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "go" }] },
+    } as unknown as TranscriptLine;
+    return { transcriptLines: [userTurn, ...lines] } as unknown as DispatchContext;
+  }
+
+  let projectDir: string;
+  let evalStoreDir: string;
+
+  beforeEach(() => {
+    projectDir = mkdtempSync(join(tmpdir(), "mt4117-project-"));
+    mkdirSync(join(projectDir, ".git"));
+    evalStoreDir = mkdtempSync(join(tmpdir(), "mt4117-store-"));
+    delete process.env[EVALUATION_SKIP_ENV_VAR];
+  });
+
+  afterEach(() => {
+    rmSync(evaluationLogPath("untaken-action", { projectDir }), { force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+    rmSync(evalStoreDir, { recursive: true, force: true });
+    delete process.env[EVALUATION_SKIP_ENV_VAR];
+  });
+
+  test("a fire writes BOTH a calibration record (unchanged) and an evaluation record marked fired", () => {
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-fire", last_assistant_message: R3_FINAL_MESSAGE } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+    // Existing calibration behavior is unchanged by this task.
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(true);
+    expect(records[0]?.["suppressed"]).toBe(false);
+    expect(records[0]?.["injected"]).toBe(true);
+  });
+
+  test("a non-fire writes an evaluation record marked non-fire, with no additionalContext", () => {
+    const nonFiringMessage =
+      "Everything here has already merged and the pipeline is green across the board.";
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-nonfire", last_assistant_message: nonFiringMessage } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+    expect(outcome).toBeNull();
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(false);
+    expect(records[0]?.["suppressed"]).toBe(false);
+    expect(records[0]).not.toHaveProperty("additionalContext");
+  });
+
+  test("an armed-watcher-suppressed fire is recorded as suppressed, naming the suppression", () => {
+    // Same fixture as the "run() — evidence decides, not prose" suite above:
+    // a message that WOULD fire, alongside tool-call evidence that a wait is
+    // armed. The mt#4063/mt#3768 classes are the ones most likely to hide a
+    // regression if folded into a non-fire, so this is asserted directly.
+    const armedMessage = "That watch is armed in the background — I'll merge when it concludes.";
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-suppressed", last_assistant_message: armedMessage } as StopHookInput,
+        evalCtxWith(evalToolUse("t1", CONDITIONAL_WAIT_TOOL, { wait: true })),
+        evalStoreDir
+      )
+    );
+    expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
+      SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+    ]);
+    expect(outcome?.additionalContext).toBeUndefined();
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(true);
+    expect(records[0]?.["suppressed"]).toBe(true);
+    expect(records[0]?.["suppressionReason"]).toBe(SUPPRESSION_ARMED_WATCHER_EVIDENCE);
+    expect(records[0]?.["injected"]).toBe(false);
+  });
+
+  test("a reserved-category-suppressed fire is also recorded as suppressed, naming the suppression", () => {
+    withProjectDir(projectDir, () =>
+      run(
+        {
+          session_id: "eval-reserved",
+          last_assistant_message: RESERVED_CATEGORY_HALT_MESSAGE,
+        } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(true);
+    expect(records[0]?.["suppressed"]).toBe(true);
+    expect(records[0]?.["suppressionReason"]).toBe(SUPPRESSION_RESERVED_CATEGORY_HALT);
+  });
+
+  test("the evaluation path resolves under the repo root, not the session workspace cwd", () => {
+    const strayCwd = mkdtempSync(join(tmpdir(), "mt4117-stray-cwd-"));
+    try {
+      withProjectDir(projectDir, () =>
+        run(
+          {
+            session_id: "eval-rooting",
+            cwd: strayCwd,
+            last_assistant_message: R3_FINAL_MESSAGE,
+          } as StopHookInput,
+          ctx,
+          evalStoreDir
+        )
+      );
+
+      expect(readEvaluationRecords(projectDir)).toHaveLength(1);
+      // The defect this guards against: nothing landed under the stray cwd.
+      const strayPath = evaluationLogPath("untaken-action", { projectDir: strayCwd });
+      expect(existsSync(strayPath)).toBe(false);
+    } finally {
+      rmSync(strayCwd, { recursive: true, force: true });
+    }
+  });
+
+  test("with the skip env var set, no evaluation record is written and fire behavior is unchanged", () => {
+    process.env[EVALUATION_SKIP_ENV_VAR] = "1";
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-skip", last_assistant_message: R3_FINAL_MESSAGE } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+    expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+    expect(readEvaluationRecords(projectDir)).toHaveLength(0);
   });
 });

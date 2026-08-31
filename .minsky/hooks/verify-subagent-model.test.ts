@@ -1,3 +1,10 @@
+/* eslint-disable custom/no-real-fs-in-tests -- mt#4816's AT1 is a WRITE-ISOLATION test, the same
+   shape as `guard-health-write-isolation.test.ts`: its claim is that the real `appendFileSync`
+   lands under the state dir and creates nothing in a managed project's working tree. Mocking the
+   filesystem would make the assertion about the mock's routing rather than the hook's, which is
+   precisely the defect being fixed — the hook's path resolution WAS the bug. The write is
+   confined to an `mkdtempSync` scratch dir, removed in a `finally`, and the env is injected
+   rather than mutated globally, so nothing leaks between tests. */
 /**
  * Tests for the subagent model-verification PostToolUse hook (mt#3257).
  *
@@ -10,15 +17,26 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   decideModelCheck,
   extractResponse,
   isOverrideActive,
   requestedMatchesResolved,
+  appendMismatchRecord,
+  getMismatchLogPath,
   ALIAS_PREFIXES,
+  MISMATCH_LOG,
   OVERRIDE_ENV_VAR,
 } from "./verify-subagent-model";
 import type { ToolHookInput } from "./types";
+// mt#4816 AT3: the reader's own resolvers, imported rather than re-derived. Asserting the
+// writer against a hand-written expected path is exactly what let ask-form-lint's writer and
+// reader disagree while its test stayed green (mt#4811).
+import { resolveStateDir, resolveStreamPath } from "@minsky/domain/guard-events/ingest-runtime";
+import { GUARD_EVENT_STREAM_SOURCES } from "@minsky/domain/guard-events/stream-sources";
 
 /** Probe-3 capture constants, shared across fixtures and assertions. */
 const PROBE3_AGENT_ID = "af3976c1820b38d69";
@@ -274,5 +292,78 @@ describe("extractResponse / isOverrideActive", () => {
     expect(isOverrideActive({ [OVERRIDE_ENV_VAR]: "yes" })).toBe(true);
     expect(isOverrideActive({ [OVERRIDE_ENV_VAR]: "0" })).toBe(false);
     expect(isOverrideActive({})).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4816 — the log's home, and the writer/reader agreement that pins it
+// ---------------------------------------------------------------------------
+
+describe("mt#4816 — the mismatch log lives in the state dir, not a project's working tree", () => {
+  /** The manifest row this hook writes. Read from the manifest so a rename cannot silently pass. */
+  const row = GUARD_EVENT_STREAM_SOURCES.find((s) => s.stream === "subagent-model-mismatch");
+  if (!row) {
+    // Loud at load time rather than an `undefined` quietly satisfying the assertions below.
+    throw new Error("mt#4816: no `subagent-model-mismatch` row in GUARD_EVENT_STREAM_SOURCES");
+  }
+
+  test("SC3 — the stream is declared state-dir, and nothing in the manifest is repo-rooted", () => {
+    expect(row.location).toBe("state-dir");
+    // AT4, as an assertion rather than a grep: the whole manifest, not just this row.
+    expect(GUARD_EVENT_STREAM_SOURCES.filter((s) => s.location !== "state-dir")).toEqual([]);
+  });
+
+  test("SC3 — the writer's file name is byte-identical to the row's relativePath", () => {
+    // The docblock on MISMATCH_LOG claims this. `ask-form-lint` (mt#4811) is what a broken
+    // version of this claim costs: reader and writer each derived their own path, they
+    // disagreed, and the sweep read an empty corpus and reported "this guard never fired."
+    expect(MISMATCH_LOG).toBe(row.relativePath);
+  });
+
+  test("AT3 — the writer resolves to exactly the path the ingest reader computes", () => {
+    const env = { MINSKY_STATE_DIR: "/tmp/mt4816-state" } as NodeJS.ProcessEnv;
+    expect(getMismatchLogPath(env)).toBe(
+      resolveStreamPath(row, { repoRoot: "/some/managed/project", stateDir: resolveStateDir(env) })
+    );
+  });
+
+  test("AT3 — they still agree when MINSKY_STATE_DIR is unset (the default branch)", () => {
+    // Asserting the temp-dir case alone would pass even if the two default branches diverged,
+    // which is the configuration almost every real invocation runs in.
+    const env = {} as NodeJS.ProcessEnv;
+    expect(getMismatchLogPath(env)).toBe(
+      resolveStreamPath(row, { repoRoot: "/some/managed/project", stateDir: resolveStateDir(env) })
+    );
+  });
+
+  test("AT3 — the resolved path does not depend on which project the agent is in", () => {
+    // The point of the move: two managed repos must not get two different files. Flat, so the
+    // repoRoot argument is inert for this stream (it is NOT inert for a calibration stream).
+    const env = { MINSKY_STATE_DIR: "/tmp/mt4816-state" } as NodeJS.ProcessEnv;
+    const stateDir = resolveStateDir(env);
+    expect(resolveStreamPath(row, { repoRoot: "/projects/alpha", stateDir })).toBe(
+      resolveStreamPath(row, { repoRoot: "/projects/beta", stateDir })
+    );
+  });
+
+  test("AT1 — appending writes under the state dir and leaves no file in the repo tree", () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "mt4816-state-"));
+    const fakeRepo = mkdtempSync(join(tmpdir(), "mt4816-repo-"));
+    try {
+      appendMismatchRecord({ timestamp: "2026-08-31T00:00:00.000Z", kind: "mismatch" }, {
+        MINSKY_STATE_DIR: stateDir,
+      } as NodeJS.ProcessEnv);
+
+      const written = join(stateDir, MISMATCH_LOG);
+      expect(existsSync(written)).toBe(true);
+      expect(JSON.parse(readFileSync(written, "utf-8").trim()).kind).toBe("mismatch");
+
+      // The condition mt#4748's SC2 forbids: nothing lands in a managed project's tree.
+      expect(existsSync(join(fakeRepo, ".minsky", "subagent-model-mismatch.jsonl"))).toBe(false);
+      expect(existsSync(join(fakeRepo, ".minsky"))).toBe(false);
+    } finally {
+      rmSync(stateDir, { recursive: true, force: true });
+      rmSync(fakeRepo, { recursive: true, force: true });
+    }
   });
 });
