@@ -104,6 +104,15 @@ const FILTER_COHORT_KEYS = [
   "untagged",
   "neverAccessed",
   "onlySuperseded",
+  // PR #3508 R1: the cohort chips have the same search-mode defect the
+  // reviewer found on the worklists. `MemoriesList` switches to search mode
+  // whenever `q` is non-empty, and search mode queries `memories-search`,
+  // which takes no `mem_f_*` filters — so clicking "Handoffs" with a search
+  // active highlighted the chip while the table showed search results the tag
+  // filter never touched. This predates mt#4767 (mt#4763 shipped the chips);
+  // fixed here rather than filed, because it is the same class as the finding
+  // and one line from it.
+  "q",
 ] as const;
 
 function clearFilterCohortKeys(): Record<string, null> {
@@ -112,8 +121,18 @@ function clearFilterCohortKeys(): Record<string, null> {
   return updates;
 }
 
+/**
+ * True when the ordinary filtered TABLE is what the page is rendering.
+ *
+ * Two things displace it, and every cohort's active-check has to account for
+ * both (PR #3508 R1): a page-level view (`mem_view=families`/`duplicates`)
+ * replaces the table outright, and a non-empty search query switches
+ * `MemoriesList` into search mode, where it queries `memories-search` and
+ * ignores every `mem_f_*` filter. A chip highlighted in either state asserts a
+ * cohort the table is not showing.
+ */
 function isPlainView(search: string): boolean {
-  return readView(search) === "";
+  return readView(search) === "" && readMemFilter(search, "q").trim() === "";
 }
 
 /**

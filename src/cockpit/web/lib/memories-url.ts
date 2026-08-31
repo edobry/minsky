@@ -132,6 +132,14 @@ const WORKLIST_KEYS = [
   // into the NEXT worklist, which would silently widen it to include
   // superseded records and make its table disagree with its own tile count.
   "excludeSuperseded",
+  // The search query (PR #3508 R1 BLOCKING). `MemoriesList` switches to SEARCH
+  // MODE whenever `q` is non-empty, and search mode queries `memories-search`,
+  // which takes none of the `mem_f_*` filters. So a worklist click on a page
+  // with an active search would highlight its tile while the table below
+  // showed unrelated search results — the filter never reaching the query at
+  // all. Clearing it means a worklist click always lands on the surface the
+  // tile is talking about.
+  "q",
 ] as const;
 
 function clearWorklistKeys(): Record<string, null> {
@@ -174,10 +182,28 @@ export function applyWorklist(id: WorklistId, coldDays?: number): void {
   writeMemoriesUrl(updates);
 }
 
-/** Whether `search` is currently showing worklist `id`. */
+/**
+ * Whether the page is CURRENTLY SHOWING worklist `id` — not merely whether its
+ * param is set (PR #3508 R1 BLOCKING).
+ *
+ * The distinction is load-bearing. Two states set a worklist's `mem_f_*` key
+ * and yet render something else entirely:
+ *
+ * - **A page view is selected** (`mem_view=families`/`duplicates`) — the table
+ *   is replaced wholesale.
+ * - **A search is active** (`q` non-empty) — `MemoriesList` switches to search
+ *   mode and queries `memories-search`, which accepts none of the `mem_f_*`
+ *   filters, so the worklist's predicate never reaches the query.
+ *
+ * `applyWorklist` clears both, so this only fires on a URL assembled some
+ * other way — a shared link, a hand-edited address bar, browser back into a
+ * mixed state. Returning `true` there would highlight a tile asserting a
+ * cohort the table is not showing.
+ */
 export function isWorklistActive(search: string, id: WorklistId): boolean {
   if (id === "duplicates") return readView(search) === "duplicates";
   if (readView(search) !== "") return false;
+  if (readMemFilter(search, "q").trim() !== "") return false;
   return readMemFilter(search, WORKLIST_FILTER_KEY[id]) === "true";
 }
 

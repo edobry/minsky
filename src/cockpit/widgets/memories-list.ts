@@ -72,10 +72,46 @@ function parseTags(value: string | undefined): string[] | undefined {
   return tags.length > 0 ? tags : undefined;
 }
 
-function parsePositiveInt(value: string | undefined): number | undefined {
+/**
+ * Parse a NON-NEGATIVE integer — zero is a valid value here.
+ *
+ * Only `offset` may legitimately be 0 (it is the first page). Everything else
+ * this widget parses is a count or a day-threshold, where 0 is meaningless at
+ * best and wrong at worst — see {@link parsePositiveInt}.
+ */
+export function parseNonNegativeInt(value: string | undefined): number | undefined {
   if (!value) return undefined;
-  const n = parseInt(value, 10);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
+/**
+ * Parse a STRICTLY positive integer, rejecting 0 and negatives (PR #3508 R1).
+ *
+ * This function existed under this name accepting `n >= 0`, which is what its
+ * callers reasonably assumed it did not do. The consequence is worst for the
+ * day-thresholds: `coldDays=0` becomes `interval '0 days'`, so every
+ * ever-read record matches and the cold worklist silently widens to "all
+ * read" — a plausible number, not an error. `stalenessDays=0` does the same to
+ * the stale filter, which predates this PR.
+ *
+ * It also matters for `limit`: a page of 0 rows is an empty table, again with
+ * nothing to indicate the parameter was the cause.
+ *
+ * The strict-positive guard in `memories-curation.ts` was written correctly and
+ * this one was not, so the tile's count and the table it links to could
+ * disagree — which is exactly the divergence the two-path design has to avoid.
+ *
+ * Uses `Number` + `Number.isInteger`, not `parseInt`, and that is the second
+ * half of the same fix: `parseInt("7.5", 10)` returns 7, so a fractional
+ * `coldDays` silently became 7 days HERE while the curation widget rejected it
+ * and fell back to 14 — the tile and its table describing different
+ * thresholds. Caught by the cross-widget agreement test, not by the review.
+ */
+export function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 /**
@@ -115,7 +151,8 @@ export function createMemoriesListWidget(
         const scope = query?.scope as MemoryScope | undefined;
         const excludeSuperseded = query?.excludeSuperseded === "true";
         const limit = parsePositiveInt(query?.limit) ?? DEFAULT_PAGE_SIZE;
-        const offset = parsePositiveInt(query?.offset) ?? 0;
+        // The ONE caller for which 0 is a real value — it is the first page.
+        const offset = parseNonNegativeInt(query?.offset) ?? 0;
         const stale = query?.stale === "true";
         const stalenessDays = parsePositiveInt(query?.stalenessDays);
         // mt#4767 curation worklists. `cold` is NOT `stale` with a different
