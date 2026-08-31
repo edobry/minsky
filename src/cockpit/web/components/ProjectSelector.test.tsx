@@ -96,7 +96,10 @@ function mockProjectsAndWidgets(opts: {
   working: Record<string, number | "degraded">;
 }) {
   globalThis.fetch = mock((input: RequestInfo | URL) => {
-    const url = String(input);
+    // apiFetch always calls fetch(url: string, init), but harden against a
+    // Request instance too — String(request) yields "[object Request]",
+    // not its URL, which would silently 404 every route below.
+    const url = input instanceof Request ? input.url : String(input);
     const parsed = new URL(url, "http://localhost");
     const key = parsed.searchParams.get("project") ?? "";
 

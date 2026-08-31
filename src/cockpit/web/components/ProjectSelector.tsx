@@ -91,7 +91,11 @@ function OptionBody({ label, triageLine }: { label: string; triageLine: string |
 export function ProjectSelector() {
   const { projects, selectedSlug, setSelectedSlug, isLoading } = useProject();
   const [open, setOpen] = useState(false);
-  const triageSummaries = useProjectTriageSummaries(projects, open);
+  // Rules-of-hooks keeps this call unconditional, but there's no reason to
+  // let it construct/register live queries for a selector that is about to
+  // render null below (0 or 1 known project) — gate `enabled` on the same
+  // condition the early return checks.
+  const triageSummaries = useProjectTriageSummaries(projects, open && projects.length >= 2);
 
   if (isLoading || projects.length < 2) {
     return null;
