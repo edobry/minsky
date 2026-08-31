@@ -29,6 +29,9 @@ const REPOSITORY_ACCESS = "Repository access";
 /** The navigation path the deep link replaces (mt#4695). */
 const NAVIGATION_PATH_MARKER = "Installed GitHub Apps";
 
+/** A coverage-probe failure, shared by the two tests that induce one. */
+const PROBE_FAILURE = "503 Service Unavailable";
+
 function fakeProvider(
   impl: () => Promise<{ repositories: string[]; selection: "all" | "selected" }>
 ) {
@@ -85,7 +88,7 @@ describe("checkAppCoverage (mt#4680)", () => {
     // already have.
     const status = await checkAppCoverage("edobry/minsky", {
       provider: fakeProvider(async () => {
-        throw new Error("503 Service Unavailable");
+        throw new Error(PROBE_FAILURE);
       }),
     });
     expect(status.state).toBe("unknown");
@@ -326,7 +329,7 @@ describe("checkAppRoleCoverage (mt#4693 D6)", () => {
         configured: ["implementer"],
         coverage: {
           implementer: async () => {
-            throw new Error("503 Service Unavailable");
+            throw new Error(PROBE_FAILURE);
           },
         },
       }),
@@ -420,6 +423,32 @@ describe("checkAppRoleCoverage settings link (mt#4764)", () => {
     });
 
     expect(result[0]?.settingsUrl).toBeUndefined();
+  });
+
+  it("does not spend an API call when the coverage probe itself failed", async () => {
+    // PR #3511 R1. `unknown` means the first call already failed; its rendered
+    // line carries no link at all, so a second call is waste that amplifies
+    // whatever transient failure or rate limit produced the first.
+    let calls = 0;
+    const result = await checkAppRoleCoverage(UNGRANTED_REPO, [IMPLEMENTER], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => {
+            throw new Error(PROBE_FAILURE);
+          },
+        },
+        htmlUrl: {
+          implementer: async () => {
+            calls += 1;
+            return ORG_HTML_URL;
+          },
+        },
+      }),
+    });
+
+    expect(result[0]?.status.state).toBe("unknown");
+    expect(calls).toBe(0);
   });
 
   it("does not spend an API call on a COVERED role, which renders no link", async () => {

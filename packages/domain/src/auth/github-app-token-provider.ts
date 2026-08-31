@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TokenProvider, TokenRole } from "./token-provider";
 import { createTimeoutFetch } from "../github/octokit-timeout";
+import { trustedGitHubUrl } from "../github/trusted-url";
 
 /** Per-App credentials used by SingleAppClient. */
 export interface AppCredentials {
@@ -358,9 +359,12 @@ class SingleAppClient {
       if (!response.ok) return null;
 
       const data = (await response.json()) as { html_url?: unknown };
-      // Typed `unknown` and checked: `html_url` is documented as required, but
-      // this value crosses a trust boundary and reaches an operator-facing link.
-      return typeof data.html_url === "string" && data.html_url.length > 0 ? data.html_url : null;
+      // Origin-checked, not merely type-checked (PR #3511 R1). This value
+      // crosses a trust boundary and is rendered to an operator as something to
+      // CLICK, so "is it a non-empty string" is the wrong question — "does it
+      // point at github.com" is the right one. Anything else returns null and
+      // the caller falls back to the constructed, known-safe form.
+      return trustedGitHubUrl(data.html_url);
     } catch {
       // intentional-swallow: advisory link only; the caller falls back to the
       // constructed form, and a failure here must not fail the coverage probe.

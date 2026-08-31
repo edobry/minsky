@@ -206,8 +206,12 @@ export async function checkAppRoleCoverage(
     // provider in the tests is built with `as unknown as GitHubAppTokenProvider`,
     // so a provider missing this method is a RUNTIME throw the compiler cannot
     // see. `getInstallationHtmlUrl` already returns `null` on its own failures.
+    // Narrowed to `not-covered` (PR #3511 R1): `unknown` means the coverage
+    // probe ALREADY failed, and its rendered line carries no link at all — so a
+    // second call there is pure waste and amplifies whatever transient failure
+    // or rate limit produced the first one.
     const authoritativeUrl =
-      status.state !== "covered" && typeof provider.getInstallationHtmlUrl === "function"
+      status.state === "not-covered" && typeof provider.getInstallationHtmlUrl === "function"
         ? await provider.getInstallationHtmlUrl(descriptor.role)
         : null;
 
