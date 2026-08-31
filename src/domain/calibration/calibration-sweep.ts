@@ -844,6 +844,26 @@ export interface WallOfTextRecord {
    * it matched.
    */
   excerpt?: string;
+  /**
+   * Words in the LARGEST block of the turn — the measurement the `over-budget`
+   * leg keys on since mt#4531 (mt#4637).
+   *
+   * **Projected here because this is the surface a reviewer classifies from.**
+   * It was in the raw JSONL from mt#4531 and absent from this parsed record, so
+   * sorting a window by `wordCount` (the FINAL block) produced apparent
+   * threshold violations that are correct fires — measured at 39% of
+   * over-budget fires over the 685-record union corpus, and it inverted three
+   * consecutive calibration passes' verdicts. A field present in the log and
+   * missing from the projection is the same defect PR #2420 R1 names one line
+   * up, in the other direction.
+   *
+   * Optional: records written before mt#4531 have no such field.
+   */
+  largestBlockWords?: number;
+  /** The lead of that largest block (mt#4637). Optional; pre-mt#4637 records lack it. */
+  largestBlockExcerpt?: string;
+  /** 0-based index of that block in the turn (mt#4637). Optional; pre-mt#4637 records lack it. */
+  largestBlockIndex?: number;
 }
 
 /**
@@ -1384,6 +1404,16 @@ function parseCalibrationRecordCore(
         // does not deliver, and every consumer keying on `excerpt` would find
         // it nested a level down instead.
         excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
+        // mt#4637: same reasoning as `excerpt` above, applied to the fields the
+        // over-budget leg actually keys on. `largestBlockWords` reached the log
+        // in mt#4531 and never reached this projection, so a reviewer sorting by
+        // `wordCount` saw correct fires as threshold violations.
+        largestBlockWords:
+          typeof raw["largestBlockWords"] === "number" ? raw["largestBlockWords"] : undefined,
+        largestBlockExcerpt:
+          typeof raw["largestBlockExcerpt"] === "string" ? raw["largestBlockExcerpt"] : undefined,
+        largestBlockIndex:
+          typeof raw["largestBlockIndex"] === "number" ? raw["largestBlockIndex"] : undefined,
       } satisfies WallOfTextRecord;
     }
 
