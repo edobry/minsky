@@ -463,8 +463,14 @@ describe("elideMarkdownNonProse", () => {
   it("blanks an inline code span but preserves the surrounding text", () => {
     const body = "Use the `foo` value here.";
     const out = elideMarkdownNonProse(body);
-    expect(out).toBe("Use the       value here.");
+    // Asserts the PROPERTY (span content gone, surroundings and length intact) rather than the
+    // filler character — the filler is not whitespace as of mt#4792, and pinning it here made a
+    // filler change look like three behavioural regressions.
     expect(out.length).toBe(body.length);
+    expect(out.startsWith("Use the ")).toBe(true);
+    expect(out.endsWith(" value here.")).toBe(true);
+    expect(out).not.toContain("foo");
+    expect(out).not.toContain("`");
   });
 
   it("blanks a fenced code block but preserves newlines for line-anchored passes", () => {
@@ -474,10 +480,12 @@ describe("elideMarkdownNonProse", () => {
     expect(out.length).toBe(body.length);
     expect(out.startsWith("before\n")).toBe(true);
     expect(out.endsWith("\nafter")).toBe(true);
-    // The fence content lines are all whitespace
+    // The fence content lines carry no original content. Asserted as "no word characters and
+    // no backticks" rather than "all whitespace": the filler is deliberately non-whitespace
+    // (mt#4792), and what this test cares about is that nothing scannable survived.
     const fenceLines = out.split("\n").slice(1, 4);
     for (const line of fenceLines) {
-      expect(line).toMatch(/^\s*$/);
+      expect(line).not.toMatch(/[\w`]/);
     }
   });
 
@@ -487,9 +495,10 @@ describe("elideMarkdownNonProse", () => {
     expect(out.length).toBe(body.length);
     expect(out.startsWith("before\n")).toBe(true);
     expect(out.endsWith("\nafter")).toBe(true);
-    // The blockquote line is all whitespace (no `>` or content remains)
+    // No `>` and no content remains. The original assertion was `/^ +$/`, which pinned the
+    // filler as a space; what it MEANT is what is asserted now (mt#4792).
     const blockquoteLine = out.split("\n")[1] as string;
-    expect(blockquoteLine).toMatch(/^ +$/);
+    expect(blockquoteLine).not.toMatch(/[\w>]/);
     expect(blockquoteLine.length).toBe("> quoted note here".length);
   });
 
