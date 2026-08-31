@@ -69,7 +69,18 @@ interface WorkstreamCard {
   blockedChildCount: number;
   /** Newest task updatedAt in the stream, ISO string or null (mt#2885). */
   lastActivityAt: string | null;
-  /** Root task's owning project uuid, or null (mt#4773); optional for back-compat. */
+  /**
+   * Root task's owning project uuid, or null (mt#4773).
+   *
+   * OPTIONAL here while the server type has it required, deliberately — same
+   * reason `altitude?:` below is optional. The bundle and the daemon are
+   * rebuilt by SEPARATE watchers (mt#2297 rebuilds `dist` on a web change;
+   * mt#2299 restarts the daemon on a backend change), so a freshly-built
+   * bundle can receive a payload from a daemon that has not restarted yet and
+   * does not send this field. Narrowing to required would make that window a
+   * type lie rather than a rendering no-op; the consumer reads
+   * `card.projectId ?? null`, which is correct either way.
+   */
   projectId?: string | null;
 }
 
@@ -78,7 +89,11 @@ type WorkstreamAltitude = "full" | "rollup" | "actionable";
 
 interface WorkstreamsPayload {
   workstreams: WorkstreamCard[];
-  /** Slice that produced this payload; optional for back-compat with pre-mt#2385 payloads */
+  /**
+   * Slice that produced this payload; optional for back-compat with
+   * pre-mt#2385 payloads — the same server-required/frontend-optional
+   * exception `projectId` documents above, and the precedent for it.
+   */
   altitude?: WorkstreamAltitude;
 }
 
