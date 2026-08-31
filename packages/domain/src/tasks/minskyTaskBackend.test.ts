@@ -260,6 +260,86 @@ describe("MinskyTaskBackend timestamp surfacing (mt#2259)", () => {
 });
 
 /**
+ * mt#4808: the per-call project must actually reach the INSERT.
+ *
+ * This is the production-wiring assertion, not a helper unit test. The defect
+ * was not that a resolver computed the wrong id — it was that no per-call value
+ * could reach the row at all: `currentProjectId` is fixed at construction, and
+ * the MCP path injects a boot singleton, so a task whose subject belonged to
+ * another project could only ever be stamped with the server's.
+ */
+describe("MinskyTaskBackend — per-call projectId reaches the insert (mt#4808)", () => {
+  const MINSKY_ID = "3ac3d147-2b6f-4cf9-a52a-2b6e32d3c5fe";
+  const PEEZOMBIE_ID = "2ef29b41-413e-4ecf-a61b-e695697e7d82";
+
+  /** Insert fake that CAPTURES the values written to the task row. */
+  function makeCapturingDb(): { db: unknown; captured: () => Record<string, unknown> | undefined } {
+    let captured: Record<string, unknown> | undefined;
+    const awaitable = <T>(value: T) => ({
+      then: (onF: (v: T) => unknown, onR?: (e: unknown) => unknown) =>
+        Promise.resolve(value).then(onF, onR),
+    });
+    const db = {
+      transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+        return fn(this);
+      },
+      insert() {
+        return {
+          values(v: Record<string, unknown>) {
+            // Only the task row carries `projectId`; the spec row does not.
+            if ("projectId" in v) captured = v;
+            return {
+              onConflictDoNothing: () => ({ returning: () => awaitable([{ id: "mt#7" }]) }),
+              onConflictDoUpdate: () => awaitable(undefined),
+            };
+          },
+        };
+      },
+    };
+    return { db, captured: () => captured };
+  }
+
+  test("options.projectId OVERRIDES the construction-time currentProjectId", async () => {
+    const { db, captured } = makeCapturingDb();
+    // A backend built for minsky — the boot-singleton shape the MCP path has.
+    const backend = new MinskyTaskBackend({
+      db,
+      workspacePath: "/tmp/ws",
+      currentProjectId: MINSKY_ID,
+    } as never);
+
+    await backend.createTaskFromTitleAndSpec("T", "spec body", {
+      id: "mt#7",
+      projectId: PEEZOMBIE_ID,
+    });
+
+    expect(captured()?.projectId).toBe(PEEZOMBIE_ID);
+  });
+
+  test("without an override the constructed value still stands (unchanged behavior)", async () => {
+    const { db, captured } = makeCapturingDb();
+    const backend = new MinskyTaskBackend({
+      db,
+      workspacePath: "/tmp/ws",
+      currentProjectId: MINSKY_ID,
+    } as never);
+
+    await backend.createTaskFromTitleAndSpec("T", "spec body", { id: "mt#7" });
+
+    expect(captured()?.projectId).toBe(MINSKY_ID);
+  });
+
+  test("with neither, the row stamps null rather than undefined", async () => {
+    const { db, captured } = makeCapturingDb();
+    const backend = new MinskyTaskBackend({ db, workspacePath: "/tmp/ws" } as never);
+
+    await backend.createTaskFromTitleAndSpec("T", "spec body", { id: "mt#7" });
+
+    expect(captured()?.projectId).toBeNull();
+  });
+});
+
+/**
  * Recording fake of the MinskyBackendDb select surface for `listTasks`. Captures
  * the drizzle `SQL` condition object passed to `.where(...)` so the test can
  * render it to a parameterized query via drizzle's own `PgDialect` (no live DB

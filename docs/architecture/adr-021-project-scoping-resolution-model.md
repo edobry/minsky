@@ -123,6 +123,25 @@ New **session** and **memory** records are also stamped with the resolved
   respected.
 - **Ask write-stamping** is deferred to Phase-1.3b — the Ask domain type
   does not yet carry a `projectId` field (see `ask/repository.ts` `toInsert`).
+- `tasks.create` no longer stamps from the filing context alone (mt#4808).
+  It resolves per call, in precedence order: an explicit `workspace`/`repo`
+  the caller named → the `parent` task's project → the filing context
+  (unchanged fallback). Explicit beats inherited because an argument the
+  caller passed is an instruction while a parent's project is an inference;
+  a caller wanting the parent's project omits the argument. Every lookup
+  fails open to the next level — a create must not fail, or silently NULL its
+  project, because a lookup did. Resolved in
+  `packages/domain/src/project/new-task-project.ts`; the per-call value
+  reaches the row through `CreateTaskOptions.projectId`, which overrides the
+  backend's construction-time `currentProjectId` (the MCP path injects a boot
+  singleton, so nothing per-call could reach the insert without that seam).
+
+**Deviation from `## Decision`, recorded not resolved.** The per-process
+resolution model above describes reads. Two write paths now resolve from the
+ENTITY rather than the process context — `session.start` (mt#4758) and
+`tasks.create` (mt#4808) — and `asks_create` is the third and last call site of
+the same root (mt#4772, open). Amending `## Decision` to match belongs with the
+phase that owns this ADR, not with an individual bugfix; **mt#2391** carries it.
 
 ## Cross-references
 
