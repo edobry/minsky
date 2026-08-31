@@ -87,6 +87,13 @@ export interface WakeEnrichmentBlock {
  *   - It is a read-oriented query that an agent polls naturally during babysitting
  *   - Adding it does not open a delivery path to unrelated callers
  */
+// CANONICAL (dotted) NAMES ONLY, and that is a CONTRACT with the caller (mt#4827).
+// `toolName` must be the RESOLVED `tool.name`, never `request.params.name` — the raw
+// wire name is UNDERSCORED for every client, because `tools/list` advertises the
+// Claude-Desktop alias by default (`shouldEmitDesktopAliases`). Feeding the wire name
+// here is not a near-miss; it is a Set that can never match, which is precisely how
+// this leg sat dead and silent in production. Do NOT "fix" a future miss by adding
+// underscored entries — fix the caller.
 const WAKE_ENRICHMENT_ALLOWLIST = new Set<string>([
   "tasks.get",
   "pr.watch.list",

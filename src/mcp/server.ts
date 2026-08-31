@@ -189,8 +189,9 @@ export interface MinskyMCPServerOptions {
 /**
  * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
  * The request handler injects the resolved caller agentId into ONLY this tool's
- * args (matched exactly against this name and its `toClaudeDesktopName` underscore
- * alias) so its contested-check can exclude the caller's own task-grain claims.
+ * args (matched exactly against the RESOLVED `tool.name`, which is always this
+ * canonical form — mt#4827) so its contested-check can exclude the caller's own
+ * task-grain claims.
  */
 const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 
@@ -251,21 +252,28 @@ const TASKS_CREATE_TOOL_NAME = "tasks.create";
  * load rather than per request.
  *
  * Why a set rather than a second `if`: the injection is now seven tools wide and
- * the matching rule (exact, both aliases, server overwrites any caller-supplied
- * value) is the part that must not drift between them. One membership test
- * cannot disagree with itself.
+ * the matching rule (exact match on the resolved name, server overwrites any
+ * caller-supplied value) is the part that must not drift between them. One
+ * membership test cannot disagree with itself.
+ *
+ * CANONICAL NAMES ONLY (mt#4827). This Set used to flat-map each name through
+ * `toClaudeDesktopName` so it held both spellings, because the call site tested
+ * `request.params.name` — the raw wire name. The call site now tests the RESOLVED
+ * `tool.name`, which is always canonical, so the alias entries are dead weight and
+ * their absence is what keeps `src/mcp/` on ONE idiom instead of three. Do not
+ * reintroduce the flat-map: a Set that holds both spellings hides whether its call
+ * site resolved the name, which is exactly how the two enrichment allowlists sat
+ * broken and silent.
  */
-const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
-  [
-    DISPATCH_RECOVER_TOOL_NAME,
-    CALIBRATION_REVIEW_TOOL_NAME,
-    ASKS_CREATE_TOOL_NAME,
-    CLAIMS_RELEASE_TOOL_NAME,
-    WORK_PACKAGE_CLAIM_TOOL_NAME,
-    WORK_PACKAGE_RELEASE_TOOL_NAME,
-    TASKS_CREATE_TOOL_NAME,
-  ].flatMap((name) => [name, toClaudeDesktopName(name)])
-);
+const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
+  DISPATCH_RECOVER_TOOL_NAME,
+  CALIBRATION_REVIEW_TOOL_NAME,
+  ASKS_CREATE_TOOL_NAME,
+  CLAIMS_RELEASE_TOOL_NAME,
+  WORK_PACKAGE_CLAIM_TOOL_NAME,
+  WORK_PACKAGE_RELEASE_TOOL_NAME,
+  TASKS_CREATE_TOOL_NAME,
+]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
@@ -1426,10 +1434,11 @@ export class MinskyMCPServer {
           //   - observability.calibration-review takes its concurrency claim AS the caller.
           //     Without this, `resolveActorId` falls back to harness env vars the long-lived
           //     MCP server process does not have, and every MCP-invoked pass runs unclaimed.
-          // Membership is EXACT (canonical name + Claude-Desktop alias, both registered),
-          // never a substring. The server overwrites any caller-supplied value, so it
-          // cannot be spoofed here.
-          if (CALLER_ACTOR_ID_TOOL_NAMES.has(request.params.name)) {
+          // Membership is EXACT, never a substring, and is tested against the RESOLVED
+          // `tool.name` (mt#4827) — so the Set holds canonical dotted names only and a
+          // Claude-Desktop alias caller still matches. The server overwrites any
+          // caller-supplied value, so it cannot be spoofed here.
+          if (CALLER_ACTOR_ID_TOOL_NAMES.has(tool.name)) {
             const injectedArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
             injectedArgs.callerActorId = agentId;
             request.params.arguments = injectedArgs;
@@ -1536,8 +1545,13 @@ export class MinskyMCPServer {
           // log after the request had already returned — the wrapper-below-inner-timeout
           // corollary in `decision-defaults.mdc §Thresholds`, which this task cites about
           // postgres-js and then nearly repeated here. Caught in PR #3301 review.
+          // mt#4827: pass the RESOLVED `tool.name` (canonical, dotted), not
+          // `request.params.name` (the raw wire name). `ENRICHMENT_ALLOWLIST` holds
+          // dotted names, and `tools/list` advertises the UNDERSCORED alias by default
+          // (`shouldEmitDesktopAliases`), so a wire-name test can never match. Same
+          // idiom as `DI_FREE_TOOL_NAMES` above.
           const enrichmentBlock = await enrichToolResponse(
-            request.params.name,
+            tool.name,
             request.params.arguments || {},
             this.memoryService
           );
@@ -1554,8 +1568,14 @@ export class MinskyMCPServer {
           // rather than only on the five that carry a session argument. Layer 1 is
           // withheld deliberately — it is a process hash, so every conversation on
           // this server would resolve the same value and drain each other's wakes.
+          // mt#4827: `tool.name`, not `request.params.name` — see the note on the
+          // memory-enrichment call above. This one was not merely latent: the
+          // session-keyed leg has never fired in production, because every recorded
+          // client calls via the underscored alias while the allowlist holds only
+          // dotted names. `pr.watch` wakes are addressed by `parentSessionId` alone
+          // (`wake-on-respond.ts` §addressing key), so this leg is their ONLY route.
           const wakeBlock = await enrichWakeResponse(
-            request.params.name,
+            tool.name,
             request.params.arguments || {},
             this.wakeService,
             this.wakeSessionResolver,
