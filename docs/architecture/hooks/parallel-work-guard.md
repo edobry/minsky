@@ -231,11 +231,26 @@ different titles — zero cross-detection until a human closed mt#2887 as subsum
    the GUARD DEGRADED stderr line and the guard-health event; the deadline
    (`STANDALONE_DUP_PROBE_TIMEOUT_MS`, 8s) is a Promise race, and a hanging-DB connect fails in
    ~2s via the mt#2982 connect timeout (applied programmatically, operator env wins).
-3. Exclude TERMINAL-status (DONE/CLOSED/COMPLETED) hits, keep only results at or under
-   `STANDALONE_DUP_MAX_DISTANCE = 0.65` (an embedding DISTANCE — lower is closer), sort
+3. Exclude TERMINAL-status (DONE/CLOSED/COMPLETED) hits, keep only results at or above
+   `STANDALONE_DUP_MIN_SIMILARITY = 0.78875` (a cosine SIMILARITY — higher is closer), sort
    closest-first, cap at `STANDALONE_DUP_CANDIDATE_CAP = 5`.
+
+   **The units changed at mt#4805, the calibration did not.** `tasks.search` used to return an
+   embedding DISTANCE, and this step read `score > STANDALONE_DUP_MAX_DISTANCE = 0.65`. mt#4805
+   moved the distance→similarity conversion into `EmbeddingsSimilarityBackend`, so the threshold
+   is now expressed as `1 - 0.65²/2 = 0.78875` and derived from the original constant in code
+   rather than re-measured. `s = 1 - d²/2` is exact for unit vectors and strictly decreasing, so
+   it preserves the ordering and the partition: every distance in the calibration table below
+   lands on the same side of the threshold it did before. The distance constant is kept as the
+   provenance of the number.
+
+   Left unchanged, this comparison would have INVERTED rather than errored — a real duplicate at
+   distance 0.478 (similarity 0.886) would have been skipped and an unrelated task at 1.1
+   (similarity 0.395) surfaced as a candidate. The guard is advisory, so the only symptom would
+   have been warnings naming the wrong tasks and silence on the real ones.
+
 4. Any surviving candidates emit a **non-blocking WARN** naming each candidate's id, status,
-   and distance — this check NEVER blocks (`base rates differ from the sibling case` per the
+   and similarity — this check NEVER blocks (`base rates differ from the sibling case` per the
    mt#2813 spec; the duplicate-child matcher's block/warn split doesn't apply here since there
    is no equivalent "concurrent decomposition in flight" signal for a standalone create).
 

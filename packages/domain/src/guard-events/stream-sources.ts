@@ -30,6 +30,13 @@
  * ADR-028 §D4 is amended in the same change (mt#4748 SC7) — it had
  * documented the now-superseded `.minsky/calibration/<guard>.jsonl` path.
  *
+ * mt#4816 finishes it: that amendment was scoped to the calibration/evaluation
+ * FAMILY, and `subagent-model-mismatch` (`family: "special"`) was left behind
+ * as the last `"repo"` row. It is now state-dir and flat, and `"repo"` is gone
+ * from `GuardEventStreamLocation` — so the invariant "nothing writes into a
+ * managed project's working tree" is enforced by the type checker rather than
+ * by a grep. ADR-028 §D4 carries a second amendment recording that.
+ *
  * Two formats:
  *  - `"jsonl"` — newline-delimited JSON, tailed by byte offset (§tailing.ts).
  *  - `"json-array"` — the one exception, `mcp-disconnect-log.json`; parsed
@@ -61,7 +68,17 @@ export type GuardEventFamily =
 
 export type GuardEventStreamFormat = "jsonl" | "json-array";
 
-export type GuardEventStreamLocation = "repo" | "state-dir";
+/**
+ * Where a stream's file lives. **`"repo"` was retired by mt#4816** — it named the working tree
+ * of whichever Minsky-managed project the agent happened to be in, which is the condition
+ * mt#4748's SC2 forbids, and `subagent-model-mismatch` was the last row declaring it.
+ *
+ * The union is deliberately kept (rather than the field being dropped) so each row still states
+ * its home explicitly and a future location kind has somewhere to go. Keeping it single-member
+ * is what makes the invariant STRUCTURAL: re-introducing a repo-rooted stream is now a type
+ * error rather than something a grep has to notice after the fact.
+ */
+export type GuardEventStreamLocation = "state-dir";
 
 export interface GuardEventStreamSource {
   /** Inventory stream name — the `stream` column value stamped on every ingested row. */
@@ -69,10 +86,9 @@ export interface GuardEventStreamSource {
   family: GuardEventFamily;
   location: GuardEventStreamLocation;
   /**
-   * Relative to the repo root (location="repo") or the state dir
-   * (location="state-dir"). For a `calibration`/`evaluation`-family
-   * state-dir stream, `resolveStreamPath` additionally nests this under a
-   * project-keyed subdirectory (mt#4748) — see the module doc comment.
+   * Relative to the state dir. For a `calibration`/`evaluation`-family stream,
+   * `resolveStreamPath` additionally nests this under a project-keyed subdirectory
+   * (mt#4748) — see the module doc comment. Every other family resolves flat.
    */
   relativePath: string;
   format: GuardEventStreamFormat;
@@ -258,6 +274,9 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
     guardName: "secret-request-in-chat-detector",
   },
   { stream: "spec-criterion-claim-evaluations", guardName: "spec-criterion-claim-detector" },
+  // mt#4117: the untaken-action family's evaluation stream, armed alongside
+  // its existing fire-only calibration log (`untaken-action-calibration.jsonl`).
+  { stream: "untaken-action-evaluations", guardName: "turn-end-untaken-action-scan" },
 ].map((s) => ({
   ...s,
   family: "evaluation" as const,
@@ -271,13 +290,21 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
 // ---------------------------------------------------------------------------
 // §C — non-guard special stream
 // ---------------------------------------------------------------------------
+//
+// mt#4816: this was the last `location: "repo"` row. It is now state-dir and FLAT — NOT
+// project-keyed — which puts it with `fire-log` and `guard-health-log` in §D rather than with
+// the calibration streams it used to sit beside on disk. The reason is that `project_id` is
+// resolved from each record's `session_id` by `attachProjectIds` (`ingest-service.ts`) and never
+// from the file path, so project-keying the path would buy no attribution the row does not
+// already carry. The writer is `.minsky/hooks/verify-subagent-model.ts`, whose `MISMATCH_LOG` is
+// asserted byte-identical to the `relativePath` below.
 
-const SPECIAL_REPO_STREAMS: GuardEventStreamSource[] = [
+const SPECIAL_STREAMS: GuardEventStreamSource[] = [
   {
     stream: "subagent-model-mismatch",
     family: "special",
-    location: "repo",
-    relativePath: ".minsky/subagent-model-mismatch.jsonl",
+    location: "state-dir",
+    relativePath: "subagent-model-mismatch.jsonl",
     format: "jsonl",
   },
 ];
@@ -365,7 +392,7 @@ const ADJACENT_STATE_DIR_STREAMS: GuardEventStreamSource[] = [
 export const GUARD_EVENT_STREAM_SOURCES: readonly GuardEventStreamSource[] = [
   ...CALIBRATION_STREAMS,
   ...EVALUATION_STREAMS,
-  ...SPECIAL_REPO_STREAMS,
+  ...SPECIAL_STREAMS,
   ...STATE_DIR_STREAMS,
   ...ADJACENT_STATE_DIR_STREAMS,
 ];

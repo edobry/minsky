@@ -228,7 +228,7 @@ export const tasksSimilarParams = {
   },
   threshold: {
     schema: z.number().optional(),
-    description: "Optional distance threshold (lower is closer)",
+    description: "Optional similarity threshold (higher is more similar)",
     required: false,
   },
   details: {
@@ -285,7 +285,7 @@ export const tasksSearchParams = {
   },
   threshold: {
     schema: z.number().optional(),
-    description: "Optional distance threshold (lower is closer)",
+    description: "Optional similarity threshold (higher is more similar)",
     required: false,
   },
   details: {

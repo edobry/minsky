@@ -6,20 +6,26 @@ import type { VectorStorage, SearchResult } from "../storage/vector/types";
 import type { SimilarityItem } from "../similarity/types";
 import { createHash } from "crypto";
 import { SimilaritySearchService } from "../similarity/similarity-search-service";
-import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
+import {
+  EmbeddingsSimilarityBackend,
+  EMBEDDINGS_BACKEND_NAME,
+} from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "@minsky/shared/array-safety";
 import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "../project/scope";
 
 /**
- * The one backend whose `score` is a DISTANCE (lower is closer) — cosine
- * distance from the vector index. `lexical` scores Jaccard SIMILARITY sorted
- * descending (higher is better) and `ai` is its own thing, so a
- * distance-oriented predicate is only meaningful against this one (mt#3305,
- * PR #2434 R1). Kept as a named constant rather than a bare string so the
- * coupling to `EmbeddingsSimilarityBackend.name` is greppable from both sides.
+ * The one backend whose `score` is on the SCALE `--threshold` is calibrated
+ * against — cosine similarity in [0, 1] (mt#4805).
+ *
+ * Every backend now agrees on DIRECTION (higher is more similar), so this is no
+ * longer a direction guard; see {@link TaskSimilarityService.applyThreshold}.
+ * `lexical` returns a Jaccard coefficient, which shares the [0, 1] range but not
+ * the distribution, and `ai` is its own thing. Kept as a named constant rather
+ * than a bare string so the coupling to `EmbeddingsSimilarityBackend.name` is
+ * greppable from both sides.
  */
-const DISTANCE_SCORED_BACKEND = "embeddings";
+const SIMILARITY_CALIBRATED_BACKEND = EMBEDDINGS_BACKEND_NAME;
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
@@ -130,26 +136,55 @@ export class TaskSimilarityService {
   }
 
   /**
-   * Drop results outside the caller's distance threshold (mt#3305).
+   * Drop results below the caller's minimum-similarity threshold.
    *
    * `threshold` was declared on three signatures and applied by none — accepted
    * at the boundary and dropped, so `--threshold 0.1` and `--threshold 0.95`
-   * returned identical result sets.
+   * returned identical result sets. mt#3305 made it live.
    *
-   * Applied ONLY to distance-scored backends (PR #2434 R1). The parameter is
-   * documented as "distance threshold (lower is closer)", which is the
-   * embeddings backend's cosine distance. The LEXICAL fallback scores the
-   * opposite way — `lexical-backend.ts` computes Jaccard SIMILARITY and sorts
-   * descending, so higher is better — and on a different scale (0..1 overlap vs
-   * 0..2 cosine distance). Applying `score <= threshold` there would keep the
-   * WORST matches and drop the best, silently, on the degraded path where the
-   * caller is least likely to notice.
+   * ## The comparison flipped (mt#4805) — and so did the parameter's meaning
    *
-   * Reinterpreting the number against the other scale would be worse than
-   * skipping: a threshold tuned for cosine distance has no meaningful Jaccard
-   * equivalent, so the filter is not applied and the existing degraded warning
-   * (surfaced by both commands) is what tells the caller they are on the
-   * fallback path.
+   * mt#3305 wrote `score <= threshold`, correctly, because the embeddings
+   * backend then returned the vector store's raw L2 DISTANCE. mt#4805 moved that
+   * conversion up into `EmbeddingsSimilarityBackend`, so `SimilarityItem.score`
+   * is a SIMILARITY from every backend — cosine from embeddings, Jaccard from
+   * lexical; direction guaranteed, units not — and the predicate is
+   * `score >= threshold`.
+   *
+   * That is a USER-VISIBLE contract change on `tasks_search --threshold` /
+   * `tasks_similar --threshold`, whose description said "distance threshold
+   * (lower is closer)" and now says "similarity threshold (higher is more
+   * similar)". A caller passing 0.6 previously asked for *at most* 0.6 distance
+   * (≈ 0.82 similarity) and now asks for *at least* 0.6 similarity — a strictly
+   * looser filter, not an inverted one, so an existing invocation returns a
+   * superset rather than nonsense. Both descriptions are updated in
+   * `task-parameters.ts`; the sibling `tools_search --threshold` already
+   * documented similarity and was the one whose CODE was wrong.
+   *
+   * ## The backend SKIP does not survive the flip
+   *
+   * PR #2434 R1 added it, and its stated reason was DIRECTION: applying a
+   * distance-oriented predicate to `lexical-backend`'s Jaccard similarity would
+   * have kept the WORST matches and dropped the best, silently, on the degraded
+   * path where the caller is least likely to notice. That hazard is gone — every
+   * backend now points the same way — so the threshold is applied uniformly and
+   * the skip is removed.
+   *
+   * SCALE remains, and is deliberately not answered by skipping.
+   * `SimilarityItem.score` guarantees direction, never units: a Jaccard
+   * coefficient over token sets is smaller than the same pair's cosine
+   * similarity, so a cosine-calibrated threshold over-filters the lexical
+   * fallback. It over-filters in the RIGHT direction — a caller gets fewer
+   * results, all of them the better ones — whereas skipping returns a result set
+   * the caller's threshold had no effect on. Silently ignoring the parameter is
+   * the exact defect mt#3305 was filed for; re-introducing it on one path is not
+   * an improvement over a filter that is merely conservative there.
+   *
+   * The sibling services agree: `ToolSimilarityService.findRelevantTools` and
+   * `RuleSimilarityService.searchByText` both apply it unconditionally, and
+   * `SimilaritySearchResponse.backend` plus the degraded warning both commands
+   * already surface are what tell a caller which scale they are on. The debug
+   * line below records it for anyone reading logs.
    */
   private applyThreshold<T extends { score: number }>(
     items: T[],
@@ -157,14 +192,13 @@ export class TaskSimilarityService {
     backend: string
   ): T[] {
     if (threshold === undefined) return items;
-    if (backend !== DISTANCE_SCORED_BACKEND) {
-      log.debug("tasks search: threshold not applied — backend is not distance-scored (mt#3305)", {
-        backend,
-        threshold,
-      });
-      return items;
+    if (backend !== SIMILARITY_CALIBRATED_BACKEND) {
+      log.debug(
+        "tasks search: threshold applied against a backend on a different score scale (mt#4805)",
+        { backend, threshold }
+      );
     }
-    return items.filter((i) => i.score <= threshold);
+    return items.filter((i) => i.score >= threshold);
   }
 
   async searchByText(

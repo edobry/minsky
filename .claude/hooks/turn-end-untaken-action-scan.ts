@@ -45,6 +45,7 @@ import { createHash } from "node:crypto";
 import { cappedEvidenceLines } from "./guard-feedback-format";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
+import { logEvaluationRecord } from "./dispatcher";
 import {
   extractFinalTurn,
   extractToolUseNames,
@@ -53,6 +54,46 @@ import {
 } from "./transcript";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
+
+/**
+ * Skip switch for the EVALUATION stream only (mt#4117), distinct from
+ * {@link OVERRIDE_ENV_VAR} above. `MINSKY_ACK_UNTAKEN_ACTION` acks the guard
+ * entirely — it short-circuits before any scanning happens, so fire behavior
+ * is gone too. This one does the opposite: it silences ONLY the per-scan
+ * evaluation write, and the detector's fire/suppression/calibration behavior
+ * is untouched, per this task's AT5. Registered as its own hook-only env var
+ * alongside `OVERRIDE_ENV_VAR`, per the sibling detectors' pattern — see the
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES` record in the domain configuration sources
+ * and `.minsky/hooks/known-override-env-vars.ts`.
+ */
+export const EVALUATION_SKIP_ENV_VAR = "MINSKY_SKIP_UNTAKEN_ACTION_EVALUATION";
+
+/**
+ * Logical stream name for `logEvaluationRecord` (mt#4117) — matches this
+ * guard's `calibrationLog: "untaken-action"` registration
+ * (`registry-turn-end-guards.ts`), the same name/path split every other
+ * `logEvaluationRecord` writer uses. Resolves to
+ * `<state-dir>/projects/<key>/untaken-action-evaluations.jsonl`, sitting
+ * beside `untaken-action-calibration.jsonl` — a NEW stream, not a
+ * replacement: the calibration log's shape and population (fires only) are
+ * unchanged by this addition.
+ */
+const EVALUATION_LOG_NAME = "untaken-action";
+
+/**
+ * Append one evaluation record for this guard's scan. Exported under this
+ * exact name so `evaluation-stream-rooting.test.ts` can pin the same
+ * state-dir/project-key rooting the other `logEvaluationRecord` writers get,
+ * per that test's per-detector enumeration.
+ */
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
+function isEvaluationSkipped(): boolean {
+  const value = process.env[EVALUATION_SKIP_ENV_VAR];
+  return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "yes";
+}
 
 /**
  * RETIRED as an active suppression reason (mt#3620). This guard no longer
@@ -1214,6 +1255,44 @@ export function run(
   const finalMessage = input.last_assistant_message ?? "";
   if (!finalMessage) return null;
 
+  // mt#4117: the evaluation stream, distinct from the calibration log below.
+  // The calibration log records FIRES only (matches.length > 0, post-dedup).
+  // This records every SCANNED turn-ending message — fired, not-fired, or
+  // suppressed — so the miss rate is measurable rather than just the hit
+  // count. `finalMessage` is non-empty at this point, so everything past this
+  // line counts as "scanned"; the override branch above returns before this,
+  // matching the sibling detectors' convention of not evaluating an acked turn.
+  const evaluationSkipped = isEvaluationSkipped();
+  const recordEvaluation = (fields: {
+    fired: boolean;
+    suppressed: boolean;
+    suppressionReason?: string;
+    suppressionEvidence?: string[];
+    deduped?: boolean;
+    injected: boolean;
+    deferralOverlap?: boolean;
+    matches: UntakenActionMatch[];
+  }): void => {
+    if (evaluationSkipped) return;
+    appendEvaluationRecord(input.cwd ?? process.cwd(), {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      fired: fields.fired,
+      suppressed: fields.suppressed,
+      ...(fields.suppressionReason !== undefined
+        ? { suppressionReason: fields.suppressionReason }
+        : {}),
+      ...(fields.suppressionEvidence !== undefined
+        ? { suppressionEvidence: fields.suppressionEvidence }
+        : {}),
+      ...(fields.deduped !== undefined ? { deduped: fields.deduped } : {}),
+      injected: fields.injected,
+      ...(fields.deferralOverlap !== undefined ? { deferralOverlap: fields.deferralOverlap } : {}),
+      matches: fields.matches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+      final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+    });
+  };
+
   // mt#4697 SC2: the turn is resolved BEFORE the early return, and the tool-call-state arm is
   // unioned with the phrase matches. Both halves of that ordering are load-bearing — the arm's
   // whole purpose is to fire on a turn whose prose matches NOTHING, so computing it after
@@ -1225,7 +1304,12 @@ export function run(
     ...detectUntakenAction(finalMessage),
     ...(turnLines.length > 0 ? detectStrandedTaskState(finalMessage, turnLines) : []),
   ];
-  if (matches.length === 0) return null;
+  if (matches.length === 0) {
+    // A genuine non-fire: the matcher found nothing in this turn-ending message.
+    // Silent — no additionalContext, no advisory — per this task's SC4.
+    recordEvaluation({ fired: false, suppressed: false, injected: false, matches: [] });
+    return null;
+  }
 
   const sessionId = input.session_id ?? "unknown";
   const turnKey = turnKeyForMessage(finalMessage);
@@ -1233,7 +1317,15 @@ export function run(
   const newMatches = matches.filter(
     (m) => !flagged.has(flagKey(turnKey, m.family, m.matchedPhrase))
   );
-  if (newMatches.length === 0) return null;
+  if (newMatches.length === 0) {
+    // The matcher fired, but every match is a repeat of a phrase already
+    // flagged for this turn (a Stop-continuation re-entry). Recorded as a
+    // fire so the raw matcher signal is not lost, marked `deduped` so a
+    // calibration pass does not double-count it against the same turn the
+    // first pass already recorded.
+    recordEvaluation({ fired: true, suppressed: false, deduped: true, injected: false, matches });
+    return null;
+  }
 
   // mt#4697 SC6: split the new matches by side. BOTH reach the calibration record — the arm is
   // being measured, and a fire that is not recorded cannot be classified — but only the phrase
@@ -1272,20 +1364,33 @@ export function run(
   // mt#4116: six suppressions now share one record shape, so it is built once. Each carries its
   // own reason plus one evidence field named for that reason — the calibration pass reads the
   // reason to know WHY a fire was swallowed and the evidence to check whether it should have been.
-  const suppressed = (reason: string, evidenceKey: string, evidence: string[]): GuardOutcome => ({
-    calibration: {
-      source: "live",
-      channel: "stop",
-      timestamp: new Date().toISOString(),
-      session_id: input.session_id,
-      stop_hook_active: input.stop_hook_active === true,
-      matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
-      final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
-      deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
-      suppressionReasons: [reason],
-      [evidenceKey]: evidence,
-    },
-  });
+  const suppressed = (reason: string, evidenceKey: string, evidence: string[]): GuardOutcome => {
+    // mt#4117: a suppressed fire is the class most likely to hide a
+    // regression (SC5) — recorded as suppressed-with-reason, never folded
+    // into a non-fire.
+    recordEvaluation({
+      fired: true,
+      suppressed: true,
+      suppressionReason: reason,
+      suppressionEvidence: evidence,
+      injected: false,
+      matches: newMatches,
+    });
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+        suppressionReasons: [reason],
+        [evidenceKey]: evidence,
+      },
+    };
+  };
 
   const reservedCategory = detectReservedCategoryHalt(finalMessage);
   if (reservedCategory.length > 0) {
@@ -1391,6 +1496,18 @@ export function run(
     }
     writeFlagged(sessionId, flagged, storeDir);
   }
+
+  // mt#4117: the un-suppressed path — the raw matcher signal reaches here
+  // whether or not `injectable` ends up empty (the strandedTaskArm-only,
+  // log-only case). `injected` distinguishes the two: an agent actually saw
+  // `additionalContext` only when it is true.
+  recordEvaluation({
+    fired: true,
+    suppressed: false,
+    injected: injectable.length > 0,
+    deferralOverlap: deferralOverlap.length > 0,
+    matches: newMatches,
+  });
 
   return {
     calibration: {
