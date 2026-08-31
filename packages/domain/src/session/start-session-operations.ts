@@ -156,6 +156,128 @@ async function remoteBranchExists(
  *
  * Structural invariant: if this function throws, the system state is unchanged.
  */
+/**
+ * Is this `repo` argument a local filesystem path rather than a remote URL?
+ * (mt#4758 — decides whether it can serve as a `--reference` source.)
+ */
+function isLocalPathArg(repo: string): boolean {
+  return !/^[a-z][a-z0-9+.-]*:\/\//i.test(repo) && !/^git@/i.test(repo);
+}
+
+/**
+ * Which `owner/repo` does a `repo` argument name? (mt#4758)
+ *
+ * A URL is parsed directly; a local path is asked for its `origin`. Returns
+ * `undefined` when the argument cannot be classified — `decideSessionIdentity`
+ * deliberately treats that as "cannot contradict" rather than refusing, so an
+ * unreadable path never blocks a session that would otherwise work.
+ */
+async function deriveRepoArgSlug(
+  repo: string,
+  deps: StartSessionDependencies
+): Promise<string | undefined> {
+  const { extractOwnerRepo } = await import("../project/slug");
+
+  if (!isLocalPathArg(repo)) return extractOwnerRepo(repo) ?? undefined;
+
+  try {
+    const remote = (
+      await deps.gitService.execInRepository(repo, "git remote get-url origin")
+    ).trim();
+    return remote ? (extractOwnerRepo(remote) ?? undefined) : undefined;
+  } catch (err) {
+    log.debug("[session.start] could not read origin for repo argument (mt#4758)", {
+      repo,
+      error: getErrorMessage(err),
+    });
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the repository URL that defines this session's IDENTITY (mt#4758).
+ *
+ * Throws a {@link MinskyError} when an explicit `repo` names a different
+ * repository than the identity resolves to. That refusal is the deliverable:
+ * every recorded instance of this defect family failed by silently SUCCEEDING,
+ * leaving the caller nothing to act on.
+ *
+ * The db acquisition mirrors `executeMutations`' fallback (mt#2697) — prefer
+ * `deps.db`, else a one-shot provider — and is kept in its own try/finally so a
+ * refusal from the decision below propagates rather than being swallowed by the
+ * acquisition's error handling.
+ */
+async function resolveSessionIdentity(args: {
+  task?: string;
+  repo?: string;
+  configRepoUrl: string;
+  deps: StartSessionDependencies;
+}): Promise<string> {
+  const { task, repo, configRepoUrl, deps } = args;
+  const { decideSessionIdentity, resolveTaskProjectRepo } = await import(
+    "../project/task-project-repo"
+  );
+  const { extractOwnerRepo } = await import("../project/slug");
+
+  let taskProject: Awaited<ReturnType<typeof resolveTaskProjectRepo>>;
+  let ownedProvider: import("../persistence/types").PersistenceProvider | undefined;
+  let db: unknown = deps.db;
+
+  try {
+    if (!db) {
+      const { isConfigurationInitialized } = await import("../configuration/index");
+      const { resolvePersistenceProvider } = await import("../persistence/factory");
+      const provider = isConfigurationInitialized() ? await resolvePersistenceProvider() : null;
+      if (provider) {
+        ownedProvider = provider;
+        db = await provider.getDatabaseConnection?.();
+      }
+    }
+    if (db) {
+      taskProject = await resolveTaskProjectRepo(task, db, "session.start");
+    }
+  } catch (err: unknown) {
+    // Best-effort: with no reachable db the session keeps today's
+    // config-derived identity rather than failing to start.
+    log.debug("[session.start] project identity unavailable; using config-derived identity", {
+      error: getErrorMessage(err),
+    });
+  } finally {
+    if (ownedProvider) {
+      try {
+        await ownedProvider.close();
+      } catch (closeErr: unknown) {
+        log.debug("[session.start] failed to close identity-resolution provider (swallowed)", {
+          error: getErrorMessage(closeErr),
+        });
+      }
+    }
+  }
+
+  const decision = decideSessionIdentity({
+    configRepoUrl,
+    taskProject,
+    explicitRepo: repo,
+    explicitRepoSlug: repo ? await deriveRepoArgSlug(repo, deps) : undefined,
+    configSlug: extractOwnerRepo(configRepoUrl) ?? undefined,
+  });
+
+  if (decision.kind === "refuse") {
+    throw new MinskyError(decision.message);
+  }
+
+  if (decision.kind === "project") {
+    log.debug("[session.start] identity resolved from the task's project (mt#4758)", {
+      task,
+      project: decision.project.slug,
+      repoUrl: decision.repoUrl,
+      configRepoUrl,
+    });
+  }
+
+  return decision.repoUrl;
+}
+
 async function validatePreconditions(
   params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
@@ -183,13 +305,44 @@ Navigate to your main workspace and try again:
 
   // Determine repo URL and backend type from project config (written by `minsky init`).
   const configBackend = await deps.getRepositoryBackend();
-  const repoUrl = configBackend.repoUrl;
   const backendType = configBackend.backendType;
-  const cloneSource = repo || repoUrl;
+
+  // mt#4758: a session's IDENTITY comes from the TASK's project, not from
+  // whichever repository this MCP server happens to have been booted in.
+  // Before this, `repo` fed only `cloneSource` while every record field came
+  // from config — so a cross-project call SUCCEEDED and produced a session
+  // whose files were one repository and whose record was another.
+  //
+  // `resolveSessionIdentity` THROWS when an explicit `repo` contradicts the
+  // resolved identity; that refusal is the point, since every recorded instance
+  // of this family failed by silently succeeding. See `task-project-repo.ts`.
+  const repoUrl = await resolveSessionIdentity({
+    task,
+    repo,
+    configRepoUrl: configBackend.repoUrl,
+    deps,
+  });
+
+  // mt#4758 SC3: for a GitHub-backed project the clone's `origin` must be the
+  // forge URL, never a local filesystem path — a local-path origin makes a push
+  // write to the operator's working copy instead of the forge. An explicit
+  // `repo` that names the same repository is a FETCH SOURCE, which is the role
+  // `--reference` already has here, so it is routed there rather than to
+  // `origin`. A non-GitHub backend legitimately clones from a path, so it keeps
+  // today's behavior.
+  const isGithubBacked = backendType === RepositoryBackendType.GITHUB;
+  const cloneSource = repo && !isGithubBacked ? repo : repoUrl;
 
   // Auto-detect local workspace for --reference clone optimization.
   let referenceRepo: string | undefined;
-  if (!repo) {
+  if (repo && isGithubBacked && isLocalPathArg(repo)) {
+    // Agreement with the identity was established above (a contradiction threw),
+    // so this path is a local checkout of the very repository being cloned.
+    referenceRepo = repo;
+    log.debug("Using explicit repo argument as reference clone source (mt#4758)", {
+      referenceRepo,
+    });
+  } else if (!repo) {
     try {
       const { getConfiguration } = await import("../configuration/index");
       const cfg = getConfiguration() as { workspace?: { mainPath?: string } };
