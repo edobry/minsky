@@ -21,7 +21,9 @@ import { interceptorAggregatesWidget } from "./widgets/interceptor-aggregates";
 import { interceptorsWidget } from "./widgets/interceptors";
 import { mcpServerStatusWidget } from "./widgets/mcp-server-status";
 import { reviewerBotStatusWidget } from "./widgets/reviewer-bot-status";
+import { memoriesCurationWidget } from "./widgets/memories-curation";
 import { memoriesDetailWidget } from "./widgets/memories-detail";
+import { memoriesDuplicatesWidget } from "./widgets/memories-duplicates";
 import { memoriesFacetsWidget } from "./widgets/memories-facets";
 import { memoriesFamiliesWidget } from "./widgets/memories-families";
 import { memoriesHealthWidget } from "./widgets/memories-health";
@@ -52,7 +54,9 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   interceptors: interceptorsWidget,
   "mcp-server-status": mcpServerStatusWidget,
   "reviewer-bot-status": reviewerBotStatusWidget,
+  "memories-curation": memoriesCurationWidget,
   "memories-detail": memoriesDetailWidget,
+  "memories-duplicates": memoriesDuplicatesWidget,
   "memories-facets": memoriesFacetsWidget,
   "memories-families": memoriesFamiliesWidget,
   "memories-health": memoriesHealthWidget,

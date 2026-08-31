@@ -20,6 +20,7 @@ import {
   eq,
   and,
   isNull,
+  isNotNull,
   inArray,
   or,
   lt,
@@ -89,8 +90,24 @@ function scopedToProject(projectScope: string) {
  * `offset` are deliberately excluded: they affect ORDERING/PAGINATION, not
  * which rows match.
  */
+
+/**
+ * The instant `days` days before `nowMs` (mt#4767).
+ *
+ * Extracted so the two age-threshold filters (`stale`, `cold`) share one
+ * arithmetic and so it can be asserted directly against a fixed clock —
+ * `buildListConditions` returns opaque drizzle condition objects, which are
+ * awkward to make claims about, and the part worth pinning is the boundary.
+ * The `nowMs` parameter is threaded rather than read here per
+ * `testing-standards.mdc §The clock is injected, never read at the point of
+ * use`; production callers take the default at `buildListConditions`.
+ */
+export function daysBefore(nowMs: number, days: number): Date {
+  return new Date(nowMs - days * 24 * 60 * 60 * 1000);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildListConditions(filter?: MemoryListFilter): any[] {
+function buildListConditions(filter?: MemoryListFilter, nowMs: number = Date.now()): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any[] = [];
 
@@ -109,11 +126,40 @@ function buildListConditions(filter?: MemoryListFilter): any[] {
   if (filter?.excludeSuperseded) {
     conditions.push(isNull(memoriesTable.supersededBy));
   }
+  // mt#4767: the INVERSE of excludeSuperseded, and not reachable through it —
+  // that flag removes superseded rows when true and removes nothing when
+  // false, so neither value restricts TO them. Setting both yields no rows,
+  // which is the honest answer rather than a silent precedence rule.
+  if (filter?.onlySuperseded) {
+    conditions.push(isNotNull(memoriesTable.supersededBy));
+  }
   if (filter?.stale) {
     const days = filter.stalenessDays ?? 90;
-    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     conditions.push(
-      or(isNull(memoriesTable.lastAccessedAt), lt(memoriesTable.lastAccessedAt, threshold))
+      or(
+        isNull(memoriesTable.lastAccessedAt),
+        lt(memoriesTable.lastAccessedAt, daysBefore(nowMs, days))
+      )
+    );
+  }
+  // mt#4767 curation worklists. `untagged` is not expressible via `tags`
+  // (array CONTAINMENT asks "has these", never "has none"), and
+  // `neverAccessed`/`cold` deliberately PARTITION what `stale` above unions
+  // — see MemoryListFilter's field docs for the measurement that forced the
+  // split (at stalenessDays' own 90-day default, `stale` returned 252 rows
+  // against neverAccessed's 251).
+  if (filter?.untagged) {
+    conditions.push(sql`cardinality(${memoriesTable.tags}) = 0`);
+  }
+  if (filter?.neverAccessed) {
+    conditions.push(isNull(memoriesTable.lastAccessedAt));
+  }
+  if (filter?.cold) {
+    conditions.push(
+      and(
+        isNotNull(memoriesTable.lastAccessedAt),
+        lt(memoriesTable.lastAccessedAt, daysBefore(nowMs, filter.coldDays ?? DEFAULT_COLD_DAYS))
+      )
     );
   }
   if (filter?.association) {
@@ -197,7 +243,7 @@ function resolveListOrderBy(
 import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
-import { MEMORY_SCOPES } from "./types";
+import { MEMORY_SCOPES, DEFAULT_COLD_DAYS } from "./types";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,

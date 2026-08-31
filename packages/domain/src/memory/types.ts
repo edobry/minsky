@@ -213,6 +213,25 @@ export type MemoryListSortField =
 export type MemoryListSortDirection = "asc" | "desc";
 
 /**
+ * Default threshold for {@link MemoryListFilter.cold}, in days (mt#4767).
+ *
+ * Grounded in the measured read distribution rather than picked as a round
+ * number (`decision-defaults.mdc §Thresholds`). Of 1,093 ever-read records on
+ * 2026-08-31, 805 (74%) had been read within 7 days and 152 more within 14;
+ * beyond that the tail collapses — 112 in 14–30d, 18 in 30–60d, 6 older. 14
+ * days is where the distribution bends, so it separates "not in the working
+ * set" from the ordinary weekly rhythm. For contrast a 7-day cut flags 288
+ * records (most of them simply last week's), 30 days flags 24, and
+ * `stalenessDays`' own 90-day default flags 1 — the corpus has only tracked
+ * `last_accessed_at` since 2026-05-27, so a 90-day cold threshold cannot
+ * work here at all.
+ *
+ * Re-derive from the corpus if the read cadence changes; this is an observed
+ * value, not a policy.
+ */
+export const DEFAULT_COLD_DAYS = 14;
+
+/**
  * Options for filtering memory list results.
  */
 export interface MemoryListFilter {
@@ -238,6 +257,55 @@ export interface MemoryListFilter {
    * Ignored unless stale is true.
    */
   stalenessDays?: number;
+  /**
+   * When true, filter to records carrying no tags at all
+   * (`cardinality(tags) = 0`) — mt#4767's "Untagged" curation worklist.
+   *
+   * NOT expressible via `tags`: that filter is array CONTAINMENT
+   * (`tags @> ARRAY[...]`), which can ask "does it have these tags" and can
+   * never ask "does it have none".
+   */
+  untagged?: boolean;
+  /**
+   * When true, filter to records never read since creation
+   * (`last_accessed_at IS NULL`) — mt#4767's "Never read" worklist.
+   *
+   * DELIBERATELY NOT `stale` (mt#4767). `stale` is `last_accessed_at IS NULL
+   * OR older than stalenessDays` — a UNION whose first disjunct IS this
+   * filter, so `stale` cannot express never-read and read-but-cold as two
+   * separate populations. Measured on the live corpus 2026-08-31: `stale` at
+   * its own 90-day default returned 252 rows against this filter's 251,
+   * because exactly ONE record had been read but not within 90 days. Building
+   * both worklists on `stale` would have shipped the same list twice.
+   */
+  neverAccessed?: boolean;
+  /**
+   * When true, filter to records that HAVE been read but not recently
+   * (`last_accessed_at IS NOT NULL AND last_accessed_at < now() - coldDays`)
+   * — mt#4767's "Cold" worklist. Strictly disjoint from {@link neverAccessed}
+   * by construction; together they partition what {@link stale} unions.
+   *
+   * "Cold", not "stale": `staleness.ts` already emits `⚠️ POSSIBLY OBSOLETE`
+   * for a DIFFERENT property — a memory whose tracking task shipped — so the
+   * word is spoken for. {@link stale} itself is the mis-named one; renaming
+   * it is a tracked follow-up, not this filter's job.
+   */
+  cold?: boolean;
+  /**
+   * Threshold in days for the cold filter. Defaults to
+   * {@link DEFAULT_COLD_DAYS}. Ignored unless cold is true.
+   */
+  coldDays?: number;
+  /**
+   * When true, filter to records that HAVE been superseded
+   * (`superseded_by IS NOT NULL`) — mt#4767's "Superseded" worklist.
+   *
+   * Not reachable via {@link excludeSuperseded}, which is one-directional:
+   * `true` removes superseded rows and `false` removes nothing, so neither
+   * value restricts TO them. Setting both is contradictory and yields no
+   * rows, which is the honest result rather than a silent precedence rule.
+   */
+  onlySuperseded?: boolean;
   /**
    * Filter by association containment. Returns only memories where
    * associations[type] contains targetId.
