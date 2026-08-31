@@ -161,7 +161,22 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
         // defaultGetDb (the real getContextInspectorDb() singleton).
         const { resolveCockpitProjectScope } = await import("../project-scope");
         const projectScope = await resolveCockpitProjectScope(ctx.query?.project, { getDb });
-        const tasks = await taskService.listTasks({ projectScope });
+        // Terminal statuses on demand (mt#4774). `listTasks` hides DONE/CLOSED
+        // by default (`shouldIncludeTaskStatus`, packages/domain/src/tasks/
+        // task-filters.ts) and this widget passed neither `status` nor `all`,
+        // so the /tasks page's DONE and CLOSED filter buttons narrowed a set
+        // that could never contain a match — a control that reads as "there
+        // are no DONE tasks".
+        //
+        // Kept OPT-IN rather than flipped to always-on: measured on prod
+        // 2026-08-31, terminal is 3,719 rows (DONE 3,279 + CLOSED 440) against
+        // 984 active, so an unconditional `all` would carry ~4.8x the payload
+        // on every 10s poll for a view that is about active work by default.
+        // The page sets this flag only while a terminal status is selected.
+        const includeTerminal = ctx.query?.includeTerminal === "true";
+        const tasks = await taskService.listTasks(
+          includeTerminal ? { projectScope, all: true } : { projectScope }
+        );
 
         // mt#4729 SC1: resolve each task's projectId (uuid FK) to its slug —
         // one lookup for the whole fetch, and skipped entirely when no task

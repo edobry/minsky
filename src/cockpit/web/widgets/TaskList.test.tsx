@@ -18,6 +18,7 @@ import {
   STATUS_SORT_PRIORITY,
   statusPriority,
   taskSortFn,
+  selectionNeedsTerminal,
   type TaskListItem,
 } from "./TaskList";
 
@@ -273,5 +274,49 @@ describe("TaskList project badge", () => {
         /* ignore */
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Terminal-status fetch predicate (mt#4774)
+//
+// The DONE/CLOSED filter buttons were dead controls: the widget payload omits
+// terminal statuses by default, so selecting DONE narrowed a set that could
+// never contain one. This predicate is what turns a selection into the
+// larger fetch; the server half is pinned in
+// `src/cockpit/widgets/task-list.test.ts`.
+// ---------------------------------------------------------------------------
+
+describe("selectionNeedsTerminal (mt#4774)", () => {
+  test("false for the default 'all' selection — the active-work payload stays the default", () => {
+    expect(selectionNeedsTerminal("all")).toBe(false);
+    expect(selectionNeedsTerminal("")).toBe(false);
+  });
+
+  test("false for any selection of only non-terminal statuses", () => {
+    expect(selectionNeedsTerminal("TODO")).toBe(false);
+    expect(selectionNeedsTerminal("TODO,IN-PROGRESS,BLOCKED")).toBe(false);
+  });
+
+  test("true for DONE or CLOSED, alone or mixed with active statuses", () => {
+    expect(selectionNeedsTerminal("DONE")).toBe(true);
+    expect(selectionNeedsTerminal("CLOSED")).toBe(true);
+    expect(selectionNeedsTerminal("TODO,DONE")).toBe(true);
+    expect(selectionNeedsTerminal("DONE,CLOSED")).toBe(true);
+  });
+
+  test("normalizes case and whitespace the same way the filter itself does", () => {
+    // parseStatusFilter upper-cases and trims, so a URL-typed ?tl_status=done
+    // must opt in too — otherwise a hand-edited deep link renders empty.
+    expect(selectionNeedsTerminal("done")).toBe(true);
+    expect(selectionNeedsTerminal(" DONE , TODO ")).toBe(true);
+  });
+
+  test("every status the UI offers is classified — no status silently misses the opt-in", () => {
+    // Guards the pair: ALL_STATUSES drives the buttons, and each one either
+    // needs the larger payload or is present in the default one. A status
+    // added to the UI later shows up here as a decision to make.
+    const needsFetch = ALL_STATUSES.filter((s) => selectionNeedsTerminal(s));
+    expect(needsFetch.sort()).toEqual(["CLOSED", "DONE"]);
   });
 });

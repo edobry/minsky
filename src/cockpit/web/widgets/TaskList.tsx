@@ -25,13 +25,13 @@
  *    register). Table-cell/badge text migrates text-xs -> text-small,
  *    row-title text-sm -> text-body — same pixel sizes, named tokens.
  */
-import { useCallback, useId } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
-import { useListControls, type SortDir } from "../lib/useListControls";
+import { useListControls, readListControlsState, type SortDir } from "../lib/useListControls";
 import { SortIndicator } from "../components/SortIndicator";
 import { statusStyle } from "../lib/status-colors";
 import {
@@ -76,8 +76,29 @@ function isTaskListPayload(payload: unknown): payload is TaskListPayload {
   );
 }
 
-async function fetchTaskList(queryParam?: { project: string }): Promise<WidgetData> {
-  return fetchWidgetData("task-list", queryParam);
+async function fetchTaskList(
+  queryParam?: { project: string },
+  includeTerminal = false
+): Promise<WidgetData> {
+  return fetchWidgetData(
+    "task-list",
+    includeTerminal ? { ...queryParam, includeTerminal: "true" } : queryParam
+  );
+}
+
+/**
+ * Statuses the widget payload omits unless asked (mt#4774) — see the
+ * `includeTerminal` branch in `src/cockpit/widgets/task-list.ts`. Selecting one
+ * of these is what makes the page request the larger set.
+ */
+const TERMINAL_STATUSES = new Set(["DONE", "CLOSED"]);
+
+/** True when the status filter selects a status the default payload excludes. */
+export function selectionNeedsTerminal(statusFilter: string): boolean {
+  for (const status of parseStatusFilter(statusFilter)) {
+    if (TERMINAL_STATUSES.has(status)) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +122,12 @@ const DEFAULT_FILTERS: TaskFilters = {
 
 function parseStatusFilter(raw: string): Set<string> {
   if (raw === "all" || raw === "") return new Set();
-  return new Set(raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean));
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean)
+  );
 }
 
 function toggleStatus(current: string, status: string): string {
@@ -339,9 +365,7 @@ function TaskListControlBar({
 
       {/* Row 2: status multi-select toggle pills */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">
-          Status:
-        </span>
+        <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Status:</span>
         {ALL_STATUSES.map((s) => {
           const isSelected = selectedStatuses.has(s);
           const style = statusStyle(s);
@@ -526,10 +550,7 @@ function taskFilterFn(task: TaskListItem, filters: TaskFilters): boolean {
   }
   if (filters.search.trim() !== "") {
     const needle = filters.search.trim().toLowerCase();
-    if (
-      !task.title.toLowerCase().includes(needle) &&
-      !task.id.toLowerCase().includes(needle)
-    ) {
+    if (!task.title.toLowerCase().includes(needle) && !task.id.toLowerCase().includes(needle)) {
       return false;
     }
   }
@@ -578,10 +599,12 @@ function TaskListInner({
   tasks,
   showProjectBadge,
   projects,
+  onIncludeTerminalChange,
 }: {
   tasks: TaskListItem[];
   showProjectBadge: boolean;
   projects: ProjectSummary[];
+  onIncludeTerminalChange: (needed: boolean) => void;
 }) {
   const filterFn = useCallback(taskFilterFn, []);
   const sortFn = useCallback(taskSortFn, []);
@@ -636,6 +659,16 @@ function TaskListInner({
     [filters.status, setFilter]
   );
 
+  // Tell the fetch above whether the payload needs terminal statuses
+  // (mt#4774). Effect rather than a call during render: it sets state in the
+  // parent, which React forbids mid-render. The parent's own initial read of
+  // the URL means this is a no-op on mount for the common case, and a real
+  // toggle only when the operator changes the filter.
+  const needsTerminal = selectionNeedsTerminal(filters.status);
+  useEffect(() => {
+    onIncludeTerminalChange(needsTerminal);
+  }, [needsTerminal, onIncludeTerminalChange]);
+
   return (
     <>
       {totalCount > 0 && (
@@ -661,12 +694,7 @@ function TaskListInner({
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
           <p className="text-body text-muted-foreground">No tasks match these filters</p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            className="mt-2 text-xs"
-          >
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="mt-2 text-xs">
             Clear filters
           </Button>
         </div>
@@ -702,11 +730,24 @@ interface TaskListBodyProps {
   query: UseQueryResult<WidgetData, Error>;
   showProjectBadge: boolean;
   projects: ProjectSummary[];
+  /**
+   * Report whether the status filter selects a terminal status, so the fetch
+   * above can request the payload that contains them (mt#4774). Passed
+   * through to `TaskListInner`, which owns the filter state.
+   */
+  onIncludeTerminalChange: (needed: boolean) => void;
 }
 
-function TaskListBody({ query, showProjectBadge, projects }: TaskListBodyProps) {
+function TaskListBody({
+  query,
+  showProjectBadge,
+  projects,
+  onIncludeTerminalChange,
+}: TaskListBodyProps) {
   if (query.isError) {
-    return <p className="text-muted-foreground text-body">Failed to load tasks: {query.error.message}</p>;
+    return (
+      <p className="text-muted-foreground text-body">Failed to load tasks: {query.error.message}</p>
+    );
   }
   if (query.isLoading || !query.data) {
     return <p className="text-muted-foreground text-body">Loading…</p>;
@@ -726,6 +767,7 @@ function TaskListBody({ query, showProjectBadge, projects }: TaskListBodyProps) 
       tasks={data.payload.tasks}
       showProjectBadge={showProjectBadge}
       projects={projects}
+      onIncludeTerminalChange={onIncludeTerminalChange}
     />
   );
 }
@@ -743,11 +785,39 @@ interface TaskListProps {
 
 export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = {}) {
   const { selectedSlug, queryParam, projects } = useProject();
+  // Whether the operator's status filter currently selects a terminal status
+  // (mt#4774). The filter itself lives in `TaskListBody` — `useListControls`
+  // needs the fetched `items` — and it persists to the URL via
+  // `history.replaceState`, which fires no event, so a parent cannot observe
+  // it by subscription. The body reports the one derived bit up instead;
+  // keeping the full control state below the fetch avoids restructuring the
+  // widget around a single flag.
+  //
+  // The INITIAL value is read straight off the URL rather than defaulting to
+  // false, so a deep link or reload carrying ?tl_status=DONE fetches the right
+  // set on the first request instead of rendering an empty table and
+  // correcting itself a round-trip later. `readListControlsState` exists for
+  // exactly this ordering (mt#4762): a non-reactive read for callers that must
+  // build a query before the hook's own state exists.
+  const [includeTerminal, setIncludeTerminal] = useState(() =>
+    selectionNeedsTerminal(
+      readListControlsState<TaskSortKey, TaskFilters>({
+        defaultPageSize: 25,
+        defaultSortKey: "status",
+        defaultSortDir: "asc",
+        defaultFilters: DEFAULT_FILTERS,
+        prefix: "tl",
+      }).filters.status
+    )
+  );
   const query = useQuery<WidgetData, Error>({
     // mt#2418: selectedSlug in the key so switching projects invalidates
     // the cache and refetches immediately rather than waiting out staleTime.
-    queryKey: ["task-list", selectedSlug],
-    queryFn: () => fetchTaskList(queryParam),
+    // mt#4774: includeTerminal too, so the active-only and with-terminal
+    // payloads cache separately — toggling DONE off then on again re-reads
+    // the cached set instead of re-fetching ~4.7k rows.
+    queryKey: ["task-list", selectedSlug, includeTerminal],
+    queryFn: () => fetchTaskList(queryParam, includeTerminal),
     staleTime: 30_000,
     refetchInterval: 10_000,
   });
@@ -757,7 +827,12 @@ export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = 
 
   return (
     <WidgetShell variant={variant} title={title}>
-      <TaskListBody query={query} showProjectBadge={showProjectBadge} projects={projects} />
+      <TaskListBody
+        query={query}
+        showProjectBadge={showProjectBadge}
+        projects={projects}
+        onIncludeTerminalChange={setIncludeTerminal}
+      />
     </WidgetShell>
   );
 }
