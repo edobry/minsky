@@ -233,6 +233,40 @@ function splitUnits(body: string, bodyOffset: number): ActionablesUnit[] {
 }
 
 /**
+ * Split one unit into CLAUSES, newline-joined so a segmenting consumer scores each on its own.
+ *
+ * **Measured, and load-bearing (mt#4807).** An actionables bullet packs its act into a clause and
+ * surrounds it with content. The originating instance is the clean case: *"**One yes needed before
+ * PR 1:** a hashed JSON payload at a stable URL is a de facto dataset release of your editorial
+ * layer (all-rights-reserved; the code is MIT). Smaller than the doc implies — the raw tweets are
+ * already on the Community Archive's public API — but it should be a deliberate yes."* The act is
+ * six words of ninety. Scored whole against decision exemplars it reads **0.3640** — below every
+ * usable threshold. Scored by clause it reads **0.6747**.
+ *
+ * `splitCandidateSegments` (`packages/domain/src/detectors/embedding-nomination.ts`) splits on
+ * `\n+` first and then on sentence terminators, so it cannot reach a clause inside a sentence —
+ * and this corpus puts the act after a colon or between em-dashes about as often as it puts it in
+ * a sentence of its own. Joining clauses with newlines hands that splitter one segment per clause
+ * without changing it, which keeps every other detector that shares it untouched.
+ *
+ * Splits on sentence terminators, colons, semicolons, and spaced em/en dashes. Bold and backtick
+ * marks are stripped: they are emphasis, and an embedding should not score `**` as content.
+ * Fragments under 12 characters are dropped, matching the segmenter's own floor — a bare
+ * `mt#4787` lead carries no act.
+ */
+export function splitUnitClauses(unit: string): string {
+  const body = unit
+    .replace(/^\s*[-*+]\s+/, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "");
+  return body
+    .split(/(?<=[.!?])\s+|\s*[:;]\s+|\s+—\s+|\s+–\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 12)
+    .join("\n");
+}
+
+/**
  * Locate the terminal actionables block, or return null.
  *
  * **Matching runs on the ELIDED residual and slicing runs on the ORIGINAL.**
