@@ -64,7 +64,7 @@ We introduce the **Ask subsystem** as a new domain layer at `src/domain/ask/` co
 ### The Ask entity
 
 ```typescript
-// src/domain/ask/types.ts
+// packages/domain/src/ask/types.ts
 export interface Ask {
   // Identity
   id: string; // ulid or uuid
@@ -191,7 +191,7 @@ For sync cases with an attached AG-UI client, stages 5 and 7 are carried by `RUN
 ### Router: policy-first → escalate-if-uncovered
 
 ```typescript
-// src/domain/ask/router.ts
+// packages/domain/src/ask/router.ts
 export interface AskRouter {
   route(ask: Ask): Promise<RoutedAsk>;
 }

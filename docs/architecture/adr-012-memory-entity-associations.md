@@ -39,12 +39,12 @@ indexed, and audited without text-parsing memory content.
 
 ### Near-term use cases (planned, not yet implemented)
 
-| #   | Use case                             | Direction                | Consumer                                  | Status                                                                  |
-| --- | ------------------------------------ | ------------------------ | ----------------------------------------- | ----------------------------------------------------------------------- |
-| 8   | **Ask policy evidence**              | memory → ask             | `src/domain/ask/policy.ts:loadMemories()` | Stub returning `[]`; deferred to mt#1034                                |
-| 9   | **Reviewer-bot evidence**            | memory → PR review       | `.claude/agents/reviewer.md`              | Blocked by Chinese-wall design; may move to pre-review enrichment       |
-| 10  | **Memory-as-source on rule edits**   | memory → rule            | Rules compile pipeline                    | No mechanism; provenance is one-way (rule cites memory, not vice versa) |
-| 11  | **Transcript extraction provenance** | memory → transcript turn | Transcript ingest pipeline                | `sourceSessionId` partially covers; no turn-level granularity           |
+| #   | Use case                             | Direction                | Consumer                                           | Status                                                                  |
+| --- | ------------------------------------ | ------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------- |
+| 8   | **Ask policy evidence**              | memory → ask             | `packages/domain/src/ask/policy.ts:loadMemories()` | Stub returning `[]`; deferred to mt#1034                                |
+| 9   | **Reviewer-bot evidence**            | memory → PR review       | `.claude/agents/reviewer.md`                       | Blocked by Chinese-wall design; may move to pre-review enrichment       |
+| 10  | **Memory-as-source on rule edits**   | memory → rule            | Rules compile pipeline                             | No mechanism; provenance is one-way (rule cites memory, not vice versa) |
+| 11  | **Transcript extraction provenance** | memory → transcript turn | Transcript ingest pipeline                         | `sourceSessionId` partially covers; no turn-level granularity           |
 
 ### Access pattern summary
 
@@ -69,10 +69,10 @@ indexed, and audited without text-parsing memory content.
 
 - LOC counts are for production code only (tests add ~1× for each shape).
 - Shape A's estimate is grounded in the existing `supersededBy` field's implementation
-  pattern (`src/domain/memory/memory-service.ts:488-548`, `src/domain/storage/schemas/memory-embeddings.ts:40-56`)
+  pattern (`packages/domain/src/memory/memory-service.ts:488-548`, `packages/domain/src/storage/schemas/memory-embeddings.ts:40-56`)
   — same schema + type + repository + service extension pattern, applied once.
 - Shape B's estimate is grounded in the `memory_embeddings` companion table pattern
-  (`src/domain/storage/schemas/memory-embeddings.ts:59-81`) — separate table with FK,
+  (`packages/domain/src/storage/schemas/memory-embeddings.ts:59-81`) — separate table with FK,
   index, and lifecycle methods.
 - Shape D's estimate is grounded in the `ask` domain module
   (`src/domain/ask/`) — new domain with policy, routing, service, and MCP commands.

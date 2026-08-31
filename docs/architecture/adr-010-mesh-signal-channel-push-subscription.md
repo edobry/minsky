@@ -34,7 +34,7 @@ needs three concrete choices to unblock downstream consumers:
 The substrate is partially in place. The attention-window primitive
 (mt#1411 / mt#1489) emits `pg_notify` on dedicated channels today
 (`minsky.attention_window_opened`, `minsky.attention_window_closed`) via
-`createPostgresWindowNotifier` (`src/domain/ask/attention-windows/notify.ts`).
+`createPostgresWindowNotifier` (`packages/domain/src/ask/attention-windows/notify.ts`).
 The MCP HTTP server already handles SSE GET streams for tool-call responses
 (the `handleHttpGet` path in `src/mcp/server.ts`). The persistence layer exposes
 `getRawSqlConnection()` on `SqlCapablePersistenceProvider` as the supported

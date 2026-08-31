@@ -139,14 +139,14 @@ Detect the backend once and cache the result in a local state file.
 
 ### Files Changed in This ADR
 
-- `src/domain/configuration/schemas/base.ts` — Added `repoBackendType` enum
-- `src/domain/configuration/schemas/backend.ts` — Added `repositoryGitHubConfigSchema` and `repositoryConfigSchema`
-- `src/domain/configuration/schemas/index.ts` — Added `repository` field to root schema
-- `src/domain/configuration/types.ts` — Updated `RepositoryConfig.repository` sub-object
+- `packages/domain/src/configuration/schemas/base.ts` — Added `repoBackendType` enum
+- `packages/domain/src/configuration/schemas/backend.ts` — Added `repositoryGitHubConfigSchema` and `repositoryConfigSchema`
+- `packages/domain/src/configuration/schemas/index.ts` — Added `repository` field to root schema
+- `packages/domain/src/configuration/types.ts` — Updated `RepositoryConfig.repository` sub-object
 
 ### Files Not Changed (Future Work)
 
-- `src/domain/repository-backend-detection.ts` — Runtime detection logic (follow-up task)
+- `packages/domain/src/session/repository-backend-detection.ts` — Runtime detection logic (follow-up task)
 - `src/commands/init/` — `minsky init` prompting and config writing (follow-up task)
 - Session creation code — Reading config instead of URL matching (follow-up task)
 
@@ -162,7 +162,7 @@ The `repository.url` field is optional and informational — it records the cano
 
 ## References
 
-- `src/domain/repository-backend-detection.ts` — Current per-session URL matching implementation
+- `packages/domain/src/session/repository-backend-detection.ts` — Current per-session URL matching implementation
 - `src/domain/configuration/schemas/` — Configuration schema system
 - [ADR-002: Persistence Provider Architecture](./adr-002-persistence-provider-architecture.md) — Precedent for capability-based configuration patterns
 

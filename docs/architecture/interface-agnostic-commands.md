@@ -61,7 +61,7 @@ addTaskCommand<T extends z.ZodTypeAny>(
 #### 1. Domain Function (Pure Logic)
 
 ```typescript
-// src/domain/tasks.ts
+// packages/domain/src/tasks.ts
 export async function listTasks(options?: {
   filter?: string;
   limit?: number;
