@@ -71,6 +71,7 @@ export const EVALUATION_STREAM_PRODUCERS: Record<string, string> = {
   "silent-stretch": ".minsky/hooks/silent-stretch-detector.ts",
   "spec-criterion-claim": ".minsky/hooks/spec-criterion-claim-detector.ts",
   "stop-at-decision": ".minsky/hooks/stop-at-decision-scan.ts",
+  "untaken-action": ".minsky/hooks/turn-end-untaken-action-scan.ts",
 };
 
 /**
