@@ -71,6 +71,18 @@ export function validateSpecContent(specContent: string): SpecValidationResult {
   return { valid: missingHeadings.length === 0, missingHeadings };
 }
 
+/**
+ * A work-package spec is a BRIEFING (ADR-046, mt#2911): its required sections
+ * are per-origin (Members/Grouping rationale, or Situation/Decisions/
+ * Provenance), validated domain-side at the create seam on every surface — not
+ * the implementation-task shape this hook checks. Denying it here for lacking
+ * ## Success Criteria would block every legitimate work-package create on this
+ * harness.
+ */
+export function isKindExemptFromSpecShape(toolInput: Record<string, unknown> | undefined): boolean {
+  return toolInput?.kind === "work-package";
+}
+
 /** Extract the spec content from a tasks_create tool_input (spec, or the deprecated description alias). */
 export function extractSpecContent(toolInput: Record<string, unknown> | undefined): string {
   if (!toolInput) return "";
@@ -114,7 +126,9 @@ if (import.meta.main) {
     sessionId = input.session_id;
     toolName = input.tool_name;
     const specContent = extractSpecContent(input.tool_input);
-    const result = validateSpecContent(specContent);
+    const result = isKindExemptFromSpecShape(input.tool_input)
+      ? { valid: true, missingHeadings: [] }
+      : validateSpecContent(specContent);
 
     if (!result.valid) {
       const title = (input.tool_input?.title as string | undefined) ?? "unknown";

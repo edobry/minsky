@@ -73,6 +73,7 @@ import {
   Menu,
   X,
   Wrench,
+  Package,
   PanelLeftClose,
   PanelLeftOpen,
   Share2,
@@ -112,6 +113,9 @@ const SPINE: NavItem[] = [
 /** Flat entity entry points below the spine. */
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
+  // ADR-046 (mt#2911) — the claimable work-package pool: open + claimed
+  // bundles, claim/copy-launch affordances.
+  { to: "/work-packages", label: "Work packages", icon: Package },
   { to: "/changesets", label: "Changesets", icon: GitPullRequest },
   // mt#2767 — the standalone-transcripts nav item was removed; `/agents` is
   // now the unified agent-run browse surface (workspace sessions, harness

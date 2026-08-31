@@ -8,7 +8,7 @@ Linear, Jira).
 This document covers:
 
 - What task kind is and why it exists
-- The v1 kinds: `implementation`, `umbrella`, and `state-ops`
+- The kinds: `implementation`, `umbrella`, `state-ops`, and `work-package` (ADR-046)
 - The workflow definition shape (state machine + mapping tables)
 - How to add a new kind
 - Cross-references and backfill
@@ -239,6 +239,73 @@ CLOSED      → TODO (reopen)
 |-------|--------------|--------|------|
 | TODO | open | Backlog | To Do |
 | PLANNING | open | Todo | In Planning |
+| READY | open | Todo | Ready |
+| IN-PROGRESS | open | In Progress | In Progress |
+| DONE | closed | Done | Done |
+| CLOSED | closed | Canceled | Canceled |
+
+---
+
+### `work-package`
+
+A claimable bundle of tasks with an authored briefing (ADR-046, mt#2911 — Phase 1 of the
+conversation-succession RFC). The package IS a task: its spec is the briefing, it gets an
+ordinary `mt#N` id, and two side tables carry what the task row cannot —
+`work_package_members` (the ordered member REFERENCE set; not parent/child, no rollup, no
+graph edge) and `work_package_transfers` (the append-only transfer log; `origin` is a
+per-transfer fact).
+
+**Vocabulary boundary:** _a task says what to do; a work package says what to pick up; a
+handoff says what changed hands; a docket says what's mine._ `handoff` names the ACT of
+transfer, never this entity; `docket` is reserved for the future per-agent view (build
+nothing against it). And never bare "package" — in an engineering codebase that word is
+taken; always the two-word form.
+
+**Two origins**, each with its own required briefing sections (`Origin:` line in the spec):
+
+- `groomed` — a curator bundles open tasks for any agent to pick up. Requires `## Members`
+  (ordered task refs, per-member rationale) and `## Grouping rationale`.
+- `succession` — a finishing conversation packages its in-flight work; `/handoff`'s terminal
+  step writes one. Requires `## Situation`, `## Decisions`, `## Provenance`.
+
+Create-time validation (domain-side, every surface) refuses a missing/illegal origin, missing
+per-origin sections, and any cited entity ref that does not resolve (mem#676 R5's
+phantom-citation class). A member already queued by another open package produces an
+ANNOTATION naming the sibling — never a refusal (reference ≠ reservation).
+
+**States:** `TODO`, `READY`, `IN-PROGRESS`, `DONE`, `CLOSED`
+
+**Transitions:**
+
+```
+TODO        → READY, CLOSED          (drafting → open for claim)
+READY       → TODO, CLOSED           (pull back to drafting; abandon)
+IN-PROGRESS → DONE, CLOSED
+DONE        → CLOSED
+CLOSED      → TODO (reopen)
+```
+
+**Terminal states:** `DONE`, `CLOSED`. No PLANNING, IN-REVIEW, or BLOCKED.
+
+**Key differences from every other kind:**
+
+- **`READY → IN-PROGRESS` is reserved for the claim path** (`tasks claim` / `tasks_claim`) —
+  the same restricted-transition pattern `implementation` uses for `session_start`. The claim
+  is one conditional UPDATE writing `claimed_by`/`claimed_at` atomically with the status, so
+  two concurrent claims get exactly one winner. `tasks release` returns a claimed package to
+  `READY`, clears the identity, and appends a transfer-log entry (`origin: "release"`).
+  Claim identity is engagement-long ownership on the tasks row — deliberately NOT the
+  15-minute presence-claims table (mem#1231's grain distinction).
+- **`session_start` refuses the kind** — a package is claimed, then its member tasks are
+  worked as ordinary tasks (each with its own session).
+- **Consumer-side default-deny:** `tasks_available`, routing, backlog counts, and the
+  workstream widget exclude the kind unless an explicit `kind: "work-package"` filter names
+  it. A package is picked up deliberately, never auto-served.
+
+**Tool mappings:**
+| State | GitHub Issues | Linear | Jira |
+|-------|--------------|--------|------|
+| TODO | open | Backlog | To Do |
 | READY | open | Todo | Ready |
 | IN-PROGRESS | open | In Progress | In Progress |
 | DONE | closed | Done | Done |
@@ -478,7 +545,8 @@ It refuses rather than auto-migrating the status because **no defensible cross-k
 The check makes new strandings impossible, but if you encounter a task from before it shipped:
 
 1. Re-kind **back** to its previous kind — this restores its status as a legal state.
-2. Set a status legal in **both** kinds. `TODO`, `PLANNING`, `DONE`, and `CLOSED` are legal in all three.
+2. Set a status legal in **both** kinds. `TODO`, `DONE`, and `CLOSED` are legal in all four
+   (`PLANNING` in all but `work-package`).
 3. Re-kind forward again; it now passes the check.
 
 Step 2 alone is enough if the task is not yet stranded.

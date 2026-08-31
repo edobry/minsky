@@ -149,8 +149,11 @@ export interface RestrictedTransition {
  * "state-ops"      — covers no-code / pure-state tasks (triage sweeps, config-only ops,
  *                    decision records) that terminate at DONE without a session
  *                    or a PR (mt#2661).
+ * "work-package"   — covers claimable bundles of tasks with an authored briefing
+ *                    (groomed or succession origin), claimed as a unit and worked
+ *                    through per-member-task sessions (ADR-046, mt#2911).
  */
-export type TaskKind = "implementation" | "umbrella" | "state-ops";
+export type TaskKind = "implementation" | "umbrella" | "state-ops" | "work-package";
 
 // ---------------------------------------------------------------------------
 // Workflow Registry
@@ -380,6 +383,86 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
         stateMap: {
           TODO: "To Do",
           PLANNING: "In Planning",
+          READY: "Ready",
+          "IN-PROGRESS": "In Progress",
+          DONE: "Done",
+          CLOSED: "Canceled",
+        },
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // "work-package" — a claimable bundle of tasks with an authored briefing
+  // (ADR-046, mt#2911; Phase 1 of the conversation-succession RFC).
+  //
+  // States: TODO → READY → IN-PROGRESS → DONE | CLOSED
+  //
+  // Status semantics for this kind (the shared vocabulary, re-read):
+  //   TODO        = drafting — the groomer/finishing conversation is still
+  //                 assembling the briefing and member set.
+  //   READY       = open — claimable by any agent.
+  //   IN-PROGRESS = claimed — `claimed_by`/`claimed_at` are set by the claim
+  //                 path, which is the ONLY way in (see restrictedTransitions).
+  //   DONE        = completed. CLOSED = superseded / abandoned.
+  //
+  // Notably absent: PLANNING (the briefing IS the plan; there is no gate
+  // battery for a bundle), IN-REVIEW (no PR of its own), BLOCKED (members
+  // block individually; the bundle does not).
+  //
+  // Both restricted transitions exist because a work package is worked
+  // through its MEMBER tasks, not directly: `session_start` refuses the kind
+  // (you claim the package, then start sessions on member tasks), and
+  // READY → IN-PROGRESS is reserved for the claim path so ownership identity
+  // is always written atomically with the transition (a CAS on status — see
+  // mt#2911's schema; deliberately NOT the 15-minute presence-claims table,
+  // whose liveness grain is a different job, mem#1231).
+  // -------------------------------------------------------------------------
+  "work-package": {
+    states: ["TODO", "READY", "IN-PROGRESS", "DONE", "CLOSED"],
+    transitions: {
+      TODO: ["READY", "CLOSED"],
+      READY: ["TODO", "CLOSED"],
+      "IN-PROGRESS": ["DONE", "CLOSED"],
+      DONE: ["CLOSED"],
+      CLOSED: ["TODO"],
+    },
+    terminal: ["DONE", "CLOSED"],
+    restrictedTransitions: [
+      {
+        from: "READY",
+        to: "IN-PROGRESS",
+        message:
+          "A work package is claimed, not status-set: use the claim command (tasks claim), which records claimed_by atomically with the transition.",
+      },
+    ],
+    mappings: {
+      githubIssue: {
+        type: "issue",
+        labels: ["work-package"],
+        stateMap: {
+          TODO: "open",
+          READY: "open",
+          "IN-PROGRESS": "open",
+          DONE: "closed",
+          CLOSED: "closed",
+        },
+      },
+      linear: {
+        type: "Issue",
+        stateMap: {
+          TODO: "Backlog",
+          READY: "Todo",
+          "IN-PROGRESS": "In Progress",
+          DONE: "Done",
+          CLOSED: "Canceled",
+        },
+      },
+      jira: {
+        issueType: "Task",
+        workflowName: "Work Package Workflow",
+        stateMap: {
+          TODO: "To Do",
           READY: "Ready",
           "IN-PROGRESS": "In Progress",
           DONE: "Done",
