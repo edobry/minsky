@@ -121,8 +121,23 @@ New **session** and **memory** records are also stamped with the resolved
 - `memory.create` defaults `project_id` to the resolved current scope when
   no explicit `projectId` is provided; an explicitly-provided value is always
   respected.
-- **Ask write-stamping** is deferred to Phase-1.3b — the Ask domain type
-  does not yet carry a `projectId` field (see `ask/repository.ts` `toInsert`).
+- `asks.create` stamps `project_id` from the **parent task's** project when the
+  Ask has a `parentTaskId`, and from the filing context otherwise (mt#4772).
+  The parent wins because an Ask is ABOUT its parent task, while the filing
+  context only records which server the agent was connected to; the lookup
+  reuses mt#4808's `resolveTaskProjectId` and fails open to the context at
+  every step. Before this, a parented Ask stamped the filing context and so
+  listed under the wrong project on `/asks`, while its own activity event —
+  keyed on `relatedTaskId` — rendered under the right one: one entity, two
+  project identities depending on the page.
+
+  (This bullet previously read _"Ask write-stamping is deferred to Phase-1.3b —
+  the Ask domain type does not yet carry a `projectId` field."_ That was stale
+  from mt#2563, which added the field and the stamp; `toInsert` has carried
+  `projectId` since. The residual defect was never a missing field, only a
+  mis-resolved value — a distinction worth preserving here, because the stale
+  wording pointed at the wrong fix.)
+
 - `tasks.create` no longer stamps from the filing context alone (mt#4808).
   It resolves per call, in precedence order: an explicit `workspace`/`repo`
   the caller named → the `parent` task's project → the filing context

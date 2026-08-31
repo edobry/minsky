@@ -103,6 +103,9 @@ import type { AskSeverity } from "@minsky/domain/ask/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+// ADR-021 project resolution for Asks — extracted by mt#4772 (see that module's
+// header for why it is not inline here).
+import { resolveCurrentProjectScope, resolveNewAskProjectId } from "./asks-project-resolution";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
 import { emitSystemEventBestEffort } from "./system-event-emit";
@@ -2184,40 +2187,6 @@ export type AsksCreateResult = (RoutedAsk | SuspendedAsk | ElicitationClosedAsk)
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the current project's uuid for project-scoped Ask reads and writes
- * (ADR-021 — mt#2416 read-side, mt#2563 write-side). Single source of truth so
- * `asks.create` stamps the SAME project the `asks.list` default filter reads by:
- * create/list scope parity. Returns the project uuid, or `undefined` when
- * persistence is unavailable, the project is unidentified (hosted server /
- * cockpit daemon with no single-repo cwd), or resolution fails — fail-open to an
- * unscoped read/write, never a throw.
- */
-async function resolveCurrentProjectScope(
-  container: AppContainerInterface | undefined,
-  caller: string
-): Promise<string | undefined> {
-  if (!container?.has("persistence")) return undefined;
-  try {
-    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
-    if (!persistenceProvider.getDatabaseConnection) return undefined;
-    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
-    const { isAllProjects } = await import("@minsky/domain/project/scope");
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return undefined;
-    const rawDb = await persistenceProvider.getDatabaseConnection();
-    if (!rawDb) return undefined;
-    const scope = await resolveProjectScope(identity, rawDb, caller);
-    return isAllProjects(scope) ? undefined : scope;
-  } catch (err: unknown) {
-    log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
-  }
-}
-
-/**
  * Register the asks commands in the shared command registry.
  *
  * @param container Optional DI container — when provided, commands resolve
@@ -2489,12 +2458,20 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await requireAskRepository(container, "asks.create");
 
-        // ADR-021 / mt#2563: resolve the current project and stamp it on the new
-        // Ask so it is visible to the default project-scoped asks.list — completes
-        // the Phase-1.3b write-stamping deferred by mt#2416. Shares
-        // resolveCurrentProjectScope with asks.list, so create and the default
-        // read filter agree on the same project_id (create/list scope parity).
-        const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
+        // ADR-021 / mt#2563: resolve the project and stamp it on the new Ask so
+        // it is visible to the default project-scoped asks.list — completes the
+        // Phase-1.3b write-stamping deferred by mt#2416.
+        //
+        // mt#4772: the PARENT TASK's project wins when there is one; the filing
+        // context is the fallback. Create/list scope parity is unchanged for the
+        // no-parent case (both still go through resolveCurrentProjectScope), and
+        // a parented Ask now agrees with its own activity event, which keys on
+        // `relatedTaskId` and was already rendering under the parent's project.
+        const resolvedProjectId = await resolveNewAskProjectId(
+          container,
+          params.parentTaskId as string | undefined,
+          "asks.create"
+        );
 
         // mt#1457: pull the capability registry from the container so the
         // mt#1457 pulled a capability registry from the container so the router
