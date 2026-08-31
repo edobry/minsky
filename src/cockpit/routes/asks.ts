@@ -158,6 +158,11 @@ function toAskListRow(a: Ask) {
     shortId: a.shortId,
     kind: a.kind,
     state: a.state,
+    // Owning project's uuid (mt#4773) — the all-projects view resolves it to
+    // a label client-side (`projectLabelById`); absent for unscoped asks.
+    // Whether the stamped value is CORRECT for task-parented asks is mt#4772's
+    // separate write-path defect; rendering what is stored is this row's job.
+    projectId: a.projectId,
     title: a.title,
     question: a.question,
     requestor: a.requestor,

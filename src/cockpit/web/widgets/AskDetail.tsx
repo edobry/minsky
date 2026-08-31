@@ -122,6 +122,11 @@ export interface AskItem {
   shortId?: string;
   kind: AskKind;
   state: AskState;
+  /**
+   * Owning project's uuid (mt#4773) — resolved to a label client-side via
+   * `projectLabelById` for the all-projects badge; absent for unscoped asks.
+   */
+  projectId?: string | null;
   title: string;
   question: string;
   requestor: string;
@@ -559,13 +564,7 @@ export type AskDetailProps = AskDetailActionableProps | AskDetailReadOnlyProps;
  * a surface clears its error when it starts a new action, so `acting` winning
  * the branch cannot leave a stale failure on screen underneath a live spinner.
  */
-function AskActionStatus({
-  acting,
-  error,
-}: {
-  acting: AskActionInFlight | null;
-  error?: unknown;
-}) {
+function AskActionStatus({ acting, error }: { acting: AskActionInFlight | null; error?: unknown }) {
   if (acting !== null) {
     return (
       <p
@@ -634,10 +633,10 @@ export function AskDetail(props: AskDetailProps) {
     : appGrantRequest
       ? 0
       : ask.options
-      ? Math.min(ask.options.length, letters.length)
-      : hasOptions
-        ? 2
-        : 0;
+        ? Math.min(ask.options.length, letters.length)
+        : hasOptions
+          ? 2
+          : 0;
 
   return (
     <Card className="border-border">
@@ -802,13 +801,11 @@ export function AskDetail(props: AskDetailProps) {
               </div>
             )}
 
-            {!ask.options &&
-              ask.kind === "authorization.approve" &&
-              !credentialRequest && (
-                <div className="text-sm text-muted-foreground">
-                  <p>A) Approve &nbsp; B) Deny</p>
-                </div>
-              )}
+            {!ask.options && ask.kind === "authorization.approve" && !credentialRequest && (
+              <div className="text-sm text-muted-foreground">
+                <p>A) Approve &nbsp; B) Deny</p>
+              </div>
+            )}
 
             {/* A credential request renders a masked input instead of the
                 approve/deny pair: there is nothing to approve, only a value to

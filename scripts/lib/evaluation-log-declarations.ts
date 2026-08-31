@@ -53,6 +53,11 @@ import { fileURLToPath } from "node:url";
  * the module containing the `logEvaluationRecord` call, not a helper it delegates to.
  */
 export const EVALUATION_STREAM_PRODUCERS: Record<string, string> = {
+  // mt#4807. Shares the detector's CALIBRATION log name: the actionables-decision family
+  // writes its census (every located terminal actionables block, fired or not) to the
+  // `-evaluations` sibling, so the sweep reading fires has a denominator. The write goes
+  // through an injected seam defaulting to `logEvaluationRecord`, like context-fill-gauge.
+  "ask-routing-deferral": ".minsky/hooks/ask-routing-deferral-detector.ts",
   "causal-premise": ".minsky/hooks/causal-premise-detector.ts",
   // Writes through an INJECTED alias (`const logEvaluation = deps.logEvaluationRecordFn ??
   // logEvaluationRecord`), so a source scan keyed on the literal call `logEvaluationRecord(`

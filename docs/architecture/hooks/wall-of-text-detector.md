@@ -11,15 +11,23 @@
 
 The OVER-signaling sibling of `silent-stretch-detector` (mt#2824): where that guard flags a
 turn that said too little, this one flags a turn-end report that said too much, or in the
-wrong shape. At each prompt boundary it takes the just-completed turn's FINAL assistant text
-block — the message the principal actually reads as the turn report — and measures it against
-the Tier-1 turn-report contract (`communication-contract.mdc`, mt#2713):
+wrong shape. At each prompt boundary it measures the just-completed turn against the Tier-1
+turn-report contract (`communication-contract.mdc`, mt#2713).
 
-| Signal                            | Definition                                                                                                                                                          | Trigger                                                                                      |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `wordCount` / `lineCount`         | size of the final text block                                                                                                                                        | fires at >= 2x the contract's ~200-word budget (>= 400 words)                                |
-| `leadLabelHits`                   | skill-internal label patterns — gate/criterion letters (`gate (l)`), parenthesized roman-numeral premise labels (`(iii)`), `SC#N` refs — inside the first 150 words | fires on any hit (the contract allows labels only in a trailing audit block, never the lead) |
-| `deeplinkCount` / `namedRefCount` | `minsky://` links vs named refs (`mt#N`, `PR #N`)                                                                                                                   | logged, not a trigger — the pointer-presence signal for later calibration review             |
+**Which block it measures depends on the leg (mt#4531).** The `over-budget` leg measures the
+turn's LARGEST assistant text block — R7's incident was a 597-word opening block behind a
+110-word close, which a final-block-only measurement missed entirely. The `lead-labels` leg still
+measures the FINAL block, deliberately: that rule is a claim about the report's lead. Reading
+`wordCount` as the over-budget measurement is the error mt#4637 exists to stop — it inverted three
+consecutive calibration passes' verdicts before the record carried the firing block's text.
+
+| Signal                                      | Definition                                                                                                                                                          | Trigger                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `largestBlockWords`                         | size of the LARGEST text block in the turn (mt#4531)                                                                                                                | **this is the over-budget trigger** — fires at >= 2x the contract's ~200-word budget            |
+| `largestBlockExcerpt` / `largestBlockIndex` | the lead of that block, and where it sat in the turn (mt#4637)                                                                                                      | logged, not a trigger — the evidence for classifying an over-budget fire                        |
+| `wordCount` / `lineCount`                   | size of the FINAL text block                                                                                                                                        | logged; the `lead-labels` leg's word floor only — **not** the over-budget trigger since mt#4531 |
+| `leadLabelHits`                             | skill-internal label patterns — gate/criterion letters (`gate (l)`), parenthesized roman-numeral premise labels (`(iii)`), `SC#N` refs — inside the first 150 words | fires on any hit (the contract allows labels only in a trailing audit block, never the lead)    |
+| `deeplinkCount` / `namedRefCount`           | `minsky://` links vs named refs (`mt#N`, `PR #N`)                                                                                                                   | logged, not a trigger — the pointer-presence signal for later calibration review                |
 
 All signals are deterministic (regex + counting; no LLM). Thresholds are pinned to the
 contract's verbatim "hard budget: readable in under 30 seconds (~200 words)"; the 2x
@@ -32,8 +40,13 @@ the register by design — calibration data will show how often that happens).
 {
   "timestamp": "…",
   "session_id": "…",
-  "wordCount": 912,
-  "lineCount": 41,
+  "wordCount": 41,
+  "lineCount": 3,
+  "largestBlockWords": 912,
+  "largestBlockExcerpt": "…",
+  "largestBlockIndex": 0,
+  "totalWords": 953,
+  "blockCount": 4,
   "trigger": "both | over-budget | lead-labels",
   "leadLabelHits": ["gate-letter"],
   "deeplinkCount": 0,

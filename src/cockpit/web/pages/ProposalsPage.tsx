@@ -23,6 +23,7 @@
  * the /digest page's split.
  */
 import { useState } from "react";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
@@ -332,9 +333,7 @@ function ProposalRow({
                 className="h-6 px-2 text-xs"
                 disabled={pending}
                 aria-label={`Reject ${proposal.taskId}`}
-                onClick={() =>
-                  onRequestReject({ taskId: proposal.taskId, title: proposal.title })
-                }
+                onClick={() => onRequestReject({ taskId: proposal.taskId, title: proposal.title })}
               >
                 Reject
               </Button>
@@ -395,7 +394,11 @@ function RunSection({
 }) {
   return (
     <div className="rounded-md border border-border bg-card/50" data-testid="engprod-run-group">
-      {group.run ? <RunHeader run={group.run} /> : <UnassignedRunHeader count={group.proposals.length} />}
+      {group.run ? (
+        <RunHeader run={group.run} />
+      ) : (
+        <UnassignedRunHeader count={group.proposals.length} />
+      )}
       {group.proposals.length > 0 && (
         <div className="flex flex-col">
           {group.proposals.map((p, i) => (
@@ -457,6 +460,9 @@ export function ProposalsPage() {
           {runs.length === 1 ? "" : "s"}
         </span>
       </div>
+      {/* Deliberately global (mt#4727 census: Minsky's own eng-process
+          tooling); say so while a project filter is active (mt#4773). */}
+      <InstanceScopeCue />
 
       {groups.length === 0 ? (
         <div className="py-12 text-center">

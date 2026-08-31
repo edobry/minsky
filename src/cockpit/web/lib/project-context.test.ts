@@ -11,6 +11,7 @@ import {
   isKnownSlug,
   shouldShowProjectIndicator,
   projectLabelBySlug,
+  projectLabelById,
   type ProjectSummary,
 } from "./project-context";
 
@@ -96,5 +97,26 @@ describe("projectLabelBySlug (mt#4729)", () => {
 
   test("returns the slug itself (not null) for a slug the shell's project list doesn't include", () => {
     expect(projectLabelBySlug(projects, "someone/else")).toBe("someone/else");
+  });
+});
+
+describe("projectLabelById (mt#4773)", () => {
+  const projects = TWO_PROJECTS_FIXTURE;
+  const [minsky, peezombie] = projects;
+
+  test("returns displayName when the shell knows a project by that id", () => {
+    expect(projectLabelById(projects, minsky.id)).toBe("Minsky");
+  });
+
+  test("falls back to the SLUG (never the uuid) when displayName is null", () => {
+    expect(projectLabelById(projects, peezombie.id)).toBe(peezombie.slug);
+  });
+
+  test("returns null for a null id", () => {
+    expect(projectLabelById(projects, null)).toBeNull();
+  });
+
+  test("returns null for an id the shell's list doesn't include — unlike the slug helper, a raw uuid has no readable fallback", () => {
+    expect(projectLabelById(projects, "not-a-known-id")).toBeNull();
   });
 });

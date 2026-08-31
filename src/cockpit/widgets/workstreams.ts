@@ -28,8 +28,15 @@ import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
-// Public shapes — mirrored verbatim in Workstreams.tsx (no server imports
-// allowed on the frontend). Keep in sync.
+// Public shapes — mirrored in Workstreams.tsx (no server imports allowed on
+// the frontend). Keep in sync, with ONE standing exception, stated here
+// because "verbatim" used to be claimed and is not true (PR #3523 R1): the
+// frontend may declare a field OPTIONAL that is required here, when a
+// freshly-built bundle can receive a payload from a not-yet-restarted daemon
+// — the bundle and the daemon are rebuilt by separate watchers (mt#2297 /
+// mt#2299). `altitude` and `projectId` are both that case, and each carries
+// the reason at its own declaration on the frontend side. The reverse
+// (required on the frontend, optional here) is always drift.
 // ---------------------------------------------------------------------------
 
 /** Status union shared with the task-graph widget */
@@ -72,6 +79,12 @@ export interface WorkstreamCard {
    * render-side against the decision-defaults thresholds.
    */
   lastActivityAt: string | null;
+  /**
+   * The PARENT task's owning project uuid (mt#4773) — a workstream belongs to
+   * its root's project. Resolved to a label client-side (`projectLabelById`)
+   * for the all-projects badge; null for a legacy/unscoped root.
+   */
+  projectId: string | null;
 }
 
 /**
@@ -350,6 +363,7 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
             doneChildCount,
             blockedChildCount,
             lastActivityAt,
+            projectId: parentTask.projectId ?? null,
           });
         }
 

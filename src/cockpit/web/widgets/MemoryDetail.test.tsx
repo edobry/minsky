@@ -9,10 +9,11 @@
  * Run via: bun run test:components
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryDetailContent, type MemoriesDetailPayload } from "./MemoryDetail";
+import { ProjectProvider } from "../lib/project-context";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 
 const originalFetch = global.fetch;
@@ -73,7 +74,11 @@ describe("MemoryDetail — Shape 3: record.sourceSessionId (mt#3175)", () => {
           state: "ok",
           payload: {
             agents: [
-              { sessionId: "abcdef01-2345-6789-abcd-ef0123456789", title: "Some session", liveness: "healthy" },
+              {
+                sessionId: "abcdef01-2345-6789-abcd-ef0123456789",
+                title: "Some session",
+                liveness: "healthy",
+              },
             ],
           },
         });
@@ -107,6 +112,57 @@ describe("MemoryDetail — Shape 3: record.sourceSessionId (mt#3175)", () => {
       similar: [],
     });
     expect(container.querySelector('a[href^="/agents/"]')).toBeNull();
+  });
+});
+
+describe("MemoryDetail — project label, not raw uuid (mt#4773 AT2)", () => {
+  const PROJECT_ID = "3ac3d147-2b6f-4cf9-a52a-2b6e32d3c5fe";
+
+  function renderWithProjects(payload: MemoriesDetailPayload) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ProjectProvider>
+            <MemoryDetailContent payload={payload} />
+          </ProjectProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  test("a project-scoped record shows the project's display name; the uuid is gone", async () => {
+    global.fetch = mock(async (url: string) => {
+      if (url.includes("/api/projects")) {
+        return jsonResponse({
+          projects: [{ id: PROJECT_ID, slug: "edobry/minsky", displayName: "Minsky" }],
+        });
+      }
+      return fallback();
+    }) as unknown as typeof fetch;
+
+    renderWithProjects({
+      record: baseRecord({ projectId: PROJECT_ID }),
+      lineage: [],
+      lineageTruncated: false,
+      similar: [],
+    });
+
+    await waitFor(() => expect(screen.getByText("Minsky")).toBeTruthy());
+    expect(screen.queryByText(PROJECT_ID)).toBeNull();
+  });
+
+  test("an id the shell cannot resolve keeps the uuid as the last-resort fallback", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    // No provider wrap: outside the shell there is no project list, so the
+    // detail surface degrades to the identifier it has rather than hiding it.
+    renderDetail({
+      record: baseRecord({ projectId: PROJECT_ID }),
+      lineage: [],
+      lineageTruncated: false,
+      similar: [],
+    });
+    expect(screen.getByText(PROJECT_ID)).toBeTruthy();
   });
 });
 

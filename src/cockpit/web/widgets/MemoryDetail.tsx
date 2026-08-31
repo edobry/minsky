@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { useOptionalProject, projectLabelById } from "../lib/project-context";
 import { cn } from "../lib/utils";
 import { Prose } from "../components/Prose";
 import { EntityRef } from "../components/EntityRef";
@@ -176,6 +177,12 @@ export function MemoryDetailContent({
 }) {
   const { record, lineage, lineageTruncated, similar } = payload;
   const entityIndex = useEntityIndex();
+  // Project shown as slug/displayName, not the raw uuid (mt#4773 SC2). The
+  // uuid stays as the last-resort fallback for a project the shell's list
+  // does not know — a detail surface should degrade to the identifier it
+  // has rather than hide the field. Optional context for the same reason.
+  const projectCtx = useOptionalProject();
+  const projectLabel = projectLabelById(projectCtx?.projects ?? [], record.projectId ?? null);
 
   return (
     <div className="space-y-4 overflow-y-auto flex-1">
@@ -199,7 +206,7 @@ export function MemoryDetailContent({
           {record.projectId && (
             <MetaRow
               label="Project"
-              value={<span className="font-mono">{record.projectId}</span>}
+              value={projectLabel ?? <span className="font-mono">{record.projectId}</span>}
             />
           )}
           <MetaRow label="Created" value={relativeTime(record.createdAt)} />
@@ -455,10 +462,7 @@ function EditTagsDialog({
       .split(",")
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
-    mutation.mutate(
-      { id: record.id, fields: { tags } },
-      { onSuccess: () => close(false) }
-    );
+    mutation.mutate({ id: record.id, fields: { tags } }, { onSuccess: () => close(false) });
   };
 
   return (
@@ -466,7 +470,9 @@ function EditTagsDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Edit tags</DialogTitle>
-          <DialogDescription>Comma-separated. Saved via the shared command layer.</DialogDescription>
+          <DialogDescription>
+            Comma-separated. Saved via the shared command layer.
+          </DialogDescription>
         </DialogHeader>
         <input
           value={value}
@@ -599,8 +605,8 @@ function SupersedeDialog({
         <DialogHeader>
           <DialogTitle>Supersede this memory</DialogTitle>
           <DialogDescription>
-            Creates a new record and marks this one superseded. Pre-filled from the current
-            content — edit what changed.
+            Creates a new record and marks this one superseded. Pre-filled from the current content
+            — edit what changed.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 max-h-[60vh] overflow-y-auto">
@@ -688,7 +694,11 @@ function SupersedeDialog({
           </Button>
           <Button
             size="sm"
-            disabled={mutation.isPending || form.name.trim().length === 0 || form.content.trim().length === 0}
+            disabled={
+              mutation.isPending ||
+              form.name.trim().length === 0 ||
+              form.content.trim().length === 0
+            }
             onClick={save}
           >
             {mutation.isPending ? "Superseding…" : "Supersede"}
@@ -722,7 +732,9 @@ function DeleteDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Delete this memory?</DialogTitle>
-          <DialogDescription>{record.shortId ?? record.id.slice(0, 8)} — {record.name}</DialogDescription>
+          <DialogDescription>
+            {record.shortId ?? record.id.slice(0, 8)} — {record.name}
+          </DialogDescription>
         </DialogHeader>
         {/*
           Stated plainly, per the spec's confirm-dialog requirement: this is a
@@ -732,8 +744,8 @@ function DeleteDialog({
         */}
         <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-xs">
           This permanently deletes the row and its embedding. There is no undo, and unlike tasks,
-          memory has no short-id tombstone table — {record.shortId ?? "this record's short id"}{" "}
-          can be reissued to a different, unrelated memory in the future.
+          memory has no short-id tombstone table — {record.shortId ?? "this record's short id"} can
+          be reissued to a different, unrelated memory in the future.
         </p>
         {mutation.isError && (
           <p className="text-xs text-destructive" role="alert">

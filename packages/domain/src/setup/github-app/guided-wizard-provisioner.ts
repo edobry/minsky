@@ -19,6 +19,7 @@ import type { AppProvisioner } from "./provisioner";
 import { BrowserCancelledError } from "./provisioner";
 import type { AppManifestSpec, AppCredentials } from "./types";
 import { pemToPkcs8ArrayBuffer } from "./pem-utils";
+import { trustedGitHubUrl } from "../../github/trusted-url";
 
 /**
  * Subset of @clack/prompts the wizard uses. Defaults to the real module;
@@ -203,8 +204,15 @@ export class GuidedWizardProvisioner implements AppProvisioner {
           const errText = await resp.text();
           throw new Error(`GitHub API rejected the credentials: ${errText}`);
         }
-        const appInfo = (await resp.json()) as { html_url?: string };
-        if (appInfo.html_url) htmlUrl = appInfo.html_url;
+        const appInfo = (await resp.json()) as { html_url?: unknown };
+        // Origin-check before adopting GitHub's URL (mt#4815). On failure keep
+        // the locally-constructed default from above rather than putting an
+        // arbitrary link in front of the operator. This also degrades correctly
+        // on GitHub Enterprise: a GHE `html_url` is not on github.com, so the
+        // check rejects it and the `webBaseUrl`-derived default — already the
+        // right URL for that host — stands.
+        const trustedHtmlUrl = trustedGitHubUrl(appInfo.html_url);
+        if (trustedHtmlUrl) htmlUrl = trustedHtmlUrl;
         note("Private key validated successfully.", "Validation");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
