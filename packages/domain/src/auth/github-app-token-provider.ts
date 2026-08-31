@@ -328,6 +328,46 @@ class SingleAppClient {
     return { repositories, selection };
   }
 
+  /**
+   * The installation's own settings-page URL, as GitHub reports it (mt#4764).
+   *
+   * GitHub publishes `html_url` on the installation object, and it is correct for
+   * a personal-account AND an organization installation — the two live on
+   * DIFFERENT settings pages, and constructing the path can only ever be right
+   * about one of them. Reading it here means neither case has to be verified
+   * separately, which matters because this project has no org installation to
+   * verify against.
+   *
+   * Returns `null` rather than throwing on every failure path: the caller's
+   * fallback is a constructed URL, and a link is advisory — a coverage probe
+   * must not fail because the prettier link could not be fetched.
+   */
+  async getInstallationHtmlUrl(): Promise<string | null> {
+    try {
+      const jwt = this.generateJwt();
+      const response = await this.boundedFetch(
+        `${GITHUB_API_BASE}/app/installations/${this.installationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as { html_url?: unknown };
+      // Typed `unknown` and checked: `html_url` is documented as required, but
+      // this value crosses a trust boundary and reaches an operator-facing link.
+      return typeof data.html_url === "string" && data.html_url.length > 0 ? data.html_url : null;
+    } catch {
+      // intentional-swallow: advisory link only; the caller falls back to the
+      // constructed form, and a failure here must not fail the coverage probe.
+      return null;
+    }
+  }
+
   private async fetchInstallationToken(repo?: string): Promise<{ token: string; expiresAt: Date }> {
     const jwt = this.generateJwt();
 
@@ -477,6 +517,15 @@ export class GitHubAppTokenProvider implements TokenProvider {
    */
   async getInstallationCoverage(role?: TokenRole): Promise<InstallationCoverage> {
     return this.clientForRole(role).getInstallationCoverage();
+  }
+
+  /**
+   * GitHub's own settings-page URL for `role`'s installation (mt#4764), or
+   * `null` when it cannot be read. Defaults to the implementer App, matching
+   * `getInstallationCoverage`'s behavior above.
+   */
+  async getInstallationHtmlUrl(role?: TokenRole): Promise<string | null> {
+    return this.clientForRole(role).getInstallationHtmlUrl();
   }
 
   /**

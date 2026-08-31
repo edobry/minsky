@@ -177,6 +177,13 @@ function fakeRoleProvider(opts: {
   coverage: Partial<
     Record<TokenRole, () => Promise<{ repositories: string[]; selection: "all" | "selected" }>>
   >;
+  /**
+   * mt#4764: when omitted the fake has NO `getInstallationHtmlUrl` at all —
+   * which is the pre-mt#4764 provider shape, and the exact runtime hazard the
+   * production `typeof` guard exists for. `as unknown as` means the compiler
+   * cannot see it, so leaving this optional keeps that case under test.
+   */
+  htmlUrl?: Partial<Record<TokenRole, () => Promise<string | null>>>;
 }) {
   return {
     isRoleConfigured: (role: TokenRole) => opts.configured.includes(role),
@@ -185,6 +192,14 @@ function fakeRoleProvider(opts: {
       if (!impl) throw new Error(`no coverage stub for role ${role}`);
       return impl();
     },
+    ...(opts.htmlUrl === undefined
+      ? {}
+      : {
+          getInstallationHtmlUrl: async (role?: TokenRole) => {
+            const impl = opts.htmlUrl?.[role ?? "implementer"];
+            return impl ? impl() : null;
+          },
+        }),
   } as unknown as GitHubAppTokenProvider;
 }
 
@@ -327,5 +342,106 @@ describe("checkAppRoleCoverage (mt#4693 D6)", () => {
     });
     expect(result).toHaveLength(2);
     expect(result.every((r) => r.status.state === "no-app-configured")).toBe(true);
+  });
+});
+
+/**
+ * mt#4764 — the settings link is READ from GitHub, not constructed.
+ *
+ * The behaviour under test is a preference with a fallback, and the fallback is
+ * the interesting half: an org-owned installation lives on a settings page the
+ * constructed path cannot express, and this project has no org installation to
+ * verify against — so correctness here comes from deferring to `html_url`
+ * rather than from having checked both account types.
+ */
+describe("checkAppRoleCoverage settings link (mt#4764)", () => {
+  /** An org-shaped URL: NOT derivable from the installation id alone. */
+  const ORG_HTML_URL = "https://github.com/organizations/acme/settings/installations/125403046";
+
+  it("AT1: uses GitHub's html_url rather than the constructed path", async () => {
+    const result = await checkAppRoleCoverage(UNGRANTED_REPO, [IMPLEMENTER], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => ({ repositories: ["edobry/minsky"], selection: "selected" }),
+        },
+        htmlUrl: { implementer: async () => ORG_HTML_URL },
+      }),
+    });
+
+    expect(result[0]?.status.state).toBe("not-covered");
+    // The whole point: this value is NOT reachable by interpolating the id.
+    expect(result[0]?.settingsUrl).toBe(ORG_HTML_URL);
+    // Asserted as inequality, not as an absent substring: a real org URL
+    // CONTAINS the constructed path (`/organizations/acme` is a prefix segment),
+    // so a `not.toContain` check would fail against correct behaviour.
+    expect(result[0]?.settingsUrl).not.toBe(installationSettingsUrl(125403046));
+  });
+
+  it("AT2: falls back to the constructed path when the read returns null", async () => {
+    const result = await checkAppRoleCoverage(UNGRANTED_REPO, [IMPLEMENTER], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => ({ repositories: ["edobry/minsky"], selection: "selected" }),
+        },
+        htmlUrl: { implementer: async () => null },
+      }),
+    });
+
+    expect(result[0]?.settingsUrl).toBe("https://github.com/settings/installations/125403046");
+  });
+
+  it("AT2: falls back when the provider has no getInstallationHtmlUrl at all", async () => {
+    // The runtime hazard the `typeof` guard exists for — `as unknown as` hides a
+    // missing method from the compiler, so only a test can catch it.
+    const result = await checkAppRoleCoverage(UNGRANTED_REPO, [IMPLEMENTER], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => ({ repositories: ["edobry/minsky"], selection: "selected" }),
+        },
+      }),
+    });
+
+    expect(result[0]?.settingsUrl).toBe("https://github.com/settings/installations/125403046");
+  });
+
+  it("AT2: emits no link at all when there is no installation id to fall back to", async () => {
+    const noId: AppRoleDescriptor = { role: "implementer", slug: "minsky-ai" };
+    const result = await checkAppRoleCoverage(UNGRANTED_REPO, [noId], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => ({ repositories: ["edobry/minsky"], selection: "selected" }),
+        },
+        htmlUrl: { implementer: async () => null },
+      }),
+    });
+
+    expect(result[0]?.settingsUrl).toBeUndefined();
+  });
+
+  it("does not spend an API call on a COVERED role, which renders no link", async () => {
+    let calls = 0;
+    const result = await checkAppRoleCoverage("edobry/minsky", [IMPLEMENTER], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => ({ repositories: ["edobry/minsky"], selection: "selected" }),
+        },
+        htmlUrl: {
+          implementer: async () => {
+            calls += 1;
+            return ORG_HTML_URL;
+          },
+        },
+      }),
+    });
+
+    expect(result[0]?.status.state).toBe("covered");
+    expect(calls).toBe(0);
+    // Still carries the constructed link, unchanged from before mt#4764.
+    expect(result[0]?.settingsUrl).toBe("https://github.com/settings/installations/125403046");
   });
 });

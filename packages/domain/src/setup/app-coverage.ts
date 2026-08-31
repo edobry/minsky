@@ -106,6 +106,25 @@ export function formatAppCoverage(
  * for the reviewer role) — NOT from the token provider, which holds it on a
  * private field. That keeps this a pure function of its argument, so it is
  * assertable without a provider, a network, or a config loader.
+ *
+ * **This is the FALLBACK, not the source (mt#4764).** `checkAppRoleCoverage`
+ * prefers `provider.getInstallationHtmlUrl()` — GitHub's own `html_url` for the
+ * installation — and uses this only when that read is unavailable or fails.
+ *
+ * Why, recorded so the next reader does not re-derive it from the same silence:
+ * GitHub configures a PERSONAL-account installation under the user's own
+ * Settings > Applications, and an ORGANIZATION installation under that org's
+ * Settings > Third-party Access. Those are different pages, and GitHub's docs
+ * publish a URL for NEITHER — so this constructed path can only ever be right
+ * about one account type. It was verified live against a `target_type: User`
+ * installation (mt#4695, `scripts/verify-installation-settings-url.ts`, which
+ * returned a byte-identical `html_url`); the ORG case was never observed,
+ * because this project has no organization installation to observe. Reading
+ * `html_url` makes that observation unnecessary rather than pending.
+ *
+ * Kept pure deliberately: the purity above is the reason this is still a
+ * usable fallback at all — it needs no provider, so it works exactly when the
+ * provider path did not.
  */
 export function installationSettingsUrl(installationId: number): string | null {
   // Guarded rather than a bare interpolation (PR #3418 R1, non-blocking): a
@@ -175,10 +194,28 @@ export async function checkAppRoleCoverage(
       status = { state: "unknown", reason: getErrorMessage(error) };
     }
 
+    // Prefer GitHub's own answer to the constructed path (mt#4764). An
+    // ORG-owned installation is configured under that organization's settings,
+    // not the user's, so a constructed `/settings/installations/<id>` can only
+    // ever be right about one account type; `html_url` is right about both.
+    //
+    // Only fetched when a link will actually be rendered — a covered role shows
+    // no link, and the happy path should not pay for an API call nobody reads.
+    //
+    // The `typeof` guard is load-bearing, not defensive style: every fake
+    // provider in the tests is built with `as unknown as GitHubAppTokenProvider`,
+    // so a provider missing this method is a RUNTIME throw the compiler cannot
+    // see. `getInstallationHtmlUrl` already returns `null` on its own failures.
+    const authoritativeUrl =
+      status.state !== "covered" && typeof provider.getInstallationHtmlUrl === "function"
+        ? await provider.getInstallationHtmlUrl(descriptor.role)
+        : null;
+
     const settingsUrl =
-      descriptor.installationId === undefined
+      authoritativeUrl ??
+      (descriptor.installationId === undefined
         ? null
-        : installationSettingsUrl(descriptor.installationId);
+        : installationSettingsUrl(descriptor.installationId));
 
     results.push({
       ...descriptor,
