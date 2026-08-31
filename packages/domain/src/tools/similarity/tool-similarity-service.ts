@@ -39,19 +39,25 @@ export interface ToolSearchRequest {
 export interface RelevantTool {
   toolId: string;
   /**
-   * Similarity — higher is more similar. **Backend-dependent scale** (mt#4805).
+   * A similarity score. **Higher is more similar — that is the ONLY guarantee.**
    *
-   * This is `SimilarityItem.score` verbatim, so it inherits that field's contract
-   * exactly: DIRECTION is guaranteed across backends, UNITS are not. It is a
-   * cosine similarity in [0, 1] when the embeddings backend answered, a Jaccard
-   * coefficient in [0, 1] from `lexical-backend`, and an UNBOUNDED keyword score
-   * from `tool-keyword-backend` — and `createToolSimilarityCore` falls back
-   * between all three, so a consumer that needs the scale cannot read it off this
-   * field. Do not compare a value here against a threshold calibrated on a
-   * different backend, and do not render it as a percentage.
+   * The scale is NOT specified and MUST NOT be assumed. This is
+   * `SimilarityItem.score` verbatim, so it inherits that field's contract exactly:
+   * direction is guaranteed across backends, units are not. `createToolSimilarityCore`
+   * falls back across three backends and this field does not say which answered:
    *
-   * The name was accurate before mt#4805 and the value was not: this held the
-   * embeddings backend's raw L2 DISTANCE, so `tools_search` emitted an ASCENDING
+   * - `embeddings-backend` — a cosine similarity, bounded [0, 1].
+   * - `lexical-backend` — a Jaccard coefficient, bounded [0, 1] but on a different
+   *   distribution (systematically smaller for the same pair).
+   * - `tool-keyword-backend` — a keyword score, **UNBOUNDED**.
+   *
+   * So: do not assume a range, do not render this as a percentage, and do not
+   * compare it against a threshold calibrated on a different backend. A consumer
+   * that needs the scale must read the answering backend from
+   * `SimilaritySearchResponse.backend`, which this type does not carry.
+   *
+   * The NAME was accurate before mt#4805 and the VALUE was not: this held the
+   * embeddings backend's raw L2 distance, so `tools_search` emitted an ASCENDING
    * number to every MCP consumer while ordering the rows best-first. Measured live
    * before the fix, for the query "create a new task with a spec": 0.830 for the
    * best match rising to 1.086 for the tenth. Same defect mt#4787 fixed on the
