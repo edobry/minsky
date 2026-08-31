@@ -13,6 +13,7 @@ import {
   MATCH_CONTEXT_MAX_CHARS,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
+  SUPPRESSION_IDENTITY_SCOPED_CONTEXT,
   SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
   SUPPRESSION_SAME_TURN_TOOL_CALL,
   SUPPRESSION_WINDOW_TOOL_CALL,
@@ -23,6 +24,7 @@ import {
   renderWorstCase,
   buildIdentityEvidence,
   extractClaimedPrNumber,
+  extractUniqueClaimedPrNumber,
   extractPrNumbersForTools,
   identityScopedToolNames,
 } from "./pre-narration-detector";
@@ -1146,5 +1148,103 @@ describe("mt#4498 — the second MCP server alias is not invisible", () => {
     expect(out.has(PR_MERGE_TOOL_ALIASED)).toBe(true);
     expect(out.has("session_pr_merge")).toBe(true);
     expect(out.has("Bash")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4810 — the claim's subject read from its SENTENCE, not its matched token
+// ---------------------------------------------------------------------------
+
+/**
+ * A bare `APPROVED` claim whose sentence names the PR AFTER the token, so
+ * mt#4498's leading `PR #N … APPROVED` pattern cannot reach it: the matched
+ * phrase is the bare `APPROVED` and only `context` carries a subject.
+ */
+const APPROVED_SUBJECT_AFTER = "APPROVED, so PR #3484 is good to go.";
+
+function makeMergeToolUseLine(prNumber: number): TranscriptLine {
+  return {
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "tool_use", name: PR_MERGE_TOOL, input: { prNumber } }],
+    },
+  };
+}
+
+/** A claim turn preceded by an in-window merge of `evidencePr`. */
+function linesWithMergeEvidence(claim: string, evidencePr: number): TranscriptLine[] {
+  return [
+    makeUserLine(),
+    makeMergeToolUseLine(evidencePr),
+    makeToolResultLine(),
+    makeUserLine(),
+    makeAssistantLine(claim),
+    makeUserLine(),
+  ];
+}
+
+function detectWithIdentityWindow(lines: TranscriptLine[]) {
+  const turn = extractLastAssistantTurn(lines as never);
+  return detectPreNarrationWithSuppression(
+    turn,
+    extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS),
+    buildIdentityEvidence(lines as never, TRAILING_WINDOW_TURNS)
+  );
+}
+
+describe("pre-narration: the claim's subject read from context (mt#4810)", () => {
+  test("extractUniqueClaimedPrNumber reads a lone PR number in either spelling", () => {
+    expect(extractUniqueClaimedPrNumber("APPROVED, so PR #3484 is good to go.")).toBe(3484);
+    expect(extractUniqueClaimedPrNumber("APPROVED, so PR 3484 is good to go.")).toBe(3484);
+    // One PR named twice is still one subject.
+    expect(extractUniqueClaimedPrNumber("PR #3484 is clear; PR #3484 goes next.")).toBe(3484);
+  });
+
+  test("extractUniqueClaimedPrNumber yields nothing when absent or ambiguous", () => {
+    expect(extractUniqueClaimedPrNumber("The review came back APPROVED.")).toBeNull();
+    expect(
+      extractUniqueClaimedPrNumber("APPROVED: PR #3484 and PR #3485 are both clear.")
+    ).toBeNull();
+  });
+
+  test("a bare APPROVED whose SENTENCE names the merged PR is suppressed", () => {
+    const detection = detectWithIdentityWindow(
+      linesWithMergeEvidence(APPROVED_SUBJECT_AFTER, 3484)
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_IDENTITY_SCOPED_CONTEXT,
+    ]);
+    // mt#4074's diversity axis is untouched — the phrase is still the token.
+    expect(detection.suppressed[0]?.matchedPhrase).toBe("APPROVED");
+  });
+
+  test("NEGATIVE CONTROL: evidence for a DIFFERENT PR does not silence the claim", () => {
+    // PR #3484 R1's blocking finding in miniature: a merge of one PR must not
+    // back a claim about another.
+    const detection = detectWithIdentityWindow(linesWithMergeEvidence(APPROVED_SUBJECT_AFTER, 200));
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+
+  test("NEGATIVE CONTROL: a sentence naming two PRs stays ambiguous and fires", () => {
+    const detection = detectWithIdentityWindow(
+      linesWithMergeEvidence("APPROVED: PR #3484 and PR #3485 are both clear.", 3484)
+    );
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["review-approved"]);
+  });
+
+  test("a phrase-carried number still takes the phrase path, under its own reason", () => {
+    // mt#4498's shape is unchanged, and reports the reason it always did — so a
+    // calibration reviewer can measure the new path's delta on its own.
+    const detection = detectWithIdentityWindow(
+      linesWithMergeEvidence("PR #3484 came back APPROVED.", 3484)
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+    ]);
   });
 });

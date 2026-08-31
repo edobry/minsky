@@ -15,7 +15,7 @@
  */
 
 import { execSync, spawn, type SpawnOptions } from "child_process";
-import { readCurrentCockpitState } from "./lifecycle";
+import { readCurrentCockpitState, type CockpitState } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
 
 // The project's narrowed `process` type omits EventEmitter methods like
@@ -126,9 +126,35 @@ export function findPortHolder(port: number): PortHolder | null {
 export function classifyPortHolder(port: number): PortClassification {
   const holder = findPortHolder(port);
   if (!holder) return { kind: "free" };
+  return classifyHolderAgainstState(holder, port, readCurrentCockpitState(), isProcessAlive);
+}
 
-  const state = readCurrentCockpitState();
-  if (state && state.pid === holder.pid && state.port === port) {
+/**
+ * Pure half of `classifyPortHolder`, split out so the void-record rule is
+ * testable without a real port or state file (ADR-036; the same split
+ * `decideIncumbentDisposition` uses, and for the same reason — the file-backed
+ * `port-recovery.test.ts` races on the workspace's real cockpit state under the
+ * full suite, mt#3543/mt#3733).
+ *
+ * The rule (mt#4800 SC3): a state record naming a DEAD pid is VOID. It
+ * describes a process that no longer exists, so it can neither recognize the
+ * holder nor be cited against it — classification proceeds exactly as if no
+ * record existed. Today that is also what falls out of the pid-equality check
+ * (a live holder can never equal a dead recorded pid), so this guard changes no
+ * current output; it exists to make the invariant structural rather than
+ * incidental, so a future consumer of the record cannot start treating a stale
+ * pid as evidence. The 2026-08-31 incident's refusal message cited a pid that
+ * was dead by diagnosis time, which is what promoted this from incidental to
+ * asserted.
+ */
+export function classifyHolderAgainstState(
+  holder: PortHolder,
+  port: number,
+  state: Pick<CockpitState, "pid" | "port"> | null,
+  isAlive: (pid: number) => boolean
+): PortClassification {
+  const record = state !== null && isAlive(state.pid) ? state : null;
+  if (record && record.pid === holder.pid && record.port === port) {
     return { kind: "recognized-zombie", pid: holder.pid, command: holder.command };
   }
   return { kind: "unrecognized", pid: holder.pid, command: holder.command };

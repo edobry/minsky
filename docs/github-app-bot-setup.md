@@ -221,12 +221,17 @@ After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are aut
    `bun scripts/verify-installation-settings-url.ts` asserts that Minsky's constructed link equals
    it. For this project's installation it does (`target_type: User`).
 
-   **For an installation on an organization, this URL form is NOT confirmed.** GitHub configures an
-   org installation under that organization's own settings (Settings > Third-party Access > GitHub
-   Apps), which is a different page, and GitHub's docs publish no URL for either case. If you
-   installed on an org, take the ID from whatever URL your browser actually shows. Settling this
-   properly — and switching Minsky to read GitHub's `html_url` instead of constructing the path —
-   is tracked as mt#4764.
+   **For an installation on an organization, the URL is different** — GitHub configures an org
+   installation under that organization's own settings (Settings > Third-party Access > GitHub
+   Apps), and publishes no URL for either case. Take the ID from whatever URL your browser
+   actually shows.
+
+   **You do not need to tell Minsky which case you are in (mt#4764).** The links `minsky setup`
+   emits are read from GitHub's own `html_url` on the installation object, so they are correct for
+   a personal account and an organization alike. The constructed
+   `https://github.com/settings/installations/<ID>` form above is only the fallback, used when
+   that read is unavailable — and it is verified correct for the personal-account case
+   (`bun scripts/verify-installation-settings-url.ts`, which compares it against `html_url`).
 
 ### What `minsky setup` does with this ID
 
