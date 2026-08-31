@@ -11,7 +11,9 @@ import { tasksTable } from "../storage/schemas/task-embeddings";
 import { projectsTable } from "../storage/schemas/projects-schema";
 import {
   decideSessionIdentity,
+  describeRejectedHandle,
   describeTaskProjectRepo,
+  isGithubRepoUrl,
   isTaskProjectDb,
   resolveTaskProjectRepoOutcome,
   type TaskProject,
@@ -21,6 +23,7 @@ import {
 const MINSKY_URL = "https://github.com/edobry/minsky.git";
 const PEEZOMBIE_URL = "https://github.com/edobry/peezombie.me.git";
 const MINSKY_SLUG = "edobry/minsky";
+const MINSKY_PATH = "/Users/edobry/Projects/minsky";
 const PEEZOMBIE_SLUG = "edobry/peezombie.me";
 
 const PEEZOMBIE: TaskProject = {
@@ -95,7 +98,7 @@ describe("decideSessionIdentity — the pure decision (mt#4758)", () => {
     const decision = decideSessionIdentity({
       configRepoUrl: PEEZOMBIE_URL,
       taskProject: PEEZOMBIE,
-      explicitRepo: "/Users/edobry/Projects/minsky",
+      explicitRepo: MINSKY_PATH,
       explicitRepoSlug: MINSKY_SLUG,
     });
 
@@ -123,7 +126,7 @@ describe("decideSessionIdentity — the pure decision (mt#4758)", () => {
   it("does NOT refuse when the explicit repo names the same repository", () => {
     const decision = decideSessionIdentity({
       configRepoUrl: MINSKY_URL,
-      explicitRepo: "/Users/edobry/Projects/minsky",
+      explicitRepo: MINSKY_PATH,
       explicitRepoSlug: MINSKY_SLUG,
       configSlug: MINSKY_SLUG,
     });
@@ -249,6 +252,24 @@ describe("describeTaskProjectRepo — failures are told apart (mt#4509's lesson)
     ]) {
       expect(describeTaskProjectRepo(outcome, "session.start").level).toBe("debug");
     }
+  });
+});
+
+describe("isGithubRepoUrl / describeRejectedHandle (PR #3516 R1)", () => {
+  it("recognizes GitHub URLs in both remote forms and rejects a local path", () => {
+    expect(isGithubRepoUrl(PEEZOMBIE_URL)).toBe(true);
+    expect(isGithubRepoUrl("git@github.com:edobry/minsky.git")).toBe(true);
+    expect(isGithubRepoUrl(MINSKY_PATH)).toBe(false);
+    expect(isGithubRepoUrl("https://gitlab.com/edobry/minsky.git")).toBe(false);
+  });
+
+  it("tells broken handle shapes apart instead of collapsing them to 'object'", () => {
+    // The whole point: `typeof` reports "object" for all three of these.
+    expect(describeRejectedHandle({})).toBe("object(Object)");
+    expect(describeRejectedHandle(Promise.resolve())).toBe("object(Promise)");
+    expect(describeRejectedHandle([])).toBe("object(Array)");
+    expect(describeRejectedHandle(null)).toBe("null");
+    expect(describeRejectedHandle(undefined)).toBe("undefined");
   });
 });
 

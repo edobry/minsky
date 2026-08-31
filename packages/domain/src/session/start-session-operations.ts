@@ -211,10 +211,11 @@ async function resolveSessionIdentity(args: {
   task?: string;
   repo?: string;
   configRepoUrl: string;
+  configBackendType: RepositoryBackendType;
   deps: StartSessionDependencies;
-}): Promise<string> {
-  const { task, repo, configRepoUrl, deps } = args;
-  const { decideSessionIdentity, resolveTaskProjectRepo } = await import(
+}): Promise<{ repoUrl: string; backendType: RepositoryBackendType }> {
+  const { task, repo, configRepoUrl, configBackendType, deps } = args;
+  const { decideSessionIdentity, isGithubRepoUrl, resolveTaskProjectRepo } = await import(
     "../project/task-project-repo"
   );
   const { extractOwnerRepo } = await import("../project/slug");
@@ -266,16 +267,39 @@ async function resolveSessionIdentity(args: {
     throw new MinskyError(decision.message);
   }
 
-  if (decision.kind === "project") {
-    log.debug("[session.start] identity resolved from the task's project (mt#4758)", {
-      task,
-      project: decision.project.slug,
-      repoUrl: decision.repoUrl,
-      configRepoUrl,
-    });
+  if (decision.kind === "config") {
+    return { repoUrl: decision.repoUrl, backendType: configBackendType };
   }
 
-  return decision.repoUrl;
+  // PR #3516 R1: the BACKEND must follow the identity, not stay on server
+  // config. Taking the URL from the project while leaving `backendType` on the
+  // server's config reproduces this task's own defect one field over — a
+  // server configured `local` would mark a GitHub-backed project's session
+  // non-GitHub, and the SC3 guard below would then let a local path become
+  // `origin`. The `projects` table has no backend column, so the URL is the
+  // signal; `isGithubRepoUrl` is the same test the detection module uses.
+  // `RepositoryBackendType` has no non-forge member (GITHUB / GITLAB /
+  // BITBUCKET only), so there is nothing to downgrade TO for a URL that names
+  // no forge — and inventing one would be a wider change than this finding
+  // asks for. The asymmetry is deliberate and it covers the reported hazard,
+  // which is directional: the danger is a GitHub-backed project being marked
+  // NON-github (SC3's guard then admits a local-path origin). A GitHub URL
+  // therefore always resolves GITHUB; anything else keeps the server's answer,
+  // which is exactly today's behavior for that case.
+  const backendType = isGithubRepoUrl(decision.repoUrl)
+    ? RepositoryBackendType.GITHUB
+    : configBackendType;
+
+  log.debug("[session.start] identity resolved from the task's project (mt#4758)", {
+    task,
+    project: decision.project.slug,
+    repoUrl: decision.repoUrl,
+    backendType,
+    configRepoUrl,
+    configBackendType,
+  });
+
+  return { repoUrl: decision.repoUrl, backendType };
 }
 
 async function validatePreconditions(
@@ -305,7 +329,6 @@ Navigate to your main workspace and try again:
 
   // Determine repo URL and backend type from project config (written by `minsky init`).
   const configBackend = await deps.getRepositoryBackend();
-  const backendType = configBackend.backendType;
 
   // mt#4758: a session's IDENTITY comes from the TASK's project, not from
   // whichever repository this MCP server happens to have been booted in.
@@ -316,10 +339,11 @@ Navigate to your main workspace and try again:
   // `resolveSessionIdentity` THROWS when an explicit `repo` contradicts the
   // resolved identity; that refusal is the point, since every recorded instance
   // of this family failed by silently succeeding. See `task-project-repo.ts`.
-  const repoUrl = await resolveSessionIdentity({
+  const { repoUrl, backendType } = await resolveSessionIdentity({
     task,
     repo,
     configRepoUrl: configBackend.repoUrl,
+    configBackendType: configBackend.backendType,
     deps,
   });
 

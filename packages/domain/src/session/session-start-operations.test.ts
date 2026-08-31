@@ -709,6 +709,34 @@ describe("startSessionImpl - identity comes from the task's project, not the ser
     expect(repoAdded.projectId).toBe(minskyId);
   });
 
+  it("takes the BACKEND from the resolved project too, not the server config (PR #3516 R1)", async () => {
+    // A server whose own backend is NOT github, working a task whose project IS
+    // github-backed. Before this fix `isGithubBacked` read the server's answer,
+    // so the SC3 guard went the wrong way and a local path became `origin` for
+    // a GitHub-backed project — this task's defect, one field over.
+    const deps = { ...createDeps(MINSKY_URL), db: peezombieTaskDb() };
+    deps.getRepositoryBackend = vi.fn(async () => ({
+      repoUrl: "/Users/edobry/Projects/some-local-repo",
+      backendType: "local",
+    })) as unknown as StartSessionDependencies["getRepositoryBackend"];
+    withOrigin(deps, PEEZOMBIE_URL);
+
+    await startSessionImpl(
+      { task: "mt#4678", repo: PEEZOMBIE_PATH } as unknown as SessionStartParameters,
+      deps
+    );
+
+    const cloneArgs = first(
+      (deps.gitService.clone as ReturnType<typeof mock>).mock.calls as unknown[][]
+    )[0] as { repoUrl: string; referenceRepo?: string };
+    expect(cloneArgs.repoUrl).toBe(PEEZOMBIE_URL);
+    expect(cloneArgs.repoUrl).not.toBe(PEEZOMBIE_PATH);
+
+    // And the record carries the backend the IDENTITY implies, not the server's.
+    const added = first(deps.addSessionSpy.mock.calls as unknown[][])[0] as SessionRecord;
+    expect(added.backendType).toBe("github");
+  });
+
   it("falls back to config identity when the task carries no project (fail-open)", async () => {
     const deps = {
       ...createDeps(MINSKY_URL),

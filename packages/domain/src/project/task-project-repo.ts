@@ -71,6 +71,37 @@ export function isTaskProjectDb(value: unknown): value is TaskProjectDb {
   return typeof (value as TaskProjectDb | null | undefined)?.select === "function";
 }
 
+/**
+ * Describe a rejected db handle precisely enough to debug it (PR #3516 R1).
+ *
+ * `typeof` alone reports "object" for every broken shape — a spread-stripped
+ * drizzle handle, a `{}`, a Promise someone forgot to await — which is exactly
+ * the collapse mt#4509 cost two months to. The constructor name separates them.
+ */
+export function describeRejectedHandle(value: unknown): string {
+  if (value === null) return "null";
+  const t = typeof value;
+  if (t !== "object" && t !== "function") return t;
+  const ctor = (value as { constructor?: { name?: string } })?.constructor?.name;
+  return ctor ? `${t}(${ctor})` : t;
+}
+
+/**
+ * Does this repository URL name a GitHub remote? (PR #3516 R1)
+ *
+ * Matches the house test used throughout `repository-backend-detection.ts`
+ * (`repoUrl.includes("github.com")`) rather than introducing a second, subtly
+ * different notion of "is this GitHub".
+ *
+ * Exists because the `projects` table carries no backend column: when identity
+ * is taken from a project row, the URL is the only signal for which backend it
+ * implies — and taking the URL from the project while leaving the BACKEND on
+ * server config is the same split this task exists to close.
+ */
+export function isGithubRepoUrl(repoUrl: string): boolean {
+  return repoUrl.includes("github.com");
+}
+
 // ---------------------------------------------------------------------------
 // Outcome model (functional core)
 // ---------------------------------------------------------------------------
@@ -122,7 +153,7 @@ export async function resolveTaskProjectRepoOutcome(
   if (!taskId) return { kind: "no-task" };
 
   if (!isTaskProjectDb(db)) {
-    return { kind: "invalid-db-handle", taskId, received: typeof db };
+    return { kind: "invalid-db-handle", taskId, received: describeRejectedHandle(db) };
   }
 
   try {
