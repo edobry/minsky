@@ -650,6 +650,7 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
       // terminal step — gets the same refusal.
       let workPackagePrep: import("./work-package-create-prep").WorkPackagePrepOutcome | null =
         null;
+      let workPackageDb: unknown = null;
       if (params.kind === "work-package") {
         const [{ prepareWorkPackageCreate }, { buildProductionResolvers }] = await Promise.all([
           import("./work-package-create-prep"),
@@ -668,6 +669,25 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
               ? { failures: workPackagePrep.failures }
               : { unresolved: workPackagePrep.unresolved }),
             message: workPackagePrep.message,
+          };
+        }
+        // Acquire the queue-writes connection BEFORE the task row exists
+        // (PR #3503 R1): failing here refuses the whole create, instead of
+        // stranding a package task with no member/transfer rows.
+        const provider = this.getPersistenceProvider?.() as
+          | SqlCapablePersistenceProvider
+          | undefined;
+        workPackageDb = provider?.getDatabaseConnection
+          ? await provider.getDatabaseConnection()
+          : null;
+        if (!workPackageDb) {
+          process.exitCode = 1;
+          return {
+            success: false,
+            reason: "db-unavailable",
+            message:
+              "Work-package create refused: no SQL database connection for the member/transfer " +
+              "rows. Nothing was created.",
           };
         }
       }
@@ -701,17 +721,13 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
       // table and ANNOTATES, never refuses: reference ≠ reservation.
       const fanInAnnotations: string[] = [];
       if (workPackagePrep?.ok) {
-        const provider = this.getPersistenceProvider?.() as
-          | SqlCapablePersistenceProvider
-          | undefined;
-        const db = provider?.getDatabaseConnection ? await provider.getDatabaseConnection() : null;
-        if (!db) {
-          throw new Error(
-            `Work package ${result.id} was created but its member/transfer rows could not ` +
-              `be written: no SQL database connection. The package row exists without its ` +
-              `queue — re-run row creation or delete and recreate the task.`
-          );
-        }
+        // Acquired BEFORE the task row was created (see the pre-create block),
+        // so this cannot be null here — a connection failure refused the whole
+        // create instead of stranding a partial entity (PR #3503 R1). The cast
+        // narrows the loosely-held handle back to the drizzle connection.
+        const db = workPackageDb as NonNullable<
+          Awaited<ReturnType<NonNullable<SqlCapablePersistenceProvider["getDatabaseConnection"]>>>
+        >;
         const [
           { writeWorkPackageCreateRows, findOpenPackagesReferencing },
           { resolveCallerActorId },

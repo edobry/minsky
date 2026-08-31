@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 --> statement-breakpoint
 CREATE TYPE "public"."task_backend" AS ENUM('github-issues', 'github', 'minsky', 'db');--> statement-breakpoint
-CREATE TYPE "public"."task_status" AS ENUM('TODO', 'PLANNING', 'READY', 'IN-PROGRESS', 'IN-REVIEW', 'DONE', 'BLOCKED', 'CLOSED');--> statement-breakpoint
+CREATE TYPE "public"."task_status" AS ENUM('TODO', 'PLANNING', 'READY', 'IN-PROGRESS', 'IN-REVIEW', 'DONE', 'BLOCKED', 'CLOSED', 'COMPLETED');--> statement-breakpoint
 CREATE TYPE "public"."subagent_invocation_outcome" AS ENUM('completed-with-pr', 'committed-no-pr', 'partial-committed-handoff-written', 'partial-uncommitted-no-handoff', 'crashed-no-output', 'rate-limited', 'pending', 'no-workspace');--> statement-breakpoint
 CREATE TYPE "public"."memory_scope" AS ENUM('project', 'user', 'cross_project');--> statement-breakpoint
 CREATE TYPE "public"."memory_type" AS ENUM('user', 'feedback', 'project', 'reference');--> statement-breakpoint
@@ -730,6 +730,7 @@ CREATE UNIQUE INDEX "tr_unique_edge" ON "task_relationships" USING btree ("from_
 CREATE INDEX "tr_from_idx" ON "task_relationships" USING btree ("from_task_id");--> statement-breakpoint
 CREATE INDEX "tr_to_idx" ON "task_relationships" USING btree ("to_task_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "tr_one_parent" ON "task_relationships" USING btree ("from_task_id") WHERE type = 'parent';--> statement-breakpoint
+CREATE INDEX "work_package_members_member_task_id_idx" ON "work_package_members" USING btree ("member_task_id");--> statement-breakpoint
 CREATE INDEX "idx_provenance_artifact" ON "provenance" USING btree ("artifact_id","artifact_type");--> statement-breakpoint
 CREATE INDEX "idx_provenance_session" ON "provenance" USING btree ("session_id");--> statement-breakpoint
 CREATE INDEX "idx_provenance_task" ON "provenance" USING btree ("task_id");--> statement-breakpoint

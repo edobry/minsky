@@ -4,11 +4,17 @@ import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
 import { projectsTable } from "./projects-schema";
 
-// Enumerated task status using centralized TaskStatus enum
-export const taskStatusEnum = pgEnum(
-  "task_status",
-  Object.values(TaskStatus) as [string, ...string[]]
-);
+// Enumerated task status using centralized TaskStatus enum — PLUS the retired
+// DDL orphan. 'COMPLETED' was added by 0037 (mt#1812) and collapsed to DONE by
+// 0055 (mt#2311), but Postgres cannot drop enum values, so every migrated DB
+// still carries it. It must stay in the DDL enum here so the generated
+// bootstrap snapshot matches migrated databases — deriving purely from
+// TaskStatus silently dropped it on regeneration (PR #3503 R1). Application
+// code neither reads nor writes it; this is DDL parity only.
+export const taskStatusEnum = pgEnum("task_status", [
+  ...(Object.values(TaskStatus) as [string, ...string[]]),
+  "COMPLETED",
+]);
 
 // Enumerated backend type (reuse centralized backend type values)
 const BACKEND_VALUES = enumSchemas.backendType.options as [string, ...string[]];

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, primaryKey, index } from "drizzle-orm/pg-core";
 import { tasksTable } from "./task-embeddings";
 
 /**
@@ -55,7 +55,12 @@ export const workPackageMembersTable = pgTable(
     rationale: text("rationale"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.packageTaskId, table.memberTaskId] })]
+  (table) => [
+    primaryKey({ columns: [table.packageTaskId, table.memberTaskId] }),
+    // The fan-in check queries BY MEMBER ("which open packages reference
+    // mt#N?"); the composite PK only serves package-first lookups (PR #3503 R1).
+    index("work_package_members_member_task_id_idx").on(table.memberTaskId),
+  ]
 );
 
 export const workPackageTransfersTable = pgTable(

@@ -20,7 +20,6 @@ import { claimWorkPackage, releaseWorkPackage } from "@minsky/domain/tasks/work-
 import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
 import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
 import { ValidationError } from "@minsky/domain/errors/index";
-import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Shared plumbing
@@ -64,34 +63,9 @@ async function getDb(getPersistenceProvider: () => unknown) {
   return db;
 }
 
-/**
- * Best-effort task.status_changed emission, mirroring status-commands.ts —
- * the claim path bypasses tasks.status.set by design (the CAS is the point),
- * so it must feed the event ledger itself or claims would be invisible to the
- * peer-activity probes that read it (user-preferences §Probe before claiming).
- */
-async function emitStatusChanged(
-  getPersistenceProvider: () => unknown,
-  payload: { taskId: string; previousStatus: string; newStatus: string; via: string }
-): Promise<void> {
-  try {
-    const provider = getPersistenceProvider() as SqlCapablePersistenceProvider | undefined;
-    if (!provider?.getDatabaseConnection) return;
-    const db = await provider.getDatabaseConnection();
-    if (!db) return;
-    const { DrizzleEventEmitter } = await import("@minsky/domain/events/emitter");
-    await new DrizzleEventEmitter(db).emit({
-      eventType: "task.status_changed",
-      payload,
-      relatedTaskId: payload.taskId,
-    });
-  } catch (err: unknown) {
-    log.warn("task.status_changed: event emission failed (best-effort, swallowed)", {
-      taskId: payload.taskId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
+// The task.status_changed emission lives INSIDE the domain claim/release
+// functions (PR #3503 R1) — every caller, including the cockpit routes, feeds
+// the event ledger without re-implementing it here.
 
 // ---------------------------------------------------------------------------
 // tasks.claim
@@ -148,12 +122,6 @@ export function createTasksClaimCommand(getPersistenceProvider: () => unknown) {
       const outcome = await claimWorkPackage(db, { taskId, claimedBy });
 
       if (outcome.ok) {
-        await emitStatusChanged(getPersistenceProvider, {
-          taskId,
-          previousStatus: "READY",
-          newStatus: "IN-PROGRESS",
-          via: "tasks.claim",
-        });
         return {
           success: true,
           taskId,
@@ -211,12 +179,6 @@ export function createTasksReleaseCommand(getPersistenceProvider: () => unknown)
       });
 
       if (outcome.ok) {
-        await emitStatusChanged(getPersistenceProvider, {
-          taskId,
-          previousStatus: "IN-PROGRESS",
-          newStatus: "READY",
-          via: "tasks.release",
-        });
         return {
           success: true,
           taskId,

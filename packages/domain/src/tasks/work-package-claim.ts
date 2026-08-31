@@ -132,6 +132,34 @@ export function explainReleaseRefusal(
   };
 }
 
+/**
+ * Best-effort `task.status_changed` emission, INSIDE the domain path
+ * deliberately (PR #3503 R1): the claim/release CAS bypasses
+ * `tasks.status.set` by design, so if emission lived in any one adapter the
+ * other callers (the cockpit routes, a future sweep) would silently blind the
+ * event-ledger peer probes. Never throws — the ledger is informational and
+ * must not affect the claim outcome.
+ */
+async function emitStatusChanged(
+  db: PostgresJsDatabase,
+  payload: { taskId: string; previousStatus: string; newStatus: string; via: string }
+): Promise<void> {
+  try {
+    const { DrizzleEventEmitter } = await import("../events/emitter");
+    await new DrizzleEventEmitter(db).emit({
+      eventType: "task.status_changed",
+      payload,
+      relatedTaskId: payload.taskId,
+    });
+  } catch (err: unknown) {
+    const { log } = await import("@minsky/shared/logger");
+    log.warn("task.status_changed: event emission failed (best-effort, swallowed)", {
+      taskId: payload.taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function readDiagnosticRow(
   db: PostgresJsDatabase,
   taskId: string
@@ -174,6 +202,12 @@ export async function claimWorkPackage(
     .returning({ id: tasksTable.id });
 
   if (updated.length === 1) {
+    await emitStatusChanged(db, {
+      taskId,
+      previousStatus: "READY",
+      newStatus: "IN-PROGRESS",
+      via: "work-package.claim",
+    });
     return { ok: true, taskId, claimedBy, claimedAt: now };
   }
   return explainClaimRefusal(taskId, await readDiagnosticRow(db, taskId));
@@ -196,7 +230,7 @@ export async function releaseWorkPackage(
   now: Date = new Date()
 ): Promise<WorkPackageReleaseOutcome> {
   const { taskId, byConversation, notes } = args;
-  return db.transaction(async (tx) => {
+  const outcome: WorkPackageReleaseOutcome = await db.transaction(async (tx) => {
     const before = await tx
       .select({
         kind: tasksTable.kind,
@@ -247,4 +281,15 @@ export async function releaseWorkPackage(
       transferSeq,
     };
   });
+
+  if (outcome.ok) {
+    // After the transaction, so a rolled-back release never emits.
+    await emitStatusChanged(db, {
+      taskId,
+      previousStatus: "IN-PROGRESS",
+      newStatus: "READY",
+      via: "work-package.release",
+    });
+  }
+  return outcome;
 }
