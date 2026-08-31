@@ -31,6 +31,7 @@
  * @see docs/architecture/interceptors.md — the ontology this renders
  */
 import { useMemo, useState } from "react";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { Link } from "react-router-dom";
 import {
   useInterceptors,
@@ -54,10 +55,7 @@ import {
   matchesFacets,
   type InterceptorFacets,
 } from "../components/InterceptorFacets";
-import {
-  indexSnapshotRows,
-  useInterceptorAggregates,
-} from "../hooks/useInterceptorAggregates";
+import { indexSnapshotRows, useInterceptorAggregates } from "../hooks/useInterceptorAggregates";
 import {
   InterceptorAttentionBar,
   InterceptorCostFigure,
@@ -246,10 +244,11 @@ export function InterceptorsPage() {
         <h1 className="text-sm font-mono font-semibold tracking-[0.04em] m-0">
           INTERCEPTORS — the declared corpus
         </h1>
+        <InstanceScopeCue className="mt-1" />
         <p className="text-[11px] font-mono text-muted-foreground mt-1">
           Every interceptor the system declares — dispatcher registry, standalone hooks, pre-commit
-          steps, plus the retired and fixture names the append-only fire log still carries. What each
-          one catches, and what metadata it is missing.
+          steps, plus the retired and fixture names the append-only fire log still carries. What
+          each one catches, and what metadata it is missing.
         </p>
       </header>
 
@@ -326,10 +325,14 @@ export function InterceptorsPage() {
             >
               The oracle and the descriptions disagree about the population.
               {data.divergence.declaredButNotDescribed.length > 0 && (
-                <div>Declared, not described: {data.divergence.declaredButNotDescribed.join(", ")}</div>
+                <div>
+                  Declared, not described: {data.divergence.declaredButNotDescribed.join(", ")}
+                </div>
               )}
               {data.divergence.describedButNotDeclared.length > 0 && (
-                <div>Described, not declared: {data.divergence.describedButNotDeclared.join(", ")}</div>
+                <div>
+                  Described, not declared: {data.divergence.describedButNotDeclared.join(", ")}
+                </div>
               )}
             </div>
           )}
@@ -372,13 +375,19 @@ export function InterceptorsPage() {
           </div>
 
           {failureClass !== ALL_CLASSES && data.failureClasses[failureClass] && (
-            <p className="mb-3 text-[11px] text-muted-foreground" data-testid="interceptors-class-definition">
+            <p
+              className="mb-3 text-[11px] text-muted-foreground"
+              data-testid="interceptors-class-definition"
+            >
               {data.failureClasses[failureClass].failure}
             </p>
           )}
 
           {filtered.length === 0 && (
-            <p className="text-[11px] font-mono text-muted-foreground" data-testid="interceptors-empty">
+            <p
+              className="text-[11px] font-mono text-muted-foreground"
+              data-testid="interceptors-empty"
+            >
               No interceptor matches this filter.
             </p>
           )}
@@ -389,14 +398,16 @@ export function InterceptorsPage() {
                 {STRATUM_LABELS[stratum].toUpperCase()} ({grouped.get(stratum)?.length ?? 0})
               </h2>
               <ul className="list-none p-0 m-0 mt-1">
-                {grouped.get(stratum)?.map((e) => (
-                  <EntryRow
-                    key={e.guardName}
-                    entry={e}
-                    aggregate={aggregateRows?.get(e.guardName)}
-                    snapshotReady={aggregateRows !== null}
-                  />
-                ))}
+                {grouped
+                  .get(stratum)
+                  ?.map((e) => (
+                    <EntryRow
+                      key={e.guardName}
+                      entry={e}
+                      aggregate={aggregateRows?.get(e.guardName)}
+                      snapshotReady={aggregateRows !== null}
+                    />
+                  ))}
               </ul>
             </section>
           ))}
@@ -407,14 +418,16 @@ export function InterceptorsPage() {
                 NO DECLARED STRATUM ({grouped.get("unknown")?.length ?? 0})
               </h2>
               <ul className="list-none p-0 m-0 mt-1">
-                {grouped.get("unknown")?.map((e) => (
-                  <EntryRow
-                    key={e.guardName}
-                    entry={e}
-                    aggregate={aggregateRows?.get(e.guardName)}
-                    snapshotReady={aggregateRows !== null}
-                  />
-                ))}
+                {grouped
+                  .get("unknown")
+                  ?.map((e) => (
+                    <EntryRow
+                      key={e.guardName}
+                      entry={e}
+                      aggregate={aggregateRows?.get(e.guardName)}
+                      snapshotReady={aggregateRows !== null}
+                    />
+                  ))}
               </ul>
             </section>
           )}

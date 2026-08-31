@@ -23,6 +23,7 @@
  * §Widgets). New registry widgets no longer auto-append here.
  */
 import type { ReactNode } from "react";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { TriageBand } from "../widgets/TriageBand";
@@ -317,6 +318,9 @@ function SubstrateBand() {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Substrate health is instance-level (mt#4727 census); say so while a
+          project filter is active (mt#4773). */}
+      <InstanceScopeCue compact />
       {/* Anomalies expand to their full existing status cards — the one off
           thing must be louder than every healthy thing combined. */}
       {anomalous.length > 0 && (

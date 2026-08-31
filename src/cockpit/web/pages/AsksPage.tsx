@@ -71,7 +71,13 @@ import {
   type AskItem,
   type AsksListResponse,
 } from "../widgets/AskDetail";
-import { useProject } from "../lib/project-context";
+import {
+  useProject,
+  useOptionalProject,
+  projectLabelById,
+  shouldShowProjectIndicator,
+} from "../lib/project-context";
+import { ProjectBadge } from "../components/ProjectBadge";
 import {
   Select,
   SelectContent,
@@ -381,6 +387,14 @@ function AskRow({
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const ks = kindStyle(ask.kind);
+  // Project identity in the all-projects view (mt#4773) — same affordance and
+  // when-to-show rule as task/changeset/agent rows. Optional context: a row
+  // rendered outside the provider has no selection to indicate.
+  const projectCtx = useOptionalProject();
+  const projectLabel =
+    projectCtx && shouldShowProjectIndicator(projectCtx.projects, projectCtx.selectedSlug)
+      ? projectLabelById(projectCtx.projects, ask.projectId ?? null)
+      : null;
   const deadlineStr = resolved ? null : formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
   const standing = !resolved && isStanding(ask);
@@ -426,6 +440,9 @@ function AskRow({
             {ask.title}
           </span>
         </button>
+
+        {/* Project identity (mt#4773) — all-projects view only. */}
+        {projectLabel && <ProjectBadge label={projectLabel} className="flex-shrink-0" />}
 
         <RequestorCell requestor={ask.requestor} parentTaskId={ask.parentTaskId ?? null} />
 

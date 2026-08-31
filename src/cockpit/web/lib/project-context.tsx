@@ -125,13 +125,28 @@ export function shouldShowProjectIndicator(
  * name for it yet, e.g. a race with that fetch, or a project the shell's
  * list doesn't (yet) include).
  */
-export function projectLabelBySlug(
-  projects: ProjectSummary[],
-  slug: string | null
-): string | null {
+export function projectLabelBySlug(projects: ProjectSummary[], slug: string | null): string | null {
   if (!slug) return null;
   const project = projects.find((p) => p.slug === slug);
   return project?.displayName ?? slug;
+}
+
+/**
+ * Resolve a project UUID (as carried on uuid-keyed rows — `AgentRow.projectId`,
+ * an ask row's `projectId`, a workstream card's parent `projectId`, a memory
+ * record's `projectId`) to a human-readable label — `displayName`, else the
+ * `slug` (mt#4773). Unlike `projectLabelBySlug`, an UNRESOLVED id has no
+ * readable fallback (a raw uuid is the illegibility this exists to remove), so
+ * the caller receives `null` and decides: a list row hides the badge; a detail
+ * surface may still show the uuid as a last resort. `ProjectBadge`'s docblock
+ * has named this helper since mt#4729; it ships with the first uuid-keyed
+ * consumers.
+ */
+export function projectLabelById(projects: ProjectSummary[], id: string | null): string | null {
+  if (!id) return null;
+  const project = projects.find((p) => p.id === id);
+  if (!project) return null;
+  return project.displayName ?? project.slug;
 }
 
 interface ProjectContextValue {
@@ -212,4 +227,17 @@ export function useProject(): ProjectContextValue {
     throw new Error("useProject must be used within a ProjectProvider");
   }
   return ctx;
+}
+
+/**
+ * Like `useProject`, but `null` outside a `ProjectProvider` instead of a
+ * throw (mt#4773). For PRESENTATION-ONLY affordances — the per-row project
+ * badge, the instance-level scope cue — where "no selection context" and
+ * "nothing to indicate" are the same answer, so rendering nothing is correct
+ * rather than a masked bug. Anything that SCOPES data must keep using
+ * `useProject`: a silently-absent provider there means silently-unscoped
+ * fetches, which is exactly what the throw exists to catch.
+ */
+export function useOptionalProject(): ProjectContextValue | null {
+  return useContext(ProjectContext);
 }

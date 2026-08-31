@@ -109,7 +109,9 @@ export const FRONTEND_SCOPE_ALLOWLIST: AllowlistEntry[] = [
     path: "lib/engprod-proposals.ts",
     reason:
       "not project-attributable (mt#4727): Minsky's own eng-process tooling, always " +
-      "filed against Minsky's own task backend regardless of dashboard selection.",
+      "filed against Minsky's own task backend regardless of dashboard selection. " +
+      "/proposals renders InstanceScopeCue (mt#4773) so an active project filter " +
+      "is visibly inapplicable rather than silently ignored.",
   },
   {
     path: "lib/project-context.tsx",
@@ -134,7 +136,9 @@ export const FRONTEND_SCOPE_ALLOWLIST: AllowlistEntry[] = [
   {
     path: "pages/EmbeddingsPage.tsx",
     reason:
-      "not project-attributable: embeddings-consumer overview/admin operations (mirrors routes/embeddings.ts).",
+      "not project-attributable: embeddings-consumer overview/admin operations " +
+      "(mirrors routes/embeddings.ts). Renders InstanceScopeCue (mt#4773) so an " +
+      "active project filter is visibly inapplicable rather than silently ignored.",
   },
   {
     path: "widgets/AskDetail.tsx",

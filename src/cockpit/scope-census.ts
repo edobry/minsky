@@ -108,7 +108,9 @@ export const WIDGET_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "interceptors",
     reason:
-      "not project-attributable: the interceptor catalog is a daemon-wide registry, not project data.",
+      "not project-attributable: the interceptor catalog is a daemon-wide registry, not project " +
+      "data. /interceptors renders InstanceScopeCue (mt#4773) so an active project filter is " +
+      "visibly inapplicable rather than silently ignored.",
   },
   {
     id: "mcp-server-status",
@@ -190,13 +192,17 @@ export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
   {
     id: "embeddings",
     reason:
-      "not project-attributable: embeddings-consumer overview/error/reindex admin operations.",
+      "not project-attributable: embeddings-consumer overview/error/reindex admin operations. " +
+      "/embeddings renders InstanceScopeCue (mt#4773) so an active project filter is visibly " +
+      "inapplicable rather than silently ignored.",
   },
   {
     id: "engprod-proposals",
     reason:
       "not project-attributable (mt#4727): Minsky's own eng-process tooling, always " +
-      "filed against Minsky's own task backend regardless of dashboard selection.",
+      "filed against Minsky's own task backend regardless of dashboard selection. " +
+      "/proposals renders InstanceScopeCue (mt#4773) so an active project filter is " +
+      "visibly inapplicable rather than silently ignored.",
   },
   {
     id: "entity-threads",

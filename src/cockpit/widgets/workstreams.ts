@@ -72,6 +72,12 @@ export interface WorkstreamCard {
    * render-side against the decision-defaults thresholds.
    */
   lastActivityAt: string | null;
+  /**
+   * The PARENT task's owning project uuid (mt#4773) — a workstream belongs to
+   * its root's project. Resolved to a label client-side (`projectLabelById`)
+   * for the all-projects badge; null for a legacy/unscoped root.
+   */
+  projectId: string | null;
 }
 
 /**
@@ -350,6 +356,7 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
             doneChildCount,
             blockedChildCount,
             lastActivityAt,
+            projectId: parentTask.projectId ?? null,
           });
         }
 
