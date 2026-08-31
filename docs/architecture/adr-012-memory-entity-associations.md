@@ -75,7 +75,7 @@ indexed, and audited without text-parsing memory content.
   (`packages/domain/src/storage/schemas/memory-embeddings.ts:59-81`) — separate table with FK,
   index, and lifecycle methods.
 - Shape D's estimate is grounded in the `ask` domain module
-  (`src/domain/ask/`) — new domain with policy, routing, service, and MCP commands.
+  (`packages/domain/src/ask/`) — new domain with policy, routing, service, and MCP commands.
 
 ## Decision
 

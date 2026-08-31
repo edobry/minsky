@@ -48,7 +48,7 @@ repository:
 
 ### Schema
 
-The configuration is validated with Zod schemas (see `src/domain/configuration/schemas/`):
+The configuration is validated with Zod schemas (see `packages/domain/src/configuration/schemas/`):
 
 - `repoBackendType` enum in `base.ts`: `"github" | "gitlab" | "local"`
 - `repositoryGitHubConfigSchema` in `backend.ts`: `{ owner: string, repo: string }`
@@ -163,7 +163,7 @@ The `repository.url` field is optional and informational — it records the cano
 ## References
 
 - `packages/domain/src/session/repository-backend-detection.ts` — Current per-session URL matching implementation
-- `src/domain/configuration/schemas/` — Configuration schema system
+- `packages/domain/src/configuration/schemas/` — Configuration schema system
 - [ADR-002: Persistence Provider Architecture](./adr-002-persistence-provider-architecture.md) — Precedent for capability-based configuration patterns
 
 ---

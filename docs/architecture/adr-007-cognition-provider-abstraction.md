@@ -161,7 +161,7 @@ The pseudocode above describes the _target_ resolution once all phases land. Bef
 
 ## Implementation Plan
 
-1. **Phase 1 — Abstraction.** This task (mt#1057): define `src/domain/cognition/` with the interfaces above. Implement `DirectCognitionProvider` wrapping `AICompletionService`. Implement `DelegatedCognitionProvider` producing `CognitionBundle` outputs. Implement `DegradedCognitionProvider`. Mode resolution via composition-root wiring. Stub provider for tests.
+1. **Phase 1 — Abstraction.** This task (mt#1057): define `packages/domain/src/cognition/` with the interfaces above. Implement `DirectCognitionProvider` wrapping `AICompletionService`. Implement `DelegatedCognitionProvider` producing `CognitionBundle` outputs. Implement `DegradedCognitionProvider`. Mode resolution via composition-root wiring. Stub provider for tests.
 
 2. **Phase 2 — First consumer.** mt#1063 (subtask of mt#321) consumes the abstraction for criterion evaluation and synthesis. Validates interface shape under real use before any generalization.
 

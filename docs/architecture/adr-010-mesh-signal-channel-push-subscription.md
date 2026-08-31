@@ -181,7 +181,7 @@ interface TaskBlockingPayload {
 ```
 
 Event-class definitions live alongside their emitting subsystem
-(`src/domain/<subsystem>/events.ts`). A registry pattern lets the cockpit
+(`packages/domain/src/<subsystem>/events.ts`). A registry pattern lets the cockpit
 SSE broker know the type of each channel's payload for safe deserialization.
 
 ## Consequences
