@@ -940,6 +940,22 @@ export interface SharedCalibrationFields {
    */
   supersedes?: string;
   /**
+   * Whether `ask-routing-deferral` ALSO fired on this turn's prose (mt#4702).
+   *
+   * Lifted to the top level here, beside `supersedes` and `suppressionReasons`,
+   * rather than left to the `detectorFields` passthrough. Two producers write
+   * it — `untaken-action` (mt#4407) and `operator-deferral` (mt#4702) — and the
+   * whole point of the field is COMPARING them, which a value nested one level
+   * down defeats: mem#827 is the recorded incident of a reviewer reading
+   * `detectorFields` as the record and reporting present fields as missing.
+   *
+   * Absent means NOT MEASURED, never "no overlap" — every record written before
+   * its producer adopted the field is in that position, and a projection that
+   * defaulted it to `false` would manufacture a measurement (the
+   * accessor-that-synthesizes hazard in `claim-confidence.mdc`).
+   */
+  deferralOverlap?: boolean;
+  /**
    * Injection-layer suppression outcome — the convention
    * `code-mechanism-assertion` introduced in mt#3113, generalized here.
    *
@@ -1258,9 +1274,16 @@ export function parseCalibrationRecord(
   // mt#3740: a non-string `supersedes` is dropped rather than coerced — a
   // malformed marker must not silently suppress a real record from the counts.
   const supersedes = typeof raw["supersedes"] === "string" ? raw["supersedes"] : undefined;
+  // mt#4702: same cross-kind lift as `supersedes` above, and for the same
+  // reason — the field's whole purpose is comparing the two producers that
+  // write it, which `detectorFields` nesting defeats. A non-boolean is DROPPED
+  // rather than coerced: absent must keep meaning "not measured".
+  const deferralOverlap =
+    typeof raw["deferralOverlap"] === "boolean" ? raw["deferralOverlap"] : undefined;
   return {
     ...record,
     ...(supersedes === undefined ? {} : { supersedes }),
+    ...(deferralOverlap === undefined ? {} : { deferralOverlap }),
     ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
     ...(detectorFields === undefined ? {} : { detectorFields }),
   };
