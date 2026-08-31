@@ -410,6 +410,25 @@ describe("checkAppRoleCoverage settings link (mt#4764)", () => {
     expect(result[0]?.settingsUrl).toBe("https://github.com/settings/installations/125403046");
   });
 
+  it("emits a link with NO installation id, when GitHub supplies one (PR #3511 R2)", async () => {
+    // Makes the corrected `settingsUrl` docblock checkable rather than merely
+    // reworded: the old comment said "present iff installationId was supplied",
+    // and reading html_url is exactly what falsifies it.
+    const noId: AppRoleDescriptor = { role: "implementer", slug: "minsky-ai" };
+    const result = await checkAppRoleCoverage(UNGRANTED_REPO, [noId], {
+      provider: fakeRoleProvider({
+        configured: ["implementer"],
+        coverage: {
+          implementer: async () => ({ repositories: ["edobry/minsky"], selection: "selected" }),
+        },
+        htmlUrl: { implementer: async () => ORG_HTML_URL },
+      }),
+    });
+
+    expect(result[0]?.installationId).toBeUndefined();
+    expect(result[0]?.settingsUrl).toBe(ORG_HTML_URL);
+  });
+
   it("AT2: emits no link at all when there is no installation id to fall back to", async () => {
     const noId: AppRoleDescriptor = { role: "implementer", slug: "minsky-ai" };
     const result = await checkAppRoleCoverage(UNGRANTED_REPO, [noId], {

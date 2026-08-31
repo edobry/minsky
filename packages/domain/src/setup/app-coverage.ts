@@ -140,14 +140,26 @@ export interface AppRoleDescriptor {
   readonly role: TokenRole;
   /** Display slug, e.g. `minsky-ai`. Named, never inferred — it appears in operator-facing text. */
   readonly slug: string;
-  /** Installation id from config, when configured. Absent means no deep link is available. */
+  /**
+   * Installation id from config, when configured. Absent means the CONSTRUCTED
+   * fallback link is unavailable — not that no link is (mt#4764): GitHub's own
+   * `html_url` is read from the installation object and needs no local id.
+   */
   readonly installationId?: number;
 }
 
 /** One role's coverage verdict, plus what an operator-facing surface needs to name it. */
 export interface AppRoleCoverage extends AppRoleDescriptor {
   readonly status: AppCoverageStatus;
-  /** Settings-page deep link, present iff `installationId` was supplied. */
+  /**
+   * Settings-page link for this role, absent when none could be determined.
+   *
+   * **Not tied to `installationId` (mt#4764, PR #3511 R2).** This read "present
+   * iff `installationId` was supplied", which was true while the link was
+   * always constructed from that id. It now comes from GitHub's `html_url`
+   * first, so it can be present with no local id — and absent WITH one, when
+   * the role is covered and no link is rendered at all.
+   */
   readonly settingsUrl?: string;
 }
 
