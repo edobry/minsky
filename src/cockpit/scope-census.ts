@@ -76,7 +76,9 @@ const SCOPE_EVIDENCE_PATTERN = /resolveCockpitProjectScope|ctx\.projectScope|req
 //
 // Scope-consuming (verified via resolveCockpitProjectScope, mt#2418/mt#4727/mt#4728):
 // agents, attention, context-inspector (mt#4746), driven-session-cost (mt#4746,
-// task→project resolution — see its own docblock), memories-list, memories-search,
+// task→project resolution — see its own docblock), memories-curation (mt#4767),
+// memories-duplicates (mt#4767), memories-facets (mt#4763), memories-families
+// (mt#4763), memories-list, memories-search,
 // memories-stats, reviewer-bot-status (mt#4746, PARTIAL — see its own docblock's
 // "Project scope" section: reviewer_webhook_events carries no owner/repo column,
 // so 4 of its ~15 queries stay global even when scoped), task-graph, task-list,

@@ -617,7 +617,50 @@ as `no-telemetry` rather than admitting.
 open EMPTY and fill from its next turn. The drive channel now replays the
 conversation's on-disk history, so the pane opens with its prior turns.
 
-### Memory curation (mt#4766)
+### Memory curation worklists (mt#4767)
+
+`/memories` leads with five **worklists** in place of the old stats card. Each is a count whose
+click navigates the table to exactly that population, where the mt#4766 write actions below
+already live — so they are queue heads, not statistics. The stats card they replaced showed a
+total, a type breakdown, a 7-day count, a superseded count and a top-3-accessed list; all true,
+none actionable.
+
+| Worklist   | Predicate                                           | URL                                 |
+| ---------- | --------------------------------------------------- | ----------------------------------- |
+| Untagged   | `cardinality(tags) = 0`                             | `?mem_f_untagged=true`              |
+| Never read | `last_accessed_at IS NULL`                          | `?mem_f_neverAccessed=true`         |
+| Cold       | `last_accessed_at IS NOT NULL AND < now() - N days` | `?mem_f_cold=true&mem_f_coldDays=N` |
+| Duplicates | grouped by `md5(content)` — a page VIEW, read-only  | `?mem_view=duplicates`              |
+| Superseded | `superseded_by IS NOT NULL`                         | `?mem_f_onlySuperseded=true`        |
+
+**"Cold", not "stale", and the distinction is load-bearing.** `MemoryListFilter.stale` is
+`last_accessed_at IS NULL **OR** older than N` — a union that SUBSUMES never-read, so it cannot
+render the two as separate lists. Measured 2026-08-31 at its own 90-day default it returned 252
+rows against never-read's 251, because exactly one record in the corpus had been read but not
+within 90 days; built on it, two of the five worklists would have been the same list with
+near-identical counts. `cold` is therefore a separate, disjoint filter. Separately, "stale"
+already means something else here — `staleness.ts` emits `⚠️ POSSIBLY OBSOLETE` for a memory whose
+_tracking task_ shipped. mt#4763's "Stale" cohort chip was relabelled "Cold" accordingly; legacy
+`?mem_f_stale=true` links still filter and still light the chip. Renaming the field itself is
+mt#4799.
+
+The **Cold** default of 14 days is grounded in the measured read distribution, not chosen round:
+of 1,093 ever-read records, 805 were read within 7 days and 152 more within 14, after which the
+tail collapses (112 / 18 / 6).
+
+**Duplicates surfaces and never acts.** mt#1619 owns the dedup key decision and the cleanup, so
+the view exposes no destructive control and links out. Its content-only `md5(content)` key also
+catches renamed copies, which is why it reports a different population than mt#1619's
+`(name, content)` key — that difference is an input to that decision.
+
+A **growth panel** below the worklists shows creations per week over 8 weeks, split
+handoff/retrospective/other, leading with the handoff share.
+
+**Search mode overrides every filter.** When the toolbar's search box is non-empty the table
+queries `memories-search`, which applies no `mem_f_*` filter at all. Clicking a worklist or a
+cohort chip therefore clears the search first, and neither highlights while a search is active.
+
+### Memory curation write actions (mt#4766)
 
 `/memories` and `/memory/:id` gained row-level and bulk write actions — edit
 tags, edit name/description, supersede, and hard delete — where previously

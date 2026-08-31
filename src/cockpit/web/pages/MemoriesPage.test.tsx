@@ -105,8 +105,30 @@ describe("MemoriesPage — cohort active-state derivation (mt#4763)", () => {
     expect(activeCohort("?mem_view=families&mem_f_tags=handoff")).toBe("families");
   });
 
-  test("mem_f_stale=true is the Stale cohort", () => {
-    expect(activeCohort("?mem_f_stale=true")).toBe("stale");
+  // mt#4767 renamed this cohort from "stale" to "cold" and repointed it at the
+  // `cold` filter. The old name described a filter that ALSO matched never-read
+  // records (251 of the 252 rows it returned, measured 2026-08-31), and
+  // collided with `staleness.ts`'s unrelated "tracking task shipped" sense.
+  test("mem_f_cold=true is the Cold cohort", () => {
+    expect(activeCohort("?mem_f_cold=true")).toBe("cold");
+  });
+
+  test("a legacy mem_f_stale=true link still lights the Cold cohort", () => {
+    // Shared/bookmarked URLs from before the rename must keep working: the
+    // domain `stale` filter is untouched, so the table still filters — this
+    // asserts the chip agrees rather than rendering nothing as selected.
+    expect(activeCohort("?mem_f_stale=true")).toBe("cold");
+  });
+
+  // mt#4767: the All cohort's active-check used to be a bare
+  // `stale !== "true"`, so any OTHER narrowing filter left "All" highlighted
+  // while the table showed a narrowed list.
+  test.each([
+    ["untagged", "?mem_f_untagged=true"],
+    ["neverAccessed", "?mem_f_neverAccessed=true"],
+    ["onlySuperseded", "?mem_f_onlySuperseded=true"],
+  ])("a %s worklist is NOT the All cohort", (_name, search) => {
+    expect(activeCohort(search)).not.toBe("all");
   });
 });
 

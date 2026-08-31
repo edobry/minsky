@@ -154,6 +154,44 @@ const memoryListParams = {
     description: "Threshold (in days) for the --stale filter; defaults to 90",
     required: false as const,
   },
+  // mt#4767 curation filters. Added here as well as in the cockpit so the two
+  // surfaces can express the same populations — a filter the UI can reach and
+  // the tool cannot is how the two drift.
+  untagged: {
+    schema: z.boolean(),
+    description: "When true, filter to memories carrying no tags at all",
+    required: false as const,
+    defaultValue: false,
+  },
+  neverAccessed: {
+    schema: z.boolean(),
+    description:
+      "When true, filter to memories never read since creation. Narrower than --stale, " +
+      "which also matches records that WERE read but not recently",
+    required: false as const,
+    defaultValue: false,
+  },
+  cold: {
+    schema: z.boolean(),
+    description:
+      "When true, filter to memories that were read at least once but not within " +
+      "--cold-days. Disjoint from --never-accessed; --stale is the union of the two",
+    required: false as const,
+    defaultValue: false,
+  },
+  coldDays: {
+    schema: z.number().int().positive(),
+    description: "Threshold (in days) for the --cold filter; defaults to 14",
+    required: false as const,
+  },
+  onlySuperseded: {
+    schema: z.boolean(),
+    description:
+      "When true, return ONLY superseded memories. Not the inverse of " +
+      "--exclude-superseded, which can exclude them but never restrict to them",
+    required: false as const,
+    defaultValue: false,
+  },
   limit: {
     schema: z.number().int().positive(),
     description: "Maximum number of results to return",
@@ -915,6 +953,11 @@ export function registerMemoryCommands(
         excludeSuperseded: params.excludeSuperseded,
         stale: params.stale,
         stalenessDays: params.stalenessDays,
+        untagged: params.untagged,
+        neverAccessed: params.neverAccessed,
+        cold: params.cold,
+        coldDays: params.coldDays,
+        onlySuperseded: params.onlySuperseded,
         association:
           params.associationType && params.associationTarget
             ? { type: params.associationType, targetId: params.associationTarget }
