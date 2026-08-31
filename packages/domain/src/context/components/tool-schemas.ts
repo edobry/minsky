@@ -161,6 +161,19 @@ export const ToolSchemasComponent: ContextComponent = {
           const relevantTools = await toolSimilarityService.findRelevantTools({
             query: userQuery as string,
             limit: 20, // Configurable limit - default reduces from 50+ to 20 tools
+            // Minimum cosine SIMILARITY, higher is more similar (mt#4805). The
+            // comment below has always described this intent; before mt#4805 the
+            // value was compared against an L2 DISTANCE instead, where 0.1 means
+            // a near-duplicate (cosine > 0.995) — so the filter could not fire
+            // and dropped nothing. Measured: over `tool_embeddings` the closest
+            // any two tool texts get is d = 0.1600, and a real query's nearest
+            // tool sat at d = 0.8298.
+            //
+            // 0.1 is kept, and is still permissive: the same query's converted
+            // similarities ran 0.66 to 0.41, all well above it. It is a floor
+            // against genuine noise, not a relevance cut. Raising it needs a
+            // distribution measured over many queries rather than one — that is
+            // mt#450's question, not this call site's.
             threshold: 0.1, // Low threshold to be inclusive while still filtering
           });
 

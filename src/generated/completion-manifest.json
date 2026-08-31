@@ -1770,7 +1770,7 @@
             },
             {
               "flags": ["--threshold"],
-              "description": "Optional distance threshold (lower is closer)",
+              "description": "Optional similarity threshold (higher is more similar)",
               "takesValue": true
             },
             {
@@ -1855,7 +1855,7 @@
             },
             {
               "flags": ["--threshold"],
-              "description": "Optional distance threshold (lower is closer)",
+              "description": "Optional similarity threshold (higher is more similar)",
               "takesValue": true
             },
             {

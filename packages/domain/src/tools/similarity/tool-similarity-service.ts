@@ -15,18 +15,40 @@ export interface SearchResult {
 }
 
 export interface ToolSimilarityServiceConfig {
-  threshold?: number; // maximum distance for inclusion (backend-specific semantics)
+  /** Minimum similarity for inclusion, higher is more similar (mt#4805). */
+  threshold?: number;
 }
 
 export interface ToolSearchRequest {
   query: string;
   limit?: number;
+  /**
+   * Minimum similarity for inclusion — higher is more similar (mt#4805).
+   *
+   * This was ALWAYS the documented contract: the `tools_search` / `tools_similar`
+   * commands describe it as "Optional similarity threshold (higher is more
+   * similar)", and `findRelevantTools`' filter was written to match. What was
+   * wrong was the number it compared against — `SimilarityItem.score` carried the
+   * vector store's raw L2 distance, so the filter's meaning was inverted against
+   * the contract it implemented. The fix converts the score, not this predicate.
+   */
   threshold?: number;
   categories?: string[]; // CommandCategory enum values
 }
 
 export interface RelevantTool {
   toolId: string;
+  /**
+   * Cosine similarity in [0, 1] — higher is more similar (mt#4805).
+   *
+   * The name was accurate and the value was not: this held
+   * `SimilarityItem.score`, which the embeddings backend passed through as an L2
+   * DISTANCE, so `tools_search` emitted an ASCENDING number to every MCP consumer
+   * while ordering the rows best-first. Measured live before the fix, for the
+   * query "create a new task with a spec": 0.830 for the best match rising to
+   * 1.086 for the tenth. Same defect mt#4787 fixed on the memory surface, on this
+   * one.
+   */
   relevanceScore: number;
   tool: SharedCommand;
   reason?: string;
@@ -112,7 +134,11 @@ export class ToolSimilarityService {
         }
       }
 
-      // Apply threshold if specified
+      // Apply threshold if specified. `item.score` is a similarity (higher is
+      // more similar) for every backend as of mt#4805, so this predicate — which
+      // always matched the parameter's documented contract — is now correct
+      // against the embeddings backend too, not just the lexical fallback it
+      // happened to work for.
       if (request.threshold && item.score < request.threshold) {
         continue;
       }
@@ -139,7 +165,27 @@ export class ToolSimilarityService {
   }
 
   /**
-   * Generate a human-readable reason for why a tool was selected
+   * Generate a human-readable reason for why a tool was selected.
+   *
+   * `score` is a similarity — higher is more similar — as of mt#4805. It used to
+   * be the vector store's L2 DISTANCE, which made the bands below inert in the
+   * saturated direction rather than merely mis-tuned: real distances for a
+   * natural-language query run roughly 0.83 to 1.09 (measured 2026-08-31), so
+   * `score > 0.8` was true for EVERY result and every tool was labelled "High
+   * semantic similarity", including the worst match in the set. A label that is
+   * constant carries no information, and nothing about the output looked wrong.
+   *
+   * The band VALUES are deliberately unchanged. They were never derived from a
+   * measured distribution, and re-deriving them from the one query measured here
+   * would be fitting a threshold to a single observation — the failure mem#1161
+   * §3 records. What changed is that they are now applied to the quantity they
+   * were written for, so they discriminate again: the same query's converted
+   * similarities run 0.66 down to 0.41, which lands in "Moderate" and "Lexical
+   * fallback". Tuning them against a real query distribution is a separate
+   * question, and belongs with mt#450's normalization/display work.
+   *
+   * Note also that the keyword branch below short-circuits: the bands are only
+   * reached when no query word appears in the tool's own text.
    */
   private generateReasonForTool(tool: SharedCommand, query: string, score: number): string {
     // Simple heuristic for generating explanations
