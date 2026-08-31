@@ -1459,12 +1459,19 @@ branch that kills.
 `--force` remains the operator override and is now meaningful in both directions: it displaces even
 a preserving disposition. It is **not** needed to clear a silent incumbent.
 
-Each displacement emits a `cockpit.port_displaced` system event carrying the displaced pid, command,
-port, and whether `--force` was used. It is emitted after the replacement binds, because the guard
-runs before this process has any persistence provider — and it is the first daemon-lifecycle event
-type in that enum, which is why mt#4154 could not reconstruct the 2026-08-06 outage from
-`system_events`: every other type is agent-triggered, so a quiet window meant "nobody was working",
-not "nothing happened to the daemon".
+Every port-conflict OUTCOME emits a `cockpit.port_displaced` system event (mt#4800 widened this
+from displacements only), discriminated by the payload's `outcome` field: `"displaced"` carries the
+displaced pid, command, port, and whether `--force` was used, and is emitted after the replacement
+binds, because the guard runs before this process has any persistence provider; `"refused"` records
+a refusal to displace (either a preserved answering incumbent or an unattributable holder) and
+`"displacement-failed"` a kill whose re-bind then failed — both emitted BEFORE the refusing exit,
+awaited with a 5s bound, since a fire-and-forget dies with the process. The refusal rows exist
+because the 2026-08-31 incident was a preserved-incumbent refusal loop that recorded nothing while
+the stale build served for 25+ minutes. It is the first daemon-lifecycle event type in that enum,
+which is why mt#4154 could not reconstruct the 2026-08-06 outage from `system_events`: every other
+type is agent-triggered, so a quiet window meant "nobody was working", not "nothing happened to the
+daemon". Authoritative payload shapes:
+`packages/domain/src/storage/schemas/system-events-schema.ts`.
 
 ## Cross-references
 
