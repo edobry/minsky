@@ -152,6 +152,49 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "untaken-action", guardName: "untaken-action" },
   { stream: "unwalked-task", guardName: "turn-end-unwalked-task-scan" },
   { stream: "wall-of-text", guardName: "wall-of-text" },
+  // mt#4804: the twenty-two below were declared as calibration logs — on the
+  // registry, on the standalone-canary surface, or both — and were absent from
+  // THIS manifest, so the ingest never walked them. 107,828 records across the
+  // whole gap existed only as files.
+  //
+  // This is mt#4752's finding at its real size. That task found three by
+  // enumerating the writers it happened to be touching and wrote the comment
+  // above about a stream absent from this file producing no error and no empty
+  // result. The diagnosis was exact; the population was 8x larger, because
+  // enumerating writers by hand is the same method that missed them.
+  //
+  // The generalizable fix is not this list — it is
+  // `scripts/lib/stream-manifest-coverage.test.ts`, which diffs the declaration
+  // surfaces against this manifest so a 23rd omission fails a check. The list is
+  // just what that diff returned the first time it was run.
+  //
+  // guardName is taken from `buildCalibrationLogToGuards()`, not from the stream
+  // stem: the two differ for several of these (`stale-state-assertion` is written
+  // by `turn-end-stale-state-assertion-scan`, `unwired-task-relationship` by
+  // `warn-unwired-task-relationship`), and name-matching is exactly the first
+  // pass mt#3502 recorded as wrong.
+  { stream: "block-bulk-process-kill", guardName: "block-bulk-process-kill" },
+  { stream: "claim-provenance-scan", guardName: "claim-provenance-scan" },
+  { stream: "cli-mcp-substitution", guardName: "cli-mcp-substitution" },
+  { stream: "context-fill-gauge", guardName: "context-fill-gauge" },
+  { stream: "coverage-claim-path", guardName: "coverage-claim-path-detector" },
+  { stream: "criterion-reconciliation", guardName: "criterion-reconciliation-scan" },
+  { stream: "cross-turn-hedge", guardName: "cross-turn-hedge-detector" },
+  { stream: "duplicate-check-candidate-read", guardName: "duplicate-check-candidate-read" },
+  { stream: "enumeration-scope", guardName: "enumeration-scope-check" },
+  { stream: "evidence-record-provenance", guardName: "evidence-record-provenance" },
+  { stream: "flakiness-control", guardName: "flakiness-control-detector" },
+  { stream: "gate-walk-provenance", guardName: "gate-walk-provenance" },
+  { stream: "new-surface-design-pass", guardName: "new-surface-design-pass" },
+  { stream: "nonexistent-search-path", guardName: "nonexistent-search-path" },
+  { stream: "secret-request-in-chat", guardName: "secret-request-in-chat-detector" },
+  { stream: "spec-criterion-claim", guardName: "spec-criterion-claim-detector" },
+  { stream: "spec-scope-execution", guardName: "spec-scope-execution-check" },
+  { stream: "stale-signal-sweep", guardName: "stale-signal-sweep" },
+  { stream: "stale-state-assertion", guardName: "turn-end-stale-state-assertion-scan" },
+  { stream: "truncated-outcome-read", guardName: "truncated-outcome-read" },
+  { stream: "unrendered-result-field-scan", guardName: "unrendered-result-field-scan" },
+  { stream: "unwired-task-relationship", guardName: "warn-unwired-task-relationship" },
 ].map((s) => ({
   ...s,
   family: "calibration" as const,
@@ -179,6 +222,37 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "retrospective-trigger-evaluations" },
   { stream: "silent-stretch-evaluations", guardName: "silent-stretch" },
   { stream: "stop-at-decision-evaluations", guardName: "stop-at-decision" },
+  // mt#4804: the five below were the evaluation half of the same gap.
+  //
+  // They were harder to find than their calibration siblings, and the reason is
+  // worth recording: there is no `evaluationLog:` field anywhere. A calibration
+  // stream is declared ON a surface (`GUARD_REGISTRY[].calibrationLog`, a
+  // standalone canary, or one of the two explicit producer maps), so it can be
+  // enumerated. An evaluation stream is named by a module-local constant that
+  // each writer passes to `logEvaluationRecord` — nothing collects them, and
+  // `grep -c "evaluationLog:"` over `.minsky/hooks/` returns 0, which reads as
+  // "no such thing" rather than "declared differently".
+  //
+  // `scripts/lib/evaluation-log-declarations.ts` is now that missing surface, and
+  // its census test fails when a writer is added without an entry — so this half
+  // is enumerable the way the calibration half already was.
+  //
+  // `criterion-reconciliation-evaluations` has NEVER been written: no file exists
+  // for it on disk. It is here because the declaration surface names it, and it
+  // is the concrete case for why this task rejected a filesystem scan — a scan
+  // sees what has FIRED, so it would have passed while this stream stayed
+  // invisible until its first fire.
+  { stream: "context-fill-gauge-evaluations", guardName: "context-fill-gauge" },
+  {
+    stream: "criterion-reconciliation-evaluations",
+    guardName: "criterion-reconciliation-scan",
+  },
+  { stream: "cross-turn-hedge-evaluations", guardName: "cross-turn-hedge-detector" },
+  {
+    stream: "secret-request-in-chat-evaluations",
+    guardName: "secret-request-in-chat-detector",
+  },
+  { stream: "spec-criterion-claim-evaluations", guardName: "spec-criterion-claim-detector" },
 ].map((s) => ({
   ...s,
   family: "evaluation" as const,
@@ -274,7 +348,7 @@ const ADJACENT_STATE_DIR_STREAMS: GuardEventStreamSource[] = [
 
 /**
  * The complete guard/calibration exhaust stream set — every row from
- * inventory §A–§E (41 streams as of the 2026-08-13 snapshot). This IS the
+ * inventory §A–§E (73 streams as of mt#4804, 2026-08-31; 46 before it). This IS the
  * "data, not code" surface constraint #8 requires: a newly-appeared stream
  * is a new entry here, never a change to `parsing.ts` or `ingest-service.ts`.
  */
