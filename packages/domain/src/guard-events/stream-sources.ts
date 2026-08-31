@@ -274,6 +274,9 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
     guardName: "secret-request-in-chat-detector",
   },
   { stream: "spec-criterion-claim-evaluations", guardName: "spec-criterion-claim-detector" },
+  // mt#4117: the untaken-action family's evaluation stream, armed alongside
+  // its existing fire-only calibration log (`untaken-action-calibration.jsonl`).
+  { stream: "untaken-action-evaluations", guardName: "turn-end-untaken-action-scan" },
 ].map((s) => ({
   ...s,
   family: "evaluation" as const,

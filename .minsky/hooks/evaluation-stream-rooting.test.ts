@@ -15,6 +15,7 @@ import {
 } from "./silent-stretch-detector";
 import { appendEvaluationRecord as appendStopAtDecision } from "./stop-at-decision-scan";
 import { appendEvaluationRecord as appendOperatorDeferral } from "./operator-deferral-detector";
+import { appendEvaluationRecord as appendUntakenAction } from "./turn-end-untaken-action-scan";
 import { evaluationLogPath } from "./dispatcher";
 
 /**
@@ -88,6 +89,13 @@ const DETECTORS: ReadonlyArray<{
     label: "operator-deferral",
     streamFile: "operator-deferral-evaluations.jsonl",
     append: appendOperatorDeferral,
+  },
+  // mt#4117 — the conditioned half of ask 62b88591 option (b): the untaken-action
+  // family's evaluation stream, armed alongside its existing fire-only calibration log.
+  {
+    label: "untaken-action",
+    streamFile: "untaken-action-evaluations.jsonl",
+    append: appendUntakenAction,
   },
 ];
 
