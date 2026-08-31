@@ -131,4 +131,28 @@ describe("Rail — cross-project attention leak (mt#4794)", () => {
       }
     });
   });
+
+  // PR #3506 R1 (minsky-reviewer[bot], BLOCKING) — the primary "Attention"
+  // link's accessible name must never promise cross-project asks it doesn't
+  // actually navigate to (it stays scoped; it does not clear the filter).
+  // Only the dedicated elsewhere link, which DOES clear the filter, may
+  // announce the elsewhere count.
+  test("primary link's accessible name never mentions the elsewhere count", async () => {
+    localStorage.setItem(STORAGE_KEY, "edobry/peezombie");
+    stubAttention(0, 40);
+    renderRail();
+
+    const elsewhere = await screen.findByTestId("attention-elsewhere");
+    expect(elsewhere.textContent).toBe("+40 elsewhere");
+    // Its accessible name (aria-label overrides the visible text) carries
+    // the announcement AND matches what activating it actually does.
+    expect(elsewhere.getAttribute("aria-label")).toBe("40 more pending in other projects — view");
+
+    // The primary row's accessible name is exactly "Attention — 0 pending" —
+    // no "elsewhere"/"other projects" suffix, since it does NOT clear the
+    // filter and must not promise cross-project asks it can't reach.
+    const primary = screen.getByRole("link", { name: "Attention — 0 pending" });
+    expect(primary.getAttribute("href")).toBe("/asks");
+    expect(screen.queryByRole("link", { name: /elsewhere|other projects/i })).toBe(elsewhere);
+  });
 });

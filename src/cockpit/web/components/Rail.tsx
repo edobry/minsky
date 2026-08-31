@@ -253,6 +253,14 @@ function AttentionDigest({
   // accessible name in BOTH states — collapsed, the compact badge below is a
   // glyph a screen reader would otherwise read as a bare number next to a bare
   // "Attention", and in the loading/error cases there is no badge at all.
+  //
+  // Deliberately does NOT fold the elsewhere count into this label (PR #3506
+  // R1 — minsky-reviewer[bot]): this link stays SCOPED (it does not clear the
+  // project filter), so an accessible name promising cross-project asks would
+  // over-promise what activating it actually does — in the collapsed state
+  // doubly so, since there is no secondary affordance there at all to reach
+  // them. The elsewhere link below carries its own accessible name and its
+  // own filter-clearing behavior, so the two stay in sync by construction.
   const state = isLoading
     ? "loading"
     : isError
@@ -260,8 +268,7 @@ function AttentionDigest({
       : count != null
         ? `${count} pending`
         : null;
-  const elsewhereSuffix = elsewhere ? `; ${elsewhere} more pending in other projects` : "";
-  const label = state ? `Attention — ${state}${elsewhereSuffix}` : "Attention";
+  const label = state ? `Attention — ${state}` : "Attention";
 
   if (collapsed) {
     return (
@@ -337,6 +344,13 @@ function AttentionDigest({
         <Link
           to="/asks"
           data-testid="attention-elsewhere"
+          // Explicit accessible name (PR #3506 R1): the visible "+N
+          // elsewhere" reads fine sighted, but a screen reader needs the
+          // action spelled out — this is the ONLY control that both
+          // announces the cross-project count AND actually clears the
+          // filter to reach it, so its label carries the promise the
+          // primary row above deliberately does not.
+          aria-label={`${elsewhere} more pending in other projects — view`}
           onClick={() => {
             setSelectedSlug(null);
             onNavigate?.();
